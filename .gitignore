@@ -1,0 +1,14 @@
+.DS_Store
+node_modules/
+dist/
+
+# Rust build output
+target/
+
+# Spike build output and large captures
+*.rgba
+
+# Local Claude Code config
+.claude/
+.worktrees/
+spikes/

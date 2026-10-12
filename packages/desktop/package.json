@@ -1,0 +1,19 @@
+{
+  "name": "@beacon/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "devkit": "electrobun prepare",
+    "dev": "bun run --cwd ../ui css && electrobun dev",
+    "build": "bun run --cwd ../ui css && electrobun build"
+  },
+  "dependencies": {
+    "@beacon/core": "workspace:*",
+    "@beacon/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "electrobun": "2.0.2",
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
+}

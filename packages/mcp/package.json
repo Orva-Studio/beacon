@@ -1,0 +1,12 @@
+{
+  "name": "@beacon/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.ts",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@beacon/core": "workspace:*",
+    "zod": "4.6.5"
+  }
+}

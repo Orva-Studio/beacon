@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "beacon": {
+      "command": "bun",
+      "args": ["packages/mcp/src/main.ts"]
+    }
+  }
+}

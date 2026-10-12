@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [
+      "bun"
+    ],
+    "jsx": "react-jsx",
+    "paths": {
+      "electrobun": [
+        "./packages/desktop/.hutch/devkit/api/config/ElectrobunConfig.ts"
+      ],
+      "electrobun/main": [
+        "./packages/desktop/.hutch/devkit/api/sdks/main/index.ts"
+      ],
+      "electrobun/view": [
+        "./packages/desktop/.hutch/devkit/api/browser/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src",
+    "packages/*/__tests__",
+    "packages/desktop/*.ts",
+    "scripts"
+  ]
+}

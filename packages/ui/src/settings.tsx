@@ -1,0 +1,122 @@
+import { useEffect, useState } from "react";
+import { DEFAULT_SETTINGS, type Project } from "@beacon/model";
+import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
+import { CanvasSettings } from "./canvas-settings";
+import type { AppSettings, SettingsSheet, SettingsTab } from "./rpc";
+import { replica, useView } from "./store";
+
+export interface SettingsHost {
+  run(command: string, args?: unknown, label?: string): void;
+  setAppSettings(settings: AppSettings): void;
+  proxySpace(): Promise<number>;
+  deleteAllProxies(): Promise<number>;
+}
+
+const space = (bytes: number) =>
+  bytes === 0 ? "No proxy videos" : `${bytes < 1e6 ? `${Math.ceil(bytes / 1e3)} KB` : bytes < 1e9 ? `${Math.round(bytes / 1e6)} MB` : `${(bytes / 1e9).toFixed(1)} GB`} used`;
+
+const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
+
+/**
+ * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
+ * `project.settings.set`, so it is undoable and agents can do the same.
+ */
+export function SettingsWindow({ app: { tab: opening, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+  const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
+  const [settings, setSettings] = useState<AppSettings>(app);
+  const [proxySpace, setProxySpace] = useState<number | "deleting">();
+  useEffect(() => void host.proxySpace().then(setProxySpace), [host]);
+  const update = (patch: Partial<AppSettings>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    host.setAppSettings(next);
+  };
+  const close = () => replica.settings(undefined);
+  const s = project?.settings;
+  const tabs = (["general", "project"] as const).map((t) => (
+    <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
+      {t}
+    </button>
+  ));
+  return (
+    <Modal title="Settings" header={tabs} width={580} onClose={close}>
+      {tab === "general" && (
+        <div className="flex flex-col gap-3">
+          <Row label="Export Color Space" hint="BT.709 is the video standard; with sRGB, QuickTime shows it as the editor does.">
+            <div className="w-56">
+              <Select value={settings.exportColorSpace} onChange={(e) => update({ exportColorSpace: e.target.value as AppSettings["exportColorSpace"] })}>
+                <option value="bt709">BT.709</option>
+                <option value="srgb">sRGB</option>
+              </Select>
+            </div>
+          </Row>
+          <Row label="Make Proxies For" hint="Quick-to-seek copies made in the background, so scrubbing is fast. Unticked: only from Proxy Video in Media's menu.">
+            <div className="flex flex-col gap-1.5" data-auto-proxy>
+              {(
+                [
+                  ["recording", "Screen recordings"],
+                  ["video", "Video files"],
+                ] as const
+              ).map(([kind, label]) => (
+                <Check key={kind} label={label} checked={settings.autoProxy[kind]} onChange={(on) => update({ autoProxy: { ...settings.autoProxy, [kind]: on } })} />
+              ))}
+            </div>
+          </Row>
+          <Row label="Build Proxies" hint="Quietly: one at a time at background priority, so the fans stay off. Fast: two at once.">
+            <div className="w-56">
+              <Select data-proxy-mode value={settings.proxyMode} onChange={(e) => update({ proxyMode: e.target.value as AppSettings["proxyMode"] })}>
+                <option value="quiet">Quietly</option>
+                <option value="fast">Fast</option>
+              </Select>
+            </div>
+          </Row>
+          <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
+            <div className="flex items-center gap-3" data-proxy-space>
+              <Button
+                disabled={proxySpace === "deleting" || !proxySpace}
+                onClick={() => {
+                  setProxySpace("deleting");
+                  void host.deleteAllProxies().then(setProxySpace);
+                }}
+              >
+                Delete All Proxy Videos
+              </Button>
+              <span className="text-text-muted">{proxySpace === undefined ? "" : proxySpace === "deleting" ? "Deleting…" : space(proxySpace)}</span>
+            </div>
+          </Row>
+        </div>
+      )}
+      {tab === "project" &&
+        (s ? (
+          <CanvasSettings
+            value={{ width: s.width, height: s.height, fps: s.fps.num / s.fps.den, background: s.background, normalize: s.loudnessTarget !== undefined }}
+            onChange={({ width, height, fps, background, normalize }, label) =>
+              host.run(
+                "project.settings.set",
+                {
+                  ...(width !== undefined ? { width, height } : {}),
+                  ...(fps !== undefined ? { fps: { num: fps, den: 1 } } : {}),
+                  ...(background !== undefined ? { background } : {}),
+                  ...(normalize !== undefined ? { loudnessTarget: normalize ? LOUDNESS : null } : {}),
+                },
+                label,
+              )
+            }
+          />
+        ) : (
+          <p className="text-text-faint">Open a project to change its settings.</p>
+        ))}
+      <div className="mt-5 flex justify-end">
+        <Button look="primary" onClick={close}>
+          Done
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+export function SettingsUi({ host }: { host: SettingsHost }) {
+  const app = useView((v) => v.settings);
+  const project = useView((v) => v.project);
+  return app ? <SettingsWindow app={app} project={project} host={host} /> : null;
+}

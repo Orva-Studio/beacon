@@ -1,0 +1,969 @@
+{
+  "name": "Default",
+  "bindings": [
+    {
+      "keys": {
+        "key": "a",
+        "modifiers": [
+          "control",
+          "option"
+        ]
+      },
+      "command": "edit.addAudioPoint"
+    },
+    {
+      "keys": {
+        "key": "a",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.addAnimation"
+    },
+    {
+      "keys": {
+        "key": "m",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.addMarker"
+    },
+    {
+      "keys": {
+        "key": "u",
+        "modifiers": [
+          "control",
+          "shift"
+        ]
+      },
+      "command": "group.close"
+    },
+    {
+      "keys": {
+        "key": "c",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.copy"
+    },
+    {
+      "keys": {
+        "key": "c",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "edit.copyProperties"
+    },
+    {
+      "keys": {
+        "key": "x",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.cut"
+    },
+    {
+      "keys": {
+        "key": "-",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "timeline.trackHeight",
+      "args": {
+        "by": -10
+      }
+    },
+    {
+      "keys": {
+        "key": "a",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "selection.clear"
+    },
+    {
+      "keys": {
+        "key": "\u238b",
+        "modifiers": []
+      },
+      "command": "selection.clear",
+      "args": {
+        "range": true
+      }
+    },
+    {
+      "keys": {
+        "key": "d",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.duplicate"
+    },
+    {
+      "keys": {
+        "key": "<",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "range.extend",
+      "args": {
+        "side": "left"
+      }
+    },
+    {
+      "keys": {
+        "key": "}",
+        "modifiers": [
+          "control",
+          "shift"
+        ]
+      },
+      "command": "range.extend",
+      "args": {
+        "side": "right",
+        "to": "marker"
+      }
+    },
+    {
+      "keys": {
+        "key": ">",
+        "modifiers": [
+          "option",
+          "shift",
+          "command"
+        ]
+      },
+      "command": "range.extend",
+      "args": {
+        "side": "right",
+        "to": "edit"
+      }
+    },
+    {
+      "keys": {
+        "key": "{",
+        "modifiers": [
+          "control",
+          "shift"
+        ]
+      },
+      "command": "range.extend",
+      "args": {
+        "side": "left",
+        "to": "marker"
+      }
+    },
+    {
+      "keys": {
+        "key": "<",
+        "modifiers": [
+          "option",
+          "shift",
+          "command"
+        ]
+      },
+      "command": "range.extend",
+      "args": {
+        "side": "left",
+        "to": "edit"
+      }
+    },
+    {
+      "keys": {
+        "key": ">",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "range.extend",
+      "args": {
+        "side": "right"
+      }
+    },
+    {
+      "keys": {
+        "key": "l",
+        "modifiers": []
+      },
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "forward"
+      }
+    },
+    {
+      "keys": {
+        "key": "g",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.group"
+    },
+    {
+      "keys": {
+        "key": "=",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "timeline.trackHeight",
+      "args": {
+        "by": 10
+      }
+    },
+    {
+      "keys": {
+        "key": "<",
+        "modifiers": [
+          "control"
+        ]
+      },
+      "command": "playhead.step",
+      "args": {
+        "frames": -15
+      }
+    },
+    {
+      "keys": {
+        "key": ">",
+        "modifiers": [
+          "control"
+        ]
+      },
+      "command": "playhead.step",
+      "args": {
+        "frames": 15
+      }
+    },
+    {
+      "keys": {
+        "key": "\u21a9",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "start"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u21a9",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "end"
+      }
+    },
+    {
+      "keys": {
+        "key": ".",
+        "modifiers": [
+          "control"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextEdit"
+      }
+    },
+    {
+      "keys": {
+        "key": "I",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextAnimation"
+      }
+    },
+    {
+      "keys": {
+        "key": "i",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextAnimation"
+      }
+    },
+    {
+      "keys": {
+        "key": "]",
+        "modifiers": [
+          "control"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextMarker"
+      }
+    },
+    {
+      "keys": {
+        "key": ",",
+        "modifiers": [
+          "control"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousEdit"
+      }
+    },
+    {
+      "keys": {
+        "key": "I",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousAnimation"
+      }
+    },
+    {
+      "keys": {
+        "key": "i",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousAnimation"
+      }
+    },
+    {
+      "keys": {
+        "key": "[",
+        "modifiers": [
+          "control"
+        ]
+      },
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousMarker"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2193",
+        "modifiers": []
+      },
+      "command": "edit.nudge",
+      "args": {
+        "y": -1
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2190",
+        "modifiers": []
+      },
+      "command": "edit.nudge",
+      "args": {
+        "x": -1
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2192",
+        "modifiers": []
+      },
+      "command": "edit.nudge",
+      "args": {
+        "x": 1
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2191",
+        "modifiers": []
+      },
+      "command": "edit.nudge",
+      "args": {
+        "y": 1
+      }
+    },
+    {
+      "keys": {
+        "key": "g",
+        "modifiers": [
+          "control",
+          "shift"
+        ]
+      },
+      "command": "group.open"
+    },
+    {
+      "keys": {
+        "key": "3",
+        "modifiers": [
+          "control",
+          "command"
+        ]
+      },
+      "command": "edit.scale",
+      "args": {
+        "to": 100
+      }
+    },
+    {
+      "keys": {
+        "key": "4",
+        "modifiers": [
+          "control",
+          "command"
+        ]
+      },
+      "command": "edit.scale",
+      "args": {
+        "to": 200
+      }
+    },
+    {
+      "keys": {
+        "key": "1",
+        "modifiers": [
+          "control",
+          "command"
+        ]
+      },
+      "command": "edit.scale",
+      "args": {
+        "to": 25
+      }
+    },
+    {
+      "keys": {
+        "key": "2",
+        "modifiers": [
+          "control",
+          "command"
+        ]
+      },
+      "command": "edit.scale",
+      "args": {
+        "to": 50
+      }
+    },
+    {
+      "keys": {
+        "key": "v",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.paste"
+    },
+    {
+      "keys": {
+        "key": "v",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "edit.pasteProperties"
+    },
+    {
+      "keys": {
+        "key": "=",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": "in"
+      }
+    },
+    {
+      "keys": {
+        "key": "-",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": "out"
+      }
+    },
+    {
+      "keys": {
+        "key": "z",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": 100
+      }
+    },
+    {
+      "keys": {
+        "key": "0",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": "fit"
+      }
+    },
+    {
+      "keys": {
+        "key": "z",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "project.redo"
+    },
+    {
+      "keys": {
+        "key": "r",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "edit.restoreAudio"
+    },
+    {
+      "keys": {
+        "key": "j",
+        "modifiers": []
+      },
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "reverse"
+      }
+    },
+    {
+      "keys": {
+        "key": "x",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "edit.rippleCut"
+    },
+    {
+      "keys": {
+        "key": "\u232b",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.rippleDelete"
+    },
+    {
+      "keys": {
+        "key": "f",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.scale",
+      "args": {
+        "to": "fill"
+      }
+    },
+    {
+      "keys": {
+        "key": "f",
+        "modifiers": [
+          "option",
+          "command"
+        ]
+      },
+      "command": "edit.scale",
+      "args": {
+        "to": "fit"
+      }
+    },
+    {
+      "keys": {
+        "key": "a",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "selection.all"
+    },
+    {
+      "keys": {
+        "key": "\u2190",
+        "modifiers": [
+          "control",
+          "shift"
+        ]
+      },
+      "command": "selection.side",
+      "args": {
+        "side": "left"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2192",
+        "modifiers": [
+          "control",
+          "shift"
+        ]
+      },
+      "command": "selection.side",
+      "args": {
+        "side": "right"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u21e5",
+        "modifiers": []
+      },
+      "command": "selection.step",
+      "args": {
+        "direction": "next",
+        "scope": "playhead"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2190",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "selection.step",
+      "args": {
+        "direction": "previous",
+        "scope": "track"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u21e5",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "selection.step",
+      "args": {
+        "direction": "previous",
+        "scope": "playhead"
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2192",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "selection.step",
+      "args": {
+        "direction": "next",
+        "scope": "track"
+      }
+    },
+    {
+      "keys": {
+        "key": "s",
+        "modifiers": [
+          "option"
+        ]
+      },
+      "command": "edit.silenceAudio"
+    },
+    {
+      "keys": {
+        "key": "l",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "forward",
+        "slow": true
+      }
+    },
+    {
+      "keys": {
+        "key": "j",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "reverse",
+        "slow": true
+      }
+    },
+    {
+      "keys": {
+        "key": "t",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "edit.splitAll"
+    },
+    {
+      "keys": {
+        "key": "t",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.split"
+    },
+    {
+      "keys": {
+        "key": ",",
+        "modifiers": []
+      },
+      "command": "playhead.step",
+      "args": {
+        "frames": -1
+      }
+    },
+    {
+      "keys": {
+        "key": ".",
+        "modifiers": []
+      },
+      "command": "playhead.step",
+      "args": {
+        "frames": 1
+      }
+    },
+    {
+      "keys": {
+        "key": "i",
+        "modifiers": [
+          "option",
+          "command"
+        ]
+      },
+      "command": "edit.stitch"
+    },
+    {
+      "keys": {
+        "key": "k",
+        "modifiers": []
+      },
+      "command": "playback.pause"
+    },
+    {
+      "keys": {
+        "key": "=",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "timeline.zoom",
+      "args": {
+        "to": "in"
+      }
+    },
+    {
+      "keys": {
+        "key": "-",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "timeline.zoom",
+      "args": {
+        "to": "out"
+      }
+    },
+    {
+      "keys": {
+        "key": "0",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "timeline.zoom",
+      "args": {
+        "to": "fit"
+      }
+    },
+    {
+      "keys": {
+        "key": "9",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "timeline.zoom",
+      "args": {
+        "to": "max"
+      }
+    },
+    {
+      "keys": {
+        "key": "8",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "timeline.zoom",
+      "args": {
+        "to": "selection"
+      }
+    },
+    {
+      "keys": {
+        "key": "Space",
+        "modifiers": []
+      },
+      "command": "playback.toggle"
+    },
+    {
+      "keys": {
+        "key": "u",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.ungroup"
+    },
+    {
+      "keys": {
+        "key": "z",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "project.undo"
+    },
+    {
+      "keys": {
+        "key": "\\",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "edit.unstitch"
+    },
+    {
+      "keys": {
+        "key": "\u232b",
+        "modifiers": []
+      },
+      "command": "edit.delete"
+    },
+    {
+      "keys": {
+        "key": "\u2326",
+        "modifiers": []
+      },
+      "command": "edit.delete"
+    },
+    {
+      "keys": {
+        "key": ";",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "timeline.snapping"
+    },
+    {
+      "keys": {
+        "key": "\u2190",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.nudge",
+      "args": {
+        "x": -10
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2192",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.nudge",
+      "args": {
+        "x": 10
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2191",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.nudge",
+      "args": {
+        "y": 10
+      }
+    },
+    {
+      "keys": {
+        "key": "\u2193",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "edit.nudge",
+      "args": {
+        "y": -10
+      }
+    },
+    {
+      "keys": {
+        "key": ";",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "canvas.snapping"
+    }
+  ]
+}

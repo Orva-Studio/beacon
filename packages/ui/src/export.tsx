@@ -1,0 +1,282 @@
+import { useEffect, useState } from "react";
+import { Button, Modal, Progress, Select, SettingsRow as Row, TextInput } from "./controls";
+import { MASK, syncNativeView } from "./native-view";
+import { DEFAULT_EXPORT } from "./export-defaults";
+import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
+import { replica, useView } from "./store";
+
+export interface ExportHost {
+  chooseFolder(start: string): Promise<string | null>;
+  startExport(params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }): Promise<{ ok: boolean; error?: string }>;
+  cancelExport(id: string): void;
+  showFile(path: string, open?: boolean): void;
+}
+
+/** The File format menu. */
+const FORMATS: [ExportSettings["format"], string][] = [
+  ["mp4", "Export to MP4 (.mp4)"],
+  ["mov", "Export to QuickTime Movie (.mov)"],
+  ["gif", "Export to Animated GIF (.gif)"],
+  ["webm", "Export to WebM (.webm)"],
+];
+
+const FRAME_RATES = [10, 15, 24, 25, 30, 50, 60];
+const SIZES = [
+  [3840, 2160],
+  [2560, 1440],
+  [1920, 1080],
+  [1280, 720],
+  [854, 480],
+] as const;
+
+const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+
+/** Automatic or a custom rate on a slider, as the Data rate rows. */
+function DataRate({ value, min, max, auto, onChange }: { value: number | null; min: number; max: number; auto: number; onChange: (v: number | null) => void }) {
+  const shown = value ?? auto;
+  return (
+    <>
+      <label className="flex items-center gap-1">
+        <input type="radio" checked={value === null} onChange={() => onChange(null)} /> Automatic
+      </label>
+      <label className="flex items-center gap-1">
+        <input type="radio" checked={value !== null} onChange={() => onChange(shown)} /> Custom
+      </label>
+      <input type="range" className="w-40" min={min} max={max} value={shown} disabled={value === null} onChange={(e) => onChange(Number(e.target.value))} />
+      <TextInput
+        type="number"
+        className="w-24 text-right"
+        min={min}
+        max={max}
+        value={shown}
+        disabled={value === null}
+        onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || min)))}
+      />
+      <span className="text-text-dim">kbits/sec</span>
+    </>
+  );
+}
+
+/** File > Export…: name, folder, format and advanced options, in the window (Electrobun has no save panel). */
+export function ExportDialog({ sheet, host }: { sheet: ExportSheet; host: ExportHost }) {
+  const [name, setName] = useState(sheet.name);
+  const [folder, setFolder] = useState(sheet.folder);
+  const [s, setS] = useState(sheet.settings);
+  const [advanced, setAdvanced] = useState(false);
+  const [error, setError] = useState<string>();
+  const [exists, setExists] = useState(false);
+  // A range on the timeline is what gets exported unless unticked.
+  const [selectionOnly, setSelectionOnly] = useState(!!sheet.range);
+  const set = (patch: Partial<ExportSettings>) => setS((x) => ({ ...x, ...patch }));
+  const close = () => replica.exportSheet(undefined);
+  const start = async (overwrite = false) => {
+    const r = await host.startExport({ name: name.trim(), folder, settings: s, ...(sheet.range && selectionOnly ? { range: sheet.range } : {}), overwrite });
+    if (r.ok) return close();
+    setExists(!!r.error?.includes("already exists"));
+    setError(r.error);
+  };
+  const video = s.format === "mp4" || s.format === "mov";
+  const sizeKey = s.size ? `${s.size.width}x${s.size.height}` : "";
+  return (
+    <Modal title={sheet.range && selectionOnly ? "Export Selection" : "Export"} width={680} onClose={close} onEnter={() => void start()}>
+      <div className="flex flex-col gap-3">
+        <Row label="Export As">
+          <TextInput
+            autoFocus
+            className="flex-1"
+            value={name}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => (setName(e.target.value), setError(undefined))}
+          />
+          <span className="text-text-dim">.{s.format}</span>
+        </Row>
+        <Row label="Where">
+          <span className="min-w-0 flex-1 truncate text-text-strong" title={folder}>
+            {folder.replace(/^\/Users\/[^/]+/, "~")}
+          </span>
+          <Button onClick={async () => (await host.chooseFolder(folder).then((f) => f && setFolder(f)), setError(undefined))}>Choose…</Button>
+        </Row>
+        {sheet.range && (
+          <Row label="">
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={selectionOnly} onChange={(e) => setSelectionOnly(e.target.checked)} />
+              Export the selection only ({clock(sheet.range.in)}–{clock(sheet.range.out)})
+            </label>
+          </Row>
+        )}
+        <Row label="File format">
+          <div className="w-72">
+            <Select value={s.format} onChange={(e) => set({ format: e.target.value as ExportSettings["format"], ...(e.target.value !== "mov" && s.codec === "prores" ? { codec: "h264" } : {}) })}>
+              {FORMATS.map(([f, label]) => (
+                <option key={f} value={f}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button onClick={() => setAdvanced((a) => !a)}>{advanced ? "Hide Options" : "Options…"}</Button>
+        </Row>
+      </div>
+      {advanced && (
+        <div className="mt-4 flex flex-col gap-3 rounded-md bg-well/60 p-4">
+          <div className="text-text-strong">Video</div>
+          <Row label="Frame rate">
+            <div className="w-40">
+              <Select value={s.fps ?? ""} onChange={(e) => set({ fps: e.target.value ? Number(e.target.value) : null })}>
+                <option value="">Automatic ({sheet.canvas.fps})</option>
+                {FRAME_RATES.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </Row>
+          <Row label="Dimensions">
+            <div className="w-56">
+              <Select
+                value={sizeKey}
+                onChange={(e) => {
+                  const [w, h] = e.target.value.split("x").map(Number);
+                  set({ size: w && h ? { width: w, height: h } : null });
+                }}
+              >
+                <option value="">
+                  Current ({sheet.canvas.width}×{sheet.canvas.height})
+                </option>
+                {SIZES.map(([w, h]) => (
+                  <option key={w} value={`${w}x${h}`}>
+                    Fit within {w}×{h}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </Row>
+          {s.format !== "gif" && (
+            <Row label="Data rate">
+              <DataRate value={s.bitrate} min={64} max={30000} auto={16000} onChange={(bitrate) => set({ bitrate })} />
+            </Row>
+          )}
+          {video && (
+            <Row label="Compression type">
+              <div className="w-40">
+                <Select value={s.codec} onChange={(e) => set({ codec: e.target.value as ExportSettings["codec"] })}>
+                  <option value="h264">H.264</option>
+                  <option value="hevc">HEVC (H.265)</option>
+                  {s.format === "mov" && <option value="prores">ProRes 422 HQ</option>}
+                </Select>
+              </div>
+            </Row>
+          )}
+          {s.format !== "gif" && s.codec !== "prores" && (
+            <Row label="Keyframe every">
+              <TextInput type="number" min={1} className="w-20 text-right" value={s.keyframe} onChange={(e) => set({ keyframe: Math.max(1, Number(e.target.value) || 1) })} />
+              <span className="text-text-dim">frames</span>
+            </Row>
+          )}
+          {video && s.codec === "h264" && (
+            <Row label="Profile">
+              <div className="w-72">
+                <Select value={s.profile} onChange={(e) => set({ profile: e.target.value as ExportSettings["profile"] })}>
+                  <option value="baseline">Baseline (Largest file, plays everywhere)</option>
+                  <option value="main">Main</option>
+                  <option value="high">High (Smallest file, playback on recent devices)</option>
+                </Select>
+              </div>
+            </Row>
+          )}
+          {s.format !== "gif" && (
+            <>
+              <div className="mt-1 text-text-strong">Audio</div>
+              <Row label="">
+                <label className="flex items-center gap-1">
+                  <input type="checkbox" checked={s.audio} onChange={(e) => set({ audio: e.target.checked })} /> Encode audio
+                </label>
+              </Row>
+              {s.audio && (
+                <Row label="Data rate">
+                  <DataRate value={s.audioBitrate} min={64} max={320} auto={256} onChange={(audioBitrate) => set({ audioBitrate })} />
+                </Row>
+              )}
+            </>
+          )}
+          <div>
+            <Button onClick={() => setS({ ...DEFAULT_EXPORT, format: s.format })}>Restore Defaults</Button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="mt-4 flex items-center gap-2 text-danger">
+          <span className="flex-1">{error}</span>
+          {exists && <Button onClick={() => void start(true)}>Replace</Button>}
+        </div>
+      )}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={close}>Cancel</Button>
+        <Button look="primary" disabled={!name.trim()} onClick={() => void start()}>
+          Export
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/** The running export's progress, then Show in Finder / Open when it is done. */
+export function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
+  const [hovered, setHovered] = useState(false);
+  useEffect(() => {
+    syncNativeView();
+    return syncNativeView;
+  }, []);
+  // A finished export's panel goes after 5 s, unless the pointer is on it; a failure stays until dismissed.
+  useEffect(() => {
+    if (job.state !== "done" || hovered) return;
+    const t = setTimeout(() => replica.exportJob(undefined), 5000);
+    return () => clearTimeout(t);
+  }, [job.state, hovered]);
+  const file = job.output.split("/").at(-1);
+  return (
+    <div
+      className={`${MASK} fixed right-4 bottom-4 z-40 w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl`}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <span className="flex-1 truncate text-text-strong" title={job.output}>
+          {job.state === "running" ? `Exporting ${file}` : job.state === "done" ? `Exported ${file}` : `Export failed: ${file}`}
+        </span>
+        {job.state !== "running" && (
+          <Button look="quiet" title="Dismiss" onClick={() => replica.exportJob(undefined)}>
+            ×
+          </Button>
+        )}
+      </div>
+      {job.state === "running" && (
+        <div className="flex items-center gap-2">
+          <Progress value={job.progress} className="flex-1" />
+          <span className="w-9 text-right font-mono text-xs tabular-nums">{Math.round(job.progress * 100)}%</span>
+          <Button onClick={() => host.cancelExport(job.id)}>Cancel</Button>
+        </div>
+      )}
+      {job.state === "done" && (
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => host.showFile(job.output)}>Show in Finder</Button>
+          <Button onClick={() => host.showFile(job.output, true)}>Open</Button>
+        </div>
+      )}
+      {job.state === "failed" && <div className="text-danger">{job.error}</div>}
+    </div>
+  );
+}
+
+/** Both, from the view store. */
+export function ExportUi({ host }: { host: ExportHost }) {
+  const sheet = useView((v) => v.exportSheet);
+  const job = useView((v) => v.exportJob);
+  return (
+    <>
+      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} />}
+      {job && <ExportProgress job={job} host={host} />}
+    </>
+  );
+}

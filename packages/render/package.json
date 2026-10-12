@@ -1,0 +1,11 @@
+{
+  "name": "@beacon/render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@beacon/model": "workspace:*",
+    "@beacon/media": "workspace:*"
+  }
+}

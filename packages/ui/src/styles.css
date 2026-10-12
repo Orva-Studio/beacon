@@ -1,0 +1,141 @@
+@import "tailwindcss";
+@import "./fonts/fonts.css";
+
+/*
+ * The editor's design tokens: every colour the UI uses, by role. Tailwind
+ * classes use them by name (`bg-panel`, `text-muted`); the canvas-drawn
+ * timeline, the canvas overlay and the preview read the same variables
+ * (theme.ts). `static` keeps every variable even if no class names it.
+ */
+@theme static {
+  --font-ui: "Space Grotesk", -apple-system, system-ui, sans-serif;
+  /* Type sizes by role: captions, labels and values, body text, dialog titles */
+  --text-caption: 11px;
+  --text-label: 12px;
+  --text-body: 13px;
+  --text-title: 18px;
+
+  /* Corners: controls, tiles, then the panels the window is divided into */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-panel: 14px;
+  /* The gap between panels, the window's background showing through */
+  --spacing-gutter: 6px;
+
+  /* Surfaces: graphite with a hint of green */
+  --color-app: #0b0d0c;
+  --color-bar: #151817;
+  --color-panel: #151817;
+  --color-stage: #101211;
+  --color-well: #111413;
+  --color-tabbar: #151817;
+  --color-tile: #1e2321;
+  --color-tile-hover: #272d2a;
+  --color-item-hover: #1c211f;
+  --color-control: #1f2422;
+  --color-chip: #1d2220;
+  --color-divider: #232927;
+  --color-field-edge: #2e3532;
+  --color-groove: #0d0f0e;
+  --color-slider-fill: var(--color-accent);
+  --color-slider-thumb: #eef7f2;
+  --color-toggle-on: var(--color-accent);
+  --color-section-head: #131615;
+
+  /* Text and icons */
+  --color-text: #cdd5d0;
+  --color-text-strong: #edf3ef;
+  --color-text-bright: #ffffff;
+  --color-text-dim: #b8c1bc;
+  --color-text-muted: #8a948f;
+  --color-text-faint: #78827d;
+  --color-text-off: #646d68;
+  --color-text-disabled: #535a56;
+  --color-danger: #ff5d5d;
+  /* Under a dialog: the page, and the native canvas that draws over it */
+  --color-backdrop: rgba(0, 0, 0, 0.5);
+
+  /* Accents: one electric green */
+  --color-accent: #3ee68d;
+  --color-accent-wash: rgba(62, 230, 141, 0.13);
+  --color-accent-text: #062012;
+  --color-tab-active: var(--color-accent);
+  --color-invalid: #ff4d5e;
+  --color-marker: #f2c94c;
+
+  /* Timeline */
+  --color-ruler: #151817;
+  --color-ruler-tick: #363d3a;
+  --color-ruler-text: #858f8a;
+  --color-frame-shade: rgba(255, 255, 255, 0.05);
+  --color-track-head: #151817;
+  --color-track-line: #1b201e;
+  --color-head-icon: #98a29d;
+  --color-head-icon-off: #4d5551;
+  /* Clips by kind: screen recordings and imported media green, a recording's camera blue, audio orange, annotations purple; what is applied to a clip (effects, animations) is yellow */
+  --color-clip: #252b28;
+  --color-clip-edge: #343c38;
+  --color-clip-screen: #1f3a2d;
+  --color-clip-screen-edge: #2b5240;
+  --color-clip-video: #1c2f47;
+  --color-clip-video-edge: #2a4566;
+  --color-clip-audio: #3d2a15;
+  --color-clip-audio-edge: #5a3f20;
+  --color-clip-annotation: #2e2246;
+  --color-clip-annotation-edge: #45336a;
+  --color-clip-ghost: rgba(37, 43, 40, 0.85);
+  --color-wave: #e8964a;
+  --color-audio-selected: #4a3219;
+  --color-audio-selected-top: #ff9d3a;
+  --color-audio-selected-wave: #ffc27a;
+  --color-volume-line: rgba(220, 240, 230, 0.55);
+  --color-volume-selected: var(--color-accent);
+  --color-stitch: rgba(168, 184, 176, 0.9);
+  /* The "fx" badge on clips with effects */
+  --color-fx-badge: #f2c94c;
+  --color-fx-badge-text: #2a220c;
+  --color-effect-text-selected: var(--color-fx-badge-text);
+  --color-group-lane: rgba(150, 176, 164, 0.4);
+  --color-locked-hatch: rgba(0, 0, 0, 0.35);
+  --color-grip: rgba(0, 0, 0, 0.35);
+  --color-insert-space: rgba(62, 230, 141, 0.2);
+  --color-range-in: var(--color-accent);
+  --color-range-in-line: var(--color-accent);
+  --color-range-out: var(--color-danger);
+  --color-range-band: rgba(46, 140, 110, 0.38);
+  --color-range-hatch: rgba(120, 220, 180, 0.14);
+  /* Animations: keyframe diamonds joined by a band */
+  --color-arrow: #c99a1e;
+  --color-arrow-selected: var(--color-fx-badge);
+  --color-arrow-start: var(--color-fx-badge-text);
+  --color-arrow-end: var(--color-fx-badge-text);
+  --color-arrow-outline: #ffe08a;
+  --color-arrow-picked: var(--color-danger);
+
+  /* Canvas overlay (drawn by the native preview) */
+  --color-canvas-border: #2a312e;
+  --color-canvas-outline: #ffffff;
+  --color-canvas-handle: rgba(16, 18, 17, 0.9);
+  --color-canvas-ring: rgba(0, 0, 0, 0.3);
+  --color-canvas-hot: var(--color-accent);
+  --color-canvas-guide: var(--color-accent);
+  --color-text-caret: #ffffff;
+  --color-text-selection: rgba(62, 230, 141, 0.35);
+}
+
+/* One of the panels the window is divided into (Media Bin, canvas, properties, timeline). */
+@utility panel-card {
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-app);
+  overflow: hidden;
+  font-family: var(--font-ui);
+}

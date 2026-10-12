@@ -1,0 +1,78 @@
+import type { PointerEvent as ReactPointerEvent } from "react";
+import type { DroppedFile } from "./rpc";
+import { replica } from "./store";
+
+/** Something the tool panels drag onto media: effects, animations and audio effects. */
+export interface PanelItem {
+  label: string;
+  /** The action it runs; a drop adds `clip` (and `time` when `timed`) to `args`. */
+  command: string;
+  args: Record<string, unknown>;
+  /** Clips with any of these traits take it. */
+  traits: string[];
+  /** Where on the clip it lands matters (animations start at the drop). */
+  timed?: boolean;
+  /** Media from the Media Bin: it drops on a track (or the canvas) rather than a clip; `time` and `track` are added to `args`. */
+  media?: { seconds: number };
+}
+
+/** Where a drop at a point lands: the clip (or for media, the track; none makes new tracks) and the timeline time (seconds) there. */
+export type DropTarget = (clientX: number, clientY: number, item: PanelItem) => { clip?: string; track?: string; time: number } | undefined;
+
+const targets = new Set<DropTarget>();
+
+export function addDropTarget(t: DropTarget): () => void {
+  targets.add(t);
+  return () => void targets.delete(t);
+}
+
+function dropAt(x: number, y: number, item: PanelItem) {
+  for (const t of targets) {
+    const hit = t(x, y, item);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** A clip of a type with these traits takes the item. */
+export const takes = (item: PanelItem, traits: string[] | undefined) => item.traits.some((t) => traits?.includes(t));
+
+/**
+ * Starts dragging a panel item from a pointer press: a click (no movement)
+ * runs it on the selection, a drop on a clip runs it on that clip.
+ */
+export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: string, args: object) => void, click = true) {
+  if (e.button !== 0) return;
+  const [x0, y0] = [e.clientX, e.clientY];
+  let moved = false;
+  const move = (ev: PointerEvent) => {
+    if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+    moved = true;
+    replica.drag({ item, x: ev.clientX, y: ev.clientY });
+  };
+  const up = (ev: PointerEvent) => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", cancel);
+    replica.drag(undefined);
+    if (!moved) return click ? run(item.command, item.args) : undefined;
+    const hit = dropAt(ev.clientX, ev.clientY, item);
+    if (hit && item.media) run(item.command, { ...item.args, time: hit.time, ...(hit.track ? { track: hit.track } : {}) });
+    else if (hit) run(item.command, { ...item.args, clip: hit.clip, ...(item.timed ? { time: hit.time } : {}) });
+  };
+  const cancel = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", cancel);
+    replica.drag(undefined);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", cancel);
+}
+
+/** Files dragged in from Finder: what the webview knows of them, with their URLs when WebKit passes them. */
+export function droppedFiles(dt: DataTransfer): DroppedFile[] {
+  const uris = dt.getData("text/uri-list").split(/\r?\n/).filter((u) => u.startsWith("file://"));
+  return [...dt.files].map((f, i) => ({ name: f.name, size: f.size, lastModified: f.lastModified, ...(uris[i] ? { uri: uris[i] } : {}) }));
+}
