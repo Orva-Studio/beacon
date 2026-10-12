@@ -816,8 +816,14 @@ audio mix, speed and loudness, muxing, transcription audio).
    built **without GPL parts** (no x264: encoding is VideoToolbox), so LGPL,
    shipped as a separate executable. `runTool`/`spawn` and the engine's
    `Command::new` use the bundled path. `whisper-cli` bundled the same way;
-   its model downloaded on first use. Everything signed (hardened runtime)
-   and notarized with the app.
+   its model is not in the download (decided 2026-10-12): the first
+   transcript opens a modal that says what it needs (`large-v3-turbo`, about
+   550 MB, local and offline) and downloads it only when the user accepts,
+   with progress; declined, everything but transcripts still works. Agents get
+   the same as a command and a job. Apple's on-device transcriber (macOS 26) is
+   worth a spike against it: no download at all, if accurate enough on
+   technical words. Everything signed (hardened runtime) and notarized with
+   the app.
 2. **Decode in-process**: done for the preview on `perf` (2026-10-12):
    `beacon-decode` over FFmpeg's libraries, natively through VideoToolbox for
    H.264/HEVC, frames kept for steps back. Left for this phase: VideoToolbox for H.264/HEVC/ProRes and FFmpeg's TSC2 decoder
