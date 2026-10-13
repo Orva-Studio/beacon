@@ -33,6 +33,7 @@ export interface Host extends ExportHost, SettingsHost, ProjectHost, PreviewHost
   canvasMenu(): void;
   trackMenu(track: string | null): void;
   binMenu(asset: string): void;
+  importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
   captureFrame(): void;

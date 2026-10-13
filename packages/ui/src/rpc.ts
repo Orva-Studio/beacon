@@ -145,6 +145,8 @@ export type AppRPC = {
       canvasMenu: { params: {}; response: void };
       /** The right-click menu for a Media Bin item. */
       binMenu: { params: { asset: string }; response: void };
+      /** Import Media…'s file picker (the Media Bin's Import tile). */
+      importMedia: { params: {}; response: void };
       /** Files dragged in from Finder: imported at `time` on `track` (a drop on the timeline), else after the last clip. */
       dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string }; response: RunReply };
       /** A track's menu, or the track options (null). */

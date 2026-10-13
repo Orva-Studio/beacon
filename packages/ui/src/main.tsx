@@ -78,6 +78,7 @@ const host: Host = {
   canvasMenu: () => void request.canvasMenu({}),
   trackMenu: (track) => void request.trackMenu({ track }),
   binMenu: (asset) => void request.binMenu({ asset }),
+  importMedia: () => void request.importMedia({}),
   dropFiles: (files, at) => void report(request.dropFiles({ files, ...at })),
   captureFrame: () => void report(request.captureFrame({})),
   frameImage: () => request.frameImage({}),

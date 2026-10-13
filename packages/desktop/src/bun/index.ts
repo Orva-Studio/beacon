@@ -614,6 +614,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           ...(canvas ? [sep, { label: "Project Settings…", action: "app:projectSettings" }, { label: "Zoom to Fit", action: "run:canvas.zoom:fit" }] : []),
         ]);
       },
+      importMedia: () => void importMedia().catch((e: Error) => status(e.message)),
       binMenu: ({ asset }) => {
         if (!current) return;
         const used = [...walkClips(core.doc(current.path).tracks, core.registry)].some((l) => l.clip.assetId === asset);

@@ -299,6 +299,39 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("the Media Bin searches, filters by kind, sorts, shows a list, and marks what is on the timeline; its Import tile imports", async () => {
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-media-bin]')");
+  const shown = () => page.evaluate<number>("document.querySelectorAll('[data-media-bin] [data-asset]').length");
+  const all = await shown();
+  expect(all).toBeGreaterThan(1);
+  // The recording is on the timeline; the Snapshot image isn't.
+  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-asset="${screen.assetId}"] [data-used]')`)).toBe(true);
+  await page.evaluate("document.querySelector('[data-bin-kind=image]').click()");
+  await Bun.sleep(200);
+  expect(await shown()).toBe(Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "image").length);
+  await page.evaluate("document.querySelector('[data-bin-kind=all]').click()");
+  await page.click(...(await centre("[data-bin-search]")));
+  await type("zzz-no-such-media");
+  await Bun.sleep(200);
+  expect(await shown()).toBe(0);
+  await page.key("Escape", "Escape");
+  await Bun.sleep(200);
+  expect(await shown()).toBe(all);
+  await page.evaluate("document.querySelector('[data-bin-view]').click()");
+  await Bun.sleep(200);
+  expect(await page.evaluate<string>("document.querySelector('[data-bin-view]').title")).toBe("Show as a grid");
+  await page.evaluate("document.querySelector('[data-bin-view]').click()");
+  await page.evaluate(`(() => { const el = document.querySelector('[data-bin-sort]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'name:true'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await Bun.sleep(200);
+  const names = await page.evaluate<string[]>("[...document.querySelectorAll('[data-media-bin] [data-asset]')].map((e) => e.textContent.trim().toLowerCase())");
+  expect(names).toEqual([...names].sort().reverse());
+  await page.evaluate(`(() => { const el = document.querySelector('[data-bin-sort]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'added:false'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await page.evaluate("document.querySelector('[data-bin-import]').click()");
+  await arrived(() => ui.menus.at(-1) === "import");
+  expect(ui.menus.at(-1)).toBe("import");
+});
+
 test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
   await select([]);
   await run("timeline.view", { start: 0, end: 10 });

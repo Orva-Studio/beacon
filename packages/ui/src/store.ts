@@ -57,11 +57,14 @@ export interface ViewState {
   clipSpeed: string[];
   /** The Media Bin's Sort by, and whether it is descending. */
   binSort: { by: BinSort; desc: boolean };
+  /** The Media Bin's search, kind filter and layout. */
+  bin: { query: string; kind: BinKind; view: "grid" | "list" };
 }
 
-export type BinSort = "type" | "name" | "added" | "created" | "dimensions" | "duration";
+export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
+export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSort: { by: "type", desc: false }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -129,6 +132,9 @@ export const replica = {
   },
   sortBin(binSort: ViewState["binSort"]) {
     set({ binSort });
+  },
+  viewBin(bin: Partial<ViewState["bin"]>) {
+    set({ bin: { ...state.bin, ...bin } });
   },
   notice(notice: ViewState["notice"]) {
     set({ notice });

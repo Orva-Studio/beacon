@@ -158,7 +158,7 @@ function step(pxPerSecond: number, fps: number): number {
 }
 
 /** A group's or stitched clip's own tracks, through the prop group that holds them (`Init.nested`). */
-function innerTracks(clip: Clip, nested: Record<string, string>): Track[] | undefined {
+export function innerTracks(clip: Clip, nested: Record<string, string>): Track[] | undefined {
   const g = nested[clip.type];
   return g ? (clip.props[g] as { tracks?: Track[] } | undefined)?.tracks : undefined;
 }

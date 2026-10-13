@@ -790,7 +790,11 @@ renamed in the UI only); the volume line stays a line. Clip Speed is its own
 tab (not an effect: it is the clip's timing), shown once the speed is changed
 or Clip Speed is chosen. A tilted (X/Y rotation) clip's effects run on the
 flat clip, which is then drawn in perspective (the CRT was sheared and cut
-off).
+off). The Media Bin (the user: less like Camtasia, never grouped by type)
+has no title or type groups: a search field, All/Video/Audio/Images chips,
+one sort menu (each sort with its direction), grid or list, an Import tile
+first, and tiles showing the picture with its duration and kind, a P for a
+proxy and a check for media on the timeline (`ui/src/media-bin.tsx`).
 Reviewed 2026-10-12 (PR #6): cancelling a job starts no more processes (a
 cancelled proxy build used to restart in software); native decoding asks for
 4:2:0 and reports decode errors; Settings and Export use `Modal`, with one

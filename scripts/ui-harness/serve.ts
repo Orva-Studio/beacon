@@ -105,6 +105,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${msg.track}`);
         else if (msg.type === "binMenu") menus.push(`asset:${msg.asset}`);
+        else if (msg.type === "importMedia") menus.push("import");
         else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, msg.files, msg));
         else if (msg.type === "captureFrame") result = await reply(() => core.captureFrame(h));
         else if (msg.type === "frameImage") result = `data:image/png;base64,${Buffer.from((await core.frame(h, (await core.session(h)).playhead)).png).toString("base64")}`;
