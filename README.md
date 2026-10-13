@@ -67,3 +67,9 @@ names a feature.
 - [`PLAN.md`](PLAN.md): scope, architecture, phases and status
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): what exists today
 - [`docs/formats/`](docs/formats): file formats Beacon reads
+
+## License
+[FSL-1.1-ALv2](LICENSE): free to use, modify and redistribute, but not to
+build a competing product or service. Each version becomes Apache 2.0 two
+years after it is released. Third-party notices are in
+[`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES).
