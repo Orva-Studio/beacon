@@ -978,8 +978,8 @@ microphone level in the dialog, and the sync check in Settings.
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in
 process). Corner Rounding's radius, Drop Shadow's offset and blur and Motion
-Blur's intensity have sliders. To do: an effect's on/off switch that looks
-less like Camtasia's green pill.
+Blur's intensity have sliders. An effect's on/off is a tick box in its
+header, as its other options are, not Camtasia's green pill switch.
 
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often
