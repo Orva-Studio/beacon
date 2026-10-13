@@ -757,7 +757,8 @@ dark grey, like CapCut and the Dribbble concept "Online video editor concept
 VisionX" (shots/23126679); tokens and shared controls, the layout
 kept. First pass
 (rehearsed offscreen, waiting for the user's look in the app): graphite
-surfaces with one electric green accent (`#3ee68d`); Space Grotesk; corner
+surfaces with one electric green accent (`#3ee68d`); Space Grotesk (Geist
+from 2026-10-13, the user's choice); corner
 tokens (`--radius-*`, `--radius-panel`) and panels as rounded cards with a
 6 px gutter (`panel-card`); filled fields without outlines, pill rail
 items, an accent-underlined tab, a `primary` button look (Export, Create,

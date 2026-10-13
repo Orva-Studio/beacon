@@ -18,7 +18,7 @@ OSV vulnerability database (includes RustSec and GitHub advisories).
 | @modelcontextprotocol/sdk | 1.32.1 | — | MCP server (Phase 3) |
 | zod | 4.6.5 | — | schemas for commands/MCP tools |
 | Phosphor Icons | 2.1.1 (`@phosphor-icons/core`) | — | The UI's icons from Phase 5.5, MIT: only the paths used, regular and fill, copied into `ui/src/controls/icon-paths.ts` by `scripts/icons.ts`; drawn by `Icon` (React) and `drawIcon` (the timeline's canvas) |
-| Space Grotesk (font) | 5.3.0 (`@fontsource-variable/space-grotesk`) | — | The UI's typeface from Phase 5.5: the Latin variable woff2 inlined in `ui/src/fonts/fonts.css`, SIL OFL 1.1 (`ui/src/fonts/OFL.txt`) |
+| Geist (font) | 5.3.0 (`@fontsource-variable/geist`) | — | The UI's typeface (2026-10-13, replacing Phase 5.5's Space Grotesk): the Latin variable woff2 inlined in `ui/src/fonts/fonts.css`, SIL OFL 1.1 (`ui/src/fonts/OFL.txt`) |
 | pollster / bytemuck / serde / serde_json | 1.0.1 / 1.25.2 / 1.0.229 / 1.0.151 | 0.4 / 1.x / — | |
 | ffmpeg-next / ffmpeg-sidecar | 9.0.0 / 2.6.0 | — | candidates for `beacon-media` (in-process libav vs. ffmpeg binary) |
 | whisper-rs | 0.16.0 | — | candidate for local transcription |

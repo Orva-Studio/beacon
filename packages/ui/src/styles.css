@@ -8,7 +8,7 @@
  * (theme.ts). `static` keeps every variable even if no class names it.
  */
 @theme static {
-  --font-ui: "Space Grotesk", -apple-system, system-ui, sans-serif;
+  --font-ui: "Geist", -apple-system, system-ui, sans-serif;
   /* Type sizes by role: captions, labels and values, body text, dialog titles */
   --text-caption: 11px;
   --text-label: 12px;
