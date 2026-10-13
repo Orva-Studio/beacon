@@ -219,6 +219,8 @@ export interface ImportClipSpec {
   track: string;
   type: string;
   duration: Ticks;
+  /** Where in its media the clip starts: lines up streams that begin at different moments (a `.brec`'s files). */
+  mediaStart?: Ticks;
   props: Clip["props"];
   /** Clips with the same key are linked (cut, moved and selected together); with no keys at all, every clip is. */
   link?: string;

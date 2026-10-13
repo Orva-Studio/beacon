@@ -4,7 +4,7 @@ import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, type JobProcesses, measureLoudness, pastePng, probeMedia, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, pastePng, probeMedia, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -640,7 +640,8 @@ export class LocalCore implements BeaconCore {
     const stream = Number((clip.props.media as { stream?: number } | undefined)?.stream ?? 0);
     const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[stream];
     const time = asset.kind === "image" ? 0 : ticksToSeconds(at);
-    return this.#cachedThumb(asset, stream, time, height, () => (asset.kind === "image" ? thumbnailPng(asset.path, 0, 0, height) : thumbnailPng(proxy?.path ?? asset.path, proxy ? 0 : stream, time, height)));
+    const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", stream);
+    return this.#cachedThumb(asset, stream, time, height, () => (asset.kind === "image" ? thumbnailPng(asset.path, 0, 0, height) : thumbnailPng(src.path, src.stream, time, height)));
   }
 
   /** The visual media clip showing at `at` (media time) in `clip`, looking inside groups and stitched clips, top track first; and its media time there. */
@@ -682,7 +683,8 @@ export class LocalCore implements BeaconCore {
     if (!asset || asset.kind === "audio") return undefined;
     const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[0];
     const time = asset.kind === "image" ? 0 : 1;
-    return this.#cachedThumb(asset, -1, time, height, () => thumbnailPng(proxy?.path ?? asset.path, 0, time, height));
+    const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", 0);
+    return this.#cachedThumb(asset, -1, time, height, () => thumbnailPng(src.path, src.stream, time, height));
   }
 
   /** Reported by the app so "canvas.zoom in" can step from the fitted size. */

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { isBrec, loadBrecCursor, probeBrec } from "./brec";
 import { Trec } from "./trec";
 import { runTool, spawn } from "./tool";
 
@@ -9,6 +11,10 @@ export interface StreamInfo {
   duration: number;
   sampleRate?: number;
   channels?: number;
+  /** In a `.brec`: the stream's file in the folder, where that file starts in the take (seconds), and what it is. */
+  file?: string;
+  start?: number;
+  role?: "screen" | "camera" | "microphone" | "systemAudio";
 }
 
 export interface MediaInfo {
@@ -16,8 +22,18 @@ export interface MediaInfo {
   streams: StreamInfo[];
 }
 
-/** Streams of any media file: `.trec` through the native reader, everything else through ffprobe. */
+/**
+ * Where to read an asset's `n`th stream of a kind: its own file's stream `n`, or in a `.brec` (a stream per
+ * file) that stream's file and its only stream.
+ */
+export function streamSource(path: string, info: MediaInfo, kind: "video" | "audio", n: number): { path: string; stream: number } {
+  const s = info.streams.filter((x) => x.kind === kind)[n];
+  return s?.file ? { path: join(path, s.file), stream: 0 } : { path, stream: n };
+}
+
+/** Streams of any media: `.trec` through the native reader, a `.brec` from its streams' files, everything else through ffprobe. */
 export async function probeMedia(path: string): Promise<MediaInfo> {
+  if (isBrec(path)) return probeBrec(path);
   if (path.toLowerCase().endsWith(".trec")) {
     using trec = Trec.open(path);
     const streams = trec.info.streams.flatMap((s): StreamInfo[] =>
@@ -54,6 +70,7 @@ export async function probeMedia(path: string): Promise<MediaInfo> {
 
 /** Everything the cursor feature needs from a recording (`CursorData` in @beacon/features). */
 export function loadCursorData(path: string) {
+  if (isBrec(path)) return loadBrecCursor(path);
   using trec = Trec.open(path);
   const { t, x, y } = trec.cursor();
   const buttons = trec.buttons();
@@ -80,8 +97,9 @@ export async function measureLoudness(path: string, info: MediaInfo): Promise<Re
   const out: Record<number, number> = {};
   const audio = info.streams.filter((s) => s.kind === "audio").length;
   for (let i = 0; i < audio; i++) {
+    const src = streamSource(path, info, "audio", i);
     const log = await new Promise<string>((resolve) => {
-      const proc = spawn(["ffmpeg", "-nostdin", "-hide_banner", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${i}`, "-af", "ebur128=framelog=quiet", "-f", "null", "-"], { stdout: "ignore", stderr: "pipe" });
+      const proc = spawn(["ffmpeg", "-nostdin", "-hide_banner", "-protocol_whitelist", "file", "-i", src.path, "-map", `0:a:${src.stream}`, "-af", "ebur128=framelog=quiet", "-f", "null", "-"], { stdout: "ignore", stderr: "pipe" });
       void new Response(proc.stderr).text().then(resolve);
     });
     const lufs = [...log.matchAll(/I:\s+(-?[\d.]+) LUFS/g)].at(-1)?.[1];

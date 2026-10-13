@@ -270,7 +270,8 @@ function renameProject(name: string): Promise<void> {
 
 /** Import Media (⌘I): recordings, video, audio and images onto the timeline, after what is there. */
 async function importMedia() {
-  const files = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: true, startingFolder: "~/" });
+  // Directories too: a take (`.brec`) is a folder until the app declares it a package (Phase 6, step 4).
+  const files = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: true, allowsMultipleSelection: true, startingFolder: "~/" });
   if (files.filter(Boolean).length) await importPaths(files.filter(Boolean));
 }
 

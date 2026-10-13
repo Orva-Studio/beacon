@@ -16,7 +16,7 @@ const same = (path: string, f: DroppedFile) => {
   try {
     const s = statSync(path);
     // A project is a folder Finder shows as a file; WebKit's size for it isn't the folder's.
-    if (/\.(cmproj|beproj)$/.test(f.name)) return s.isDirectory() && Math.abs(s.mtimeMs - f.lastModified) < 1000;
+    if (/\.(cmproj|beproj|brec)$/.test(f.name)) return s.isDirectory() && Math.abs(s.mtimeMs - f.lastModified) < 1000;
     return s.isFile() && s.size === f.size && Math.abs(s.mtimeMs - f.lastModified) < 1000;
   } catch {
     return false;

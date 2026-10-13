@@ -19,6 +19,19 @@ A stream that wasn't recorded has no file. Audio is PCM, not AAC: FFmpeg reads
 AVAssetWriter's AAC 44 ms late (its priming), and an unfinished `.m4a` can't be
 read at all; an unfinished WAV and fragmented MP4 can.
 
+## Importing
+A take imports as one recording asset whose path is the folder, like a
+`.trec`: one Media Bin item, its streams' clips stacked and linked as a
+`.trec`'s (camera and audio together, the screen apart). The probe lists each
+stream with its `file`, `start` and role (`screen`, `camera`, `microphone`,
+`systemAudio`), and `streamSource` (`@beacon/media`) is what everything that
+opens a stream reads it through: a `.brec`'s stream `n` is its file's stream 0.
+Each clip starts as far into its file as the latest-starting file began after
+it, so all show the same moment of the take; a measured device delay (an
+`offset` in seconds added to a stream's `start`, from the sync check) moves a
+stream the same way. The cursor's times are moved into the screen file's time;
+its images are drawn from their PNGs.
+
 ## `cursor.jsonl`
 The cursor, polled about 120 times a second on the recorder's main thread:
 positions and buttons through CoreGraphics (no permission needed), the image

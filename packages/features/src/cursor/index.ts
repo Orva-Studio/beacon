@@ -28,7 +28,8 @@ export interface CursorData {
   t: Float64Array;
   x: Int32Array;
   y: Int32Array;
-  images: { index: number; width: number; height: number; hotX: number; hotY: number; scale: number }[];
+  /** A `.brec`'s images are PNG files; a `.trec`'s are read from it by index. */
+  images: { index: number; width: number; height: number; hotX: number; hotY: number; scale: number; file?: string }[];
   changes: { t: number; index: number }[];
   /** Captured display bounds in points, when the recording has them. */
   display?: { x: number; y: number; w: number; h: number };
@@ -291,7 +292,7 @@ export const cursor = defineFeature({
       const img = d.images[state.image]!;
       const layer: VisualLayer = {
         kind: "visual",
-        content: { type: "source", source: ctx.source({ kind: "cursor", path: d.path, index: state.image }) },
+        content: { type: "source", source: ctx.source(img.file ? { kind: "image", path: img.file } : { kind: "cursor", path: d.path, index: state.image }) },
         size: [img.width, img.height],
         transform: spriteTransform(d, state, c.scale, streamWidth, cursorExtra(e, d, seconds)),
         opacity: c.opacity,

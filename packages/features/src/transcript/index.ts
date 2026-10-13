@@ -14,7 +14,7 @@ import {
   type FeatureRegistry,
   type Project,
 } from "@beacon/model";
-import { clipStream, mediaInfo } from "../media";
+import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
 
 /** `Asset.derived.transcript` / the `transcript` analyzer: one transcription per audio stream index. */
@@ -184,7 +184,8 @@ export const transcript = defineFeature({
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
         for (const i of audio.keys()) {
-          streams[i] = await transcribe(asset.path, { stream: i, onProgress: (f) => progress((i + f) / audio.length) });
+          const src = sourceOf(asset, "audio", i);
+          streams[i] = await transcribe(src.path, { stream: src.stream, onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },

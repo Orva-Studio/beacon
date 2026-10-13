@@ -32,7 +32,7 @@ export interface ClipLocation {
 function placeClips(
   doc: Project,
   ctx: { newId: (prefix: string) => string },
-  specs: { type: string; duration: Ticks; props: Clip["props"]; assetId?: string; link?: string }[],
+  specs: { type: string; duration: Ticks; mediaStart?: Ticks; props: Clip["props"]; assetId?: string; link?: string }[],
   time: number,
   track?: string,
 ): string[] {
@@ -61,7 +61,7 @@ function placeClips(
     }
     const t = at && takes(at, i) ? at : add(from + i);
     const id = ctx.newId("clip");
-    t.clips.push({ id, type: spec.type, start, duration: durations[i]!, mediaStart: 0, ...(spec.assetId ? { assetId: spec.assetId } : {}), ...(links.has(keys[i]) ? { linkId: links.get(keys[i]) } : {}), props: spec.props, effects: [], animations: [] });
+    t.clips.push({ id, type: spec.type, start, duration: durations[i]!, mediaStart: spec.mediaStart ?? 0, ...(spec.assetId ? { assetId: spec.assetId } : {}), ...(links.has(keys[i]) ? { linkId: links.get(keys[i]) } : {}), props: spec.props, effects: [], animations: [] });
     return id;
   });
 }

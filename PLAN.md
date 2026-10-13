@@ -931,6 +931,19 @@ arrow, I-beam and hand. macOS's large-cursor setting enlarges the arrow and
 I-beam images (28×40 points) but not the hand (32×32): step 3 draws them at
 their own sizes.
 
+**3. Importing a take (2026-10-13).** A `.brec` imports as one recording asset
+(the folder), as a `.trec` does: one Media Bin item, its clips stacked and
+linked the same way (`docs/formats/brec.md`). Everything that opens a stream
+(the renderer's video and audio, proxies, waveforms, transcripts, loudness,
+thumbnails) goes through `streamSource`, since a take keeps each stream in its
+own file. Each clip starts into its file by how much later the latest stream
+began, so all show the same moment (checked: the screen 4.0 ms in, the camera
+12.4 ms, the system audio 2.2 ms); a stream's `offset` from the sync check
+will move it the same way. The cursor is drawn from the take's PNGs at the
+logged positions (checked in rendered frames: the arrow's tip and the I-beam's
+middle on the logged point). Drag and drop takes a `.brec` folder, and Import
+Media can choose folders until step 4 declares `.brec` a package.
+
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often
 50–150 ms, which no API reports and which differs per camera, so Beacon
