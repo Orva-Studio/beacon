@@ -929,8 +929,11 @@ pair (about 10 s; the speakers on, the camera seeing the screen's light),
 saves the offset per pair, and writes it into each take's `recording.json`;
 importing a take (step 3) moves the camera clip by it, so nothing is
 re-encoded and it stays adjustable. Without a check, a manual offset per
-device does the same. A clap test is the fallback when the speakers can't be
-used; estimating sync from lip movement is for the AI features after Phase 6.
+device does the same. When the capture card also carries the camera's own
+audio (HDMI), matching that against the microphone's waveform gives the offset
+from ordinary speech, with no test (check whether the user's Elgato offers an
+audio device). Camtasia has neither: its only fix is moving the clip by hand.
+A clap test is the fallback when the speakers can't be used; estimating sync from lip movement is for the AI features after Phase 6.
 To check with the user's setup (Blue Yeti, Elgato): the offset, and a long
 take's `driftPpm` (a USB microphone keeps its own clock).
 
