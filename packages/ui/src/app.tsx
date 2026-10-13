@@ -352,7 +352,7 @@ function Transport({ project, session, host, init }: { project: Project; session
     return b ? ` (${label(b.keys)})` : "";
   };
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-divider bg-bar px-3">
+    <div className="flex h-9 shrink-0 items-center justify-center gap-1 border-b border-divider bg-bar px-3">
       <Button look="icon" title={`Previous media${tip("playhead.jump", { to: "previousEdit" })}`} onClick={() => host.run("playhead.jump", { to: "previousEdit" })}>
         <Icon name="skip-back" filled />
       </Button>

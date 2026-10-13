@@ -135,7 +135,7 @@ export const ToolPanel = memo(function ToolPanel({
     return (
       <Panel title="Media">
         <div className="mb-3 flex items-center justify-center gap-2 text-body text-text-dim">
-          Sort by
+          Sort
           <div className="w-32">
             <Select value={sort.by} onChange={(e) => replica.sortBin({ ...sort, by: e.target.value as BinSort })}>
               {SORTS.map(([id, name]) => (

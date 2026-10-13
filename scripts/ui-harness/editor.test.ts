@@ -113,12 +113,14 @@ test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the ef
   await run("playhead.set", { time: 2 });
 });
 
-test.skipIf(skip)("Clip Speed shows once added; editing its duration sets the speed of the selected clip only", async () => {
+test.skipIf(skip)("Clip Speed is a tab once added; editing its duration sets the speed of the selected clip only", async () => {
   await select([screen.id]);
   await run("inspector.tab", { tab: "transform" });
-  expect(await page.evaluate<boolean>("document.body.innerText.includes('Clip Speed')")).toBe(false);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[title=\"Clip Speed\"]')")).toBe(false);
+  // As the app's Clip Speed menu item does.
   ui.send("showClipSpeed", { clip: screen.id });
-  await page.until("document.body.innerText.includes('Clip Speed')");
+  await run("inspector.tab", { tab: "speed" });
+  await page.until("!!document.querySelector('[title=\"Clip Speed\"]') && document.body.innerText.includes('Minutes')");
   const minutes = Math.floor(clip(screen.id).duration / 705_600_000 / 60);
   await page.evaluate(`[...document.querySelectorAll('label')].find(l => l.textContent.endsWith('Minutes')).querySelector('span').click()`);
   await page.until("document.activeElement?.tagName === 'INPUT'");
@@ -242,6 +244,34 @@ test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, a
   await job.done;
   expect(states).toEqual(["done"]);
 }, 120000);
+
+test.skipIf(skip)("the rotation gizmo turns a clip by dragging a ring, one undo step; its effects are on the fx tab", async () => {
+  await run("playhead.set", { time: 1 });
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await page.until("!!document.querySelector('[data-rotation-gizmo]')");
+  const undoBefore = (await ui.core.history(ui.handle)).undo.length;
+  // The Z ring's right-hand edge, dragged counter-clockwise.
+  const [sx, sy] = await page.evaluate<[number, number]>(
+    `(() => { const g = document.querySelector('[data-rotation-gizmo]').getBoundingClientRect(); const b = document.querySelector('[data-ring=z]').getBBox(); return [g.x + ((b.x + b.width) * g.width) / 112 - 1, g.y + ((b.y + b.height / 2) * g.height) / 112]; })()`,
+  );
+  await page.drag([sx, sy], [sx - 20, sy - 30]);
+  await Bun.sleep(300);
+  const degrees = ((clip(screen.id).props.transform as { rotation: number }).rotation * 180) / Math.PI;
+  expect(degrees).toBeGreaterThan(20);
+  expect((await ui.core.history(ui.handle)).undo.length - undoBefore).toBe(1);
+  await ui.core.undo(ui.handle);
+
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  const fx = clip(screen.id).effects.at(-1)!;
+  await run("effect.select", { effects: [{ clip: screen.id, id: fx.id }] });
+  expect((await session()).inspector).toBe("effects");
+  await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
+  await run("inspector.tab", { tab: "transform" });
+  await Bun.sleep(200);
+  expect(await page.evaluate<boolean>("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')")).toBe(false);
+  await ui.core.undo(ui.handle);
+});
 
 test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
   await select([]);
@@ -604,6 +634,7 @@ test.skipIf(skip)("the corner above the track headers: + adds a track (one undo 
 test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colour) shows a swatch", async () => {
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });
   await select([screen.id]);
+  await run("inspector.tab", { tab: "effects" });
   await page.until(`[...document.querySelectorAll('button[title]')].some((b) => /^colou?r$/i.test(b.title))`);
   await ui.core.undo(ui.handle);
 });

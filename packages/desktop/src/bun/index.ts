@@ -815,12 +815,11 @@ ContextMenu.on("context-menu-clicked", (e) => {
   if (op!.startsWith("edit.")) void run(op!);
   else if (op === "unlink") void run("clip.unlink", { clip });
   else if (op === "openGroup") void run("group.open", { clip });
-  // A Clip Speed section appears in the clip's properties.
+  // The clip's properties gain a Speed tab.
   else if (op === "clipSpeed") {
-    const type = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === clip)?.type;
     send().showClipSpeed({ clip });
     void run("panel.show", { properties: true });
-    void run("inspector.tab", { tab: type && core.registry.hasTrait(type, "visual") ? "transform" : "audio" });
+    void run("inspector.tab", { tab: "speed" });
   }
   else if (op === "hideProperties") void run("panel.show", { properties: false });
   else if (op === "selectInBin") {

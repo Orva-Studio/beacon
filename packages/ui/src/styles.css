@@ -103,6 +103,10 @@
   --color-grip: rgba(0, 0, 0, 0.35);
   --color-insert-space: rgba(62, 230, 141, 0.2);
   --color-range-edge: var(--color-accent);
+  /* Rotation rings, as 3D apps colour their axes */
+  --color-axis-x: #f2555a;
+  --color-axis-y: #5fd068;
+  --color-axis-z: #4b8df8;
   --color-range-ruler: rgba(62, 230, 141, 0.28);
   --color-range-band: rgba(62, 230, 141, 0.1);
   /* Animations: keyframe diamonds joined by a band */

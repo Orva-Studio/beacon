@@ -769,6 +769,24 @@ action; mute, lock and eye on every track; a track shows its name only when it h
 Missing on its Media Bin tile, builds no proxy (the raw ffmpeg error the user
 saw), and Locate Media… in its menu relinks it (`core.relink`, refused unless
 it is the same media; MCP `media_missing`, `media_relink`).
+2026-10-13 (the user): the playhead is one colour, a thin white line under a
+small pin (as CapCut, Premiere and Resolve), without Camtasia's green/red
+handles; an in/out range (I/O, ⌘-drag) is a band on the ruler whose edges
+drag there. A proxy is a "P" badge at a Media Bin tile's top right. The
+properties panel drops the clip's name; effects have their own fx tab
+(selecting an effect opens it); the cursor tab has a macOS-style pointer
+(a custom icon beside Phosphor's); Position has no Z; rotation is a gizmo,
+three rings seen slightly from above (X red, Y green, Z blue) with a card
+showing the clip's orientation, plus a number box per axis. The transport
+is centred, the Media Bin says "Sort", and dragging an audio clip's volume
+line shows its level as a percentage. Audio's waveform is drawn at the level
+it plays (boost × the volume line, so fades taper); the Audio tab has Volume
+(the line's level at the playhead) and Boost (the `gain` prop, up to 500%,
+renamed in the UI only); the volume line stays a line. Clip Speed is its own
+tab (not an effect: it is the clip's timing), shown once the speed is changed
+or Clip Speed is chosen. A tilted (X/Y rotation) clip's effects run on the
+flat clip, which is then drawn in perspective (the CRT was sheared and cut
+off).
 Reviewed 2026-10-12 (PR #6): cancelling a job starts no more processes (a
 cancelled proxy build used to restart in software); native decoding asks for
 4:2:0 and reports decode errors; Settings and Export use `Modal`, with one

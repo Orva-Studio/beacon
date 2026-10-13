@@ -40,7 +40,7 @@ type Drag =
   | { kind: "height" }
   | { kind: "track"; track: string; from: number; to: number }
   | { kind: "anim"; clip: string; anim: string; part: "start" | "end" | "body"; x0: number; a: number; b: number; key: string }
-  | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string }
+  | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
   | { kind: "range"; anchor: number }
   | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
   | { kind: "space"; at: number; d: number }
@@ -305,12 +305,15 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             ctx.fillStyle = teal ? AUDIO_SELECTED.wave() : CLIP.wave();
             const media0 = ticksToSeconds(clip.mediaStart ?? 0);
             const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
+            // Drawn at the level it plays: boost times the volume line, so fades taper and a quiet clip looks quiet.
+            const boost = Number((clip.props.audio as { gain?: number } | undefined)?.gain ?? 1);
             for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
-              const m = media0 + (start + (px - HEADER) / pps - a) * speed;
+              const t = start + (px - HEADER) / pps;
+              const m = media0 + (t - a) * speed;
               const k = Math.floor(m * 100);
               let peak = 0;
               for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
-              const hgt = (peak / 255) * (ch - 6);
+              const hgt = Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
               ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
             }
           }
@@ -662,6 +665,22 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, 0, RANGE_TAB, 2);
         ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, RULER - 2, RANGE_TAB, 2);
       }
+    }
+    const drag = dragState.current;
+    const dragged = drag?.kind === "volume" && drag.at ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === drag.clip) : undefined;
+    if (drag?.kind === "volume" && drag.at && dragged) {
+      // The level being dragged, as a percentage beside the pointer.
+      const level = drag.index === null ? volumeAt(dragged, start + (drag.at[0] - HEADER) / pps) : (volumePoints(dragged)[drag.index]?.value ?? 0);
+      const text = `${Math.round(level * 100)}%`;
+      ctx.font = font(11);
+      const tw = ctx.measureText(text).width + 12;
+      const [lx, ly] = [Math.min(drag.at[0] + 12, w - tw - 4), Math.max(RULER + 2, drag.at[1] - 26)];
+      ctx.fillStyle = color("chip");
+      ctx.beginPath();
+      ctx.roundRect(lx, ly, tw, 18, 9);
+      ctx.fill();
+      ctx.fillStyle = color("text-strong");
+      ctx.fillText(text, lx + 6, ly + 13);
     }
     if (ph >= HEADER - 12 && ph <= w + 12) {
       const cx = Math.round(ph) + 0.5;
@@ -1094,6 +1113,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return;
           }
           if (d.kind === "volume") {
+            d.at = [x, y];
+            draw();
             // Up to 100% by dragging, but points already above it aren't pulled down.
             const v = (val: number, was = 0) => Math.min(Math.max(1, was), Math.max(0, val));
             const dv = -(y - d.y0) / (TRACK - 12);

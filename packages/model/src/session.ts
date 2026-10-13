@@ -475,7 +475,10 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       const next = add ? [...s.effects.filter((e) => !effects.some((x) => key(x) === key(e))), ...effects] : effects;
       s.effects = next;
       s.animation = null;
-      if (effects.length) s.selection = [...new Set([...(add ? s.selection : []), ...next.map((e) => e.clip)])];
+      if (effects.length) {
+        s.selection = [...new Set([...(add ? s.selection : []), ...next.map((e) => e.clip)])];
+        s.inspector = "effects";
+      }
     },
   }),
   sessionCommand({
@@ -545,11 +548,11 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
   }),
   sessionCommand({
     id: "inspector.tab",
-    description: 'Show a tab of the properties panel: a property group id (e.g. "transform", "cursor"), "effects" or "audio"',
+    description: 'Show a tab of the properties panel: a property group id (e.g. "transform", "cursor"), "effects", "audio" or "speed"',
     args: z.strictObject({ tab: z.string().min(1) }),
     apply: (s, { tab }, { registry }) => {
-      if (tab !== "effects" && tab !== "audio" && !registry.propGroups.has(tab)) {
-        throw new Error(`no property group "${tab}"; there are: ${[...registry.propGroups.keys()].join(", ")}, effects, audio`);
+      if (tab !== "effects" && tab !== "audio" && tab !== "speed" && !registry.propGroups.has(tab)) {
+        throw new Error(`no property group "${tab}"; there are: ${[...registry.propGroups.keys()].join(", ")}, effects, audio, speed`);
       }
       s.inspector = tab;
       s.panels.properties = true;
