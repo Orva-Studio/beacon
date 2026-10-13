@@ -14,7 +14,7 @@ export const motionBlur = defineFeature({
       id: "motion-blur",
       description: "Blur along the clip's motion",
       traits: ["visual"],
-      params: z.strictObject({ intensity: z.number().nonnegative() }),
+      params: z.strictObject({ intensity: z.number().nonnegative().meta({ slider: { max: 2 } }) }),
       defaults: () => ({ intensity: 1 }),
     },
   ],

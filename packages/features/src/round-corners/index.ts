@@ -11,7 +11,7 @@ export const roundCorners = defineFeature({
       description: "Rounded corners on the clip's content",
       traits: ["visual"],
       params: z.strictObject({
-        radius: z.number().nonnegative(),
+        radius: z.number().nonnegative().meta({ slider: { max: 200 } }),
         topLeft: z.boolean(),
         topRight: z.boolean(),
         bottomRight: z.boolean(),

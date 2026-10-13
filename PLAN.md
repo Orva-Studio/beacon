@@ -975,6 +975,12 @@ what's shown before it (`shim.c`; `matches_ffmpeg.rs` seeks into a camera
 take). Still to come: a camera preview and a
 microphone level in the dialog, and the sync check in Settings.
 
+**After the first in-app run (2026-10-13, the user).** Proxies are off by
+default (Settings › General turns them on; the preview reads originals in
+process). Corner Rounding's radius, Drop Shadow's offset and blur and Motion
+Blur's intensity have sliders. To do: an effect's on/off switch that looks
+less like Camtasia's green pill.
+
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often
 50–150 ms, which no API reports and which differs per camera, so Beacon

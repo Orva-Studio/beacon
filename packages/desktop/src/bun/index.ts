@@ -299,7 +299,8 @@ function exportPrefs(): ExportPrefs {
 /** Beacon > Settings… > General (`~/Library/Application Support/Beacon/settings.json`). */
 const SETTINGS_FILE = join(homedir(), "Library/Application Support/Beacon/settings.json");
 let appSettings: AppSettings = (() => {
-  const defaults: AppSettings = { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" };
+  // Proxies are off until turned on: the preview reads originals in process, and a proxy is one more copy to build.
+  const defaults: AppSettings = { exportColorSpace: "bt709", autoProxy: { recording: false, video: false }, proxyMode: "quiet" };
   try {
     return { ...defaults, ...(JSON.parse(readFileSync(SETTINGS_FILE, "utf8")) as Partial<AppSettings>) };
   } catch {
