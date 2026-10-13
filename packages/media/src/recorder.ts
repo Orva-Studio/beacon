@@ -18,6 +18,9 @@ export interface RecorderSources {
   microphone?: { id?: string };
 }
 
+/** The Record dialog's preview: what the camera sees (base64 JPEG, about 320 wide), or the microphone's level in dBFS. */
+export type RecorderPreviewEvent = { jpeg: string } | { db: number; peak: number };
+
 type Event = { event: string; id?: number; message?: string; [k: string]: unknown };
 
 /**
@@ -29,6 +32,7 @@ export class Recorder {
   #next = 1;
   #waiting = new Map<number, { resolve: (e: Event) => void; reject: (e: Error) => void }>();
   #ready?: Promise<void>;
+  #preview?: (e: RecorderPreviewEvent) => void;
 
   #start(): Promise<void> {
     const path = process.env.BEACON_RECORDER_PATH ?? enginePath("beacon-recorder");
@@ -49,6 +53,8 @@ export class Recorder {
           if (!line.trim()) continue;
           const e = JSON.parse(line) as Event;
           if (e.event === "ready") ready();
+          else if (e.event === "previewFrame") this.#preview?.({ jpeg: e.jpeg as string });
+          else if (e.event === "previewLevel") this.#preview?.({ db: e.db as number, peak: e.peak as number });
           const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
           if (!w) continue;
           this.#waiting.delete(e.id!);
@@ -87,6 +93,16 @@ export class Recorder {
   /** Asks macOS for the permission (its prompt the first time); the status after. */
   async access(kind: "camera" | "microphone"): Promise<string> {
     return (await this.#send({ cmd: "access", kind })).status as string;
+  }
+
+  /** Shows the camera and microphone to `fn` until called again (with neither, it stops); a take starting stops it. */
+  async preview(devices: Pick<RecorderSources, "camera" | "microphone">, fn?: (e: RecorderPreviewEvent) => void): Promise<void> {
+    this.#preview = fn;
+    if (!devices.camera && !devices.microphone) {
+      if (this.#proc) await this.#send({ cmd: "previewStop" });
+      return;
+    }
+    await this.#send({ cmd: "preview", ...(devices.camera ? { camera: devices.camera } : {}), ...(devices.microphone ? { microphone: devices.microphone } : {}) });
   }
 
   /** Starts a take into `dir` (a new `.brec` folder); resolves once every source is delivering. */

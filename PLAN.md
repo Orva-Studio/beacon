@@ -972,8 +972,14 @@ its proxy was deleted: AVFoundation's camera encoder writes open-GOP HEVC
 the preview's native VideoToolbox decoding failed every seek on them where
 FFmpeg drops them. After a seek it now starts at the keyframe and skips
 what's shown before it (`shim.c`; `matches_ffmpeg.rs` seeks into a camera
-take). Still to come: a camera preview and a
-microphone level in the dialog, and the sync check in Settings.
+take). The dialog previews the chosen camera
+and shows the microphone's level (2026-10-13): `beacon-recorder serve`'s
+`preview` runs a capture session that writes nothing, sending the camera as
+320-wide JPEGs at 15 fps (macOS scales in the capture pipeline, AppKit
+encodes) and the microphone's loudest channel in dBFS 20 times a second
+(`AVCaptureAudioChannel`); a take starting stops it, and only devices Beacon
+may already use are previewed (asking waits for Record). Still to come: the
+sync check in Settings.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

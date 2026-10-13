@@ -4,7 +4,7 @@ import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, pastePng, probeMedia, Recorder, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -886,6 +886,10 @@ export class LocalCore implements BeaconCore {
 
   async recorderAccess(kind: "camera" | "microphone") {
     return this.#recorder.access(kind);
+  }
+
+  async recorderPreview(devices: Pick<RecorderSources, "camera" | "microphone">, fn?: (e: RecorderPreviewEvent) => void) {
+    return this.#recorder.preview(devices, fn);
   }
 
   async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {

@@ -311,7 +311,7 @@ fn allowed(media: &NSString) -> bool {
     (unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) }) == AVAuthorizationStatus::Authorized
 }
 
-fn device(media: &NSString, wanted: &Device, kind: &str) -> Result<Retained<AVCaptureDevice>, String> {
+pub(crate) fn device(media: &NSString, wanted: &Device, kind: &str) -> Result<Retained<AVCaptureDevice>, String> {
     unsafe {
         match &wanted.id {
             Some(id) => AVCaptureDevice::deviceWithUniqueID(&NSString::from_str(id)).ok_or_else(|| format!("no {kind} \"{id}\"")),

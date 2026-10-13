@@ -7,6 +7,7 @@
 mod capture;
 mod cursor;
 mod devices;
+mod preview;
 mod serve;
 
 use std::path::Path;

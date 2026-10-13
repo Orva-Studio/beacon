@@ -405,6 +405,29 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
 });
 
+test.skipIf(skip)("Record previews the chosen camera and shows the microphone's level, and stops when closed", async () => {
+  const sheet = {
+    permissions: { screen: "granted", camera: "granted", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X" }, { id: "cam-2", name: "MacBook Pro Camera" }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }],
+    sources: { screen: { fps: 60 }, camera: { id: "cam-1" }, microphone: { id: "mic-1" } },
+  };
+  const before = ui.menus.length;
+  ui.send("recordSheet", sheet);
+  await page.until("!!document.querySelector('[data-camera-preview]') && document.querySelector('[role=meter]')?.dataset.level === '-20'");
+  expect(await page.evaluate<string>("document.querySelector('[data-camera-preview]').src")).toStartWith("data:image/jpeg;base64,");
+  const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  expect(previews().at(-1)).toEqual({ camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
+  // Another camera is previewed instead.
+  await page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'cam-2')); s.value = 'cam-2'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await arrived(() => previews().at(-1)?.camera?.id === "cam-2");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
+  await arrived(() => JSON.stringify(previews().at(-1)) === "{}");
+  expect(previews().at(-1)).toEqual({});
+});
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");

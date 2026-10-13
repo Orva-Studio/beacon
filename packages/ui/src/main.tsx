@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
+import { recordPreviewEvent } from "./record";
 import type { AppRPC } from "./rpc";
 import { replica } from "./store";
 
@@ -25,6 +26,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       media: (m) => replica.media(m),
       exportSheet: (s) => replica.exportSheet(s),
       recordSheet: (s) => replica.recordSheet(s),
+      recordPreview: (e) => recordPreviewEvent(e),
       exportJob: (j) => replica.exportJob(j),
       snapshotSaved: ({ path }) => replica.snapshot(path),
       settingsSheet: (s) => replica.settings(s),
@@ -87,6 +89,7 @@ const host: Host = {
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),
+  recordPreview: (devices) => void request.recordPreview(devices),
   cancelExport: (id) => void report(request.cancelExport({ id })),
   showFile: (path, open) => void request.showFile({ path, open }),
   setAppSettings: (s) => void request.setAppSettings(s),

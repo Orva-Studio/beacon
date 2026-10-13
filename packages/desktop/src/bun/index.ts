@@ -620,6 +620,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
+      recordPreview: (devices) => reply(() => core.recorderPreview(devices, (e) => send().recordPreview(e))),
       cancelExport: ({ id }) => reply(() => core.cancelJob(id)),
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),

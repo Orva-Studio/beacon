@@ -162,6 +162,7 @@ export class RemoteCore implements BeaconCore {
   captureFrame = (h: ProjectHandle, time?: number, opts?: { folder?: string }) => this.#call<{ asset: string; path: string }>("captureFrame", h, time, opts);
   sheet = (h: ProjectHandle, opts: SheetOptions) => this.#call<Image & { times: number[] }>("sheet", h, opts);
   recorderDevices = () => this.#call<RecorderDevices>("recorderDevices");
+  recorderPreview = (): Promise<void> => Promise.reject(new Error("the recorder's preview is only shown in the app"));
   recorderAccess = (kind: "camera" | "microphone") => this.#call<string>("recorderAccess", kind);
   recordStart = (h: ProjectHandle, opts?: RecordOptions) => this.#call<{ take: string }>("recordStart", h, opts);
   recordStatus = () => this.#call<RecordStatus>("recordStatus");

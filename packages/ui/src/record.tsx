@@ -1,10 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Modal, Select, SettingsRow as Row } from "./controls";
-import type { RecordSheet, RecordSources } from "./rpc";
+import { Button, LevelMeter, Modal, Select, SettingsRow as Row } from "./controls";
+import type { RecordPreview, RecordSheet, RecordSources } from "./rpc";
 import { replica, useView } from "./store";
 
 export interface RecordHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
+  /** Shows the camera and microphone (`recordPreviewEvent` gets them); with neither, stops. */
+  recordPreview(devices: Pick<RecordSources, "camera" | "microphone">): void;
+}
+
+const previewListeners = new Set<(e: RecordPreview) => void>();
+
+/** A camera frame or microphone level for the open Record dialog. */
+export function recordPreviewEvent(e: RecordPreview) {
+  for (const l of previewListeners) l(e);
 }
 
 const COUNTDOWN = 3;
@@ -43,6 +52,23 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const [error, setError] = useState<string>();
   const close = () => replica.recordSheet(undefined);
   const nothing = !s.screen && !s.systemAudio && !s.camera && !s.microphone;
+  const [frame, setFrame] = useState<string>();
+  const [level, setLevel] = useState<{ db: number; peak: number }>();
+
+  // Only devices Beacon may already use: asking for a permission waits for Record.
+  const camera = sheet.permissions.camera === "granted" ? s.camera : undefined;
+  const microphone = sheet.permissions.microphone === "granted" ? s.microphone : undefined;
+  useEffect(() => {
+    setFrame(undefined);
+    setLevel(undefined);
+    const listen = (e: RecordPreview) => ("jpeg" in e ? setFrame(e.jpeg) : setLevel(e));
+    previewListeners.add(listen);
+    host.recordPreview({ ...(camera ? { camera } : {}), ...(microphone ? { microphone } : {}) });
+    return () => {
+      previewListeners.delete(listen);
+      host.recordPreview({});
+    };
+  }, [camera?.id, microphone?.id, !!camera, !!microphone]);
 
   useEffect(() => {
     if (counting === undefined) return;
@@ -91,7 +117,14 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
             </Select>
           </div>
         </Source>
-        <Source label="Camera" hint={permission("camera", sheet.permissions.camera)} on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
+        <Source
+          label="Camera"
+          hint={
+            permission("camera", sheet.permissions.camera) ??
+            // Mirrored, as a self-view is; the take isn't.
+            (frame && <img src={`data:image/jpeg;base64,${frame}`} alt="Camera preview" className="mt-1 w-60 -scale-x-100 rounded-md bg-groove" data-camera-preview />)
+          }
+          on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
           <div className="w-72">
             <Select value={s.camera?.id ?? ""} onChange={(e) => setS({ ...s, camera: { id: e.target.value } })}>
               {sheet.cameras.map((c) => (
@@ -112,6 +145,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
               ))}
             </Select>
           </div>
+          {microphone && <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />}
         </Source>
         <Source label="System audio" on={!!s.systemAudio} setOn={(on) => setS({ ...s, systemAudio: on || undefined })} />
       </div>

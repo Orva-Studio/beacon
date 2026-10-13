@@ -127,6 +127,9 @@ export interface RecordSources {
   microphone?: { id?: string };
 }
 
+/** The Record dialog's preview: a camera frame (base64 JPEG), or the microphone's level in dBFS. */
+export type RecordPreview = { jpeg: string } | { db: number; peak: number };
+
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
 export interface RecordSheet {
   permissions: { screen: string; camera: string; microphone: string };
@@ -179,6 +182,8 @@ export type AppRPC = {
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
+      /** Shows the camera and microphone in the Record dialog (`recordPreview` messages); with neither, stops. */
+      recordPreview: { params: Pick<RecordSources, "camera" | "microphone">; response: RunReply };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
       setAppSettings: { params: AppSettings; response: void };
@@ -232,6 +237,7 @@ export type AppRPC = {
       exportSheet: ExportSheet;
       /** File > Record… (⌘R): open the Record dialog. */
       recordSheet: RecordSheet;
+      recordPreview: RecordPreview;
       exportJob: ExportJob;
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };
