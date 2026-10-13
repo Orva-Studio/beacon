@@ -941,8 +941,23 @@ began, so all show the same moment (checked: the screen 4.0 ms in, the camera
 12.4 ms, the system audio 2.2 ms); a stream's `offset` from the sync check
 will move it the same way. The cursor is drawn from the take's PNGs at the
 logged positions (checked in rendered frames: the arrow's tip and the I-beam's
-middle on the logged point). Drag and drop takes a `.brec` folder, and Import
-Media can choose folders until step 4 declares `.brec` a package.
+middle on the logged point). Drag and drop takes a `.brec` folder.
+
+**4. Recording from the app and agents (2026-10-13, under way).** Core
+records (`recorderDevices`, `recorderAccess`, `recordStart`, `recordStatus`,
+`recordStop`), over the app's socket too, through one `beacon-recorder serve`
+sidecar (`Recorder` in `@beacon/media`); MCP has `recorder_*` tools. A take
+goes in the project's `recordings/<date time>.brec`, and stopping imports it
+into the project it was started for; closing that project stops and imports it
+first. Checked headless: a 3 s take started (about 0.5 s while the sources
+warm up), refused a second start, reported its status, stopped and imported as
+linked clips with its cursor. Info.plist gets the camera and microphone usage
+strings and declares `.brec` a package (`dev.beacon.recording`): Electrobun's
+config can't, and Hutch's build doesn't run `postWrap`, so `bun run build`
+patches the built bundle and a dev bundle patches itself at startup
+(`src/bun/info-plist.ts`). Next: the recorder window (sources, countdown,
+Beacon out of the way while recording, a menu-bar item to stop), then the
+sync check in Settings.
 
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often

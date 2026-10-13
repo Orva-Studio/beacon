@@ -1,4 +1,5 @@
 import type { CommandResult, Patch, Session, Settings } from "@beacon/model";
+import type { RecorderDevices, RecorderSources } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
 export type { CommandResult, Session };
@@ -62,6 +63,23 @@ export interface ImportOptions {
   /** A timeline track to put them on, as a drop does (the rest of a recording goes on the tracks above); refused over other media. */
   track?: string;
 }
+
+export interface RecordOptions {
+  /** What to record; by default the main display, the default microphone and the system audio. */
+  sources?: RecorderSources;
+  /** The take's name (its `.brec` folder in the project's `recordings`); by default the date and time. */
+  name?: string;
+}
+
+export interface RecordStatus {
+  recording: boolean;
+  /** The take's folder, the project it imports into, and seconds recorded. */
+  take?: string;
+  project?: ProjectHandle;
+  elapsed?: number;
+}
+
+export type { RecorderDevices, RecorderSources };
 
 export interface ImportResult {
   assets: string[];
@@ -201,5 +219,14 @@ export interface BeaconCore {
    * files, not inside a `.cmproj` or `.beproj`, and not existing unless `overwrite`.
    */
   checkOutput(h: ProjectHandle, path: string, opts?: { overwrite?: boolean }): Promise<void>;
+  /** Permissions, displays, cameras and microphones the recorder can use. */
+  recorderDevices(): Promise<RecorderDevices>;
+  /** Asks macOS for the camera or microphone permission; the status after. */
+  recorderAccess(kind: "camera" | "microphone"): Promise<string>;
+  /** Starts recording a take into the project's `recordings` folder; one take at a time. Resolves once every source is delivering. */
+  recordStart(h: ProjectHandle, opts?: RecordOptions): Promise<{ take: string }>;
+  recordStatus(): Promise<RecordStatus>;
+  /** Stops the take and imports it into the project it was started for (at the end, or as `opts` says). */
+  recordStop(opts?: ImportOptions): Promise<ImportResult & { take: string; duration: number }>;
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
 }

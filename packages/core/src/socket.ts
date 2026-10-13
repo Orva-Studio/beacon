@@ -68,6 +68,11 @@ export const METHODS = [
   "schema",
   "summary",
   "checkOutput",
+  "recorderDevices",
+  "recorderAccess",
+  "recordStart",
+  "recordStatus",
+  "recordStop",
   "session",
   "snapshot",
 ] as const;

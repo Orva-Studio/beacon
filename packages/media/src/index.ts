@@ -1,6 +1,7 @@
 export * from "./trec";
 export * from "./probe";
 export { isBrec } from "./brec";
+export * from "./recorder";
 export * from "./renderer";
 export * from "./preview";
 export * from "./transcribe";

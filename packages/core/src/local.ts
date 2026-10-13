@@ -4,7 +4,7 @@ import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, pastePng, probeMedia, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, pastePng, probeMedia, Recorder, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -54,6 +54,8 @@ import type {
   BeaconCore,
   ProjectHandle,
   QueryInfo,
+  RecordOptions,
+  RecordStatus,
   RunOptions,
   SchemaInfo,
   SheetOptions,
@@ -152,6 +154,12 @@ interface PreviewQueue {
 }
 
 /** In-process core: owns the documents, runs the engine, reads and writes `.beproj` folders (PLAN §7.1). */
+/** A take's default name: when it began, sortable ("2026-10-13 21.43.05"). */
+function takeName(d: Date): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`;
+}
+
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
@@ -248,6 +256,8 @@ export class LocalCore implements BeaconCore {
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
   async close(h: ProjectHandle): Promise<void> {
+    // A take being recorded for it is stopped and imported first, rather than left in its folder.
+    if (this.#recording?.h === h) await this.recordStop();
     const p = this.#get(h);
     clearTimeout(p.saveTimer);
     // Exports render a copy of the document taken when they started: they finish after the project closes.
@@ -865,6 +875,44 @@ export class LocalCore implements BeaconCore {
     const derived = join(this.cacheDir, "derived");
     const results = existsSync(derived) ? readdirSync(derived).filter((f) => f.startsWith(`${key}-v`) && /^\d+-[0-9a-f]+\.json$/.test(f.slice(key.length + 2))).map((f) => join(derived, f)) : [];
     return def.folder ? [...results, join(this.cacheDir, def.folder)] : results;
+  }
+
+  #recorder = new Recorder();
+  #recording?: { h: ProjectHandle; dir: string };
+
+  async recorderDevices() {
+    return this.#recorder.devices();
+  }
+
+  async recorderAccess(kind: "camera" | "microphone") {
+    return this.#recorder.access(kind);
+  }
+
+  async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
+    const p = this.#get(h);
+    if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
+    const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
+    const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
+    mkdirSync(dirname(dir), { recursive: true });
+    await this.#recorder.start(dir, sources);
+    this.#recording = { h, dir };
+    return { take: dir };
+  }
+
+  async recordStatus(): Promise<RecordStatus> {
+    const rec = this.#recording;
+    if (!rec) return { recording: false };
+    const s = await this.#recorder.status();
+    return { recording: s.recording, take: rec.dir, project: rec.h, ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}) };
+  }
+
+  async recordStop(opts: ImportOptions = {}): Promise<ImportResult & { take: string; duration: number }> {
+    const rec = this.#recording;
+    if (!rec) throw new Error("not recording");
+    this.#recording = undefined;
+    const take = await this.#recorder.stop();
+    if (take.errors.length) console.warn(`recording ${basename(rec.dir)}: ${take.errors.join("; ")}`);
+    return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
   }
 
   async missing(h: ProjectHandle): Promise<string[]> {

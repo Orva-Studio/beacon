@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
 import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, Utils, WGPUView } from "electrobun/main";
+import { patchInfoPlist } from "./info-plist";
 
 // The engine ships inside the app; set before anything loads it.
 const engineDir = join(import.meta.dir, "../engine");
@@ -10,6 +11,13 @@ if (existsSync(join(engineDir, "libbeacon_ffi.dylib"))) {
   process.env.BEACON_FFI_PATH ??= join(engineDir, "libbeacon_ffi.dylib");
   process.env.BEACON_WORKER_PATH ??= join(engineDir, "beacon-worker");
   process.env.BEACON_RECORDER_PATH ??= join(engineDir, "beacon-recorder");
+}
+
+// `electrobun dev` builds and launches in one step, so a dev bundle gets its Info.plist entries here (a built one
+// has them from `bun run build`); Launch Services then learns the `.brec` package type.
+const bundle = import.meta.dir.match(/^(.*?\.app)\/Contents\//)?.[1];
+if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
+  Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
 }
 
 const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, serveCore, walkClips, windowNumber } = await import("@beacon/core");
@@ -270,8 +278,7 @@ function renameProject(name: string): Promise<void> {
 
 /** Import Media (⌘I): recordings, video, audio and images onto the timeline, after what is there. */
 async function importMedia() {
-  // Directories too: a take (`.brec`) is a folder until the app declares it a package (Phase 6, step 4).
-  const files = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: true, allowsMultipleSelection: true, startingFolder: "~/" });
+  const files = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: true, startingFolder: "~/" });
   if (files.filter(Boolean).length) await importPaths(files.filter(Boolean));
 }
 

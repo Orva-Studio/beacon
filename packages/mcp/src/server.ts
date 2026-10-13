@@ -168,6 +168,39 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ asset: z.string(), path: z.string() }),
     run: async ({ asset, path }) => core.relink(project(), asset, expandHome(path)),
   });
+  const device = z.strictObject({ id: z.string().optional().describe("A device id from recorder_devices; omitted: the default device") });
+  add("recorder_devices", {
+    description: "What can be recorded: the Screen Recording, Camera and Microphone permissions, and the displays, cameras and microphones with their ids",
+    schema: z.strictObject({}),
+    run: async () => core.recorderDevices(),
+  });
+  add("recorder_access", {
+    description: "Ask macOS for the camera or microphone permission (it shows its prompt the first time, to the user); returns the status after",
+    schema: z.strictObject({ kind: z.enum(["camera", "microphone"]) }),
+    run: async ({ kind }) => core.recorderAccess(kind),
+  });
+  add("recorder_start", {
+    description:
+      "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it",
+    schema: z.strictObject({
+      screen: z.strictObject({ display: z.int().optional().describe("A display id; omitted: the main display"), fps: z.int().min(1).max(60).optional() }).optional(),
+      systemAudio: z.boolean().optional(),
+      camera: device.optional(),
+      microphone: device.optional(),
+      name: z.string().min(1).optional().describe("The take's name; omitted: the date and time"),
+    }),
+    run: async ({ name, ...sources }) => core.recordStart(project(), { ...(Object.keys(sources).length ? { sources } : {}), ...(name ? { name } : {}) }),
+  });
+  add("recorder_status", {
+    description: "Whether a take is being recorded, its folder and the seconds recorded",
+    schema: z.strictObject({}),
+    run: async () => core.recordStatus(),
+  });
+  add("recorder_stop", {
+    description: "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at the end of the timeline (or at `at`), the cursor drawn from its log",
+    schema: z.strictObject({ at: Seconds.optional() }),
+    run: async ({ at }) => core.recordStop(at === undefined ? {} : { at }),
+  });
   add("transaction", {
     description:
       "Run several commands as one undo step, all or nothing: `commands` is a list of {command, args} with command ids as in commands (dotted, e.g. \"zoom.to\") or tool names. Results come back in order",

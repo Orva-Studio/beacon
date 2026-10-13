@@ -29,6 +29,15 @@ out (`clip_set` transform/crop, or `track_set` hidden): see the
 Importing speech starts a background transcript job (whisper.cpp, local,
 seconds per minute of audio). `job_status` with `wait` blocks until it is done.
 
+## Recording
+`recorder_start` records a take into the project's `recordings` folder: the
+screen (without its cursor; Beacon draws its own), the system audio, a camera
+and a microphone, each optional (`recorder_devices` lists them with their ids
+and permissions; `recorder_access` asks the user's permission for the camera or
+microphone). `recorder_stop` ends it and imports it as a `.trec` is imported, at
+the end of the timeline or at `at`. Only record when the user asks: it captures
+their screen, camera and microphone.
+
 ## Editing
 - `timeline_rippleDelete` removes time ranges from every track at once and
   closes the gaps; all ranges in one call are read against the timeline as it
