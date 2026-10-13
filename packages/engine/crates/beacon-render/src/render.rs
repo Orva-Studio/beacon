@@ -649,7 +649,9 @@ impl Renderer {
         let longest = local[0].max(local[1]);
         // Small enough that the padded corners stay in front of the camera (W > 0.5 there).
         let pad_local = (longest * 0.15).min(0.5 / (g.abs() + gh.abs()).max(1e-6));
-        let s = (scale_of(m) * 1.25).min(8192.0 / (longest + 2.0 * pad_local)).max(1e-3);
+        // At the layer's own scale: passes take sizes in target pixels, so any other scale would change
+        // how big a shadow or blur comes out.
+        let s = scale_of(m).min(8192.0 / (longest + 2.0 * pad_local)).max(1e-3);
         let pad = pad_local * s;
         let (fw, fh) = (((local[0] * s + 2.0 * pad).ceil() as u32).max(1), ((local[1] * s + 2.0 * pad).ceil() as u32).max(1));
         let flat = self.take(fw, fh);
@@ -679,28 +681,34 @@ impl Renderer {
             radius: v.radius,
         };
         let flat = self.run_passes(enc, flat, fw, fh, frame, &v.passes)?;
-        // The flat texture's pixels onto the canvas: the layer's transform after undoing the scale and
-        // padding, divided through so the perspective row's constant is 1 again.
-        let k = 1.0 - (g + gh) * pad / s;
-        let u = DrawU {
-            m0: [m[0] / s / k, m[1] / s / k, m[2] / s / k, m[3] / s / k],
-            m1: [(m[4] - (m[0] + m[2]) * pad / s) / k, (m[5] - (m[1] + m[3]) * pad / s) / k, w as f32, h as f32],
-            rect: [0.0, 0.0, fw as f32, fh as f32],
-            content: [fw as f32, fh as f32, 1.0, 0.0],
-            radius: [0.0; 4],
-            color: [1.0; 4],
-            margin: [0.0, g / s / k, gh / s / k, 0.0],
-        };
         let layer_tex = self.take(w, h);
         clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
         {
+            // Motion blur as in draw_visual: the extra samples are drawn untilted.
+            let samples: Vec<&Affine> = std::iter::once(m).chain(v.motion.iter()).collect();
+            let weight = 1.0 / samples.len() as f32;
             let flat_view = flat.create_view(&Default::default());
-            let bg = self.builtin_group(bytemuck::bytes_of(&u), &flat_view);
             let view = layer_tex.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
-            rp.set_pipeline(&self.draw_pipe);
-            rp.set_bind_group(0, Some(&bg), &[]);
-            rp.draw(0..6, 0..1);
+            for (i, m) in samples.iter().enumerate() {
+                let [g, gh] = if i == 0 { [g, gh] } else { [0.0; 2] };
+                // The flat texture's pixels onto the canvas: the layer's transform after undoing the scale
+                // and padding, divided through so the perspective row's constant is 1 again.
+                let k = 1.0 - (g + gh) * pad / s;
+                let u = DrawU {
+                    m0: [m[0] / s / k, m[1] / s / k, m[2] / s / k, m[3] / s / k],
+                    m1: [(m[4] - (m[0] + m[2]) * pad / s) / k, (m[5] - (m[1] + m[3]) * pad / s) / k, w as f32, h as f32],
+                    rect: [0.0, 0.0, fw as f32, fh as f32],
+                    content: [fw as f32, fh as f32, weight, 0.0],
+                    radius: [0.0; 4],
+                    color: [1.0; 4],
+                    margin: [0.0, g / s / k, gh / s / k, 0.0],
+                };
+                let bg = self.builtin_group(bytemuck::bytes_of(&u), &flat_view);
+                rp.set_pipeline(&self.draw_pipe);
+                rp.set_bind_group(0, Some(&bg), &[]);
+                rp.draw(0..6, 0..1);
+            }
         }
         self.give(flat);
         let bg = self.builtin_group(bytemuck::cast_slice(&[v.opacity, 0.0f32, 0.0, 0.0]), &layer_tex.create_view(&Default::default()));

@@ -331,7 +331,7 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
         if (e.key !== "Backspace" && e.key !== "Delete") return;
         e.preventDefault();
         e.stopPropagation();
-        for (const id of selected ? selection : [a.id]) host.run("edit.deleteMedia", { asset: id }, "Delete Media");
+        host.run("edit.deleteMedia", { asset: selected ? selection : [a.id] }, "Delete Media");
       }}
       // WebKit would start its own drag of the thumbnail and keep the pointer events from us.
       onDragStart={(e) => e.preventDefault()}

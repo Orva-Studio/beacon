@@ -268,8 +268,15 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       if (s.animation && !clips.includes(s.animation.clip)) s.animation = null;
       s.effects = s.effects.filter((fx) => clips.includes(fx.clip));
       if (toggle) {
-        const on = ids.filter((id) => !s.selection.includes(id));
-        s.selection = [...s.selection.filter((id) => !ids.includes(id)), ...on];
+        // A clip and those linked to it toggle as one: a partly selected set becomes fully selected.
+        const done = new Set<string>();
+        for (const clip of clips) {
+          if (done.has(clip)) continue;
+          const set = linked ? withLinked(project, [clip]) : [clip];
+          for (const id of set) done.add(id);
+          if (set.every((id) => s.selection.includes(id))) s.selection = s.selection.filter((id) => !set.includes(id));
+          else s.selection = [...new Set([...s.selection, ...set])];
+        }
       } else s.selection = [...new Set(add ? [...s.selection, ...ids] : ids)];
     },
   }),

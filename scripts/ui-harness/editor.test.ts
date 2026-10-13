@@ -296,6 +296,12 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   await page.click(x, rowY(screen.id));
   await Bun.sleep(300);
   expect((await session()).selection).toEqual([screen.id]);
+  // ⌘-click on a partly selected linked pair selects all of it; again, deselects it.
+  await run("selection.set", { clips: [camera.id], linked: false });
+  await run("selection.set", { clips: [audio.id], toggle: true });
+  expect([...(await session()).selection].sort()).toEqual([camera.id, audio.id].sort());
+  await run("selection.set", { clips: [audio.id], toggle: true });
+  expect((await session()).selection).toEqual([]);
   await run("selection.clear");
   await run("timeline.zoom", { to: "fit" });
 });
@@ -355,15 +361,22 @@ test.skipIf(skip)("Snapshot saves the frame, adds it to the Media Bin and says s
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unmute unmutes it", async () => {
-  const audioTrack = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.type === "audio"))!;
+test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unmute unmutes only what it lists", async () => {
+  const tracks = ui.core.doc(ui.handle).tracks;
+  const audioTrack = tracks.find((t) => t.clips.some((c) => c.type === "audio"))!;
+  const cameraTrack = tracks.find((t) => t.clips.some((c) => c.type === "video"))!;
   await run("track.set", { track: audioTrack.id, muted: true });
+  await run("track.set", { track: cameraTrack.id, muted: true });
   const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } };
   ui.send("exportSheet", sheet);
   await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
   await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
   await page.until("!document.querySelector('[data-export-muted]')");
-  expect(ui.core.doc(ui.handle).tracks.find((t) => t.id === audioTrack.id)!.muted).toBeFalsy();
+  const muted = (id: string) => !!ui.core.doc(ui.handle).tracks.find((t) => t.id === id)!.muted;
+  // A camera clip has no audio: its muted track isn't listed and stays muted.
+  expect(muted(audioTrack.id)).toBe(false);
+  expect(muted(cameraTrack.id)).toBe(true);
+  await run("track.set", { track: cameraTrack.id, muted: false });
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
@@ -380,6 +393,16 @@ test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, t
   await page.click(...(await tile(ids[1]!)), ["shift"]);
   await Bun.sleep(150);
   expect((await selected()).sort()).toEqual([ids[0]!, ids[1]!].sort());
+  // ⌫ deletes both, one undo step.
+  const assets = () => Object.keys(ui.core.doc(ui.handle).assets);
+  const before = assets().length;
+  await page.key("Backspace", "Backspace");
+  await arrived(() => assets().length === before - 2);
+  expect(assets()).not.toContain(ids[0]!);
+  expect(assets()).not.toContain(ids[1]!);
+  await ui.core.undo(ui.handle);
+  expect(assets().length).toBe(before);
+  await page.until(`document.querySelectorAll('[data-media-bin] [data-asset]').length >= ${ids.length}`);
   // Below the last item: the bin's empty space.
   const empty = await page.evaluate<[number, number]>("(() => { const r = document.querySelector('[data-bin-items]').getBoundingClientRect(); return [r.x + r.width / 2, r.bottom - 6]; })()");
   await page.click(...empty);

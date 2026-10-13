@@ -135,6 +135,10 @@ export function RotationGizmo({ value, onChange }: { value: Record<Axis, number>
           drag.current = undefined;
           setActive(undefined);
         }}
+        onLostPointerCapture={() => {
+          drag.current = undefined;
+          setActive(undefined);
+        }}
         onPointerLeave={() => !drag.current && setHover(undefined)}
       >
         <circle cx={SIZE / 2} cy={SIZE / 2} r={R + 6} fill="var(--color-chip)" />

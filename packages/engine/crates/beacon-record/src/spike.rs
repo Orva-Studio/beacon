@@ -2,9 +2,9 @@
 //! and microphone through AVFoundation, each sample buffer appended to its
 //! own AVAssetWriter as it arrives. Two tones are played during the take so
 //! the files can be checked against each other afterwards.
-use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -183,7 +183,9 @@ define_class!(
 struct CaptureIvars {
     camera: Mutex<Option<Track>>,
     mic: Mutex<Option<Track>>,
-    video_output: RefCell<Option<Retained<AVCaptureVideoDataOutput>>>,
+    // The camera's output, to tell its frames from the microphone's; the session retains it. Atomic
+    // because the camera and microphone callbacks run on separate queues.
+    video_output: AtomicPtr<AVCaptureOutput>,
 }
 
 define_class!(
@@ -198,7 +200,7 @@ define_class!(
         #[unsafe(method(captureOutput:didOutputSampleBuffer:fromConnection:))]
         fn did_output(&self, output: &AVCaptureOutput, buf: &CMSampleBuffer, _connection: &AVCaptureConnection) {
             let iv = self.ivars();
-            let is_video = iv.video_output.borrow().as_ref().is_some_and(|v| std::ptr::eq::<AVCaptureOutput>(&***v, output));
+            let is_video = std::ptr::eq(iv.video_output.load(Ordering::Acquire), output);
             let track = if is_video { &iv.camera } else { &iv.mic };
             if let Some(t) = track.lock().unwrap().as_mut() {
                 t.append(buf);
@@ -283,7 +285,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // AVFoundation: the default camera and microphone in one session.
     let session = unsafe { AVCaptureSession::new() };
-    let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: RefCell::new(None) });
+    let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()) });
     let capture_out: Retained<CaptureOutput> = unsafe { msg_send![super(capture_out), init] };
     let camera_queue = DispatchQueue::new("beacon.record.camera", None);
     let mic_queue = DispatchQueue::new("beacon.record.microphone", None);
@@ -302,7 +304,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 session.addInput(&input);
                 session.addOutput(&output);
                 camera_settings = output.recommendedVideoSettingsForVideoCodecType_assetWriterOutputFileType(AVVideoCodecTypeHEVC.unwrap(), mp4);
-                *capture_out.ivars().video_output.borrow_mut() = Some(output);
+                capture_out.ivars().video_output.store(Retained::as_ptr(&output).cast::<AVCaptureOutput>().cast_mut(), Ordering::Release);
             }
         }
         if !mic_allowed {

@@ -60,6 +60,7 @@ export function App({ host }: { host: Host }) {
   const making = useView((s) => Object.keys(s.preparing).length);
   const prepared = useView((s) => s.prepared);
   const waveforms = useView((s) => s.waveforms);
+  const mutedAudio = (project?.tracks ?? []).flatMap((t, i) => (t.muted && t.clips.some((c) => init?.clipTypes[c.type]?.includes("audio")) ? [{ t, i }] : []));
   const thumbs = useView((s) => s.thumbs);
   const dragging = useView((s) => s.dragging);
   useEffect(syncNativeView, [dragging]);
@@ -154,8 +155,12 @@ export function App({ host }: { host: Host }) {
       )}
       <ExportUi
         host={host}
-        muted={(project?.tracks ?? []).flatMap((t, i) => (t.muted && t.clips.some((c) => init?.clipTypes[c.type]?.includes("audio")) ? [trackName(t, i)] : []))}
-        unmute={() => project?.tracks.filter((t) => t.muted).forEach((t) => host.run("track.set", { track: t.id, muted: false }, "Unmute Track"))}
+        muted={mutedAudio.map(({ t, i }) => trackName(t, project!.tracks.length - 1 - i))}
+        unmute={() => {
+          // One undo step for them all.
+          const step = `unmute-${Date.now()}`;
+          for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
+        }}
       />
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />

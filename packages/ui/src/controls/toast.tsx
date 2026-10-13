@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MASK, syncNativeView } from "../native-view";
 import { Button } from "./buttons";
 
@@ -13,11 +13,15 @@ export function Toast({ title, hint, done, onDismiss, children }: { title: React
     syncNativeView();
     return syncNativeView;
   }, []);
+  // Callers pass a new onDismiss each render; keyed on it, every redraw would restart the 5 s.
+  const dismiss = useRef(onDismiss);
+  dismiss.current = onDismiss;
+  const dismissable = !!onDismiss;
   useEffect(() => {
-    if (!done || hovered || !onDismiss) return;
-    const t = setTimeout(onDismiss, 5000);
+    if (!done || hovered || !dismissable) return;
+    const t = setTimeout(() => dismiss.current?.(), 5000);
     return () => clearTimeout(t);
-  }, [done, hovered, onDismiss]);
+  }, [done, hovered, dismissable]);
   return (
     <div
       className={`${MASK} fixed right-4 bottom-4 z-40 w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl`}
