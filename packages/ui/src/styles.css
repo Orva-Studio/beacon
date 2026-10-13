@@ -142,4 +142,6 @@ body {
   background: var(--color-app);
   overflow: hidden;
   font-family: var(--font-ui);
+  /* Checkboxes and radio buttons in the one green, not WebKit's blue. */
+  accent-color: var(--color-accent);
 }

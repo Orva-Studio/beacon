@@ -14,10 +14,11 @@ import { NewProjectUi, ProjectName, type ProjectHost } from "./project-name";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
+import { RecordUi, type RecordHost } from "./record";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, SettingsHost, ProjectHost, PreviewHost {
+export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
@@ -162,6 +163,7 @@ export function App({ host }: { host: Host }) {
           for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
         }}
       />
+      <RecordUi host={host} />
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />

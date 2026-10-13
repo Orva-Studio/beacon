@@ -119,6 +119,23 @@ export interface ExportSheet {
   canvas: { width: number; height: number; fps: number };
 }
 
+/** What a take records; a missing source isn't recorded, a device without an id is the default one. */
+export interface RecordSources {
+  screen?: { display?: number; fps?: number };
+  systemAudio?: boolean;
+  camera?: { id?: string };
+  microphone?: { id?: string };
+}
+
+/** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
+export interface RecordSheet {
+  permissions: { screen: string; camera: string; microphone: string };
+  displays: { id: number; width: number; height: number }[];
+  cameras: { id: string; name: string }[];
+  microphones: { id: string; name: string }[];
+  sources: RecordSources;
+}
+
 /** An export running or finished, for the window's progress panel. */
 export interface ExportJob {
   id: string;
@@ -160,6 +177,8 @@ export type AppRPC = {
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
+      /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
+      startRecording: { params: { sources: RecordSources }; response: RunReply };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
       setAppSettings: { params: AppSettings; response: void };
@@ -211,6 +230,8 @@ export type AppRPC = {
       key: { code: string; meta: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
       exportSheet: ExportSheet;
+      /** File > Record… (⌘R): open the Record dialog. */
+      recordSheet: RecordSheet;
       exportJob: ExportJob;
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };

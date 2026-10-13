@@ -50,6 +50,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "status") replica.status(msg.data.text);
   else if (msg.type === "media") replica.media(msg.data);
   else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
+  else if (msg.type === "recordSheet") replica.recordSheet(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
   else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
@@ -85,6 +86,7 @@ const host: Host = {
   frameImage: () => request("frameImage") as Promise<string | null>,
   chooseFolder: async () => null,
   startExport: (params) => request("startExport", params),
+  startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
   cancelExport: (id) => void request("cancelExport", { id }),
   showFile: () => {},
   setAppSettings: (settings) => void request("setAppSettings", { settings }),

@@ -382,6 +382,29 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
+test.skipIf(skip)("Record lists the sources with their devices, counts down, and asks for what was chosen", async () => {
+  const sheet = {
+    permissions: { screen: "granted", camera: "denied", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X" }, { id: "cam-2", name: "MacBook Pro Camera" }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }, { id: "mic-2", name: "MacBook Pro Microphone" }],
+    sources: { screen: { fps: 60 }, microphone: { id: "mic-1" }, systemAudio: true },
+  };
+  ui.send("recordSheet", sheet);
+  await page.until("!!document.querySelector('[data-record]')");
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([true, false, true, true]);
+  await page.evaluate(`document.querySelector('[data-source="Camera"]').click()`);
+  await page.until("!!document.querySelector('[data-permission=camera]')");
+  await page.evaluate(`document.querySelector('[data-source="System audio"]').click()`);
+  const before = ui.menus.length;
+  await page.evaluate("document.querySelector('[data-record-start]').click()");
+  await page.until("!!document.querySelector('[data-countdown]')");
+  await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
+  const asked = ui.menus.slice(before).find((m) => m.startsWith("startRecording:"))!;
+  expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
+});
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");

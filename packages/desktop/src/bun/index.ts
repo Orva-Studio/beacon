@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
-import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, Utils, WGPUView } from "electrobun/main";
+import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, GlobalShortcut, Tray, Utils, WGPUView } from "electrobun/main";
 import { patchInfoPlist } from "./info-plist";
 
 // The engine ships inside the app; set before anything loads it.
@@ -24,6 +24,7 @@ const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent,
 type LiveView = import("@beacon/core").LiveView;
 type Session = import("@beacon/core").Session;
 type ExportSettings = import("@beacon/ui").ExportSettings;
+type RecordSources = import("@beacon/ui").RecordSources;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
 const { DEFAULT_EXPORT, exportOptions } = await import("@beacon/ui");
@@ -359,6 +360,78 @@ async function startExport({ name, folder, settings, range, overwrite }: { name:
   send().exportJob({ id: job.id, output, state: "running", progress: 0 });
 }
 
+/** The Record dialog's last sources, offered next time. */
+const RECORD_FILE = join(homedir(), "Library/Application Support/Beacon/record.json");
+const recordPrefs = (): RecordSources => {
+  try {
+    return JSON.parse(readFileSync(RECORD_FILE, "utf8")) as RecordSources;
+  } catch {
+    return { screen: { fps: 60 }, microphone: {}, systemAudio: true };
+  }
+};
+
+/** File > Record… (⌘R): the Record dialog, with what the recorder can use. */
+async function recordDialog() {
+  if (!current) return status("Open a project first");
+  if (recording) return status("Already recording: stop from the menu bar or ⌘⇧2");
+  send().recordSheet({ ...(await core.recorderDevices()), sources: recordPrefs() });
+}
+
+const STOP_SHORTCUT = "CommandOrControl+Shift+2";
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+let recording: { tray: Tray; timer: ReturnType<typeof setInterval> } | undefined;
+
+/** Record: Beacon hides while the take records; a menu-bar item shows the time and stops it, as ⌘⇧2 does. */
+async function startRecording({ sources }: { sources: RecordSources }) {
+  if (!current) throw new Error("Open a project first");
+  if (recording) throw new Error("Already recording");
+  // Asked while the window is up, so macOS's prompt has somewhere to show.
+  const { permissions } = await core.recorderDevices();
+  for (const kind of ["camera", "microphone"] as const) {
+    if (!sources[kind] || permissions[kind] === "granted") continue;
+    if ((await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
+  }
+  try {
+    mkdirSync(dirname(RECORD_FILE), { recursive: true });
+    writeFileSync(RECORD_FILE, JSON.stringify(sources));
+  } catch {}
+  win.hide();
+  try {
+    await core.recordStart(current.path, { sources });
+  } catch (e) {
+    win.show();
+    throw e;
+  }
+  const tray = new Tray({ title: "● 0:00" });
+  tray.setMenu([{ type: "normal", label: "Stop Recording  (⌘⇧2)", action: "stopRecording" }]);
+  tray.on("tray-clicked", (e) => {
+    if ((e as { data?: { action?: string } }).data?.action === "stopRecording") void stopRecording();
+  });
+  const started = Date.now();
+  const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000)}`), 1000);
+  GlobalShortcut.register(STOP_SHORTCUT, () => void stopRecording());
+  recording = { tray, timer };
+}
+
+/** Stops the take, imports it at the end of the timeline and brings Beacon back. */
+async function stopRecording() {
+  const r = recording;
+  if (!r) return;
+  recording = undefined;
+  clearInterval(r.timer);
+  GlobalShortcut.unregister(STOP_SHORTCUT);
+  r.tray.remove();
+  try {
+    const take = await core.recordStop();
+    status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration)})`);
+  } catch (e) {
+    status(e instanceof Error ? e.message : String(e));
+  } finally {
+    win.show();
+    win.focus();
+  }
+}
+
 /** Attaches the project's preview to the canvas's native view, or follows its new size; returns the fit zoom in percent. */
 async function canvasView(id: number, rect: { x: number; y: number; width: number; height: number }, scale: number): Promise<number> {
   if (!current) return 100;
@@ -545,6 +618,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       openDialog: () => reply(openDialog),
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
+      startRecording: (params) => reply(() => startRecording(params)),
       cancelExport: ({ id }) => reply(() => core.cancelJob(id)),
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),
@@ -754,6 +828,8 @@ function setMenu() {
         },
         { type: "separator" },
         { label: "Import Media…", action: "import", accelerator: "command+i" },
+        { label: "Record…", action: "record", accelerator: "command+r" },
+        { type: "separator" },
         { label: "Export…", action: "export", accelerator: "command+e" },
         { label: "Export Selection…", action: "exportSelection" },
       ],
@@ -902,6 +978,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "open") return void openDialog().catch(report);
   if (action === "new") return newProject();
   if (action === "import") return void importMedia().catch(report);
+  if (action === "record") return void recordDialog().catch(report);
   if (action === "export") return void exportDialog().catch(report);
   if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);

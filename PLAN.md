@@ -955,9 +955,18 @@ linked clips with its cursor. Info.plist gets the camera and microphone usage
 strings and declares `.brec` a package (`dev.beacon.recording`): Electrobun's
 config can't, and Hutch's build doesn't run `postWrap`, so `bun run build`
 patches the built bundle and a dev bundle patches itself at startup
-(`src/bun/info-plist.ts`). Next: the recorder window (sources, countdown,
-Beacon out of the way while recording, a menu-bar item to stop), then the
-sync check in Settings.
+(`src/bun/info-plist.ts`). File › Record… (⌘R; the user chose
+2026-10-13: a dialog in the editor, Beacon hidden while recording, the take at
+the end of the timeline) lists each source with a checkbox and its device
+(display and frame rate, camera, microphone, system audio), the last ones used
+remembered, and a refused permission's place in System Settings under it.
+Record counts down 3-2-1, asks for the camera or microphone permission if
+needed while the window is up, hides Beacon and starts; a menu-bar item shows
+● and the time with Stop Recording, as ⌘⇧2 does anywhere; stopping imports the
+take and brings Beacon back. Checkboxes and radio buttons are green
+(`accent-color`), not WebKit's blue. Still to come: a camera preview and a
+microphone level in the dialog, the sync check in Settings, and checking the
+whole flow in the app with the user.
 
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often

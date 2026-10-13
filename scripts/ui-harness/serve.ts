@@ -134,6 +134,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         }
         // The harness keeps its one project: these are recorded, as menus are.
         else if (msg.type === "setAppSettings") menus.push(`setAppSettings:${JSON.stringify(msg.settings)}`);
+        // Never records: the sources it was asked for are what a test checks.
+        else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
         else if (msg.type === "proxySpace") result = await core.analysisSize("proxy");
         else if (msg.type === "deleteAllProxies") result = await core.forgetAll("proxy").then(() => core.analysisSize("proxy"));
         else if (msg.type === "newProject" || msg.type === "renameProject") {
