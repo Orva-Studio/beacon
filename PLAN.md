@@ -907,8 +907,18 @@ this Mac's camera. A camera's first frame comes about 0.5 s after it starts, so
 a take begins once the camera and microphone deliver (up to 3 s), and every
 stream starts within 35 ms of it. The app will need
 `NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in its
-Info.plist for `access` (step 4). The sync checks with a visible flash and the camera are
-still the user's to run (`record --tones` marks each tone in `recording.json`).
+Info.plist for `access` (step 4). **Sync, measured (2026-10-13):** a video flashing white with a 1 kHz beep
+every 2 s, played full screen by QuickTime through the Mac's speakers while
+recording screen, system audio, camera and the built-in microphone; each
+stream's events at its `start` plus the time in its file, the same at all five
+flashes to 1 ms: system audio 9.064 s, screen 9.058 s (6 ms before it, under
+one 60 fps frame), microphone 9.090 s (26 ms after the system audio: the
+speakers and the air, as the spike's 25 ms), camera first lit at 9.089 s and
+fully at 9.123 s (30 fps, so within one frame of the microphone). Lined up by
+their timestamps the streams need no correction: the camera's picture is at
+most a frame behind its sound, inside what viewers notice (sound leading by
+over ~45 ms). The display's and camera's own delays can't be told apart this
+way, nor any better than a camera frame.
 
 **Gate:** record a video with screen, camera, mic and system audio, then edit
 and export it in Beacon alone.
