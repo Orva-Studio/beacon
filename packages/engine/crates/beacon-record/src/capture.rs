@@ -67,6 +67,8 @@ struct Track {
     input: Retained<AVAssetWriterInput>,
     /// Host-clock seconds when the take began; earlier samples are dropped (all of them until it begins).
     t0: f64,
+    /// Whether any buffer has arrived, before the take began or after.
+    seen: bool,
     first: Option<f64>,
     last: f64,
     /// Sample buffers appended (video frames, or audio buffers).
@@ -98,10 +100,11 @@ impl Track {
             return Err(format!("{key}: the writer refused its input settings"));
         }
         unsafe { writer.addInput(&input) };
-        Ok(Self { key, file, writer, input, t0: f64::INFINITY, first: None, last: 0.0, buffers: 0, samples: 0, dropped: 0, latency: Vec::new(), error: None, info })
+        Ok(Self { key, file, writer, input, t0: f64::INFINITY, seen: false, first: None, last: 0.0, buffers: 0, samples: 0, dropped: 0, latency: Vec::new(), error: None, info })
     }
 
     fn append(&mut self, buf: &CMSampleBuffer) {
+        self.seen = true;
         let now = host_now();
         let pts = unsafe { buf.presentation_time_stamp() };
         let t = unsafe { pts.seconds() };
@@ -259,6 +262,20 @@ fn setting(settings: &NSDictionary<NSString, AnyObject>, key: &str) -> Option<f6
     settings.objectForKey(&NSString::from_str(key)).and_then(|v| v.downcast::<NSNumber>().ok()).map(|n| n.doubleValue())
 }
 
+/// HEVC at about 20 Mbit/s for a 3600×2338 screen at 60 fps, less for smaller or slower video.
+fn video_settings(hevc: &NSString, width: usize, height: usize, fps: u32) -> Retained<NSDictionary<NSString, AnyObject>> {
+    let bitrate = ((width * height) as i64 * fps as i64 / 25).clamp(4_000_000, 40_000_000);
+    unsafe {
+        let props = dict(&[(AVVideoAverageBitRateKey.unwrap(), num(bitrate).as_ref()), (AVVideoExpectedSourceFrameRateKey.unwrap(), num(fps as i64).as_ref())]);
+        dict(&[
+            (AVVideoCodecKey.unwrap(), hevc.as_ref()),
+            (AVVideoWidthKey.unwrap(), num(width as i64).as_ref()),
+            (AVVideoHeightKey.unwrap(), num(height as i64).as_ref()),
+            (AVVideoCompressionPropertiesKey.unwrap(), props.as_ref()),
+        ])
+    }
+}
+
 /// 16-bit interleaved PCM: sample-exact in FFmpeg, and readable after a crash (AAC is neither).
 fn pcm(rate: i64, channels: i64) -> Retained<NSDictionary<NSString, AnyObject>> {
     dict(&[
@@ -374,17 +391,7 @@ impl Take {
             }
             let s = unsafe { SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None) };
             if sources.screen.is_some() {
-                // About 20 Mbit/s for a 3600×2338 screen at 60 fps; screen recordings are mostly still.
-                let bitrate = ((pw * ph) as i64 * fps as i64 / 25).clamp(4_000_000, 40_000_000);
-                let settings = unsafe {
-                    let props = dict(&[(AVVideoAverageBitRateKey.unwrap(), num(bitrate).as_ref()), (AVVideoExpectedSourceFrameRateKey.unwrap(), num(fps as i64).as_ref())]);
-                    dict(&[
-                        (AVVideoCodecKey.unwrap(), hevc.as_ref()),
-                        (AVVideoWidthKey.unwrap(), num(pw as i64).as_ref()),
-                        (AVVideoHeightKey.unwrap(), num(ph as i64).as_ref()),
-                        (AVVideoCompressionPropertiesKey.unwrap(), props.as_ref()),
-                    ])
-                };
+                let settings = video_settings(hevc, pw, ph, fps);
                 let info = json!({ "display": unsafe { display.displayID() }, "width": pw, "height": ph, "fps": fps });
                 *screen_out.ivars().screen.lock().unwrap() = Some(Track::new("screen", "screen.mp4", dir, mp4, video_type, &settings, info)?);
                 let q = DispatchQueue::new("beacon.record.screen", None);
@@ -406,6 +413,7 @@ impl Take {
         let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()) });
         let capture_out: Retained<CaptureOutput> = unsafe { msg_send![super(capture_out), init] };
         unsafe { session.beginConfiguration() };
+        let mut camera = None;
         let configured = (|| -> Result<(), String> {
             if let Some(want) = &sources.camera {
                 let dev = device(video_type, want, "camera")?;
@@ -421,14 +429,7 @@ impl Take {
                     session.addInput(&input);
                     session.addOutput(&output);
                 }
-                let settings = unsafe { output.recommendedVideoSettingsForVideoCodecType_assetWriterOutputFileType(hevc, mp4) }.ok_or("camera: no recommended settings")?;
-                let info = json!({
-                    "device": unsafe { dev.localizedName() }.to_string(),
-                    "width": setting(&settings, "AVVideoWidthKey"),
-                    "height": setting(&settings, "AVVideoHeightKey"),
-                });
-                *capture_out.ivars().camera.lock().unwrap() = Some(Track::new("camera", "camera.mp4", dir, mp4, video_type, &settings, info)?);
-                capture_out.ivars().video_output.store(Retained::as_ptr(&output).cast::<AVCaptureOutput>().cast_mut(), Ordering::Release);
+                camera = Some((output, dev));
             }
             if let Some(want) = &sources.microphone {
                 let dev = device(audio_type, want, "microphone")?;
@@ -453,6 +454,18 @@ impl Take {
             Ok(())
         })();
         unsafe { session.commitConfiguration() };
+        // The camera's size and rate are its active format's once the session is configured. Its own
+        // settings, not AVFoundation's recommended ones, which this Mac's camera has none of.
+        let configured = configured.and_then(|()| {
+            let Some((output, dev)) = &camera else { return Ok(()) };
+            let (dims, frame) = unsafe { (objc2_core_media::CMVideoFormatDescriptionGetDimensions(&dev.activeFormat().formatDescription()), dev.activeVideoMinFrameDuration()) };
+            let fps = if unsafe { frame.seconds() } > 0.0 { (1.0 / unsafe { frame.seconds() }).round() as i64 } else { 30 };
+            let settings = video_settings(hevc, dims.width as usize, dims.height as usize, fps as u32);
+            let info = json!({ "device": unsafe { dev.localizedName() }.to_string(), "width": dims.width, "height": dims.height, "fps": fps });
+            *capture_out.ivars().camera.lock().unwrap() = Some(Track::new("camera", "camera.mp4", dir, mp4, video_type, &settings, info)?);
+            capture_out.ivars().video_output.store(Retained::as_ptr(output).cast::<AVCaptureOutput>().cast_mut(), Ordering::Release);
+            Ok(())
+        });
         if let Err(e) = configured {
             let _ = std::fs::remove_dir_all(dir);
             return Err(e);
@@ -466,6 +479,13 @@ impl Take {
         }
         if sources.camera.is_some() || sources.microphone.is_some() {
             unsafe { session.startRunning() };
+            // A camera sends its first frame about half a second after it starts: begin the take once the camera
+            // and microphone are delivering, so their files start with it (ScreenCaptureKit is already running).
+            let warm = std::time::Instant::now();
+            let live = |m: &Mutex<Option<Track>>| m.lock().unwrap().as_ref().is_none_or(|t| t.seen);
+            while !(live(&capture_out.ivars().camera) && live(&capture_out.ivars().mic)) && warm.elapsed() < Duration::from_secs(3) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
         }
 
         let t0 = host_now();

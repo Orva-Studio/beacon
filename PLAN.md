@@ -901,10 +901,13 @@ behind. Checked on this Mac: a take's streams start within 19 ms of it, no
 buffer dropped, no audio drift; stdin closing mid-take (the app quit or
 crashed) stops the take and finishes every file; `kill -9` mid-take leaves
 the screen readable to its last 2 s fragment, the WAVs to the kill, and
-`recording.json` saying `complete: false`. The camera is untested: its
-permission was never asked (`access camera` asks; the app will need
+`recording.json` saying `complete: false`. The camera (1920×1080 at
+30 fps, HEVC) uses its own encoder settings: AVFoundation recommends none for
+this Mac's camera. A camera's first frame comes about 0.5 s after it starts, so
+a take begins once the camera and microphone deliver (up to 3 s), and every
+stream starts within 35 ms of it. The app will need
 `NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in its
-Info.plist, step 4). The sync checks with a visible flash and the camera are
+Info.plist for `access` (step 4). The sync checks with a visible flash and the camera are
 still the user's to run (`record --tones` marks each tone in `recording.json`).
 
 **Gate:** record a video with screen, camera, mic and system audio, then edit
