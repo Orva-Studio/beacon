@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/beacon-media", "crates/beacon-decode", "crates/beacon-ffi", "crates/beacon-render", "crates/beacon-worker"]
+members = ["crates/beacon-media", "crates/beacon-decode", "crates/beacon-ffi", "crates/beacon-render", "crates/beacon-worker", "crates/beacon-record"]
 
 [workspace.package]
 version = "0.0.0"

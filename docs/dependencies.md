@@ -77,3 +77,10 @@ has the same two** (it pins Electrobun `^1.18.1` and wgpu 24), so the shared
 - **objc2 0.6.5** (MIT, already in the tree through wgpu) in `beacon-render`,
   to read the preview layer's bounds and flush Core Animation.
 - Proxies are encoded with ffmpeg's `h264_videotoolbox`.
+
+## Phase 6 spike (2026-10-13)
+- **`beacon-record`** (the recording sidecar, `beacon-recorder`): objc2 0.6.5,
+  block2 0.6.2, dispatch2 0.3.1, and the generated framework crates at
+  **0.3.2** (`objc2-foundation`, `-core-foundation`, `-core-media`,
+  `-core-video`, `-screen-capture-kit`, `-av-foundation` with its
+  `objc2-core-media` feature). MIT / Zlib / Apache-2.0; `cargo deny` passes.

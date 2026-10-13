@@ -13,7 +13,8 @@ rough-cut a recording from its transcript, laid it out, zoomed and exported
 it; Phase 5 closed after the user's runs in the app, cut as v0.1.0). Video is
 decoded in process (`beacon-decode` over FFmpeg's libraries), with frames kept
 for steps back (`docs/performance.md`). **Phase 5.5** (the new look) is in
-progress (§13 Phase 5.5). Packaging as one self-contained app is Phase 6.5.
+progress (§13 Phase 5.5). Phase 6 (the recorder) started 2026-10-13 with its
+spike. Packaging as one self-contained app is Phase 6.5.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -802,6 +803,52 @@ button with a countdown.
 - Later, if used: region and window capture, pause/resume.
 Risks: keeping four sources in sync over long takes; macOS permissions
 (Screen Recording, Camera, Microphone).
+
+**Spike (2026-10-13): objc2 works; no Swift fallback needed.** The
+`beacon-record` crate (`beacon-recorder devices`, `beacon-recorder spike
+<dir> [seconds]`) captures through objc2 0.6.5 and the 0.3.2 framework
+crates: ScreenCaptureKit for the screen (3600×2338, no cursor, up to 60 fps)
+and system audio (48 kHz stereo), AVFoundation for the camera and microphone,
+each sample buffer appended to its own `AVAssetWriter` (HEVC in hardware)
+as it arrives. The callbacks were not awkward: `define_class!` gives an
+`SCStreamOutput` and an AVCapture sample-buffer delegate in ~20 lines each,
+completion handlers are `RcBlock`s waited on with a channel, and buffers go
+straight from the callback to the writer with no copy. Run with the Mac
+locked (the user away), so the screen was the lock screen and the camera
+was skipped (its permission was never asked; asking shows a prompt).
+- **One clock.** Both frameworks stamp buffers with the host clock
+  (`SCStream.synchronizationClock` and the capture session's read 2-4 µs
+  from `CMClockGetHostTimeClock`, the time between the reads), so streams
+  are aligned by their timestamps: each file starts at its first sample after
+  the take began, and its start is kept in the data file.
+- **Sync across the frameworks, measured:** a tone played every 20 s of a
+  2-minute take, heard by ScreenCaptureKit's system audio and by
+  AVFoundation's microphone through the speakers: the microphone is 25.0,
+  25.0, 25.0, 25.2, 25.1 ms behind, constant (the speakers' output latency,
+  not drift). No buffer dropped (224 screen frames, 6,000 + 11,254 audio
+  buffers); buffers arrive 12 ms (microphone) and 55 ms (system audio) after
+  their timestamps.
+- **Audio as PCM, not AAC.** `AVAssetWriter`'s AAC is read by FFmpeg (our
+  decoder and mixer) 44.0 ms late (its priming edit; same in every take), and
+  a crash leaves an unreadable `.m4a`. PCM `.wav` is sample-exact and
+  survives a crash; 16-bit 48 kHz stereo is ~0.7 GB an hour, small beside the
+  screen. (`.wav` caps at 4 GB, ~6 h of stereo; `.caf` past that if needed.)
+- **Video as fragmented MPEG-4.** Killed with `kill -9` 9 s into a take: a
+  fragmented `.mp4` (`movieFragmentInterval` 2 s) still reads to 8.0 s; a
+  QuickTime `.mov` is never fragmented by `AVAssetWriter` (asked, it writes a
+  plain movie) and is unreadable after a crash, as is the AAC. Files decode
+  with `beacon-decode` as recorded.
+- **Sparse screen frames**, like tscc2: ScreenCaptureKit sends a frame only
+  when the screen changes (439 of 481 callbacks idle on a still screen). A
+  fragmented file ends at its last frame, not at the take's end, so the take's
+  length goes in the data file (or the last frame is appended again at stop).
+- **Permissions** are read without prompting (`CGPreflightScreenCaptureAccess`,
+  `authorizationStatusForMediaType`); ScreenCaptureKit lists no displays while
+  the display sleeps.
+- Not yet checked (needs the Mac unlocked and the camera allowed): the screen
+  against the audio with a visible flash, and the camera against the
+  microphone. Both pairs share their framework's clock, as the two audio
+  streams did.
 **Gate:** record a video with screen, camera, mic and system audio, then edit
 and export it in Beacon alone.
 
