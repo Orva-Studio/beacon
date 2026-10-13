@@ -368,6 +368,33 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
+test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
+  await run("panel.show", { tool: "media" });
+  await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");
+  const ids = await page.evaluate<string[]>("[...document.querySelectorAll('[data-media-bin] [data-asset]')].map((e) => e.dataset.asset)");
+  const selected = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-media-bin] [data-selected]')].map((e) => e.dataset.asset)");
+  const tile = (id: string) => centre(`[data-asset="${id}"]`);
+  await page.click(...(await tile(ids[0]!)));
+  await Bun.sleep(150);
+  expect(await selected()).toEqual([ids[0]]);
+  await page.click(...(await tile(ids[1]!)), ["shift"]);
+  await Bun.sleep(150);
+  expect((await selected()).sort()).toEqual([ids[0], ids[1]].sort());
+  // Below the last item: the bin's empty space.
+  const empty = await page.evaluate<[number, number]>("(() => { const r = document.querySelector('[data-bin-items]').getBoundingClientRect(); return [r.x + r.width / 2, r.bottom - 6]; })()");
+  await page.click(...empty);
+  await Bun.sleep(150);
+  expect(await selected()).toEqual([]);
+  // A box from the empty space up over the first two items.
+  const [x0, y0] = empty;
+  const top = await page.evaluate<number>(`document.querySelector('[data-asset="${ids[0]}"]').getBoundingClientRect().top + 10`);
+  const left = await page.evaluate<number>("document.querySelector('[data-bin-items]').getBoundingClientRect().left + 8");
+  await page.drag([left, y0], [x0 + 100, top]);
+  await Bun.sleep(150);
+  expect((await selected()).length).toBeGreaterThanOrEqual(2);
+  await page.click(...empty);
+});
+
 test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
   await select([]);
   await run("timeline.view", { start: 0, end: 10 });

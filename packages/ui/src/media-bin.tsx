@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { assetName, type Asset, type Clip, type Project, type Track } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
@@ -81,14 +81,12 @@ export function MediaBin({
   init,
   thumbs,
   waveforms,
-  highlight,
   host,
 }: {
   project: Project;
   init?: Init;
   thumbs: Record<string, string>;
   waveforms: Record<string, Record<number, number[]>>;
-  highlight?: string;
   host: Host;
 }) {
   useEffect(() => {
@@ -101,6 +99,14 @@ export function MediaBin({
     return () => window.removeEventListener("pointerdown", away, true);
   }, []);
   const sort = useView((s) => s.binSort);
+  const selection = useView((s) => s.binSelected);
+  const grid = useRef<HTMLDivElement>(null);
+  // A box dragged over the bin's empty space: its corners in the grid's scrolled coordinates.
+  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number; base: string[] }>();
+  const at = (e: React.PointerEvent) => {
+    const r = grid.current!.getBoundingClientRect();
+    return [e.clientX - r.left + grid.current!.scrollLeft, e.clientY - r.top + grid.current!.scrollTop] as const;
+  };
   const bin = useView((s) => s.bin);
   const all = Object.values(project.assets);
   const query = bin.query.trim().toLowerCase();
@@ -164,11 +170,50 @@ export function MediaBin({
           ))}
         </div>
       </div>
-      <div className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${list ? "flex flex-col gap-1" : "grid auto-rows-min grid-cols-2 gap-2"}`}>
+      <div
+        ref={grid}
+        data-bin-items
+        className={`relative min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${list ? "flex flex-col gap-1" : "grid auto-rows-min grid-cols-2 gap-2"}`}
+        // On the bin's empty space: a click clears the selection, a drag selects the items its box touches (⇧/⌘ adds to it).
+        onPointerDown={(e) => {
+          if (e.target !== e.currentTarget || e.button !== 0) return;
+          const [x, y] = at(e);
+          const base = e.shiftKey || e.metaKey ? selection : [];
+          replica.selectBin(base);
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setBox({ x0: x, y0: y, x1: x, y1: y, base });
+        }}
+        onPointerMove={(e) => {
+          if (!box) return;
+          const [x, y] = at(e);
+          const next = { ...box, x1: x, y1: y };
+          setBox(next);
+          const g = grid.current!.getBoundingClientRect();
+          const [left, right] = [Math.min(next.x0, x), Math.max(next.x0, x)].map((v) => v + g.left - grid.current!.scrollLeft);
+          const [top, bottom] = [Math.min(next.y0, y), Math.max(next.y0, y)].map((v) => v + g.top - grid.current!.scrollTop);
+          const hits = [...grid.current!.querySelectorAll<HTMLElement>("[data-asset]")]
+            .filter((el) => {
+              const r = el.getBoundingClientRect();
+              return r.right >= left! && r.left <= right! && r.bottom >= top! && r.top <= bottom!;
+            })
+            .map((el) => el.dataset.asset!);
+          replica.selectBin([...new Set([...next.base, ...hits])]);
+        }}
+        onPointerUp={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+          setBox(undefined);
+        }}
+      >
         <ImportTile list={list} host={host} empty={!all.length} />
         {assets.map((a) => (
-          <BinItem key={a.id} asset={a} list={list} used={used.has(a.id)} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selected={highlight === a.id} host={host} />
+          <BinItem key={a.id} asset={a} list={list} used={used.has(a.id)} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
         ))}
+        {box && (
+          <div
+            className="pointer-events-none absolute rounded-sm border border-accent bg-accent/10"
+            style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
+          />
+        )}
         {!!all.length && !assets.length && <div className="col-span-2 py-6 text-center text-label text-text-faint">No media matches</div>}
       </div>
     </div>
@@ -192,7 +237,8 @@ function ImportTile({ list, host, empty }: { list: boolean; host: Host; empty: b
   );
 }
 
-function BinItem({ asset: a, list, used, thumb, peaks, selected, host }: { asset: Asset; list: boolean; used: boolean; thumb?: string; peaks?: number[]; selected: boolean; host: Host }) {
+function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asset: Asset; list: boolean; used: boolean; thumb?: string; peaks?: number[]; selection: string[]; host: Host }) {
+  const selected = selection.includes(a.id);
   const renaming = useView((s) => s.renamingMedia === a.id);
   const preparing = useView((s) => s.preparing[a.id]);
   const proxy = useView((s) => !!s.proxies[a.id]);
@@ -267,20 +313,25 @@ function BinItem({ asset: a, list, used, thumb, peaks, selected, host }: { asset
       title={a.path}
       selected={selected}
       data-asset={a.id}
+      data-selected={selected || undefined}
       tabIndex={-1}
       className={list ? "flex items-center gap-2" : undefined}
       onPointerDown={(e) => {
-        if (e.button === 0) replica.media({ highlight: a.id });
+        // ⇧/⌘-click adds or removes it; a plain click on an unselected item selects only it.
+        if (e.button === 0 && (e.shiftKey || e.metaKey)) replica.selectBin(selected ? selection.filter((id) => id !== a.id) : [...selection, a.id]);
+        else if (!selected) replica.selectBin([a.id]);
         // Focused, it takes ⌫ (Delete Media) from the timeline's Delete.
         e.currentTarget.focus({ preventScroll: true });
         pressItem(e, binItem(a), (command, args) => host.run(command, args), false);
       }}
+      // A plain click on one of several selected items leaves just it selected (after any drag of it).
+      onClick={(e) => !e.shiftKey && !e.metaKey && selection.length > 1 && replica.selectBin([a.id])}
       onDoubleClick={() => void openPreview(host, a.id, assetName(a))}
       onKeyDown={(e) => {
         if (e.key !== "Backspace" && e.key !== "Delete") return;
         e.preventDefault();
         e.stopPropagation();
-        host.run("edit.deleteMedia", { asset: a.id }, `Delete ${assetName(a)}`);
+        for (const id of selected ? selection : [a.id]) host.run("edit.deleteMedia", { asset: id }, "Delete Media");
       }}
       // WebKit would start its own drag of the thumbnail and keep the pointer events from us.
       onDragStart={(e) => e.preventDefault()}

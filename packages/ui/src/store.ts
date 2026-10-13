@@ -17,8 +17,8 @@ export interface ViewState {
   status: string;
   waveforms: Record<string, Record<number, number[]>>;
   thumbs: Record<string, string>;
-  /** The asset "Select in Media Bin" points at. */
-  highlight?: string;
+  /** The Media Bin's selected items ("Select in Media Bin" and Snapshot select one). */
+  binSelected: string[];
   /** The track whose name is being edited. */
   renaming?: string;
   /** The Media Bin item whose name is being edited. */
@@ -66,7 +66,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -108,7 +108,7 @@ export const replica = {
     set({
       waveforms: { ...state.waveforms, ...waveforms },
       thumbs: { ...state.thumbs, ...thumbs },
-      ...(highlight ? { highlight } : {}),
+      ...(highlight ? { binSelected: [highlight] } : {}),
       ...(preparing ? { preparing, prepared: Object.keys(preparing).length ? state.prepared + Object.keys(state.preparing).filter((id) => !(id in preparing)).length : 0 } : {}),
       ...(proxies ? { proxies: { ...state.proxies, ...proxies } } : {}),
       ...(missing ? { missing } : {}),
@@ -134,6 +134,9 @@ export const replica = {
   },
   sortBin(binSort: ViewState["binSort"]) {
     set({ binSort });
+  },
+  selectBin(binSelected: string[]) {
+    set({ binSelected });
   },
   viewBin(bin: Partial<ViewState["bin"]>) {
     set({ bin: { ...state.bin, ...bin } });

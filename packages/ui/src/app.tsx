@@ -61,7 +61,6 @@ export function App({ host }: { host: Host }) {
   const prepared = useView((s) => s.prepared);
   const waveforms = useView((s) => s.waveforms);
   const thumbs = useView((s) => s.thumbs);
-  const highlight = useView((s) => s.highlight);
   const dragging = useView((s) => s.dragging);
   useEffect(syncNativeView, [dragging]);
   // Files dragged in from Finder: dropped on the timeline they go where dropped (its own handler), elsewhere after the last clip.
@@ -127,7 +126,7 @@ export function App({ host }: { host: Host }) {
       <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
       <div className="flex min-h-0 flex-1 gap-gutter">
         <ToolRail session={session} host={host} />
-        {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} highlight={highlight} host={host} />}
+        {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
         <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
           <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
           {project && session && <Transport project={project} session={session} host={host} init={init} />}

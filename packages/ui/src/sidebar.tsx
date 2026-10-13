@@ -53,7 +53,6 @@ export const ToolPanel = memo(function ToolPanel({
   init,
   thumbs,
   waveforms,
-  highlight,
   host,
 }: {
   tool: string;
@@ -61,11 +60,10 @@ export const ToolPanel = memo(function ToolPanel({
   init?: Init;
   thumbs: Record<string, string>;
   waveforms: Record<string, Record<number, number[]>>;
-  highlight?: string;
   host: Host;
 }) {
   const label = TOOLS.find((t) => t.id === tool)?.label ?? tool;
-  if (tool === "media") return <MediaBin project={project} init={init} thumbs={thumbs} waveforms={waveforms} highlight={highlight} host={host} />;
+  if (tool === "media") return <MediaBin project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />;
   // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
   const items: Record<string, (PanelItem & { title: string })[]> = {
     audioEffects: [
