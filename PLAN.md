@@ -953,6 +953,27 @@ New features, each as a folder in `packages/features`.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
+- **Film look from hance** (the user, 2026-10-13; small, not hance's full
+  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
+  sliders (strength, grain, halation, fade, warmth, or whichever few hance
+  treats as its core), so the inspector, undo, copy properties and agent
+  commands come from the schema; hance's `.hlook` files import onto those
+  sliders, with what doesn't map listed in an import report rather than
+  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
+  fixes reach both; preview/export parity as for every pass. Open: what a
+  `.hlook` holds (values, a LUT, or both) decides whether the renderer
+  needs LUTs.
+- **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
+  overlays (drawn by the native preview like the snap guides, never
+  exported), chosen per platform for the project's shape: 9:16 TikTok,
+  Reels and Shorts; 16:9 YouTube. They show where the platform's own UI
+  sits (caption band, profile picture, name and description, the
+  like/comment column) and a headroom band and eye line for where a head
+  should be. Platform layouts are data (a JSON file), since the apps move
+  them. A query flags text, captions and callouts that overlap an unsafe
+  zone anywhere on the timeline ("nothing under the TikTok buttons", one
+  tool call for an agent); snapping to safe-area edges comes cheap. Face
+  detection for the head guide is later, if wanted.
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
