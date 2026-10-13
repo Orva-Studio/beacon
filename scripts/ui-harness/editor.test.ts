@@ -809,3 +809,20 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await page.until(`[...document.querySelectorAll('button[title]')].some((b) => /^colou?r$/i.test(b.title))`);
   await ui.core.undo(ui.handle);
 });
+
+test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "effects" });
+  const spans = "[...document.querySelectorAll('span')].map((s) => s.textContent)";
+  await page.until(`${spans}.includes('315.0°') && ${spans}.includes('40%')`);
+  await page.evaluate(`[...document.querySelectorAll('span')].find((s) => s.textContent === '315.0°').click()`);
+  await page.until("document.activeElement?.tagName === 'INPUT'");
+  await type("90");
+  await page.key("Enter", "Enter");
+  await Bun.sleep(300);
+  const fx = clip(screen.id).effects.find((e) => e.type === "drop-shadow")!;
+  expect(fx.params.angle as number).toBeCloseTo(Math.PI / 2, 5);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+});

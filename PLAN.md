@@ -979,7 +979,9 @@ microphone level in the dialog, and the sync check in Settings.
 default (Settings › General turns them on; the preview reads originals in
 process). Corner Rounding's radius, Drop Shadow's offset and blur and Motion
 Blur's intensity have sliders. An effect's on/off is a tick box in its
-header, as its other options are, not Camtasia's green pill switch.
+header, as its other options are, not Camtasia's green pill switch. Drop
+Shadow's angle shows in degrees and its opacity as a percentage (stored as
+radians and a fraction, as before).
 
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often
