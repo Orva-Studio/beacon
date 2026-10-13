@@ -27,12 +27,21 @@ export const motionBlur = defineFeature({
       const shutter = ctx.frameSeconds * Math.min(1, SHUTTER * (fx.params.intensity as number));
       const n = 16;
       const motion = [];
+      const perspective: [number, number][] = [];
       for (let i = 1; i < n; i++) {
         const s = ctx.evalClip(e.clip, e.track, e.time - secondsToTicks((shutter * i) / n), { sample: true });
         const layer = s.layers[index];
-        if (layer?.kind === "visual") motion.push(layer.transform);
+        if (layer?.kind !== "visual") continue;
+        motion.push(layer.transform);
+        perspective.push(layer.perspective ?? [0, 0]);
       }
-      if (motion.some((m) => m.some((v, k) => Math.abs(v - e.main!.transform[k]!) > 1e-3))) e.main.motion = motion;
+      const main = e.main.perspective ?? [0, 0];
+      const moves = motion.some((m) => m.some((v, k) => Math.abs(v - e.main!.transform[k]!) > 1e-3));
+      const tilts = perspective.some((p) => Math.abs(p[0] - main[0]) + Math.abs(p[1] - main[1]) > 1e-9);
+      if (!moves && !tilts) return;
+      e.main.motion = motion;
+      // Read after `transform`, which tilts only the motion it finds; each sample's own tilt, or the copies draw flat.
+      if (perspective.some((p) => p[0] || p[1])) e.main.motionPerspective = perspective;
     },
   },
 });

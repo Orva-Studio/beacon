@@ -34,6 +34,6 @@ included at packages/ui/src/fonts/OFL.txt.
 
 Other dependencies
 ------------------
-Beacon's npm and Rust dependencies are under their own licenses, listed in
-each package. The Rust dependencies are limited by packages/engine/deny.toml
+Beacon's npm and Rust dependencies are under their own licenses, as stated
+in each dependency's own package metadata (package.json or Cargo.toml). The Rust dependencies are limited by packages/engine/deny.toml
 to MIT, Apache-2.0, Unicode-3.0, ISC, Zlib, BSD-3-Clause and BSD-2-Clause.

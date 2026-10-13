@@ -15,7 +15,7 @@ import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
  */
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
 const RECORDING = join(FIXTURES, "recording.trec");
-const skip = !existsSync(RECORDING);
+const skip = ![RECORDING, join(FIXTURES, "video.mp4"), join(FIXTURES, "audio.m4a")].every(existsSync);
 
 let dir = "";
 let ui: Awaited<ReturnType<typeof serveUi>>;

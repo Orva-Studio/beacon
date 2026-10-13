@@ -591,7 +591,7 @@ impl Renderer {
             }
             return Ok(());
         };
-        if v.perspective != [0.0, 0.0] && !v.passes.is_empty() {
+        if !v.passes.is_empty() && (0..=v.motion.len()).any(|i| v.perspective_of(i) != [0.0, 0.0]) {
             let r = self.draw_tilted(enc, target, w, h, v, &content, color, local);
             if let Some(g) = group_tex {
                 self.give(g);

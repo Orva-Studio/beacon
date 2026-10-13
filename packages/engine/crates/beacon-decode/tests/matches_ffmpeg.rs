@@ -37,6 +37,7 @@ fn theirs(path: &str, nth: u32, t: f64, w: u32, h: u32) -> Vec<u8> {
 fn frames_match_the_ffmpeg_command_line() {
     let (recording, cta, other) = (fixture("recording.trec"), fixture("video-2.mp4"), fixture("video-3.mp4"));
     if ![&recording, &cta, &other].iter().all(|p| p.exists()) {
+        eprintln!("skipped: fixtures missing in BEACON_FIXTURES");
         return;
     }
     let cases = [
@@ -59,6 +60,7 @@ fn frames_match_the_ffmpeg_command_line() {
 fn images_match_the_ffmpeg_command_line() {
     let png = fixture("image.png");
     if !png.exists() {
+        eprintln!("skipped: {} missing", png.display());
         return;
     }
     let path = png.to_str().unwrap();
