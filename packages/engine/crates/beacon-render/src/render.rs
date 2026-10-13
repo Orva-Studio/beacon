@@ -591,6 +591,13 @@ impl Renderer {
             }
             return Ok(());
         };
+        if v.perspective != [0.0, 0.0] && !v.passes.is_empty() {
+            let r = self.draw_tilted(enc, target, w, h, v, &content, color, local);
+            if let Some(g) = group_tex {
+                self.give(g);
+            }
+            return r;
+        }
         let layer_tex = self.take(w, h);
         clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
         let samples: Vec<&Affine> = std::iter::once(&v.transform).chain(v.motion.iter()).collect();
@@ -626,6 +633,76 @@ impl Renderer {
             radius: v.radius,
         };
         let layer_tex = self.run_passes(enc, layer_tex, w, h, frame, &v.passes)?;
+        let bg = self.builtin_group(bytemuck::cast_slice(&[v.opacity, 0.0f32, 0.0, 0.0]), &layer_tex.create_view(&Default::default()));
+        run_fullscreen(enc, &target.create_view(&Default::default()), Some(()), &self.comp_pipe, &bg);
+        self.give(layer_tex);
+        Ok(())
+    }
+
+    /// A tilted layer with passes: the passes run on the flat layer (with room around it for what they
+    /// draw outside, like a shadow), which is then drawn in perspective. Passes map canvas pixels to the
+    /// layer through its 2D transform, which a tilt doesn't follow.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_tilted(&mut self, enc: &mut wgpu::CommandEncoder, target: &wgpu::Texture, w: u32, h: u32, v: &Visual, content: &wgpu::Texture, color: [f32; 4], local: [f32; 2]) -> Result<()> {
+        let m = &v.transform;
+        let [g, gh] = v.perspective;
+        let longest = local[0].max(local[1]);
+        // Small enough that the padded corners stay in front of the camera (W > 0.5 there).
+        let pad_local = (longest * 0.15).min(0.5 / (g.abs() + gh.abs()).max(1e-6));
+        let s = (scale_of(m) * 1.25).min(8192.0 / (longest + 2.0 * pad_local)).max(1e-3);
+        let pad = pad_local * s;
+        let (fw, fh) = (((local[0] * s + 2.0 * pad).ceil() as u32).max(1), ((local[1] * s + 2.0 * pad).ceil() as u32).max(1));
+        let flat = self.take(fw, fh);
+        clear(enc, &flat, wgpu::Color::TRANSPARENT);
+        {
+            let content_view = content.create_view(&Default::default());
+            let u = DrawU {
+                m0: [s, 0.0, 0.0, s],
+                m1: [pad, pad, fw as f32, fh as f32],
+                rect: [v.crop[0], v.crop[1], local[0], local[1]],
+                content: [v.size[0], v.size[1], 1.0, 0.0],
+                radius: v.radius,
+                color,
+                margin: [2.0 / s, 0.0, 0.0, 0.0],
+            };
+            let bg = self.builtin_group(bytemuck::bytes_of(&u), &content_view);
+            let view = flat.create_view(&Default::default());
+            let mut rp = begin(enc, &view, None);
+            rp.set_pipeline(&self.draw_pipe);
+            rp.set_bind_group(0, Some(&bg), &[]);
+            rp.draw(0..6, 0..1);
+        }
+        let frame = PassFrameU {
+            inv0: [1.0 / s, 0.0, 0.0, 1.0 / s],
+            inv1: [-pad / s, -pad / s, fw as f32, fh as f32],
+            layer: [local[0], local[1], s, 0.0],
+            radius: v.radius,
+        };
+        let flat = self.run_passes(enc, flat, fw, fh, frame, &v.passes)?;
+        // The flat texture's pixels onto the canvas: the layer's transform after undoing the scale and
+        // padding, divided through so the perspective row's constant is 1 again.
+        let k = 1.0 - (g + gh) * pad / s;
+        let u = DrawU {
+            m0: [m[0] / s / k, m[1] / s / k, m[2] / s / k, m[3] / s / k],
+            m1: [(m[4] - (m[0] + m[2]) * pad / s) / k, (m[5] - (m[1] + m[3]) * pad / s) / k, w as f32, h as f32],
+            rect: [0.0, 0.0, fw as f32, fh as f32],
+            content: [fw as f32, fh as f32, 1.0, 0.0],
+            radius: [0.0; 4],
+            color: [1.0; 4],
+            margin: [0.0, g / s / k, gh / s / k, 0.0],
+        };
+        let layer_tex = self.take(w, h);
+        clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
+        {
+            let flat_view = flat.create_view(&Default::default());
+            let bg = self.builtin_group(bytemuck::bytes_of(&u), &flat_view);
+            let view = layer_tex.create_view(&Default::default());
+            let mut rp = begin(enc, &view, None);
+            rp.set_pipeline(&self.draw_pipe);
+            rp.set_bind_group(0, Some(&bg), &[]);
+            rp.draw(0..6, 0..1);
+        }
+        self.give(flat);
         let bg = self.builtin_group(bytemuck::cast_slice(&[v.opacity, 0.0f32, 0.0, 0.0]), &layer_tex.create_view(&Default::default()));
         run_fullscreen(enc, &target.create_view(&Default::default()), Some(()), &self.comp_pipe, &bg);
         self.give(layer_tex);
