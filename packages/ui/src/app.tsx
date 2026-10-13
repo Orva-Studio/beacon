@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { rationalToNumber, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { compileKeymap, label, match } from "./keymap";
 import { droppedFiles } from "./drop";
 import type { DroppedFile, Init } from "./rpc";
@@ -153,7 +153,11 @@ export function App({ host }: { host: Host }) {
       ) : (
         <div className="panel-card h-[30%]" />
       )}
-      <ExportUi host={host} />
+      <ExportUi
+        host={host}
+        muted={(project?.tracks ?? []).flatMap((t, i) => (t.muted && t.clips.some((c) => init?.clipTypes[c.type]?.includes("audio")) ? [trackName(t, i)] : []))}
+        unmute={() => project?.tracks.filter((t) => t.muted).forEach((t) => host.run("track.set", { track: t.id, muted: false }, "Unmute Track"))}
+      />
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />

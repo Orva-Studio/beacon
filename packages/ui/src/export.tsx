@@ -57,7 +57,7 @@ function DataRate({ value, min, max, auto, onChange }: { value: number | null; m
 }
 
 /** File > Export…: name, folder, format and advanced options, in the window (Electrobun has no save panel). */
-export function ExportDialog({ sheet, host }: { sheet: ExportSheet; host: ExportHost }) {
+export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet; host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const [name, setName] = useState(sheet.name);
   const [folder, setFolder] = useState(sheet.folder);
   const [s, setS] = useState(sheet.settings);
@@ -204,6 +204,14 @@ export function ExportDialog({ sheet, host }: { sheet: ExportSheet; host: Export
           </div>
         </div>
       )}
+      {muted.length > 0 && s.audio && s.format !== "gif" && (
+        <div className="mt-4 flex items-center gap-2 text-text" data-export-muted>
+          <span className="flex-1">
+            {muted.length === 1 ? `${muted[0]} is muted: its audio won't be in the export.` : `${muted.join(", ")} are muted: their audio won't be in the export.`}
+          </span>
+          {unmute && <Button onClick={unmute}>Unmute</Button>}
+        </div>
+      )}
       {error && (
         <div className="mt-4 flex items-center gap-2 text-danger">
           <span className="flex-1">{error}</span>
@@ -263,12 +271,12 @@ export function SnapshotSaved({ host }: { host: ExportHost }) {
 }
 
 /** Both, from the view store. */
-export function ExportUi({ host }: { host: ExportHost }) {
+export function ExportUi({ host, muted, unmute }: { host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const sheet = useView((v) => v.exportSheet);
   const job = useView((v) => v.exportJob);
   return (
     <>
-      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} />}
+      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} muted={muted} unmute={unmute} />}
       {job && <ExportProgress job={job} host={host} />}
     </>
   );

@@ -7,6 +7,7 @@ import type { Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
+import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -352,6 +353,19 @@ test.skipIf(skip)("Snapshot saves the frame, adds it to the Media Bin and says s
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
   await page.until("(document.querySelector('[data-snapshot-folder]')?.textContent ?? '').includes(\"The project's media folder\")");
   await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unmute unmutes it", async () => {
+  const audioTrack = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.type === "audio"))!;
+  await run("track.set", { track: audioTrack.id, muted: true });
+  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } };
+  ui.send("exportSheet", sheet);
+  await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
+  await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
+  await page.until("!document.querySelector('[data-export-muted]')");
+  expect(ui.core.doc(ui.handle).tracks.find((t) => t.id === audioTrack.id)!.muted).toBeFalsy();
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
 test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {

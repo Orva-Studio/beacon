@@ -286,7 +286,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         const cw = Math.max(1, (b - a) * pps - 1.5);
         const selected = session.selection.includes(clip.id);
         const teal = audio && selected;
-        ctx.globalAlpha = (t.hidden ? 0.4 : 1) * (d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1) * (t.locked ? 0.6 : 1);
+        // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
+        const silent = audio && !!t.muted;
+        ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * (d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1) * (t.locked ? 0.6 : 1);
         ctx.save();
         ctx.beginPath();
         ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
@@ -313,7 +315,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
               const k = Math.floor(m * 100);
               let peak = 0;
               for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
-              const hgt = Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
+              const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
               ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
             }
           }
@@ -594,7 +596,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fillStyle = color(on ? lit : dim);
         drawIcon(ctx, name, ix, iy, 16, on && name !== "eye");
       };
-      icon(t.muted ? "speaker-slash" : "speaker-high", icons.mute, !!t.muted, "text-bright", "head-icon");
+      icon(t.muted ? "speaker-slash" : "speaker-high", icons.mute, !!t.muted, "wave", "head-icon");
       icon(t.locked ? "lock-simple" : "lock-simple-open", icons.lock, !!t.locked, "text-bright", "head-icon-off");
       icon(t.hidden ? "eye-slash" : "eye", icons.eye, !t.hidden, "head-icon", "head-icon-off");
       if (icons.magnet) icon("magnet", icons.magnet, !!t.magnetic, "text-bright", "text-disabled");
