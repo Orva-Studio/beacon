@@ -327,6 +327,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             textX = x0 + 6 + tw + 10;
           }
         }
+        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain before the name says so.
+        if (clip.linkId && cw > 40) {
+          ctx.fillStyle = CLIP.text();
+          drawIcon(ctx, "link-simple-horizontal", textX + 7, audio ? y + 12 : y + ch / 2, 14);
+          textX += 18;
+        }
         if (cw > 24) {
           ctx.fillStyle = CLIP.text();
           ctx.font = font(13);
