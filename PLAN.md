@@ -809,7 +809,7 @@ button with a countdown.
   recording, as `.trec` stores them (`docs/formats/trec.md`), so the
   cursor feature, smoothing and later auto-zoom work unchanged. Keystrokes
   later (they need the Input Monitoring permission).
-- **Output:** a `.berec` folder per take, one file per stream plus a JSON
+- **Output:** a `.brec` folder per take (Beacon recording; named 2026-10-13, not `.trec`, which is TechSmith's), one file per stream plus a JSON
   data file, imported like a `.trec` (linked Screen, Camera and Audio
   clips). `.trec` is not written.
 - Native capture lives in the engine (Rust over the macOS frameworks
