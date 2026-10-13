@@ -428,7 +428,7 @@ async function stopRecording() {
     status(e instanceof Error ? e.message : String(e));
   } finally {
     win.show();
-    win.focus();
+    win.activate();
   }
 }
 

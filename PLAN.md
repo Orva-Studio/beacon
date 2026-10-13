@@ -964,9 +964,16 @@ Record counts down 3-2-1, asks for the camera or microphone permission if
 needed while the window is up, hides Beacon and starts; a menu-bar item shows
 ● and the time with Stop Recording, as ⌘⇧2 does anywhere; stopping imports the
 take and brings Beacon back. Checkboxes and radio buttons are green
-(`accent-color`), not WebKit's blue. Still to come: a camera preview and a
-microphone level in the dialog, the sync check in Settings, and checking the
-whole flow in the app with the user.
+(`accent-color`), not WebKit's blue. Run in the app by the user (2026-10-13):
+recording, hiding, the menu-bar item and ⌘⇧2 worked, and the camera prompt
+came up with the new usage string. Editing the take, its camera vanished once
+its proxy was deleted: AVFoundation's camera encoder writes open-GOP HEVC
+(CRA keyframes with leading pictures that reference frames before them), and
+the preview's native VideoToolbox decoding failed every seek on them where
+FFmpeg drops them. After a seek it now starts at the keyframe and skips
+what's shown before it (`shim.c`; `matches_ffmpeg.rs` seeks into a camera
+take). Still to come: a camera preview and a
+microphone level in the dialog, and the sync check in Settings.
 
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often

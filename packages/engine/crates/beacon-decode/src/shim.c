@@ -43,6 +43,11 @@ typedef struct {
   int reorder;
   // The first frame VideoToolbox failed to decode since the last seek; returned rather than skipped.
   OSStatus vt_status;
+  // After a seek, packets go to VideoToolbox from the first keyframe, and those shown before it are skipped:
+  // an open-GOP keyframe (HEVC's CRA, as AVFoundation's camera encoder writes) is followed by leading
+  // pictures that reference frames before the seek, which VideoToolbox fails on where FFmpeg drops them.
+  int need_key;
+  int64_t key_pts;
 } otd;
 
 // How otd_open decodes (lib.rs's `Mode`).
@@ -74,6 +79,8 @@ static void vt_clear(otd *d) {
   d->in_flight = 0;
   d->vt_eof = 0;
   d->vt_status = noErr;
+  d->need_key = 1;
+  d->key_pts = INT64_MIN;
   pthread_mutex_unlock(&d->lock);
 }
 
@@ -151,6 +158,7 @@ static int vt_open(otd *d, AVCodecParameters *par) {
     return 0;
   }
   pthread_mutex_init(&d->lock, NULL);
+  d->key_pts = INT64_MIN;
   pthread_cond_init(&d->arrived, NULL);
   d->reorder = FFMIN(FFMAX(par->video_delay, REORDER), 64 - IN_FLIGHT - 1);
   return 1;
@@ -213,6 +221,17 @@ static int vt_next(otd *d, double *pts) {
     if (r < 0) return r;
     AVRational tb = d->fmt->streams[d->stream]->time_base;
     int64_t t = d->pkt->pts != AV_NOPTS_VALUE ? d->pkt->pts : d->pkt->dts;
+    if (d->need_key) {
+      if (!(d->pkt->flags & AV_PKT_FLAG_KEY)) {
+        av_packet_unref(d->pkt);
+        continue;
+      }
+      d->need_key = 0;
+      d->key_pts = t;
+    } else if (t < d->key_pts) {
+      av_packet_unref(d->pkt);
+      continue;
+    }
     CMSampleTimingInfo timing = {kCMTimeInvalid, CMTimeMake(t * tb.num, tb.den), kCMTimeInvalid};
     size_t size = d->pkt->size;
     CMBlockBufferRef block = NULL;

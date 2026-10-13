@@ -72,3 +72,19 @@ fn images_match_the_ffmpeg_command_line() {
     let out = Command::new("ffmpeg").args(["-v", "error", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]).output().unwrap();
     assert!(buf == out.stdout, "{path} differs");
 }
+
+/// AVFoundation's camera encoder writes open-GOP HEVC: a seek lands on a CRA whose leading pictures
+/// reference frames before it. The native path skips them as FFmpeg does (it used to fail every seek).
+#[test]
+fn seeks_into_a_camera_take() {
+    let camera = fixture("take.brec/camera.mp4");
+    if !camera.exists() {
+        eprintln!("skipped: {} missing", camera.display());
+        return;
+    }
+    let path = camera.to_str().unwrap();
+    for t in [1.2, 1.6] {
+        let expected = theirs(path, 0, t, 640, 360);
+        assert!(ours(path, 0, t, 640, 360, true) == expected, "{path} at {t} s differs natively");
+    }
+}
