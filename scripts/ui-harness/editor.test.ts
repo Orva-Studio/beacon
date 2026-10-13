@@ -273,6 +273,32 @@ test.skipIf(skip)("the rotation gizmo turns a clip by dragging a ring, one undo 
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("a recording's camera and audio are linked and select together; its screen selects alone", async () => {
+  await run("selection.clear");
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  expect(screen.linkId).toBeUndefined();
+  expect(camera.linkId).toBeDefined();
+  expect(audio.linkId).toBe(camera.linkId);
+  await run("timeline.view", { start: 0, end: 10 });
+  await Bun.sleep(300);
+  const s = await session();
+  const doc = ui.core.doc(ui.handle);
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(doc.tracks);
+  // Clear of the playhead (an earlier flow leaves it at 1 s), which a click near would grab.
+  const x = box.x + header + ((3 - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const rowY = (id: string) => box.y + 40 + [...doc.tracks].reverse().findIndex((t) => t.clips.some((c) => c.id === id)) * s.timeline.trackHeight + s.timeline.trackHeight / 2;
+  await page.click(x, rowY(camera.id));
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([camera.id, audio.id].sort());
+  await page.click(x, rowY(screen.id));
+  await Bun.sleep(300);
+  expect((await session()).selection).toEqual([screen.id]);
+  await run("selection.clear");
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
   await select([]);
   await run("timeline.view", { start: 0, end: 10 });
@@ -541,9 +567,11 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   await page.rightClick(box.x + box.w / 2, box.y + box.h / 2);
   await Bun.sleep(300);
+  // The clip under the pointer gets the menu; its recording's linked clips are selected with it.
   const sel = (await session()).selection;
-  expect(sel.length).toBe(1);
-  expect(ui.menus.at(-1)).toBe(sel[0]);
+  const hit = clip(ui.menus.at(-1)!);
+  expect(sel[0]).toBe(hit.id);
+  expect([...sel].sort()).toEqual(clips().filter((c) => c.linkId && c.linkId === hit.linkId).map((c) => c.id).sort());
   // Zoomed out, the stage around the canvas is empty.
   await run("canvas.zoom", { zoom: 20 });
   await Bun.sleep(300);

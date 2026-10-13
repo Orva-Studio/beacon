@@ -220,6 +220,8 @@ export interface ImportClipSpec {
   type: string;
   duration: Ticks;
   props: Clip["props"];
+  /** Clips with the same key are linked (cut, moved and selected together); with no keys at all, every clip is. */
+  link?: string;
 }
 
 /** File types a feature can bring into a project (PLAN §6). */

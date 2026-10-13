@@ -970,17 +970,17 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       // Display rows run top to bottom; tracks are stored bottom to top.
       if (d.to !== d.from) run("track.move", { track: d.track, index: tracks.length - 1 - d.to }, "Move Track");
     } else if (d.kind === "press") {
-      run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: false } : { clips: [d.clip], linked: false });
+      run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
     } else if (d.kind === "move") {
       if (d.error) return void (draw(), status(`Can't move there: ${d.error}`));
-      if (Math.abs(d.by) > 1e-9 || d.rows) run("clip.move", { clips: d.ids, by: d.by, tracks: d.rows, linked: false, ripple: d.ripple }, "Move Media");
+      if (Math.abs(d.by) > 1e-9 || d.rows) run("clip.move", { clips: d.ids, by: d.by, tracks: d.rows, linked: true, ripple: d.ripple }, "Move Media");
     } else if (d.kind === "trim") {
       const clip = latest.current.project.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clip)!;
       const end = ticksToSeconds(clip.start + clip.duration);
       if (d.extend) {
         if (d.t > end) run("clip.extendFrame", { clip: d.clip, duration: d.t - end, ripple: d.ripple }, "Extend Frame");
       } else if (Math.abs(d.t - (d.edge === "start" ? ticksToSeconds(clip.start) : end)) > 1e-9) {
-        run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: false, ripple: d.ripple }, "Trim Media");
+        run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: true, ripple: d.ripple }, "Trim Media");
       }
     } else if (d.kind === "space") {
       if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d }, "Ripple Split");
@@ -1083,12 +1083,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           if (session.effects.length) run("effect.select", { effects: [] });
           const edge = clip && edgeAt(clip, e.clientX);
           if (clip && edge) {
-            if (!session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: false });
+            if (!session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
             const t = ticksToSeconds(edge === "start" ? clip.start : clip.start + clip.duration);
             dragState.current = { kind: "trim", clip: clip.id, edge, x0: x, t, ripple: e.shiftKey, extend: false };
           } else if (clip) {
             const toggle = e.metaKey || e.shiftKey;
-            if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: false });
+            if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
             dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey };
           } else {
             const base = e.shiftKey || e.metaKey ? session.selection : [];
@@ -1176,7 +1176,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
               return t.clips.filter((c) => xOf(ticksToSeconds(c.start)) < x1 && xOf(ticksToSeconds(c.start + c.duration)) > x0).map((c) => c.id);
             });
             const next = [...new Set([...d.base, ...hit])];
-            if (next.join() !== session.selection.join()) throttled("selection.set", { clips: next, linked: false });
+            if (next.join() !== session.selection.join()) throttled("selection.set", { clips: next, linked: true });
             return draw();
           }
           let t = timeAt(e.clientX);
@@ -1218,7 +1218,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
           const clip = clipAt(e.clientX, e.clientY);
           if (!clip) return;
-          if (!latest.current.session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: false });
+          if (!latest.current.session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
           menu(clip.id);
         }}
         onWheel={(e) => {

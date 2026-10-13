@@ -253,7 +253,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
   sessionCommand({
     id: "selection.set",
     description:
-      "Select clips by id (replacing the selection, or `add`ing to it, or `toggle`); with `linked`, the clips linked to them (a recording's screen, camera and audio) too. The editor selects single clips",
+      "Select clips by id (replacing the selection, or `add`ing to it, or `toggle`); with `linked`, the clips linked to them (a recording's camera and audio) too, as the editor selects them (Unlink to edit them apart)",
     args: z.strictObject({
       clips: z.array(z.string()),
       add: z.boolean().default(false).describe("Add to the selection instead of replacing it"),

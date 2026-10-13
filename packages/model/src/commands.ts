@@ -26,17 +26,21 @@ export interface ClipLocation {
  * Puts clips starting together at `time` on adjacent tracks, bottom to top:
  * from `track`, refused over other media there, with new tracks above where
  * the next are taken; else on the lowest run of tracks free for them (new
- * tracks on top when there is none). Linked when there are several.
+ * tracks on top when there is none). Linked by their `link` keys, or all
+ * together when they have none.
  */
 function placeClips(
   doc: Project,
   ctx: { newId: (prefix: string) => string },
-  specs: { type: string; duration: Ticks; props: Clip["props"]; assetId?: string }[],
+  specs: { type: string; duration: Ticks; props: Clip["props"]; assetId?: string; link?: string }[],
   time: number,
   track?: string,
 ): string[] {
   const start = snapSeconds(time, doc.settings.fps);
-  const link = specs.length > 1 ? ctx.newId("link") : undefined;
+  // One link per key shared by two or more clips; without keys, one for them all.
+  const links = new Map<string | undefined, string>();
+  const keys = specs.map((spec) => (specs.some((x) => x.link !== undefined) ? spec.link : ""));
+  for (const k of keys) if (k !== undefined && keys.filter((x) => x === k).length > 1 && !links.has(k)) links.set(k, ctx.newId("link"));
   const add = (index: number) => {
     const t: Track = { id: ctx.newId("track"), name: "", clips: [] };
     doc.tracks.splice(index, 0, t);
@@ -57,7 +61,7 @@ function placeClips(
     }
     const t = at && takes(at, i) ? at : add(from + i);
     const id = ctx.newId("clip");
-    t.clips.push({ id, type: spec.type, start, duration: durations[i]!, mediaStart: 0, ...(spec.assetId ? { assetId: spec.assetId } : {}), ...(link ? { linkId: link } : {}), props: spec.props, effects: [], animations: [] });
+    t.clips.push({ id, type: spec.type, start, duration: durations[i]!, mediaStart: 0, ...(spec.assetId ? { assetId: spec.assetId } : {}), ...(links.has(keys[i]) ? { linkId: links.get(keys[i]) } : {}), props: spec.props, effects: [], animations: [] });
     return id;
   });
 }
@@ -212,7 +216,7 @@ export const CORE_COMMANDS: CommandDef[] = [
   defineCommand({
     id: "asset.place",
     description:
-      "Put media from the Media Bin on the timeline at `time`, as importing it does (a recording's screen, camera and audio, linked, on tracks next to each other). With `track`, its first clip goes on that track and the others on the tracks above it (new tracks where those are taken); without, on the lowest tracks free there (new tracks above the top one). Refused over other media on `track`. Returns the clip ids",
+      "Put media from the Media Bin on the timeline at `time`, as importing it does (a recording's screen, camera and audio on tracks next to each other, its camera and audio linked). With `track`, its first clip goes on that track and the others on the tracks above it (new tracks where those are taken); without, on the lowest tracks free there (new tracks above the top one). Refused over other media on `track`. Returns the clip ids",
     args: z.strictObject({ asset: Id, time: Seconds, track: Id.optional() }),
     apply(doc, { asset, time, track }, ctx) {
       const a = doc.assets[asset];

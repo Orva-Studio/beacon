@@ -19,8 +19,9 @@ its timeline live and share its undo history with the user.
 
 ## Media
 `media_import` adds files at the end of the timeline (or at `at`). A Camtasia
-recording (`.trec`) becomes linked clips on separate tracks: "Screen" (with
-its recorded cursor), "Camera" and "Audio", each fitted to the canvas. Linked clips are cut, moved and trimmed together;
+recording (`.trec`) becomes clips on separate tracks: "Screen" (with
+its recorded cursor), "Camera" and "Audio", each fitted to the canvas. The camera and audio are linked
+(the screen and audio, when there is no camera); the screen and camera are separate. Linked clips are cut, moved and trimmed together;
 `clip_unlink` separates them. The camera covers the screen until you lay it
 out (`clip_set` transform/crop, or `track_set` hidden): see the
 `beacon://docs/house-style` resource.

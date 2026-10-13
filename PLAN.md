@@ -350,9 +350,10 @@ be a target, so new features get animation support for free.
 - Stitched clips hold an ordered list of source segments on their own inner
   timeline, shown through a window, with transform/animations/effects on the
   outer clip.
-- **Recordings import as separate linked clips** by default: screen, camera
-  and audio each on their own track, linked so cuts and moves keep them in
-  sync, unlinkable when needed.
+- **Recordings import as separate clips**: screen, camera and audio each on
+  their own track; the camera and audio linked (the screen and audio when
+  there is no camera) so cuts and moves keep them in sync, unlinkable when
+  needed. The screen and camera are never linked (the user, 2026-10-13).
 - Assets carry derived data by key (`proxy`, `waveform`, `thumbnails`,
   `cursor`, `transcript`), each produced by a registered **analyzer**.
 
@@ -725,7 +726,10 @@ in `ARCHITECTURE.md`.
   gated by the user's own run in the app:
   - *5a timeline editing:* select, move, trim, split, ripple delete,
     cut/copy/paste; a recording's clips select one by one in the editor
-    while agents' commands include linked clips; a drag is one command sent
+    while agents' commands include linked clips (changed 2026-10-13, the
+    user: linked clips select and edit together in the editor too, as in
+    DaVinci, with Unlink to separate them; only a recording's camera and
+    audio are linked, never its screen and camera); a drag is one command sent
     on release, drawn as a ghost from the same maths (`model/edit.ts`);
     drops over other media are refused, magnetic tracks make room.
   - *5b properties and canvas:* edits apply at the playhead (the animation

@@ -127,6 +127,8 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
     const s = video[0]!;
     return [{ track: "Image", type: "image", duration: secondsToTicks(5), props: { media: { stream: 0 }, transform: fitted(project, s.width!, s.height!) } }];
   }
+  // A recording's audio is linked to its camera (or, with no camera, its screen); the screen and camera are placed and cut apart.
+  const camera = video.some((s) => !isScreenCodec(s.codec));
   for (const [i, s] of video.entries()) {
     const screen = isScreenCodec(s.codec);
     specs.push({
@@ -134,11 +136,12 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
       type: screen ? "screen" : "video",
       duration: secondsToTicks(s.duration || info.duration),
       props: { media: { stream: i }, transform: fitted(project, s.width!, s.height!) },
+      link: screen && camera ? undefined : "picture",
     });
   }
   const audio = info.streams.filter((s) => s.kind === "audio");
   for (const [i, s] of audio.entries()) {
-    specs.push({ track: audio.length > 1 ? `Audio ${i + 1}` : "Audio", type: "audio", duration: secondsToTicks(s.duration || info.duration), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } } });
+    specs.push({ track: audio.length > 1 ? `Audio ${i + 1}` : "Audio", type: "audio", duration: secondsToTicks(s.duration || info.duration), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } }, link: "picture" });
   }
   // Streams of one recording differ by a few ms; linked clips share the shortest length.
   const shortest = Math.min(duration, ...specs.map((x) => x.duration));
