@@ -196,10 +196,10 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     },
   });
   add("frame_capture", {
-    description: "Snapshot: save the canvas at a timeline time (default: the playhead) as a PNG in the project's media folder and add it to the Media Bin. Returns the asset id",
-    schema: z.strictObject({ time: Seconds.optional() }),
-    async run({ time }) {
-      const r = await core.captureFrame(project(), time);
+    description: "Snapshot: save the canvas at a timeline time (default: the playhead) as a PNG in the project's media folder (or `folder`) and add it to the Media Bin. Returns the asset id",
+    schema: z.strictObject({ time: Seconds.optional(), folder: z.string().optional().describe("An existing folder to save it in instead (~ allowed)") }),
+    async run({ time, folder }) {
+      const r = await core.captureFrame(project(), time, folder ? { folder: expandHome(folder) } : {});
       return text(`added ${r.asset} (${r.path}) to the Media Bin`);
     },
   });

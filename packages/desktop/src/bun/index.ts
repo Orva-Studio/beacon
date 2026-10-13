@@ -672,8 +672,11 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       captureFrame: () =>
         reply(async () => {
           if (!current) return;
-          const r = await core.captureFrame(current.path);
-          status(`Snapshot added to the Media Bin: ${basename(r.path)}`);
+          // A folder chosen in Settings that has since gone: the project's own media folder instead.
+          const folder = appSettings.snapshotFolder && existsSync(appSettings.snapshotFolder) ? appSettings.snapshotFolder : undefined;
+          if (appSettings.snapshotFolder && !folder) status(`${appSettings.snapshotFolder} is missing: saved in the project's media folder`);
+          const r = await core.captureFrame(current.path, undefined, folder ? { folder } : {});
+          send().snapshotSaved({ path: r.path });
           send().media({ highlight: r.asset });
           void sendThumbs();
         }),

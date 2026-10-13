@@ -163,10 +163,10 @@ export interface BeaconCore {
   frame(h: ProjectHandle, time: number, opts?: FrameOptions): Promise<Image>;
   /**
    * Snapshot: the canvas at a timeline time (default: the
-   * playhead) saved as a PNG in the project's `media` folder and added to
-   * the Media Bin, as one undo step.
+   * playhead) saved as a PNG in the project's `media` folder (or an existing
+   * `folder`, checked as other writes are) and added to the Media Bin, as one undo step.
    */
-  captureFrame(h: ProjectHandle, time?: number): Promise<{ asset: string; path: string }>;
+  captureFrame(h: ProjectHandle, time?: number, opts?: { folder?: string }): Promise<{ asset: string; path: string }>;
   /** A contact sheet of frames across a range; `times` are the frames shown, in timeline seconds. */
   sheet(h: ProjectHandle, opts: SheetOptions): Promise<Image & { times: number[] }>;
   export(h: ProjectHandle, opts: ExportOptions): Promise<Job>;

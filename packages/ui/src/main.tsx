@@ -25,6 +25,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       media: (m) => replica.media(m),
       exportSheet: (s) => replica.exportSheet(s),
       exportJob: (j) => replica.exportJob(j),
+      snapshotSaved: ({ path }) => replica.snapshot(path),
       settingsSheet: (s) => replica.settings(s),
       key: ({ code, meta }) => {
         const el = document.activeElement;

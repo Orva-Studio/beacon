@@ -10,6 +10,7 @@ export interface SettingsHost {
   setAppSettings(settings: AppSettings): void;
   proxySpace(): Promise<number>;
   deleteAllProxies(): Promise<number>;
+  chooseFolder(start: string): Promise<string | null>;
 }
 
 const space = (bytes: number) =>
@@ -48,6 +49,24 @@ export function SettingsWindow({ app: { tab: opening, ...app }, project, host }:
                 <option value="bt709">BT.709</option>
                 <option value="srgb">sRGB</option>
               </Select>
+            </div>
+          </Row>
+          <Row label="Save Snapshots To" hint="Snapshot (the camera in the timeline's toolbar) saves the frame at the playhead as a PNG here and adds it to the Media Bin.">
+            <div className="flex min-w-0 items-center gap-2" data-snapshot-folder>
+              <span className="min-w-0 flex-1 truncate text-text" title={settings.snapshotFolder ?? "The project's media folder"}>
+                {settings.snapshotFolder ? settings.snapshotFolder.replace(/^\/Users\/[^/]+/, "~") : "The project's media folder"}
+              </span>
+              <Button onClick={async () => {
+                const folder = await host.chooseFolder(settings.snapshotFolder ?? "~/Pictures");
+                if (folder) update({ snapshotFolder: folder });
+              }}>
+                Choose…
+              </Button>
+              {settings.snapshotFolder && (
+                <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: undefined })}>
+                  Use Project
+                </Button>
+              )}
             </div>
           </Row>
           <Row label="Make Proxies For" hint="Quick-to-seek copies made in the background, so scrubbing is fast. Unticked: only from Proxy Video in Media's menu.">

@@ -795,6 +795,10 @@ has no title or type groups: a search field, All/Video/Audio/Images chips,
 one sort menu (each sort with its direction), grid or list, an Import tile
 first, and tiles showing the picture with its duration and kind, a P for a
 proxy and a check for media on the timeline (`ui/src/media-bin.tsx`).
+Snapshot saves to the project's media folder or a folder set in Settings >
+General > Save Snapshots To (`captureFrame`'s `folder`, MCP `frame_capture`
+too; checked as any write, never inside a project), and says so in a toast
+with Show in Finder, as a finished export does (the shared `Toast`).
 Reviewed 2026-10-12 (PR #6): cancelling a job starts no more processes (a
 cancelled proxy build used to restart in software); native decoding asks for
 4:2:0 and reports decode errors; Settings and Export use `Modal`, with one

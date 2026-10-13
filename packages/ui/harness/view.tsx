@@ -51,6 +51,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "media") replica.media(msg.data);
   else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
+  else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
   else if (msg.type === "notice") replica.notice(msg.data);
   else if (msg.type === "previewClock") replica.previewClock(msg.data);

@@ -13,7 +13,7 @@ import { MediaPreviewUi, type PreviewHost } from "./media-preview";
 import { NewProjectUi, ProjectName, type ProjectHost } from "./project-name";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
-import { ExportUi, type ExportHost } from "./export";
+import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
@@ -154,6 +154,7 @@ export function App({ host }: { host: Host }) {
         <div className="panel-card h-[30%]" />
       )}
       <ExportUi host={host} />
+      <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />
       <MediaPreviewUi host={host} />

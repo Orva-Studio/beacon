@@ -332,6 +332,28 @@ test.skipIf(skip)("the Media Bin searches, filters by kind, sorts, shows a list,
   expect(ui.menus.at(-1)).toBe("import");
 });
 
+test.skipIf(skip)("Snapshot saves the frame, adds it to the Media Bin and says so with Show in Finder; it can save to a chosen folder, never inside a project", async () => {
+  const before = Object.keys(ui.core.doc(ui.handle).assets).length;
+  await page.evaluate(`document.querySelector('button[title^="Snapshot"]').click()`);
+  await page.until("[...document.querySelectorAll('[data-toast] button')].some((b) => b.textContent === 'Show in Finder')");
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toMatch(/^Saved Snapshot .*\.png/);
+  expect(Object.keys(ui.core.doc(ui.handle).assets).length).toBe(before + 1);
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-toast]')");
+  await ui.core.undo(ui.handle);
+  // A chosen folder (Settings > General > Save Snapshots To), checked as other writes are.
+  const folder = mkdtempSync(join(tmpdir(), "beacon-shots-"));
+  const r = await ui.core.captureFrame(ui.handle, 1, { folder });
+  expect(r.path.startsWith(folder)).toBe(true);
+  expect(existsSync(r.path)).toBe(true);
+  await ui.core.undo(ui.handle);
+  await expect(ui.core.captureFrame(ui.handle, 1, { folder: join(dir, "e2e.beproj") })).rejects.toThrow(/inside e2e\.beproj/);
+  rmSync(folder, { recursive: true, force: true });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
+  await page.until("(document.querySelector('[data-snapshot-folder]')?.textContent ?? '').includes(\"The project's media folder\")");
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
   await select([]);
   await run("timeline.view", { start: 0, end: 10 });

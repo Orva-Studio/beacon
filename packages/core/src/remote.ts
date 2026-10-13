@@ -156,7 +156,7 @@ export class RemoteCore implements BeaconCore {
   history = (h: ProjectHandle) => this.#call<{ undo: string[]; redo: string[] }>("history", h);
   query = (h: ProjectHandle, name: string, args?: unknown) => this.#call("query", h, name, args);
   frame = (h: ProjectHandle, time: number, opts?: FrameOptions) => this.#call<Image>("frame", h, time, opts);
-  captureFrame = (h: ProjectHandle, time?: number) => this.#call<{ asset: string; path: string }>("captureFrame", h, time);
+  captureFrame = (h: ProjectHandle, time?: number, opts?: { folder?: string }) => this.#call<{ asset: string; path: string }>("captureFrame", h, time, opts);
   sheet = (h: ProjectHandle, opts: SheetOptions) => this.#call<Image & { times: number[] }>("sheet", h, opts);
   import = (h: ProjectHandle, files: string[], opts?: ImportOptions) => this.#call<ImportResult>("import", h, files, opts);
   forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);

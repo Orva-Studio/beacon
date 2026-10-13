@@ -88,6 +88,8 @@ export interface AppSettings {
   autoProxy: { recording: boolean; video: boolean };
   /** quiet: one proxy at a time at background priority, so the fans stay off; fast: two at once. */
   proxyMode: "quiet" | "fast";
+  /** Where Snapshot saves its PNGs; unset, the project's own media folder. */
+  snapshotFolder?: string;
 }
 
 /** The Export dialog's settings. */
@@ -210,6 +212,8 @@ export type AppRPC = {
       /** File > Export… or Export Selection…: open the Export dialog. */
       exportSheet: ExportSheet;
       exportJob: ExportJob;
+      /** Snapshot saved a frame: shown with Show in Finder. */
+      snapshotSaved: { path: string };
       /** Beacon > Settings… (⌘,). */
       /** `tab`: the one to open on (Project Settings… opens "project"). */
       settingsSheet: SettingsSheet;

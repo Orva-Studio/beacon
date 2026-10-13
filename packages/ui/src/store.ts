@@ -41,6 +41,8 @@ export interface ViewState {
   exportJob?: ExportJob;
   /** The Settings window, while open, with the app settings it opened with. */
   settings?: SettingsSheet;
+  /** The last Snapshot's file, while its toast shows. */
+  snapshot?: string;
   /** A notice being shown (what an import left out). */
   notice?: import("./rpc").Notice;
   /** The Media Bin preview, while open. */
@@ -135,6 +137,9 @@ export const replica = {
   },
   viewBin(bin: Partial<ViewState["bin"]>) {
     set({ bin: { ...state.bin, ...bin } });
+  },
+  snapshot(snapshot: ViewState["snapshot"]) {
+    set({ snapshot });
   },
   notice(notice: ViewState["notice"]) {
     set({ notice });
