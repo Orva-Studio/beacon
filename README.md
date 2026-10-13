@@ -74,6 +74,9 @@ names a feature.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): what exists today
 - [`docs/formats/`](docs/formats): file formats Beacon reads
 
+## Contributing
+Beacon takes issues, not pull requests: see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## License
 [FSL-1.1-ALv2](LICENSE): free to use, modify and redistribute, but not to
 build a competing product or service. Each version becomes Apache 2.0 two
