@@ -376,10 +376,10 @@ test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, t
   const tile = (id: string) => centre(`[data-asset="${id}"]`);
   await page.click(...(await tile(ids[0]!)));
   await Bun.sleep(150);
-  expect(await selected()).toEqual([ids[0]]);
+  expect(await selected()).toEqual([ids[0]!]);
   await page.click(...(await tile(ids[1]!)), ["shift"]);
   await Bun.sleep(150);
-  expect((await selected()).sort()).toEqual([ids[0], ids[1]].sort());
+  expect((await selected()).sort()).toEqual([ids[0]!, ids[1]!].sort());
   // Below the last item: the bin's empty space.
   const empty = await page.evaluate<[number, number]>("(() => { const r = document.querySelector('[data-bin-items]').getBoundingClientRect(); return [r.x + r.width / 2, r.bottom - 6]; })()");
   await page.click(...empty);
