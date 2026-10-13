@@ -94,7 +94,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
 }
 
 /** Clips are coloured by kind; selection adds an accent border, and brightens audio. */
-const CLIP = { text: () => color("text-bright"), wave: () => color("wave") };
+const CLIP = { text: () => color("text-bright"), wave: () => color("wave"), badge: () => color("clip-badge") };
 const KIND: Record<string, string> = { screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation" };
 
 /**
@@ -329,11 +329,16 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             textX = x0 + 6 + tw + 10;
           }
         }
-        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain before the name says so.
+        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
+        // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.
         if (clip.linkId && cw > 40) {
+          ctx.fillStyle = CLIP.badge();
+          ctx.beginPath();
+          ctx.roundRect(x0 + 4, y + 4, 20, 18, 4);
+          ctx.fill();
           ctx.fillStyle = CLIP.text();
-          drawIcon(ctx, "link-simple-horizontal", textX + 7, audio ? y + 12 : y + ch / 2, 14);
-          textX += 18;
+          drawIcon(ctx, "link-simple-horizontal", x0 + 14, y + 13, 14);
+          textX = Math.max(textX, x0 + 30);
         }
         if (cw > 24) {
           ctx.fillStyle = CLIP.text();
