@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const RECORDING = join(homedir(), "client-videos/firecrawl/alexandria/alexandria.cmproj/recordings/1790097529.719643/demo_3.trec");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const RECORDING = join(FIXTURES, "recording-2.trec");
 const dir = mkdtempSync(join(tmpdir(), "beacon-agent-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 

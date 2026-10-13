@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { renderProject } from "@beacon/render";
 import { LocalCore } from "../src";
 
-const HERMES = join(homedir(), "client-videos/personal/hermes.cmproj");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const SMALL = join(FIXTURES, "small.cmproj");
 const dir = mkdtempSync(join(tmpdir(), "ot-parity-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -29,11 +30,11 @@ function psnr(a: Uint8Array, b: Uint8Array): number {
   return se === 0 ? Infinity : 10 * Math.log10((255 * 255) / (se / n));
 }
 
-test.skipIf(!existsSync(HERMES))(
+test.skipIf(!existsSync(SMALL))(
   "the preview shows what the export renders",
   async () => {
     const core = new LocalCore();
-    const h = await core.create({ path: join(dir, "hermes.beproj"), cmproj: HERMES });
+    const h = await core.create({ path: join(dir, "small.beproj"), cmproj: SMALL });
     const doc = core.doc(h);
     const seconds = [5, 40, 100, 200, 330];
     const frames = seconds.map((s) => s * 30);

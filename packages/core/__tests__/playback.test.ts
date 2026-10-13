@@ -5,13 +5,14 @@ import { join } from "node:path";
 import { DEFAULT_CACHE_DIR } from "@beacon/render";
 import { LocalCore } from "../src";
 
-const HERMES = join(homedir(), "client-videos/personal/hermes.cmproj");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const SMALL = join(FIXTURES, "small.cmproj");
 const dir = mkdtempSync(join(tmpdir(), "ot-playback-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 // The cache moved from ~/Library/Caches/opentasia to .../Beacon with its proxy records still
 // pointing at the old folder, and playing drew nothing while the playhead moved (2026-10-13).
-test.skipIf(!existsSync(HERMES))(
+test.skipIf(!existsSync(SMALL))(
   "playing draws frames when proxy records point at a moved cache or at files that can't be read",
   async () => {
     const cache = join(dir, "cache");
@@ -20,7 +21,7 @@ test.skipIf(!existsSync(HERMES))(
     for (const f of readdirSync(DEFAULT_CACHE_DIR)) if (f.startsWith("frames-")) cpSync(join(DEFAULT_CACHE_DIR, f), join(cache, f));
 
     const core = new LocalCore({ cacheDir: cache });
-    const h = await core.create({ path: join(dir, "hermes.beproj"), cmproj: HERMES });
+    const h = await core.create({ path: join(dir, "small.beproj"), cmproj: SMALL });
     const doc = core.doc(h);
     const def = core.registry.jobAnalyzers.get("proxy")!;
     const records: string[] = [];

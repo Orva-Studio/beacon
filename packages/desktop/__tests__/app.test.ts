@@ -6,7 +6,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { LocalCore } from "@beacon/core";
 
-const HERMES = join(homedir(), "client-videos/personal/hermes.cmproj");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const SMALL = join(FIXTURES, "small.cmproj");
 const APP = join(import.meta.dir, "../build/dev-macos-arm64/Beacon-dev.app/Contents/MacOS/launcher");
 const dir = mkdtempSync(join(tmpdir(), "ot-app-"));
 let app: ReturnType<typeof Bun.spawn> | undefined;
@@ -15,15 +16,15 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test.skipIf(!existsSync(HERMES))(
+test.skipIf(!existsSync(SMALL))(
   "an agent drives and reads the open app over MCP, and its edits reach the timeline",
   async () => {
     const build = Bun.spawnSync(["bun", "run", "build"], { cwd: join(import.meta.dir, ".."), stdout: "ignore", stderr: "pipe" });
     expect(build.exitCode, build.stderr.toString()).toBe(0);
 
-    const project = join(dir, "hermes.beproj");
+    const project = join(dir, "small.beproj");
     const local = new LocalCore();
-    await local.close(await local.create({ path: project, cmproj: HERMES }));
+    await local.close(await local.create({ path: project, cmproj: SMALL }));
 
     // In the background: the window opens without taking focus, and nothing plays.
     const socket = join(dir, "app.sock");

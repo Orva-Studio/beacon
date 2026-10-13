@@ -6,7 +6,8 @@ import { importCmproj } from "@beacon/camtasia";
 import { copyClips, createProject, projectDuration, ProjectStore, ticksToSeconds, type Clip } from "@beacon/model";
 import { createRegistry } from "../src";
 
-const AI_SLOP = join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const AI_SLOP = join(FIXTURES, "project.cmproj");
 
 test.skipIf(!existsSync(AI_SLOP))("editing a real project validates, and undo restores it exactly", async () => {
   const registry = createRegistry();

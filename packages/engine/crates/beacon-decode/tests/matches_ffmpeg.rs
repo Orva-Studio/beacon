@@ -5,6 +5,11 @@ use beacon_decode::{Decoder, Next};
 use std::path::PathBuf;
 use std::process::Command;
 
+/// A test file in `BEACON_FIXTURES` (default `~/beacon-fixtures`).
+fn fixture(name: &str) -> PathBuf {
+    std::env::var("BEACON_FIXTURES").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap()).join("beacon-fixtures")).join(name)
+}
+
 fn ours(path: &str, nth: u32, t: f64, w: u32, h: u32, native: bool) -> Vec<u8> {
     let mut d = if native { Decoder::open_native(path, nth) } else { Decoder::open(path, nth, true, 4) }.unwrap();
     d.seek(t).unwrap();
@@ -30,16 +35,15 @@ fn theirs(path: &str, nth: u32, t: f64, w: u32, h: u32) -> Vec<u8> {
 
 #[test]
 fn frames_match_the_ffmpeg_command_line() {
-    let project = PathBuf::from(std::env::var("HOME").unwrap()).join("client-videos/firecrawl/ai-slop/ai-slop.cmproj");
-    if !project.exists() {
+    let (recording, cta, other) = (fixture("recording.trec"), fixture("video-2.mp4"), fixture("video-3.mp4"));
+    if ![&recording, &cta, &other].iter().all(|p| p.exists()) {
         return;
     }
-    let recording = std::fs::read_dir(project.join("recordings")).unwrap().flatten().map(|e| e.path().join("demo_3.trec")).find(|p| p.exists()).unwrap();
     let cases = [
         (recording.clone(), 1, 30.0, 960, 540),
         (recording, 0, 30.0, 960, 622),
-        (project.join("media/1787669072.456843/cta.mp4"), 0, 2.0, 960, 540),
-        (project.join("media/1787678532.040916/firecrawl_2090832086106022127.mp4"), 0, 2.0, 640, 360),
+        (cta, 0, 2.0, 960, 540),
+        (other, 0, 2.0, 640, 360),
     ];
     for (path, nth, t, w, h) in cases {
         let path = path.to_str().unwrap();
@@ -53,7 +57,7 @@ fn frames_match_the_ffmpeg_command_line() {
 /// Stills (beacon-render's images) are decoded the same way: the first frame at its own size.
 #[test]
 fn images_match_the_ffmpeg_command_line() {
-    let png = PathBuf::from(std::env::var("HOME").unwrap()).join("client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787669072.456577/Text.png");
+    let png = fixture("image.png");
     if !png.exists() {
         return;
     }

@@ -660,7 +660,7 @@ export class LocalCore implements BeaconCore {
 
   /**
    * Thumbnails are kept on disk by media file, stream, time and height: a project's are made once, not on
-   * every open (ai-slop's 304 clips cost ~50 s of ffmpeg each time).
+   * every open (the benchmark project's 304 clips cost ~50 s of ffmpeg each time).
    */
   async #cachedThumb(asset: Asset, stream: number, time: number, height: number, make: () => Promise<Uint8Array>): Promise<Uint8Array> {
     const key = Bun.hash(`${asset.path}\0${asset.fingerprint}\0${stream}\0${time.toFixed(3)}\0${height}`).toString(16);

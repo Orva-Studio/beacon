@@ -24,6 +24,6 @@ Beacon (by Orva): a macOS screen-recording editor on its own project format, wit
 - All document changes go through commands (`ProjectStore`); features are folders that register with the `FeatureRegistry`, and core never names a feature.
 - `.trec` parsing is strict: unknown layouts are errors. Findings go in `docs/formats/trec.md`.
 - Features never edit core: extend the contract in `packages/model/src/feature.ts` if a feature needs something new.
-- Tests: few, on real data (PLAN §12). Unit tests only for undo exactness, migrations, ticks maths.
+- Tests: few, on real data (PLAN §12), read from `BEACON_FIXTURES` (default `~/beacon-fixtures`, links to the user's media); never name client files in the repo. Unit tests only for undo exactness, migrations, ticks maths.
 - Exact pinned versions; commit `bun.lock` and `Cargo.lock`.
 - Conventional Commits; work on a branch, not `main`.

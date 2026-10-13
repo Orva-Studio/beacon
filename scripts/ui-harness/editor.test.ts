@@ -13,7 +13,8 @@ import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
  * rehearsed by hand each session, kept so it can't quietly break. A real recording, read only.
  */
-const RECORDING = join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/recordings/1787664796.791134/demo_3.trec");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const RECORDING = join(FIXTURES, "recording.trec");
 const skip = !existsSync(RECORDING);
 
 let dir = "";
@@ -488,7 +489,7 @@ test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, a
 test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a P badge; deleting the proxy removes the badge and its files", async () => {
   // A fresh copy has no cached proxy, so making it is real work.
   const copy = join(dir, `like-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   const tile = `[data-asset="${assets[0]}"]`;
   await run("panel.show", { tool: "media" });
@@ -521,7 +522,7 @@ test.skipIf(skip)("a stitched clip has a thumbnail: what its first frame shows",
 
 test.skipIf(skip)("an audio file in the Media Bin shows its waveform", async () => {
   const copy = join(dir, `voice-${Date.now()}.m4a`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787669072.457031/pdf-inspector_new.cleaned.m4a"), copy);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   await run("panel.show", { tool: "media" });
   ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
@@ -543,7 +544,7 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   // What the app does with it: no proxy is started for a video file.
   ui.core.setAutomatic((analyzer, asset) => analyzer !== "proxy" || asset.kind === "recording");
   const copy = join(dir, `like-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
   await Bun.sleep(1500);
@@ -560,7 +561,7 @@ test.skipIf(skip)("Settings > General shows the space proxies use, and Delete Al
   const path = join(dir, "proxies.beproj");
   const h = await core.create({ path });
   const copy = join(dir, `like-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await core.import(h, [copy]);
   await core.close(h);
   const other = await serveUi(path, { cacheDir });
@@ -586,7 +587,7 @@ test.skipIf(skip)("Settings > General shows the space proxies use, and Delete Al
 }, 90000);
 
 test.skipIf(skip)("moved media shows Missing on its Media Bin tile and builds no proxy; Locate Media finds it, one undo step", async () => {
-  const like = join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4");
+  const like = join(FIXTURES, "video.mp4");
   const copy = join(dir, `moved-${Date.now()}.mp4`);
   copyFileSync(like, copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
@@ -600,7 +601,7 @@ test.skipIf(skip)("moved media shows Missing on its Media Bin tile and builds no
   await expect(ui.core.analyze(ui.handle, "proxy", assets[0]!)).rejects.toThrow(/is missing/);
   // Another file isn't taken for it.
   const other = join(dir, `voice-${Date.now()}.m4a`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787669072.457031/pdf-inspector_new.cleaned.m4a"), other);
+  copyFileSync(join(FIXTURES, "audio.m4a"), other);
   await expect(ui.core.relink(ui.handle, assets[0]!, other)).rejects.toThrow(/same kind/);
   await ui.core.relink(ui.handle, assets[0]!, moved);
   await page.until(`!document.querySelector('${tile} [data-missing]')`);
@@ -707,7 +708,7 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
 
 test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); after a click on the timeline it goes to the timeline instead", async () => {
   const copy = join(dir, `del-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   const id = assets[0]!;
   await run("panel.show", { tool: "media" });

@@ -910,7 +910,7 @@ audio mix, speed and loudness, muxing, transcription audio).
    H.264/HEVC, frames kept for steps back. Left for this phase: VideoToolbox for H.264/HEVC/ProRes and FFmpeg's TSC2 decoder
    linked into the engine (or a port; the `.trec` screen codec has no Apple
    decoder, so FFmpeg can't go entirely), instead of a process and a seek per
-   source per jump, which is much of why jumps on ai-slop take ~0.5 s.
+   source per jump, which is much of why jumps on the benchmark project take ~0.5 s.
    Export through AVAssetWriter for MP4/MOV; FFmpeg kept for GIF/WebM and
    the audio filters (not worth rewriting).
 Performance research (2026-10-12, `docs/performance.md`): the user wants

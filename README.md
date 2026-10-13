@@ -49,6 +49,11 @@ The server's built-in instructions are in `skills/SKILL.md`.
 | `bun run render-cmproj <project.cmproj> <out.mp4>` | Headless render of a `.cmproj` project |
 | `bun run dump-trec [root]` | Read every `.trec` under a folder |
 
+Tests on real media read it from `BEACON_FIXTURES` (default `~/beacon-fixtures`):
+`project.cmproj`, `small.cmproj`, `recording.trec`, `recording-2.trec`,
+`video.mp4`, `video-2.mp4`, `video-3.mp4`, `audio.m4a` and `image.png`. A test
+whose file is missing is skipped.
+
 `scripts/ui-harness/` serves the editor UI to headless Chromium against a real
 core, for clicking, dragging and screenshotting without a window.
 

@@ -103,7 +103,7 @@ function evaluateCallout(e: ClipEval, ctx: EvalContext) {
     const fy = c.height / Math.max(y1 - y0, 1e-6);
     const lines = raw.map((l) => l.map(([x, y]): [number, number] => [(x - x0) * fx, (y - y0) * fy]));
     const since = ticksToSeconds(e.time - e.clip.start);
-    // Draw-on is fast then slow (quadratic ease-out fitted to fable-5-1).
+    // Draw-on is fast then slow (quadratic ease-out fitted to a Camtasia export).
     const t = c.sketch.drawTime > 0 ? Math.min(1, since / c.sketch.drawTime) : 1;
     const progress = 1 - (1 - t) ** 2;
     // The stroke width is in canvas pixels: it does not scale with the callout.
