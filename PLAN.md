@@ -920,6 +920,17 @@ most a frame behind its sound, inside what viewers notice (sound leading by
 over ~45 ms). The display's and camera's own delays can't be told apart this
 way, nor any better than a camera frame.
 
+**2. The cursor log (2026-10-13).** A take recording the screen writes
+`cursor.jsonl` and a `cursor-N.png` per image (`docs/formats/brec.md`):
+positions and buttons polled about 100 times a second through CoreGraphics
+(no permission), images through `NSCursor.currentSystemCursor` (deprecated,
+the only public way, working on macOS 26 without registering as an app),
+`.trec`'s button codes. Checked against a probe reading every input API side
+by side: the same 12 left clicks at the same times, 2 right clicks, and the
+arrow, I-beam and hand. macOS's large-cursor setting enlarges the arrow and
+I-beam images (28×40 points) but not the hand (32×32): step 3 draws them at
+their own sizes.
+
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often
 50–150 ms, which no API reports and which differs per camera, so Beacon
