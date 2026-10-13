@@ -989,6 +989,17 @@ New features, each as a folder in `packages/features`.
   zone anywhere on the timeline ("nothing under the TikTok buttons", one
   tool call for an agent); snapping to safe-area edges comes cheap. Face
   detection for the head guide is later, if wanted.
+- **Favourites you choose** (the user, 2026-10-13): today the Favorites panel
+  is a fixed list (`FAVORITES` in `ui/src/sidebar.tsx`: Text, Rectangle,
+  Spotlight and four effects). Instead: a star on any annotation, visual
+  or audio effect (on hover, and Add to Favorites in its menu) adds it;
+  favourites are reordered by dragging and removed by un-starring; the
+  current list is the default for new users. Stored app-wide with the other
+  app settings, owned by core (`favorites.add`/`remove`/`move`, so agents
+  and the command palette use them too; see "App settings as commands"
+  above). Open: whether a configured item can be a favourite too (a drop
+  shadow with your colour and blur, a text style), saved as a preset with
+  its params, which is the larger and probably more useful half.
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
