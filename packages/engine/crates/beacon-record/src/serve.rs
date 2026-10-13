@@ -6,6 +6,8 @@
 //! is stopped and its files finished.
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -52,9 +54,30 @@ fn error(id: Option<&Value>, message: impl Into<String>) {
 
 pub fn run() -> Result<(), String> {
     let mut take: Option<Take> = None;
+    // The main thread polls the cursor (AppKit's), so stdin is read on another.
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
     emit(None, json!({ "event": "ready" }));
-    for line in std::io::stdin().lock().lines() {
-        let line = line.map_err(|e| e.to_string())?;
+    loop {
+        let line = match rx.recv_timeout(Duration::from_micros(8333)) {
+            Ok(line) => line,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(t) = &mut take {
+                    t.poll_cursor();
+                }
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        if let Some(t) = &mut take {
+            t.poll_cursor();
+        }
         if line.trim().is_empty() {
             continue;
         }

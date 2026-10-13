@@ -5,6 +5,7 @@
 //! `--tones` playing a sound every few seconds to check the streams' sync
 //! against each other.
 mod capture;
+mod cursor;
 mod devices;
 mod serve;
 
@@ -36,7 +37,8 @@ fn record(args: &[String]) -> Result<(), String> {
             take.mark();
             let _ = std::process::Command::new("afplay").arg("/System/Library/Sounds/Ping.aiff").spawn();
         }
-        std::thread::sleep(Duration::from_millis(5));
+        take.poll_cursor();
+        std::thread::sleep(Duration::from_millis(8));
     }
     println!("{}", serde_json::json!({ "event": "stopped", "take": take.stop()? }));
     Ok(())

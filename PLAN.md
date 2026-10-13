@@ -929,7 +929,13 @@ pair (about 10 s; the speakers on, the camera seeing the screen's light),
 saves the offset per pair, and writes it into each take's `recording.json`;
 importing a take (step 3) moves the camera clip by it, so nothing is
 re-encoded and it stays adjustable. Without a check, a manual offset per
-device does the same. When the capture card also carries the camera's own
+device does the same. The check is run from Settings › Recording ("Check
+Sync…", for the chosen camera and microphone, showing and saving the result)
+and from the recorder window's menu. It replaces the user's `cuca` (a live
+virtual microphone delaying the real one by a fixed 150 ms through VB-Cable so
+Camtasia's takes line up): moving the camera earlier fixes lip sync and keeps
+the voice in step with the screen, where delaying the microphone makes it late
+against the screen; and nothing runs live while recording. When the capture card also carries the camera's own
 audio (HDMI), matching that against the microphone's waveform gives the offset
 from ordinary speech, with no test (check whether the user's Elgato offers an
 audio device). Camtasia has neither: its only fix is moving the clip by hand.

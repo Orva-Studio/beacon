@@ -11,11 +11,40 @@ A take recorded by `beacon-recorder` (PLAN §13 Phase 6): a folder named
 | `camera.mp4` | the camera | HEVC, fragmented MPEG-4, the camera's recommended size |
 | `system-audio.wav` | what the Mac plays | 16-bit PCM, 48 kHz stereo |
 | `microphone.wav` | the microphone | 16-bit PCM, the device's rate and channels (e.g. 16 kHz mono for Bluetooth headphones) |
+| `cursor.jsonl` | the cursor, when the screen is recorded | below |
+| `cursor-N.png` | each cursor image seen | PNG at the image's full resolution (Retina: 2× or more) |
 | `recording.json` | what the take holds | below |
 
 A stream that wasn't recorded has no file. Audio is PCM, not AAC: FFmpeg reads
 AVAssetWriter's AAC 44 ms late (its priming), and an unfinished `.m4a` can't be
 read at all; an unfinished WAV and fragmented MP4 can.
+
+## `cursor.jsonl`
+The cursor, polled about 120 times a second on the recorder's main thread:
+positions and buttons through CoreGraphics (no permission needed), the image
+through `NSCursor.currentSystemCursor` (deprecated, but the only way to read
+the system cursor; checked on macOS 26) about 30 times a second. One JSON
+record per line, appended and flushed every second, so an unfinished take
+keeps its cursor up to then. Times are seconds into the take; positions are
+global screen points (top-left origin), as `display` is.
+
+```jsonl
+{"display":{"x":0.0,"y":0.0,"w":1800.0,"h":1169.0}}
+{"t":0.0004,"x":547.29,"y":634.85}
+{"image":0,"file":"cursor-0.png","width":280,"height":400,"hotX":50.0,"hotY":50.0,"scale":0.1}
+{"t":0.0004,"cursor":0}
+{"t":1.2417,"button":1}
+{"t":1.3333,"button":2}
+```
+
+- `display`: the recorded display's bounds, first.
+- A position is written only when it changes.
+- `button`: `.trec`'s `af0` codes, which the cursor feature reads: 1 left
+  down, 2 left up, 4 right down, 8 right up.
+- `image` introduces a cursor image: its PNG, its size in pixels, its hotspot
+  in pixels from the top left, and `scale`, image pixels to points (0.1: a
+  280×400 image drawn 28×40 points, macOS's large cursor setting). `cursor`
+  says which image is in use from `t` on.
 
 ## `recording.json`
 Written when the take starts (`complete: false`, `duration: null`) and again
@@ -33,6 +62,7 @@ when it stops, so a take the recorder never finished still describes itself.
     "microphone": { "file": "microphone.wav", "start": 0.0185, "device": "WH-XB900N", "rate": 16000, "channels": 1, "driftPpm": 0, "buffers": 301, "dropped": 0, "latencyMs": {}, "error": null },
     "camera": { "file": "camera.mp4", "start": 0.02, "device": "MacBook Pro Camera", "width": 1920, "height": 1080, "…": "…" }
   },
+  "cursor": { "file": "cursor.jsonl", "samples": 412, "clicks": 3, "images": 2 },
   "idleScreenFrames": 151,
   "marks": [3.0067],
   "errors": []

@@ -331,6 +331,8 @@ pub struct Take {
     _queues: Vec<dispatch2::DispatchRetained<DispatchQueue>>,
     t0: f64,
     started_at: f64,
+    cursor: Option<crate::cursor::CursorLog>,
+    cursor_summary: Option<Value>,
     /// Host-clock seconds into the take, of anything worth marking (`record --tones`).
     pub marks: Vec<f64>,
 }
@@ -359,6 +361,7 @@ impl Take {
         let screen_out = ScreenOutput::alloc().set_ivars(ScreenIvars { screen: Mutex::new(None), audio: Mutex::new(None), idle: Mutex::new(0) });
         let screen_out: Retained<ScreenOutput> = unsafe { msg_send![super(screen_out), init] };
         let mut stream = None;
+        let mut cursor = None;
         if sources.screen.is_some() || sources.system_audio {
             let displays = crate::devices::displays()?;
             let want = sources.screen.as_ref().and_then(|s| s.display);
@@ -392,6 +395,8 @@ impl Take {
             let s = unsafe { SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None) };
             if sources.screen.is_some() {
                 let settings = video_settings(hevc, pw, ph, fps);
+                let f = unsafe { display.frame() };
+                cursor = Some(crate::cursor::CursorLog::new(dir, Some([f.origin.x, f.origin.y, f.size.width, f.size.height]))?);
                 let info = json!({ "display": unsafe { display.displayID() }, "width": pw, "height": ph, "fps": fps });
                 *screen_out.ivars().screen.lock().unwrap() = Some(Track::new("screen", "screen.mp4", dir, mp4, video_type, &settings, info)?);
                 let q = DispatchQueue::new("beacon.record.screen", None);
@@ -495,7 +500,8 @@ impl Take {
             }
         }
         let started_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-        let take = Take { dir: dir.to_path_buf(), stream, session, screen_out, capture_out, _queues: queues, t0, started_at, marks: Vec::new() };
+        let cursor_summary = cursor.as_ref().map(|_| json!({ "file": "cursor.jsonl" }));
+        let take = Take { dir: dir.to_path_buf(), stream, session, screen_out, capture_out, _queues: queues, t0, started_at, cursor, cursor_summary, marks: Vec::new() };
         // Written now so a take the recorder never finished still says what it holds.
         take.write(None, &[])?;
         Ok(take)
@@ -508,6 +514,14 @@ impl Take {
     /// Seconds since the take began.
     pub fn elapsed(&self) -> f64 {
         host_now() - self.t0
+    }
+
+    /// Samples the cursor; call from the main thread, about 120 times a second.
+    pub fn poll_cursor(&mut self) {
+        let t = self.elapsed();
+        if let Some(c) = &mut self.cursor {
+            c.poll(t);
+        }
     }
 
     pub fn mark(&mut self) {
@@ -534,6 +548,7 @@ impl Take {
             "startedAt": self.started_at,
             "duration": duration,
             "streams": self.streams(),
+            "cursor": self.cursor_summary,
             "idleScreenFrames": *self.screen_out.ivars().idle.lock().unwrap(),
             "marks": self.marks,
             "errors": errors,
@@ -544,7 +559,7 @@ impl Take {
     }
 
     /// Stops capture and finishes every file at the same moment; returns `recording.json`'s summary.
-    pub fn stop(self) -> Result<Value, String> {
+    pub fn stop(mut self) -> Result<Value, String> {
         let end = unsafe { CMClock::host_time_clock().time() };
         let duration = unsafe { end.seconds() } - self.t0;
         let mut errors = Vec::new();
@@ -561,7 +576,10 @@ impl Take {
                 errors.push(e);
             }
         }
+        if let Some(c) = &mut self.cursor {
+            self.cursor_summary = Some(c.finish());
+        }
         self.write(Some(duration), &errors)?;
-        Ok(json!({ "dir": self.dir, "duration": duration, "streams": self.streams(), "errors": errors }))
+        Ok(json!({ "dir": self.dir, "duration": duration, "streams": self.streams(), "cursor": self.cursor_summary, "errors": errors }))
     }
 }
