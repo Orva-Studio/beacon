@@ -1,4 +1,5 @@
 import type { Pointer } from "bun:ffi";
+import { existsSync } from "node:fs";
 import { AudioOutput, NativePreview, type PreviewMark, type PreviewStats } from "@beacon/media";
 import { evaluate, evaluateAudio, projectDuration, roundSeconds, snapSeconds, ticksPerFrame, ticksToSeconds, type FeatureRegistry, type Project, type SourceDef } from "@beacon/model";
 import { audioPlaybackArgs, renderJob, type AudioSource } from "./render";
@@ -249,7 +250,7 @@ export class LiveView {
     return (s) => {
       const id = byPath.get(s.path);
       const path = id && this.opts.data<{ audio?: Record<number, string> }>(id, "proxy")?.audio?.[s.stream];
-      return path ? { path, stream: 0 } : undefined;
+      return path && existsSync(path) ? { path, stream: 0 } : undefined;
     };
   }
 

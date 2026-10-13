@@ -48,6 +48,12 @@ export class DerivedData {
         // A damaged cache file is a miss: the analyzer can run again.
         return undefined;
       }
+      if (job.revive) {
+        const revived = job.revive(value, { cacheDir: this.cacheDir });
+        if (revived === undefined) return undefined;
+        if (revived !== value) this.store(asset, job, revived);
+        value = revived;
+      }
       this.#memo.set(id, value);
       return value as T;
     }

@@ -146,6 +146,11 @@ export interface JobAnalyzerDef {
   /** Removes files a result points at (e.g. proxies) when the result is deleted. */
   discard?: (result: unknown) => void;
   /**
+   * Checks a cached result before it is used: returns it, a corrected copy (its files found in
+   * `cacheDir` after the cache folder moved), or undefined when its files are gone, so the job runs again.
+   */
+  revive?: (result: unknown, env: { cacheDir: string }) => unknown;
+  /**
    * A folder under `cacheDir` holding only this analyzer's files (e.g. "proxies"): counted in the
    * space its results use, and emptied when every result is deleted (files of older versions too).
    */

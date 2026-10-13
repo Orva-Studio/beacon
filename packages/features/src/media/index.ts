@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { z } from "zod";
 import {
   animationRamps,
@@ -16,7 +16,7 @@ import {
   type Project,
   type VisualLayer,
 } from "@beacon/model";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { makeAudioProxy, makeProxies, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
 
 /** `waveform` job data: peak level per 10 ms, 0–255, by audio stream index. */
@@ -210,6 +210,28 @@ export const media = defineFeature({
         const data = result as ProxyData;
         for (const s of Object.values(data.streams ?? {})) rmSync(s.path, { force: true });
         for (const a of Object.values(data.audio ?? {})) rmSync(a, { force: true });
+      },
+      revive(result, { cacheDir }) {
+        const data = result as ProxyData;
+        const find = (path: string) => {
+          if (existsSync(path)) return path;
+          const moved = join(cacheDir, "proxies", basename(path));
+          return existsSync(moved) ? moved : undefined;
+        };
+        const streams: ProxyData["streams"] = {};
+        for (const [i, s] of Object.entries(data.streams ?? {})) {
+          const path = find(s.path);
+          if (!path) return undefined;
+          streams[Number(i)] = { ...s, path };
+        }
+        const audio: NonNullable<ProxyData["audio"]> = {};
+        for (const [i, a] of Object.entries(data.audio ?? {})) {
+          const path = find(a);
+          if (!path) return undefined;
+          audio[Number(i)] = path;
+        }
+        const moved = Object.entries(streams).some(([i, s]) => s.path !== data.streams[Number(i)]!.path) || Object.entries(audio).some(([i, a]) => a !== data.audio![Number(i)]);
+        return moved ? ({ streams, audio } satisfies ProxyData) : result;
       },
     },
     {

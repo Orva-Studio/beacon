@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -96,6 +96,9 @@ pub struct Renderer {
     /// Decode H.264/HEVC natively through VideoToolbox (the live preview): seeks several times faster.
     pub native_decode: bool,
     pub source_error: Option<String>,
+    /// Proxies that failed to open (deleted, or a cache record pointing at a moved file):
+    /// their sources are read from the originals instead of not being drawn.
+    bad_proxies: HashSet<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -255,6 +258,7 @@ impl Renderer {
             lenient_sources: false,
             native_decode: false,
             source_error: None,
+            bad_proxies: HashSet::new(),
         })
     }
 
@@ -442,7 +446,7 @@ impl Renderer {
     /// Whether `def` would be read from its proxy. Moving frames may be up to
     /// half the needed resolution; settled ones are drawn from the originals.
     fn wants_proxy(&self, def: &Source, _factor: f64) -> bool {
-        matches!(def, Source::Video { proxy: Some(_), .. } if self.use_proxies)
+        matches!(def, Source::Video { proxy: Some(p), .. } if self.use_proxies && !self.bad_proxies.contains(&p.path))
     }
 
     fn open_video(&mut self, def: &Source, factor: f64) -> Result<VideoDecoder> {
@@ -452,15 +456,25 @@ impl Renderer {
         d
     }
 
-    fn open_video_inner(&self, def: &Source, factor: f64) -> Result<VideoDecoder> {
+    fn open_video_inner(&mut self, def: &Source, factor: f64) -> Result<VideoDecoder> {
         let Source::Video { path, stream, proxy } = def else { return Err(Error::Source("not a video".into())) };
-        let mut d = match proxy {
-            Some(p) if self.wants_proxy(def, factor) => {
-                let mut d = VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0))?;
-                d.proxy = true;
-                d
-            }
-            _ => VideoDecoder::new(path, *stream, self.cache_dir.as_deref(), factor)?,
+        let from_proxy = match proxy {
+            Some(p) if self.wants_proxy(def, factor) => match VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0)) {
+                Ok(mut d) => {
+                    d.proxy = true;
+                    Some(d)
+                }
+                Err(e) => {
+                    self.source_error = Some(e.to_string());
+                    self.bad_proxies.insert(p.path.clone());
+                    None
+                }
+            },
+            _ => None,
+        };
+        let mut d = match from_proxy {
+            Some(d) => d,
+            None => VideoDecoder::new(path, *stream, self.cache_dir.as_deref(), factor)?,
         };
         d.scale = factor;
         d.native = self.native_decode;
