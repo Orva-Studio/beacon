@@ -99,6 +99,7 @@ pub struct Renderer {
     /// Proxies that failed to open (deleted, or a cache record pointing at a moved file):
     /// their sources are read from the originals instead of not being drawn.
     bad_proxies: HashSet<String>,
+    stills: sources::StillCache,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -259,6 +260,7 @@ impl Renderer {
             native_decode: false,
             source_error: None,
             bad_proxies: HashSet::new(),
+            stills: Default::default(),
         })
     }
 
@@ -378,9 +380,17 @@ impl Renderer {
                             None => self.open_video(&def, factor)?,
                         },
                     };
-                    (sources::Pixels { width: d.width, height: d.height, data: Vec::new() }, Some(d))
+                    (Arc::new(sources::Pixels { width: d.width, height: d.height, data: Vec::new() }), Some(d))
                 }
-                still => (sources::load_still(still, &mut self.trecs)?, None),
+                Source::Image { path } => match self.stills.get(path) {
+                    Some(px) => (px, None),
+                    None => {
+                        let px = Arc::new(sources::load_still(&def, &mut self.trecs)?);
+                        self.stills.put(path, px.clone());
+                        (px, None)
+                    }
+                },
+                still => (Arc::new(sources::load_still(still, &mut self.trecs)?), None),
             };
             let tex = self.device.create_texture(&tex_desc(pixels.width, pixels.height, mip_count(pixels.width, pixels.height), rt_usage()));
             let st = SourceTex { tex, width: pixels.width, height: pixels.height, decoder, spare, last_used: self.frame };

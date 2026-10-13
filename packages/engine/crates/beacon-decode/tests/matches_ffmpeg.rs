@@ -49,3 +49,20 @@ fn frames_match_the_ffmpeg_command_line() {
         }
     }
 }
+
+/// Stills (beacon-render's images) are decoded the same way: the first frame at its own size.
+#[test]
+fn images_match_the_ffmpeg_command_line() {
+    let png = PathBuf::from(std::env::var("HOME").unwrap()).join("client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787669072.456577/Text.png");
+    if !png.exists() {
+        return;
+    }
+    let path = png.to_str().unwrap();
+    let mut d = Decoder::open(path, 0, false, 0).unwrap();
+    while !matches!(d.next().unwrap(), Next::Frame(_)) {}
+    let (w, h) = d.size();
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    d.rgba(&mut buf, w, h).unwrap();
+    let out = Command::new("ffmpeg").args(["-v", "error", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]).output().unwrap();
+    assert!(buf == out.stdout, "{path} differs");
+}

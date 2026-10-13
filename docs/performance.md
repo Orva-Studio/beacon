@@ -265,6 +265,38 @@ at 960 wide). Next for quiet and fast without proxies: the row-parallel
 tscc2 decoder for seeks, and frames kept on the GPU (step 3) so conversion
 leaves the CPU.
 
+## Re-run, and stills in process (2026-10-13)
+The user felt playback and scrubbing get slower, and Space moved the playhead
+without the canvas playing. The engine hadn't regressed: renaming the cache
+folder (`~/Library/Caches/opentasia` → `Beacon`) had left every proxy record
+pointing at the old folder, so each proxy failed to open, scenes weren't
+drawn while moving or playing, and only the settle (from the originals)
+showed. Now a job result is checked before use (`JobAnalyzerDef.revive`: the
+proxy's files are looked up in the current cache folder, else it is
+rebuilt), playback's audio skips a missing proxy copy, and the renderer reads
+the original when a proxy can't be opened (`core/__tests__/playback.test.ts`).
+
+`BEACON_PROFILE` showed the jumps' tail was images: each still was an
+`ffprobe` and an `ffmpeg` process (50-125 ms for the project's screenshots)
+every time it came back on screen, as textures go after 30 frames unused.
+Images are now decoded in process by `beacon-decode` (identical pixels,
+`images_match_the_ffmpeg_command_line`; 15-80 ms) and kept decoded (256 MB,
+least recently used out), so showing one again is an upload.
+
+ai-slop, `bun scripts/perf.ts`, warm cache, two runs each:
+
+| | 2026-10-12 (native) | proxies fixed | + stills in process |
+|-|-|-|-|
+| jump p50 / p95 / max | 20 / 68 / – ms | 19 / 68-75 / 178 ms | **19 / 58-64 / 83 ms** |
+| settle p50 / p95 | 100 / 142 ms | 98 / 128 ms | 94 / 128 ms |
+| scrub fwd / back (fps, p50) | | 233 / 156-172 | 231-236 / 135-156 |
+| play 10 s | 0 skipped | 0 skipped | 0 skipped |
+| CPU (user + sys) | 9.8 s | 9.1 s | 8.8-9.1 s |
+
+What is left in a jump is decoding (proxies); the settle is the tscc2
+screen's originals. Next, as below: frames kept on the GPU (step 3) and the
+row-parallel tscc2 decoder for the settle.
+
 ## What to change, in order
 Each step is measured before and after with the benchmark (step 0).
 0. **Benchmark** (done 2026-10-12): `bun scripts/perf.ts <project>` opens
