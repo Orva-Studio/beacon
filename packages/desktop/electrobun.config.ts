@@ -13,6 +13,7 @@ export default {
       "../ui/dist/styles.css": "views/mainview/styles.css",
       "../engine/target/release/libbeacon_ffi.dylib": "engine/libbeacon_ffi.dylib",
       "../engine/target/release/beacon-worker": "engine/beacon-worker",
+      "../engine/target/release/beacon-recorder": "engine/beacon-recorder",
     },
     watch: ["../ui/src", "../core/src", "../model/src", "../render/src", "../media/src", "../features/src"],
     mac: { bundleCEF: false, codesign: false, notarize: false },

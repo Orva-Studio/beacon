@@ -9,6 +9,7 @@ const engineDir = join(import.meta.dir, "../engine");
 if (existsSync(join(engineDir, "libbeacon_ffi.dylib"))) {
   process.env.BEACON_FFI_PATH ??= join(engineDir, "libbeacon_ffi.dylib");
   process.env.BEACON_WORKER_PATH ??= join(engineDir, "beacon-worker");
+  process.env.BEACON_RECORDER_PATH ??= join(engineDir, "beacon-recorder");
 }
 
 const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, serveCore, walkClips, windowNumber } = await import("@beacon/core");

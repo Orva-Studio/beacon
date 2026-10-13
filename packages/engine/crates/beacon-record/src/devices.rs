@@ -41,7 +41,24 @@ fn capture_devices(video: bool) -> Vec<Value> {
     devices.iter().map(|d| json!({ "id": unsafe { d.uniqueID() }.to_string(), "name": unsafe { d.localizedName() }.to_string() })).collect()
 }
 
-pub fn run() -> Result<(), String> {
+/// Asks for the camera or microphone permission (macOS shows its prompt the first time); the status after.
+pub fn request(kind: &str) -> Result<Value, String> {
+    let media = match kind {
+        "camera" => unsafe { AVMediaTypeVideo.unwrap() },
+        "microphone" => unsafe { AVMediaTypeAudio.unwrap() },
+        _ => return Err(format!("no permission \"{kind}\" to ask for: camera or microphone")),
+    };
+    let (tx, rx) = mpsc::channel();
+    let done = RcBlock::new(move |granted: objc2::runtime::Bool| {
+        let _ = tx.send(granted.as_bool());
+    });
+    unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &done) };
+    rx.recv().map_err(|e| e.to_string())?;
+    Ok(json!({ "event": "access", "kind": kind, "status": status(unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) }) }))
+}
+
+/// Permissions, displays, cameras and microphones, as `{"event":"devices",…}`.
+pub fn list() -> Value {
     let (video, audio) = unsafe { (AVMediaTypeVideo.unwrap(), AVMediaTypeAudio.unwrap()) };
     let screen = unsafe { CGPreflightScreenCaptureAccess() };
     let displays = if screen {
@@ -51,7 +68,7 @@ pub fn run() -> Result<(), String> {
     } else {
         vec![]
     };
-    let out = json!({
+    json!({
         "event": "devices",
         "permissions": {
             "screen": if screen { "granted" } else { "not granted" },
@@ -61,7 +78,5 @@ pub fn run() -> Result<(), String> {
         "displays": displays,
         "cameras": capture_devices(true),
         "microphones": capture_devices(false),
-    });
-    println!("{out}");
-    Ok(())
+    })
 }

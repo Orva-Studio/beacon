@@ -106,6 +106,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation",
  "objc2-screen-capture-kit",
+ "serde",
  "serde_json",
 ]
 

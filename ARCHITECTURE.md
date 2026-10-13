@@ -60,8 +60,9 @@ packages/
                stills, .trec cursors, Core Text text, stroked sketches),
                layers, groups, backdrops, runtime-loaded WGSL passes
     beacon-worker  export sidecar: job + scene lines in, video/PNG/raw out
-    beacon-record  the recorder (Phase 6, a spike so far): `beacon-recorder`
-               captures through ScreenCaptureKit and AVFoundation over objc2
+    beacon-record  the recorder (Phase 6): `beacon-recorder serve` records
+               `.brec` takes (JSON commands in, events out) through
+               ScreenCaptureKit and AVFoundation over objc2
 ```
 
 Dependency graph: `media → model`; `features → model + media`; `media` loads `beacon-ffi`;

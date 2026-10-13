@@ -8,13 +8,14 @@ then the recorder too (Phase 6).
 This document is architecture-first. The goal is that adding a feature later is
 "add one folder", not "touch ten layers".
 
-**Status (2026-10-12):** Phases 1–5 are done (Phase 3: headless Claude Code
+**Status (2026-10-13):** Phases 1–5.5 are done (Phase 3: headless Claude Code
 rough-cut a recording from its transcript, laid it out, zoomed and exported
-it; Phase 5 closed after the user's runs in the app, cut as v0.1.0). Video is
-decoded in process (`beacon-decode` over FFmpeg's libraries), with frames kept
-for steps back (`docs/performance.md`). **Phase 5.5** (the new look) is in
-progress (§13 Phase 5.5). Phase 6 (the recorder) started 2026-10-13 with its
-spike. Packaging as one self-contained app is Phase 6.5.
+it; Phase 5 closed after the user's runs in the app, cut as v0.1.0; Phase 5.5,
+the new look, closed 2026-10-13 with more to add later). Video is decoded in
+process (`beacon-decode` over FFmpeg's libraries), with frames kept for steps
+back (`docs/performance.md`). **Phase 6** (the recorder) is under way: after
+its spike, the recorder process records `.brec` takes (§13 Phase 6). Packaging
+as one self-contained app is Phase 6.5.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -811,6 +812,7 @@ type sizes as tokens (`text-caption`, `-label`, `-body`, `-title`); effect
 colours marked in their schema (`RgbaSchema`). Checked in the app over MCP
 (preview, timeline, effects, proxy cancel); the dialogs over the native
 canvas are the user's to check.
+**Closed 2026-10-13** (the user: finished for now, with things to add later).
 
 ### Phase 6 — Recorder
 A native recorder: a small window
@@ -883,6 +885,28 @@ was skipped (its permission was never asked; asking shows a prompt).
   against the audio with a visible flash, and the camera against the
   microphone. Both pairs share their framework's clock, as the two audio
   streams did.
+**Steps (2026-10-13):** (1) the recorder process and `.brec` takes; (2) the
+cursor log; (3) importing `.brec` as linked clips; (4) the recorder window and
+`recorder.*` commands; (5) the gate.
+
+**1. The recorder process (2026-10-13).** `beacon-recorder serve` takes one
+JSON command per stdin line (`devices`, `access`, `start`, `status`, `stop`)
+and answers with one JSON event per stdout line; `record <dir> [seconds]
+[--tones]` does the same from the command line (it replaces `spike`). A take
+is a `.brec` folder (`docs/formats/brec.md`): `screen.mp4` (HEVC, fragmented),
+`camera.mp4`, `system-audio.wav`, `microphone.wav` and `recording.json`, the
+data file, written when the take starts and again when it stops. Every file is
+opened before capture starts, so a refused source leaves nothing running or
+behind. Checked on this Mac: a take's streams start within 19 ms of it, no
+buffer dropped, no audio drift; stdin closing mid-take (the app quit or
+crashed) stops the take and finishes every file; `kill -9` mid-take leaves
+the screen readable to its last 2 s fragment, the WAVs to the kill, and
+`recording.json` saying `complete: false`. The camera is untested: its
+permission was never asked (`access camera` asks; the app will need
+`NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in its
+Info.plist, step 4). The sync checks with a visible flash and the camera are
+still the user's to run (`record --tones` marks each tone in `recording.json`).
+
 **Gate:** record a video with screen, camera, mic and system audio, then edit
 and export it in Beacon alone.
 
