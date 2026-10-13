@@ -203,7 +203,15 @@ export const ToolPanel = memo(function ToolPanel({
                           <Progress value={preparing[a.id]!} className="bg-black/60" />
                         </div>
                       ) : (
-                        proxies[a.id] && <span className="absolute bottom-1.5 left-1.5 size-2.5 rounded-full bg-accent ring-1 ring-black/50" data-proxy title="Has a proxy: scrubbing reads a quick-to-seek copy" />
+                        proxies[a.id] && (
+                          <span
+                            className="absolute top-1.5 right-1.5 flex size-3.5 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black ring-1 ring-black/50"
+                            data-proxy
+                            title="Has a proxy: scrubbing reads a quick-to-seek copy"
+                          >
+                            P
+                          </span>
+                        )
                       )}
                       {missing.includes(a.id) && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/70 text-center" data-missing title={`${a.path} was moved, renamed or deleted. Right-click and choose Locate Media… to find it.`}>

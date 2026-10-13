@@ -243,6 +243,31 @@ test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, a
   expect(states).toEqual(["done"]);
 }, 120000);
 
+test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
+  await select([]);
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("range.set", { in: 2, out: 6 });
+  await Bun.sleep(200);
+  const s = await session();
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const y = box.y + 12;
+  await page.drag([xAt(6), y], [xAt(8), y]);
+  await Bun.sleep(300);
+  let range = (await session()).range!;
+  expect(range.in).toBeCloseTo(2, 1);
+  expect(range.out).toBeGreaterThan(7.5);
+  await page.click(xAt(4), y);
+  await Bun.sleep(300);
+  const after = await session();
+  expect(after.playhead).toBeCloseTo(4, 0);
+  range = after.range!;
+  expect(range.in).toBeCloseTo(2, 1);
+  await run("range.clear");
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("dragging a clip above the top track drops it on a new top track", async () => {
   await select([]);
   const before = ui.core.doc(ui.handle).tracks.length;
@@ -285,7 +310,7 @@ test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, a
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a dot; deleting the proxy removes the dot and its files", async () => {
+test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a P badge; deleting the proxy removes the badge and its files", async () => {
   // A fresh copy has no cached proxy, so making it is real work.
   const copy = join(dir, `like-${Date.now()}.mp4`);
   copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);

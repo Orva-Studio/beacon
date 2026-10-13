@@ -102,11 +102,9 @@
   --color-locked-hatch: rgba(0, 0, 0, 0.35);
   --color-grip: rgba(0, 0, 0, 0.35);
   --color-insert-space: rgba(62, 230, 141, 0.2);
-  --color-range-in: var(--color-accent);
-  --color-range-in-line: var(--color-accent);
-  --color-range-out: var(--color-danger);
-  --color-range-band: rgba(46, 140, 110, 0.38);
-  --color-range-hatch: rgba(120, 220, 180, 0.14);
+  --color-range-edge: var(--color-accent);
+  --color-range-ruler: rgba(62, 230, 141, 0.28);
+  --color-range-band: rgba(62, 230, 141, 0.1);
   /* Animations: keyframe diamonds joined by a band */
   --color-arrow: #c99a1e;
   --color-arrow-selected: var(--color-fx-badge);

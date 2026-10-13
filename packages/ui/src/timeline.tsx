@@ -25,7 +25,7 @@ import {
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { drawIcon, type IconName } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, FLAG, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, rangeHandles, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -637,95 +637,46 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     }
 
     function drawPlayhead(ctx: CanvasRenderingContext2D) {
-    // The playhead: a white head with the in (green) and out (red) handles beside it, a white line, its timecode.
+    // One colour, as CapCut, Premiere and Resolve: a pin-shaped head on the ruler over a thin line, its timecode beside it.
     const ph = x(session.playhead);
     // Zoomed in, the frame on show is a band from the playhead to the next frame.
     if (pps / fps >= FRAME_SHADE) {
       ctx.fillStyle = color("frame-shade");
       ctx.fillRect(ph, RULER, pps / fps, h - RULER);
     }
-    const handle = (hx: number, fill: string) => {
-      if (hx < HEADER - 8 || hx > w + 8) return;
-      ctx.fillStyle = fill;
-      ctx.fillRect(hx, 2, 8, 18);
-      ctx.strokeStyle = color("grip");
-      ctx.lineWidth = 1;
-      for (const k of [2.5, 4.5, 6.5]) {
-        ctx.beginPath();
-        ctx.moveTo(hx + k, 6);
-        ctx.lineTo(hx + k, 16);
-        ctx.stroke();
-      }
-    };
     ctx.save();
     ctx.beginPath();
     ctx.rect(HEADER, 0, w - HEADER, h);
     ctx.clip();
-    const handles = rangeHandles(ph, session.range ? { inX: x(session.range.in), outX: x(session.range.out) } : undefined);
     if (session.range) {
-      // The range: a hatched blue band over the tracks, a green line at the in point, a red one at the out point.
+      // The in/out range: a band on the ruler and a light tint over the tracks, its edges brackets dragged on the ruler.
       const [a, b] = [x(session.range.in), x(session.range.out)];
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(a, RULER, b - a, h - RULER);
-      ctx.clip();
+      ctx.fillStyle = color("range-ruler");
+      ctx.fillRect(a, 0, b - a, RULER);
       ctx.fillStyle = color("range-band");
       ctx.fillRect(a, RULER, b - a, h - RULER);
-      ctx.strokeStyle = color("range-hatch");
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let sx = a - h; sx < b; sx += 9) {
-        ctx.moveTo(sx, h);
-        ctx.lineTo(sx + h, 0);
+      ctx.fillStyle = color("range-edge");
+      for (const [ex, dir] of [[a, 1], [b, -1]] as const) {
+        const lx = Math.round(ex) - (dir > 0 ? 0 : 1);
+        ctx.fillRect(lx, 0, 1.5, h);
+        ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, 0, RANGE_TAB, 2);
+        ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, RULER - 2, RANGE_TAB, 2);
       }
-      ctx.stroke();
-      ctx.restore();
-      // The in point's flag: a green tab whose corner points down at the line.
-      ctx.fillStyle = color("range-in");
-      ctx.beginPath();
-      ctx.moveTo(a - FLAG, 2);
-      ctx.lineTo(a, 2);
-      ctx.lineTo(a, 30);
-      ctx.lineTo(a - 16, 20);
-      ctx.lineTo(a - FLAG, 20);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = color("grip");
-      ctx.lineWidth = 1;
-      for (const k of [6.5, 8.5, 10.5]) {
-        ctx.beginPath();
-        ctx.moveTo(a - FLAG + k, 6);
-        ctx.lineTo(a - FLAG + k, 16);
-        ctx.stroke();
-      }
-    } else handle(handles.green, color("range-in"));
-    handle(handles.red, color("range-out"));
-    if (ph >= HEADER - 12 && ph <= w + 12) {
-      ctx.strokeStyle = color("text-bright");
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(Math.round(ph) + 0.5, 20);
-      ctx.lineTo(Math.round(ph) + 0.5, h);
-      ctx.stroke();
-      ctx.fillStyle = color("text-bright");
-      ctx.beginPath();
-      ctx.moveTo(ph - 12, 2);
-      ctx.lineTo(ph + 12, 2);
-      ctx.lineTo(ph + 12, 14);
-      ctx.lineTo(ph, 24);
-      ctx.lineTo(ph - 12, 14);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = color("text-strong");
-      ctx.font = font(12);
-      ctx.fillText(timecode(session.playhead, fps), ph + 24, 15);
     }
-    // At a range's end the playhead's line takes the end's colour.
-    if (session.range) {
-      for (const [lx, line] of [[x(session.range.in), color("range-in-line")], [x(session.range.out), color("range-out")]] as [number, string][]) {
-        ctx.fillStyle = line;
-        ctx.fillRect(Math.round(lx) - 0.5, 24, 1.5, h - 24);
-      }
+    if (ph >= HEADER - 12 && ph <= w + 12) {
+      const cx = Math.round(ph) + 0.5;
+      ctx.fillStyle = color("text-bright");
+      ctx.fillRect(cx - 0.5, PIN_H, 1, h - PIN_H);
+      ctx.beginPath();
+      ctx.roundRect(cx - PIN_W / 2, 3, PIN_W, PIN_H - 7, 3);
+      ctx.moveTo(cx - PIN_W / 2 + 1, PIN_H - 5);
+      ctx.lineTo(cx, PIN_H);
+      ctx.lineTo(cx + PIN_W / 2 - 1, PIN_H - 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = color("text-muted");
+      ctx.font = font(11);
+      ctx.fillText(timecode(session.playhead, fps), cx + PIN_W / 2 + 6, 14);
     }
     ctx.restore();
     }
@@ -1065,15 +1016,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return capture();
           }
           const ph = xOf(session.playhead);
-          // The in (green) and out (red) handles sit beside the playhead, or at the range's ends.
-          const { green, greenW, red } = rangeHandles(ph, session.range ? { inX: xOf(session.range.in), outX: xOf(session.range.out) } : undefined);
-          if (y < 22 && x >= green && x <= green + greenW) {
-            dragState.current = { kind: "rangeEdge", edge: "in", other: session.range?.out ?? session.playhead };
-            return capture();
-          }
-          if (y < 22 && x >= red && x <= red + 8) {
-            dragState.current = { kind: "rangeEdge", edge: "out", other: session.range?.in ?? session.playhead };
-            return capture();
+          // A range's edges are dragged on the ruler.
+          if (session.range && y < RULER) {
+            const edge = rangeEdgeAt(x, xOf(session.range.in), xOf(session.range.out));
+            if (edge) {
+              dragState.current = { kind: "rangeEdge", edge, other: edge === "in" ? session.range.out : session.range.in };
+              return capture();
+            }
           }
           // On the tracks, an arrow or volume point under the playhead line wins over grabbing the line.
           const overMark =

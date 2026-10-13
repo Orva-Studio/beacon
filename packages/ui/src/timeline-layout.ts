@@ -54,18 +54,19 @@ export function headerIcons(i: number, track: number, header: number): { mute: [
   return tall ? { ...row, magnet: [header - 44, mid + 12] } : row;
 }
 
-/**
- * Where the in (green) and out (red) handles start, and the green one's width:
- * beside the playhead's head; with a range, the green flag ends at the
- * in point and the red handle sits at the out point (beside the head when the playhead is there).
- */
-export const rangeHandles = (playheadX: number, range?: { inX: number; outX: number }) =>
-  range
-    ? { green: range.inX - FLAG, greenW: FLAG, red: range.outX + (Math.abs(playheadX - range.outX) < 1 ? 12 : 0) }
-    : { green: playheadX - 20, greenW: 8, red: playheadX + 12 };
+/** The playhead's head: width, and the height its point reaches on the ruler. */
+export const PIN_W = 11;
+export const PIN_H = 20;
+/** Length of the brackets at a range's edges. */
+export const RANGE_TAB = 6;
 
-/** Width of the in point's green flag while there is a range. */
-export const FLAG = 44;
+/** Which edge of the in/out range a ruler point grabs, if any. */
+export const rangeEdgeAt = (x: number, inX: number, outX: number): "in" | "out" | undefined => {
+  const din = Math.abs(x - inX);
+  const dout = Math.abs(x - outX);
+  if (Math.min(din, dout) > 5) return undefined;
+  return din <= dout ? "in" : "out";
+};
 
 export const ARROW = { fill: () => color("arrow"), selected: () => color("arrow-selected"), start: () => color("arrow-start"), end: () => color("arrow-end") };
 
