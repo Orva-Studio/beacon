@@ -6,10 +6,12 @@ export function Section({ children }: { children: ReactNode }) {
 }
 
 /** A row: the label hugging its control, controls ending at the value boxes' column. */
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
   return (
     <div className="mb-2.5 flex items-center gap-2.5">
-      <span className="min-w-14 shrink-0 text-right text-label font-medium text-text-muted">{label}</span>
+      <span className="min-w-14 shrink-0 text-right text-label font-medium text-text-muted" title={title}>
+        {label}
+      </span>
       <div className="flex flex-1 items-center">{children}</div>
     </div>
   );
@@ -162,8 +164,10 @@ export function Slider({
   digits,
   onChange,
   reset,
+  title,
 }: {
   label: string;
+  title?: string;
   value: number;
   min?: number;
   max: number;
@@ -174,7 +178,7 @@ export function Slider({
   reset?: () => void;
 }) {
   return (
-    <Row label={label}>
+    <Row label={label} title={title}>
       <div className="mr-3 flex flex-1">
         <SliderTrack value={value} min={min} max={max} step={step} name={label} onChange={onChange} />
       </div>
@@ -185,35 +189,6 @@ export function Slider({
         </button>
       )}
     </Row>
-  );
-}
-
-/** A rotation dial: drag around it to turn (one undo step per drag), or type the angle. */
-export function Dial({ axis, value, onChange }: { axis: string; value: number; onChange?: (deg: number, key?: string) => void }) {
-  const key = useRef("");
-  const angle = (e: React.PointerEvent) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return Math.round((Math.atan2(-(e.clientY - (r.top + r.height / 2)), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI);
-  };
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className={`relative size-6 rounded-full bg-chip ring-1 ring-field-edge ${onChange ? "cursor-pointer hover:ring-accent" : "opacity-50"}`}
-        onPointerDown={(e) => {
-          if (!onChange) return;
-          key.current = `dial-${Date.now()}`;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          onChange(angle(e), key.current);
-        }}
-        onPointerMove={(e) => onChange && e.currentTarget.hasPointerCapture(e.pointerId) && onChange(angle(e), key.current)}
-        onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
-      >
-        <div className="absolute top-1/2 left-1/2 h-[2px] w-[9px] rounded-full bg-accent" style={{ transform: `translateY(-50%) rotate(${-value}deg)`, transformOrigin: "0 50%" }} />
-        <div className="absolute top-1/2 left-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent" />
-      </div>
-      <span className="w-4 text-label font-medium text-text-muted">{axis}</span>
-      <NumberBox value={value} unit="°" onCommit={onChange ? (v) => onChange(v) : undefined} />
-    </div>
   );
 }
 

@@ -60,6 +60,8 @@ packages/
                stills, .trec cursors, Core Text text, stroked sketches),
                layers, groups, backdrops, runtime-loaded WGSL passes
     beacon-worker  export sidecar: job + scene lines in, video/PNG/raw out
+    beacon-record  the recorder (Phase 6, a spike so far): `beacon-recorder`
+               captures through ScreenCaptureKit and AVFoundation over objc2
 ```
 
 Dependency graph: `media → model`; `features → model + media`; `media` loads `beacon-ffi`;
@@ -173,8 +175,10 @@ command use the same maths from `model/edit.ts` (`planMove`, `snapOffset`,
 `snapTargets`, `pasteBase`), so they agree. Snapping is 12 points to clip
 edges, the playhead, markers and the range; Control turns it off. The
 rules: a recording's
-clips select and move one by one in the editor (agents' commands still
-include linked clips by default), drops over other media are refused,
+linked clips (its camera and audio, or screen and audio without a camera;
+never screen and camera) select, move, trim and delete together, in the
+editor as in agents' commands (as DaVinci Resolve; Unlink to edit them
+apart), drops over other media are refused,
 ripple delete closes the removed time on each affected track by the same
 amount, magnetic tracks pack their clips (a feature `normalize` hook that
 runs at the end of each transaction).
@@ -247,8 +251,9 @@ and background jobs (export through `beacon-worker`, transcripts) and
 `captureFrame` (Snapshot: a PNG of the canvas in the project's
 `media` folder, added as an asset). Import probes
 the file, asks the feature importer for clips, and adds the asset and its
-linked clips in one transaction; a `.trec` becomes Screen, Camera and Audio
-clips fitted to the canvas. Every write an agent asks for (`export`, saved
+clips in one transaction, linked by the importer's keys; a `.trec` becomes
+Screen, Camera and Audio clips fitted to the canvas, the camera and audio
+linked. Every write an agent asks for (`export`, saved
 frames) passes `checkOutput`: never a project's media, never inside a
 `.cmproj` or `.beproj`, never an existing file without `overwrite`. Asset
 paths must be absolute and every ffmpeg/ffprobe input is limited to the

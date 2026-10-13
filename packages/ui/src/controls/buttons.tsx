@@ -71,8 +71,8 @@ export function ItemTile(props: ButtonHTMLAttributes<HTMLButtonElement>) {
 }
 
 /** A Media Bin item: a thumbnail over its name, outlined while selected. */
-export function MediaTile({ selected, ...props }: HTMLAttributes<HTMLDivElement> & { selected: boolean }) {
-  return <div {...props} className={`select-none rounded-lg bg-tile p-1.5 outline-none ${selected ? "ring-2 ring-accent" : ""}`} />;
+export function MediaTile({ selected, className = "", ...props }: HTMLAttributes<HTMLDivElement> & { selected: boolean }) {
+  return <div {...props} className={`select-none rounded-lg bg-tile p-1.5 outline-none hover:bg-tile-hover ${selected ? "ring-2 ring-accent ring-inset" : ""} ${className}`} />;
 }
 
 /** A row of choices, one active (the canvas shape): each an icon over a short label. */

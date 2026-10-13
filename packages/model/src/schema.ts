@@ -47,7 +47,7 @@ export const ClipSchema = z.strictObject({
   mediaStart: SignedTicksSchema.optional(),
   speed: RationalSchema.optional(),
   assetId: IdSchema.optional(),
-  /** Clips sharing a link id (e.g. a recording's screen, camera and audio) select, move and cut together. */
+  /** Clips sharing a link id (e.g. a recording's camera and audio) select, move and cut together. */
   linkId: IdSchema.optional(),
   props: z.record(z.string(), z.unknown()),
   effects: z.array(EffectInstanceSchema),

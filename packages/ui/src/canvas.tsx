@@ -414,7 +414,7 @@ export function CanvasOverlay({
         e.preventDefault();
         const hit = placed.find((p) => inside(local(e), p.corners));
         if (!hit) return host.canvasMenu();
-        if (!session.selection.includes(hit.clip.id)) host.run("selection.set", { clips: [hit.clip.id], linked: false });
+        if (!session.selection.includes(hit.clip.id)) host.run("selection.set", { clips: [hit.clip.id], linked: true });
         host.clipMenu(hit.clip.id, "canvas");
       }}
       onPointerDown={(e) => {
@@ -470,12 +470,12 @@ export function CanvasOverlay({
         }
         let ids = session.selection;
         if (e.shiftKey || e.metaKey) {
-          host.run("selection.set", { clips: [hit.clip.id], toggle: true, linked: false });
+          host.run("selection.set", { clips: [hit.clip.id], toggle: true, linked: true });
           return;
         }
         if (!ids.includes(hit.clip.id)) {
           ids = [hit.clip.id];
-          host.run("selection.set", { clips: ids, linked: false });
+          host.run("selection.set", { clips: ids, linked: true });
         }
         const start = placed.filter((p) => ids.includes(p.clip.id)).map((p) => ({ id: p.clip.id, x: p.t.x, y: p.t.y, sx: p.stored.t.x, sy: p.stored.t.y }));
         drag.current = { kind: "move", key, x0: pt[0], y0: pt[1], start };

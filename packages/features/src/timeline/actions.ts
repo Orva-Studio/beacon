@@ -290,25 +290,27 @@ export const actions = [
   }),
   defineAction({
     id: "edit.deleteMedia",
-    description: "Delete media from the Media Bin, with every clip that uses it",
-    args: z.strictObject({ asset: z.string().min(1) }),
+    description: "Delete media from the Media Bin, with every clip that uses it; several items at once are one undo step",
+    args: z.strictObject({ asset: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]) }),
     resolve: ({ asset }, ctx) => {
-      if (!ctx.project.assets[asset]) throw new Error(`no asset "${asset}"`);
+      const assets = new Set(typeof asset === "string" ? [asset] : asset);
+      for (const a of assets) if (!ctx.project.assets[a]) throw new Error(`no asset "${a}"`);
+      const gone = (l: { clip: Clip }) => assets.has(l.clip.assetId!);
       // A group or stitched clip made only of this media goes as a whole, rather than staying behind empty.
       const uses = (c: Clip) => {
         const inner = [...walkClips([{ id: "", name: "", clips: [c] }], ctx.registry)].filter((l) => l.clip.assetId);
-        return { any: inner.some((l) => l.clip.assetId === asset), all: inner.length > 0 && inner.every((l) => l.clip.assetId === asset), inner };
+        return { any: inner.some(gone), all: inner.length > 0 && inner.every(gone), inner };
       };
       const clips = ctx.project.tracks.flatMap((t) =>
         t.clips.flatMap((c) => {
           const u = uses(c);
-          return u.all ? [c.id] : u.any ? u.inner.filter((l) => l.clip.assetId === asset).map((l) => l.clip.id) : [];
+          return u.all ? [c.id] : u.any ? u.inner.filter(gone).map((l) => l.clip.id) : [];
         }),
       );
       return {
         label: "Delete Media",
         before: clips.length ? [{ command: "selection.set", args: { clips: ctx.session.selection.filter((c) => !clips.includes(c)) } }] : [],
-        steps: [...(clips.length ? [{ command: "clip.remove", args: { clips, linked: false } }] : []), { command: "asset.remove", args: { asset } }],
+        steps: [...(clips.length ? [{ command: "clip.remove", args: { clips, linked: false } }] : []), ...[...assets].map((a) => ({ command: "asset.remove", args: { asset: a } }))],
       };
     },
   }),

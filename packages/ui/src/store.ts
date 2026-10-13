@@ -17,8 +17,8 @@ export interface ViewState {
   status: string;
   waveforms: Record<string, Record<number, number[]>>;
   thumbs: Record<string, string>;
-  /** The asset "Select in Media Bin" points at. */
-  highlight?: string;
+  /** The Media Bin's selected items ("Select in Media Bin" and Snapshot select one). */
+  binSelected: string[];
   /** The track whose name is being edited. */
   renaming?: string;
   /** The Media Bin item whose name is being edited. */
@@ -41,6 +41,8 @@ export interface ViewState {
   exportJob?: ExportJob;
   /** The Settings window, while open, with the app settings it opened with. */
   settings?: SettingsSheet;
+  /** The last Snapshot's file, while its toast shows. */
+  snapshot?: string;
   /** A notice being shown (what an import left out). */
   notice?: import("./rpc").Notice;
   /** The Media Bin preview, while open. */
@@ -57,11 +59,14 @@ export interface ViewState {
   clipSpeed: string[];
   /** The Media Bin's Sort by, and whether it is descending. */
   binSort: { by: BinSort; desc: boolean };
+  /** The Media Bin's search, kind filter and layout. */
+  bin: { query: string; kind: BinKind; view: "grid" | "list" };
 }
 
-export type BinSort = "type" | "name" | "added" | "created" | "dimensions" | "duration";
+export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
+export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSort: { by: "type", desc: false }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -76,7 +81,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [] });
+    set({ opened: rest, project, session, rev, waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -103,7 +108,7 @@ export const replica = {
     set({
       waveforms: { ...state.waveforms, ...waveforms },
       thumbs: { ...state.thumbs, ...thumbs },
-      ...(highlight ? { highlight } : {}),
+      ...(highlight ? { binSelected: [highlight] } : {}),
       ...(preparing ? { preparing, prepared: Object.keys(preparing).length ? state.prepared + Object.keys(state.preparing).filter((id) => !(id in preparing)).length : 0 } : {}),
       ...(proxies ? { proxies: { ...state.proxies, ...proxies } } : {}),
       ...(missing ? { missing } : {}),
@@ -129,6 +134,15 @@ export const replica = {
   },
   sortBin(binSort: ViewState["binSort"]) {
     set({ binSort });
+  },
+  selectBin(binSelected: string[]) {
+    set({ binSelected });
+  },
+  viewBin(bin: Partial<ViewState["bin"]>) {
+    set({ bin: { ...state.bin, ...bin } });
+  },
+  snapshot(snapshot: ViewState["snapshot"]) {
+    set({ snapshot });
   },
   notice(notice: ViewState["notice"]) {
     set({ notice });

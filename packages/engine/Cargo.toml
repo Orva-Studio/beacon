@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/beacon-media", "crates/beacon-decode", "crates/beacon-ffi", "crates/beacon-render", "crates/beacon-worker"]
+members = ["crates/beacon-media", "crates/beacon-decode", "crates/beacon-ffi", "crates/beacon-render", "crates/beacon-worker", "crates/beacon-record"]
 
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
 publish = false
-license = "UNLICENSED"
+license = "FSL-1.1-ALv2"
 
 [workspace.dependencies]
 beacon-media = { path = "crates/beacon-media" }

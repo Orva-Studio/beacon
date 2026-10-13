@@ -8,7 +8,7 @@
  * (theme.ts). `static` keeps every variable even if no class names it.
  */
 @theme static {
-  --font-ui: "Space Grotesk", -apple-system, system-ui, sans-serif;
+  --font-ui: "Geist", -apple-system, system-ui, sans-serif;
   /* Type sizes by role: captions, labels and values, body text, dialog titles */
   --text-caption: 11px;
   --text-label: 12px;
@@ -102,11 +102,15 @@
   --color-locked-hatch: rgba(0, 0, 0, 0.35);
   --color-grip: rgba(0, 0, 0, 0.35);
   --color-insert-space: rgba(62, 230, 141, 0.2);
-  --color-range-in: var(--color-accent);
-  --color-range-in-line: var(--color-accent);
-  --color-range-out: var(--color-danger);
-  --color-range-band: rgba(46, 140, 110, 0.38);
-  --color-range-hatch: rgba(120, 220, 180, 0.14);
+  --color-range-edge: var(--color-accent);
+  /* Something to check before going on (a muted track's audio left out of an export) */
+  --color-warning: var(--color-wave);
+  /* Rotation rings, as 3D apps colour their axes */
+  --color-axis-x: #f2555a;
+  --color-axis-y: #5fd068;
+  --color-axis-z: #4b8df8;
+  --color-range-ruler: rgba(62, 230, 141, 0.28);
+  --color-range-band: rgba(62, 230, 141, 0.1);
   /* Animations: keyframe diamonds joined by a band */
   --color-arrow: #c99a1e;
   --color-arrow-selected: var(--color-fx-badge);

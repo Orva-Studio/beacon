@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { z } from "zod";
 import {
   animationRamps,
@@ -16,7 +16,7 @@ import {
   type Project,
   type VisualLayer,
 } from "@beacon/model";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { makeAudioProxy, makeProxies, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
 
 /** `waveform` job data: peak level per 10 ms, 0–255, by audio stream index. */
@@ -127,6 +127,8 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
     const s = video[0]!;
     return [{ track: "Image", type: "image", duration: secondsToTicks(5), props: { media: { stream: 0 }, transform: fitted(project, s.width!, s.height!) } }];
   }
+  // A recording's audio is linked to its camera (or, with no camera, its screen); the screen and camera are placed and cut apart.
+  const camera = video.some((s) => !isScreenCodec(s.codec));
   for (const [i, s] of video.entries()) {
     const screen = isScreenCodec(s.codec);
     specs.push({
@@ -134,11 +136,12 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
       type: screen ? "screen" : "video",
       duration: secondsToTicks(s.duration || info.duration),
       props: { media: { stream: i }, transform: fitted(project, s.width!, s.height!) },
+      link: screen && camera ? undefined : "picture",
     });
   }
   const audio = info.streams.filter((s) => s.kind === "audio");
   for (const [i, s] of audio.entries()) {
-    specs.push({ track: audio.length > 1 ? `Audio ${i + 1}` : "Audio", type: "audio", duration: secondsToTicks(s.duration || info.duration), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } } });
+    specs.push({ track: audio.length > 1 ? `Audio ${i + 1}` : "Audio", type: "audio", duration: secondsToTicks(s.duration || info.duration), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } }, link: "picture" });
   }
   // Streams of one recording differ by a few ms; linked clips share the shortest length.
   const shortest = Math.min(duration, ...specs.map((x) => x.duration));
@@ -210,6 +213,28 @@ export const media = defineFeature({
         const data = result as ProxyData;
         for (const s of Object.values(data.streams ?? {})) rmSync(s.path, { force: true });
         for (const a of Object.values(data.audio ?? {})) rmSync(a, { force: true });
+      },
+      revive(result, { cacheDir }) {
+        const data = result as ProxyData;
+        const find = (path: string) => {
+          if (existsSync(path)) return path;
+          const moved = join(cacheDir, "proxies", basename(path));
+          return existsSync(moved) ? moved : undefined;
+        };
+        const streams: ProxyData["streams"] = {};
+        for (const [i, s] of Object.entries(data.streams ?? {})) {
+          const path = find(s.path);
+          if (!path) return undefined;
+          streams[Number(i)] = { ...s, path };
+        }
+        const audio: NonNullable<ProxyData["audio"]> = {};
+        for (const [i, a] of Object.entries(data.audio ?? {})) {
+          const path = find(a);
+          if (!path) return undefined;
+          audio[Number(i)] = path;
+        }
+        const moved = Object.entries(streams).some(([i, s]) => s.path !== data.streams[Number(i)]!.path) || Object.entries(audio).some(([i, a]) => a !== data.audio![Number(i)]);
+        return moved ? ({ streams, audio } satisfies ProxyData) : result;
       },
     },
     {

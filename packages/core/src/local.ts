@@ -660,7 +660,7 @@ export class LocalCore implements BeaconCore {
 
   /**
    * Thumbnails are kept on disk by media file, stream, time and height: a project's are made once, not on
-   * every open (ai-slop's 304 clips cost ~50 s of ffmpeg each time).
+   * every open (the benchmark project's 304 clips cost ~50 s of ffmpeg each time).
    */
   async #cachedThumb(asset: Asset, stream: number, time: number, height: number, make: () => Promise<Uint8Array>): Promise<Uint8Array> {
     const key = Bun.hash(`${asset.path}\0${asset.fingerprint}\0${stream}\0${time.toFixed(3)}\0${height}`).toString(16);
@@ -729,12 +729,13 @@ export class LocalCore implements BeaconCore {
     return pngImage(p.frames.frame(doc, snapSeconds(time, doc.settings.fps), p.data.get, opts.width ?? 0));
   }
 
-  async captureFrame(h: ProjectHandle, time?: number): Promise<{ asset: string; path: string }> {
+  async captureFrame(h: ProjectHandle, time?: number, opts: { folder?: string } = {}): Promise<{ asset: string; path: string }> {
     const p = this.#get(h);
     const doc = p.store.doc;
+    if (opts.folder !== undefined && !existsSync(opts.folder)) throw new Error(`${opts.folder} doesn't exist`);
     const t = snapSeconds(time ?? p.session.state.playhead, doc.settings.fps);
     const img = await this.frame(h, ticksToSeconds(t));
-    const dir = join(p.path, "media");
+    const dir = opts.folder ?? join(p.path, "media");
     mkdirSync(dir, { recursive: true });
     const fps = Math.round(doc.settings.fps.num / doc.settings.fps.den);
     const frames = Math.round(ticksToSeconds(t) * fps);
@@ -742,6 +743,8 @@ export class LocalCore implements BeaconCore {
     const stamp = `${Math.floor(frames / fps / 3600)}-${two(Math.floor(frames / fps / 60) % 60)}-${two(Math.floor(frames / fps) % 60)}-${two(frames % fps)}`;
     let path = join(dir, `Snapshot ${stamp}.png`);
     for (let n = 2; existsSync(path); n++) path = join(dir, `Snapshot ${stamp} ${n}.png`);
+    // The project's own media folder is where snapshots go by default; anywhere else is checked as any write is.
+    if (opts.folder !== undefined) this.#checkOutput(h, path);
     writeFileSync(path, img.png);
     const asset = { kind: "image", path, fingerprint: fileFingerprint(path), derived: { media: await probeMedia(path) } };
     const r = this.#saved(p, p.store.run<string>("asset.add", asset, { label: "Snapshot" }));

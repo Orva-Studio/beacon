@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -96,6 +96,10 @@ pub struct Renderer {
     /// Decode H.264/HEVC natively through VideoToolbox (the live preview): seeks several times faster.
     pub native_decode: bool,
     pub source_error: Option<String>,
+    /// Proxies that failed to open (deleted, or a cache record pointing at a moved file):
+    /// their sources are read from the originals instead of not being drawn.
+    bad_proxies: HashSet<String>,
+    stills: sources::StillCache,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -255,6 +259,8 @@ impl Renderer {
             lenient_sources: false,
             native_decode: false,
             source_error: None,
+            bad_proxies: HashSet::new(),
+            stills: Default::default(),
         })
     }
 
@@ -374,9 +380,17 @@ impl Renderer {
                             None => self.open_video(&def, factor)?,
                         },
                     };
-                    (sources::Pixels { width: d.width, height: d.height, data: Vec::new() }, Some(d))
+                    (Arc::new(sources::Pixels { width: d.width, height: d.height, data: Vec::new() }), Some(d))
                 }
-                still => (sources::load_still(still, &mut self.trecs)?, None),
+                Source::Image { path } => match self.stills.get(path) {
+                    Some(px) => (px, None),
+                    None => {
+                        let px = Arc::new(sources::load_still(&def, &mut self.trecs)?);
+                        self.stills.put(path, px.clone());
+                        (px, None)
+                    }
+                },
+                still => (Arc::new(sources::load_still(still, &mut self.trecs)?), None),
             };
             let tex = self.device.create_texture(&tex_desc(pixels.width, pixels.height, mip_count(pixels.width, pixels.height), rt_usage()));
             let st = SourceTex { tex, width: pixels.width, height: pixels.height, decoder, spare, last_used: self.frame };
@@ -442,7 +456,7 @@ impl Renderer {
     /// Whether `def` would be read from its proxy. Moving frames may be up to
     /// half the needed resolution; settled ones are drawn from the originals.
     fn wants_proxy(&self, def: &Source, _factor: f64) -> bool {
-        matches!(def, Source::Video { proxy: Some(_), .. } if self.use_proxies)
+        matches!(def, Source::Video { proxy: Some(p), .. } if self.use_proxies && !self.bad_proxies.contains(&p.path))
     }
 
     fn open_video(&mut self, def: &Source, factor: f64) -> Result<VideoDecoder> {
@@ -452,15 +466,25 @@ impl Renderer {
         d
     }
 
-    fn open_video_inner(&self, def: &Source, factor: f64) -> Result<VideoDecoder> {
+    fn open_video_inner(&mut self, def: &Source, factor: f64) -> Result<VideoDecoder> {
         let Source::Video { path, stream, proxy } = def else { return Err(Error::Source("not a video".into())) };
-        let mut d = match proxy {
-            Some(p) if self.wants_proxy(def, factor) => {
-                let mut d = VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0))?;
-                d.proxy = true;
-                d
-            }
-            _ => VideoDecoder::new(path, *stream, self.cache_dir.as_deref(), factor)?,
+        let from_proxy = match proxy {
+            Some(p) if self.wants_proxy(def, factor) => match VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0)) {
+                Ok(mut d) => {
+                    d.proxy = true;
+                    Some(d)
+                }
+                Err(e) => {
+                    self.source_error = Some(e.to_string());
+                    self.bad_proxies.insert(p.path.clone());
+                    None
+                }
+            },
+            _ => None,
+        };
+        let mut d = match from_proxy {
+            Some(d) => d,
+            None => VideoDecoder::new(path, *stream, self.cache_dir.as_deref(), factor)?,
         };
         d.scale = factor;
         d.native = self.native_decode;
@@ -567,6 +591,13 @@ impl Renderer {
             }
             return Ok(());
         };
+        if !v.passes.is_empty() && (0..=v.motion.len()).any(|i| v.perspective_of(i) != [0.0, 0.0]) {
+            let r = self.draw_tilted(enc, target, w, h, v, &content, color, local);
+            if let Some(g) = group_tex {
+                self.give(g);
+            }
+            return r;
+        }
         let layer_tex = self.take(w, h);
         clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
         let samples: Vec<&Affine> = std::iter::once(&v.transform).chain(v.motion.iter()).collect();
@@ -576,7 +607,7 @@ impl Renderer {
             let view = layer_tex.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
             for (i, m) in samples.iter().enumerate() {
-                let p = if i == 0 { v.perspective } else { [0.0; 2] };
+                let p = v.perspective_of(i);
                 let u = DrawU {
                     m0: [m[0], m[1], m[2], m[3]],
                     m1: [m[4], m[5], w as f32, h as f32],
@@ -602,6 +633,83 @@ impl Renderer {
             radius: v.radius,
         };
         let layer_tex = self.run_passes(enc, layer_tex, w, h, frame, &v.passes)?;
+        let bg = self.builtin_group(bytemuck::cast_slice(&[v.opacity, 0.0f32, 0.0, 0.0]), &layer_tex.create_view(&Default::default()));
+        run_fullscreen(enc, &target.create_view(&Default::default()), Some(()), &self.comp_pipe, &bg);
+        self.give(layer_tex);
+        Ok(())
+    }
+
+    /// A tilted layer with passes: the passes run on the flat layer (with room around it for what they
+    /// draw outside, like a shadow), which is then drawn in perspective. Passes map canvas pixels to the
+    /// layer through its 2D transform, which a tilt doesn't follow.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_tilted(&mut self, enc: &mut wgpu::CommandEncoder, target: &wgpu::Texture, w: u32, h: u32, v: &Visual, content: &wgpu::Texture, color: [f32; 4], local: [f32; 2]) -> Result<()> {
+        let m = &v.transform;
+        let longest = local[0].max(local[1]);
+        // Small enough that the padded corners stay in front of the camera (W > 0.5 there).
+        let tilt = (0..=v.motion.len()).map(|i| v.perspective_of(i)).map(|[a, b]| a.abs() + b.abs()).fold(0.0f32, f32::max);
+        let pad_local = (longest * 0.15).min(0.5 / tilt.max(1e-6));
+        // At the layer's own scale: passes take sizes in target pixels, so any other scale would change
+        // how big a shadow or blur comes out.
+        let s = scale_of(m).min(8192.0 / (longest + 2.0 * pad_local)).max(1e-3);
+        let pad = pad_local * s;
+        let (fw, fh) = (((local[0] * s + 2.0 * pad).ceil() as u32).max(1), ((local[1] * s + 2.0 * pad).ceil() as u32).max(1));
+        let flat = self.take(fw, fh);
+        clear(enc, &flat, wgpu::Color::TRANSPARENT);
+        {
+            let content_view = content.create_view(&Default::default());
+            let u = DrawU {
+                m0: [s, 0.0, 0.0, s],
+                m1: [pad, pad, fw as f32, fh as f32],
+                rect: [v.crop[0], v.crop[1], local[0], local[1]],
+                content: [v.size[0], v.size[1], 1.0, 0.0],
+                radius: v.radius,
+                color,
+                margin: [2.0 / s, 0.0, 0.0, 0.0],
+            };
+            let bg = self.builtin_group(bytemuck::bytes_of(&u), &content_view);
+            let view = flat.create_view(&Default::default());
+            let mut rp = begin(enc, &view, None);
+            rp.set_pipeline(&self.draw_pipe);
+            rp.set_bind_group(0, Some(&bg), &[]);
+            rp.draw(0..6, 0..1);
+        }
+        let frame = PassFrameU {
+            inv0: [1.0 / s, 0.0, 0.0, 1.0 / s],
+            inv1: [-pad / s, -pad / s, fw as f32, fh as f32],
+            layer: [local[0], local[1], s, 0.0],
+            radius: v.radius,
+        };
+        let flat = self.run_passes(enc, flat, fw, fh, frame, &v.passes)?;
+        let layer_tex = self.take(w, h);
+        clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
+        {
+            let samples: Vec<&Affine> = std::iter::once(m).chain(v.motion.iter()).collect();
+            let weight = 1.0 / samples.len() as f32;
+            let flat_view = flat.create_view(&Default::default());
+            let view = layer_tex.create_view(&Default::default());
+            let mut rp = begin(enc, &view, None);
+            for (i, m) in samples.iter().enumerate() {
+                let [g, gh] = v.perspective_of(i);
+                // The flat texture's pixels onto the canvas: the layer's transform after undoing the scale
+                // and padding, divided through so the perspective row's constant is 1 again.
+                let k = 1.0 - (g + gh) * pad / s;
+                let u = DrawU {
+                    m0: [m[0] / s / k, m[1] / s / k, m[2] / s / k, m[3] / s / k],
+                    m1: [(m[4] - (m[0] + m[2]) * pad / s) / k, (m[5] - (m[1] + m[3]) * pad / s) / k, w as f32, h as f32],
+                    rect: [0.0, 0.0, fw as f32, fh as f32],
+                    content: [fw as f32, fh as f32, weight, 0.0],
+                    radius: [0.0; 4],
+                    color: [1.0; 4],
+                    margin: [0.0, g / s / k, gh / s / k, 0.0],
+                };
+                let bg = self.builtin_group(bytemuck::bytes_of(&u), &flat_view);
+                rp.set_pipeline(&self.draw_pipe);
+                rp.set_bind_group(0, Some(&bg), &[]);
+                rp.draw(0..6, 0..1);
+            }
+        }
+        self.give(flat);
         let bg = self.builtin_group(bytemuck::cast_slice(&[v.opacity, 0.0f32, 0.0, 0.0]), &layer_tex.create_view(&Default::default()));
         run_fullscreen(enc, &target.create_view(&Default::default()), Some(()), &self.comp_pipe, &bg);
         self.give(layer_tex);

@@ -3,6 +3,10 @@
 Research of 2026-10-12: where Beacon's time goes, what other editors do,
 and what to change.
 
+The benchmark project is the test fixtures' `project.cmproj` (`BEACON_FIXTURES`):
+a 578 s edit with 304 clips over 22 video streams, among them a 3600×2336
+tscc2 screen and a 4K camera. The small project is `small.cmproj`.
+
 ## Where Beacon is today
 Measured in earlier sessions (PLAN §13 5e) and in the user's recordings:
 - Every video source is an `ffmpeg` process piping RGBA (`beacon-render`
@@ -10,7 +14,7 @@ Measured in earlier sessions (PLAN §13 5e) and in the user's recordings:
   new one with an accurate `-ss`, then waits for it to decode up to the frame.
 - Proxy jumps ~50-65 ms per source, ~76 ms for a quick jump; settling on
   the originals 0.2-2 s per frame, and it blocks the render thread; jumps on
-  ai-slop's originals ~0.5 s. Playing costs 6.5 ms a frame.
+  the benchmark project's originals ~0.5 s. Playing costs 6.5 ms a frame.
 - Every decoded frame crosses as RGBA: ffmpeg converts YUV on the CPU, writes
   it to a pipe, `beacon-render` copies it into a `Vec` and then `write_texture`s it.
   A 4K frame is 33 MB, so 30 fps is ~1 GB/s of copies per source.
@@ -106,7 +110,7 @@ same frames; seeks with `beacon-decode` in process (VideoToolbox decoding,
 Proxy version 3: HEVC through VideoToolbox (`hvc1`), 8 Mb/s for TechSmith
 screen streams (`tsc2`), 5 Mb/s for every other video stream, GOP 10 and half
 size above 1920 px as before. Version 2's H.264 files are deleted as each
-asset's new proxy is built. `bun scripts/perf.ts` on a copy of ai-slop
+asset's new proxy is built. `bun scripts/perf.ts` on a copy of the benchmark project
 (after: the median of two runs with the proxies cached):
 
 | | H.264 (v2) | HEVC (v3) |
@@ -116,9 +120,9 @@ asset's new proxy is built. `bun scripts/perf.ts` on a copy of ai-slop
 | scrub forward, step p50 / p95 | 6 / 10 ms | 6 / 14 ms |
 | scrub backward, step p50 / p95 | 10 / 50 ms | 13 / 34 ms |
 | play 10 s | 0 skipped | 0 skipped |
-| ai-slop's proxies on disk | ~4.8 GB | 2.8 GB |
+| the benchmark project's proxies on disk | ~4.8 GB | 2.8 GB |
 
-Building ai-slop's 22 video streams took 459 s (1784 s of CPU), two jobs at
+Building the benchmark project's 22 video streams took 459 s (1784 s of CPU), two jobs at
 once as before; the quieter building below is the next change.
 
 ### Quieter proxy building (done 2026-10-12, branch `perf`)
@@ -142,9 +146,9 @@ ffmpeg included):
 | the same, software decode at background priority | 47 s | 223 s |
 | demo_2.trec (157 s, screen + camera), before | 20 s | 121 s |
 | demo_2.trec, now (Quietly / Fast; the import's own probing included) | 26 / 25 s | 24 / 21 s |
-| all of ai-slop (22 video streams), before (two at once) | 459 s | 1784 s |
-| all of ai-slop, Quietly | 624 s | 585 s |
-| all of ai-slop, Fast | 460 s | 388 s |
+| all of the benchmark project (22 video streams), before (two at once) | 459 s | 1784 s |
+| all of the benchmark project, Quietly | 624 s | 585 s |
+| all of the benchmark project, Fast | 460 s | 388 s |
 
 - `scale_vt` is softer than the CPU's area scaling (camera PSNR 42.3 against
   46.8 dB, against an area or a bicubic reference alike); no difference is
@@ -169,7 +173,7 @@ The user asked whether the originals could be fast enough on their own.
   inside the block); skipped ones keep the previous frame's pixels. So the
   frame at a seek target is, per macroblock, its latest coded version since
   the keyframe; earlier versions needn't be decoded.
-- ai-slop's `demo_1.trec` (626 s): 121 keyframes (~150 frames apart), but
+- The benchmark project's `demo_1.trec` (626 s): 121 keyframes (~150 frames apart), but
   only 3,357 of its 18,209 packets are coded; the rest are 1-byte "unchanged".
   A seek decodes 7 coded frames p50 (49 p95), and the keyframe (778 KB, every
   row) is most of it. Taking each macroblock only from its latest frame cuts
@@ -194,7 +198,7 @@ playing a 4K camera this way would take about 0.4 of a core.
 
 **The whole preview without proxies** (`bun scripts/perf.ts <project>
 --no-proxies`: frame indexes kept, no proxies; `BEACON_DECODE_SOFTWARE=1` decodes
-every source in software on all cores), ai-slop at 1280×720:
+every source in software on all cores), the benchmark project at 1280×720:
 
 | | jump p50 / p95 | settle | scrub fwd / back (fps) |
 |-|-|-|-|
@@ -240,7 +244,7 @@ paths on tagged, untagged, screen and camera sources; a GPU conversion,
 | demo_1 camera, FFmpeg's VideoToolbox | 141 / 212 ms | small |
 | demo_1 camera, native (`seekbench <file> 1 native`) | **43 / 65 ms** | ~0.2 ms |
 
-ai-slop, `bun scripts/perf.ts`, CPU from `/usr/bin/time` (the whole run):
+The benchmark project, `bun scripts/perf.ts`, CPU from `/usr/bin/time` (the whole run):
 
 | | jump p50 / p95 | settle p50 / p95 | CPU |
 |-|-|-|-|
@@ -265,13 +269,45 @@ at 960 wide). Next for quiet and fast without proxies: the row-parallel
 tscc2 decoder for seeks, and frames kept on the GPU (step 3) so conversion
 leaves the CPU.
 
+## Re-run, and stills in process (2026-10-13)
+The user felt playback and scrubbing get slower, and Space moved the playhead
+without the canvas playing. The engine hadn't regressed: renaming the cache
+folder (`~/Library/Caches/opentasia` → `Beacon`) had left every proxy record
+pointing at the old folder, so each proxy failed to open, scenes weren't
+drawn while moving or playing, and only the settle (from the originals)
+showed. Now a job result is checked before use (`JobAnalyzerDef.revive`: the
+proxy's files are looked up in the current cache folder, else it is
+rebuilt), playback's audio skips a missing proxy copy, and the renderer reads
+the original when a proxy can't be opened (`core/__tests__/playback.test.ts`).
+
+`BEACON_PROFILE` showed the jumps' tail was images: each still was an
+`ffprobe` and an `ffmpeg` process (50-125 ms for the project's screenshots)
+every time it came back on screen, as textures go after 30 frames unused.
+Images are now decoded in process by `beacon-decode` (identical pixels,
+`images_match_the_ffmpeg_command_line`; 15-80 ms) and kept decoded (256 MB,
+least recently used out), so showing one again is an upload.
+
+The benchmark project, `bun scripts/perf.ts`, warm cache, two runs each:
+
+| | 2026-10-12 (native) | proxies fixed | + stills in process |
+|-|-|-|-|
+| jump p50 / p95 / max | 20 / 68 / – ms | 19 / 68-75 / 178 ms | **19 / 58-64 / 83 ms** |
+| settle p50 / p95 | 100 / 142 ms | 98 / 128 ms | 94 / 128 ms |
+| scrub fwd / back (fps, p50) | | 233 / 156-172 | 231-236 / 135-156 |
+| play 10 s | 0 skipped | 0 skipped | 0 skipped |
+| CPU (user + sys) | 9.8 s | 9.1 s | 8.8-9.1 s |
+
+What is left in a jump is decoding (proxies); the settle is the tscc2
+screen's originals. Next, as below: frames kept on the GPU (step 3) and the
+row-parallel tscc2 decoder for the settle.
+
 ## What to change, in order
 Each step is measured before and after with the benchmark (step 0).
 0. **Benchmark** (done 2026-10-12): `bun scripts/perf.ts <project>` opens
    a copy, waits for its proxies and times the offscreen preview (at
    1280×720, the frame read back included): 40 jumps, 10 settles on the
    originals, 90 scrub steps of two frames each way, and 10 s of play.
-   Baseline on ai-slop (578 s, a 3600×2336 tscc2 screen and a 4K camera,
+   Baseline on the benchmark project (578 s, a 3600×2336 tscc2 screen and a 4K camera,
    GOP-10 proxies):
 
    | | p50 | p95 | max |
@@ -310,7 +346,7 @@ Each step is measured before and after with the benchmark (step 0).
    (byte-identical to the ffmpeg command line's frames, colour matrix
    included: swscale has to be given each frame's matrix and range before it
    initialises, or BT.709 sources come out as BT.601; `beacon-decode`'s test
-   checks tagged, untagged, screen and camera sources). ai-slop, same benchmark:
+   checks tagged, untagged, screen and camera sources). The benchmark project, same benchmark:
 
    | | before | after |
    |-|-|-|
@@ -320,7 +356,7 @@ Each step is measured before and after with the benchmark (step 0).
    | scrub forward, step p50 | 6 ms | 5 ms |
    | play 10 s | 1 skipped | 0 skipped |
 
-   10 s of hermes exports in 3.8 s instead of 5.1 s. Measured alone
+   10 s of the small project exports in 3.8 s instead of 5.1 s. Measured alone
    (`cargo run --release -p beacon-decode --example seekbench`), an exact-frame
    seek on opus-55's originals costs: 4K H.264 camera ~100 ms p50 (either
    decoder); the 3600×2336 tscc2 screen 262 ms p50 / 725 ms p95, because its
@@ -338,7 +374,7 @@ Each step is measured before and after with the benchmark (step 0).
    identical to fresh decodes. Keeping more costs: tscc2 updates its last
    frame in place, so a held frame makes it copy 3600×2336 a frame (the
    settle rose to 197 ms p50 until the window was cut to 0.5 s; now 150 ms).
-   Where a frame's time goes (`BEACON_PROFILE`, a 10 s ai-slop export): decoding
+   Where a frame's time goes (`BEACON_PROFILE`, a 10 s export of the benchmark project): decoding
    waits 2.8 ms, the texture upload 1.8 ms, drawing and readback 5.1 ms; the
    RGBA conversion on the decoding threads 1.3 ms (4K camera) to 4 ms (screen).
    That is what step 3 removes: CPU and fans more than latency.

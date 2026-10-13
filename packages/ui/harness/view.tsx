@@ -51,6 +51,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "media") replica.media(msg.data);
   else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
+  else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
   else if (msg.type === "notice") replica.notice(msg.data);
   else if (msg.type === "previewClock") replica.previewClock(msg.data);
@@ -78,6 +79,7 @@ const host: Host = {
   canvasMenu: () => void request("canvasMenu"),
   trackMenu: (track) => void request("trackMenu", { track }),
   binMenu: (asset) => void request("binMenu", { asset }),
+  importMedia: () => void request("importMedia"),
   dropFiles: (files, at) => void report(request("dropFiles", { files, ...at })),
   captureFrame: () => void report(request("captureFrame")),
   frameImage: () => request("frameImage") as Promise<string | null>,

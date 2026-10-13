@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { rationalToNumber, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { compileKeymap, label, match } from "./keymap";
 import { droppedFiles } from "./drop";
 import type { DroppedFile, Init } from "./rpc";
@@ -13,7 +13,7 @@ import { MediaPreviewUi, type PreviewHost } from "./media-preview";
 import { NewProjectUi, ProjectName, type ProjectHost } from "./project-name";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
-import { ExportUi, type ExportHost } from "./export";
+import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
@@ -33,6 +33,7 @@ export interface Host extends ExportHost, SettingsHost, ProjectHost, PreviewHost
   canvasMenu(): void;
   trackMenu(track: string | null): void;
   binMenu(asset: string): void;
+  importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
   captureFrame(): void;
@@ -59,8 +60,8 @@ export function App({ host }: { host: Host }) {
   const making = useView((s) => Object.keys(s.preparing).length);
   const prepared = useView((s) => s.prepared);
   const waveforms = useView((s) => s.waveforms);
+  const mutedAudio = (project?.tracks ?? []).flatMap((t, i) => (t.muted && t.clips.some((c) => init?.clipTypes[c.type]?.includes("audio")) ? [{ t, i }] : []));
   const thumbs = useView((s) => s.thumbs);
-  const highlight = useView((s) => s.highlight);
   const dragging = useView((s) => s.dragging);
   useEffect(syncNativeView, [dragging]);
   // Files dragged in from Finder: dropped on the timeline they go where dropped (its own handler), elsewhere after the last clip.
@@ -126,7 +127,7 @@ export function App({ host }: { host: Host }) {
       <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
       <div className="flex min-h-0 flex-1 gap-gutter">
         <ToolRail session={session} host={host} />
-        {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} highlight={highlight} host={host} />}
+        {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
         <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
           <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
           {project && session && <Transport project={project} session={session} host={host} init={init} />}
@@ -152,7 +153,16 @@ export function App({ host }: { host: Host }) {
       ) : (
         <div className="panel-card h-[30%]" />
       )}
-      <ExportUi host={host} />
+      <ExportUi
+        host={host}
+        muted={mutedAudio.map(({ t, i }) => trackName(t, project!.tracks.length - 1 - i))}
+        unmute={() => {
+          // One undo step for them all.
+          const step = `unmute-${Date.now()}`;
+          for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
+        }}
+      />
+      <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />
       <MediaPreviewUi host={host} />
@@ -352,7 +362,7 @@ function Transport({ project, session, host, init }: { project: Project; session
     return b ? ` (${label(b.keys)})` : "";
   };
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-divider bg-bar px-3">
+    <div className="flex h-9 shrink-0 items-center justify-center gap-1 border-b border-divider bg-bar px-3">
       <Button look="icon" title={`Previous media${tip("playhead.jump", { to: "previousEdit" })}`} onClick={() => host.run("playhead.jump", { to: "previousEdit" })}>
         <Icon name="skip-back" filled />
       </Button>

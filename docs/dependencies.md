@@ -18,7 +18,7 @@ OSV vulnerability database (includes RustSec and GitHub advisories).
 | @modelcontextprotocol/sdk | 1.32.1 | — | MCP server (Phase 3) |
 | zod | 4.6.5 | — | schemas for commands/MCP tools |
 | Phosphor Icons | 2.1.1 (`@phosphor-icons/core`) | — | The UI's icons from Phase 5.5, MIT: only the paths used, regular and fill, copied into `ui/src/controls/icon-paths.ts` by `scripts/icons.ts`; drawn by `Icon` (React) and `drawIcon` (the timeline's canvas) |
-| Space Grotesk (font) | 5.3.0 (`@fontsource-variable/space-grotesk`) | — | The UI's typeface from Phase 5.5: the Latin variable woff2 inlined in `ui/src/fonts/fonts.css`, SIL OFL 1.1 (`ui/src/fonts/OFL.txt`) |
+| Geist (font) | 5.3.0 (`@fontsource-variable/geist`) | — | The UI's typeface (2026-10-13, replacing Phase 5.5's Space Grotesk): the Latin variable woff2 inlined in `ui/src/fonts/fonts.css`, SIL OFL 1.1 (`ui/src/fonts/OFL.txt`) |
 | pollster / bytemuck / serde / serde_json | 1.0.1 / 1.25.2 / 1.0.229 / 1.0.151 | 0.4 / 1.x / — | |
 | ffmpeg-next / ffmpeg-sidecar | 9.0.0 / 2.6.0 | — | candidates for `beacon-media` (in-process libav vs. ffmpeg binary) |
 | whisper-rs | 0.16.0 | — | candidate for local transcription |
@@ -77,3 +77,10 @@ has the same two** (it pins Electrobun `^1.18.1` and wgpu 24), so the shared
 - **objc2 0.6.5** (MIT, already in the tree through wgpu) in `beacon-render`,
   to read the preview layer's bounds and flush Core Animation.
 - Proxies are encoded with ffmpeg's `h264_videotoolbox`.
+
+## Phase 6 spike (2026-10-13)
+- **`beacon-record`** (the recording sidecar, `beacon-recorder`): objc2 0.6.5,
+  block2 0.6.2, dispatch2 0.3.1, and the generated framework crates at
+  **0.3.2** (`objc2-foundation`, `-core-foundation`, `-core-media`,
+  `-core-video`, `-screen-capture-kit`, `-av-foundation` with its
+  `objc2-core-media` feature). MIT / Zlib / Apache-2.0; `cargo deny` passes.

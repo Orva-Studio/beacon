@@ -6,7 +6,9 @@ export type Matrix3 = [number, number, number, number, number, number, number, n
 /**
  * The eye's distance from the canvas, in canvas pixels: the camera sits on the canvas's axis at
  * z = 3000 looking at its centre, with the field of view that shows the canvas's height there,
- * so z = 0 is drawn at 1:1.
+ * so z = 0 is drawn at 1:1. Measured from a Camtasia export (2026-10-13): an 810×402 rectangle tilted
+ * 20° about Y, then about X, foreshortens as an eye at 2999 and 3002 px would, and lands within 1 px of
+ * where this camera draws it; +Y brings the left edge nearer, +X the top.
  */
 export const CAMERA_DISTANCE = 3000;
 

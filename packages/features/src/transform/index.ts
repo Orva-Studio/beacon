@@ -113,7 +113,11 @@ export const transform = defineFeature({
         layer.transform = transform;
         // Backdrops (blur, spotlight regions) stay flat: the renderer tilts only drawn layers.
         if (perspective && layer.kind === "visual") layer.perspective = perspective;
-        if (layer.kind === "visual" && layer.motion) layer.motion = layer.motion.map((m) => place(fromAffine(m)).transform);
+        if (layer.kind === "visual" && layer.motion) {
+          const placed = layer.motion.map((m) => place(fromAffine(m)));
+          layer.motion = placed.map((p) => p.transform);
+          if (placed.some((p) => p.perspective)) layer.motionPerspective = placed.map((p) => p.perspective ?? [0, 0]);
+        }
         multiplyOpacity(layer, e.props.transform.opacity);
       }
     },

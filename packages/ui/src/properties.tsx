@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { assetName, clipSpeed, rationalToNumber, ticksToSeconds } from "@beacon/model";
+import { clipSpeed, rationalToNumber, ticksToSeconds } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas";
 import type { Init } from "./rpc";
 import { timelineView } from "./timeline";
-import { Button, Check, clamp, ColorRow, ColorSwatch, Dial, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, toHex, TrashButton, Icon, type IconName, type RGBA } from "./controls";
+import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, toHex, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { effectName } from "./effect-names";
 import { useQuery } from "./query";
@@ -39,7 +39,7 @@ const TRAIT_TABS: [trait: string, tab: Tab][] = [
   ["visual", { id: "transform", title: "Visual Properties", icon: "film-strip" }],
   ["callout", { id: "callout", title: "Annotation Properties", icon: "chat-centered-text" }],
   ["region", { id: "region", title: "Annotation Properties", icon: "chat-centered-text" }],
-  ["cursor", { id: "cursor", title: "Cursor Properties", icon: "cursor" }],
+  ["cursor", { id: "cursor", title: "Cursor Properties", icon: "pointer" }],
   ["audio", { id: "audio", title: "Audio Properties", icon: "speaker-high" }],
 ];
 
@@ -63,12 +63,11 @@ function ClipProperties({
 }) {
   const traits = init?.clipTypes[clip.type] ?? [];
   const tabs = TRAIT_TABS.filter(([trait]) => traits.includes(trait)).map(([, tab]) => tab);
-  // A visual clip's effects are sections under its Visual tab, not a tab of their own.
-  if (clip.effects.length && !traits.includes("visual")) tabs.push({ id: "effects", title: "Effects", icon: "sparkle" });
-  const tab = tabs.find((t) => t.id === session.inspector) ?? tabs[0];
   const speedShown = useView((v) => v.clipSpeed);
-  const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
-  const name = asset ? assetName(asset) : annotationName(clip);
+  // Speed is the clip's timing, video and audio alike: its own tab once it has been changed or asked for.
+  if ((clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || speedShown.includes(clip.id))) tabs.push({ id: "speed", title: "Clip Speed", icon: "gauge" });
+  if (clip.effects.length) tabs.push({ id: "effects", title: "Effects", icon: "sparkle" });
+  const tab = tabs.find((t) => t.id === session.inspector) ?? tabs[0];
   const value = (group: string, field: string, fallback = 0) => valueAt(clip, session.playhead, group, field, fallback);
   const edit: Edit = (group, fields, label, key) => {
     const clips = selected.filter((c) => c === clip || c.type === clip.type || c.props[group] !== undefined).map((c) => c.id);
@@ -80,17 +79,14 @@ function ClipProperties({
       <div className="flex border-b border-divider bg-tabbar">
         {tabs.map((t) => (
           <Tab key={t.id} title={t.title} active={t === tab} onClick={() => host.run("inspector.tab", { tab: t.id })}>
-            <Icon name={t.icon} size={22} filled={t === tab} />
+            {t.id === "effects" ? <span className="text-[17px] leading-none font-bold italic">fx</span> : <Icon name={t.icon} size={22} filled={t === tab} />}
           </Tab>
         ))}
       </div>
-      <div className="flex h-11 items-center justify-center border-b border-divider bg-panel font-semibold text-text-strong">
-        {name}
-        {selected.length > 1 && <span className="ml-2 font-normal text-text-faint">and {selected.length - 1} more</span>}
-      </div>
+      {selected.length > 1 && <div className="border-b border-divider bg-panel py-2 text-center text-label text-text-faint">Editing {selected.length} clips</div>}
       {session.animation?.clip === clip.id && <AnimationSection clip={clip} id={session.animation.id} host={host} />}
       {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} />}
-      {(clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || speedShown.includes(clip.id)) && (tab?.id === "transform" || (tab?.id === "audio" && !traits.includes("visual"))) && (
+      {tab?.id === "speed" && (
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
       )}
       {tab?.id === "cursor" && <Cursor value={value} clip={clip} edit={edit} />}
@@ -98,7 +94,22 @@ function ClipProperties({
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "audio" && (
         <Section>
-          <Slider label="Gain" value={value("audio", "gain", 1) * 100} max={500} unit="%" onChange={(v, key) => edit("audio", { gain: v / 100 }, "Gain", key)} />
+          <Slider
+            label="Volume"
+            title="The level of the clip's volume line where the playhead is (drag the line on the timeline to change it there)"
+            value={value("audio", "volume", 1) * 100}
+            max={100}
+            unit="%"
+            onChange={(v, key) => edit("audio", { volume: v / 100 }, "Volume", key)}
+          />
+          <Slider
+            label="Boost"
+            title="Gain: makes a quiet recording louder, up to 500%, on top of the volume line"
+            value={value("audio", "gain", 1) * 100}
+            max={500}
+            unit="%"
+            onChange={(v, key) => edit("audio", { gain: v / 100 }, "Boost", key)}
+          />
           <div className="ml-[92px] flex flex-col gap-3">
             <Check label="Mix to mono" checked={false} disabled />
             <Check
@@ -109,7 +120,7 @@ function ClipProperties({
           </div>
         </Section>
       )}
-      {(tab?.id === "effects" || tab?.id === "transform") && clip.effects.map((e) => (
+      {tab?.id === "effects" && clip.effects.map((e) => (
           <Effect key={e.id} clip={clip} effect={e} host={host} schema={init?.effects.find((x) => x.id === e.type)?.schema} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
         ))}
     </>
@@ -133,13 +144,12 @@ function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; 
         <Slider label="Opacity" value={value("transform", "opacity", 1) * 100} max={100} unit="%" onChange={(v, key) => edit("transform", { opacity: v / 100 }, "Opacity", key)} />
       </Section>
       <Section>
-        <div className="flex items-start justify-between">
-          <span className="mt-1 text-label font-medium text-text-muted">Rotation</span>
-          <div className="flex flex-col gap-2">
-            <Dial axis="Z" value={degrees} onChange={(deg, key) => edit("transform", { rotation: (deg * Math.PI) / 180 }, "Rotation", key)} />
-            <Dial axis="Y" value={(value("transform", "rotationY") * 180) / Math.PI} onChange={(deg, key) => edit("transform", { rotationY: (deg * Math.PI) / 180 }, "Rotation", key)} />
-            <Dial axis="X" value={(value("transform", "rotationX") * 180) / Math.PI} onChange={(deg, key) => edit("transform", { rotationX: (deg * Math.PI) / 180 }, "Rotation", key)} />
-          </div>
+        <div className="flex items-center justify-between">
+          <span className="text-label font-medium text-text-muted">Rotation</span>
+          <RotationGizmo
+            value={{ x: (value("transform", "rotationX") * 180) / Math.PI, y: (value("transform", "rotationY") * 180) / Math.PI, z: degrees }}
+            onChange={(axis, deg, key) => edit("transform", { [axis === "z" ? "rotation" : axis === "x" ? "rotationX" : "rotationY"]: (deg * Math.PI) / 180 }, "Rotation", key)}
+          />
         </div>
       </Section>
       <Section>
@@ -148,7 +158,6 @@ function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; 
           <div className="flex flex-col gap-2">
             <Stepper axis="X" value={value("transform", "x")} onChange={(v) => edit("transform", { x: v }, "Position")} />
             <Stepper axis="Y" value={value("transform", "y")} onChange={(v) => edit("transform", { y: v }, "Position")} />
-            <Stepper axis="Z" value={0} />
           </div>
         </div>
         <div className="mt-4 flex items-center justify-between">
@@ -177,10 +186,7 @@ function ClipSpeed({ clip, selected, fps, host }: { clip: Clip; selected: Clip[]
     if (seconds > 0) set(media / seconds);
   };
   return (
-    <FoldSection
-      title="Clip Speed"
-      remove={{ label: "Remove Clip Speed", run: () => (replica.showClipSpeed(clip.id, false), speed !== 1 && set(null)) }}
-    >
+    <Section>
       <Row label="Speed">
         <div className="flex-1" />
         <NumberBox value={speed} unit="x" digits={2} step={0.1} min={0.1} max={10} onCommit={set} />
@@ -205,17 +211,8 @@ function ClipSpeed({ clip, selected, fps, host }: { clip: Clip; selected: Clip[]
         </div>
         <span className="ml-1 w-3" />
       </Row>
-    </FoldSection>
+    </Section>
   );
-}
-
-/** Titles for annotations: Callout for text, Shape for a rectangle, the region's kind. */
-function annotationName(clip: Clip): string {
-  const callout = clip.props.callout as { shape?: string } | undefined;
-  const region = clip.props.region as { kind?: string } | undefined;
-  if (callout) return callout.shape === "text" ? "Callout" : "Shape";
-  if (region?.kind) return region.kind[0]!.toUpperCase() + region.kind.slice(1);
-  return clip.type;
 }
 
 /** Font families the user's projects use, listed first, then every installed family. */

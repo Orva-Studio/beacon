@@ -40,7 +40,7 @@ are little-endian; times are `f64` seconds from recording start.
 | `af5` | **Keyboard shortcuts** | `f64 t, u32 key, u32 flags`; flags use macOS modifier bits (0x100000 ⌘, 0x40000 ⌃) | keystroke overlays; agent hints ("cut at ⌘Z") |
 | `a05` | **Scroll wheel** | `f64 t, i32 dx, i32 dy` (4,638 events) | scroll-aware zoom/pan |
 | `a06` | **Focused app timeline** | records `u32 n, f64 t, name[n-8]` (ChatGPT, Arc, WezTerm, Finder…) | chapters, agent context |
-| `a07` | **Window title timeline** | same layout (e.g. `[3/4] vi script.md ~/c/f/chatgpt-plugin`) | chapters, agent context |
+| `a07` | **Window title timeline** | same layout (e.g. `[3/4] vi script.md ~/c/demo`) | chapters, agent context |
 | `af7` | Focused window rect over time | `f64 t, i32 x, i32 y, i32 w, i32 h` | SmartFocus-style auto zoom |
 | `af6` | Captured display bounds (in 261/338) | `f64 t, i32 x, i32 y, i32 w, i32 h` in global points, e.g. `(0, 1, 1800, 1168)` or `(-1800, 1, 1800, 1168)` for a second display | coordinate mapping |
 | `a08` | Periodic stat every 5 s | `f64 t, f32 v` (~0.08–0.10; likely CPU load or dropped-frame ratio) | ignore |

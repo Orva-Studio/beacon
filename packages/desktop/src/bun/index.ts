@@ -609,16 +609,12 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           sep,
           item("Add Clip Speed", "clipSpeed"),
           sep,
-          item("Update Media…"),
-          item("Convert to Placeholder"),
-          sep,
-          item("Add to Library"),
-          sep,
           item("Split at Playhead", "edit.split"),
           // From the canvas, where media usually covers it all, the canvas's own items too.
           ...(canvas ? [sep, { label: "Project Settings…", action: "app:projectSettings" }, { label: "Zoom to Fit", action: "run:canvas.zoom:fit" }] : []),
         ]);
       },
+      importMedia: () => void importMedia().catch((e: Error) => status(e.message)),
       binMenu: ({ asset }) => {
         if (!current) return;
         const used = [...walkClips(core.doc(current.path).tracks, core.registry)].some((l) => l.clip.assetId === asset);
@@ -676,8 +672,11 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       captureFrame: () =>
         reply(async () => {
           if (!current) return;
-          const r = await core.captureFrame(current.path);
-          status(`Snapshot added to the Media Bin: ${basename(r.path)}`);
+          // A folder chosen in Settings that has since gone: the project's own media folder instead.
+          const folder = appSettings.snapshotFolder && existsSync(appSettings.snapshotFolder) ? appSettings.snapshotFolder : undefined;
+          if (appSettings.snapshotFolder && !folder) status(`${appSettings.snapshotFolder} is missing: saved in the project's media folder`);
+          const r = await core.captureFrame(current.path, undefined, folder ? { folder } : {});
+          send().snapshotSaved({ path: r.path });
           send().media({ highlight: r.asset });
           void sendThumbs();
         }),
@@ -815,12 +814,11 @@ ContextMenu.on("context-menu-clicked", (e) => {
   if (op!.startsWith("edit.")) void run(op!);
   else if (op === "unlink") void run("clip.unlink", { clip });
   else if (op === "openGroup") void run("group.open", { clip });
-  // A Clip Speed section appears in the clip's properties.
+  // The clip's properties gain a Speed tab.
   else if (op === "clipSpeed") {
-    const type = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === clip)?.type;
     send().showClipSpeed({ clip });
     void run("panel.show", { properties: true });
-    void run("inspector.tab", { tab: type && core.registry.hasTrait(type, "visual") ? "transform" : "audio" });
+    void run("inspector.tab", { tab: "speed" });
   }
   else if (op === "hideProperties") void run("panel.show", { properties: false });
   else if (op === "selectInBin") {

@@ -20,6 +20,34 @@ pub struct Pixels {
     pub data: Vec<u8>,
 }
 
+/// Decoded images kept after their textures are dropped, so showing one again is an upload, not a decode
+/// (a screenshot takes 15-80 ms to decode). Least recently used first.
+#[derive(Default)]
+pub struct StillCache {
+    items: std::collections::VecDeque<(String, std::sync::Arc<Pixels>)>,
+    bytes: usize,
+}
+
+const STILL_CACHE_BYTES: usize = 256 << 20;
+
+impl StillCache {
+    pub fn get(&mut self, path: &str) -> Option<std::sync::Arc<Pixels>> {
+        let i = self.items.iter().position(|(p, _)| p == path)?;
+        let item = self.items.remove(i).unwrap();
+        let px = item.1.clone();
+        self.items.push_back(item);
+        Some(px)
+    }
+
+    pub fn put(&mut self, path: &str, px: std::sync::Arc<Pixels>) {
+        self.bytes += px.data.len();
+        self.items.push_back((path.to_string(), px));
+        while self.bytes > STILL_CACHE_BYTES && self.items.len() > 1 {
+            self.bytes -= self.items.pop_front().unwrap().1.data.len();
+        }
+    }
+}
+
 /// Presentation times of every frame of one video stream, as ffmpeg sees
 /// them, so decoding with `-fps_mode passthrough` yields exactly this list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,14 +421,18 @@ impl VideoDecoder {
 pub fn load_still(source: &Source, trecs: &mut HashMap<PathBuf, beacon_media::Trec>) -> Result<Pixels> {
     match source {
         Source::Image { path } => {
-            let (width, height) = probe_size(path)?;
-            let mut data = run(
-                Command::new("ffmpeg").args(["-nostdin", "-v", "error"]).args(FILES_ONLY).args(["-i", path]).args([
-                    "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
-                ]),
-                &format!("ffmpeg {path}"),
-            )?;
-            check_len(path, &data, width, height)?;
+            // In process: the same pixels as the ffmpeg command line's, without two processes (~40-70 ms) per image.
+            let err = |e: beacon_decode::Error| Error::Source(e.0);
+            let mut d = beacon_decode::Decoder::open(path, 0, false, 0).map_err(err)?;
+            loop {
+                match d.next().map_err(err)? {
+                    beacon_decode::Next::Frame(_) => break,
+                    beacon_decode::Next::End => return Err(Error::Source(format!("{path}: no image"))),
+                }
+            }
+            let (width, height) = d.size();
+            let mut data = vec![0u8; width as usize * height as usize * 4];
+            d.rgba(&mut data, width, height).map_err(err)?;
             premultiply(&mut data);
             Ok(Pixels { width, height, data })
         }
@@ -428,18 +460,6 @@ pub fn load_still(source: &Source, trecs: &mut HashMap<PathBuf, beacon_media::Tr
         Source::Text(spec) => crate::text::render(spec),
         Source::Strokes(spec) => crate::text::render_strokes(spec),
         Source::Video { .. } => unreachable!("videos are decoded by VideoDecoder"),
-    }
-}
-
-fn probe_size(path: &str) -> Result<(u32, u32)> {
-    let out = run(
-        Command::new("ffprobe").args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json"]).args(FILES_ONLY).arg(path),
-        &format!("ffprobe {path}"),
-    )?;
-    let probe: Probe = serde_json::from_slice(&out).map_err(|e| Error::Source(format!("ffprobe {path}: {e}")))?;
-    match probe.streams.first() {
-        Some(ProbeStream { width: Some(w), height: Some(h), .. }) => Ok((*w, *h)),
-        _ => Err(Error::Source(format!("{path}: no image size"))),
     }
 }
 

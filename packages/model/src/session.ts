@@ -253,7 +253,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
   sessionCommand({
     id: "selection.set",
     description:
-      "Select clips by id (replacing the selection, or `add`ing to it, or `toggle`); with `linked`, the clips linked to them (a recording's screen, camera and audio) too. The editor selects single clips",
+      "Select clips by id (replacing the selection, or `add`ing to it, or `toggle`); with `linked`, the clips linked to them (a recording's camera and audio) too, as the editor selects them (Unlink to edit them apart)",
     args: z.strictObject({
       clips: z.array(z.string()),
       add: z.boolean().default(false).describe("Add to the selection instead of replacing it"),
@@ -268,8 +268,15 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       if (s.animation && !clips.includes(s.animation.clip)) s.animation = null;
       s.effects = s.effects.filter((fx) => clips.includes(fx.clip));
       if (toggle) {
-        const on = ids.filter((id) => !s.selection.includes(id));
-        s.selection = [...s.selection.filter((id) => !ids.includes(id)), ...on];
+        // A clip and those linked to it toggle as one: a partly selected set becomes fully selected.
+        const done = new Set<string>();
+        for (const clip of clips) {
+          if (done.has(clip)) continue;
+          const set = linked ? withLinked(project, [clip]) : [clip];
+          for (const id of set) done.add(id);
+          if (set.every((id) => s.selection.includes(id))) s.selection = s.selection.filter((id) => !set.includes(id));
+          else s.selection = [...new Set([...s.selection, ...set])];
+        }
       } else s.selection = [...new Set(add ? [...s.selection, ...ids] : ids)];
     },
   }),
@@ -475,7 +482,10 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       const next = add ? [...s.effects.filter((e) => !effects.some((x) => key(x) === key(e))), ...effects] : effects;
       s.effects = next;
       s.animation = null;
-      if (effects.length) s.selection = [...new Set([...(add ? s.selection : []), ...next.map((e) => e.clip)])];
+      if (effects.length) {
+        s.selection = [...new Set([...(add ? s.selection : []), ...next.map((e) => e.clip)])];
+        s.inspector = "effects";
+      }
     },
   }),
   sessionCommand({
@@ -545,11 +555,11 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
   }),
   sessionCommand({
     id: "inspector.tab",
-    description: 'Show a tab of the properties panel: a property group id (e.g. "transform", "cursor"), "effects" or "audio"',
+    description: 'Show a tab of the properties panel: a property group id (e.g. "transform", "cursor"), "effects", "audio" or "speed"',
     args: z.strictObject({ tab: z.string().min(1) }),
     apply: (s, { tab }, { registry }) => {
-      if (tab !== "effects" && tab !== "audio" && !registry.propGroups.has(tab)) {
-        throw new Error(`no property group "${tab}"; there are: ${[...registry.propGroups.keys()].join(", ")}, effects, audio`);
+      if (tab !== "effects" && tab !== "audio" && tab !== "speed" && !registry.propGroups.has(tab)) {
+        throw new Error(`no property group "${tab}"; there are: ${[...registry.propGroups.keys()].join(", ")}, effects, audio, speed`);
       }
       s.inspector = tab;
       s.panels.properties = true;

@@ -13,7 +13,8 @@ rough-cut a recording from its transcript, laid it out, zoomed and exported
 it; Phase 5 closed after the user's runs in the app, cut as v0.1.0). Video is
 decoded in process (`beacon-decode` over FFmpeg's libraries), with frames kept
 for steps back (`docs/performance.md`). **Phase 5.5** (the new look) is in
-progress (§13 Phase 5.5). Packaging as one self-contained app is Phase 6.5.
+progress (§13 Phase 5.5). Phase 6 (the recorder) started 2026-10-13 with its
+spike. Packaging as one self-contained app is Phase 6.5.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -349,9 +350,10 @@ be a target, so new features get animation support for free.
 - Stitched clips hold an ordered list of source segments on their own inner
   timeline, shown through a window, with transform/animations/effects on the
   outer clip.
-- **Recordings import as separate linked clips** by default: screen, camera
-  and audio each on their own track, linked so cuts and moves keep them in
-  sync, unlinkable when needed.
+- **Recordings import as separate clips**: screen, camera and audio each on
+  their own track; the camera and audio linked (the screen and audio when
+  there is no camera) so cuts and moves keep them in sync, unlinkable when
+  needed. The screen and camera are never linked (the user, 2026-10-13).
 - Assets carry derived data by key (`proxy`, `waveform`, `thumbnails`,
   `cursor`, `transcript`), each produced by a registered **analyzer**.
 
@@ -724,7 +726,10 @@ in `ARCHITECTURE.md`.
   gated by the user's own run in the app:
   - *5a timeline editing:* select, move, trim, split, ripple delete,
     cut/copy/paste; a recording's clips select one by one in the editor
-    while agents' commands include linked clips; a drag is one command sent
+    while agents' commands include linked clips (changed 2026-10-13, the
+    user: linked clips select and edit together in the editor too, as in
+    DaVinci, with Unlink to separate them; only a recording's camera and
+    audio are linked, never its screen and camera); a drag is one command sent
     on release, drawn as a ghost from the same maths (`model/edit.ts`);
     drops over other media are refused, magnetic tracks make room.
   - *5b properties and canvas:* edits apply at the playhead (the animation
@@ -752,7 +757,8 @@ dark grey, like CapCut and the Dribbble concept "Online video editor concept
 VisionX" (shots/23126679); tokens and shared controls, the layout
 kept. First pass
 (rehearsed offscreen, waiting for the user's look in the app): graphite
-surfaces with one electric green accent (`#3ee68d`); Space Grotesk; corner
+surfaces with one electric green accent (`#3ee68d`); Space Grotesk (Geist
+from 2026-10-13, the user's choice); corner
 tokens (`--radius-*`, `--radius-panel`) and panels as rounded cards with a
 6 px gutter (`panel-card`); filled fields without outlines, pill rail
 items, an accent-underlined tab, a `primary` button look (Export, Create,
@@ -768,6 +774,35 @@ action; mute, lock and eye on every track; a track shows its name only when it h
 Missing on its Media Bin tile, builds no proxy (the raw ffmpeg error the user
 saw), and Locate Media… in its menu relinks it (`core.relink`, refused unless
 it is the same media; MCP `media_missing`, `media_relink`).
+2026-10-13 (the user): the playhead is one colour, a thin white line under a
+small pin (as CapCut, Premiere and Resolve), without Camtasia's green/red
+handles; an in/out range (I/O, ⌘-drag) is a band on the ruler whose edges
+drag there. A proxy is a "P" badge at a Media Bin tile's top right. The
+properties panel drops the clip's name; effects have their own fx tab
+(selecting an effect opens it); the cursor tab has a macOS-style pointer
+(a custom icon beside Phosphor's); Position has no Z; rotation is a gizmo,
+three rings seen slightly from above (X red, Y green, Z blue) with a card
+showing the clip's orientation, plus a number box per axis. The transport
+is centred, the Media Bin says "Sort", and dragging an audio clip's volume
+line shows its level as a percentage. Audio's waveform is drawn at the level
+it plays (boost × the volume line, so fades taper); the Audio tab has Volume
+(the line's level at the playhead) and Boost (the `gain` prop, up to 500%,
+renamed in the UI only); the volume line stays a line. Clip Speed is its own
+tab (not an effect: it is the clip's timing), shown once the speed is changed
+or Clip Speed is chosen. A tilted (X/Y rotation) clip's effects run on the
+flat clip, which is then drawn in perspective (the CRT was sheared and cut
+off). The Media Bin (the user: less like Camtasia, never grouped by type)
+has no title or type groups: a search field, All/Video/Audio/Images chips,
+one sort menu (each sort with its direction), grid or list, an Import tile
+first, and tiles showing the picture with its duration and kind, a P for a
+proxy and a check for media on the timeline (`ui/src/media-bin.tsx`).
+Snapshot saves to the project's media folder or a folder set in Settings >
+General > Save Snapshots To (`captureFrame`'s `folder`, MCP `frame_capture`
+too; checked as any write, never inside a project), and says so in a toast
+with Show in Finder, as a finished export does (the shared `Toast`). A
+muted track's audio is drawn silent (faded, waveform flat) and its header
+speaker turns orange; muting is for quick listens (the user), so the Export
+dialog warns when a muted track has audio, with Unmute.
 Reviewed 2026-10-12 (PR #6): cancelling a job starts no more processes (a
 cancelled proxy build used to restart in software); native decoding asks for
 4:2:0 and reports decode errors; Settings and Export use `Modal`, with one
@@ -790,7 +825,7 @@ button with a countdown.
   recording, as `.trec` stores them (`docs/formats/trec.md`), so the
   cursor feature, smoothing and later auto-zoom work unchanged. Keystrokes
   later (they need the Input Monitoring permission).
-- **Output:** a `.berec` folder per take, one file per stream plus a JSON
+- **Output:** a `.brec` folder per take (Beacon recording; named 2026-10-13, not `.trec`, which is TechSmith's), one file per stream plus a JSON
   data file, imported like a `.trec` (linked Screen, Camera and Audio
   clips). `.trec` is not written.
 - Native capture lives in the engine (Rust over the macOS frameworks
@@ -802,6 +837,52 @@ button with a countdown.
 - Later, if used: region and window capture, pause/resume.
 Risks: keeping four sources in sync over long takes; macOS permissions
 (Screen Recording, Camera, Microphone).
+
+**Spike (2026-10-13): objc2 works; no Swift fallback needed.** The
+`beacon-record` crate (`beacon-recorder devices`, `beacon-recorder spike
+<dir> [seconds]`) captures through objc2 0.6.5 and the 0.3.2 framework
+crates: ScreenCaptureKit for the screen (3600×2338, no cursor, up to 60 fps)
+and system audio (48 kHz stereo), AVFoundation for the camera and microphone,
+each sample buffer appended to its own `AVAssetWriter` (HEVC in hardware)
+as it arrives. The callbacks were not awkward: `define_class!` gives an
+`SCStreamOutput` and an AVCapture sample-buffer delegate in ~20 lines each,
+completion handlers are `RcBlock`s waited on with a channel, and buffers go
+straight from the callback to the writer with no copy. Run with the Mac
+locked (the user away), so the screen was the lock screen and the camera
+was skipped (its permission was never asked; asking shows a prompt).
+- **One clock.** Both frameworks stamp buffers with the host clock
+  (`SCStream.synchronizationClock` and the capture session's read 2-4 µs
+  from `CMClockGetHostTimeClock`, the time between the reads), so streams
+  are aligned by their timestamps: each file starts at its first sample after
+  the take began, and its start is kept in the data file.
+- **Sync across the frameworks, measured:** a tone played every 20 s of a
+  2-minute take, heard by ScreenCaptureKit's system audio and by
+  AVFoundation's microphone through the speakers: the microphone is 25.0,
+  25.0, 25.0, 25.2, 25.1 ms behind, constant (the speakers' output latency,
+  not drift). No buffer dropped (224 screen frames, 6,000 + 11,254 audio
+  buffers); buffers arrive 12 ms (microphone) and 55 ms (system audio) after
+  their timestamps.
+- **Audio as PCM, not AAC.** `AVAssetWriter`'s AAC is read by FFmpeg (our
+  decoder and mixer) 44.0 ms late (its priming edit; same in every take), and
+  a crash leaves an unreadable `.m4a`. PCM `.wav` is sample-exact and
+  survives a crash; 16-bit 48 kHz stereo is ~0.7 GB an hour, small beside the
+  screen. (`.wav` caps at 4 GB, ~6 h of stereo; `.caf` past that if needed.)
+- **Video as fragmented MPEG-4.** Killed with `kill -9` 9 s into a take: a
+  fragmented `.mp4` (`movieFragmentInterval` 2 s) still reads to 8.0 s; a
+  QuickTime `.mov` is never fragmented by `AVAssetWriter` (asked, it writes a
+  plain movie) and is unreadable after a crash, as is the AAC. Files decode
+  with `beacon-decode` as recorded.
+- **Sparse screen frames**, like tscc2: ScreenCaptureKit sends a frame only
+  when the screen changes (439 of 481 callbacks idle on a still screen). A
+  fragmented file ends at its last frame, not at the take's end, so the take's
+  length goes in the data file (or the last frame is appended again at stop).
+- **Permissions** are read without prompting (`CGPreflightScreenCaptureAccess`,
+  `authorizationStatusForMediaType`); ScreenCaptureKit lists no displays while
+  the display sleeps.
+- Not yet checked (needs the Mac unlocked and the camera allowed): the screen
+  against the audio with a visible flash, and the camera against the
+  microphone. Both pairs share their framework's clock, as the two audio
+  streams did.
 **Gate:** record a video with screen, camera, mic and system audio, then edit
 and export it in Beacon alone.
 
@@ -816,14 +897,20 @@ audio mix, speed and loudness, muxing, transcription audio).
    built **without GPL parts** (no x264: encoding is VideoToolbox), so LGPL,
    shipped as a separate executable. `runTool`/`spawn` and the engine's
    `Command::new` use the bundled path. `whisper-cli` bundled the same way;
-   its model downloaded on first use. Everything signed (hardened runtime)
-   and notarized with the app.
+   its model is not in the download (decided 2026-10-12): the first
+   transcript opens a modal that says what it needs (`large-v3-turbo`, about
+   550 MB, local and offline) and downloads it only when the user accepts,
+   with progress; declined, everything but transcripts still works. Agents get
+   the same as a command and a job. Apple's on-device transcriber (macOS 26) is
+   worth a spike against it: no download at all, if accurate enough on
+   technical words. Everything signed (hardened runtime) and notarized with
+   the app.
 2. **Decode in-process**: done for the preview on `perf` (2026-10-12):
    `beacon-decode` over FFmpeg's libraries, natively through VideoToolbox for
    H.264/HEVC, frames kept for steps back. Left for this phase: VideoToolbox for H.264/HEVC/ProRes and FFmpeg's TSC2 decoder
    linked into the engine (or a port; the `.trec` screen codec has no Apple
    decoder, so FFmpeg can't go entirely), instead of a process and a seek per
-   source per jump, which is much of why jumps on ai-slop take ~0.5 s.
+   source per jump, which is much of why jumps on the benchmark project take ~0.5 s.
    Export through AVAssetWriter for MP4/MOV; FFmpeg kept for GIF/WebM and
    the audio filters (not worth rewriting).
 Performance research (2026-10-12, `docs/performance.md`): the user wants
@@ -882,6 +969,38 @@ New features, each as a folder in `packages/features`.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
+- **Film look from hance** (the user, 2026-10-13; small, not hance's full
+  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
+  sliders (strength, grain, halation, fade, warmth, or whichever few hance
+  treats as its core), so the inspector, undo, copy properties and agent
+  commands come from the schema; hance's `.hlook` files import onto those
+  sliders, with what doesn't map listed in an import report rather than
+  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
+  fixes reach both; preview/export parity as for every pass. Open: what a
+  `.hlook` holds (values, a LUT, or both) decides whether the renderer
+  needs LUTs.
+- **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
+  overlays (drawn by the native preview like the snap guides, never
+  exported), chosen per platform for the project's shape: 9:16 TikTok,
+  Reels and Shorts; 16:9 YouTube. They show where the platform's own UI
+  sits (caption band, profile picture, name and description, the
+  like/comment column) and a headroom band and eye line for where a head
+  should be. Platform layouts are data (a JSON file), since the apps move
+  them. A query flags text, captions and callouts that overlap an unsafe
+  zone anywhere on the timeline ("nothing under the TikTok buttons", one
+  tool call for an agent); snapping to safe-area edges comes cheap. Face
+  detection for the head guide is later, if wanted.
+- **Favourites you choose** (the user, 2026-10-13): today the Favorites panel
+  is a fixed list (`FAVORITES` in `ui/src/sidebar.tsx`: Text, Rectangle,
+  Spotlight and four effects). Instead: a star on any annotation, visual
+  or audio effect (on hover, and Add to Favorites in its menu) adds it;
+  favourites are reordered by dragging and removed by un-starring; the
+  current list is the default for new users. Stored app-wide with the other
+  app settings, owned by core (`favorites.add`/`remove`/`move`, so agents
+  and the command palette use them too; see "App settings as commands"
+  above). Open: whether a configured item can be a favourite too (a drop
+  shadow with your colour and blur, a text style), saved as a preset with
+  its params, which is the larger and probably more useful half.
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).

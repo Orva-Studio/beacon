@@ -1,0 +1,39 @@
+Third-Party Software Notices
+=============================
+
+FFmpeg
+------
+Beacon requires FFmpeg (https://ffmpeg.org) to decode and encode video and
+audio: it links FFmpeg's libraries (libavformat, libavcodec, libavutil,
+libswscale, libswresample) and runs the ffmpeg command-line tool. FFmpeg is
+not bundled with Beacon; it must be installed separately by the user.
+
+FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version
+2.1 or later; builds with optional GPL components, such as Homebrew's, are
+under the GNU General Public License (GPL) version 2 or later. Copies of the
+licenses are available at:
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+FFmpeg source code is available at: https://git.ffmpeg.org/ffmpeg.git
+
+whisper.cpp
+-----------
+Beacon runs whisper.cpp (https://github.com/ggml-org/whisper.cpp) for local
+transcripts. It is not bundled with Beacon; it must be installed separately
+by the user. whisper.cpp is licensed under the MIT License. The Whisper model
+weights it reads, downloaded separately, are released by OpenAI under the MIT
+License.
+
+Geist
+-----
+Beacon's interface uses the Geist typeface
+(https://github.com/vercel/geist-font), Copyright 2024 The Geist Project
+Authors, bundled under the SIL Open Font License, Version 1.1. The license is
+included at packages/ui/src/fonts/OFL.txt.
+
+Other dependencies
+------------------
+Beacon's npm and Rust dependencies are under their own licenses, as stated
+in each dependency's own package metadata (package.json or Cargo.toml). The Rust dependencies are limited by packages/engine/deny.toml
+to MIT, Apache-2.0, Unicode-3.0, ISC, Zlib, BSD-3-Clause and BSD-2-Clause.

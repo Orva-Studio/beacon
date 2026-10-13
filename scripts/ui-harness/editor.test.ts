@@ -7,13 +7,15 @@ import type { Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
+import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
  * rehearsed by hand each session, kept so it can't quietly break. A real recording, read only.
  */
-const RECORDING = join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/recordings/1787664796.791134/demo_3.trec");
-const skip = !existsSync(RECORDING);
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const RECORDING = join(FIXTURES, "recording.trec");
+const skip = ![RECORDING, join(FIXTURES, "video.mp4"), join(FIXTURES, "audio.m4a")].every(existsSync);
 
 let dir = "";
 let ui: Awaited<ReturnType<typeof serveUi>>;
@@ -113,12 +115,14 @@ test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the ef
   await run("playhead.set", { time: 2 });
 });
 
-test.skipIf(skip)("Clip Speed shows once added; editing its duration sets the speed of the selected clip only", async () => {
+test.skipIf(skip)("Clip Speed is a tab once added; editing its duration sets the speed of the selected clip only", async () => {
   await select([screen.id]);
   await run("inspector.tab", { tab: "transform" });
-  expect(await page.evaluate<boolean>("document.body.innerText.includes('Clip Speed')")).toBe(false);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[title=\"Clip Speed\"]')")).toBe(false);
+  // As the app's Clip Speed menu item does.
   ui.send("showClipSpeed", { clip: screen.id });
-  await page.until("document.body.innerText.includes('Clip Speed')");
+  await run("inspector.tab", { tab: "speed" });
+  await page.until("!!document.querySelector('[title=\"Clip Speed\"]') && document.body.innerText.includes('Minutes')");
   const minutes = Math.floor(clip(screen.id).duration / 705_600_000 / 60);
   await page.evaluate(`[...document.querySelectorAll('label')].find(l => l.textContent.endsWith('Minutes')).querySelector('span').click()`);
   await page.until("document.activeElement?.tagName === 'INPUT'");
@@ -243,6 +247,203 @@ test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, a
   expect(states).toEqual(["done"]);
 }, 120000);
 
+test.skipIf(skip)("the rotation gizmo turns a clip by dragging a ring, one undo step; its effects are on the fx tab", async () => {
+  await run("playhead.set", { time: 1 });
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await page.until("!!document.querySelector('[data-rotation-gizmo]')");
+  const undoBefore = (await ui.core.history(ui.handle)).undo.length;
+  // The Z ring's right-hand edge, dragged counter-clockwise.
+  const [sx, sy] = await page.evaluate<[number, number]>(
+    `(() => { const g = document.querySelector('[data-rotation-gizmo]').getBoundingClientRect(); const b = document.querySelector('[data-ring=z]').getBBox(); return [g.x + ((b.x + b.width) * g.width) / 112 - 1, g.y + ((b.y + b.height / 2) * g.height) / 112]; })()`,
+  );
+  await page.drag([sx, sy], [sx - 20, sy - 30]);
+  await Bun.sleep(300);
+  const degrees = ((clip(screen.id).props.transform as { rotation: number }).rotation * 180) / Math.PI;
+  expect(degrees).toBeGreaterThan(20);
+  expect((await ui.core.history(ui.handle)).undo.length - undoBefore).toBe(1);
+  await ui.core.undo(ui.handle);
+
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  const fx = clip(screen.id).effects.at(-1)!;
+  await run("effect.select", { effects: [{ clip: screen.id, id: fx.id }] });
+  expect((await session()).inspector).toBe("effects");
+  await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
+  await run("inspector.tab", { tab: "transform" });
+  await Bun.sleep(200);
+  expect(await page.evaluate<boolean>("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')")).toBe(false);
+  await ui.core.undo(ui.handle);
+});
+
+test.skipIf(skip)("a recording's camera and audio are linked and select together; its screen selects alone", async () => {
+  await run("selection.clear");
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  expect(screen.linkId).toBeUndefined();
+  expect(camera.linkId).toBeDefined();
+  expect(audio.linkId).toBe(camera.linkId);
+  await run("timeline.view", { start: 0, end: 10 });
+  await Bun.sleep(300);
+  const s = await session();
+  const doc = ui.core.doc(ui.handle);
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(doc.tracks);
+  // Clear of the playhead (an earlier flow leaves it at 1 s), which a click near would grab.
+  const x = box.x + header + ((3 - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const rowY = (id: string) => box.y + 40 + [...doc.tracks].reverse().findIndex((t) => t.clips.some((c) => c.id === id)) * s.timeline.trackHeight + s.timeline.trackHeight / 2;
+  await page.click(x, rowY(camera.id));
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([camera.id, audio.id].sort());
+  await page.click(x, rowY(screen.id));
+  await Bun.sleep(300);
+  expect((await session()).selection).toEqual([screen.id]);
+  // ⌘-click on a partly selected linked pair selects all of it; again, deselects it.
+  await run("selection.set", { clips: [camera.id], linked: false });
+  await run("selection.set", { clips: [audio.id], toggle: true });
+  expect([...(await session()).selection].sort()).toEqual([camera.id, audio.id].sort());
+  await run("selection.set", { clips: [audio.id], toggle: true });
+  expect((await session()).selection).toEqual([]);
+  await run("selection.clear");
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("the Media Bin searches, filters by kind, sorts, shows a list, and marks what is on the timeline; its Import tile imports", async () => {
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-media-bin]')");
+  const shown = () => page.evaluate<number>("document.querySelectorAll('[data-media-bin] [data-asset]').length");
+  const all = await shown();
+  expect(all).toBeGreaterThan(1);
+  // The recording is on the timeline; the Snapshot image isn't.
+  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-asset="${screen.assetId}"] [data-used]')`)).toBe(true);
+  await page.evaluate("document.querySelector('[data-bin-kind=image]').click()");
+  await Bun.sleep(200);
+  expect(await shown()).toBe(Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "image").length);
+  await page.evaluate("document.querySelector('[data-bin-kind=all]').click()");
+  await page.click(...(await centre("[data-bin-search]")));
+  await type("zzz-no-such-media");
+  await Bun.sleep(200);
+  expect(await shown()).toBe(0);
+  await page.key("Escape", "Escape");
+  await Bun.sleep(200);
+  expect(await shown()).toBe(all);
+  await page.evaluate("document.querySelector('[data-bin-view]').click()");
+  await Bun.sleep(200);
+  expect(await page.evaluate<string>("document.querySelector('[data-bin-view]').title")).toBe("Show as a grid");
+  await page.evaluate("document.querySelector('[data-bin-view]').click()");
+  await page.evaluate(`(() => { const el = document.querySelector('[data-bin-sort]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'name:true'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await Bun.sleep(200);
+  const names = await page.evaluate<string[]>("[...document.querySelectorAll('[data-media-bin] [data-asset]')].map((e) => e.textContent.trim().toLowerCase())");
+  expect(names).toEqual([...names].sort().reverse());
+  await page.evaluate(`(() => { const el = document.querySelector('[data-bin-sort]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'added:false'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await page.evaluate("document.querySelector('[data-bin-import]').click()");
+  await arrived(() => ui.menus.at(-1) === "import");
+  expect(ui.menus.at(-1)).toBe("import");
+});
+
+test.skipIf(skip)("Snapshot saves the frame, adds it to the Media Bin and says so with Show in Finder; it can save to a chosen folder, never inside a project", async () => {
+  const before = Object.keys(ui.core.doc(ui.handle).assets).length;
+  await page.evaluate(`document.querySelector('button[title^="Snapshot"]').click()`);
+  await page.until("[...document.querySelectorAll('[data-toast] button')].some((b) => b.textContent === 'Show in Finder')");
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toMatch(/^Saved Snapshot .*\.png/);
+  expect(Object.keys(ui.core.doc(ui.handle).assets).length).toBe(before + 1);
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-toast]')");
+  await ui.core.undo(ui.handle);
+  // A chosen folder (Settings > General > Save Snapshots To), checked as other writes are.
+  const folder = mkdtempSync(join(tmpdir(), "beacon-shots-"));
+  const r = await ui.core.captureFrame(ui.handle, 1, { folder });
+  expect(r.path.startsWith(folder)).toBe(true);
+  expect(existsSync(r.path)).toBe(true);
+  await ui.core.undo(ui.handle);
+  await expect(ui.core.captureFrame(ui.handle, 1, { folder: join(dir, "e2e.beproj") })).rejects.toThrow(/inside e2e\.beproj/);
+  rmSync(folder, { recursive: true, force: true });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
+  await page.until("(document.querySelector('[data-snapshot-folder]')?.textContent ?? '').includes(\"The project's media folder\")");
+  await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unmute unmutes only what it lists", async () => {
+  const tracks = ui.core.doc(ui.handle).tracks;
+  const audioTrack = tracks.find((t) => t.clips.some((c) => c.type === "audio"))!;
+  const cameraTrack = tracks.find((t) => t.clips.some((c) => c.type === "video"))!;
+  await run("track.set", { track: audioTrack.id, muted: true });
+  await run("track.set", { track: cameraTrack.id, muted: true });
+  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } };
+  ui.send("exportSheet", sheet);
+  await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
+  await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
+  await page.until("!document.querySelector('[data-export-muted]')");
+  const muted = (id: string) => !!ui.core.doc(ui.handle).tracks.find((t) => t.id === id)!.muted;
+  // A camera clip has no audio: its muted track isn't listed and stays muted.
+  expect(muted(audioTrack.id)).toBe(false);
+  expect(muted(cameraTrack.id)).toBe(true);
+  await run("track.set", { track: cameraTrack.id, muted: false });
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
+});
+
+test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
+  await run("panel.show", { tool: "media" });
+  await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");
+  const ids = await page.evaluate<string[]>("[...document.querySelectorAll('[data-media-bin] [data-asset]')].map((e) => e.dataset.asset)");
+  const selected = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-media-bin] [data-selected]')].map((e) => e.dataset.asset)");
+  const tile = (id: string) => centre(`[data-asset="${id}"]`);
+  await page.click(...(await tile(ids[0]!)));
+  await Bun.sleep(150);
+  expect(await selected()).toEqual([ids[0]!]);
+  await page.click(...(await tile(ids[1]!)), ["shift"]);
+  await Bun.sleep(150);
+  expect((await selected()).sort()).toEqual([ids[0]!, ids[1]!].sort());
+  // ⌫ deletes both, one undo step.
+  const assets = () => Object.keys(ui.core.doc(ui.handle).assets);
+  const before = assets().length;
+  await page.key("Backspace", "Backspace");
+  await arrived(() => assets().length === before - 2);
+  expect(assets()).not.toContain(ids[0]!);
+  expect(assets()).not.toContain(ids[1]!);
+  await ui.core.undo(ui.handle);
+  expect(assets().length).toBe(before);
+  await page.until(`document.querySelectorAll('[data-media-bin] [data-asset]').length >= ${ids.length}`);
+  // Below the last item: the bin's empty space.
+  const empty = await page.evaluate<[number, number]>("(() => { const r = document.querySelector('[data-bin-items]').getBoundingClientRect(); return [r.x + r.width / 2, r.bottom - 6]; })()");
+  await page.click(...empty);
+  await Bun.sleep(150);
+  expect(await selected()).toEqual([]);
+  // A box from the empty space up over the first two items.
+  const [x0, y0] = empty;
+  const top = await page.evaluate<number>(`document.querySelector('[data-asset="${ids[0]}"]').getBoundingClientRect().top + 10`);
+  const left = await page.evaluate<number>("document.querySelector('[data-bin-items]').getBoundingClientRect().left + 8");
+  await page.drag([left, y0], [x0 + 100, top]);
+  await Bun.sleep(150);
+  expect((await selected()).length).toBeGreaterThanOrEqual(2);
+  await page.click(...empty);
+});
+
+test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the ruler moves the playhead", async () => {
+  await select([]);
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("range.set", { in: 2, out: 6 });
+  await Bun.sleep(200);
+  const s = await session();
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const y = box.y + 12;
+  await page.drag([xAt(6), y], [xAt(8), y]);
+  await Bun.sleep(300);
+  let range = (await session()).range!;
+  expect(range.in).toBeCloseTo(2, 1);
+  expect(range.out).toBeGreaterThan(7.5);
+  await page.click(xAt(4), y);
+  await Bun.sleep(300);
+  const after = await session();
+  expect(after.playhead).toBeCloseTo(4, 0);
+  range = after.range!;
+  expect(range.in).toBeCloseTo(2, 1);
+  await run("range.clear");
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("dragging a clip above the top track drops it on a new top track", async () => {
   await select([]);
   const before = ui.core.doc(ui.handle).tracks.length;
@@ -285,10 +486,10 @@ test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, a
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a dot; deleting the proxy removes the dot and its files", async () => {
+test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a P badge; deleting the proxy removes the badge and its files", async () => {
   // A fresh copy has no cached proxy, so making it is real work.
   const copy = join(dir, `like-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   const tile = `[data-asset="${assets[0]}"]`;
   await run("panel.show", { tool: "media" });
@@ -321,7 +522,7 @@ test.skipIf(skip)("a stitched clip has a thumbnail: what its first frame shows",
 
 test.skipIf(skip)("an audio file in the Media Bin shows its waveform", async () => {
   const copy = join(dir, `voice-${Date.now()}.m4a`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787669072.457031/pdf-inspector_new.cleaned.m4a"), copy);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   await run("panel.show", { tool: "media" });
   ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
@@ -343,7 +544,7 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   // What the app does with it: no proxy is started for a video file.
   ui.core.setAutomatic((analyzer, asset) => analyzer !== "proxy" || asset.kind === "recording");
   const copy = join(dir, `like-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
   await Bun.sleep(1500);
@@ -360,7 +561,7 @@ test.skipIf(skip)("Settings > General shows the space proxies use, and Delete Al
   const path = join(dir, "proxies.beproj");
   const h = await core.create({ path });
   const copy = join(dir, `like-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await core.import(h, [copy]);
   await core.close(h);
   const other = await serveUi(path, { cacheDir });
@@ -386,7 +587,7 @@ test.skipIf(skip)("Settings > General shows the space proxies use, and Delete Al
 }, 90000);
 
 test.skipIf(skip)("moved media shows Missing on its Media Bin tile and builds no proxy; Locate Media finds it, one undo step", async () => {
-  const like = join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4");
+  const like = join(FIXTURES, "video.mp4");
   const copy = join(dir, `moved-${Date.now()}.mp4`);
   copyFileSync(like, copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
@@ -400,7 +601,7 @@ test.skipIf(skip)("moved media shows Missing on its Media Bin tile and builds no
   await expect(ui.core.analyze(ui.handle, "proxy", assets[0]!)).rejects.toThrow(/is missing/);
   // Another file isn't taken for it.
   const other = join(dir, `voice-${Date.now()}.m4a`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787669072.457031/pdf-inspector_new.cleaned.m4a"), other);
+  copyFileSync(join(FIXTURES, "audio.m4a"), other);
   await expect(ui.core.relink(ui.handle, assets[0]!, other)).rejects.toThrow(/same kind/);
   await ui.core.relink(ui.handle, assets[0]!, moved);
   await page.until(`!document.querySelector('${tile} [data-missing]')`);
@@ -486,9 +687,11 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   await page.rightClick(box.x + box.w / 2, box.y + box.h / 2);
   await Bun.sleep(300);
+  // The clip under the pointer gets the menu; its recording's linked clips are selected with it.
   const sel = (await session()).selection;
-  expect(sel.length).toBe(1);
-  expect(ui.menus.at(-1)).toBe(sel[0]);
+  const hit = clip(ui.menus.at(-1)!);
+  expect(sel[0]).toBe(hit.id);
+  expect([...sel].sort()).toEqual(clips().filter((c) => c.linkId && c.linkId === hit.linkId).map((c) => c.id).sort());
   // Zoomed out, the stage around the canvas is empty.
   await run("canvas.zoom", { zoom: 20 });
   await Bun.sleep(300);
@@ -505,7 +708,7 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
 
 test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); after a click on the timeline it goes to the timeline instead", async () => {
   const copy = join(dir, `del-${Date.now()}.mp4`);
-  copyFileSync(join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj/media/1787678356.210504/like-button-dark.mp4"), copy);
+  copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
   const id = assets[0]!;
   await run("panel.show", { tool: "media" });
@@ -579,6 +782,7 @@ test.skipIf(skip)("the corner above the track headers: + adds a track (one undo 
 test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colour) shows a swatch", async () => {
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });
   await select([screen.id]);
+  await run("inspector.tab", { tab: "effects" });
   await page.until(`[...document.querySelectorAll('button[title]')].some((b) => /^colou?r$/i.test(b.title))`);
   await ui.core.undo(ui.handle);
 });

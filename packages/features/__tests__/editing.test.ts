@@ -6,7 +6,8 @@ import { importCmproj } from "@beacon/camtasia";
 import { copyClips, createProject, projectDuration, ProjectStore, ticksToSeconds, type Clip } from "@beacon/model";
 import { createRegistry } from "../src";
 
-const AI_SLOP = join(homedir(), "client-videos/firecrawl/ai-slop/ai-slop.cmproj");
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const AI_SLOP = join(FIXTURES, "project.cmproj");
 
 test.skipIf(!existsSync(AI_SLOP))("editing a real project validates, and undo restores it exactly", async () => {
   const registry = createRegistry();
@@ -25,7 +26,11 @@ test.skipIf(!existsSync(AI_SLOP))("editing a real project validates, and undo re
   });
   const clips = store.doc.tracks.flatMap((t) => t.clips).filter((c) => placed.includes(c.id));
   expect(clips.length).toBeGreaterThan(1);
-  expect(new Set(clips.map((c) => c.linkId)).size).toBe(1);
+  // The camera and audio are linked; the screen is placed apart from them.
+  const av = clips.filter((c) => c.type !== "screen");
+  expect(new Set(av.map((c) => c.linkId)).size).toBe(1);
+  expect(av[0]!.linkId).toBeDefined();
+  expect(clips.filter((c) => c.type === "screen").every((c) => c.linkId === undefined)).toBe(true);
   expect(new Set(clips.map((c) => c.start)).size).toBe(1);
   store.undo();
   expect(JSON.stringify(store.doc)).toBe(before);

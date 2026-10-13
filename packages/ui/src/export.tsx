@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { Button, Modal, Progress, Select, SettingsRow as Row, TextInput } from "./controls";
-import { MASK, syncNativeView } from "./native-view";
+import { useState } from "react";
+import { Button, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
 import { replica, useView } from "./store";
@@ -58,7 +57,7 @@ function DataRate({ value, min, max, auto, onChange }: { value: number | null; m
 }
 
 /** File > Export…: name, folder, format and advanced options, in the window (Electrobun has no save panel). */
-export function ExportDialog({ sheet, host }: { sheet: ExportSheet; host: ExportHost }) {
+export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet; host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const [name, setName] = useState(sheet.name);
   const [folder, setFolder] = useState(sheet.folder);
   const [s, setS] = useState(sheet.settings);
@@ -205,6 +204,15 @@ export function ExportDialog({ sheet, host }: { sheet: ExportSheet; host: Export
           </div>
         </div>
       )}
+      {muted.length > 0 && s.audio && s.format !== "gif" && (
+        <div className="mt-4 flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/12 px-3 py-2 text-text-strong" data-export-muted>
+          <Icon name="speaker-slash" size={18} filled className="shrink-0 text-warning" />
+          <span className="flex-1">
+            <span className="font-semibold">{muted.join(", ")}</span> {muted.length === 1 ? "is muted: its audio won't be in the export." : "are muted: their audio won't be in the export."}
+          </span>
+          {unmute && <Button onClick={unmute}>Unmute</Button>}
+        </div>
+      )}
       {error && (
         <div className="mt-4 flex items-center gap-2 text-danger">
           <span className="flex-1">{error}</span>
@@ -221,36 +229,16 @@ export function ExportDialog({ sheet, host }: { sheet: ExportSheet; host: Export
   );
 }
 
-/** The running export's progress, then Show in Finder / Open when it is done. */
+/** The running export's progress, then Show in Finder / Open when it is done; a failure stays until dismissed. */
 export function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
-  const [hovered, setHovered] = useState(false);
-  useEffect(() => {
-    syncNativeView();
-    return syncNativeView;
-  }, []);
-  // A finished export's panel goes after 5 s, unless the pointer is on it; a failure stays until dismissed.
-  useEffect(() => {
-    if (job.state !== "done" || hovered) return;
-    const t = setTimeout(() => replica.exportJob(undefined), 5000);
-    return () => clearTimeout(t);
-  }, [job.state, hovered]);
   const file = job.output.split("/").at(-1);
   return (
-    <div
-      className={`${MASK} fixed right-4 bottom-4 z-40 w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl`}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+    <Toast
+      title={job.state === "running" ? `Exporting ${file}` : job.state === "done" ? `Exported ${file}` : `Export failed: ${file}`}
+      hint={job.output}
+      done={job.state === "done"}
+      onDismiss={job.state === "running" ? undefined : () => replica.exportJob(undefined)}
     >
-      <div className="mb-2 flex items-center gap-2">
-        <span className="flex-1 truncate text-text-strong" title={job.output}>
-          {job.state === "running" ? `Exporting ${file}` : job.state === "done" ? `Exported ${file}` : `Export failed: ${file}`}
-        </span>
-        {job.state !== "running" && (
-          <Button look="quiet" title="Dismiss" onClick={() => replica.exportJob(undefined)}>
-            ×
-          </Button>
-        )}
-      </div>
       {job.state === "running" && (
         <div className="flex items-center gap-2">
           <Progress value={job.progress} className="flex-1" />
@@ -265,17 +253,31 @@ export function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost
         </div>
       )}
       {job.state === "failed" && <div className="text-danger">{job.error}</div>}
-    </div>
+    </Toast>
+  );
+}
+
+/** A saved Snapshot, with Show in Finder / Open. */
+export function SnapshotSaved({ host }: { host: ExportHost }) {
+  const path = useView((v) => v.snapshot);
+  if (!path) return null;
+  return (
+    <Toast title={`Saved ${path.split("/").at(-1)}`} hint={path} done onDismiss={() => replica.snapshot(undefined)}>
+      <div className="flex justify-end gap-2">
+        <Button onClick={() => host.showFile(path)}>Show in Finder</Button>
+        <Button onClick={() => host.showFile(path, true)}>Open</Button>
+      </div>
+    </Toast>
   );
 }
 
 /** Both, from the view store. */
-export function ExportUi({ host }: { host: ExportHost }) {
+export function ExportUi({ host, muted, unmute }: { host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const sheet = useView((v) => v.exportSheet);
   const job = useView((v) => v.exportJob);
   return (
     <>
-      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} />}
+      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} muted={muted} unmute={unmute} />}
       {job && <ExportProgress job={job} host={host} />}
     </>
   );

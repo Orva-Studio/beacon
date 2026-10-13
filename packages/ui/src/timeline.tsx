@@ -25,7 +25,7 @@ import {
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { drawIcon, type IconName } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, FLAG, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, rangeHandles, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -40,7 +40,7 @@ type Drag =
   | { kind: "height" }
   | { kind: "track"; track: string; from: number; to: number }
   | { kind: "anim"; clip: string; anim: string; part: "start" | "end" | "body"; x0: number; a: number; b: number; key: string }
-  | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string }
+  | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
   | { kind: "range"; anchor: number }
   | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
   | { kind: "space"; at: number; d: number }
@@ -158,7 +158,7 @@ function step(pxPerSecond: number, fps: number): number {
 }
 
 /** A group's or stitched clip's own tracks, through the prop group that holds them (`Init.nested`). */
-function innerTracks(clip: Clip, nested: Record<string, string>): Track[] | undefined {
+export function innerTracks(clip: Clip, nested: Record<string, string>): Track[] | undefined {
   const g = nested[clip.type];
   return g ? (clip.props[g] as { tracks?: Track[] } | undefined)?.tracks : undefined;
 }
@@ -286,7 +286,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         const cw = Math.max(1, (b - a) * pps - 1.5);
         const selected = session.selection.includes(clip.id);
         const teal = audio && selected;
-        ctx.globalAlpha = (t.hidden ? 0.4 : 1) * (d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1) * (t.locked ? 0.6 : 1);
+        // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
+        const silent = audio && !!t.muted;
+        ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * (d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1) * (t.locked ? 0.6 : 1);
         ctx.save();
         ctx.beginPath();
         ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
@@ -305,12 +307,15 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             ctx.fillStyle = teal ? AUDIO_SELECTED.wave() : CLIP.wave();
             const media0 = ticksToSeconds(clip.mediaStart ?? 0);
             const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
+            // Drawn at the level it plays: boost times the volume line, so fades taper and a quiet clip looks quiet.
+            const boost = Number((clip.props.audio as { gain?: number } | undefined)?.gain ?? 1);
             for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
-              const m = media0 + (start + (px - HEADER) / pps - a) * speed;
+              const t = start + (px - HEADER) / pps;
+              const m = media0 + (t - a) * speed;
               const k = Math.floor(m * 100);
               let peak = 0;
               for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
-              const hgt = (peak / 255) * (ch - 6);
+              const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
               ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
             }
           }
@@ -323,6 +328,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             ctx.drawImage(img, x0 + 6, y + 5, tw, th);
             textX = x0 + 6 + tw + 10;
           }
+        }
+        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain before the name says so.
+        if (clip.linkId && cw > 40) {
+          ctx.fillStyle = CLIP.text();
+          drawIcon(ctx, "link-simple-horizontal", textX + 7, audio ? y + 12 : y + ch / 2, 14);
+          textX += 18;
         }
         if (cw > 24) {
           ctx.fillStyle = CLIP.text();
@@ -585,7 +596,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fillStyle = color(on ? lit : dim);
         drawIcon(ctx, name, ix, iy, 16, on && name !== "eye");
       };
-      icon(t.muted ? "speaker-slash" : "speaker-high", icons.mute, !!t.muted, "text-bright", "head-icon");
+      icon(t.muted ? "speaker-slash" : "speaker-high", icons.mute, !!t.muted, "wave", "head-icon");
       icon(t.locked ? "lock-simple" : "lock-simple-open", icons.lock, !!t.locked, "text-bright", "head-icon-off");
       icon(t.hidden ? "eye-slash" : "eye", icons.eye, !t.hidden, "head-icon", "head-icon-off");
       if (icons.magnet) icon("magnet", icons.magnet, !!t.magnetic, "text-bright", "text-disabled");
@@ -637,95 +648,62 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     }
 
     function drawPlayhead(ctx: CanvasRenderingContext2D) {
-    // The playhead: a white head with the in (green) and out (red) handles beside it, a white line, its timecode.
+    // One colour, as CapCut, Premiere and Resolve: a pin-shaped head on the ruler over a thin line, its timecode beside it.
     const ph = x(session.playhead);
     // Zoomed in, the frame on show is a band from the playhead to the next frame.
     if (pps / fps >= FRAME_SHADE) {
       ctx.fillStyle = color("frame-shade");
       ctx.fillRect(ph, RULER, pps / fps, h - RULER);
     }
-    const handle = (hx: number, fill: string) => {
-      if (hx < HEADER - 8 || hx > w + 8) return;
-      ctx.fillStyle = fill;
-      ctx.fillRect(hx, 2, 8, 18);
-      ctx.strokeStyle = color("grip");
-      ctx.lineWidth = 1;
-      for (const k of [2.5, 4.5, 6.5]) {
-        ctx.beginPath();
-        ctx.moveTo(hx + k, 6);
-        ctx.lineTo(hx + k, 16);
-        ctx.stroke();
-      }
-    };
     ctx.save();
     ctx.beginPath();
     ctx.rect(HEADER, 0, w - HEADER, h);
     ctx.clip();
-    const handles = rangeHandles(ph, session.range ? { inX: x(session.range.in), outX: x(session.range.out) } : undefined);
     if (session.range) {
-      // The range: a hatched blue band over the tracks, a green line at the in point, a red one at the out point.
+      // The in/out range: a band on the ruler and a light tint over the tracks, its edges brackets dragged on the ruler.
       const [a, b] = [x(session.range.in), x(session.range.out)];
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(a, RULER, b - a, h - RULER);
-      ctx.clip();
+      ctx.fillStyle = color("range-ruler");
+      ctx.fillRect(a, 0, b - a, RULER);
       ctx.fillStyle = color("range-band");
       ctx.fillRect(a, RULER, b - a, h - RULER);
-      ctx.strokeStyle = color("range-hatch");
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let sx = a - h; sx < b; sx += 9) {
-        ctx.moveTo(sx, h);
-        ctx.lineTo(sx + h, 0);
+      ctx.fillStyle = color("range-edge");
+      for (const [ex, dir] of [[a, 1], [b, -1]] as const) {
+        const lx = Math.round(ex) - (dir > 0 ? 0 : 1);
+        ctx.fillRect(lx, 0, 1.5, h);
+        ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, 0, RANGE_TAB, 2);
+        ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, RULER - 2, RANGE_TAB, 2);
       }
-      ctx.stroke();
-      ctx.restore();
-      // The in point's flag: a green tab whose corner points down at the line.
-      ctx.fillStyle = color("range-in");
+    }
+    const drag = dragState.current;
+    const dragged = drag?.kind === "volume" && drag.at ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === drag.clip) : undefined;
+    if (drag?.kind === "volume" && drag.at && dragged) {
+      // The level being dragged, as a percentage beside the pointer.
+      const level = drag.index === null ? volumeAt(dragged, start + (drag.at[0] - HEADER) / pps) : (volumePoints(dragged)[drag.index]?.value ?? 0);
+      const text = `${Math.round(level * 100)}%`;
+      ctx.font = font(11);
+      const tw = ctx.measureText(text).width + 12;
+      const [lx, ly] = [Math.min(drag.at[0] + 12, w - tw - 4), Math.max(RULER + 2, drag.at[1] - 26)];
+      ctx.fillStyle = color("chip");
       ctx.beginPath();
-      ctx.moveTo(a - FLAG, 2);
-      ctx.lineTo(a, 2);
-      ctx.lineTo(a, 30);
-      ctx.lineTo(a - 16, 20);
-      ctx.lineTo(a - FLAG, 20);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = color("grip");
-      ctx.lineWidth = 1;
-      for (const k of [6.5, 8.5, 10.5]) {
-        ctx.beginPath();
-        ctx.moveTo(a - FLAG + k, 6);
-        ctx.lineTo(a - FLAG + k, 16);
-        ctx.stroke();
-      }
-    } else handle(handles.green, color("range-in"));
-    handle(handles.red, color("range-out"));
-    if (ph >= HEADER - 12 && ph <= w + 12) {
-      ctx.strokeStyle = color("text-bright");
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(Math.round(ph) + 0.5, 20);
-      ctx.lineTo(Math.round(ph) + 0.5, h);
-      ctx.stroke();
-      ctx.fillStyle = color("text-bright");
-      ctx.beginPath();
-      ctx.moveTo(ph - 12, 2);
-      ctx.lineTo(ph + 12, 2);
-      ctx.lineTo(ph + 12, 14);
-      ctx.lineTo(ph, 24);
-      ctx.lineTo(ph - 12, 14);
-      ctx.closePath();
+      ctx.roundRect(lx, ly, tw, 18, 9);
       ctx.fill();
       ctx.fillStyle = color("text-strong");
-      ctx.font = font(12);
-      ctx.fillText(timecode(session.playhead, fps), ph + 24, 15);
+      ctx.fillText(text, lx + 6, ly + 13);
     }
-    // At a range's end the playhead's line takes the end's colour.
-    if (session.range) {
-      for (const [lx, line] of [[x(session.range.in), color("range-in-line")], [x(session.range.out), color("range-out")]] as [number, string][]) {
-        ctx.fillStyle = line;
-        ctx.fillRect(Math.round(lx) - 0.5, 24, 1.5, h - 24);
-      }
+    if (ph >= HEADER - 12 && ph <= w + 12) {
+      const cx = Math.round(ph) + 0.5;
+      ctx.fillStyle = color("text-bright");
+      ctx.fillRect(cx - 0.5, PIN_H, 1, h - PIN_H);
+      ctx.beginPath();
+      ctx.roundRect(cx - PIN_W / 2, 3, PIN_W, PIN_H - 7, 3);
+      ctx.moveTo(cx - PIN_W / 2 + 1, PIN_H - 5);
+      ctx.lineTo(cx, PIN_H);
+      ctx.lineTo(cx + PIN_W / 2 - 1, PIN_H - 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = color("text-muted");
+      ctx.font = font(11);
+      ctx.fillText(timecode(session.playhead, fps), cx + PIN_W / 2 + 6, 14);
     }
     ctx.restore();
     }
@@ -994,17 +972,17 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       // Display rows run top to bottom; tracks are stored bottom to top.
       if (d.to !== d.from) run("track.move", { track: d.track, index: tracks.length - 1 - d.to }, "Move Track");
     } else if (d.kind === "press") {
-      run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: false } : { clips: [d.clip], linked: false });
+      run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
     } else if (d.kind === "move") {
       if (d.error) return void (draw(), status(`Can't move there: ${d.error}`));
-      if (Math.abs(d.by) > 1e-9 || d.rows) run("clip.move", { clips: d.ids, by: d.by, tracks: d.rows, linked: false, ripple: d.ripple }, "Move Media");
+      if (Math.abs(d.by) > 1e-9 || d.rows) run("clip.move", { clips: d.ids, by: d.by, tracks: d.rows, linked: true, ripple: d.ripple }, "Move Media");
     } else if (d.kind === "trim") {
       const clip = latest.current.project.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clip)!;
       const end = ticksToSeconds(clip.start + clip.duration);
       if (d.extend) {
         if (d.t > end) run("clip.extendFrame", { clip: d.clip, duration: d.t - end, ripple: d.ripple }, "Extend Frame");
       } else if (Math.abs(d.t - (d.edge === "start" ? ticksToSeconds(clip.start) : end)) > 1e-9) {
-        run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: false, ripple: d.ripple }, "Trim Media");
+        run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: true, ripple: d.ripple }, "Trim Media");
       }
     } else if (d.kind === "space") {
       if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d }, "Ripple Split");
@@ -1065,15 +1043,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return capture();
           }
           const ph = xOf(session.playhead);
-          // The in (green) and out (red) handles sit beside the playhead, or at the range's ends.
-          const { green, greenW, red } = rangeHandles(ph, session.range ? { inX: xOf(session.range.in), outX: xOf(session.range.out) } : undefined);
-          if (y < 22 && x >= green && x <= green + greenW) {
-            dragState.current = { kind: "rangeEdge", edge: "in", other: session.range?.out ?? session.playhead };
-            return capture();
-          }
-          if (y < 22 && x >= red && x <= red + 8) {
-            dragState.current = { kind: "rangeEdge", edge: "out", other: session.range?.in ?? session.playhead };
-            return capture();
+          // A range's edges are dragged on the ruler.
+          if (session.range && y < RULER) {
+            const edge = rangeEdgeAt(x, xOf(session.range.in), xOf(session.range.out));
+            if (edge) {
+              dragState.current = { kind: "rangeEdge", edge, other: edge === "in" ? session.range.out : session.range.in };
+              return capture();
+            }
           }
           // On the tracks, an arrow or volume point under the playhead line wins over grabbing the line.
           const overMark =
@@ -1109,12 +1085,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           if (session.effects.length) run("effect.select", { effects: [] });
           const edge = clip && edgeAt(clip, e.clientX);
           if (clip && edge) {
-            if (!session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: false });
+            if (!session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
             const t = ticksToSeconds(edge === "start" ? clip.start : clip.start + clip.duration);
             dragState.current = { kind: "trim", clip: clip.id, edge, x0: x, t, ripple: e.shiftKey, extend: false };
           } else if (clip) {
             const toggle = e.metaKey || e.shiftKey;
-            if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: false });
+            if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
             dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey };
           } else {
             const base = e.shiftKey || e.metaKey ? session.selection : [];
@@ -1145,6 +1121,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return;
           }
           if (d.kind === "volume") {
+            d.at = [x, y];
+            draw();
             // Up to 100% by dragging, but points already above it aren't pulled down.
             const v = (val: number, was = 0) => Math.min(Math.max(1, was), Math.max(0, val));
             const dv = -(y - d.y0) / (TRACK - 12);
@@ -1200,7 +1178,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
               return t.clips.filter((c) => xOf(ticksToSeconds(c.start)) < x1 && xOf(ticksToSeconds(c.start + c.duration)) > x0).map((c) => c.id);
             });
             const next = [...new Set([...d.base, ...hit])];
-            if (next.join() !== session.selection.join()) throttled("selection.set", { clips: next, linked: false });
+            if (next.join() !== session.selection.join()) throttled("selection.set", { clips: next, linked: true });
             return draw();
           }
           let t = timeAt(e.clientX);
@@ -1242,7 +1220,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
           const clip = clipAt(e.clientX, e.clientY);
           if (!clip) return;
-          if (!latest.current.session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: false });
+          if (!latest.current.session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
           menu(clip.id);
         }}
         onWheel={(e) => {
