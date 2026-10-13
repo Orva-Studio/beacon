@@ -186,10 +186,7 @@ function ClipSpeed({ clip, selected, fps, host }: { clip: Clip; selected: Clip[]
     if (seconds > 0) set(media / seconds);
   };
   return (
-    <FoldSection
-      title="Clip Speed"
-      remove={{ label: "Remove Clip Speed", run: () => (replica.showClipSpeed(clip.id, false), speed !== 1 && set(null)) }}
-    >
+    <Section>
       <Row label="Speed">
         <div className="flex-1" />
         <NumberBox value={speed} unit="x" digits={2} step={0.1} min={0.1} max={10} onCommit={set} />
@@ -214,7 +211,7 @@ function ClipSpeed({ clip, selected, fps, host }: { clip: Clip; selected: Clip[]
         </div>
         <span className="ml-1 w-3" />
       </Row>
-    </FoldSection>
+    </Section>
   );
 }
 
