@@ -31,6 +31,8 @@ export interface VisualLayer {
   perspective?: [number, number];
   /** Extra transforms averaged with `transform` (motion blur). */
   motion?: Affine[];
+  /** Each `motion` transform's perspective row, when tilted. */
+  motionPerspective?: [number, number][];
   /** top-left, top-right, bottom-right, bottom-left, in layer pixels. */
   radius?: [number, number, number, number];
   opacity?: number;

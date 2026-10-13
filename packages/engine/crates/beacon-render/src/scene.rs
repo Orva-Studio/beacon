@@ -116,6 +116,9 @@ pub struct Visual {
     /// Extra transforms averaged with `transform` for motion blur.
     #[serde(default)]
     pub motion: Vec<Affine>,
+    /// Each `motion` transform's perspective row; flat where missing.
+    #[serde(default)]
+    pub motion_perspective: Vec<[f32; 2]>,
     /// Corner radii in layer pixels: top-left, top-right, bottom-right, bottom-left.
     #[serde(default)]
     pub radius: [f32; 4],
@@ -123,6 +126,13 @@ pub struct Visual {
     pub opacity: f32,
     #[serde(default)]
     pub passes: Vec<PassUse>,
+}
+
+impl Visual {
+    /// The perspective row of motion sample `i` (0 is `transform`).
+    pub fn perspective_of(&self, i: usize) -> [f32; 2] {
+        if i == 0 { self.perspective } else { self.motion_perspective.get(i - 1).copied().unwrap_or_default() }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

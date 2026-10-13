@@ -607,7 +607,7 @@ impl Renderer {
             let view = layer_tex.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
             for (i, m) in samples.iter().enumerate() {
-                let p = if i == 0 { v.perspective } else { [0.0; 2] };
+                let p = v.perspective_of(i);
                 let u = DrawU {
                     m0: [m[0], m[1], m[2], m[3]],
                     m1: [m[4], m[5], w as f32, h as f32],
@@ -645,10 +645,10 @@ impl Renderer {
     #[allow(clippy::too_many_arguments)]
     fn draw_tilted(&mut self, enc: &mut wgpu::CommandEncoder, target: &wgpu::Texture, w: u32, h: u32, v: &Visual, content: &wgpu::Texture, color: [f32; 4], local: [f32; 2]) -> Result<()> {
         let m = &v.transform;
-        let [g, gh] = v.perspective;
         let longest = local[0].max(local[1]);
         // Small enough that the padded corners stay in front of the camera (W > 0.5 there).
-        let pad_local = (longest * 0.15).min(0.5 / (g.abs() + gh.abs()).max(1e-6));
+        let tilt = (0..=v.motion.len()).map(|i| v.perspective_of(i)).map(|[a, b]| a.abs() + b.abs()).fold(0.0f32, f32::max);
+        let pad_local = (longest * 0.15).min(0.5 / tilt.max(1e-6));
         // At the layer's own scale: passes take sizes in target pixels, so any other scale would change
         // how big a shadow or blur comes out.
         let s = scale_of(m).min(8192.0 / (longest + 2.0 * pad_local)).max(1e-3);
@@ -684,14 +684,13 @@ impl Renderer {
         let layer_tex = self.take(w, h);
         clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
         {
-            // Motion blur as in draw_visual: the extra samples are drawn untilted.
             let samples: Vec<&Affine> = std::iter::once(m).chain(v.motion.iter()).collect();
             let weight = 1.0 / samples.len() as f32;
             let flat_view = flat.create_view(&Default::default());
             let view = layer_tex.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
             for (i, m) in samples.iter().enumerate() {
-                let [g, gh] = if i == 0 { [g, gh] } else { [0.0; 2] };
+                let [g, gh] = v.perspective_of(i);
                 // The flat texture's pixels onto the canvas: the layer's transform after undoing the scale
                 // and padding, divided through so the perspective row's constant is 1 again.
                 let k = 1.0 - (g + gh) * pad / s;
