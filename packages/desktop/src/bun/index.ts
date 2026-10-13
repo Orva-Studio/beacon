@@ -609,11 +609,6 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           sep,
           item("Add Clip Speed", "clipSpeed"),
           sep,
-          item("Update Media…"),
-          item("Convert to Placeholder"),
-          sep,
-          item("Add to Library"),
-          sep,
           item("Split at Playhead", "edit.split"),
           // From the canvas, where media usually covers it all, the canvas's own items too.
           ...(canvas ? [sep, { label: "Project Settings…", action: "app:projectSettings" }, { label: "Zoom to Fit", action: "run:canvas.zoom:fit" }] : []),
