@@ -9,7 +9,7 @@ import { Icon } from "./icons";
  */
 const BACKDROP = "fixed inset-0 z-50 flex overflow-y-auto bg-backdrop p-6";
 /** A dialog's panel, cut out of the native canvas. */
-const SHEET = `${MASK} m-auto max-w-full rounded-xl border border-divider bg-panel p-6 text-body text-text shadow-2xl outline-none`;
+const SHEET = `${MASK} m-auto max-w-full rounded-xl border border-divider bg-panel p-6 pt-4 text-body text-text shadow-2xl outline-none`;
 
 let dialogs = 0;
 const listeners = new Set<() => void>();
@@ -42,10 +42,10 @@ export const useDialogsOpen = () => useSyncExternalStore((l) => (listeners.add(l
 /** A dialog's title, anything beside it (tabs), and its close button. */
 export function ModalHeader({ title, onClose, children }: { title: ReactNode; onClose: () => void; children?: ReactNode }) {
   return (
-    <div className="mb-5 flex items-center gap-2">
+    <div className="mb-4 flex items-center gap-2">
       <div className="flex-1 truncate text-title font-semibold text-text-strong">{title}</div>
       {children}
-      <button title="Close (Esc)" aria-label="Close" className="-mr-1.5 flex size-8 items-center justify-center rounded-lg text-text-muted hover:bg-control hover:text-text-strong" onClick={onClose}>
+      <button title="Close (Esc)" aria-label="Close" className="-my-1.5 -mr-1.5 flex size-8 items-center justify-center rounded-lg text-text-muted hover:bg-control hover:text-text-strong" onClick={onClose}>
         <Icon name="x" size={18} />
       </button>
     </div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
+import { Button, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
 import { replica, useView } from "./store";
@@ -205,9 +205,10 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
         </div>
       )}
       {muted.length > 0 && s.audio && s.format !== "gif" && (
-        <div className="mt-4 flex items-center gap-2 text-text" data-export-muted>
+        <div className="mt-4 flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/12 px-3 py-2 text-text-strong" data-export-muted>
+          <Icon name="speaker-slash" size={18} filled className="shrink-0 text-warning" />
           <span className="flex-1">
-            {muted.length === 1 ? `${muted[0]} is muted: its audio won't be in the export.` : `${muted.join(", ")} are muted: their audio won't be in the export.`}
+            <span className="font-semibold">{muted.join(", ")}</span> {muted.length === 1 ? "is muted: its audio won't be in the export." : "are muted: their audio won't be in the export."}
           </span>
           {unmute && <Button onClick={unmute}>Unmute</Button>}
         </div>
