@@ -447,6 +447,17 @@ test.skipIf(skip)("hovering a video in the Media Bin scrubs it: the frame and ti
   expect(await time()).toBe(whole);
 }, 30000);
 
+test.skipIf(skip)("every tile in the effect and annotation panels shows its picture", async () => {
+  for (const tool of ["visualEffects", "annotations", "audioEffects"]) {
+    await run("panel.show", { tool });
+    await page.until("document.querySelectorAll('[data-art]').length > 0");
+    const missing = await page.evaluate<string[]>(
+      "[...document.querySelectorAll('.panel-card .grid > button')].filter((b) => { const a = b.querySelector('[data-art]'); return !a || getComputedStyle(a).backgroundImage === 'none'; }).map((b) => b.textContent)",
+    );
+    expect({ tool, missing }).toEqual({ tool, missing: [] });
+  }
+});
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");

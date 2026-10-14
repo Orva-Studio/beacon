@@ -66,8 +66,14 @@ export function RailButton({ active, ...props }: ButtonHTMLAttributes<HTMLButton
 }
 
 /** An item in a tool panel, dragged onto media or clicked. */
-export function ItemTile(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...props} className="cursor-grab rounded-lg bg-tile p-2 text-left text-label text-text-strong hover:bg-tile-hover hover:ring-1 hover:ring-accent/40" />;
+/** A tool panel's item: its picture (an `art-<id>` class from art/art.css) over its name. */
+export function ItemTile({ art, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { art?: string }) {
+  return (
+    <button {...props} className="flex cursor-grab flex-col gap-1.5 rounded-lg bg-tile p-1.5 text-left text-label text-text-strong hover:bg-tile-hover hover:ring-1 hover:ring-accent/40">
+      {art && <span className={`aspect-[3/2] w-full rounded-md bg-groove bg-cover bg-center art-${art}`} data-art={art} />}
+      <span className="px-0.5">{children}</span>
+    </button>
+  );
 }
 
 /** A Media Bin item: a thumbnail over its name, outlined while selected. */

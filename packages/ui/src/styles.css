@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./fonts/fonts.css";
+@import "./art/art.css";
 
 /*
  * The editor's design tokens: every colour the UI uses, by role. Tailwind
