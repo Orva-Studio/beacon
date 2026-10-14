@@ -1113,6 +1113,25 @@ cache, and audio start. When it starts is the user's call.
 
 ### Phase 7 — Growth
 New features, each as a folder in `packages/features`.
+- **Remove Silences, one click** (the user, 2026-10-14; the first AI feature,
+  first in this phase): today it is agents only (`transcript_removePauses`
+  over MCP); the transcript itself is already made locally by whisper.cpp
+  when speech is imported. A button and menu item (Edit › Remove Silences…)
+  opens a small dialog: what it found (e.g. "42 silences, 3:12 shorter") and
+  two settings (shortest silence to cut, pause to keep), the silences marked on
+  the timeline while it is open, then Remove as one undo step through the same
+  `transcript.removePauses` command. A silence can be screen action worth
+  keeping (typing, clicking): Beacon's own takes log clicks, cursor movement
+  and which screen frames changed, so silences with that activity are kept by
+  default (a tick box), the cheap stand-in for an agent looking at frames.
+  Waits for the transcript job if it is still running. Retakes and filler words
+  stay with agents (MCP), where judgement is needed.
+- **Keyboard shortcuts** (the user, 2026-10-14): Settings › Shortcuts lists
+  every action with its shortcut (from the registry and
+  `keymaps/default.json`), searchable, and rebinds one by pressing the new
+  keys, warning on a clash; changes go in the user override file merged over
+  the defaults (§7), and menus show them. Shares its list with the command
+  palette below.
 - **Command palette** (the user, 2026-10-12; Phase 7 or later): a key (⇧⌘P
   or ⌘K, to pick then) opens a search over every action, command and menu
   item by its name and description, showing its shortcut, and runs it through
