@@ -1156,7 +1156,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             canvas.current!.style.cursor = onPlayhead || (clip && edgeAt(clip, e.clientX)) ? "ew-resize" : "default";
             return;
           }
-          if (d.kind === "playhead") return intoEdge(e.clientX) ? follow(e.clientX) : scrub(e.clientX);
+          if (d.kind === "playhead") {
+            // Every move, so a pointer back out of the edge stops the scrolling.
+            edge.current.x = e.clientX;
+            return intoEdge(e.clientX) ? follow(e.clientX) : scrub(e.clientX);
+          }
           if (d.kind === "anim") {
             let dt = (x - d.x0) * spp();
             const edges = d.part === "start" ? [d.a + dt] : d.part === "end" ? [d.b + dt] : [d.a + dt, d.b + dt];
