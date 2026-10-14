@@ -14,23 +14,26 @@ import { basename, join } from "node:path";
 const ART = join(import.meta.dir, "../packages/ui/src/art");
 
 const STYLE =
-  "Style: sleek futuristic 3D render, dark graphite glass and brushed metal, subtle neon mint-green (#3ee68d) rim light and accents, " +
-  "near-black charcoal background (#141615) with a faint grid, soft studio lighting, premium product-shot look. " +
-  "No text, no letters, no logos, no watermark. Centered, generous margins, reads clearly at small thumbnail size.";
+  "Style: clean semi-flat illustration with minimal depth: flat dark charcoal and slate shapes with subtle soft gradients, crisp edges, " +
+  "thin mint-green (#3ee68d) accent lines with a gentle glow, near-black background (#141615). No glossy reflections, no metal, no bevels, " +
+  "no 3D product shot: a modern app illustration, depth only from soft flat shadows. Centered, generous margins, reads clearly at small thumbnail size.";
+
+/** Every picture but Text's: words would be noise at tile size. */
+const NO_TEXT = "No text, no letters, no logos, no watermark.";
 
 /** What each tile shows, by its id: an annotation preset, an effect type, or an audio effect. */
 const SUBJECTS: Record<string, string> = {
-  text: "A single bold capital letter T made of glowing frosted glass, floating in front of a dark glass screen, with a soft shadow.",
-  rectangle: "A dark glass screen showing a soft gradient landscape, with a solid dark rounded rectangle shape laid over its centre, outlined by a thin mint-green edge.",
-  spotlight: "A dark glass screen showing a soft gradient landscape, almost entirely dimmed to near-black except one bright rounded rectangular area in the middle that is lit up clearly, like a spotlight.",
-  blur: "A dark glass screen showing a soft gradient landscape with crisp detail, except one rounded rectangular patch in the middle that is heavily blurred like frosted glass.",
-  pixelate: "A dark glass screen showing a soft gradient landscape with crisp detail, except one rounded rectangular patch in the middle that is broken into large square mosaic pixels.",
-  "round-corners": "A floating rectangular video frame showing a soft gradient landscape, its corners dramatically rounded, the curved corners highlighted by mint-green rim light.",
-  "crt-monitor": "A futuristic retro CRT monitor with a curved glass screen showing a soft gradient landscape, visible horizontal scanlines and a gentle vignette, dark graphite casing.",
-  "drop-shadow": "A floating rectangular video frame (a small abstract screen showing a soft gradient landscape) hovering above a surface and casting a soft, offset drop shadow down and to the right. The shadow is the clear focus.",
-  "motion-blur": "A rectangular video frame showing a soft gradient landscape, moving fast from left to right, smeared by strong horizontal motion blur streaks trailing behind it.",
-  "fade-in": "A glowing mint-green audio waveform running left to right across a dark glass panel, starting flat and silent at the left and growing smoothly to full loudness at the right.",
-  "fade-out": "A glowing mint-green audio waveform running left to right across a dark glass panel, at full loudness at the left and shrinking smoothly to flat silence at the right.",
+  text: 'The word "Text" in a bold, clean geometric sans-serif, white, with a short mint-green underline, on a flat dark screen panel. Only that one word, spelled exactly "Text". No other text, no logos, no watermark.',
+  rectangle: `A plain flat dark screen panel with one solid rounded rectangle in its centre, filled flat mid-grey with a thin mint-green outline. Nothing else: no picture, no landscape. ${NO_TEXT}`,
+  spotlight: `A flat screen panel showing a simple landscape, covered by a heavy dark overlay so it is almost black, except one rounded rectangle in the middle cut out of the overlay where the landscape shows bright and clear, its edge outlined in mint-green: a clear spotlight on one area. ${NO_TEXT}`,
+  blur: `A flat screen panel showing a simple landscape with crisp detail, except one rounded rectangular patch in the middle that is heavily blurred like frosted glass, outlined in thin mint-green. ${NO_TEXT}`,
+  pixelate: `A flat screen panel showing a simple landscape with crisp detail, except one rounded rectangular patch in the middle broken into large square mosaic pixels, outlined in thin mint-green. ${NO_TEXT}`,
+  "round-corners": `A flat rectangular video frame showing a simple landscape, its corners dramatically rounded, the curved corners traced by thin mint-green arcs. ${NO_TEXT}`,
+  "crt-monitor": `A flat video frame showing a simple landscape with a retro CRT screen effect applied to it: bold horizontal scanlines across the whole picture, edges bulging with barrel curvature, red and cyan colour fringing at the edges, a soft glow and vignette. Just the frame with the effect, no television set or monitor casing. ${NO_TEXT}`,
+  "drop-shadow": `A flat rectangular video frame showing a simple landscape, floating above a flat surface and casting a soft, offset drop shadow down and to the right. The shadow is the clear focus. ${NO_TEXT}`,
+  "motion-blur": `A flat rectangular video frame showing a simple landscape, moving fast from left to right, smeared by strong horizontal motion-blur streaks trailing behind it. ${NO_TEXT}`,
+  "fade-in": `A mint-green audio waveform running left to right across a flat dark panel, starting flat and silent at the left and growing smoothly to full loudness at the right. ${NO_TEXT}`,
+  "fade-out": `A mint-green audio waveform running left to right across a flat dark panel, at full loudness at the left and shrinking smoothly to flat silence at the right. ${NO_TEXT}`,
 };
 
 async function draw(id: string, keep: string) {
