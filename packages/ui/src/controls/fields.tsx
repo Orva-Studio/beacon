@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { PLAIN_TEXT } from "./buttons";
 
 /** A block of controls in a panel, divided from the next. */
 export function Section({ children }: { children: ReactNode }) {
@@ -77,6 +78,7 @@ export function NumberBox({
   };
   return (
     <input
+      {...PLAIN_TEXT}
       autoFocus
       className={`${cls} outline-none focus:border-accent`}
       style={{ width }}

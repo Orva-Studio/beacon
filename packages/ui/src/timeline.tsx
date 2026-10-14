@@ -24,7 +24,7 @@ import {
 } from "@beacon/model";
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
-import { drawIcon, type IconName } from "./controls";
+import { drawIcon, PLAIN_TEXT, type IconName } from "./controls";
 import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { color, font } from "./theme";
@@ -1286,6 +1286,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       />
       {renaming && tracks.some((t) => t.id === renaming) && (
         <input
+          {...PLAIN_TEXT}
           autoFocus
           defaultValue={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
           className="absolute rounded-sm border border-accent bg-well px-1 text-body font-semibold text-text-strong outline-none"

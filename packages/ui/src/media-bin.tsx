@@ -3,7 +3,7 @@ import { assetName, type Asset, type Project } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
 import { replica, useView, type BinKind, type BinSort } from "./store";
-import { Icon, MediaTile, Progress, TextInput, Waveform, type IconName } from "./controls";
+import { Icon, MediaTile, PLAIN_TEXT, Progress, TextInput, Waveform, type IconName } from "./controls";
 import { openPreview } from "./media-preview";
 
 /** Each sort with its two directions, as one menu. */
@@ -331,6 +331,7 @@ function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Ass
   );
   const name = renaming ? (
     <input
+      {...PLAIN_TEXT}
       // Rename… comes from a native menu: take focus once it has closed, with the name selected to type over.
       ref={(el) => {
         if (el && document.activeElement !== el) requestAnimationFrame(() => (el.focus(), el.select()));

@@ -517,6 +517,8 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   const take = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
   ui.send("recordedSheet", { asset: take.id, name: "2026-10-14 09.53.12", duration: 75 });
   await page.until("document.activeElement?.matches('[data-recorded-name]') && document.activeElement.selectionEnd > 0");
+  // macOS would otherwise capitalise a name's first letter.
+  expect(await page.evaluate<string[]>("['autocapitalize', 'autocorrect'].map((a) => document.activeElement.getAttribute(a))")).toEqual(["off", "off"]);
   await type("Intro take");
   await page.key("Enter", "Enter");
   await page.until("!document.querySelector('[data-recorded]')");

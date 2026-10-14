@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PLAIN_TEXT } from "./buttons";
 import { MASK, syncNativeView } from "../native-view";
 import { replica } from "../store";
 import { clamp, NumberBox, Row, Slider } from "./fields";
@@ -115,6 +116,7 @@ export function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChang
       <div className="flex items-center gap-1.5">
         <span className="h-6 w-6 shrink-0 rounded-sm border border-white/10" style={{ background: toHex(color) }} />
         <input
+          {...PLAIN_TEXT}
           key={toHex(color)}
           className="h-6 w-[72px] rounded-[3px] border border-field-edge bg-well px-1.5 font-mono text-label text-text-strong outline-none focus:border-accent"
           defaultValue={toHex(color)}
