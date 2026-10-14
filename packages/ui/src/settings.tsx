@@ -174,7 +174,18 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
       </Row>
       <Row label="Sync" hint="A camera through a capture card shows its picture late. Each take recorded with this pair moves its camera clip earlier by this much, so lips match the voice.">
         <div className="min-w-0 flex-1">
-          <CameraSyncControl key={key} sync={settings.cameraSync?.[key]} onChange={save} host={host} camera={camera!} microphone={microphone!} />
+          <CameraSyncControl
+            key={key}
+            sync={settings.cameraSync?.[key]}
+            onChange={save}
+            host={host}
+            devices={{
+              camera: devices.cameras.find((c) => c.id === camera) ?? { id: camera!, name: camera! },
+              microphone: devices.microphones.find((m) => m.id === microphone) ?? { id: microphone!, name: microphone! },
+              displays: devices.displays,
+              display: devices.display,
+            }}
+          />
         </div>
       </Row>
     </div>

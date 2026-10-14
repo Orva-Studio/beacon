@@ -377,7 +377,7 @@ const recordPrefs = (): RecordSources => {
 async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recordPrefs();
-  const devices = d && { cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
+  const devices = d && { displays: d.displays, display: prefs.screen?.display, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
   send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) });
 }
 
@@ -410,6 +410,31 @@ function beepFile(): string {
   return path;
 }
 
+/**
+ * The Mac's output volume raised to at least 75% and unmuted while `run` runs, so the microphone hears the
+ * sync check's beeps over the room; then as it was.
+ */
+async function loudly<T>(run: () => Promise<T>): Promise<T> {
+  const read = Bun.spawnSync(["osascript", "-e", "get volume settings"]).stdout.toString();
+  const volume = Number(/output volume:(\d+)/.exec(read)?.[1]);
+  const muted = /output muted:true/.test(read);
+  const raise = Number.isFinite(volume) && (volume < 75 || muted);
+  if (raise) Bun.spawnSync(["osascript", "-e", `set volume output volume ${Math.max(volume, 75)}`, "-e", "set volume without output muted"]);
+  try {
+    return await run();
+  } finally {
+    if (raise) Bun.spawnSync(["osascript", "-e", `set volume output volume ${volume}`, ...(muted ? ["-e", "set volume with output muted"] : [])]);
+  }
+}
+
+/** A test beep at the check's volume. */
+async function testBeep() {
+  await loudly(async () => {
+    await Bun.spawn(["afplay", beepFile()], { stdout: "ignore", stderr: "ignore" }).exited;
+    await Bun.sleep(200);
+  });
+}
+
 /** The sync check's window: black over the whole display, flashing white on cue. */
 const FLASH_HTML = `<!doctype html><html><body style="margin:0;background:#000;height:100vh;display:flex;align-items:center;justify-content:center;font:14px -apple-system,sans-serif;color:#666;cursor:none">
 <div>Checking sync: keep the camera seeing the screen</div>
@@ -419,21 +444,21 @@ const FLASH_HTML = `<!doctype html><html><body style="margin:0;background:#000;h
  * Check Sync: covers the display in black and flashes it white with a beep six times while the screen, system
  * audio, camera and microphone record, then measures how late the camera is and saves it for the pair.
  */
-async function checkSync({ camera, microphone }: { camera: string; microphone: string }) {
+async function checkSync({ camera, microphone, display: wanted }: { camera: string; microphone: string; display?: number }) {
   if (recording) throw new Error("Stop the recording first");
   const devices = await core.recorderDevices();
   if (devices.permissions.screen !== "granted") throw new Error("Check Sync records the screen: allow Beacon in System Settings › Privacy & Security › Screen & System Audio Recording");
   for (const kind of ["camera", "microphone"] as const) {
     if (devices.permissions[kind] !== "granted" && (await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
   }
-  const display = devices.displays[0];
+  const display = devices.displays.find((d) => d.id === wanted) ?? devices.displays[0];
   if (!display) throw new Error("No display to flash (is the screen asleep?)");
   const beep = beepFile();
-  const flash = new BrowserWindow({ title: "Beacon Sync Check", html: FLASH_HTML, frame: { x: 0, y: 0, width: display.width, height: display.height }, titleBarStyle: "hidden", activate: false });
+  const flash = new BrowserWindow({ title: "Beacon Sync Check", html: FLASH_HTML, frame: { x: display.x ?? 0, y: display.y ?? 0, width: display.width, height: display.height }, titleBarStyle: "hidden", activate: false });
   flash.setAlwaysOnTop(true);
   try {
     await Bun.sleep(600);
-    const result = await core.recordSyncCheck({ screen: { display: display.id, fps: 60 }, systemAudio: true, camera: { id: camera }, microphone: { id: microphone } }, async () => {
+    const result = await loudly(() => core.recordSyncCheck({ screen: { display: display.id, fps: 60 }, systemAudio: true, camera: { id: camera }, microphone: { id: microphone } }, async () => {
       await Bun.sleep(800);
       for (let i = 0; i < 6; i++) {
         flash.webview.executeJavascript("flash()");
@@ -441,7 +466,7 @@ async function checkSync({ camera, microphone }: { camera: string; microphone: s
         await Bun.sleep(1500);
       }
       await Bun.sleep(400);
-    });
+    }));
     const key = syncKey(camera, microphone);
     setAppSettings({ ...appSettings, cameraSync: { ...appSettings.cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
     return result;
@@ -830,6 +855,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         return reply(() => core.recorderPreview(devices, (e) => previewEvent(e, send().recordPreview)));
       },
       recordFrames: ({ after }) => newerFrames(after),
+      testBeep: () => testBeep(),
       checkSync: async (params) => {
         try {
           return { ok: true, result: await checkSync(params) };

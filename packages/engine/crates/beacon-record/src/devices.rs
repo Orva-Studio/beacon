@@ -88,7 +88,15 @@ pub fn list() -> Value {
     let screen = unsafe { CGPreflightScreenCaptureAccess() };
     let displays = if screen {
         displays()
-            .map(|ds| ds.iter().map(|d| unsafe { json!({ "id": d.displayID(), "width": d.width(), "height": d.height() }) }).collect::<Vec<_>>())
+            // `x`, `y`: its top-left in global points (the main display's top-left is 0, 0), to put a window on it.
+            .map(|ds| {
+                ds.iter()
+                    .map(|d| unsafe {
+                        let f = d.frame();
+                        json!({ "id": d.displayID(), "width": d.width(), "height": d.height(), "x": f.origin.x, "y": f.origin.y })
+                    })
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_else(|e| vec![json!({ "error": e })])
     } else {
         vec![]

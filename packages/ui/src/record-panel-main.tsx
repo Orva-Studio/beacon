@@ -1,6 +1,6 @@
 import { createRoot, type Root } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
-import { recordPreviewEvent } from "./record";
+import { recordPreviewEvent } from "./record-preview";
 import { RecordPanel } from "./record-panel";
 import type { PanelRPC, PanelState } from "./rpc";
 

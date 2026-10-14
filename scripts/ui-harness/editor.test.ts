@@ -431,19 +431,28 @@ test.skipIf(skip)("Record previews the chosen screen and camera and both audio l
   expect(previews().at(-1)).toEqual({});
 });
 
-test.skipIf(skip)("Settings › Recording: a camera and microphone's delay, typed or measured by Check Sync; the Record dialog shows and checks it", async () => {
-  const devices = { cameras: [{ id: "elgato", name: "Elgato Cam Link 4K" }], microphones: [{ id: "yeti", name: "Yeti Stereo Microphone" }], camera: "elgato", microphone: "yeti" };
+test.skipIf(skip)("Check Sync: says what to do, shows the camera, tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
+  const displays = [{ id: 5, width: 3360, height: 1890 }, { id: 1, width: 1800, height: 1169 }];
+  const devices = { displays, display: 5, cameras: [{ id: "elgato", name: "Elgato Cam Link 4K" }], microphones: [{ id: "yeti", name: "Yeti Stereo Microphone" }], camera: "elgato", microphone: "yeti" };
   const app = { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" };
   const before = ui.menus.length;
   ui.send("settingsSheet", { ...app, tab: "recording", devices });
   await page.until("!!document.querySelector('[data-recording-settings] [data-camera-sync]')");
   expect(await page.evaluate<string>("document.querySelector('[data-sync-status]').textContent")).toContain("Not checked");
   await page.evaluate("document.querySelector('[data-check-sync]').click()");
-  await page.until("document.querySelector('[data-sync-status]').textContent.includes('6 flashes')");
+  // Setup: what to do, the camera, a test beep the microphone hears, the screen to flash.
+  await page.until("!!document.querySelector('[data-sync-setup] [data-preview=Camera]') && document.querySelector('[data-sync-setup]').textContent.includes('volume')");
+  await page.evaluate("document.querySelector('[data-test-beep]').click()");
+  await page.until("document.querySelector('[data-sync-setup]').closest('[tabindex]').textContent.includes('Heard the beep')");
+  await page.evaluate("(() => { const s = document.querySelector('[data-sync-display]'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await page.evaluate("document.querySelector('[data-start-sync]').click()");
+  await page.until("document.querySelector('[data-sync-result]')?.textContent.includes('112 ms behind')");
+  expect(ui.menus.slice(before)).toEqual(expect.arrayContaining(["testBeep", "checkSync:elgato|yeti@1"]));
   const saved = () => ui.menus.slice(before).filter((m) => m.startsWith("setAppSettings:")).map((m) => JSON.parse(m.slice("setAppSettings:".length)));
-  expect(ui.menus.slice(before)).toContain("checkSync:elgato|yeti");
   await arrived(() => saved().at(-1)?.cameraSync?.["elgato|yeti"]?.cameraLateMs === 112);
   expect(saved().at(-1).cameraSync["elgato|yeti"]).toMatchObject({ cameraLateMs: 112, checked: { flashes: 6, spreadMs: 4 } });
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done' && b.closest('[tabindex]')?.querySelector('[data-sync-result]')).click()");
+  await page.until("!document.querySelector('[data-sync-result]') && document.querySelector('[data-sync-status]').textContent.includes('6 flashes')");
   // Typed: it is saved without a measurement.
   await page.evaluate("[...document.querySelectorAll('[data-camera-sync] span')].find((s) => s.textContent === '112 ms').click()");
   await page.until("document.activeElement?.tagName === 'INPUT'");
@@ -453,10 +462,10 @@ test.skipIf(skip)("Settings › Recording: a camera and microphone's delay, type
   expect(saved().at(-1).cameraSync["elgato|yeti"]).toEqual({ cameraLateMs: 90 });
   await page.evaluate("document.querySelector('[aria-label=Close]').click()");
   await page.until("!document.querySelector('[data-recording-settings]')");
-  // The Record dialog shows the pair's delay (not typed there) and checks it.
+  // The Record dialog shows the pair's delay (not typed there) and opens the same check.
   ui.send("recordSheet", {
     permissions: { screen: "granted", camera: "granted", microphone: "granted" },
-    displays: [{ id: 1, width: 1800, height: 1169 }],
+    displays,
     cameras: devices.cameras,
     microphones: devices.microphones,
     sources: { camera: { id: "elgato" }, microphone: { id: "yeti" } },
@@ -465,8 +474,12 @@ test.skipIf(skip)("Settings › Recording: a camera and microphone's delay, type
   await page.until("!!document.querySelector('[data-record] [data-camera-sync]')");
   expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-record] [data-camera-sync] span')].some((s) => s.textContent === '90 ms')")).toBe(true);
   await page.evaluate("document.querySelector('[data-record] [data-check-sync]').click()");
-  await page.until("document.querySelector('[data-record] [data-sync-status]').textContent.includes('6 flashes')");
-  await page.key("Escape", "Escape");
+  await page.until("!!document.querySelector('[data-sync-setup]')");
+  await page.evaluate("document.querySelector('[data-start-sync]').click()");
+  await page.until("!!document.querySelector('[data-sync-result]')");
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done' && b.closest('[tabindex]')?.querySelector('[data-sync-result]')).click()");
+  await page.until("!document.querySelector('[data-sync-result]') && document.querySelector('[data-record] [data-sync-status]').textContent.includes('6 flashes')");
+  await page.evaluate("document.querySelector('[data-record]').closest('[tabindex]').querySelector('[aria-label=Close]').click()");
   await page.until("!document.querySelector('[data-record]')");
 }, 20000);
 

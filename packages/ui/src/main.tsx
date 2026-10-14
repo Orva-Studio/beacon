@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
-import { recordPreviewEvent } from "./record";
+import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { replica } from "./store";
 
@@ -93,7 +93,8 @@ const host: Host = {
   startRecording: (sources) => request.startRecording({ sources }),
   recordPreview: (devices) => void request.recordPreview(devices),
   recordFrames: (after) => request.recordFrames({ after }),
-  checkSync: (camera, microphone) => request.checkSync({ camera, microphone }),
+  checkSync: (camera, microphone, display) => request.checkSync({ camera, microphone, ...(display !== undefined ? { display } : {}) }),
+  testBeep: () => request.testBeep({}),
   cancelExport: (id) => void report(request.cancelExport({ id })),
   showFile: (path, open) => void request.showFile({ path, open }),
   setAppSettings: (s) => void request.setAppSettings(s),

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Icon, LevelHistory } from "./controls";
-import { previewListeners, useRecordFrames } from "./record";
+import { previewListeners, useRecordFrames } from "./record-preview";
 import type { AudioLevel, PanelState, RecordFrames, RecordPreview } from "./rpc";
 
 const clock = (s: number) => {

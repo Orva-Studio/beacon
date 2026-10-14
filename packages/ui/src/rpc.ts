@@ -85,6 +85,9 @@ export type SettingsTab = "general" | "recording" | "project";
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices };
 
 export interface RecordDevices {
+  displays: { id: number; width: number; height: number }[];
+  /** The display last recorded. */
+  display?: number;
   cameras: { id: string; name: string }[];
   microphones: { id: string; name: string }[];
   camera?: string;
@@ -174,7 +177,7 @@ export interface RecordedSheet {
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
 export interface RecordSheet {
   permissions: { screen: string; camera: string; microphone: string };
-  displays: { id: number; width: number; height: number }[];
+  displays: { id: number; width: number; height: number; x?: number; y?: number }[];
   cameras: { id: string; name: string }[];
   microphones: { id: string; name: string }[];
   sources: RecordSources;
@@ -270,7 +273,9 @@ export type AppRPC = {
       /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
       /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */
-      checkSync: { params: { camera: string; microphone: string }; response: { ok: boolean; result?: SyncCheck; error?: string } };
+      checkSync: { params: { camera: string; microphone: string; display?: number }; response: { ok: boolean; result?: SyncCheck; error?: string } };
+      /** One sync-check beep at the check's volume, to see the microphone hear it. */
+      testBeep: { params: {}; response: void };
       /** The newest frames after `after`, as soon as there are any (or after a second without): pulled, so a slow page never falls behind. */
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */

@@ -5,7 +5,8 @@ import { enginePath } from "./engine";
 /** What `beacon-recorder devices` reports: permissions and what can be recorded. */
 export interface RecorderDevices {
   permissions: { screen: string; camera: string; microphone: string };
-  displays: { id: number; width: number; height: number }[];
+  /** Sizes in points; `x`, `y`: top-left in global points (the main display's is 0, 0). */
+  displays: { id: number; width: number; height: number; x?: number; y?: number }[];
   cameras: { id: string; name: string }[];
   microphones: { id: string; name: string }[];
 }

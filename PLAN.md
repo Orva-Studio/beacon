@@ -1003,7 +1003,12 @@ together. Left over: the display's and speakers' own delays, a few ms. On a
 made-up take with the camera 110 ms late it measured 121 ms (a 30 fps camera
 sees a frame every 33 ms). The delay is saved per pair in the app's settings,
 and a take recorded with the pair gets the camera's `offset` (minus it) in
-`recording.json`.
+`recording.json`. Its dialog says what to do first (sit where you record facing the
+screen that flashes, stay still and quiet) and shows the camera being
+measured, its microphone's level, a test beep (heard when the microphone's
+peak passes -35 dBFS) and the display to flash; Beacon raises the Mac's
+volume to at least 75% and unmutes it for the beeps, then puts it back. No
+clap: the flash and beep are the clap, found to the millisecond.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

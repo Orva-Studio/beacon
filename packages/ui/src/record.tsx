@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
+import { previewListeners, useRecordFrames } from "./record-preview";
 import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
@@ -12,42 +13,6 @@ export interface RecordHost extends SyncCheckHost {
   run(command: string, args?: unknown, label?: string): void;
 }
 
-/**
- * The newest camera and screen frames while `on`, pulled one request at a time: each waits for the next frame,
- * so a busy page skips frames rather than falling behind.
- */
-export function useRecordFrames(pull: (after: number) => Promise<RecordFrames>, on: boolean) {
-  const [frames, setFrames] = useState<{ camera?: string; screen?: string }>({});
-  useEffect(() => {
-    if (!on) return;
-    let alive = true;
-    void (async () => {
-      let after = 0;
-      while (alive) {
-        try {
-          const f = await pull(after);
-          if (!alive) break;
-          after = f.seq;
-          if (f.camera || f.screen) setFrames((p) => ({ ...p, ...(f.camera ? { camera: f.camera } : {}), ...(f.screen ? { screen: f.screen } : {}) }));
-        } catch {
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-      setFrames({});
-    };
-  }, [on]);
-  return frames;
-}
-
-export const previewListeners = new Set<(e: RecordPreview) => void>();
-
-/** A frame or the audio levels, for the open Record dialog or the recording panel. */
-export function recordPreviewEvent(e: RecordPreview) {
-  for (const l of previewListeners) l(e);
-}
 
 const COUNTDOWN = 3;
 
@@ -221,8 +186,12 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
                 onChange={(sync) => setCameraSync({ ...cameraSync, [pair]: sync })}
                 onCheck={setChecking}
                 host={host}
-                camera={s.camera!.id!}
-                microphone={s.microphone!.id!}
+                devices={{
+                  camera: sheet.cameras.find((c) => c.id === s.camera!.id) ?? { id: s.camera!.id!, name: s.camera!.id! },
+                  microphone: sheet.microphones.find((m) => m.id === s.microphone!.id) ?? { id: s.microphone!.id!, name: s.microphone!.id! },
+                  displays: sheet.displays,
+                  display: s.screen?.display,
+                }}
               />
             </div>
           </Row>

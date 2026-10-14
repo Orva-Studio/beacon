@@ -161,9 +161,14 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
           result = { ok: true };
         }
         else if (msg.type === "stopRecording" || msg.type === "hidePanel") menus.push(msg.type);
+        // The beep the stand-in microphone hears.
+        else if (msg.type === "testBeep") {
+          menus.push("testBeep");
+          ws.send(JSON.stringify({ type: "recordPreview", data: { microphone: { db: -24, peak: -12 } } }));
+        }
         // No screen to flash here: a fixed measurement stands in.
         else if (msg.type === "checkSync") {
-          menus.push(`checkSync:${msg.camera}|${msg.microphone}`);
+          menus.push(`checkSync:${msg.camera}|${msg.microphone}@${msg.display}`);
           result = { ok: true, result: { cameraLateMs: 112, flashes: 6, spreadMs: 4 } };
         }
         else if (msg.type === "recordFrames") {
