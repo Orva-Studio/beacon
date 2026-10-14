@@ -522,18 +522,17 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("the recording panel shows a grip, the camera, the time, and rolling waveforms of both levels; – hides it, Stop stops", async () => {
-  const panel = await openPage(`${ui.url}?panel=camera,microphone,systemAudio`);
+test.skipIf(skip)("the recording panel shows a grip, the time, and rolling waveforms of both levels; – hides it, Stop stops", async () => {
+  const panel = await openPage(`${ui.url}?panel=microphone,systemAudio`);
   try {
     await panel.until("!!document.querySelector('[data-record-panel]')");
     const before = ui.menus.length;
     for (let i = 0; i < 5; i++) {
-      ui.previewFrame("camera", "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=");
       ui.send("recordPreview", { microphone: { db: -18 - i, peak: -6 }, systemAudio: { db: -40, peak: -20 } });
       await Bun.sleep(30);
     }
     await panel.until("[...document.querySelectorAll('canvas[data-history]')].length === 2 && [...document.querySelectorAll('canvas[data-history]')].every((c) => Number(c.dataset.history) >= 4)");
-    expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-panel] [data-preview=Camera]')")).toBe(true);
+    expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-panel] img')")).toBe(false);
     expect(await panel.evaluate<string>("document.querySelector('[data-record-time]').textContent")).toMatch(/^0:0\d$/);
     expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-grip]')")).toBe(true);
     await panel.evaluate("document.querySelector('[data-record-hide]').click()");
@@ -655,6 +654,16 @@ test.skipIf(skip)("the ruler moves the playhead past the last clip, and an edit 
   await Bun.sleep(200);
   expect((await session()).playhead).toBeCloseTo(past, 1);
   await ui.core.undo(ui.handle);
+  // Held at the right edge, the playhead keeps going and the view follows it.
+  const y = box.y + 12;
+  await page.down(xAt(past), y);
+  await page.move(box.x + box.w - 6, y);
+  await Bun.sleep(1000);
+  await page.up(box.x + box.w - 6, y);
+  const followed = await session();
+  expect(followed.playhead).toBeGreaterThan(s.timeline.end + 1);
+  expect(followed.timeline.end).toBeCloseTo(followed.playhead, 0);
+  await run("timeline.zoom", { to: "fit" });
   await run("playhead.set", { time: 1 });
 });
 

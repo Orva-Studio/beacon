@@ -25,7 +25,7 @@ import {
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { drawIcon, type IconName } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -202,6 +202,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     if (pickedDiamond.current?.anim !== session.animation?.id) pickedDiamond.current = undefined;
   }, [session.animation?.id]);
   const pending = useRef(0);
+  const edge = useRef({ x: 0, raf: 0 });
   const latest = useRef({ project, session, waveforms, thumbs, dragging });
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
@@ -934,6 +935,33 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const scrub = (clientX: number) => throttled("playhead.set", { time: timeAt(clientX) });
 
+  /** Points into the edge zone a dragged playhead is in where the view can scroll: positive on the right, negative on the left, else 0. */
+  const intoEdge = (clientX: number) => {
+    const r = canvas.current!.getBoundingClientRect();
+    const x = clientX - r.left;
+    if (x > r.width - EDGE_ZONE) return x - (r.width - EDGE_ZONE);
+    return x < HEADER + EDGE_ZONE && latest.current.session.timeline.start > 0 ? x - (HEADER + EDGE_ZONE) : 0;
+  };
+  /** A playhead dragged into an edge takes the view with it a frame at a time, as far as it goes, past the end too. */
+  const follow = (clientX: number) => {
+    cancelAnimationFrame(pending.current);
+    edge.current.x = clientX;
+    if (edge.current.raf) return;
+    const step = () => {
+      edge.current.raf = 0;
+      const over = intoEdge(edge.current.x);
+      const { start, end } = latest.current.session.timeline;
+      if (dragState.current?.kind !== "playhead" || !over) return;
+      const dt = Math.sign(over) * Math.min(40, 2 + Math.abs(over) / 2) * spp();
+      const from = Math.max(0, start + dt);
+      // The playhead first: the view may only reach past the end as far as it.
+      run("playhead.set", { time: over > 0 ? end + dt : from });
+      run("timeline.scroll", { start: from });
+      edge.current.raf = requestAnimationFrame(step);
+    };
+    edge.current.raf = requestAnimationFrame(step);
+  };
+
   const pointer = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -1128,7 +1156,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             canvas.current!.style.cursor = onPlayhead || (clip && edgeAt(clip, e.clientX)) ? "ew-resize" : "default";
             return;
           }
-          if (d.kind === "playhead") return scrub(e.clientX);
+          if (d.kind === "playhead") return intoEdge(e.clientX) ? follow(e.clientX) : scrub(e.clientX);
           if (d.kind === "anim") {
             let dt = (x - d.x0) * spp();
             const edges = d.part === "start" ? [d.a + dt] : d.part === "end" ? [d.b + dt] : [d.a + dt, d.b + dt];

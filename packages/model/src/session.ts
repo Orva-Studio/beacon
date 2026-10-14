@@ -142,10 +142,10 @@ function stops(project: Project, kind: "edit" | "marker" | "animation"): number[
   return [...new Set(out.map((t) => roundSeconds(ticksToSeconds(t))))].sort((a, b) => a - b);
 }
 
-/** Keeps the visible span inside [0, max(duration, span)] and at least a few frames long. */
+/** Keeps the visible span inside [0, max(duration, span, playhead)] and at least a few frames long. */
 function setView(s: Session, project: Project, start: number, endAt: number) {
   const span = Math.max(MIN_SPAN_FRAMES * frame(project), endAt - start);
-  const limit = Math.max(duration(project) * 1.05, span);
+  const limit = Math.max(duration(project) * 1.05, span, s.playhead);
   const from = Math.min(Math.max(0, start), limit - span);
   s.timeline = { start: roundSeconds(from), end: roundSeconds(from + span), trackHeight: s.timeline.trackHeight };
 }

@@ -23,6 +23,8 @@ export const cornerButtons = (header: number) =>
 export const cornerButtonAt = (header: number, x: number, y: number) => cornerButtons(header).find((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h)?.id;
 /** Within this many pixels of the playhead line, a press grabs the playhead. */
 export const GRAB = 6;
+/** A playhead dragged within this many points of the timeline's left or right edge scrolls it. */
+export const EDGE_ZONE = 24;
 /** Within this many points of a clip's end, a press grabs the edge to trim it. */
 export const EDGE = 6;
 /** Dragged clips and edges snap from this many points away. */
