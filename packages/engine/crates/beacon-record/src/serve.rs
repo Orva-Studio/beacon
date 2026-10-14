@@ -2,11 +2,13 @@
 //! stdout line. Commands: `devices`; `access` with `kind` (`camera` or
 //! `microphone`); `start` with `dir` (the take's new `.brec`
 //! folder) and `sources`; `status`; `stop`. Each event echoes the command's
-//! `id`. `preview` with `camera` and `microphone` shows them in the Record
-//! dialog until `previewStop` or a take starts: `previewFrame` events (base64
-//! JPEG) and `previewLevel` events (dBFS) arrive without an `id`. When stdin
-//! closes (the app quit or crashed), a take still recording is stopped and its
-//! files finished.
+//! `id`. `preview` with `screen`, `systemAudio`, `camera` and `microphone`
+//! shows them in the Record dialog until `previewStop` or a take starts; a take
+//! started with `monitor` shows its camera and levels in the recording panel.
+//! Both send `previewFrame` events (`source` and base64 JPEG) and
+//! `previewLevel` events (`microphone` and `systemAudio` in dBFS) without an
+//! `id`. When stdin closes (the app quit or crashed), a take still recording is
+//! stopped and its files finished.
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -15,8 +17,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::capture::{Device, Sources, Take};
-use crate::preview::Preview;
+use crate::capture::{Sources, Take};
+use crate::preview::{Preview, PreviewSources};
 
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "camelCase", deny_unknown_fields)]
@@ -34,15 +36,18 @@ enum Command {
         dir: PathBuf,
         #[serde(default)]
         sources: Sources,
+        /// Sends the take's camera frames and levels, for the recording panel.
+        #[serde(default)]
+        monitor: bool,
     },
     Status {
         id: Option<Value>,
     },
-    /// Replaces any preview; neither device stops it.
+    /// Replaces any preview; with no sources, stops it.
     Preview {
         id: Option<Value>,
-        camera: Option<Device>,
-        microphone: Option<Device>,
+        #[serde(flatten)]
+        sources: PreviewSources,
     },
     PreviewStop {
         id: Option<Value>,
@@ -86,11 +91,14 @@ pub fn run() -> Result<(), String> {
                 if let Some(t) = &mut take {
                     t.poll_cursor();
                 }
-                if let Some(p) = &preview
-                    && level_at.elapsed() >= Duration::from_millis(50)
-                {
+                if level_at.elapsed() >= Duration::from_millis(50) {
                     level_at = std::time::Instant::now();
-                    if let Some(level) = p.level() {
+                    let level = match (&take, &preview) {
+                        (Some(t), _) if t.monitored() => t.level(),
+                        (None, Some(p)) => p.level(),
+                        _ => None,
+                    };
+                    if let Some(level) = level {
                         emit(None, level);
                     }
                 }
@@ -122,9 +130,9 @@ pub fn run() -> Result<(), String> {
                 Ok(e) => emit(id.as_ref(), e),
                 Err(e) => error(id.as_ref(), e),
             },
-            Command::Start { id, dir, sources } => match &take {
+            Command::Start { id, dir, sources, monitor } => match &take {
                 Some(t) => error(id.as_ref(), format!("already recording to {}", t.dir().display())),
-                None => match Take::start(&dir, &sources) {
+                None => match Take::start(&dir, &sources, monitor.then(|| Box::new(|e| emit(None, e)) as crate::capture::Monitor)) {
                     Ok(t) => {
                         emit(id.as_ref(), json!({ "event": "recording", "dir": t.dir() }));
                         take = Some(t);
@@ -137,13 +145,13 @@ pub fn run() -> Result<(), String> {
                 None => emit(id.as_ref(), json!({ "event": "status", "recording": false })),
             },
             Command::Preview { id, .. } if take.is_some() => error(id.as_ref(), "recording: no preview until the take stops"),
-            Command::Preview { id, camera, microphone } => {
+            Command::Preview { id, sources } => {
                 preview = None;
-                if camera.is_none() && microphone.is_none() {
+                if sources.is_empty() {
                     emit(id.as_ref(), json!({ "event": "previewing" }));
                     continue;
                 }
-                match Preview::start(camera.as_ref(), microphone.as_ref(), |e| emit(None, e)) {
+                match Preview::start(&sources, |e| emit(None, e)) {
                     Ok(p) => {
                         preview = Some(p);
                         emit(id.as_ref(), json!({ "event": "previewing" }));

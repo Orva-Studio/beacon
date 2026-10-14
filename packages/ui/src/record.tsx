@@ -1,17 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, LevelMeter, Modal, Select, SettingsRow as Row } from "./controls";
-import type { RecordPreview, RecordSheet, RecordSources } from "./rpc";
+import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, type IconName } from "./controls";
+import type { AudioLevel, RecordPreview, RecordSheet, RecordSources } from "./rpc";
 import { replica, useView } from "./store";
 
 export interface RecordHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
-  /** Shows the camera and microphone (`recordPreviewEvent` gets them); with neither, stops. */
-  recordPreview(devices: Pick<RecordSources, "camera" | "microphone">): void;
+  /** Shows the sources (`recordPreviewEvent` gets them); with none, stops. */
+  recordPreview(sources: RecordSources): void;
 }
 
-const previewListeners = new Set<(e: RecordPreview) => void>();
+export const previewListeners = new Set<(e: RecordPreview) => void>();
 
-/** A camera frame or microphone level for the open Record dialog. */
+/** A frame or the audio levels, for the open Record dialog or the recording panel. */
 export function recordPreviewEvent(e: RecordPreview) {
   for (const l of previewListeners) l(e);
 }
@@ -35,6 +35,26 @@ function permission(kind: keyof typeof SETTINGS, status: string): ReactNode {
   );
 }
 
+/** A source's live picture, or what it would show and why it doesn't. */
+function Monitor({ label, icon, jpeg, mirrored, why, className }: { label: string; icon: IconName; jpeg?: string; mirrored?: boolean; why?: string; className: string }) {
+  return (
+    <figure className={`flex flex-col gap-1 ${className}`}>
+      <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-md bg-groove ring-1 ring-white/5">
+        {jpeg && !why ? (
+          // Mirrored, as a self-view is; the take isn't.
+          <img src={`data:image/jpeg;base64,${jpeg}`} alt={`${label} preview`} className={`h-full w-full object-contain ${mirrored ? "-scale-x-100" : ""}`} data-preview={label} />
+        ) : (
+          <span className="flex flex-col items-center gap-1 text-caption text-text-faint">
+            <Icon name={icon} size={18} />
+            {why}
+          </span>
+        )}
+      </div>
+      <figcaption className="text-caption text-text-muted">{label}</figcaption>
+    </figure>
+  );
+}
+
 /** A source's row: its name, a checkbox, and what to record from. */
 function Source({ label, on, setOn, hint, children }: { label: string; on: boolean; setOn: (on: boolean) => void; hint?: ReactNode; children?: ReactNode }) {
   return (
@@ -52,23 +72,32 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const [error, setError] = useState<string>();
   const close = () => replica.recordSheet(undefined);
   const nothing = !s.screen && !s.systemAudio && !s.camera && !s.microphone;
-  const [frame, setFrame] = useState<string>();
-  const [level, setLevel] = useState<{ db: number; peak: number }>();
+  const [frames, setFrames] = useState<{ camera?: string; screen?: string }>({});
+  const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
 
-  // Only devices Beacon may already use: asking for a permission waits for Record.
-  const camera = sheet.permissions.camera === "granted" ? s.camera : undefined;
-  const microphone = sheet.permissions.microphone === "granted" ? s.microphone : undefined;
+  // Only what Beacon may already use: asking for a permission waits for Record.
+  const granted = (k: keyof RecordSheet["permissions"]) => sheet.permissions[k] === "granted";
+  const screen = granted("screen") ? s.screen : undefined;
+  const systemAudio = granted("screen") ? s.systemAudio : undefined;
+  const camera = granted("camera") ? s.camera : undefined;
+  const microphone = granted("microphone") ? s.microphone : undefined;
   useEffect(() => {
-    setFrame(undefined);
-    setLevel(undefined);
-    const listen = (e: RecordPreview) => ("jpeg" in e ? setFrame(e.jpeg) : setLevel(e));
+    setFrames({});
+    setLevels({});
+    const listen = (e: RecordPreview) => ("jpeg" in e ? setFrames((f) => ({ ...f, [e.source]: e.jpeg })) : setLevels(e));
     previewListeners.add(listen);
-    host.recordPreview({ ...(camera ? { camera } : {}), ...(microphone ? { microphone } : {}) });
+    host.recordPreview({
+      ...(screen ? { screen: { display: screen.display } } : {}),
+      ...(systemAudio ? { systemAudio } : {}),
+      ...(camera ? { camera } : {}),
+      ...(microphone ? { microphone } : {}),
+    });
     return () => {
       previewListeners.delete(listen);
       host.recordPreview({});
     };
-  }, [camera?.id, microphone?.id, !!camera, !!microphone]);
+  }, [!!screen, screen?.display, !!systemAudio, !!camera, camera?.id, !!microphone, microphone?.id]);
+  const why = (on: unknown, kind: keyof RecordSheet["permissions"]) => (!on ? "Off" : !granted(kind) ? "Needs permission" : undefined);
 
   useEffect(() => {
     if (counting === undefined) return;
@@ -99,6 +128,10 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   }
   return (
     <Modal title="Record" width={560} onClose={close} onEnter={() => !nothing && setCounting(COUNTDOWN)}>
+      <div className="mb-4 flex gap-3" data-record-monitors>
+        <Monitor label="Screen" icon="monitor-play" jpeg={frames.screen} why={why(s.screen, "screen")} className="flex-[1.6]" />
+        <Monitor label="Camera" icon="video-camera" jpeg={frames.camera} mirrored why={why(s.camera, "camera")} className="flex-1" />
+      </div>
       <div className="flex flex-col gap-3" data-record>
         <Source label="Screen" hint={permission("screen", sheet.permissions.screen)} on={!!s.screen} setOn={(on) => setS({ ...s, screen: on ? { display: display(undefined)?.id, fps: 60 } : undefined })}>
           <div className="w-56">
@@ -117,14 +150,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
             </Select>
           </div>
         </Source>
-        <Source
-          label="Camera"
-          hint={
-            permission("camera", sheet.permissions.camera) ??
-            // Mirrored, as a self-view is; the take isn't.
-            (frame && <img src={`data:image/jpeg;base64,${frame}`} alt="Camera preview" className="mt-1 w-60 -scale-x-100 rounded-md bg-groove" data-camera-preview />)
-          }
-          on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
+        <Source label="Camera" hint={permission("camera", sheet.permissions.camera)} on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
           <div className="w-72">
             <Select value={s.camera?.id ?? ""} onChange={(e) => setS({ ...s, camera: { id: e.target.value } })}>
               {sheet.cameras.map((c) => (
@@ -145,9 +171,11 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
               ))}
             </Select>
           </div>
-          {microphone && <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />}
+          {microphone && <LevelMeter label="Microphone level" db={levels.microphone?.db} peak={levels.microphone?.peak} />}
         </Source>
-        <Source label="System audio" on={!!s.systemAudio} setOn={(on) => setS({ ...s, systemAudio: on || undefined })} />
+        <Source label="System audio" on={!!s.systemAudio} setOn={(on) => setS({ ...s, systemAudio: on || undefined })}>
+          {systemAudio && <LevelMeter label="System audio level" db={levels.systemAudio?.db} peak={levels.systemAudio?.peak} />}
+        </Source>
       </div>
       {error && <div className="mt-4 text-danger">{error}</div>}
       <div className="mt-5 flex justify-end gap-2">

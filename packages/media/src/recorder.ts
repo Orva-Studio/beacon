@@ -12,14 +12,21 @@ export interface RecorderDevices {
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
 export interface RecorderSources {
-  screen?: { display?: number; fps?: number };
+  /** `exclude`: leave out windows with this title (Beacon's recording panel). */
+  screen?: { display?: number; fps?: number; exclude?: string };
   systemAudio?: boolean;
   camera?: { id?: string };
   microphone?: { id?: string };
 }
 
-/** The Record dialog's preview: what the camera sees (base64 JPEG, about 320 wide), or the microphone's level in dBFS. */
-export type RecorderPreviewEvent = { jpeg: string } | { db: number; peak: number };
+/** An audio level in dBFS: the average and the recent peak. */
+export interface RecorderLevel {
+  db: number;
+  peak: number;
+}
+
+/** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG, a few hundred pixels wide), or the audio levels. */
+export type RecorderPreviewEvent = { source: "camera" | "screen"; jpeg: string } | { microphone?: RecorderLevel; systemAudio?: RecorderLevel };
 
 type Event = { event: string; id?: number; message?: string; [k: string]: unknown };
 
@@ -53,8 +60,9 @@ export class Recorder {
           if (!line.trim()) continue;
           const e = JSON.parse(line) as Event;
           if (e.event === "ready") ready();
-          else if (e.event === "previewFrame") this.#preview?.({ jpeg: e.jpeg as string });
-          else if (e.event === "previewLevel") this.#preview?.({ db: e.db as number, peak: e.peak as number });
+          else if (e.event === "previewFrame") this.#preview?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
+          else if (e.event === "previewLevel")
+            this.#preview?.({ ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}), ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}) });
           const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
           if (!w) continue;
           this.#waiting.delete(e.id!);
@@ -95,19 +103,21 @@ export class Recorder {
     return (await this.#send({ cmd: "access", kind })).status as string;
   }
 
-  /** Shows the camera and microphone to `fn` until called again (with neither, it stops); a take starting stops it. */
-  async preview(devices: Pick<RecorderSources, "camera" | "microphone">, fn?: (e: RecorderPreviewEvent) => void): Promise<void> {
+  /** Shows the sources to `fn` until called again (with none, it stops); a take starting stops it. The screen is shown without its frame rate. */
+  async preview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void): Promise<void> {
     this.#preview = fn;
-    if (!devices.camera && !devices.microphone) {
+    if (!sources.screen && !sources.systemAudio && !sources.camera && !sources.microphone) {
       if (this.#proc) await this.#send({ cmd: "previewStop" });
       return;
     }
-    await this.#send({ cmd: "preview", ...(devices.camera ? { camera: devices.camera } : {}), ...(devices.microphone ? { microphone: devices.microphone } : {}) });
+    const { fps: _, ...screen } = sources.screen ?? {};
+    await this.#send({ cmd: "preview", ...sources, ...(sources.screen ? { screen } : {}) });
   }
 
-  /** Starts a take into `dir` (a new `.brec` folder); resolves once every source is delivering. */
-  async start(dir: string, sources: RecorderSources): Promise<void> {
-    await this.#send({ cmd: "start", dir, sources });
+  /** Starts a take into `dir` (a new `.brec` folder); resolves once every source is delivering. `monitor` gets its camera frames and levels. */
+  async start(dir: string, sources: RecorderSources, monitor?: (e: RecorderPreviewEvent) => void): Promise<void> {
+    this.#preview = monitor;
+    await this.#send({ cmd: "start", dir, sources, monitor: !!monitor });
   }
 
   async status(): Promise<{ recording: boolean; dir?: string; elapsed?: number }> {

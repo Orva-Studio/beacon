@@ -972,13 +972,19 @@ its proxy was deleted: AVFoundation's camera encoder writes open-GOP HEVC
 the preview's native VideoToolbox decoding failed every seek on them where
 FFmpeg drops them. After a seek it now starts at the keyframe and skips
 what's shown before it (`shim.c`; `matches_ffmpeg.rs` seeks into a camera
-take). The dialog previews the chosen camera
-and shows the microphone's level (2026-10-13): `beacon-recorder serve`'s
-`preview` runs a capture session that writes nothing, sending the camera as
-320-wide JPEGs at 15 fps (macOS scales in the capture pipeline, AppKit
-encodes) and the microphone's loudest channel in dBFS 20 times a second
-(`AVCaptureAudioChannel`); a take starting stops it, and only devices Beacon
-may already use are previewed (asking waits for Record). Still to come: the
+take). The dialog previews every source
+(2026-10-14, the user's choice after looking at Screen Studio, Loom and OBS):
+the display (480 wide, 5 fps) beside the camera (320 wide, 15 fps) at the top,
+the microphone's and system audio's levels as meters with a held peak on their
+rows. `beacon-recorder serve`'s `preview` runs capture that writes nothing;
+only sources Beacon may already use are previewed (asking waits for Record).
+While a take records, a small panel floats top right over the screen (the
+camera, the time, Stop, and both levels as rolling waveforms), left out of
+the take: ScreenCaptureKit's filter excludes the window by its title. The take
+feeds it (`start` with `monitor`): camera frames from its own buffers (scaled
+from BGRA, 420v/420f, 2vuy or yuvs), the microphone's level from its
+connection, the system audio's from its buffers, so nothing opens the devices
+a second time mid-take. Still to come: the
 sync check in Settings.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by

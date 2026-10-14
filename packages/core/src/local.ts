@@ -888,8 +888,8 @@ export class LocalCore implements BeaconCore {
     return this.#recorder.access(kind);
   }
 
-  async recorderPreview(devices: Pick<RecorderSources, "camera" | "microphone">, fn?: (e: RecorderPreviewEvent) => void) {
-    return this.#recorder.preview(devices, fn);
+  async recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void) {
+    return this.#recorder.preview(sources, fn);
   }
 
   async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
@@ -898,7 +898,7 @@ export class LocalCore implements BeaconCore {
     const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
     const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
-    await this.#recorder.start(dir, sources);
+    await this.#recorder.start(dir, sources, opts.monitor);
     this.#recording = { h, dir };
     return { take: dir };
   }

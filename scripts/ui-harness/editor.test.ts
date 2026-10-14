@@ -405,27 +405,53 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
 });
 
-test.skipIf(skip)("Record previews the chosen camera and shows the microphone's level, and stops when closed", async () => {
+test.skipIf(skip)("Record previews the chosen screen and camera and both audio levels, and stops when closed", async () => {
   const sheet = {
     permissions: { screen: "granted", camera: "granted", microphone: "granted" },
     displays: [{ id: 1, width: 1800, height: 1169 }],
     cameras: [{ id: "cam-1", name: "Elgato 4K X" }, { id: "cam-2", name: "MacBook Pro Camera" }],
     microphones: [{ id: "mic-1", name: "Blue Yeti" }],
-    sources: { screen: { fps: 60 }, camera: { id: "cam-1" }, microphone: { id: "mic-1" } },
+    sources: { screen: { display: 1, fps: 60 }, systemAudio: true, camera: { id: "cam-1" }, microphone: { id: "mic-1" } },
   };
   const before = ui.menus.length;
   ui.send("recordSheet", sheet);
-  await page.until("!!document.querySelector('[data-camera-preview]') && document.querySelector('[role=meter]')?.dataset.level === '-20'");
-  expect(await page.evaluate<string>("document.querySelector('[data-camera-preview]').src")).toStartWith("data:image/jpeg;base64,");
+  await page.until(
+    "!!document.querySelector('[data-preview=Screen]') && !!document.querySelector('[data-preview=Camera]') && document.querySelector('[aria-label=\"Microphone level\"]')?.dataset.level === '-20' && document.querySelector('[aria-label=\"System audio level\"]')?.dataset.level === '-30'",
+  );
+  expect(await page.evaluate<string>("document.querySelector('[data-preview=Camera]').src")).toStartWith("data:image/jpeg;base64,");
   const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
-  expect(previews().at(-1)).toEqual({ camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
+  expect(previews().at(-1)).toEqual({ screen: { display: 1 }, systemAudio: true, camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
   // Another camera is previewed instead.
   await page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'cam-2')); s.value = 'cam-2'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await arrived(() => previews().at(-1)?.camera?.id === "cam-2");
+  // A source turned off shows as off.
+  await page.evaluate(`document.querySelector('[data-source="Screen"]').click()`);
+  await page.until("!document.querySelector('[data-preview=Screen]') && document.querySelector('[data-record-monitors]').textContent.includes('Off')");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-record]')");
   await arrived(() => JSON.stringify(previews().at(-1)) === "{}");
   expect(previews().at(-1)).toEqual({});
+});
+
+test.skipIf(skip)("the recording panel shows the camera, the time, and rolling waveforms of both levels; Stop stops", async () => {
+  const panel = await openPage(`${ui.url}?panel=camera,microphone,systemAudio`);
+  try {
+    await panel.until("!!document.querySelector('[data-record-panel]')");
+    const before = ui.menus.length;
+    for (let i = 0; i < 5; i++) {
+      ui.send("recordPreview", { source: "camera", jpeg: "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=" });
+      ui.send("recordPreview", { microphone: { db: -18 - i, peak: -6 }, systemAudio: { db: -40, peak: -20 } });
+      await Bun.sleep(30);
+    }
+    await panel.until("[...document.querySelectorAll('canvas[data-history]')].length === 2 && [...document.querySelectorAll('canvas[data-history]')].every((c) => Number(c.dataset.history) >= 4)");
+    expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-panel] [data-preview=Camera]')")).toBe(true);
+    expect(await panel.evaluate<string>("document.querySelector('[data-record-time]').textContent")).toMatch(/^0:0\d$/);
+    await panel.evaluate("document.querySelector('[data-record-stop]').click()");
+    await arrived(() => ui.menus.slice(before).includes("stopRecording"));
+    expect(ui.menus.slice(before)).toContain("stopRecording");
+  } finally {
+    panel.close();
+  }
 });
 
 test.skipIf(skip)("hovering a video in the Media Bin scrubs it: the frame and time under the pointer, back to its thumbnail on leaving", async () => {

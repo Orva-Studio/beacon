@@ -3,7 +3,10 @@ use std::sync::mpsc;
 use block2::RcBlock;
 use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio, AVMediaTypeVideo};
 use objc2_foundation::NSError;
-use objc2_screen_capture_kit::{SCDisplay, SCShareableContent};
+use objc2::{AllocAnyThread, Message};
+use objc2::rc::Retained;
+use objc2_foundation::NSArray;
+use objc2_screen_capture_kit::{SCContentFilter, SCDisplay, SCShareableContent, SCWindow};
 use serde_json::{Value, json};
 
 unsafe extern "C" {
@@ -20,18 +23,40 @@ fn status(s: AVAuthorizationStatus) -> &'static str {
     }
 }
 
-/// The displays ScreenCaptureKit can capture (fails without the Screen Recording permission).
-pub fn displays() -> Result<Vec<objc2::rc::Retained<SCDisplay>>, String> {
+/// What ScreenCaptureKit can capture (fails without the Screen Recording permission).
+fn content() -> Result<Retained<SCShareableContent>, String> {
     let (tx, rx) = mpsc::channel();
     let done = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
         let r = match unsafe { content.as_ref() } {
-            Some(c) => Ok(unsafe { c.displays() }.to_vec()),
+            Some(c) => Ok(c.retain()),
             None => Err(unsafe { error.as_ref() }.map_or("no shareable content".into(), |e| e.localizedDescription().to_string())),
         };
         let _ = tx.send(r);
     });
     unsafe { SCShareableContent::getShareableContentWithCompletionHandler(&done) };
     rx.recv().map_err(|e| e.to_string())?
+}
+
+/// The displays ScreenCaptureKit can capture.
+pub fn displays() -> Result<Vec<Retained<SCDisplay>>, String> {
+    Ok(unsafe { content()?.displays() }.to_vec())
+}
+
+/// A display to capture (the main one when `display` is None), leaving out windows titled `exclude` (Beacon's
+/// recording panel, which floats over what is recorded).
+pub fn display_filter(display: Option<u32>, exclude: Option<&str>) -> Result<(Retained<SCContentFilter>, Retained<SCDisplay>), String> {
+    let content = content()?;
+    let displays = unsafe { content.displays() };
+    let display = match display {
+        Some(id) => displays.iter().find(|d| unsafe { d.displayID() } == id).ok_or_else(|| format!("no display {id}"))?,
+        None => displays.iter().next().ok_or("no display to capture (is the screen asleep?)")?,
+    };
+    let windows: Vec<Retained<SCWindow>> = match exclude {
+        Some(title) => unsafe { content.windows() }.iter().filter(|w| unsafe { w.title() }.is_some_and(|t| t.to_string() == title)).collect(),
+        None => Vec::new(),
+    };
+    let filter = unsafe { SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &display, &NSArray::from_retained_slice(&windows)) };
+    Ok((filter, display))
 }
 
 fn capture_devices(video: bool) -> Vec<Value> {

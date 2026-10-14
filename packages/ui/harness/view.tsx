@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App, type Host } from "../src/app";
 import { recordPreviewEvent } from "../src/record";
+import { RecordPanel } from "../src/record-panel";
 import type { Init } from "../src/rpc";
 import { replica } from "../src/store";
 
@@ -108,5 +109,13 @@ const host: Host = {
 
 (window as unknown as { harness: unknown }).harness = { replica };
 await new Promise((r) => (ws.onopen = r));
-replica.init(await request<Init>("init"));
-createRoot(document.getElementById("root")!).render(<App host={host} />);
+// `?panel=<sources>` shows the recording panel instead, as its own window does, its frames and levels sent as recordPreview messages.
+const panel = new URLSearchParams(location.search).get("panel");
+if (panel !== null) {
+  const has = (k: string) => panel.split(",").includes(k);
+  const state = { started: Date.now(), camera: has("camera"), microphone: has("microphone"), systemAudio: has("systemAudio") };
+  createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} />);
+} else {
+  replica.init(await request<Init>("init"));
+  createRoot(document.getElementById("root")!).render(<App host={host} />);
+}

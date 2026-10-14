@@ -10,6 +10,8 @@ const BUTTON = {
   solid: "rounded-md bg-control px-2.5 py-1 text-text-strong hover:bg-tile-hover disabled:opacity-50 disabled:hover:bg-control",
   /** The one action a sheet is for (Export, Done). */
   primary: "rounded-md bg-accent px-3 py-1 font-semibold text-accent-text hover:brightness-110 disabled:opacity-50 disabled:hover:brightness-100",
+  /** Stopping something under way (a recording). */
+  danger: "rounded-md bg-danger px-3 py-1 font-semibold text-white hover:brightness-110 disabled:opacity-50 disabled:hover:brightness-100",
   /** An icon in a toolbar or the transport. */
   icon: "rounded-md px-2 py-1 text-base hover:bg-control disabled:opacity-35 disabled:hover:bg-transparent",
   /** A small text or × button inside a panel. */

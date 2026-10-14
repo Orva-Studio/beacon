@@ -143,14 +143,16 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         else if (msg.type === "setAppSettings") menus.push(`setAppSettings:${JSON.stringify(msg.settings)}`);
         // Never records: the sources it was asked for are what a test checks.
         else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
-        // No devices here: a still frame and a level stand in for them.
+        // No devices here: still frames and levels stand in for them.
         else if (msg.type === "recordPreview") {
-          const devices = { camera: msg.camera, microphone: msg.microphone };
-          menus.push(`recordPreview:${JSON.stringify(devices)}`);
-          if (msg.camera) ws.send(JSON.stringify({ type: "recordPreview", data: { jpeg: PREVIEW_JPEG } }));
-          if (msg.microphone) ws.send(JSON.stringify({ type: "recordPreview", data: { db: -20, peak: -6 } }));
+          const { id: _, type: __, ...sources } = msg;
+          menus.push(`recordPreview:${JSON.stringify(sources)}`);
+          for (const source of ["screen", "camera"] as const) if (msg[source]) ws.send(JSON.stringify({ type: "recordPreview", data: { source, jpeg: PREVIEW_JPEG } }));
+          if (msg.microphone || msg.systemAudio)
+            ws.send(JSON.stringify({ type: "recordPreview", data: { ...(msg.microphone ? { microphone: { db: -20, peak: -6 } } : {}), ...(msg.systemAudio ? { systemAudio: { db: -30, peak: -12 } } : {}) } }));
           result = { ok: true };
         }
+        else if (msg.type === "stopRecording") menus.push("stopRecording");
         else if (msg.type === "proxySpace") result = await core.analysisSize("proxy");
         else if (msg.type === "deleteAllProxies") result = await core.forgetAll("proxy").then(() => core.analysisSize("proxy"));
         else if (msg.type === "newProject" || msg.type === "renameProject") {

@@ -7,6 +7,7 @@
 mod capture;
 mod cursor;
 mod devices;
+mod monitor;
 mod preview;
 mod serve;
 
@@ -22,12 +23,12 @@ fn record(args: &[String]) -> Result<(), String> {
     let list = devices::list();
     let granted = |k: &str| list["permissions"][k] == "granted";
     let sources = capture::Sources {
-        screen: Some(capture::Screen { display: None, fps: 60 }),
+        screen: Some(capture::Screen { display: None, fps: 60, exclude: None }),
         system_audio: true,
         camera: (granted("camera") && list["cameras"].as_array().is_some_and(|c| !c.is_empty())).then_some(capture::Device { id: None }),
         microphone: (granted("microphone") && list["microphones"].as_array().is_some_and(|m| !m.is_empty())).then_some(capture::Device { id: None }),
     };
-    let mut take = capture::Take::start(dir, &sources)?;
+    let mut take = capture::Take::start(dir, &sources, None)?;
     println!("{}", serde_json::json!({ "event": "recording", "dir": dir, "camera": sources.camera.is_some(), "microphone": sources.microphone.is_some() }));
     let step = if seconds <= 30.0 { 3.0 } else { 20.0 };
     let mut next = (1..).map(|i| i as f64 * step).take_while(|&at| at < seconds - 1.0).peekable();

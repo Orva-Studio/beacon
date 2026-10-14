@@ -1,5 +1,5 @@
 import type { CommandResult, Patch, Session, Settings } from "@beacon/model";
-import type { RecorderDevices, RecorderPreviewEvent, RecorderSources } from "@beacon/media";
+import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
 export type { CommandResult, Session };
@@ -69,6 +69,8 @@ export interface RecordOptions {
   sources?: RecorderSources;
   /** The take's name (its `.brec` folder in the project's `recordings`); by default the date and time. */
   name?: string;
+  /** Gets the take's camera frames and audio levels while it records, for the app's recording panel. */
+  monitor?: (e: RecorderPreviewEvent) => void;
 }
 
 export interface RecordStatus {
@@ -79,7 +81,7 @@ export interface RecordStatus {
   elapsed?: number;
 }
 
-export type { RecorderDevices, RecorderPreviewEvent, RecorderSources };
+export type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources };
 
 export interface ImportResult {
   assets: string[];
@@ -223,8 +225,8 @@ export interface BeaconCore {
   recorderDevices(): Promise<RecorderDevices>;
   /** Asks macOS for the camera or microphone permission; the status after. */
   recorderAccess(kind: "camera" | "microphone"): Promise<string>;
-  /** The Record dialog's preview of a camera and microphone, sent to `fn` until called again; with neither, it stops. Only in the app. */
-  recorderPreview(devices: Pick<RecorderSources, "camera" | "microphone">, fn?: (e: RecorderPreviewEvent) => void): Promise<void>;
+  /** The Record dialog's preview of the sources, sent to `fn` until called again; with none, it stops. Only in the app. */
+  recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void): Promise<void>;
   /** Starts recording a take into the project's `recordings` folder; one take at a time. Resolves once every source is delivering. */
   recordStart(h: ProjectHandle, opts?: RecordOptions): Promise<{ take: string }>;
   recordStatus(): Promise<RecordStatus>;

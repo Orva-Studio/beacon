@@ -25,9 +25,10 @@ type LiveView = import("@beacon/core").LiveView;
 type Session = import("@beacon/core").Session;
 type ExportSettings = import("@beacon/ui").ExportSettings;
 type RecordSources = import("@beacon/ui").RecordSources;
+type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportOptions } = await import("@beacon/ui");
+const { DEFAULT_EXPORT, exportOptions, panelHeight } = await import("@beacon/ui");
 const keymap = (await import("../../../../keymaps/default.json")).default.bindings as import("@beacon/ui").Init["keymap"];
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
@@ -380,14 +381,58 @@ async function recordDialog() {
 
 const STOP_SHORTCUT = "CommandOrControl+Shift+2";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-let recording: { tray: Tray; timer: ReturnType<typeof setInterval> } | undefined;
+let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow } | undefined;
+
+/** The recording panel's title: the recorder leaves the window with it out of the take. */
+const PANEL_TITLE = "Beacon Recording Panel";
+const PANEL_WIDTH = 300;
+let panelState: PanelState | undefined;
+/** The panel's webview, once it has loaded: the take's frames and levels go to it. */
+let panelSend: ((e: import("@beacon/ui").RecordPreview) => void) | undefined;
+
+/**
+ * The small window over the screen while a take records: its camera, time, levels and Stop, not recorded.
+ * Resolves once its page has loaded (or after 2 s), so ScreenCaptureKit lists the window to leave out.
+ */
+async function openPanel(state: PanelState, display: { width: number } | undefined) {
+  panelState = state;
+  let loaded!: () => void;
+  const ready = new Promise<void>((r) => (loaded = r));
+  const rpc = BrowserView.defineRPC<import("@beacon/ui").PanelRPC>({
+    handlers: {
+      requests: {
+        panelInit: async () => {
+          loaded();
+          return panelState ?? null;
+        },
+      },
+      messages: { stopRecording: () => void stopRecording() },
+    },
+  });
+  const height = Math.round(panelHeight(state, PANEL_WIDTH));
+  const panel = new BrowserWindow({
+    title: PANEL_TITLE,
+    url: "views://recordpanel/index.html",
+    rpc,
+    frame: { x: Math.max(0, (display?.width ?? 1440) - PANEL_WIDTH - 24), y: 48, width: PANEL_WIDTH, height },
+    titleBarStyle: "hidden",
+    transparent: true,
+    activate: false,
+  });
+  panel.setAlwaysOnTop(true);
+  panel.setVisibleOnAllWorkspaces(true);
+  panelSend = (e) => panel.webview.rpc?.send.recordPreview(e);
+  await Promise.race([ready, Bun.sleep(2000)]);
+  return panel;
+}
 
 /** Record: Beacon hides while the take records; a menu-bar item shows the time and stops it, as ⌘⇧2 does. */
 async function startRecording({ sources }: { sources: RecordSources }) {
   if (!current) throw new Error("Open a project first");
   if (recording) throw new Error("Already recording");
   // Asked while the window is up, so macOS's prompt has somewhere to show.
-  const { permissions } = await core.recorderDevices();
+  const devices = await core.recorderDevices();
+  const { permissions } = devices;
   for (const kind of ["camera", "microphone"] as const) {
     if (!sources[kind] || permissions[kind] === "granted") continue;
     if ((await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
@@ -397,11 +442,26 @@ async function startRecording({ sources }: { sources: RecordSources }) {
     writeFileSync(RECORD_FILE, JSON.stringify(sources));
   } catch {}
   win.hide();
+  const panelSources = { camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
+  // Opened first, so the recorder can leave it out of the take by its title.
+  const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
+  const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
   try {
-    await core.recordStart(current.path, { sources });
+    await core.recordStart(current.path, {
+      sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
+      monitor: (e) => panelSend?.(e),
+    });
   } catch (e) {
+    panel.close();
+    panelSend = undefined;
+    panelState = undefined;
     win.show();
     throw e;
+  }
+  // The take begins once its sources deliver, a moment after the panel opened.
+  if (panelState) {
+    panelState.started = Date.now();
+    panel.webview.rpc?.send.recordStarted({ started: panelState.started });
   }
   const tray = new Tray({ title: "● 0:00" });
   tray.setMenu([{ type: "normal", label: "Stop Recording  (⌘⇧2)", action: "stopRecording" }]);
@@ -411,7 +471,7 @@ async function startRecording({ sources }: { sources: RecordSources }) {
   const started = Date.now();
   const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000)}`), 1000);
   GlobalShortcut.register(STOP_SHORTCUT, () => void stopRecording());
-  recording = { tray, timer };
+  recording = { tray, timer, panel };
 }
 
 /** Stops the take, imports it at the end of the timeline and brings Beacon back. */
@@ -422,6 +482,9 @@ async function stopRecording() {
   clearInterval(r.timer);
   GlobalShortcut.unregister(STOP_SHORTCUT);
   r.tray.remove();
+  r.panel?.close();
+  panelSend = undefined;
+  panelState = undefined;
   try {
     const take = await core.recordStop();
     status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration)})`);

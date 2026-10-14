@@ -19,8 +19,8 @@ use objc2_av_foundation::{
     AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoWidthKey,
 };
 use objc2_core_media::{CMClock, CMSampleBuffer, CMTime};
-use objc2_foundation::{NSArray, NSDictionary, NSError, NSNumber, NSObject, NSObjectProtocol, NSString, NSURL};
-use objc2_screen_capture_kit::{SCContentFilter, SCStream, SCStreamConfiguration, SCStreamOutput, SCStreamOutputType};
+use objc2_foundation::{NSDictionary, NSError, NSNumber, NSObject, NSObjectProtocol, NSString, NSURL};
+use objc2_screen_capture_kit::{SCStream, SCStreamConfiguration, SCStreamOutput, SCStreamOutputType};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -42,6 +42,8 @@ pub struct Screen {
     pub display: Option<u32>,
     #[serde(default = "sixty")]
     pub fps: u32,
+    /// Leaves out windows with this title (Beacon's recording panel).
+    pub exclude: Option<String>,
 }
 
 fn sixty() -> u32 {
@@ -184,6 +186,8 @@ struct ScreenIvars {
     screen: Mutex<Option<Track>>,
     audio: Mutex<Option<Track>>,
     idle: Mutex<u64>,
+    /// System audio's level, for the recording panel.
+    level: Mutex<crate::monitor::Meter>,
 }
 
 define_class!(
@@ -211,6 +215,7 @@ define_class!(
                 && let Some(t) = iv.audio.lock().unwrap().as_mut()
             {
                 t.append(buf);
+                iv.level.lock().unwrap().add_float(buf);
             }
         }
     }
@@ -223,7 +228,16 @@ struct CaptureIvars {
     // The camera's output, to tell its frames from the microphone's; the session retains it. Atomic
     // because the camera and microphone callbacks run on separate queues.
     video_output: AtomicPtr<AVCaptureOutput>,
+    /// Sends the camera's frames to the recording panel, a few a second, when it is shown.
+    monitor: Option<Monitor>,
+    last_frame: Mutex<Option<std::time::Instant>>,
 }
+
+pub type Monitor = Box<dyn Fn(Value) + Send + Sync>;
+
+/// Camera frames for the recording panel: small, and few, so the take's own frames aren't held up.
+const MONITOR_WIDTH: usize = 320;
+const MONITOR_FPS: f64 = 10.0;
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -241,6 +255,18 @@ define_class!(
             let track = if is_video { &iv.camera } else { &iv.mic };
             if let Some(t) = track.lock().unwrap().as_mut() {
                 t.append(buf);
+            }
+            if is_video && let Some(emit) = &iv.monitor {
+                {
+                    let mut last = iv.last_frame.lock().unwrap();
+                    if last.is_some_and(|l| l.elapsed() < Duration::from_secs_f64(1.0 / MONITOR_FPS)) {
+                        return;
+                    }
+                    *last = Some(std::time::Instant::now());
+                }
+                if let Some(jpeg) = crate::monitor::jpeg(buf, MONITOR_WIDTH) {
+                    emit(json!({ "event": "previewFrame", "source": "camera", "jpeg": jpeg }));
+                }
             }
         }
     }
@@ -294,7 +320,7 @@ fn error_text(e: *mut NSError) -> Option<String> {
 }
 
 /// Calls an Objective-C method taking a completion block with an optional NSError, and waits for it.
-fn wait_for(f: impl FnOnce(&block2::DynBlock<dyn Fn(*mut NSError)>)) -> Result<(), String> {
+pub(crate) fn wait_for(f: impl FnOnce(&block2::DynBlock<dyn Fn(*mut NSError)>)) -> Result<(), String> {
     let (tx, rx) = mpsc::channel();
     let done = RcBlock::new(move |e: *mut NSError| {
         let _ = tx.send(error_text(e));
@@ -327,6 +353,7 @@ pub struct Take {
     session: Retained<AVCaptureSession>,
     screen_out: Retained<ScreenOutput>,
     capture_out: Retained<CaptureOutput>,
+    mic_output: Option<Retained<AVCaptureAudioDataOutput>>,
     /// Kept alive while the take runs: the outputs deliver on them.
     _queues: Vec<dispatch2::DispatchRetained<DispatchQueue>>,
     t0: f64,
@@ -339,7 +366,8 @@ pub struct Take {
 
 impl Take {
     /// Opens every file, starts capture, then begins the take: each file holds only samples from then on.
-    pub fn start(dir: &Path, sources: &Sources) -> Result<Take, String> {
+    /// `monitor` gets the recording panel's camera frames; `level` gives its audio levels.
+    pub fn start(dir: &Path, sources: &Sources, monitor: Option<Monitor>) -> Result<Take, String> {
         if dir.exists() {
             return Err(format!("{} already exists", dir.display()));
         }
@@ -358,18 +386,13 @@ impl Take {
         let mut queues = Vec::new();
 
         // ScreenCaptureKit: the display at its pixel size, no cursor (Beacon draws its own), system audio at 48 kHz stereo.
-        let screen_out = ScreenOutput::alloc().set_ivars(ScreenIvars { screen: Mutex::new(None), audio: Mutex::new(None), idle: Mutex::new(0) });
+        let screen_out = ScreenOutput::alloc().set_ivars(ScreenIvars { screen: Mutex::new(None), audio: Mutex::new(None), idle: Mutex::new(0), level: Mutex::new(crate::monitor::Meter::default()) });
         let screen_out: Retained<ScreenOutput> = unsafe { msg_send![super(screen_out), init] };
         let mut stream = None;
         let mut cursor = None;
         if sources.screen.is_some() || sources.system_audio {
-            let displays = crate::devices::displays()?;
-            let want = sources.screen.as_ref().and_then(|s| s.display);
-            let display = match want {
-                Some(id) => displays.into_iter().find(|d| unsafe { d.displayID() } == id).ok_or_else(|| format!("no display {id}"))?,
-                None => displays.into_iter().next().ok_or("no display to capture (is the screen asleep?)")?,
-            };
-            let filter = unsafe { SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &display, &NSArray::new()) };
+            let want = sources.screen.as_ref();
+            let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude.as_deref()))?;
             let config = unsafe { SCStreamConfiguration::new() };
             let fps = sources.screen.as_ref().map_or(1, |s| s.fps.clamp(1, 60));
             // Audio alone still needs a video stream: the smallest one.
@@ -415,10 +438,11 @@ impl Take {
 
         // AVFoundation: the camera and microphone in one session.
         let session = unsafe { AVCaptureSession::new() };
-        let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()) });
+        let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()), monitor, last_frame: Mutex::new(None) });
         let capture_out: Retained<CaptureOutput> = unsafe { msg_send![super(capture_out), init] };
         unsafe { session.beginConfiguration() };
         let mut camera = None;
+        let mut mic_output = None;
         let configured = (|| -> Result<(), String> {
             if let Some(want) = &sources.camera {
                 let dev = device(video_type, want, "camera")?;
@@ -455,6 +479,7 @@ impl Take {
                 let channels = recommended.as_deref().and_then(|s| setting(s, "AVNumberOfChannelsKey")).unwrap_or(1.0) as i64;
                 let info = json!({ "device": unsafe { dev.localizedName() }.to_string(), "rate": rate, "channels": channels });
                 *capture_out.ivars().mic.lock().unwrap() = Some(Track::new("microphone", "microphone.wav", dir, wav, audio_type, &pcm(rate, channels), info)?);
+                mic_output = Some(output);
             }
             Ok(())
         })();
@@ -501,7 +526,7 @@ impl Take {
         }
         let started_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
         let cursor_summary = cursor.as_ref().map(|_| json!({ "file": "cursor.jsonl" }));
-        let take = Take { dir: dir.to_path_buf(), stream, session, screen_out, capture_out, _queues: queues, t0, started_at, cursor, cursor_summary, marks: Vec::new() };
+        let take = Take { dir: dir.to_path_buf(), stream, session, screen_out, capture_out, mic_output, _queues: queues, t0, started_at, cursor, cursor_summary, marks: Vec::new() };
         // Written now so a take the recorder never finished still says what it holds.
         take.write(None, &[])?;
         Ok(take)
@@ -522,6 +547,20 @@ impl Take {
         if let Some(c) = &mut self.cursor {
             c.poll(t);
         }
+    }
+
+    /// `{event: "previewLevel", microphone?, systemAudio?}` as the preview's, for the recording panel.
+    pub fn level(&self) -> Option<Value> {
+        let mic = self.mic_output.as_deref().and_then(crate::monitor::channel_level);
+        let system = self.screen_out.ivars().audio.lock().unwrap().is_some().then(|| self.screen_out.ivars().level.lock().unwrap().read()).flatten();
+        if mic.is_none() && system.is_none() {
+            return None;
+        }
+        Some(json!({ "event": "previewLevel", "microphone": mic, "systemAudio": system }))
+    }
+
+    pub fn monitored(&self) -> bool {
+        self.capture_out.ivars().monitor.is_some()
     }
 
     pub fn mark(&mut self) {

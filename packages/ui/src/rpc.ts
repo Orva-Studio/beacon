@@ -70,6 +70,7 @@ export interface DroppedFile {
 
 export { exportOptions } from "./export-options";
 export { DEFAULT_EXPORT } from "./export-defaults";
+export { panelHeight } from "./record-panel-size";
 
 export interface Notice {
   title: string;
@@ -127,8 +128,14 @@ export interface RecordSources {
   microphone?: { id?: string };
 }
 
-/** The Record dialog's preview: a camera frame (base64 JPEG), or the microphone's level in dBFS. */
-export type RecordPreview = { jpeg: string } | { db: number; peak: number };
+/** An audio level in dBFS: the average and the recent peak. */
+export interface AudioLevel {
+  db: number;
+  peak: number;
+}
+
+/** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG), or the audio levels. */
+export type RecordPreview = { source: "camera" | "screen"; jpeg: string } | { microphone?: AudioLevel; systemAudio?: AudioLevel };
 
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
 export interface RecordSheet {
@@ -147,6 +154,36 @@ export interface ExportJob {
   progress: number;
   error?: string;
 }
+
+/** What the recording panel shows besides frames and levels: when the take began, and which sources it has. */
+export interface PanelState {
+  /** Unix milliseconds. */
+  started: number;
+  camera: boolean;
+  microphone: boolean;
+  systemAudio: boolean;
+}
+
+/** Electrobun RPC between the main process and the recording panel, the small window over the screen while a take records. */
+export type PanelRPC = {
+  bun: {
+    requests: {
+      /** The panel's state once its page has loaded. */
+      panelInit: { params: {}; response: PanelState | null };
+    };
+    messages: {
+      stopRecording: {};
+    };
+  };
+  webview: {
+    requests: {};
+    messages: {
+      recordPreview: RecordPreview;
+      /** The take has begun (its sources are delivering): the time counts from here. */
+      recordStarted: { started: number };
+    };
+  };
+};
 
 /** Electrobun RPC between the main process (document owner) and the webview (a view of it). */
 export type AppRPC = {
@@ -184,8 +221,8 @@ export type AppRPC = {
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
-      /** Shows the camera and microphone in the Record dialog (`recordPreview` messages); with neither, stops. */
-      recordPreview: { params: Pick<RecordSources, "camera" | "microphone">; response: RunReply };
+      /** Shows the sources in the Record dialog (`recordPreview` messages); with none, stops. */
+      recordPreview: { params: RecordSources; response: RunReply };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
       setAppSettings: { params: AppSettings; response: void };
