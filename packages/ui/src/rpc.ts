@@ -175,6 +175,8 @@ export type AppRPC = {
       trackMenu: { params: { track: string | null }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
+      /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
+      binFrame: { params: { asset: string; time: number }; response: string | null };
       /** A folder picked in the Finder dialog, starting at `start`. */
       chooseFolder: { params: { start: string }; response: string | null };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */

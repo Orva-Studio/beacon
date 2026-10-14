@@ -686,13 +686,13 @@ export class LocalCore implements BeaconCore {
     return png;
   }
 
-  /** PNG of an asset for the media bin: its first video stream a second in (the screen, for a recording). */
-  async assetThumbnail(h: ProjectHandle, assetId: string, height: number): Promise<Uint8Array | undefined> {
+  /** PNG of an asset for the media bin: its first video stream `at` seconds in (a second by default; the screen, for a recording). */
+  async assetThumbnail(h: ProjectHandle, assetId: string, height: number, at?: number): Promise<Uint8Array | undefined> {
     const p = this.#get(h);
     const asset = p.store.doc.assets[assetId];
     if (!asset || asset.kind === "audio") return undefined;
     const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[0];
-    const time = asset.kind === "image" ? 0 : 1;
+    const time = asset.kind === "image" ? 0 : (at ?? 1);
     const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", 0);
     return this.#cachedThumb(asset, -1, time, height, () => thumbnailPng(src.path, src.stream, time, height));
   }

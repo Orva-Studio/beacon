@@ -987,7 +987,12 @@ process). Corner Rounding's radius, Drop Shadow's offset and blur and Motion
 Blur's intensity have sliders. An effect's on/off is a tick box in its
 header, as its other options are, not Camtasia's green pill switch. Drop
 Shadow's angle shows in degrees and its opacity as a percentage (stored as
-radians and a fraction, as before).
+radians and a fraction, as before). A linked clip's chain is drawn in its top-left
+corner on a dark badge (it sat after a video's thumbnail, out of line with its
+audio's). Hovering a Media Bin tile scrubs it (2026-10-14), as other editors
+do: a line and the time under the pointer, and for video the frame there, from
+30 frames across it fetched as it is hovered (under the pointer first) and
+cached on disk with the bin's thumbnails.
 
 **Device delays (decided 2026-10-13).** A camera through a capture card (the
 user's Elgato) arrives late by the camera's and card's processing, often

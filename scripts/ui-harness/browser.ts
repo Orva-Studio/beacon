@@ -72,6 +72,8 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
     down: (x: number, y: number, mods?: Mods) => mouse("mousePressed", x, y, mods),
     move: (x: number, y: number, mods?: Mods) => mouse("mouseMoved", x, y, mods),
     up: (x: number, y: number, mods?: Mods) => mouse("mouseReleased", x, y, mods),
+    /** The pointer moved with no button down (`move` holds the left one, as a drag does). */
+    hover: (x: number, y: number) => send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 }),
     async click(x: number, y: number, mods?: Mods) {
       await mouse("mouseMoved", x, y, mods);
       await mouse("mousePressed", x, y, mods);

@@ -765,6 +765,10 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           send().media({ highlight: r.asset });
           void sendThumbs();
         }),
+      binFrame: async ({ asset, time }) => {
+        const png = current && (await core.assetThumbnail(current.path, asset, THUMB_HEIGHT * 2, time).catch(() => undefined));
+        return png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;
+      },
       frameImage: async () => {
         if (!current) return null;
         const img = await core.frame(current.path, (await core.session(current.path)).playhead);

@@ -428,6 +428,25 @@ test.skipIf(skip)("Record previews the chosen camera and shows the microphone's 
   expect(previews().at(-1)).toEqual({});
 });
 
+test.skipIf(skip)("hovering a video in the Media Bin scrubs it: the frame and time under the pointer, back to its thumbnail on leaving", async () => {
+  await run("panel.show", { tool: "media" });
+  const take = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
+  const tile = `[data-asset="${take.id}"] [data-scrub], [data-asset="${take.id}"] > div:first-child`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('${tile}').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const time = () => page.evaluate<string>(`document.querySelector('[data-asset="${take.id}"] [data-scrub-time]').textContent`);
+  const whole = await time();
+  await page.hover(box.x + box.w * 0.75, box.y + box.h / 2);
+  await page.until(`!!document.querySelector('[data-asset="${take.id}"] [data-scrub-frame]')`, 15000);
+  const late = await time();
+  await page.hover(box.x + box.w * 0.1, box.y + box.h / 2);
+  await page.until(`document.querySelector('[data-asset="${take.id}"] [data-scrub-time]').textContent !== ${JSON.stringify(late)}`);
+  expect(late).not.toBe(whole);
+  await page.hover(box.x + box.w / 2, box.y - 40);
+  await page.until(`!document.querySelector('[data-asset="${take.id}"] [data-scrub-frame]')`);
+  expect(await time()).toBe(whole);
+}, 30000);
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");

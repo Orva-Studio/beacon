@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { assetName, type Asset, type Clip, type Project, type Track } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
@@ -52,6 +52,65 @@ const clock = (s: number) => {
   const two = (n: number) => String(n).padStart(2, "0");
   return t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}:${two(t % 60)}` : `${Math.floor(t / 60)}:${two(t % 60)}`;
 };
+
+/** Frames across a video for scrubbing its tile: one per few pixels of a grid tile. */
+const SCRUB_FRAMES = 30;
+
+/**
+ * Hovering a tile scrubs it: where the pointer is across it, as a fraction, and for video the nearest frame
+ * fetched so far. The frame under the pointer is fetched first, then the rest outward from it, one at a time;
+ * they are cached on disk, so a tile hovered again fills at once.
+ */
+function useScrub(a: Asset, host: Host, on: boolean) {
+  const [at, setAt] = useState<number>();
+  const [, fetched] = useState(0);
+  const frames = useRef(new Map<number, string>());
+  const want = useRef<number | undefined>(undefined);
+  const busy = useRef(false);
+  const seconds = duration(a);
+  const pictures = a.kind === "video" || a.kind === "recording";
+  const pump = () => {
+    const w = want.current;
+    if (busy.current || w === undefined || !pictures) return;
+    let i: number | undefined;
+    for (let d = 0; d < SCRUB_FRAMES && i === undefined; d++) i = [w - d, w + d].find((j) => j >= 0 && j < SCRUB_FRAMES && !frames.current.has(j));
+    if (i === undefined) return;
+    busy.current = true;
+    void host
+      .binFrame(a.id, ((i + 0.5) / SCRUB_FRAMES) * seconds)
+      .catch(() => null)
+      .then((url) => {
+        frames.current.set(i, url ?? "");
+        busy.current = false;
+        fetched((n) => n + 1);
+        pump();
+      });
+  };
+  const bucket = (f: number) => Math.min(SCRUB_FRAMES - 1, Math.floor(f * SCRUB_FRAMES));
+  let frame: string | undefined;
+  if (at !== undefined) {
+    const b = bucket(at);
+    for (let d = 0; d < SCRUB_FRAMES && !frame; d++) frame = frames.current.get(b - d) || frames.current.get(b + d) || undefined;
+  }
+  const handlers = on && seconds > 0
+    ? {
+        onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
+          // A press is a drag to the timeline, not a scrub.
+          if (e.buttons) return setAt(undefined);
+          const r = e.currentTarget.getBoundingClientRect();
+          const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+          setAt(f);
+          want.current = bucket(f);
+          pump();
+        },
+        onPointerLeave: () => {
+          setAt(undefined);
+          want.current = undefined;
+        },
+      }
+    : {};
+  return { at, seconds, frame, handlers };
+}
 
 /** Assets with a clip on the timeline, inside groups and stitched clips too. */
 function usedAssets(project: Project, nested: Record<string, string>): Set<string> {
@@ -243,11 +302,16 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
   const preparing = useView((s) => s.preparing[a.id]);
   const proxy = useView((s) => !!s.proxies[a.id]);
   const missing = useView((s) => s.missing.includes(a.id));
-  const seconds = duration(a);
+  const scrub = useScrub(a, host, !list && !missing && a.kind !== "image");
+  const seconds = scrub.seconds;
   const picture = (
-    <div className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-md ${a.kind === "audio" && peaks ? "bg-clip-audio" : "bg-black"} ${list ? "h-9 w-14" : "aspect-[16/10] w-full"}`}>
-      {thumb ? (
-        <img src={thumb} draggable={false} className="h-full w-full object-cover" />
+    <div
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-md ${a.kind === "audio" && peaks ? "bg-clip-audio" : "bg-black"} ${list ? "h-9 w-14" : "aspect-[16/10] w-full"}`}
+      data-scrub={scrub.at}
+      {...scrub.handlers}
+    >
+      {thumb || scrub.frame ? (
+        <img src={(scrub.at !== undefined && scrub.frame) || thumb} draggable={false} className="h-full w-full object-cover" data-scrub-frame={scrub.at !== undefined && scrub.frame ? "" : undefined} />
       ) : a.kind === "audio" && peaks ? (
         <Waveform peaks={peaks} className="h-full w-full" />
       ) : (
@@ -258,7 +322,12 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
           <span className="absolute bottom-1 left-1 flex size-4 items-center justify-center rounded-[3px] bg-black/60 text-white" title={a.kind}>
             <Icon name={KIND_ICON[a.kind]} size={11} />
           </span>
-          {seconds > 0 && <span className="absolute right-1 bottom-1 rounded-[3px] bg-black/60 px-1 text-[10px] leading-4 font-medium text-white tabular-nums">{clock(seconds)}</span>}
+          {seconds > 0 && (
+            <span className="absolute right-1 bottom-1 rounded-[3px] bg-black/60 px-1 text-[10px] leading-4 font-medium text-white tabular-nums" data-scrub-time>
+              {clock(scrub.at === undefined ? seconds : scrub.at * seconds)}
+            </span>
+          )}
+          {scrub.at !== undefined && <span className="pointer-events-none absolute inset-y-0 w-px bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.45)]" style={{ left: `${scrub.at * 100}%` }} />}
           {used && (
             <span className="absolute top-1 left-1 flex size-4 items-center justify-center rounded-full bg-black/60 text-white" data-used title="On the timeline">
               <Icon name="check" size={10} />

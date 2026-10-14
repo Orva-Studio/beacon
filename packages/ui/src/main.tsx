@@ -86,6 +86,7 @@ const host: Host = {
   dropFiles: (files, at) => void report(request.dropFiles({ files, ...at })),
   captureFrame: () => void report(request.captureFrame({})),
   frameImage: () => request.frameImage({}),
+  binFrame: (asset, time) => request.binFrame({ asset, time }),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),
