@@ -12,8 +12,11 @@ export interface PanelItem {
   traits: string[];
   /** Where on the clip it lands matters (animations start at the drop). */
   timed?: boolean;
-  /** Media from the Media Bin: it drops on a track (or the canvas) rather than a clip; `time` and `track` are added to `args`. */
-  media?: { seconds: number };
+  /**
+   * Media from the Media Bin: it drops on a track (or the canvas) rather than a clip; `time` and `track` are added
+   * to `args`. `layers`: the clips it makes, bottom track first (a recording's screen, camera and audio), once known.
+   */
+  media?: { seconds: number; layers?: { label: string; seconds: number }[] };
 }
 
 /** Where a drop at a point lands: the clip (or for media, the track; none makes new tracks) and the timeline time (seconds) there. */

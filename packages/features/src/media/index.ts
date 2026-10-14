@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   animationRamps,
   defineFeature,
+  defineQuery,
   IDENTITY,
   clipSpeed,
   ticksToSeconds,
@@ -284,6 +285,20 @@ export const media = defineFeature({
         return { streams } satisfies WaveformData;
       },
     },
+  ],
+  queries: [
+    defineQuery({
+      id: "asset.clips",
+      description: "The clips putting media on the timeline makes (asset.place), bottom track first: what each is (Screen, Camera, Audio…), its type and length in seconds",
+      args: z.strictObject({ asset: z.string().min(1) }),
+      run({ asset }, { project, registry }) {
+        const a = project.assets[asset];
+        if (!a) throw new Error(`no asset "${asset}"`);
+        const importer = registry.importerFor(a.path.slice(a.path.lastIndexOf(".")));
+        if (!importer) throw new Error(`no feature places ${a.path}`);
+        return importer.clips(a, project).map((c) => ({ track: c.track, type: c.type, seconds: ticksToSeconds(c.duration) }));
+      },
+    }),
   ],
   importers: [
     { id: "recording", extensions: [".trec", ".brec"], kind: "recording", clips: importClips },

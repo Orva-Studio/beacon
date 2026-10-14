@@ -483,10 +483,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.restore();
     });
     // Where a drag would put things.
-    const ghost = (a: number, b: number, i: number, label: string, bad?: boolean) => {
-      const gy = RULER + Math.max(0, i) * TRACK + 3;
-      // Above the top track: the drop makes a new track.
-      if (i < 0) ctx.setLineDash([5, 4]);
+    const ghost = (a: number, b: number, i: number, label: string, bad?: boolean) => ghostRow(a, b, Math.max(0, i), label, i < 0, bad);
+    /** `fresh`: on a track the drop makes, dashed. */
+    const ghostRow = (a: number, b: number, row: number, label: string, fresh: boolean, bad?: boolean) => {
+      const gy = RULER + row * TRACK + 3;
+      if (fresh) ctx.setLineDash([5, 4]);
       ctx.beginPath();
       ctx.roundRect(x(a) + 0.5, gy, Math.max(1, (b - a) * pps - 1.5), TRACK - 6, CLIP_RADIUS);
       ctx.fillStyle = color("clip-ghost");
@@ -524,7 +525,21 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.stroke();
     }
     const media = over?.item.media && mediaHit(over.x, over.y, over.item.media.seconds);
-    if (media) ghost(media.time, media.time + over!.item.media!.seconds, media.row ?? -1, over!.item.label, media.bad);
+    if (media) {
+      const { seconds, layers } = over!.item.media!;
+      const stack = layers?.length ? layers : [{ label: over!.item.label, seconds }];
+      const t = media.time;
+      if (media.row === undefined) {
+        // No track under the pointer: each clip on a new track at the top, the last listed highest.
+        stack.forEach((l, k) => ghostRow(t, t + l.seconds, stack.length - 1 - k, l.label, true));
+      } else {
+        // The first clip on the track under the pointer, the rest on the tracks above it; those past the top make new tracks.
+        const fits = stack.slice(0, media.row + 1);
+        const extra = stack.slice(media.row + 1);
+        fits.forEach((l, k) => ghost(t, t + l.seconds, media.row! - k, l.label, media.bad && k === 0));
+        if (extra.length) ghost(t, t + Math.max(...extra.map((l) => l.seconds)), -1, `New tracks: ${extra.map((l) => l.label).join(", ")}`);
+      }
+    }
     if (d?.kind === "marquee") {
       ctx.setLineDash([4, 3]);
       ctx.strokeStyle = color("text-dim");

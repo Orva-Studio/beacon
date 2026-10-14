@@ -391,7 +391,13 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
         else if (!selected) replica.selectBin([a.id]);
         // Focused, it takes ⌫ (Delete Media) from the timeline's Delete.
         e.currentTarget.focus({ preventScroll: true });
-        pressItem(e, binItem(a), (command, args) => host.run(command, args), false);
+        const item = binItem(a);
+        // What the drag's ghost shows on the timeline: every clip it makes (a recording's are on tracks above each other).
+        void host
+          .query("asset.clips", { asset: a.id })
+          .then((clips) => (item.media!.layers = (clips as { track: string; seconds: number }[]).map((c) => ({ label: `${assetName(a)} · ${c.track}`, seconds: c.seconds }))))
+          .catch(() => {});
+        pressItem(e, item, (command, args) => host.run(command, args), false);
       }}
       // A plain click on one of several selected items leaves just it selected (after any drag of it).
       onClick={(e) => !e.shiftKey && !e.metaKey && selection.length > 1 && replica.selectBin([a.id])}
