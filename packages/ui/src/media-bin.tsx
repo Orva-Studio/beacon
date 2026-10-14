@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { assetName, type Asset, type Clip, type Project, type Track } from "@beacon/model";
+import { assetName, type Asset, type Project } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
-import type { Init } from "./rpc";
 import { replica, useView, type BinKind, type BinSort } from "./store";
 import { Icon, MediaTile, Progress, TextInput, Waveform, type IconName } from "./controls";
 import { openPreview } from "./media-preview";
-import { innerTracks } from "./timeline";
 
 /** Each sort with its two directions, as one menu. */
 const SORTS: [BinSort, string, string, string][] = [
@@ -112,38 +110,20 @@ function useScrub(a: Asset, host: Host, on: boolean) {
   return { at, seconds, frame, handlers };
 }
 
-/** Assets with a clip on the timeline, inside groups and stitched clips too. */
-function usedAssets(project: Project, nested: Record<string, string>): Set<string> {
-  const used = new Set<string>();
-  const walk = (tracks: Track[]) => {
-    for (const t of tracks) {
-      for (const c of t.clips as Clip[]) {
-        if (c.assetId) used.add(c.assetId);
-        const inner = innerTracks(c, nested);
-        if (inner) walk(inner);
-      }
-    }
-  };
-  walk(project.tracks);
-  return used;
-}
-
 /** A Media Bin item as something to drag onto the timeline or canvas. */
 const binItem = (a: Asset): PanelItem => ({ label: assetName(a), command: "edit.addMedia", args: { asset: a.id }, traits: [], media: { seconds: a.kind === "image" ? 5 : duration(a) || 5 } });
 
 /**
  * The Media Bin: search, a kind filter, sorting and grid or list, with an Import tile first. Tiles show the
- * picture with its duration and kind; a P when it has a proxy, a check when it is on the timeline.
+ * picture with its duration and kind, and a P when it has a proxy.
  */
 export function MediaBin({
   project,
-  init,
   thumbs,
   waveforms,
   host,
 }: {
   project: Project;
-  init?: Init;
   thumbs: Record<string, string>;
   waveforms: Record<string, Record<number, number[]>>;
   host: Host;
@@ -170,7 +150,6 @@ export function MediaBin({
   const all = Object.values(project.assets);
   const query = bin.query.trim().toLowerCase();
   const assets = sortAssets(all, sort).filter((a) => ofKind(a, bin.kind) && (!query || assetName(a).toLowerCase().includes(query)));
-  const used = usedAssets(project, init?.nested ?? {});
   const list = bin.view === "list";
   return (
     <div className="panel-card flex w-[290px] shrink-0 flex-col overflow-hidden" data-media-bin>
@@ -265,7 +244,7 @@ export function MediaBin({
       >
         <ImportTile list={list} host={host} empty={!all.length} />
         {assets.map((a) => (
-          <BinItem key={a.id} asset={a} list={list} used={used.has(a.id)} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
+          <BinItem key={a.id} asset={a} list={list} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
         ))}
         {box && (
           <div
@@ -296,7 +275,7 @@ function ImportTile({ list, host, empty }: { list: boolean; host: Host; empty: b
   );
 }
 
-function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asset: Asset; list: boolean; used: boolean; thumb?: string; peaks?: number[]; selection: string[]; host: Host }) {
+function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Asset; list: boolean; thumb?: string; peaks?: number[]; selection: string[]; host: Host }) {
   const selected = selection.includes(a.id);
   const renaming = useView((s) => s.renamingMedia === a.id);
   const preparing = useView((s) => s.preparing[a.id]);
@@ -328,11 +307,6 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
             </span>
           )}
           {scrub.at !== undefined && <span className="pointer-events-none absolute inset-y-0 w-px bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.45)]" style={{ left: `${scrub.at * 100}%` }} />}
-          {used && (
-            <span className="absolute top-1 left-1 flex size-4 items-center justify-center rounded-full bg-black/60 text-white" data-used title="On the timeline">
-              <Icon name="check" size={10} />
-            </span>
-          )}
         </>
       )}
       {preparing !== undefined ? (
@@ -420,11 +394,6 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-label text-text-strong">
           {name}
           <span className="flex-1" />
-          {used && (
-            <span data-used title="On the timeline" className="text-text-muted">
-              <Icon name="check" size={12} />
-            </span>
-          )}
           {proxy && (
             <span className="flex size-3.5 shrink-0 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black" data-proxy title="Has a proxy: scrubbing reads a quick-to-seek copy">
               P

@@ -66,7 +66,7 @@ export const ToolPanel = memo(function ToolPanel({
   host: Host;
 }) {
   const label = TOOLS.find((t) => t.id === tool)?.label ?? tool;
-  if (tool === "media") return <MediaBin project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />;
+  if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
   // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
   const items: Record<string, Item[]> = {
     audioEffects: [

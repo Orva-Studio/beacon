@@ -36,8 +36,9 @@ const SUBJECTS: Record<string, string> = {
   "crt-monitor": `A flat video frame showing ${SCENE} with a retro CRT screen effect applied to it: bold horizontal scanlines across the whole picture, edges bulging with barrel curvature, red and cyan colour fringing at the edges, a soft phosphor glow and vignette. Just the frame with the effect, no television set or monitor casing. ${NO_TEXT}`,
   "drop-shadow": `A flat rectangular video frame showing ${SCENE}, floating above a flat surface and casting a soft, deep indigo (#4f46e5) drop shadow offset down and to the right. The shadow is the clear focus. ${NO_TEXT}`,
   "motion-blur": `A flat rectangular video frame showing ${SCENE}, moving fast from left to right: the whole frame is smeared horizontally by strong motion blur, with bright orange (#ff8a1f) speed streaks trailing far behind it. ${NO_TEXT}`,
-  "fade-in": `An audio waveform running left to right across a flat dark panel, starting flat and silent at the left and growing smoothly to full loudness at the right, its colour brightening from deep blue to vivid cyan (#22d3ee). ${NO_TEXT}`,
-  "fade-out": `An audio waveform running left to right across a flat dark panel, at full loudness at the left and shrinking smoothly to flat silence at the right, its colour dimming from vivid rose (#fb7185) to deep plum. ${NO_TEXT}`,
+  // The fades keep Beacon's mint: the user preferred it for them.
+  "fade-in": `A mint-green (#3ee68d) audio waveform running left to right across a flat dark panel, starting flat and silent at the left and growing smoothly to full loudness at the right. ${NO_TEXT}`,
+  "fade-out": `A mint-green (#3ee68d) audio waveform running left to right across a flat dark panel, at full loudness at the left and shrinking smoothly to flat silence at the right. ${NO_TEXT}`,
 };
 
 async function draw(id: string, keep: string) {

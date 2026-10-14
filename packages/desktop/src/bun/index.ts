@@ -848,8 +848,6 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           sep,
           item("Reveal in Finder", "reveal"),
           item("Select on Timeline", "select", used),
-          sep,
-          item("Import Media…", "import"),
         ]);
       },
       dropFiles: ({ files, time, track }) =>
@@ -1070,7 +1068,6 @@ function mediaAction(h: string, op: string, asset: string) {
   else if (op === "rename") send().renameMedia({ asset });
   else if (op === "reveal") Bun.spawn(["open", "-R", a.path]);
   else if (op === "select") void core.run(h, "edit.selectMedia", { asset }).catch(fail);
-  else if (op === "import") void importMedia().catch(fail);
   else if (op === "proxyCreate") void core.analyze(h, "proxy", asset).catch(fail);
   else if (op === "proxyDelete") void core.forget(h, "proxy", asset).catch(fail);
   else if (op === "locate") void locateMedia(h, asset).catch(fail);

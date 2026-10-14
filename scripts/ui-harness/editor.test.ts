@@ -307,14 +307,12 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   await run("timeline.zoom", { to: "fit" });
 });
 
-test.skipIf(skip)("the Media Bin searches, filters by kind, sorts, shows a list, and marks what is on the timeline; its Import tile imports", async () => {
+test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a list; its Import tile imports", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("!!document.querySelector('[data-media-bin]')");
   const shown = () => page.evaluate<number>("document.querySelectorAll('[data-media-bin] [data-asset]').length");
   const all = await shown();
   expect(all).toBeGreaterThan(1);
-  // The recording is on the timeline; the Snapshot image isn't.
-  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-asset="${screen.assetId}"] [data-used]')`)).toBe(true);
   await page.evaluate("document.querySelector('[data-bin-kind=image]').click()");
   await Bun.sleep(200);
   expect(await shown()).toBe(Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "image").length);
