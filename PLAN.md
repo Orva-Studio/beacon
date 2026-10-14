@@ -991,7 +991,11 @@ and 320 wide, JPEG-encoded in the camera's own callback, it looked choppy to
 the user and cost the take, and the Record dialog already shows the camera
 before it starts, so it went (the user's choice). The dialog's previews are
 pulled, not pushed (`recordFrames` answers with the newest once there is
-one): pushed, a busy page fell behind and showed the camera late. After a take, Beacon offers to name it (the media
+one): pushed, a busy page fell behind and showed the camera late. A chip per
+source recorded sits under the time (2026-10-14, the user's choice, kept
+minimal): its dot turns red once nothing has arrived from it for 2 s (an idle
+screen's empty frames count) or its writer failed, from `live` in the take's
+level events. After a take, Beacon offers to name it (the media
 item and its clips; the folder keeps its date and time). The panel has a grip
 to drag it by and – to hide it to the menu-bar item, whose menu shows it again.
 Check Sync (2026-10-14): Settings ›
@@ -1021,7 +1025,14 @@ the sound goes to headphones, the check switches the output to the Mac's
 speakers for its beeps and back after. Run by the user (2026-10-14) with the
 Elgato Cam Link 4K and the Blue Yeti: 244 ms (3 flashes within 140 ms), and a
 take recorded with it lined up. The check is arithmetic on pixels and samples,
-no AI.
+no AI. Drift (2026-10-14): a 10.5-minute take with the Cam Link and the Yeti
+showed none to the user's eye and ear at its end; its `driftPpm` reads 0, but
+that compares the Yeti's samples with timestamps macOS derives from the same
+device, so only a look at a take's end can tell. The same take is black for 5 s
+at 4:08: the Cam Link kept sending 30 fps, but each frame was black (16 KB a
+second against 1.2 MB), so the card lost its picture (the camera's HDMI, or
+Camera Hub, open at the time); the panel's chips, which watch for a source that
+stops sending, can't see it.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

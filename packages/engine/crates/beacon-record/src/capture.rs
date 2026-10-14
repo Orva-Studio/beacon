@@ -75,6 +75,8 @@ struct Track {
     t0: f64,
     /// Whether any buffer has arrived, before the take began or after.
     seen: bool,
+    /// Host-clock seconds of the last callback (an idle screen's too): whether the source still sends.
+    arrived: f64,
     first: Option<f64>,
     last: f64,
     /// Sample buffers appended (video frames, or audio buffers).
@@ -106,12 +108,13 @@ impl Track {
             return Err(format!("{key}: the writer refused its input settings"));
         }
         unsafe { writer.addInput(&input) };
-        Ok(Self { key, file, writer, input, t0: f64::INFINITY, seen: false, first: None, last: 0.0, buffers: 0, samples: 0, dropped: 0, latency: Vec::new(), error: None, info })
+        Ok(Self { key, file, writer, input, t0: f64::INFINITY, seen: false, arrived: host_now(), first: None, last: 0.0, buffers: 0, samples: 0, dropped: 0, latency: Vec::new(), error: None, info })
     }
 
     fn append(&mut self, buf: &CMSampleBuffer) {
         self.seen = true;
         let now = host_now();
+        self.arrived = now;
         let pts = unsafe { buf.presentation_time_stamp() };
         let t = unsafe { pts.seconds() };
         if !unsafe { buf.is_valid() } || t < self.t0 || self.error.is_some() {
@@ -210,6 +213,9 @@ define_class!(
                 // Frames are sent only when the screen changes; the others carry no image.
                 if unsafe { buf.image_buffer() }.is_none() {
                     *iv.idle.lock().unwrap() += 1;
+                    if let Some(t) = iv.screen.lock().unwrap().as_mut() {
+                        t.arrived = host_now();
+                    }
                     return;
                 }
                 if let Some(t) = iv.screen.lock().unwrap().as_mut() {
@@ -550,13 +556,18 @@ impl Take {
     }
 
     /// `{event: "previewLevel", microphone?, systemAudio?}` as the preview's, for the recording panel.
+    /// The recording panel's levels, and `live`: each source recorded, whether it still sends (nothing for 2 s, or
+    /// a failed writer, and it doesn't).
     pub fn level(&self) -> Option<Value> {
         let mic = self.mic_output.as_deref().and_then(crate::monitor::channel_level);
         let system = self.screen_out.ivars().audio.lock().unwrap().is_some().then(|| self.screen_out.ivars().level.lock().unwrap().read()).flatten();
-        if mic.is_none() && system.is_none() {
-            return None;
-        }
-        Some(json!({ "event": "previewLevel", "microphone": mic, "systemAudio": system }))
+        let now = host_now();
+        let live: serde_json::Map<String, Value> = self
+            .tracks()
+            .iter()
+            .filter_map(|m| m.lock().unwrap().as_ref().map(|t| (t.key.to_string(), json!(t.error.is_none() && now - t.arrived < 2.0))))
+            .collect();
+        Some(json!({ "event": "previewLevel", "microphone": mic, "systemAudio": system, "live": live }))
     }
 
     pub fn monitored(&self) -> bool {

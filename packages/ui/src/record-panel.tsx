@@ -3,6 +3,14 @@ import { Button, Icon, LevelHistory } from "./controls";
 import { previewListeners } from "./record-preview";
 import type { AudioLevel, PanelState, RecordPreview } from "./rpc";
 
+type Source = "screen" | "camera" | "microphone" | "systemAudio";
+const SOURCES: [Source, string][] = [
+  ["screen", "Screen"],
+  ["camera", "Camera"],
+  ["microphone", "Mic"],
+  ["systemAudio", "System"],
+];
+
 const clock = (s: number) => {
   const t = Math.max(0, Math.floor(s));
   const two = (n: number) => String(n).padStart(2, "0");
@@ -11,11 +19,12 @@ const clock = (s: number) => {
 
 /**
  * The recording panel: a small window floating over the screen while a take records, left out of the recording.
- * The time, Stop, and the microphone's and system audio's last few seconds as rolling waveforms; no camera: a
- * live picture mid-take was choppy and cost the take (the Record dialog shows it before). Dragged by its grip (or anywhere but its buttons); hidden to the menu bar by –.
+ * The time, Stop, a chip per source recorded (its dot red once it stops sending), and the microphone's and system
+ * audio's last few seconds as rolling waveforms; no camera: a live picture mid-take was choppy and cost the take
+ * (the Record dialog shows it before). Dragged by its grip (or anywhere but its buttons); hidden to the menu bar by –.
  */
 export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onStop: () => void; onHide: () => void }) {
-  const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
+  const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<Source, boolean>> }>({});
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const listen = (e: RecordPreview) => !("jpeg" in e) && setLevels(e);
@@ -26,6 +35,7 @@ export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onSt
       clearInterval(t);
     };
   }, []);
+  const chips = SOURCES.filter(([key]) => state[key]);
   const audio: [string, AudioLevel | undefined][] = [
     ...(state.microphone ? [["Mic", levels.microphone] as [string, AudioLevel | undefined]] : []),
     ...(state.systemAudio ? [["System", levels.systemAudio] as [string, AudioLevel | undefined]] : []),
@@ -54,6 +64,17 @@ export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onSt
             Stop
           </Button>
         </div>
+      </div>
+      <div className="flex flex-wrap gap-1" data-record-sources>
+        {chips.map(([key, label]) => {
+          const stopped = levels.live?.[key] === false;
+          return (
+            <span key={key} className="flex h-5 items-center gap-1 rounded-full bg-control px-2 text-caption text-text" title={stopped ? `${label}: nothing has arrived for a few seconds` : `${label}: recording`} data-source-live={stopped ? "stopped" : "live"} data-source={key}>
+              <span className={`size-1.5 rounded-full ${stopped ? "bg-danger" : "bg-accent"}`} />
+              {label}
+            </span>
+          );
+        })}
       </div>
       {audio.map(([label, level]) => (
         <div key={label} className="flex items-center gap-2">

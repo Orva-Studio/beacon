@@ -117,7 +117,7 @@ await new Promise((r) => (ws.onopen = r));
 const panel = new URLSearchParams(location.search).get("panel");
 if (panel !== null) {
   const has = (k: string) => panel.split(",").includes(k);
-  const state = { started: Date.now(), microphone: has("microphone"), systemAudio: has("systemAudio") };
+  const state = { started: Date.now(), screen: has("screen"), camera: has("camera"), microphone: has("microphone"), systemAudio: has("systemAudio") };
   createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} onHide={() => void request("hidePanel")} />);
 } else {
   replica.init(await request<Init>("init"));

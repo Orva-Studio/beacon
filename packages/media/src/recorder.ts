@@ -32,7 +32,9 @@ export interface RecorderLevel {
 }
 
 /** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG, a few hundred pixels wide), or the audio levels. */
-export type RecorderPreviewEvent = { source: "camera" | "screen"; jpeg: string } | { microphone?: RecorderLevel; systemAudio?: RecorderLevel };
+/** Each source a take records, and whether it still sends. */
+export type RecorderLive = Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>;
+export type RecorderPreviewEvent = { source: "camera" | "screen"; jpeg: string } | { microphone?: RecorderLevel; systemAudio?: RecorderLevel; live?: RecorderLive };
 
 type Event = { event: string; id?: number; message?: string; [k: string]: unknown };
 
@@ -70,7 +72,11 @@ export class Recorder {
           if (e.event === "ready") ready();
           else if (e.event === "previewFrame") (this.#monitor ?? this.#preview)?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
           else if (e.event === "previewLevel")
-            (this.#monitor ?? this.#preview)?.({ ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}), ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}) });
+            (this.#monitor ?? this.#preview)?.({
+              ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}),
+              ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}),
+              ...(e.live ? { live: e.live as RecorderLive } : {}),
+            });
           const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
           if (!w) continue;
           this.#waiting.delete(e.id!);

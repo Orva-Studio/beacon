@@ -588,7 +588,7 @@ async function startRecording({ sources }: { sources: RecordSources }) {
     writeFileSync(RECORD_FILE, JSON.stringify(sources));
   } catch {}
   win.hide();
-  const panelSources = { microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
+  const panelSources = { screen: !!sources.screen, camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
   // Opened first, so the recorder can leave it out of the take by its title.
   const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
   clearFrames();
