@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { ActionDef, AnalyzerDef, ClipTypeDef, CommandDef, EffectDef, Feature, JobAnalyzerDef, MediaImporterDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef } from "./feature";
+import type { SessionCommandDef } from "./session";
 import { CORE_COMMANDS } from "./commands";
 import { formatIssues, ProjectSchema, type Clip, type Project, type Track } from "./schema";
 
@@ -26,6 +27,8 @@ export class FeatureRegistry {
   readonly queries = new Map<string, QueryDef>();
   readonly importers = new Map<string, MediaImporterDef>();
   readonly actions = new Map<string, ActionDef>();
+  /** Features' editor commands (session state, not undoable), beside core's `SESSION_COMMANDS`. */
+  readonly sessionCommands = new Map<string, SessionCommandDef>();
 
   constructor(features: Feature[] = []) {
     claim(this.commands, CORE_COMMANDS, "command", "core");
@@ -52,6 +55,7 @@ export class FeatureRegistry {
     claim(this.importers, feature.importers ?? [], "importer", feature.id);
     for (const a of feature.actions ?? []) if (this.commands.has(a.id)) throw new Error(`action "${a.id}" from feature "${feature.id}" is already a command`);
     claim(this.actions, feature.actions ?? [], "action", feature.id);
+    claim(this.sessionCommands, feature.sessionCommands ?? [], "session command", feature.id);
     this.features.set(feature.id, feature);
     return this;
   }

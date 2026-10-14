@@ -1127,14 +1127,24 @@ New features, each as a folder in `packages/features`.
   default (a tick box), the cheap stand-in for an agent looking at frames.
   Waits for the transcript job if it is still running. Retakes and filler words
   stay with agents (MCP), where judgement is needed. As built: an **AI** panel
-  in the left sidebar (its tile opens the dialog), not the Edit menu (the
-  user's choice: it is the home for later AI features), nor Audio Effects
-  (those are dragged onto one clip; this edits the whole timeline). The
+  in the left sidebar, not the Edit menu (the user's choice: it is the home for
+  later AI features), nor Audio Effects (those are dragged onto one clip; this
+  edits the whole timeline). Its tile opens a **review**, not a dialog (the
+  user's choice, 2026-10-14: a dialog was one-shot and showed nothing on the
+  timeline): the properties panel shows the settings and a summary, the
+  timeline marks each silence red (cut) or grey (kept) live, a click on one
+  flips it, and Apply cuts as one undo step (Cancel cuts nothing). The review
+  is editor state (`session.features.transcript.silences`, through
+  `silences.review`/`flip`/`close` and the `silences.apply` action), so an
+  agent can prepare it for the user to look over; features got their own
+  session state and session commands for it (`Feature.sessionCommands`). Not
+  live after Apply (re-cutting under later edits would move them); the media is
+  untouched, so a clip edge dragged back restores a pause. The
   `transcript.silences` query says what would be cut (the same ranges the
   command removes, to the frame); screen action is the recording's cursor
   moving over 24 points or clicking during the silence (typing alone isn't
   seen yet: screen frames changing would catch it); a missing transcript
-  (an import whose app quit first) is started by the dialog. Checked on a
+  (an import whose app quit first) is started by the review. Checked on a
   3:37 recording: 35 silences, 11 kept for screen action, 1:10 shorter.
 - **Captions** (the user, 2026-10-14; next after Remove Silences, in the AI
   panel): phrase captions from the transcript's word timings (2-4 words, or a

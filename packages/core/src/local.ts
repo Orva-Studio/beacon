@@ -1125,6 +1125,7 @@ export class LocalCore implements BeaconCore {
     return [
       ...[...this.registry.commands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "core" })),
       ...SESSION_COMMANDS.map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: "session" })),
+      ...[...this.registry.sessionCommands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "session" })),
       ...[...this.registry.actions.values()].map((a) => ({ id: a.id, description: a.description, args: jsonSchemaOf(a.args), feature: owner.get(a.id) ?? "core" })),
     ];
   }
@@ -1143,7 +1144,7 @@ export class LocalCore implements BeaconCore {
 
   /** Command and query id → the feature that registered it; core's own are absent. */
   #owners(): Map<string, string> {
-    return new Map([...this.registry.features.values()].flatMap((f) => [...(f.commands ?? []), ...(f.queries ?? []), ...(f.actions ?? [])].map((x) => [x.id, f.id] as const)));
+    return new Map([...this.registry.features.values()].flatMap((f) => [...(f.commands ?? []), ...(f.queries ?? []), ...(f.actions ?? []), ...(f.sessionCommands ?? [])].map((x) => [x.id, f.id] as const)));
   }
 
   /** The registered summary query's text, if any. */

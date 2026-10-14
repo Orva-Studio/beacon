@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { transcribe, type Transcription } from "@beacon/media";
 import {
+  defineAction,
   defineCommand,
   defineFeature,
   defineQuery,
@@ -13,6 +14,8 @@ import {
   type CommandContext,
   type FeatureRegistry,
   type Project,
+  type Session,
+  type SessionCommandDef,
 } from "@beacon/model";
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
@@ -228,6 +231,77 @@ function untranscribed(project: Project, registry: FeatureRegistry, data: Data):
   return [...new Set(clips.filter((c) => c.assetId && registry.hasTrait(c.type, "audio") && !data<TranscriptData>(c.assetId, "transcript")?.streams[clipStream(c)]).map((c) => c.assetId!))];
 }
 
+/** Remove Silences' settings, and in review (`session.features.transcript.silences`) the silences flipped by hand. */
+export interface SilenceReview {
+  min: number;
+  keep: number;
+  keepActive: boolean;
+  /** Times inside silences whose cut-or-keep was flipped: an odd number in a silence flips it. */
+  flipped: number[];
+}
+
+const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, keepActive: true, flipped: [] };
+
+export const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
+
+/**
+ * What Remove Silences does with `o`: each silence over `min`, whether it is screen action and whether it is cut
+ * (screen action is kept with `keepActive`, and a flip turns either way round), and the ranges removed.
+ */
+function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: SilenceReview) {
+  const waiting = untranscribed(project, registry, data);
+  const words = timelineWords(project, registry, data);
+  if (!words.length) return { waiting, words: 0, silences: [], ranges: [] };
+  const silences = pauses(project, registry, data, words)
+    .filter((p) => p.end - p.start > o.min)
+    .map((p) => {
+      const active = screenActive(project, data, p.start, p.end);
+      const flips = o.flipped.filter((t) => t >= p.start - 1e-3 && t <= p.end).length;
+      return { start: p.start, end: p.end, active, cut: !(o.keepActive && active) !== (flips % 2 === 1) };
+    });
+  const except = silences.filter((p) => !p.cut).map(({ start, end }) => ({ start, end }));
+  const ranges = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except }) ?? [];
+  return { waiting, words: words.length, silences, ranges };
+}
+
+const SilenceSettings = {
+  min: z.number().positive().max(10).describe("Silences longer than this many seconds are cut"),
+  keep: z.number().nonnegative().max(2).describe("Seconds of each cut silence left in, half each side"),
+  keepActive: z.boolean().describe("Keep silences where the recording's cursor moves or clicks (screen action)"),
+};
+
+const silenceSessionCommands: SessionCommandDef[] = [
+  {
+    id: "silences.review",
+    description:
+      "Open Remove Silences' review (the AI panel's tile does): the timeline marks each silence to cut or keep and the properties panel shows these settings, until silences.apply or silences.close; with settings, change them. The user sees it, so an agent can prepare the cuts for them to look over",
+    args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional(), keepActive: SilenceSettings.keepActive.optional() }),
+    apply: (s, a: Partial<SilenceReview>) => {
+      const r = { ...(silenceReview(s) ?? SILENCE_DEFAULTS), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
+      s.features.transcript = { ...(s.features.transcript as object | undefined), silences: { ...r, keep: Math.min(r.keep, r.min) } };
+    },
+  },
+  {
+    id: "silences.flip",
+    description: "In Remove Silences' review, keep a silence it would cut, or cut one it would keep (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_silences",
+    args: z.strictObject({ at: z.number().nonnegative() }),
+    apply: (s, { at }: { at: number }) => {
+      const r = silenceReview(s);
+      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
+      r.flipped.push(at);
+    },
+  },
+  {
+    id: "silences.close",
+    description: "Close Remove Silences' review without cutting anything",
+    args: z.strictObject({}),
+    apply: (s) => {
+      const t = s.features.transcript as { silences?: SilenceReview } | undefined;
+      if (t?.silences) delete t.silences;
+    },
+  },
+];
+
 const Range = z.tuple([z.int().nonnegative(), z.int().nonnegative()]);
 
 /** Transcripts of recordings and audio (whisper.cpp, local), and editing by transcript. */
@@ -280,19 +354,18 @@ export const transcript = defineFeature({
     defineQuery({
       id: "transcript.silences",
       description:
-        "What Remove Silences would do: each silence over `min` seconds (timeline seconds) and whether it is screen action (the recording's cursor moved or clicked), the ranges transcript.removePauses would cut with `keep` and those kept as `except`, and the seconds saved. `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one)",
-      args: z.strictObject({ min: z.number().positive().default(0.6), keep: z.number().nonnegative().default(0.3), keepActive: z.boolean().default(true) }),
-      run({ min, keep, keepActive }, { project, registry, data }) {
-        const waiting = untranscribed(project, registry, data);
-        const words = timelineWords(project, registry, data);
-        const silences = words.length
-          ? pauses(project, registry, data, words)
-              .filter((p) => p.end - p.start > min)
-              .map((p) => ({ start: p.start, end: p.end, active: screenActive(project, data, p.start, p.end) }))
-          : [];
-        const except = keepActive ? silences.filter((p) => p.active).map(({ start, end }) => ({ start, end })) : [];
-        const cuts = cutRanges(project, pauseCuts(project, registry, data, { min, keep, except }) ?? []);
-        return { waiting, silences, except, cuts: cuts.length, saved: roundSeconds(cuts.reduce((n, c) => n + c.end - c.start, 0)) };
+        "What Remove Silences would cut: each silence over `min` seconds (timeline seconds), whether it is screen action (the recording's cursor moved or clicked) and whether it is cut, with the seconds saved. Settings not given are the defaults (the open review's are in ui_state). `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one)",
+      args: z.strictObject({
+        min: SilenceSettings.min.optional(),
+        keep: SilenceSettings.keep.optional(),
+        keepActive: SilenceSettings.keepActive.optional(),
+        flipped: z.array(z.number()).optional().describe("Times inside silences to flip, as silences.flip does"),
+      }),
+      run(args, { project, registry, data }) {
+        const o = { ...SILENCE_DEFAULTS, ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) } as SilenceReview;
+        const plan = silencePlan(project, registry, data, o);
+        const removed = cutRanges(project, plan.ranges);
+        return { waiting: plan.waiting, silences: plan.silences, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)) };
       },
     }),
     defineQuery({
@@ -317,7 +390,31 @@ export const transcript = defineFeature({
       },
     }),
   ],
+  sessionCommands: silenceSessionCommands,
+  actions: [
+    defineAction({
+      id: "silences.apply",
+      description: "Cut what Remove Silences' open review marks to cut (its Apply button), one undo step, and close the review",
+      args: z.strictObject({}),
+      resolve: (_, { session }) => {
+        const r = silenceReview(session);
+        if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
+        return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: r }], after: () => [{ command: "silences.close" }] };
+      },
+    }),
+  ],
   commands: [
+    defineCommand({
+      id: "transcript.removeSilences",
+      description:
+        "Remove Silences: cut every silence over `min` seconds down to `keep`, keeping screen action with `keepActive` and turning round the silences `flipped` names, as transcript_silences shows; one undo step. silences.apply runs it from the open review",
+      args: z.strictObject({ ...SilenceSettings, flipped: z.array(z.number()).default([]) }),
+      apply(doc, o, ctx) {
+        const plan = silencePlan(doc, ctx.registry, ctx.data, o);
+        if (!plan.words) throw new Error("no transcript on the timeline yet");
+        return cut(doc, ctx, plan.ranges);
+      },
+    }),
     defineCommand({
       id: "transcript.cut",
       description:

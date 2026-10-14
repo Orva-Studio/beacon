@@ -44,6 +44,13 @@ their screen, camera and microphone.
   was before the call. Prefer one call with every cut over many calls.
 - `transcript_cut` removes words by index; `transcript_removePauses` shortens
   silences. Word indices change after every edit: re-read `transcript_get`.
+- Remove Silences, as the editor's AI panel does it: `transcript_silences`
+  shows each silence, whether it is screen action (the recording's cursor
+  moving or clicking) and whether it is cut. With the user in the app,
+  prepare it for them to look over rather than cutting: `silences_review`
+  (settings), `silences_flip` the ones you judge differently (after looking at
+  frames), then tell them it is marked on the timeline for Apply; or
+  `silences_apply` when they say so.
 - `zoom_to` zooms a clip into a region of its content (pixels of the
   recording, top-left origin) and optionally back out (`until`).
 - `clip_move` moves several clips as a block (`by` seconds, `tracks` up or

@@ -1049,25 +1049,46 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("the AI panel's Remove Silences says what it will cut, then shortens the timeline by that much in one undo step", async () => {
+test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, a click flips one, Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
   await page.until("!!document.querySelector('[data-ai=silences]')");
   await page.evaluate("document.querySelector('[data-ai=silences]').click()");
-  await page.until("!!document.querySelector('[data-remove-silences]')");
+  await page.until("!!document.querySelector('[data-silence-review]')");
   // The recording's transcript may still be being made in the background.
-  await page.until("/shorter\\)\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
-  const summary = await page.evaluate<string>("document.querySelector('[data-silences-summary]').textContent");
-  expect(summary).toMatch(/^\d+ silences: \d+ cut/);
-  const q = (await ui.core.query(ui.handle, "transcript.silences", {})) as { saved: number };
+  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
+  type Found = { silences: { start: number; end: number; cut: boolean }[]; saved: number };
+  const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; keepActive: boolean; flipped: number[] } } | undefined;
+  const found = async () => (await ui.core.query(ui.handle, "transcript.silences", (await review())!.silences)) as Found;
+  const first = await found();
+  // The widest silence to cut, clicked in the middle of its band on the timeline: kept now.
+  const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
+  const s = await session();
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+  for (let i = 0; i < 50 && !(await review())?.silences?.flipped.length; i++) await Bun.sleep(50);
+  const flipped = await found();
+  expect(flipped.silences.find((x) => x.start === target.start)!.cut).toBe(false);
+  expect(flipped.saved).toBeLessThan(first.saved);
   const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
   const before = length();
   const undo = (await ui.core.history(ui.handle)).undo.length;
-  await page.evaluate("document.querySelector('[data-remove-silences-run]').click()");
-  await page.until("!document.querySelector('[data-remove-silences]')");
+  await page.evaluate("document.querySelector('[data-silences-apply]').click()");
+  await page.until("!document.querySelector('[data-silence-review]')");
   await arrived(() => length() < before);
-  expect(before - length()).toBeCloseTo(q.saved, 1);
+  expect(before - length()).toBeCloseTo(flipped.saved, 2);
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  expect((await review())?.silences).toBeUndefined();
   await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // Opened again and cancelled: nothing cut.
+  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+  await page.until("!!document.querySelector('[data-silences-cancel]')");
+  await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
+  await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
   await run("panel.show", { tool: null });
 }, 150_000);

@@ -1,17 +1,46 @@
 import { useEffect, useState } from "react";
-import { projectDuration, ticksToSeconds, type Project } from "@beacon/model";
-import { Button, Modal, NumberBox, SettingsRow as Row } from "./controls";
+import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { Button, NumberBox, Row } from "./controls";
 import { useQuery } from "./query";
 import type { Host } from "./app";
 
+/** Remove Silences' review in `session.features.transcript.silences` (the transcript feature's `silences.review`). */
+interface Review {
+  min: number;
+  keep: number;
+  keepActive: boolean;
+  flipped: number[];
+}
+
 /** What `transcript.silences` answers. */
-interface Silences {
+export interface Silences {
   /** Media with no transcript yet. */
   waiting: string[];
-  silences: { start: number; end: number; active: boolean }[];
-  except: { start: number; end: number }[];
+  silences: { start: number; end: number; active: boolean; cut: boolean }[];
   cuts: number;
   saved: number;
+}
+
+export const reviewOf = (session: Session | undefined) => (session?.features.transcript as { silences?: Review } | undefined)?.silences;
+
+/**
+ * The open review's silences, for the timeline's marks and the review panel; asked again each second while a
+ * transcript is still being made, and a missing one (an import whose app quit first) is started.
+ */
+export function useSilences(host: Host, session: Session | undefined): Silences | undefined {
+  const review = reviewOf(session);
+  const [tick, setTick] = useState(0);
+  const found = useQuery<Silences>(host, review ? "transcript.silences" : "", review ?? {}, tick);
+  const missing = review ? (found?.waiting.join() ?? "") : "";
+  useEffect(() => {
+    for (const asset of missing ? missing.split(",") : []) host.analyze("transcript", asset);
+  }, [missing]);
+  useEffect(() => {
+    if (!missing) return;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [missing]);
+  return review ? found : undefined;
 }
 
 const clock = (s: number) => {
@@ -20,65 +49,55 @@ const clock = (s: number) => {
 };
 
 /**
- * Remove Silences (the AI panel): shortens every silence in the transcript, keeping those where the recording's
- * cursor moved or clicked (screen action), as one undo step through `transcript.removePauses`.
+ * Remove Silences' review, in the properties panel while it is open: its settings, what it will cut (marked on
+ * the timeline, red to cut and grey to keep; a click there flips one), then Apply as one undo step or Cancel.
  */
-export function RemoveSilencesDialog({ project, host, onClose }: { project: Project; host: Host; onClose: () => void }) {
-  const [min, setMin] = useState(0.6);
-  const [keep, setKeep] = useState(0.3);
-  const [keepActive, setKeepActive] = useState(true);
-  // A transcript still being made: ask again each second until it is.
-  const [tick, setTick] = useState(0);
-  const found = useQuery<Silences>(host, "transcript.silences", { min, keep, keepActive }, tick);
-  const waiting = !!found?.waiting.length;
-  // Made on import, but an import whose app quit first has none: start what is missing (running ones are left be).
-  const missing = found?.waiting.join() ?? "";
-  useEffect(() => {
-    for (const asset of found?.waiting ?? []) host.analyze("transcript", asset);
-  }, [missing]);
-  useEffect(() => {
-    if (!waiting) return;
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, [waiting]);
+export function SilenceReviewPanel({ project, session, host, found }: { project: Project; session: Session; host: Host; found: Silences | undefined }) {
+  const review = reviewOf(session)!;
+  const set = (args: Partial<Review>) => host.run("silences.review", args);
   const length = ticksToSeconds(projectDuration(project));
-  const kept = found ? found.silences.filter((s) => s.active).length : 0;
-  const ready = !!found && !waiting && found.cuts > 0;
-  const remove = () => {
-    if (!ready) return;
-    host.run("transcript.removePauses", { min, keep, except: found.except }, "Remove Silences");
-    onClose();
-  };
+  const cut = found?.silences.filter((s) => s.cut).length ?? 0;
+  const kept = (found?.silences.length ?? 0) - cut;
+  const ready = !!found && !found.waiting.length && cut > 0;
   const summary = !found
     ? "Finding silences…"
-    : waiting
-      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}: silences are found from the transcript, made on this Mac.`
+    : found.waiting.length
+      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`} on this Mac: silences are found from the transcript.`
       : !found.silences.length
-        ? `No silences longer than ${min} s.`
-        : `${found.silences.length} silences: ${found.cuts} cut${keepActive && kept ? `, ${kept} kept for screen action` : ""}. ${clock(length)} → ${clock(length - found.saved)} (${clock(found.saved)} shorter).`;
+        ? `No silences longer than ${review.min} s.`
+        : `${found.silences.length} silences: ${cut} to cut, ${kept} kept. ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
   return (
-    <Modal title="Remove Silences" width={460} onClose={onClose} onEnter={remove}>
-      <div className="flex flex-col gap-3" data-remove-silences>
-        <Row label="Cut silences over">
-          <NumberBox value={min} unit=" s" digits={1} step={0.1} min={0.2} max={10} onCommit={setMin} />
-        </Row>
-        <Row label="Leave a pause of">
-          <NumberBox value={keep} unit=" s" digits={1} step={0.1} min={0} max={2} onCommit={(v) => setKeep(Math.min(v, min))} />
-        </Row>
-        <Row label="Screen action" hint="Silences where the recording's cursor moves or clicks stay as they are. Typing alone isn't seen.">
-          <input type="checkbox" aria-label="Keep silences with screen action" checked={keepActive} onChange={(e) => setKeepActive(e.target.checked)} data-keep-active />
-          <span className="text-text">Keep silences with screen action</span>
-        </Row>
-        <div className="rounded-md bg-groove px-3 py-2 text-text" data-silences-summary>
-          {summary}
-        </div>
+    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-silence-review>
+      <div className="mb-4 text-title font-semibold text-text-strong">Remove Silences</div>
+      <Row label="Cut over" title="Silences longer than this are cut">
+        <NumberBox value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={10} onCommit={(min) => set({ min })} />
+      </Row>
+      <Row label="Leave" title="How much of each cut silence is left in, half each side">
+        <NumberBox value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onCommit={(keep) => set({ keep })} />
+      </Row>
+      <label className="mt-1 mb-1 flex items-center gap-2 text-text">
+        <input type="checkbox" checked={review.keepActive} onChange={(e) => set({ keepActive: e.target.checked })} data-keep-active />
+        Keep silences with screen action
+      </label>
+      <div className="mb-4 text-label text-text-faint">Where the recording's cursor moves or clicks. Typing alone isn't seen.</div>
+      <div className="mb-2 rounded-md bg-groove px-3 py-2 text-text" data-silences-summary>
+        {summary}
       </div>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button look="primary" disabled={!ready} onClick={remove} data-remove-silences-run>
-          Remove Silences
+      <div className="mb-4 flex flex-col gap-1 text-label text-text-muted">
+        <span className="flex items-center gap-2">
+          <span className="h-2.5 w-4 rounded-sm bg-silence-cut" /> To cut
+          <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-keep" /> Kept
+        </span>
+        <span>Click a silence on the timeline to keep or cut it.</span>
+      </div>
+      <div className="mt-auto flex justify-end gap-2">
+        <Button onClick={() => host.run("silences.close")} data-silences-cancel>
+          Cancel
+        </Button>
+        <Button look="primary" disabled={!ready} onClick={() => host.run("silences.apply")} data-silences-apply>
+          Apply
         </Button>
       </div>
-    </Modal>
+    </div>
   );
 }

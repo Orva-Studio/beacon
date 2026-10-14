@@ -46,6 +46,8 @@ export interface Session {
   clipboard: Clipboard | null;
   /** What `properties.copy` copied (Copy Properties), for `clip.pasteProperties`; shared like `clipboard`. */
   properties: CopiedProperties | null;
+  /** Features' own editor state, by feature id, set by their session commands (Remove Silences' review). */
+  features: Record<string, unknown>;
 }
 
 /** A clip's property groups and effects, as Copy Properties takes them. */
@@ -109,6 +111,7 @@ export function defaultSession(project: Project, shared: Partial<SharedSession> 
     snapping: true,
     clipboard: shared.clipboard ?? null,
     properties: shared.properties ?? null,
+    features: {},
   };
 }
 
@@ -607,7 +610,8 @@ export interface SessionChange {
 export class SessionStore {
   #state: Session;
   readonly #listeners = new Set<(c: SessionChange) => void>();
-  readonly commands = new Map(SESSION_COMMANDS.map((c) => [c.id, c]));
+  /** Core's and the features'. */
+  readonly commands: Map<string, SessionCommandDef>;
   /** The canvas's fit zoom in percent, reported by the app, for stepping from "fit". */
   fitPercent?: number;
 
@@ -617,6 +621,7 @@ export class SessionStore {
     shared: Partial<SharedSession> = {},
   ) {
     this.#state = defaultSession(project, shared);
+    this.commands = new Map([...SESSION_COMMANDS, ...registry.sessionCommands.values()].map((c) => [c.id, c]));
   }
 
   get state(): Session {

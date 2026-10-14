@@ -130,6 +130,17 @@ interface Props {
   trackMenu: (track: string | null) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
+  /** Spans marked across the tracks while something is reviewed (Remove Silences: red to cut, grey to keep). */
+  marks?: TimelineMark[];
+  /** A click on a mark (not by the playhead): Remove Silences flips it. */
+  markClick?: (mark: TimelineMark) => void;
+}
+
+/** A span over every track, in timeline seconds. */
+export interface TimelineMark {
+  start: number;
+  end: number;
+  tone: "cut" | "keep";
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -183,7 +194,7 @@ function clipLabel(project: Project, clip: Clip, nested: Record<string, string>,
  * The timeline, drawn on a canvas (PLAN §10). Drags draw a ghost and send
  * one command when they end, so each is one undo step.
  */
-export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles }: Props) {
+export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
@@ -203,14 +214,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   }, [session.animation?.id]);
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
-  const latest = useRef({ project, session, waveforms, thumbs, dragging });
+  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
   const loaded = useRef(0);
   /** When each clip last had an effect added, for its badge's flash. */
   const flashes = useRef(new Map<string, number>());
   const effectCounts = useRef<Map<string, number> | null>(null);
-  latest.current = { project, session, waveforms, thumbs, dragging };
+  latest.current = { project, session, waveforms, thumbs, dragging, marks };
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
@@ -218,7 +229,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const draw = () => {
     const c = canvas.current;
     if (!c) return;
-    const { project, session, waveforms, thumbs } = latest.current;
+    const { project, session, waveforms, thumbs, marks } = latest.current;
     const tracks = [...project.tracks].reverse();
     const TRACK = session.timeline.trackHeight;
     const fps = rationalToNumber(project.settings.fps);
@@ -695,6 +706,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, RULER - 2, RANGE_TAB, 2);
       }
     }
+    for (const m of marks ?? []) {
+      const [a, b] = [x(m.start), x(m.end)];
+      if (b < HEADER || a > w) continue;
+      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : "silence-keep");
+      ctx.fillRect(a, RULER, Math.max(1, b - a), h - RULER);
+      ctx.fillRect(a, RULER - 4, Math.max(1, b - a), 4);
+    }
     const drag = dragState.current;
     const dragged = drag?.kind === "volume" && drag.at ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === drag.clip) : undefined;
     if (drag?.kind === "volume" && drag.at && dragged) {
@@ -1114,6 +1132,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             }
             return;
           }
+          const t = timeAt(e.clientX);
+          const mark = y >= RULER && markClick ? latest.current.marks?.find((m) => t >= m.start && t <= m.end) : undefined;
+          if (mark) return markClick!(mark);
           capture();
           const arrow = arrowAt(e.clientX, e.clientY);
           if (arrow) {

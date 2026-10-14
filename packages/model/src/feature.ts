@@ -4,7 +4,7 @@ import type { Asset, Clip, Easing, Project, Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
 import type { Layer, SourceDef } from "./scene";
 import type { Ticks } from "./ticks";
-import type { Session } from "./session";
+import type { Session, SessionCommandDef } from "./session";
 import type { EditScope } from "./edit";
 
 export interface ClipTypeDef {
@@ -336,6 +336,8 @@ export interface Feature {
   commands?: CommandDef[];
   queries?: QueryDef[];
   actions?: ActionDef[];
+  /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
+  sessionCommands?: SessionCommandDef[];
   keymap?: KeyBinding[];
   menus?: MenuItemDef[];
   migrations?: Migration[];
