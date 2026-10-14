@@ -33,6 +33,10 @@ pub struct Sources {
     pub system_audio: bool,
     pub camera: Option<Device>,
     pub microphone: Option<Device>,
+    /// Seconds added to a stream's `start` on import (`camera`: minus how late the camera is, from the sync
+    /// check), written into `recording.json` with the stream.
+    #[serde(default)]
+    pub offsets: std::collections::HashMap<String, f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -362,6 +366,7 @@ pub struct Take {
     started_at: f64,
     cursor: Option<crate::cursor::CursorLog>,
     cursor_summary: Option<Value>,
+    offsets: std::collections::HashMap<String, f64>,
     /// Host-clock seconds into the take, of anything worth marking (`record --tones`).
     pub marks: Vec<f64>,
 }
@@ -528,7 +533,21 @@ impl Take {
         }
         let started_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
         let cursor_summary = cursor.as_ref().map(|_| json!({ "file": "cursor.jsonl" }));
-        let take = Take { dir: dir.to_path_buf(), stream, session, screen_out, capture_out, mic_output, _queues: queues, t0, started_at, cursor, cursor_summary, marks: Vec::new() };
+        let take = Take {
+            dir: dir.to_path_buf(),
+            stream,
+            session,
+            screen_out,
+            capture_out,
+            mic_output,
+            _queues: queues,
+            t0,
+            started_at,
+            cursor,
+            cursor_summary,
+            offsets: sources.offsets.clone(),
+            marks: Vec::new(),
+        };
         // Written now so a take the recorder never finished still says what it holds.
         take.write(None, &[])?;
         Ok(take)
@@ -574,7 +593,18 @@ impl Take {
     }
 
     fn streams(&self) -> serde_json::Map<String, Value> {
-        self.tracks().iter().filter_map(|m| m.lock().unwrap().as_ref().map(|t| (t.key.to_string(), t.describe()))).collect()
+        self.tracks()
+            .iter()
+            .filter_map(|m| {
+                m.lock().unwrap().as_ref().map(|t| {
+                    let mut d = t.describe();
+                    if let Some(o) = self.offsets.get(t.key) {
+                        d["offset"] = json!(o);
+                    }
+                    (t.key.to_string(), d)
+                })
+            })
+            .collect()
     }
 
     /// What is being recorded: elapsed seconds, and buffers and drops per stream.

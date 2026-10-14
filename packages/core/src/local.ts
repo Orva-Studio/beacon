@@ -4,7 +4,7 @@ import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, measureSync, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -901,6 +901,24 @@ export class LocalCore implements BeaconCore {
     await this.#recorder.start(dir, sources, opts.monitor);
     this.#recording = { h, dir };
     return { take: dir };
+  }
+
+  async recordSyncCheck(sources: RecorderSources, show: () => Promise<void>) {
+    if (this.#recording) throw new Error(`recording ${basename(this.#recording.dir)}: stop it first`);
+    const dir = join(this.cacheDir, "sync-check", `${takeName(new Date())}.brec`);
+    mkdirSync(dirname(dir), { recursive: true });
+    await this.#recorder.start(dir, sources);
+    try {
+      await show();
+    } finally {
+      await this.#recorder.stop();
+    }
+    try {
+      return await measureSync(dir);
+    } finally {
+      // The take is only for measuring; recording.json stays, to look at a check that went wrong.
+      for (const f of readdirSync(dir)) if (f !== "recording.json") rmSync(join(dir, f), { force: true });
+    }
   }
 
   async recordStatus(): Promise<RecordStatus> {

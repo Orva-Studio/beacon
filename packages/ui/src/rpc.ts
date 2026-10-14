@@ -79,9 +79,34 @@ export interface Notice {
 }
 
 /** App-wide settings (Settings > General), kept by the main process. */
-export type SettingsTab = "general" | "project";
+export type SettingsTab = "general" | "recording" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
-export type SettingsSheet = AppSettings & { tab?: SettingsTab };
+/** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
+export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices };
+
+export interface RecordDevices {
+  cameras: { id: string; name: string }[];
+  microphones: { id: string; name: string }[];
+  camera?: string;
+  microphone?: string;
+}
+
+/** How late a camera's picture is behind a microphone's sound, typed or measured by Check Sync. */
+export interface CameraSync {
+  cameraLateMs: number;
+  /** When it was measured (Unix ms), from how many flashes, and how far they spread (ms). */
+  checked?: { at: number; flashes: number; spreadMs: number };
+}
+
+/** A sync check's result. */
+export interface SyncCheck {
+  cameraLateMs: number;
+  flashes: number;
+  spreadMs: number;
+}
+
+/** `AppSettings.cameraSync`'s key: a camera and microphone pair. */
+export const syncKey = (camera: string | undefined, microphone: string | undefined) => `${camera ?? ""}|${microphone ?? ""}`;
 
 export interface AppSettings {
   exportColorSpace: "bt709" | "srgb";
@@ -91,6 +116,8 @@ export interface AppSettings {
   proxyMode: "quiet" | "fast";
   /** Where Snapshot saves its PNGs; unset, the project's own media folder. */
   snapshotFolder?: string;
+  /** By camera and microphone (`syncKey`): how late the camera is; each take's camera clip moves earlier by it. */
+  cameraSync?: Record<string, CameraSync>;
 }
 
 /** The Export dialog's settings. */
@@ -151,6 +178,7 @@ export interface RecordSheet {
   cameras: { id: string; name: string }[];
   microphones: { id: string; name: string }[];
   sources: RecordSources;
+  cameraSync?: Record<string, CameraSync>;
 }
 
 /** An export running or finished, for the window's progress panel. */
@@ -241,6 +269,8 @@ export type AppRPC = {
       startRecording: { params: { sources: RecordSources }; response: RunReply };
       /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
+      /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */
+      checkSync: { params: { camera: string; microphone: string }; response: { ok: boolean; result?: SyncCheck; error?: string } };
       /** The newest frames after `after`, as soon as there are any (or after a second without): pulled, so a slow page never falls behind. */
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */

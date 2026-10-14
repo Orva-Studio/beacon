@@ -1,5 +1,5 @@
 import type { CommandResult, Patch, Session, Settings } from "@beacon/model";
-import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources } from "@beacon/media";
+import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
 export type { CommandResult, Session };
@@ -81,7 +81,7 @@ export interface RecordStatus {
   elapsed?: number;
 }
 
-export type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources };
+export type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult };
 
 export interface ImportResult {
   assets: string[];
@@ -230,6 +230,12 @@ export interface BeaconCore {
   /** Starts recording a take into the project's `recordings` folder; one take at a time. Resolves once every source is delivering. */
   recordStart(h: ProjectHandle, opts?: RecordOptions): Promise<{ take: string }>;
   recordStatus(): Promise<RecordStatus>;
+  /**
+   * A sync check (docs/formats/brec.md): records the screen, system audio, camera and microphone into the cache
+   * while `show` flashes the screen white and beeps, then measures how late the camera is behind the microphone.
+   * Only in the app, which does the flashing.
+   */
+  recordSyncCheck(sources: RecorderSources, show: () => Promise<void>): Promise<SyncResult>;
   /** Stops the take and imports it into the project it was started for (at the end, or as `opts` says). */
   recordStop(opts?: ImportOptions): Promise<ImportResult & { take: string; duration: number }>;
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;

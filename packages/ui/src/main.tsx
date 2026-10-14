@@ -93,6 +93,7 @@ const host: Host = {
   startRecording: (sources) => request.startRecording({ sources }),
   recordPreview: (devices) => void request.recordPreview(devices),
   recordFrames: (after) => request.recordFrames({ after }),
+  checkSync: (camera, microphone) => request.checkSync({ camera, microphone }),
   cancelExport: (id) => void report(request.cancelExport({ id })),
   showFile: (path, open) => void request.showFile({ path, open }),
   setAppSettings: (s) => void request.setAppSettings(s),

@@ -17,6 +17,8 @@ export interface RecorderSources {
   systemAudio?: boolean;
   camera?: { id?: string };
   microphone?: { id?: string };
+  /** Seconds added to a stream's start on import, by role (`camera`: minus how late it is, from the sync check). */
+  offsets?: Record<string, number>;
 }
 
 /** An audio level in dBFS: the average and the recent peak. */

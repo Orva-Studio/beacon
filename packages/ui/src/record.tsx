@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
-import type { AudioLevel, RecordedSheet, RecordFrames, RecordPreview, RecordSheet, RecordSources } from "./rpc";
+import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
+import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 
-export interface RecordHost {
+export interface RecordHost extends SyncCheckHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
   /** Shows the sources (`recordPreviewEvent` gets their levels, `recordFrames` their frames); with none, stops. */
   recordPreview(sources: RecordSources): void;
@@ -105,6 +106,9 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const close = () => replica.recordSheet(undefined);
   const nothing = !s.screen && !s.systemAudio && !s.camera && !s.microphone;
   const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
+  const [cameraSync, setCameraSync] = useState<Record<string, CameraSync>>(sheet.cameraSync ?? {});
+  // A sync check records the same devices: the preview lets go of them while it runs.
+  const [checking, setChecking] = useState(false);
 
   // Only what Beacon may already use: asking for a permission waits for Record.
   const granted = (k: keyof RecordSheet["permissions"]) => sheet.permissions[k] === "granted";
@@ -112,10 +116,11 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const systemAudio = granted("screen") ? s.systemAudio : undefined;
   const camera = granted("camera") ? s.camera : undefined;
   const microphone = granted("microphone") ? s.microphone : undefined;
-  const previewing = !!(screen || camera);
+  const previewing = !!(screen || camera) && !checking;
   const frames = useRecordFrames(host.recordFrames, previewing && counting === undefined);
   useEffect(() => {
     setLevels({});
+    if (checking) return;
     const listen = (e: RecordPreview) => !("jpeg" in e) && setLevels(e);
     previewListeners.add(listen);
     host.recordPreview({
@@ -128,7 +133,8 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
       previewListeners.delete(listen);
       host.recordPreview({});
     };
-  }, [!!screen, screen?.display, !!systemAudio, !!camera, camera?.id, !!microphone, microphone?.id]);
+  }, [!!screen, screen?.display, !!systemAudio, !!camera, camera?.id, !!microphone, microphone?.id, checking]);
+  const pair = s.camera?.id && s.microphone?.id ? syncKey(s.camera.id, s.microphone.id) : undefined;
   const why = (on: unknown, kind: keyof RecordSheet["permissions"]) => (!on ? "Off" : !granted(kind) ? "Needs permission" : undefined);
 
   useEffect(() => {
@@ -205,6 +211,22 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
           </div>
           {microphone && <LevelMeter label="Microphone level" db={levels.microphone?.db} peak={levels.microphone?.peak} />}
         </Source>
+        {pair && (
+          <Row label="Sync">
+            <div className="min-w-0 flex-1">
+              <CameraSyncControl
+                key={pair}
+                sync={cameraSync[pair]}
+                typed={false}
+                onChange={(sync) => setCameraSync({ ...cameraSync, [pair]: sync })}
+                onCheck={setChecking}
+                host={host}
+                camera={s.camera!.id!}
+                microphone={s.microphone!.id!}
+              />
+            </div>
+          </Row>
+        )}
         <Source label="System audio" on={!!s.systemAudio} setOn={(on) => setS({ ...s, systemAudio: on || undefined })}>
           {systemAudio && <LevelMeter label="System audio level" db={levels.systemAudio?.db} peak={levels.systemAudio?.peak} />}
         </Source>

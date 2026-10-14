@@ -161,6 +161,11 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
           result = { ok: true };
         }
         else if (msg.type === "stopRecording" || msg.type === "hidePanel") menus.push(msg.type);
+        // No screen to flash here: a fixed measurement stands in.
+        else if (msg.type === "checkSync") {
+          menus.push(`checkSync:${msg.camera}|${msg.microphone}`);
+          result = { ok: true, result: { cameraLateMs: 112, flashes: 6, spreadMs: 4 } };
+        }
         else if (msg.type === "recordFrames") {
           const after = msg.after as number;
           if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));

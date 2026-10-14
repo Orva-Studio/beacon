@@ -91,6 +91,10 @@ when it stops, so a take the recorder never finished still describes itself.
 - **The take's length is `duration`**, not a file's: a still screen sends no
   frames, so `screen.mp4` can end before the take, and an audio file can run a
   buffer past it.
+- **`offset`** (seconds, on a stream, when set): added to its `start` on import.
+  Beacon writes the camera's from the sync check: minus how late the camera's
+  picture is behind the microphone (a capture card's delay), so its clip moves
+  earlier and lips match the voice.
 - `buffers`, `dropped`, `latencyMs` (arrival delay after each buffer's
   timestamp) and `driftPpm` (samples written against the host clock's span) are
   for checking a take; `marks` are the times of `record --tones` tones.

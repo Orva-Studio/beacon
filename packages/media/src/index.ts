@@ -11,3 +11,4 @@ export * from "./window";
 export * from "./proxy";
 export * from "./dropped";
 export * from "./text";
+export * from "./sync";

@@ -27,6 +27,7 @@ fn record(args: &[String]) -> Result<(), String> {
         system_audio: true,
         camera: (granted("camera") && list["cameras"].as_array().is_some_and(|c| !c.is_empty())).then_some(capture::Device { id: None }),
         microphone: (granted("microphone") && list["microphones"].as_array().is_some_and(|m| !m.is_empty())).then_some(capture::Device { id: None }),
+        offsets: Default::default(),
     };
     let mut take = capture::Take::start(dir, &sources, None)?;
     println!("{}", serde_json::json!({ "event": "recording", "dir": dir, "camera": sources.camera.is_some(), "microphone": sources.microphone.is_some() }));

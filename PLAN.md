@@ -989,8 +989,21 @@ answers with the newest once there is one): pushed, a busy page fell behind
 and showed the camera late. After a take, Beacon offers to name it (the media
 item and its clips; the folder keeps its date and time). The panel has a grip
 to drag it by and – to hide it to the menu-bar item, whose menu shows it again.
-Still to come: the
-sync check in Settings.
+Check Sync (2026-10-14): Settings ›
+Recording (a camera and microphone, their delay typed or measured) and the
+Record dialog's Sync row run it. A black window covers the display and
+flashes white six times, 1.5 s apart, each with a 1 kHz beep played by
+`afplay`, while a take of the screen, system audio, camera and microphone
+records into the cache (`recordSyncCheck`); `measureSync` (`@beacon/media`)
+finds each flash's brightening (halfway up, between camera frames by straight
+line) and each beep's start (1 kHz energy in 2 ms steps), and takes the median
+over flashes of (camera - microphone) - (screen - system audio): the second
+term is how far apart Beacon fired the flash and the beep, so they needn't fire
+together. Left over: the display's and speakers' own delays, a few ms. On a
+made-up take with the camera 110 ms late it measured 121 ms (a 30 fps camera
+sees a frame every 33 ms). The delay is saved per pair in the app's settings,
+and a take recorded with the pair gets the camera's `offset` (minus it) in
+`recording.json`.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

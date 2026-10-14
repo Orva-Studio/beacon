@@ -28,7 +28,7 @@ type RecordSources = import("@beacon/ui").RecordSources;
 type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportOptions, panelHeight } = await import("@beacon/ui");
+const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey } = await import("@beacon/ui");
 const keymap = (await import("../../../../keymaps/default.json")).default.bindings as import("@beacon/ui").Init["keymap"];
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
@@ -373,10 +373,87 @@ const recordPrefs = (): RecordSources => {
 };
 
 /** File > Record… (⌘R): the Record dialog, with what the recorder can use. */
+/** Beacon > Settings…, with the cameras and microphones Settings › Recording picks from. */
+async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
+  const d = await core.recorderDevices().catch(() => undefined);
+  const prefs = recordPrefs();
+  const devices = d && { cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
+  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) });
+}
+
+/** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
+function beepFile(): string {
+  const path = join(core.cacheDir, "sync-check", "beep.wav");
+  if (existsSync(path)) return path;
+  const rate = 48_000;
+  const n = Math.round(rate * 0.15);
+  const wav = Buffer.alloc(44 + n * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + n * 2, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) {
+    // 5 ms ramps: no clicks, which would read as a beep starting early.
+    const ramp = Math.min(1, i / (rate * 0.005), (n - i) / (rate * 0.005));
+    wav.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 1000 * i) / rate) * ramp * 0.8 * 32767), 44 + i * 2);
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, wav);
+  return path;
+}
+
+/** The sync check's window: black over the whole display, flashing white on cue. */
+const FLASH_HTML = `<!doctype html><html><body style="margin:0;background:#000;height:100vh;display:flex;align-items:center;justify-content:center;font:14px -apple-system,sans-serif;color:#666;cursor:none">
+<div>Checking sync: keep the camera seeing the screen</div>
+<script>window.flash=()=>{document.body.style.background="#fff";setTimeout(()=>document.body.style.background="#000",250)}</script></body></html>`;
+
+/**
+ * Check Sync: covers the display in black and flashes it white with a beep six times while the screen, system
+ * audio, camera and microphone record, then measures how late the camera is and saves it for the pair.
+ */
+async function checkSync({ camera, microphone }: { camera: string; microphone: string }) {
+  if (recording) throw new Error("Stop the recording first");
+  const devices = await core.recorderDevices();
+  if (devices.permissions.screen !== "granted") throw new Error("Check Sync records the screen: allow Beacon in System Settings › Privacy & Security › Screen & System Audio Recording");
+  for (const kind of ["camera", "microphone"] as const) {
+    if (devices.permissions[kind] !== "granted" && (await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
+  }
+  const display = devices.displays[0];
+  if (!display) throw new Error("No display to flash (is the screen asleep?)");
+  const beep = beepFile();
+  const flash = new BrowserWindow({ title: "Beacon Sync Check", html: FLASH_HTML, frame: { x: 0, y: 0, width: display.width, height: display.height }, titleBarStyle: "hidden", activate: false });
+  flash.setAlwaysOnTop(true);
+  try {
+    await Bun.sleep(600);
+    const result = await core.recordSyncCheck({ screen: { display: display.id, fps: 60 }, systemAudio: true, camera: { id: camera }, microphone: { id: microphone } }, async () => {
+      await Bun.sleep(800);
+      for (let i = 0; i < 6; i++) {
+        flash.webview.executeJavascript("flash()");
+        Bun.spawn(["afplay", beep], { stdout: "ignore", stderr: "ignore" });
+        await Bun.sleep(1500);
+      }
+      await Bun.sleep(400);
+    });
+    const key = syncKey(camera, microphone);
+    setAppSettings({ ...appSettings, cameraSync: { ...appSettings.cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
+    return result;
+  } finally {
+    flash.close();
+  }
+}
+
 async function recordDialog() {
   if (!current) return status("Open a project first");
   if (recording) return status("Already recording: stop from the menu bar or ⌘⇧2");
-  send().recordSheet({ ...(await core.recorderDevices()), sources: recordPrefs() });
+  send().recordSheet({ ...(await core.recorderDevices()), sources: recordPrefs(), cameraSync: appSettings.cameraSync ?? {} });
 }
 
 const STOP_SHORTCUT = "CommandOrControl+Shift+2";
@@ -482,8 +559,13 @@ async function startRecording({ sources }: { sources: RecordSources }) {
   clearFrames();
   const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
   try {
+    // The pair's measured delay goes into the take, so its camera clip lines up on import.
+    const sync = sources.camera?.id && sources.microphone?.id ? appSettings.cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
     await core.recordStart(current.path, {
-      sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
+      sources: {
+        ...(sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources),
+        ...(sync?.cameraLateMs ? { offsets: { camera: -sync.cameraLateMs / 1000 } } : {}),
+      },
       monitor: (e) => previewEvent(e, panelSend),
     });
   } catch (e) {
@@ -748,6 +830,13 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         return reply(() => core.recorderPreview(devices, (e) => previewEvent(e, send().recordPreview)));
       },
       recordFrames: ({ after }) => newerFrames(after),
+      checkSync: async (params) => {
+        try {
+          return { ok: true, result: await checkSync(params) };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
       cancelExport: ({ id }) => reply(() => core.cancelJob(id)),
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),
@@ -1023,7 +1112,7 @@ ContextMenu.on("context-menu-clicked", (e) => {
   if (current && action.startsWith("run:")) return void core.run(current.path, ...menuCommand(action.slice(4))).catch((err: Error) => status(err.message));
   if (current && action.startsWith("track:")) return trackAction(current.path, action.split(":")[1]!, action.split(":")[2]!);
   if (current && action.startsWith("media:")) return mediaAction(current.path, action.split(":")[1]!, action.split(":")[2]!);
-  if (action === "app:projectSettings") return void send().settingsSheet({ ...appSettings, tab: "project" });
+  if (action === "app:projectSettings") return void openSettings("project");
   const [op, clip] = action.split(":");
   if (!current || !clip) return;
   const h = current.path;
@@ -1114,7 +1203,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "export") return void exportDialog().catch(report);
   if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);
-  if (action === "settings") return send().settingsSheet(appSettings);
+  if (action === "settings") return void openSettings();
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {
     quitLog("⌘Q");

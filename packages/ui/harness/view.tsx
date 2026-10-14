@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { App, type Host } from "../src/app";
 import { recordPreviewEvent } from "../src/record";
 import { RecordPanel } from "../src/record-panel";
-import type { Init, RecordFrames } from "../src/rpc";
+import type { Init, RecordFrames, SyncCheck } from "../src/rpc";
 import { replica } from "../src/store";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
@@ -94,6 +94,7 @@ const host: Host = {
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
   recordPreview: (devices) => void request("recordPreview", devices),
   recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
+  checkSync: (camera, microphone) => request("checkSync", { camera, microphone }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,
   cancelExport: (id) => void request("cancelExport", { id }),
   showFile: () => {},
   setAppSettings: (settings) => void request("setAppSettings", { settings }),
