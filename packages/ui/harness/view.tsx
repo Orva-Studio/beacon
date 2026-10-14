@@ -116,7 +116,7 @@ const panel = new URLSearchParams(location.search).get("panel");
 if (panel !== null) {
   const has = (k: string) => panel.split(",").includes(k);
   const state = { started: Date.now(), camera: has("camera"), microphone: has("microphone"), systemAudio: has("systemAudio") };
-  createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} pull={(after) => request("recordFrames", { after }) as Promise<RecordFrames>} />);
+  createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} onHide={() => void request("hidePanel")} pull={(after) => request("recordFrames", { after }) as Promise<RecordFrames>} />);
 } else {
   replica.init(await request<Init>("init"));
   createRoot(document.getElementById("root")!).render(<App host={host} />);

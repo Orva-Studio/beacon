@@ -445,7 +445,7 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("the recording panel shows the camera, the time, and rolling waveforms of both levels; Stop stops", async () => {
+test.skipIf(skip)("the recording panel shows a grip, the camera, the time, and rolling waveforms of both levels; – hides it, Stop stops", async () => {
   const panel = await openPage(`${ui.url}?panel=camera,microphone,systemAudio`);
   try {
     await panel.until("!!document.querySelector('[data-record-panel]')");
@@ -458,9 +458,12 @@ test.skipIf(skip)("the recording panel shows the camera, the time, and rolling w
     await panel.until("[...document.querySelectorAll('canvas[data-history]')].length === 2 && [...document.querySelectorAll('canvas[data-history]')].every((c) => Number(c.dataset.history) >= 4)");
     expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-panel] [data-preview=Camera]')")).toBe(true);
     expect(await panel.evaluate<string>("document.querySelector('[data-record-time]').textContent")).toMatch(/^0:0\d$/);
+    expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-grip]')")).toBe(true);
+    await panel.evaluate("document.querySelector('[data-record-hide]').click()");
+    await arrived(() => ui.menus.slice(before).includes("hidePanel"));
     await panel.evaluate("document.querySelector('[data-record-stop]').click()");
     await arrived(() => ui.menus.slice(before).includes("stopRecording"));
-    expect(ui.menus.slice(before)).toContain("stopRecording");
+    expect(ui.menus.slice(before)).toEqual(expect.arrayContaining(["hidePanel", "stopRecording"]));
   } finally {
     panel.close();
   }

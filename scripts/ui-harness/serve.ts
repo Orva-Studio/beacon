@@ -160,7 +160,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
             ws.send(JSON.stringify({ type: "recordPreview", data: { ...(msg.microphone ? { microphone: { db: -20, peak: -6 } } : {}), ...(msg.systemAudio ? { systemAudio: { db: -30, peak: -12 } } : {}) } }));
           result = { ok: true };
         }
-        else if (msg.type === "stopRecording") menus.push("stopRecording");
+        else if (msg.type === "stopRecording" || msg.type === "hidePanel") menus.push(msg.type);
         else if (msg.type === "recordFrames") {
           const after = msg.after as number;
           if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));

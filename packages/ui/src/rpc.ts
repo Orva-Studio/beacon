@@ -189,6 +189,8 @@ export type PanelRPC = {
     };
     messages: {
       stopRecording: {};
+      /** Hides the panel; the menu-bar item shows it again. */
+      hidePanel: {};
     };
   };
   webview: {

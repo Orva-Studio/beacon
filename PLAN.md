@@ -987,7 +987,9 @@ connection, the system audio's from its buffers, so nothing opens the devices
 a second time mid-take. Frames are pulled, not pushed (`recordFrames`
 answers with the newest once there is one): pushed, a busy page fell behind
 and showed the camera late. After a take, Beacon offers to name it (the media
-item and its clips; the folder keeps its date and time). Still to come: the
+item and its clips; the folder keeps its date and time). The panel has a grip
+to drag it by and – to hide it to the menu-bar item, whose menu shows it again.
+Still to come: the
 sync check in Settings.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by

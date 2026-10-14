@@ -20,7 +20,7 @@ let state: PanelState | null = null;
 const render = (s: PanelState) => {
   state = s;
   root ??= createRoot(document.getElementById("root")!);
-  root.render(<RecordPanel state={s} onStop={() => view.rpc!.send.stopRecording({})} pull={(after) => view.rpc!.request.recordFrames({ after })} />);
+  root.render(<RecordPanel state={s} onStop={() => view.rpc!.send.stopRecording({})} onHide={() => view.rpc!.send.hidePanel({})} pull={(after) => view.rpc!.request.recordFrames({ after })} />);
 };
 const init = await view.rpc!.request.panelInit({});
 if (init) render(init);

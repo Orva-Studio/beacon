@@ -381,7 +381,7 @@ async function recordDialog() {
 
 const STOP_SHORTCUT = "CommandOrControl+Shift+2";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow } | undefined;
+let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow; panelShown: boolean } | undefined;
 
 /**
  * The newest preview frames, for the Record dialog and the recording panel to pull (`recordFrames`): pushing each
@@ -437,7 +437,10 @@ async function openPanel(state: PanelState, display: { width: number } | undefin
         },
         recordFrames: ({ after }) => newerFrames(after),
       },
-      messages: { stopRecording: () => void stopRecording() },
+      messages: {
+        stopRecording: () => void stopRecording(),
+        hidePanel: () => showPanel(false),
+      },
     },
   });
   const height = Math.round(panelHeight(state, PANEL_WIDTH));
@@ -496,14 +499,38 @@ async function startRecording({ sources }: { sources: RecordSources }) {
     panel.webview.rpc?.send.recordStarted({ started: panelState.started });
   }
   const tray = new Tray({ title: "● 0:00" });
-  tray.setMenu([{ type: "normal", label: "Stop Recording  (⌘⇧2)", action: "stopRecording" }]);
   tray.on("tray-clicked", (e) => {
-    if ((e as { data?: { action?: string } }).data?.action === "stopRecording") void stopRecording();
+    const action = (e as { data?: { action?: string } }).data?.action;
+    if (action === "stopRecording") void stopRecording();
+    else if (action === "showPanel") showPanel(true);
+    else if (action === "hidePanel") showPanel(false);
   });
   const started = Date.now();
   const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000)}`), 1000);
   GlobalShortcut.register(STOP_SHORTCUT, () => void stopRecording());
-  recording = { tray, timer, panel };
+  recording = { tray, timer, panel, panelShown: true };
+  trayMenu();
+}
+
+/** The menu-bar item's menu: the panel's Show or Hide, and Stop. */
+function trayMenu() {
+  const r = recording;
+  if (!r) return;
+  r.tray.setMenu([
+    { type: "normal", label: r.panelShown ? "Hide Recording Panel" : "Show Recording Panel", action: r.panelShown ? "hidePanel" : "showPanel" },
+    { type: "separator" },
+    { type: "normal", label: "Stop Recording  (⌘⇧2)", action: "stopRecording" },
+  ]);
+}
+
+/** Hidden, the panel stops covering the screen and the take carries on; the menu-bar item brings it back. */
+function showPanel(shown: boolean) {
+  const r = recording;
+  if (!r?.panel || r.panelShown === shown) return;
+  if (shown) r.panel.showInactive();
+  else r.panel.hide();
+  r.panelShown = shown;
+  trayMenu();
 }
 
 /** Stops the take, imports it at the end of the timeline and brings Beacon back. */
@@ -813,6 +840,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         ContextMenu.showContextMenu([
           ...(missing ? [item("Locate Media…", "locate"), sep] : []),
           item("Add to Timeline at Playhead", "add"),
+          item("Add to End of Timeline", "addEnd"),
           ...(proxyable ? [{ label: "Proxy Video", submenu: [item("Create Proxy Video", "proxyCreate", !hasProxy && !making), item("Delete Proxy Video", "proxyDelete", hasProxy || making)] }] : []),
           sep,
           item("Delete", "delete"),
@@ -1037,6 +1065,7 @@ function mediaAction(h: string, op: string, asset: string) {
   const a = core.doc(h).assets[asset];
   if (!a) return;
   if (op === "add") void core.run(h, "edit.addMedia", { asset }).catch(fail);
+  else if (op === "addEnd") void core.run(h, "edit.addMedia", { asset, end: true }).catch(fail);
   else if (op === "delete") void core.run(h, "edit.deleteMedia", { asset }).catch(fail);
   else if (op === "rename") send().renameMedia({ asset });
   else if (op === "reveal") Bun.spawn(["open", "-R", a.path]);
