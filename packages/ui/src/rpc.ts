@@ -187,8 +187,8 @@ export interface RecordedSheet {
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
 export interface RecordSheet {
   permissions: { screen: string; camera: string; microphone: string };
-  displays: { id: number; width: number; height: number; x?: number; y?: number }[];
-  cameras: { id: string; name: string }[];
+  displays: { id: number; width: number; height: number; pixelWidth?: number; pixelHeight?: number; x?: number; y?: number }[];
+  cameras: { id: string; name: string; width?: number; height?: number; fps?: number }[];
   microphones: { id: string; name: string }[];
   outputs: SoundOutput[];
   sources: RecordSources;

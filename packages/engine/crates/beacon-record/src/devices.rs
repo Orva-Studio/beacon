@@ -63,7 +63,21 @@ fn capture_devices(video: bool) -> Vec<Value> {
     let Some(kind) = (unsafe { if video { AVMediaTypeVideo } else { AVMediaTypeAudio } }) else { return vec![] };
     #[allow(deprecated)]
     let devices = unsafe { AVCaptureDevice::devicesWithMediaType(kind) };
-    devices.iter().map(|d| json!({ "id": unsafe { d.uniqueID() }.to_string(), "name": unsafe { d.localizedName() }.to_string() })).collect()
+    devices
+        .iter()
+        .map(|d| {
+            let mut v = json!({ "id": unsafe { d.uniqueID() }.to_string(), "name": unsafe { d.localizedName() }.to_string() });
+            // A camera's size and rate are its active format's, as a take records them.
+            if video {
+                let (dims, frame) = unsafe { (objc2_core_media::CMVideoFormatDescriptionGetDimensions(&d.activeFormat().formatDescription()), d.activeVideoMinFrameDuration()) };
+                let secs = unsafe { frame.seconds() };
+                v["width"] = json!(dims.width);
+                v["height"] = json!(dims.height);
+                v["fps"] = json!(if secs > 0.0 { (1.0 / secs).round() as i64 } else { 30 });
+            }
+            v
+        })
+        .collect()
 }
 
 /// Asks for the camera or microphone permission (macOS shows its prompt the first time); the status after.
@@ -91,9 +105,12 @@ pub fn list() -> Value {
             // `x`, `y`: its top-left in global points (the main display's top-left is 0, 0), to put a window on it.
             .map(|ds| {
                 ds.iter()
+                    // `pixelWidth`, `pixelHeight`: the size a take records it at (points by the backing scale), as capture sizes it.
                     .map(|d| unsafe {
                         let f = d.frame();
-                        json!({ "id": d.displayID(), "width": d.width(), "height": d.height(), "x": f.origin.x, "y": f.origin.y })
+                        let scale = SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), d, &NSArray::new()).pointPixelScale() as f64;
+                        let (pw, ph) = ((f.size.width * scale) as usize, (f.size.height * scale) as usize);
+                        json!({ "id": d.displayID(), "width": d.width(), "height": d.height(), "pixelWidth": pw, "pixelHeight": ph, "x": f.origin.x, "y": f.origin.y })
                     })
                     .collect::<Vec<_>>()
             })

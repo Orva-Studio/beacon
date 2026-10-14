@@ -403,11 +403,11 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { display: 1, fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
 });
 
-test.skipIf(skip)("Record previews the chosen screen and camera and both audio levels, and stops when closed", async () => {
+test.skipIf(skip)("Record previews the chosen screen and camera with the size each records at, and both audio levels, and stops when closed", async () => {
   const sheet = {
     permissions: { screen: "granted", camera: "granted", microphone: "granted" },
-    displays: [{ id: 1, width: 1800, height: 1169 }],
-    cameras: [{ id: "cam-1", name: "Elgato 4K X" }, { id: "cam-2", name: "MacBook Pro Camera" }],
+    displays: [{ id: 1, width: 1800, height: 1169, pixelWidth: 3600, pixelHeight: 2338 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X", width: 3840, height: 2160, fps: 30 }, { id: "cam-2", name: "MacBook Pro Camera", width: 1280, height: 720, fps: 30 }],
     microphones: [{ id: "mic-1", name: "Blue Yeti" }],
     sources: { screen: { display: 1, fps: 60 }, systemAudio: true, camera: { id: "cam-1" }, microphone: { id: "mic-1" } },
   };
@@ -417,11 +417,14 @@ test.skipIf(skip)("Record previews the chosen screen and camera and both audio l
     "!!document.querySelector('[data-preview=Screen]') && !!document.querySelector('[data-preview=Camera]') && document.querySelector('[aria-label=\"Microphone level\"]')?.dataset.level === '-20' && document.querySelector('[aria-label=\"System audio level\"]')?.dataset.level === '-30'",
   );
   expect(await page.evaluate<string>("document.querySelector('[data-preview=Camera]').src")).toStartWith("data:image/jpeg;base64,");
+  const size = (label: string) => page.evaluate<string>(`document.querySelector('[data-record-size=${label}]')?.textContent ?? ''`);
+  expect([await size("Screen"), await size("Camera")]).toEqual(["3600 × 2338 · 60 fps", "3840 × 2160 · 30 fps"]);
   const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
   expect(previews().at(-1)).toEqual({ screen: { display: 1 }, systemAudio: true, camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
   // Another camera is previewed instead.
   await page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'cam-2')); s.value = 'cam-2'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await arrived(() => previews().at(-1)?.camera?.id === "cam-2");
+  await page.until(`document.querySelector('[data-record-size=Camera]')?.textContent === '1280 × 720 · 30 fps'`);
   // A source turned off shows as off.
   await page.evaluate(`document.querySelector('[data-source="Screen"]').click()`);
   await page.until("!document.querySelector('[data-preview=Screen]') && document.querySelector('[data-record-monitors]').textContent.includes('Off')");

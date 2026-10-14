@@ -33,8 +33,8 @@ function permission(kind: keyof typeof SETTINGS, status: string): ReactNode {
   );
 }
 
-/** A source's live picture, or what it would show and why it doesn't. */
-function Monitor({ label, icon, jpeg, mirrored, why, className }: { label: string; icon: IconName; jpeg?: string; mirrored?: boolean; why?: string; className: string }) {
+/** A source's live picture, or what it would show and why it doesn't; `size`: what a take records it at. */
+function Monitor({ label, icon, jpeg, mirrored, why, size, className }: { label: string; icon: IconName; jpeg?: string; mirrored?: boolean; why?: string; size?: string; className: string }) {
   return (
     <figure className={`flex flex-col gap-1 ${className}`}>
       <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-md bg-groove ring-1 ring-white/5">
@@ -48,7 +48,14 @@ function Monitor({ label, icon, jpeg, mirrored, why, className }: { label: strin
           </span>
         )}
       </div>
-      <figcaption className="text-caption text-text-muted">{label}</figcaption>
+      <figcaption className="flex justify-between gap-2 text-caption text-text-muted">
+        <span>{label}</span>
+        {size && !why && (
+          <span className="text-text tabular-nums" data-record-size={label}>
+            {size}
+          </span>
+        )}
+      </figcaption>
     </figure>
   );
 }
@@ -128,6 +135,10 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   }, [counting]);
 
   const display = (id: number | undefined) => sheet.displays.find((d) => d.id === id) ?? sheet.displays[0];
+  const shown = display(s.screen?.display);
+  const screenSize = shown?.pixelWidth && shown.pixelHeight ? `${shown.pixelWidth} × ${shown.pixelHeight} · ${s.screen?.fps ?? 60} fps` : undefined;
+  const cam = sheet.cameras.find((c) => c.id === s.camera?.id);
+  const cameraSize = cam?.width && cam.height ? `${cam.width} × ${cam.height}${cam.fps ? ` · ${cam.fps} fps` : ""}` : undefined;
   if (counting !== undefined) {
     return (
       <Modal title="Record" width={360} onClose={() => setCounting(undefined)}>
@@ -144,8 +155,8 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   return (
     <Modal title="Record" width={560} onClose={close} onEnter={() => !nothing && setCounting(COUNTDOWN)}>
       <div className="mb-4 flex gap-3" data-record-monitors>
-        <Monitor label="Screen" icon="monitor-play" jpeg={frames.screen} why={why(s.screen, "screen")} className="flex-[1.6]" />
-        <Monitor label="Camera" icon="video-camera" jpeg={frames.camera} mirrored why={why(s.camera, "camera")} className="flex-1" />
+        <Monitor label="Screen" icon="monitor-play" jpeg={frames.screen} why={why(s.screen, "screen")} size={screenSize} className="flex-[1.6]" />
+        <Monitor label="Camera" icon="video-camera" jpeg={frames.camera} mirrored why={why(s.camera, "camera")} size={cameraSize} className="flex-1" />
       </div>
       <div className="flex flex-col gap-3" data-record>
         <Source label="Screen" hint={permission("screen", sheet.permissions.screen)} on={!!s.screen} setOn={(on) => setS({ ...s, screen: on ? { display: display(undefined)?.id, fps: 60 } : undefined })}>

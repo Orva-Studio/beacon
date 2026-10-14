@@ -978,6 +978,9 @@ the display (480 wide, 5 fps) beside the camera (320 wide, 30 fps) at the top,
 the microphone's and system audio's levels as meters with a held peak on their
 rows. `beacon-recorder serve`'s `preview` runs capture that writes nothing;
 only sources Beacon may already use are previewed (asking waits for Record).
+Under each preview, the size and rate a take records it at (as Camtasia shows
+on its camera): the display's points by its backing scale, the camera's active
+format, both reported by `devices`.
 While a take records, a small panel floats top right over the screen (the
 time, Stop, and both levels as rolling waveforms), left out of
 the take: ScreenCaptureKit's filter excludes the window by its title. The take
@@ -1050,8 +1053,8 @@ Camtasia's takes line up): moving the camera earlier fixes lip sync and keeps
 the voice in step with the screen, where delaying the microphone makes it late
 against the screen; and nothing runs live while recording. When the capture card also carries the camera's own
 audio (HDMI), matching that against the microphone's waveform gives the offset
-from ordinary speech, with no test (check whether the user's Elgato offers an
-audio device). Camtasia has neither: its only fix is moving the clip by hand.
+from ordinary speech, with no test (the user's Cam Link 4K does offer one, as a
+microphone named after it, seen 2026-10-14). Camtasia has neither: its only fix is moving the clip by hand.
 A clap test is the fallback when the speakers can't be used; estimating sync from lip movement is for the AI features after Phase 6.
 To check with the user's setup (Blue Yeti, Elgato): the offset, and a long
 take's `driftPpm` (a USB microphone keeps its own clock).

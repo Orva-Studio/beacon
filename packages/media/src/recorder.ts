@@ -5,9 +5,10 @@ import { enginePath } from "./engine";
 /** What `beacon-recorder devices` reports: permissions and what can be recorded. */
 export interface RecorderDevices {
   permissions: { screen: string; camera: string; microphone: string };
-  /** Sizes in points; `x`, `y`: top-left in global points (the main display's is 0, 0). */
-  displays: { id: number; width: number; height: number; x?: number; y?: number }[];
-  cameras: { id: string; name: string }[];
+  /** Sizes in points, `pixelWidth`/`pixelHeight` as a take records it; `x`, `y`: top-left in global points (the main display's is 0, 0). */
+  displays: { id: number; width: number; height: number; pixelWidth?: number; pixelHeight?: number; x?: number; y?: number }[];
+  /** `width`, `height`, `fps`: as a take records it (its active format). */
+  cameras: { id: string; name: string; width?: number; height?: number; fps?: number }[];
   microphones: { id: string; name: string }[];
   /** Where sound can play: `speakers` when the room (and a microphone) hears it, not headphones or a virtual device. */
   outputs: { id: string; name: string; kind: string; speakers: boolean; default: boolean }[];
