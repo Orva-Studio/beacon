@@ -1008,7 +1008,12 @@ screen that flashes, stay still and quiet) and shows the camera being
 measured, its microphone's level, a test beep (heard when the microphone's
 peak passes -35 dBFS) and the display to flash; Beacon raises the Mac's
 volume to at least 75% and unmutes it for the beeps, then puts it back. No
-clap: the flash and beep are the clap, found to the millisecond.
+clap: the flash and beep are the clap, found to the millisecond. The beeps
+play through speakers the room hears: the recorder lists the Mac's sound
+outputs through CoreAudio (Bluetooth, wired headphones in the jack, a USB
+microphone's own headphone jack and virtual devices don't count) and, when
+the sound goes to headphones, the check switches the output to the Mac's
+speakers for its beeps and back after.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

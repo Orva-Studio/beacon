@@ -8,6 +8,7 @@ mod capture;
 mod cursor;
 mod devices;
 mod monitor;
+mod outputs;
 mod preview;
 mod serve;
 

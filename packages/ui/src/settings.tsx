@@ -184,6 +184,7 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
               microphone: devices.microphones.find((m) => m.id === microphone) ?? { id: microphone!, name: microphone! },
               displays: devices.displays,
               display: devices.display,
+              outputs: devices.outputs,
             }}
           />
         </div>

@@ -191,6 +191,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
                   microphone: sheet.microphones.find((m) => m.id === s.microphone!.id) ?? { id: s.microphone!.id!, name: s.microphone!.id! },
                   displays: sheet.displays,
                   display: s.screen?.display,
+                  outputs: sheet.outputs,
                 }}
               />
             </div>

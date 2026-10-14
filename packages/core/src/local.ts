@@ -888,6 +888,10 @@ export class LocalCore implements BeaconCore {
     return this.#recorder.access(kind);
   }
 
+  async recorderSetOutput(output: string) {
+    return this.#recorder.setOutput(output);
+  }
+
   async recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void) {
     return this.#recorder.preview(sources, fn);
   }

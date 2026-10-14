@@ -2,7 +2,8 @@
 //! stdout line. Commands: `devices`; `access` with `kind` (`camera` or
 //! `microphone`); `start` with `dir` (the take's new `.brec`
 //! folder) and `sources`; `status`; `stop`. Each event echoes the command's
-//! `id`. `preview` with `screen`, `systemAudio`, `camera` and `microphone`
+//! `id`. `setOutput` switches the Mac's sound output (`devices` lists them).
+//! `preview` with `screen`, `systemAudio`, `camera` and `microphone`
 //! shows them in the Record dialog until `previewStop` or a take starts; a take
 //! started with `monitor` shows its camera and levels in the recording panel.
 //! Both send `previewFrame` events (`source` and base64 JPEG) and
@@ -51,6 +52,11 @@ enum Command {
     },
     PreviewStop {
         id: Option<Value>,
+    },
+    /// Makes `output` (a UID from `devices`) the Mac's sound output; answers with the one it replaced.
+    SetOutput {
+        id: Option<Value>,
+        output: String,
     },
     Stop {
         id: Option<Value>,
@@ -159,6 +165,10 @@ pub fn run() -> Result<(), String> {
                     Err(e) => error(id.as_ref(), e),
                 }
             }
+            Command::SetOutput { id, output } => match crate::outputs::set_default(&output) {
+                Ok(before) => emit(id.as_ref(), json!({ "event": "output", "before": before })),
+                Err(e) => error(id.as_ref(), e),
+            },
             Command::PreviewStop { id } => {
                 preview = None;
                 emit(id.as_ref(), json!({ "event": "previewStopped" }));

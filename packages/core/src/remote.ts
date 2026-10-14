@@ -163,6 +163,7 @@ export class RemoteCore implements BeaconCore {
   sheet = (h: ProjectHandle, opts: SheetOptions) => this.#call<Image & { times: number[] }>("sheet", h, opts);
   recorderDevices = () => this.#call<RecorderDevices>("recorderDevices");
   recorderPreview = (): Promise<void> => Promise.reject(new Error("the recorder's preview is only shown in the app"));
+  recorderSetOutput = (): Promise<never> => Promise.reject(new Error("the sound output is set in the app"));
   recordSyncCheck = (): Promise<never> => Promise.reject(new Error("the sync check runs in the app"));
   recorderAccess = (kind: "camera" | "microphone") => this.#call<string>("recorderAccess", kind);
   recordStart = (h: ProjectHandle, opts?: RecordOptions) => this.#call<{ take: string }>("recordStart", h, opts);

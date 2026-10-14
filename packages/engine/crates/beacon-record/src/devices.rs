@@ -110,6 +110,7 @@ pub fn list() -> Value {
         },
         "displays": displays,
         "cameras": capture_devices(true),
+        "outputs": crate::outputs::list(),
         "microphones": capture_devices(false),
     })
 }

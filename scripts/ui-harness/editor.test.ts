@@ -431,9 +431,14 @@ test.skipIf(skip)("Record previews the chosen screen and camera and both audio l
   expect(previews().at(-1)).toEqual({});
 });
 
-test.skipIf(skip)("Check Sync: says what to do, shows the camera, tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
+test.skipIf(skip)("Check Sync: says what to do, shows the camera, beeps through speakers (not headphones), tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
   const displays = [{ id: 5, width: 3360, height: 1890 }, { id: 1, width: 1800, height: 1169 }];
-  const devices = { displays, display: 5, cameras: [{ id: "elgato", name: "Elgato Cam Link 4K" }], microphones: [{ id: "yeti", name: "Yeti Stereo Microphone" }], camera: "elgato", microphone: "yeti" };
+  const outputs = [
+    { id: "bt", name: "WH-XB900N", kind: "bluetooth", speakers: false, default: true },
+    { id: "yeti-out", name: "Yeti Stereo Microphone", kind: "usb", speakers: false, default: false },
+    { id: "BuiltInSpeakerDevice", name: "MacBook Pro Speakers", kind: "built-in", speakers: true, default: false },
+  ];
+  const devices = { displays, display: 5, outputs, cameras: [{ id: "elgato", name: "Elgato Cam Link 4K" }], microphones: [{ id: "yeti", name: "Yeti Stereo Microphone" }], camera: "elgato", microphone: "yeti" };
   const app = { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" };
   const before = ui.menus.length;
   ui.send("settingsSheet", { ...app, tab: "recording", devices });
@@ -442,12 +447,15 @@ test.skipIf(skip)("Check Sync: says what to do, shows the camera, tests the beep
   await page.evaluate("document.querySelector('[data-check-sync]').click()");
   // Setup: what to do, the camera, a test beep the microphone hears, the screen to flash.
   await page.until("!!document.querySelector('[data-sync-setup] [data-preview=Camera]') && document.querySelector('[data-sync-setup]').textContent.includes('volume')");
+  // The Mac's sound goes to Bluetooth headphones: the beeps play through its speakers instead, and say so.
+  expect(await page.evaluate<string>("document.querySelector('[data-sync-output]').value")).toBe("BuiltInSpeakerDevice");
+  expect(await page.evaluate<string>("document.querySelector('[data-sync-setup]').textContent")).toContain("WH-XB900N (Bluetooth headphones): Beacon plays the beeps through MacBook Pro Speakers");
   await page.evaluate("document.querySelector('[data-test-beep]').click()");
   await page.until("document.querySelector('[data-sync-setup]').closest('[tabindex]').textContent.includes('Heard the beep')");
   await page.evaluate("(() => { const s = document.querySelector('[data-sync-display]'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
   await page.evaluate("document.querySelector('[data-start-sync]').click()");
   await page.until("document.querySelector('[data-sync-result]')?.textContent.includes('112 ms behind')");
-  expect(ui.menus.slice(before)).toEqual(expect.arrayContaining(["testBeep", "checkSync:elgato|yeti@1"]));
+  expect(ui.menus.slice(before)).toEqual(expect.arrayContaining(["testBeep>BuiltInSpeakerDevice", "checkSync:elgato|yeti@1>BuiltInSpeakerDevice"]));
   const saved = () => ui.menus.slice(before).filter((m) => m.startsWith("setAppSettings:")).map((m) => JSON.parse(m.slice("setAppSettings:".length)));
   await arrived(() => saved().at(-1)?.cameraSync?.["elgato|yeti"]?.cameraLateMs === 112);
   expect(saved().at(-1).cameraSync["elgato|yeti"]).toMatchObject({ cameraLateMs: 112, checked: { flashes: 6, spreadMs: 4 } });
@@ -468,6 +476,7 @@ test.skipIf(skip)("Check Sync: says what to do, shows the camera, tests the beep
     displays,
     cameras: devices.cameras,
     microphones: devices.microphones,
+    outputs,
     sources: { camera: { id: "elgato" }, microphone: { id: "yeti" } },
     cameraSync: { "elgato|yeti": { cameraLateMs: 90 } },
   });

@@ -227,6 +227,8 @@ export interface BeaconCore {
   recorderAccess(kind: "camera" | "microphone"): Promise<string>;
   /** The Record dialog's preview of the sources, sent to `fn` until called again; with none, it stops. Only in the app. */
   recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void): Promise<void>;
+  /** Makes `output` (from `recorderDevices`) the Mac's sound output; the one it replaced. */
+  recorderSetOutput(output: string): Promise<string | undefined>;
   /** Starts recording a take into the project's `recordings` folder; one take at a time. Resolves once every source is delivering. */
   recordStart(h: ProjectHandle, opts?: RecordOptions): Promise<{ take: string }>;
   recordStatus(): Promise<RecordStatus>;

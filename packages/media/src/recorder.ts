@@ -9,6 +9,8 @@ export interface RecorderDevices {
   displays: { id: number; width: number; height: number; x?: number; y?: number }[];
   cameras: { id: string; name: string }[];
   microphones: { id: string; name: string }[];
+  /** Where sound can play: `speakers` when the room (and a microphone) hears it, not headphones or a virtual device. */
+  outputs: { id: string; name: string; kind: string; speakers: boolean; default: boolean }[];
 }
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
@@ -101,6 +103,11 @@ export class Recorder {
   async devices(): Promise<RecorderDevices> {
     const { event: _, id: __, ...d } = await this.#send({ cmd: "devices" });
     return d as unknown as RecorderDevices;
+  }
+
+  /** Makes `output` (an id from `devices`) the Mac's sound output; the one it replaced. */
+  async setOutput(output: string): Promise<string | undefined> {
+    return ((await this.#send({ cmd: "setOutput", output })).before as string | null) ?? undefined;
   }
 
   /** Asks macOS for the permission (its prompt the first time); the status after. */

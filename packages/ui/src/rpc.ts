@@ -84,8 +84,18 @@ export type SettingsTab = "general" | "recording" | "project";
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices };
 
+/** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
+export interface SoundOutput {
+  id: string;
+  name: string;
+  kind: string;
+  speakers: boolean;
+  default: boolean;
+}
+
 export interface RecordDevices {
   displays: { id: number; width: number; height: number }[];
+  outputs: SoundOutput[];
   /** The display last recorded. */
   display?: number;
   cameras: { id: string; name: string }[];
@@ -180,6 +190,7 @@ export interface RecordSheet {
   displays: { id: number; width: number; height: number; x?: number; y?: number }[];
   cameras: { id: string; name: string }[];
   microphones: { id: string; name: string }[];
+  outputs: SoundOutput[];
   sources: RecordSources;
   cameraSync?: Record<string, CameraSync>;
 }
@@ -273,9 +284,10 @@ export type AppRPC = {
       /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
       /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */
-      checkSync: { params: { camera: string; microphone: string; display?: number }; response: { ok: boolean; result?: SyncCheck; error?: string } };
-      /** One sync-check beep at the check's volume, to see the microphone hear it. */
-      testBeep: { params: {}; response: void };
+      /** `output`: the speakers to beep through (the Mac's output is switched for the check, then back). */
+      checkSync: { params: { camera: string; microphone: string; display?: number; output?: string }; response: { ok: boolean; result?: SyncCheck; error?: string } };
+      /** One sync-check beep at the check's volume and through its speakers, to see the microphone hear it. */
+      testBeep: { params: { output?: string }; response: void };
       /** The newest frames after `after`, as soon as there are any (or after a second without): pulled, so a slow page never falls behind. */
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */

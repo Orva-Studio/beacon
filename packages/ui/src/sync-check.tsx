@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Icon, LevelMeter, Modal, NumberBox, Select, SettingsRow as Row } from "./controls";
 import { previewListeners, useRecordFrames } from "./record-preview";
-import type { AudioLevel, CameraSync, RecordFrames, RecordPreview, RecordSources, SyncCheck } from "./rpc";
+import type { AudioLevel, CameraSync, RecordFrames, RecordPreview, RecordSources, SoundOutput, SyncCheck } from "./rpc";
 
 export interface SyncCheckHost {
-  checkSync(camera: string, microphone: string, display?: number): Promise<{ ok: boolean; result?: SyncCheck; error?: string }>;
-  testBeep(): Promise<void>;
+  checkSync(camera: string, microphone: string, display?: number, output?: string): Promise<{ ok: boolean; result?: SyncCheck; error?: string }>;
+  testBeep(output?: string): Promise<void>;
   recordPreview(sources: RecordSources): void;
   recordFrames(after: number): Promise<RecordFrames>;
 }
@@ -17,7 +17,17 @@ export interface SyncDevices {
   displays: { id: number; width: number; height: number }[];
   /** The display to flash first: the one recorded. */
   display?: number;
+  outputs: SoundOutput[];
 }
+
+/** The speakers to beep through: the Mac's output when the room hears it, else its own speakers, else any that it does. */
+function speakers(outputs: SoundOutput[]) {
+  const now = outputs.find((o) => o.default);
+  if (now?.speakers) return now;
+  return outputs.find((o) => o.speakers && o.kind === "built-in") ?? outputs.find((o) => o.speakers);
+}
+
+const KIND: Record<string, string> = { bluetooth: "Bluetooth headphones", headphones: "headphones", usb: "a USB device's headphone jack", virtual: "a virtual device" };
 
 const day = (at: number) => new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
@@ -31,6 +41,9 @@ const HEARD_DB = -35;
  */
 function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: SyncDevices; host: SyncCheckHost; onClose: () => void; onMeasured: (r: SyncCheck) => void }) {
   const [display, setDisplay] = useState(devices.display ?? devices.displays[0]?.id);
+  const current = devices.outputs.find((o) => o.default);
+  const [output, setOutput] = useState(speakers(devices.outputs)?.id);
+  const chosen = devices.outputs.find((o) => o.id === output);
   const [step, setStep] = useState<"setup" | "checking" | { result: SyncCheck } | { error: string }>("setup");
   const [level, setLevel] = useState<AudioLevel>();
   const [beep, setBeep] = useState<"playing" | "heard" | "missed">();
@@ -54,14 +67,14 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
   const testBeep = async () => {
     setBeep("playing");
     loudest.current = -120;
-    await host.testBeep();
+    await host.testBeep(output);
     // The level arrives a beat after the sound.
     await new Promise((r) => setTimeout(r, 300));
     setBeep(loudest.current >= HEARD_DB ? "heard" : "missed");
   };
   const start = async () => {
     setStep("checking");
-    const r = await host.checkSync(devices.camera.id, devices.microphone.id, display).catch((e: Error) => ({ ok: false, error: e.message, result: undefined }));
+    const r = await host.checkSync(devices.camera.id, devices.microphone.id, display, output).catch((e: Error) => ({ ok: false, error: e.message, result: undefined }));
     if (r.ok && r.result) {
       onMeasured(r.result);
       setStep({ result: r.result });
@@ -125,6 +138,28 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
           <span className="w-44 truncate text-text">{devices.microphone.name}</span>
           <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />
         </Row>
+        <Row
+          label="Beeps Through"
+          hint={
+            !chosen
+              ? "Nothing here plays out loud: connect speakers, or unplug headphones, so the microphone can hear the beeps."
+              : !chosen.speakers
+                ? `The microphone can't hear ${KIND[chosen.kind] ?? "this"}: choose speakers.`
+                : current && current.id !== chosen.id
+                  ? `Your Mac's sound goes to ${current.name}${current.speakers ? "" : ` (${KIND[current.kind] ?? "not out loud"})`}: Beacon plays the beeps through ${chosen.name} for the check, then switches back.`
+                  : undefined
+          }
+        >
+          <div className="w-56">
+            <Select value={output ?? ""} onChange={(e) => setOutput(e.target.value)} data-sync-output>
+              {devices.outputs.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </Row>
         <Row label="Flash">
           <div className="w-56">
             <Select value={display ?? ""} onChange={(e) => setDisplay(Number(e.target.value))} data-sync-display>
@@ -143,7 +178,7 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
         </Button>
         <span className="flex-1" />
         <Button onClick={onClose}>Cancel</Button>
-        <Button look="primary" onClick={start} data-start-sync>
+        <Button look="primary" onClick={start} disabled={!chosen?.speakers} data-start-sync>
           Start Check
         </Button>
       </div>
