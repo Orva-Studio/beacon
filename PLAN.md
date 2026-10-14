@@ -995,7 +995,10 @@ one): pushed, a busy page fell behind and showed the camera late. A chip per
 source recorded sits under the time (2026-10-14, the user's choice, kept
 minimal): its dot turns red once nothing has arrived from it for 2 s (an idle
 screen's empty frames count) or its writer failed, from `live` in the take's
-level events. After a take, Beacon offers to name it (the media
+level events. The camera's turns amber while its picture is black (every sample of a
+32×18 glance, four a second, under 24 of 255 for a second) or frozen (the same
+glance for 1.5 s: a live camera's noise always changes some of it), as a card
+that loses its camera sends (2026-10-14, after the 5 s of black below). After a take, Beacon offers to name it (the media
 item and its clips; the folder keeps its date and time). The panel has a grip
 to drag it by and – to hide it to the menu-bar item, whose menu shows it again.
 Check Sync (2026-10-14): Settings ›
@@ -1031,8 +1034,7 @@ that compares the Yeti's samples with timestamps macOS derives from the same
 device, so only a look at a take's end can tell. The same take is black for 5 s
 at 4:08: the Cam Link kept sending 30 fps, but each frame was black (16 KB a
 second against 1.2 MB), so the card lost its picture (the camera's HDMI, or
-Camera Hub, open at the time); the panel's chips, which watch for a source that
-stops sending, can't see it.
+Camera Hub, open at the time); the chips' amber camera now flags it.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

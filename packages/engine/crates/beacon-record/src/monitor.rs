@@ -93,6 +93,43 @@ fn small_rgb(pb: &CVPixelBuffer, max_width: usize) -> Option<(Vec<u8>, usize, us
     ok.then_some((out, ow, oh))
 }
 
+/// Whether a camera's picture went black or froze while its frames kept coming (a capture card that lost its
+/// camera's signal sends either): a 32-wide glance at a frame four times a second.
+#[derive(Default)]
+pub struct Picture {
+    last: Option<Vec<u8>>,
+    at: f64,
+    black_since: Option<f64>,
+    still_since: Option<f64>,
+}
+
+impl Picture {
+    pub fn add(&mut self, buf: &CMSampleBuffer, now: f64) {
+        if now - self.at < 0.25 {
+            return;
+        }
+        self.at = now;
+        let Some((px, _, _)) = unsafe { buf.image_buffer() }.and_then(|pb| small_rgb(&pb, 32)) else { return };
+        let black = px.iter().all(|&v| v < 24);
+        // A live camera's noise changes some of the glance every time; a repeated frame doesn't.
+        let still = !black && self.last.as_ref() == Some(&px);
+        self.black_since = if black { Some(self.black_since.unwrap_or(now)) } else { None };
+        self.still_since = if still { Some(self.still_since.unwrap_or(now)) } else { None };
+        self.last = Some(px);
+    }
+
+    /// "black" after a second of it, "frozen" after 1.5 s of the same picture, else nothing.
+    pub fn state(&self, now: f64) -> Option<&'static str> {
+        if self.black_since.is_some_and(|t| now - t >= 1.0) {
+            Some("black")
+        } else if self.still_since.is_some_and(|t| now - t >= 1.5) {
+            Some("frozen")
+        } else {
+            None
+        }
+    }
+}
+
 /// A sample buffer's frame as base64 JPEG, at most `max_width` wide.
 pub fn jpeg(buf: &CMSampleBuffer, max_width: usize) -> Option<String> {
     let pb = unsafe { buf.image_buffer() }?;

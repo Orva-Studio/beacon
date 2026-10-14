@@ -527,7 +527,7 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops), and rolling waveforms of both levels; – hides it, Stop stops", async () => {
+test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels; – hides it, Stop stops", async () => {
   const panel = await openPage(`${ui.url}?panel=screen,camera,microphone,systemAudio`);
   try {
     await panel.until("!!document.querySelector('[data-record-panel]')");
@@ -543,6 +543,12 @@ test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source
     ui.send("recordPreview", { microphone: { db: -20, peak: -6 }, live: { screen: true, camera: false, microphone: true, systemAudio: true } });
     await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'stopped'");
     expect(await chips()).toBe("Screen:live Camera:stopped Mic:live System:live");
+    // Frames coming, but black: amber, and back to green when the picture returns.
+    ui.send("recordPreview", { live: { screen: true, camera: true, microphone: true, systemAudio: true }, picture: { camera: "black" } });
+    await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'black'");
+    expect(await panel.evaluate<string>("document.querySelector('[data-source=camera] span').className")).toContain("bg-warning");
+    ui.send("recordPreview", { live: { screen: true, camera: true, microphone: true, systemAudio: true }, picture: { camera: null } });
+    await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'live'");
     expect(await panel.evaluate<string>("document.querySelector('[data-record-time]').textContent")).toMatch(/^0:0\d$/);
     expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-grip]')")).toBe(true);
     await panel.evaluate("document.querySelector('[data-record-hide]').click()");

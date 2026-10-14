@@ -19,12 +19,13 @@ const clock = (s: number) => {
 
 /**
  * The recording panel: a small window floating over the screen while a take records, left out of the recording.
- * The time, Stop, a chip per source recorded (its dot red once it stops sending), and the microphone's and system
+ * The time, Stop, a chip per source recorded (its dot red once it stops sending, the camera's amber while its
+ * picture is black or frozen), and the microphone's and system
  * audio's last few seconds as rolling waveforms; no camera: a live picture mid-take was choppy and cost the take
  * (the Record dialog shows it before). Dragged by its grip (or anywhere but its buttons); hidden to the menu bar by –.
  */
 export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onStop: () => void; onHide: () => void }) {
-  const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<Source, boolean>> }>({});
+  const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<Source, boolean>>; picture?: { camera?: "black" | "frozen" | null } }>({});
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const listen = (e: RecordPreview) => !("jpeg" in e) && setLevels(e);
@@ -68,9 +69,12 @@ export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onSt
       <div className="flex flex-wrap gap-1" data-record-sources>
         {chips.map(([key, label]) => {
           const stopped = levels.live?.[key] === false;
+          const picture = key === "camera" && !stopped ? levels.picture?.camera : undefined;
+          const state = stopped ? "stopped" : picture ?? "live";
+          const title = stopped ? `${label}: nothing has arrived for a few seconds` : picture ? `${label}: the picture is ${picture}` : `${label}: recording`;
           return (
-            <span key={key} className="flex h-5 items-center gap-1 rounded-full bg-control px-2 text-caption text-text" title={stopped ? `${label}: nothing has arrived for a few seconds` : `${label}: recording`} data-source-live={stopped ? "stopped" : "live"} data-source={key}>
-              <span className={`size-1.5 rounded-full ${stopped ? "bg-danger" : "bg-accent"}`} />
+            <span key={key} className="flex h-5 items-center gap-1 rounded-full bg-control px-2 text-caption text-text" title={title} data-source-live={state} data-source={key}>
+              <span className={`size-1.5 rounded-full ${stopped ? "bg-danger" : picture ? "bg-warning" : "bg-accent"}`} />
               {label}
             </span>
           );

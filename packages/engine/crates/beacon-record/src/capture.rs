@@ -240,6 +240,7 @@ struct CaptureIvars {
     video_output: AtomicPtr<AVCaptureOutput>,
     /// Set when the recording panel shows the take's levels.
     monitor: bool,
+    picture: Mutex<crate::monitor::Picture>,
 }
 
 define_class!(
@@ -258,6 +259,9 @@ define_class!(
             let track = if is_video { &iv.camera } else { &iv.mic };
             if let Some(t) = track.lock().unwrap().as_mut() {
                 t.append(buf);
+            }
+            if is_video && iv.monitor && iv.camera.lock().unwrap().as_ref().is_some_and(|t| t.first.is_some()) {
+                iv.picture.lock().unwrap().add(buf, host_now());
             }
         }
     }
@@ -430,7 +434,7 @@ impl Take {
 
         // AVFoundation: the camera and microphone in one session.
         let session = unsafe { AVCaptureSession::new() };
-        let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()), monitor });
+        let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()), monitor, picture: Mutex::new(Default::default()) });
         let capture_out: Retained<CaptureOutput> = unsafe { msg_send![super(capture_out), init] };
         unsafe { session.beginConfiguration() };
         let mut camera = None;
@@ -556,8 +560,8 @@ impl Take {
     }
 
     /// `{event: "previewLevel", microphone?, systemAudio?}` as the preview's, for the recording panel.
-    /// The recording panel's levels, and `live`: each source recorded, whether it still sends (nothing for 2 s, or
-    /// a failed writer, and it doesn't).
+    /// The recording panel's levels; `live`: each source recorded, whether it still sends (nothing for 2 s, or a
+    /// failed writer, and it doesn't); `picture.camera`: "black" or "frozen" while its frames keep coming.
     pub fn level(&self) -> Option<Value> {
         let mic = self.mic_output.as_deref().and_then(crate::monitor::channel_level);
         let system = self.screen_out.ivars().audio.lock().unwrap().is_some().then(|| self.screen_out.ivars().level.lock().unwrap().read()).flatten();
@@ -567,7 +571,8 @@ impl Take {
             .iter()
             .filter_map(|m| m.lock().unwrap().as_ref().map(|t| (t.key.to_string(), json!(t.error.is_none() && now - t.arrived < 2.0))))
             .collect();
-        Some(json!({ "event": "previewLevel", "microphone": mic, "systemAudio": system, "live": live }))
+        let camera = self.capture_out.ivars().camera.lock().unwrap().is_some().then(|| self.capture_out.ivars().picture.lock().unwrap().state(now)).flatten();
+        Some(json!({ "event": "previewLevel", "microphone": mic, "systemAudio": system, "live": live, "picture": { "camera": camera } }))
     }
 
     pub fn monitored(&self) -> bool {

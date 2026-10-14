@@ -175,8 +175,10 @@ export interface AudioLevel {
 }
 
 /** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG), or the audio levels. */
-/** `live`: each source a take records, and whether it still sends. */
-export type RecordPreview = { source: "camera" | "screen"; jpeg: string } | { microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>> };
+/** `live`: each source a take records, and whether it still sends; `picture.camera`: a camera still sending, but black or frozen. */
+export type RecordPreview =
+  | { source: "camera" | "screen"; jpeg: string }
+  | { microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>; picture?: { camera?: "black" | "frozen" | null } };
 
 /** A take just recorded and imported: its media item, to name. */
 export interface RecordedSheet {

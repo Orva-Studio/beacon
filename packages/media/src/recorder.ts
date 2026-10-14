@@ -34,7 +34,9 @@ export interface RecorderLevel {
 /** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG, a few hundred pixels wide), or the audio levels. */
 /** Each source a take records, and whether it still sends. */
 export type RecorderLive = Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>;
-export type RecorderPreviewEvent = { source: "camera" | "screen"; jpeg: string } | { microphone?: RecorderLevel; systemAudio?: RecorderLevel; live?: RecorderLive };
+/** A camera whose frames keep coming but show black or the same picture (a capture card that lost its camera). */
+export type RecorderPicture = { camera?: "black" | "frozen" | null };
+export type RecorderPreviewEvent = { source: "camera" | "screen"; jpeg: string } | { microphone?: RecorderLevel; systemAudio?: RecorderLevel; live?: RecorderLive; picture?: RecorderPicture };
 
 type Event = { event: string; id?: number; message?: string; [k: string]: unknown };
 
@@ -76,6 +78,7 @@ export class Recorder {
               ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}),
               ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}),
               ...(e.live ? { live: e.live as RecorderLive } : {}),
+              ...(e.picture ? { picture: e.picture as RecorderPicture } : {}),
             });
           const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
           if (!w) continue;
