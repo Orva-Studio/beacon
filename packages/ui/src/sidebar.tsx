@@ -1,11 +1,12 @@
 import { effectName } from "./effect-names";
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
 import type { Init } from "./rpc";
 import { Icon, ItemTile, RailButton, type IconName } from "./controls";
 import { MediaBin } from "./media-bin";
+import { RemoveSilencesDialog } from "./remove-silences";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -15,6 +16,7 @@ export const TOOLS: { id: string; label: string; icon: IconName }[] = [
   { id: "visualEffects", label: "Visual Effects", icon: "magic-wand" },
   { id: "audioEffects", label: "Audio Effects", icon: "waveform" },
   { id: "narration", label: "Narration", icon: "microphone" },
+  { id: "ai", label: "AI", icon: "sparkle" },
 ];
 
 export function ToolRail({ session, host }: { session?: Session; host: Host }) {
@@ -67,6 +69,7 @@ export const ToolPanel = memo(function ToolPanel({
 }) {
   const label = TOOLS.find((t) => t.id === tool)?.label ?? tool;
   if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
+  if (tool === "ai") return <AiPanel project={project} host={host} />;
   // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
   const items: Record<string, Item[]> = {
     audioEffects: [
@@ -99,6 +102,22 @@ export const ToolPanel = memo(function ToolPanel({
     </Panel>
   );
 });
+
+/** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens a dialog. */
+function AiPanel({ project, host }: { project: Project; host: Host }) {
+  const [open, setOpen] = useState<"silences">();
+  return (
+    <Panel title="AI">
+      <div className="mb-3 text-center text-label text-text-faint">Click to set up and apply to the timeline</div>
+      <div className="grid grid-cols-2 gap-2">
+        <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={() => setOpen("silences")} data-ai="silences">
+          Remove Silences
+        </ItemTile>
+      </div>
+      {open === "silences" && <RemoveSilencesDialog project={project} host={host} onClose={() => setOpen(undefined)} />}
+    </Panel>
+  );
+}
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (

@@ -84,6 +84,7 @@ export const TOOL_PANELS = [
   "visualEffects",
   "audioEffects",
   "narration",
+  "ai",
 ] as const;
 
 export const TRACK_HEIGHT = { min: 26, max: 120, default: 44 };

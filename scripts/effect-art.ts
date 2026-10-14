@@ -39,6 +39,7 @@ const SUBJECTS: Record<string, string> = {
   // The fades keep Beacon's mint: the user preferred it for them.
   "fade-in": `A mint-green (#3ee68d) audio waveform running left to right across a flat dark panel, starting flat and silent at the left and growing smoothly to full loudness at the right. ${NO_TEXT}`,
   "fade-out": `A mint-green (#3ee68d) audio waveform running left to right across a flat dark panel, at full loudness at the left and shrinking smoothly to flat silence at the right. ${NO_TEXT}`,
+  "remove-silences": `A flat dark panel with an audio waveform in vivid cyan (#22d3ee) running left to right in three loud bursts of speech, the two flat silent gaps between them cut out and the bursts sliding together, each removed gap marked by a thin dashed cyan cut line and a small sparkle. ${NO_TEXT}`,
 };
 
 async function draw(id: string, keep: string) {

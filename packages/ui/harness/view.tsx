@@ -89,6 +89,7 @@ const host: Host = {
   captureFrame: () => void report(request("captureFrame")),
   frameImage: () => request("frameImage") as Promise<string | null>,
   binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
+  analyze: (key, asset) => void request("analyze", { key, asset }),
   chooseFolder: async () => null,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,

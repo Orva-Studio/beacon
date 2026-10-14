@@ -1018,6 +1018,9 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           send().media({ highlight: r.asset });
           void sendThumbs();
         }),
+      analyze: async ({ key, asset }) => {
+        if (current) await core.analyze(current.path, key, asset).catch((e: Error) => status(e.message));
+      },
       binFrame: async ({ asset, time }) => {
         const png = current && (await core.assetThumbnail(current.path, asset, THUMB_HEIGHT * 2, time).catch(() => undefined));
         return png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;

@@ -1113,8 +1113,9 @@ cache, and audio start. When it starts is the user's call.
 
 ### Phase 7 — Growth
 New features, each as a folder in `packages/features`.
-- **Remove Silences, one click** (the user, 2026-10-14; the first AI feature,
-  first in this phase): today it is agents only (`transcript_removePauses`
+- **Remove Silences, one click** (the user, 2026-10-14; the first AI feature;
+  built the same day, before the Phase 6 gate, as below except the timeline
+  marks): it was agents only (`transcript_removePauses`
   over MCP); the transcript itself is already made locally by whisper.cpp
   when speech is imported. A button and menu item (Edit › Remove Silences…)
   opens a small dialog: what it found (e.g. "42 silences, 3:12 shorter") and
@@ -1125,7 +1126,23 @@ New features, each as a folder in `packages/features`.
   and which screen frames changed, so silences with that activity are kept by
   default (a tick box), the cheap stand-in for an agent looking at frames.
   Waits for the transcript job if it is still running. Retakes and filler words
-  stay with agents (MCP), where judgement is needed.
+  stay with agents (MCP), where judgement is needed. As built: an **AI** panel
+  in the left sidebar (its tile opens the dialog), not the Edit menu (the
+  user's choice: it is the home for later AI features), nor Audio Effects
+  (those are dragged onto one clip; this edits the whole timeline). The
+  `transcript.silences` query says what would be cut (the same ranges the
+  command removes, to the frame); screen action is the recording's cursor
+  moving over 24 points or clicking during the silence (typing alone isn't
+  seen yet: screen frames changing would catch it); a missing transcript
+  (an import whose app quit first) is started by the dialog. Checked on a
+  3:37 recording: 35 silences, 11 kept for screen action, 1:10 shorter.
+- **Captions** (the user, 2026-10-14; next after Remove Silences, in the AI
+  panel): phrase captions from the transcript's word timings (2-4 words, or a
+  line at a time), on their own track as caption clips styled by one schema
+  (font, size, box, position, highlight of the word being spoken), edited by
+  editing the transcript's words; burned into the export, and an `.srt`
+  beside it. The words are already timed, so most of the work is the
+  caption clip and its style.
 - **Keyboard shortcuts** (the user, 2026-10-14): Settings › Shortcuts lists
   every action with its shortcut (from the registry and
   `keymaps/default.json`), searchable, and rebinds one by pressing the new

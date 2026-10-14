@@ -137,6 +137,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
             });
             ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: "running", progress: 0 } }));
           });
+        else if (msg.type === "analyze") await core.analyze(h, msg.key, msg.asset);
         else if (msg.type === "binFrame") {
           const png = await core.assetThumbnail(h, msg.asset, 128, msg.time).catch(() => undefined);
           result = png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;

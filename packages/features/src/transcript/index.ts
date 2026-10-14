@@ -16,6 +16,7 @@ import {
 } from "@beacon/model";
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
+import type { CursorData } from "../cursor";
 
 /** `Asset.derived.transcript` / the `transcript` analyzer: one transcription per audio stream index. */
 export interface TranscriptData {
@@ -149,12 +150,17 @@ function withoutSlivers(doc: Project, ranges: [number, number][]): [number, numb
 }
 
 /** Rounded out to whole frames, so a cut never leaves the edge of a word it removes, nor a sliver of a clip. */
-function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: number }[]) {
+/** The ranges `cut` removes: out to whole frames, without leaving slivers of clips. */
+function cutRanges(doc: Project, ranges: { start: number; end: number }[]) {
   const { fps } = doc.settings;
-  const outward = withoutSlivers(
+  return withoutSlivers(
     doc,
     ranges.map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number]).filter(([a, b]) => b > a),
   ).map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+}
+
+function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: number }[]) {
+  const outward = cutRanges(doc, ranges);
   rippleDeleteRanges(doc, outward, ctx);
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
@@ -166,6 +172,60 @@ function subtract(r: { start: number; end: number }, holes: { start: number; end
     parts = parts.flatMap((p) => (h.end <= p.start || h.start >= p.end ? [p] : [{ start: p.start, end: h.start }, { start: h.end, end: p.end }].filter((x) => x.end > x.start)));
   }
   return parts;
+}
+
+/** What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it before the first word, none after the last), outside `except`. */
+function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
+  const words = timelineWords(doc, registry, data);
+  if (!words.length) return undefined;
+  return pauses(doc, registry, data, words)
+    .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
+    .flatMap((p) =>
+      subtract(
+        {
+          start: p.after === undefined ? 0 : p.start + o.keep / 2,
+          end: p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2,
+        },
+        o.except,
+      ),
+    );
+}
+
+/**
+ * Whether a recording's cursor moved or clicked between two timeline times, on any screen clip shown then: a
+ * silence that is screen action (clicking through something, dragging) rather than a pause. Typing alone
+ * isn't seen.
+ */
+function screenActive(project: Project, data: Data, start: number, end: number): boolean {
+  for (const track of project.tracks) {
+    if (track.hidden) continue;
+    for (const clip of track.clips) {
+      const cursor = clip.assetId ? data<CursorData>(clip.assetId, "cursor") : undefined;
+      if (!cursor) continue;
+      const at = ticksToSeconds(clip.start);
+      const [a, b] = [Math.max(start, at), Math.min(end, at + ticksToSeconds(clip.duration))];
+      if (b <= a) continue;
+      const speed = clipSpeed(clip);
+      const src = (t: number) => ticksToSeconds(clip.mediaStart ?? 0) + (t - at) * speed;
+      const [sa, sb] = [src(a), src(b)];
+      if (cursor.buttons.t.some((t) => t >= sa && t <= sb)) return true;
+      let first = -1;
+      for (let i = 0; i < cursor.t.length; i++) {
+        const t = cursor.t[i]!;
+        if (t < sa) continue;
+        if (t > sb) break;
+        if (first < 0) first = i;
+        else if (Math.hypot(cursor.x[i]! - cursor.x[first]!, cursor.y[i]! - cursor.y[first]!) > 24) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Media heard on the timeline whose transcript isn't made yet. */
+function untranscribed(project: Project, registry: FeatureRegistry, data: Data): string[] {
+  const clips = project.tracks.filter((t) => !t.muted).flatMap((t) => t.clips);
+  return [...new Set(clips.filter((c) => c.assetId && registry.hasTrait(c.type, "audio") && !data<TranscriptData>(c.assetId, "transcript")?.streams[clipStream(c)]).map((c) => c.assetId!))];
 }
 
 const Range = z.tuple([z.int().nonnegative(), z.int().nonnegative()]);
@@ -215,6 +275,24 @@ export const transcript = defineFeature({
       args: z.strictObject({ min: z.number().nonnegative().default(0.5) }),
       run({ min }, { project, registry, data }) {
         return pauses(project, registry, data, timelineWords(project, registry, data)).filter((p) => p.end - p.start >= min);
+      },
+    }),
+    defineQuery({
+      id: "transcript.silences",
+      description:
+        "What Remove Silences would do: each silence over `min` seconds (timeline seconds) and whether it is screen action (the recording's cursor moved or clicked), the ranges transcript.removePauses would cut with `keep` and those kept as `except`, and the seconds saved. `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one)",
+      args: z.strictObject({ min: z.number().positive().default(0.6), keep: z.number().nonnegative().default(0.3), keepActive: z.boolean().default(true) }),
+      run({ min, keep, keepActive }, { project, registry, data }) {
+        const waiting = untranscribed(project, registry, data);
+        const words = timelineWords(project, registry, data);
+        const silences = words.length
+          ? pauses(project, registry, data, words)
+              .filter((p) => p.end - p.start > min)
+              .map((p) => ({ start: p.start, end: p.end, active: screenActive(project, data, p.start, p.end) }))
+          : [];
+        const except = keepActive ? silences.filter((p) => p.active).map(({ start, end }) => ({ start, end })) : [];
+        const cuts = cutRanges(project, pauseCuts(project, registry, data, { min, keep, except }) ?? []);
+        return { waiting, silences, except, cuts: cuts.length, saved: roundSeconds(cuts.reduce((n, c) => n + c.end - c.start, 0)) };
       },
     }),
     defineQuery({
@@ -275,19 +353,8 @@ export const transcript = defineFeature({
         except: z.array(z.strictObject({ start: z.number(), end: z.number() })).default([]),
       }),
       apply(doc, { min, keep, from, to, except }, ctx) {
-        const words = timelineWords(doc, ctx.registry, ctx.data);
-        if (!words.length) throw new Error("no transcript on the timeline yet");
-        const ranges = pauses(doc, ctx.registry, ctx.data, words)
-          .filter((p) => p.end - p.start > min && (from === undefined || p.start >= from) && (to === undefined || p.end <= to))
-          .flatMap((p) =>
-            subtract(
-              {
-                start: p.after === undefined ? 0 : p.start + keep / 2,
-                end: p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - keep / 2,
-              },
-              except,
-            ),
-          );
+        const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, from, to, except });
+        if (!ranges) throw new Error("no transcript on the timeline yet");
         return cut(doc, ctx, ranges);
       },
     }),

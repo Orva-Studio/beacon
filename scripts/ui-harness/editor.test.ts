@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
-import { ticksToSeconds, type Clip } from "@beacon/model";
+import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
@@ -1048,3 +1048,26 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
   await ui.core.undo(ui.handle);
 });
+
+test.skipIf(skip)("the AI panel's Remove Silences says what it will cut, then shortens the timeline by that much in one undo step", async () => {
+  await run("panel.show", { tool: "ai" });
+  await page.until("!!document.querySelector('[data-ai=silences]')");
+  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+  await page.until("!!document.querySelector('[data-remove-silences]')");
+  // The recording's transcript may still be being made in the background.
+  await page.until("/shorter\\)\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
+  const summary = await page.evaluate<string>("document.querySelector('[data-silences-summary]').textContent");
+  expect(summary).toMatch(/^\d+ silences: \d+ cut/);
+  const q = (await ui.core.query(ui.handle, "transcript.silences", {})) as { saved: number };
+  const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const before = length();
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate("document.querySelector('[data-remove-silences-run]').click()");
+  await page.until("!document.querySelector('[data-remove-silences]')");
+  await arrived(() => length() < before);
+  expect(before - length()).toBeCloseTo(q.saved, 1);
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  await run("panel.show", { tool: null });
+}, 150_000);

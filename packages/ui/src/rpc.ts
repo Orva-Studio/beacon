@@ -276,6 +276,8 @@ export type AppRPC = {
       frameImage: { params: {}; response: string | null };
       /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
       binFrame: { params: { asset: string; time: number }; response: string | null };
+      /** Starts a media item's background analysis unless it is running (Remove Silences' missing transcripts). */
+      analyze: { params: { key: string; asset: string }; response: void };
       /** A folder picked in the Finder dialog, starting at `start`. */
       chooseFolder: { params: { start: string }; response: string | null };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */

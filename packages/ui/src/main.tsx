@@ -88,6 +88,7 @@ const host: Host = {
   captureFrame: () => void report(request.captureFrame({})),
   frameImage: () => request.frameImage({}),
   binFrame: (asset, time) => request.binFrame({ asset, time }),
+  analyze: (key, asset) => void request.analyze({ key, asset }),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),

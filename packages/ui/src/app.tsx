@@ -41,6 +41,8 @@ export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost,
   /** The canvas at the playhead as a PNG data URL, at the canvas size (the eyedropper samples it). */
   frameImage(): Promise<string | null>;
   binFrame(asset: string, time: number): Promise<string | null>;
+  /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
+  analyze(key: string, asset: string): void;
 }
 
 /** Points around the canvas preview, where handles on its edges can still be grabbed. */
