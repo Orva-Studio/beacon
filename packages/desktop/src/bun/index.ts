@@ -970,6 +970,8 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           sep,
           item("Delete", "delete"),
           item("Rename…", "rename"),
+          // Only what was imported from elsewhere: a recording's streams are clips of their own.
+          ...(a && a.kind !== "recording" ? [item("Replace Media…", "replace")] : []),
           sep,
           item("Reveal in Finder", "reveal"),
           item("Select on Timeline", "select", used),
@@ -1182,6 +1184,19 @@ async function locateMedia(h: string, asset: string) {
   status(`Found ${basename(file)}`);
 }
 
+/** Replace Media…: another file of the same kind, picked in Finder, starting where the media is. */
+async function replaceMedia(h: string, asset: string) {
+  const a = core.doc(h).assets[asset];
+  if (!a) return;
+  let start = dirname(a.path);
+  while (!existsSync(start) && start !== "/") start = dirname(start);
+  const types = [...core.registry.importers.values()].filter((i) => i.kind === a.kind).flatMap((i) => i.extensions.map((e) => e.slice(1)));
+  const [file] = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: start, allowedFileTypes: types.join(",") });
+  if (!file) return;
+  await core.replace(h, asset, file);
+  status(`Replaced with ${basename(file)}`);
+}
+
 /** Media Bin menu items. */
 function mediaAction(h: string, op: string, asset: string) {
   const fail = (err: Error) => status(err.message);
@@ -1196,6 +1211,7 @@ function mediaAction(h: string, op: string, asset: string) {
   else if (op === "proxyCreate") void core.analyze(h, "proxy", asset).catch(fail);
   else if (op === "proxyDelete") void core.forget(h, "proxy", asset).catch(fail);
   else if (op === "locate") void locateMedia(h, asset).catch(fail);
+  else if (op === "replace") void replaceMedia(h, asset).catch(fail);
 }
 
 /** A track on the timeline or inside a group, and whether it is a timeline one. */

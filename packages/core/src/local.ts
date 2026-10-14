@@ -37,6 +37,7 @@ import {
   rationalToNumber,
   scopedProject,
   walkClips,
+  assetName,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -960,6 +961,29 @@ export class LocalCore implements BeaconCore {
     }
     this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file) }, { label: `Locate ${basename(file)}` }));
     if (p.view) this.#previewJobs(p);
+  }
+
+  async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }> {
+    const p = this.#get(h);
+    const asset = p.store.doc.assets[assetId];
+    if (!asset) throw new Error(`no asset "${assetId}"`);
+    const file = resolve(path);
+    if (!existsSync(file)) throw new Error(`${file} doesn't exist`);
+    const kind = this.registry.importerFor(extname(file))?.kind;
+    if (asset.kind === "recording") throw new Error(`${assetName(asset)} is a recording: it can't be replaced`);
+    const like = { video: "video", image: "image", audio: "audio file" }[asset.kind];
+    if (kind !== asset.kind) throw new Error(`${assetName(asset)} can only be replaced with another ${like}`);
+    const media = await probeMedia(file);
+    const loudness = await measureLoudness(file, media);
+    const derived = { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
+    this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
+    if (p.view) this.#previewJobs(p);
+    const jobs: string[] = [];
+    const a = p.store.doc.assets[assetId]!;
+    for (const def of this.registry.jobAnalyzers.values()) {
+      if ((def.when ?? "import") === "import" && def.applies(a) && !p.data.has(a, def.id)) jobs.push(this.#analyze(h, def.id, assetId).id);
+    }
+    return { jobs };
   }
 
   async analysisSize(key: string): Promise<number> {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  AssetSchema,
   ClipboardSchema,
   clipEnd,
   clipSpeed,
@@ -290,6 +291,24 @@ export const clipCommands = [
           if (ripple) shiftLater(track, oldEnd, clipEnd(c) - oldEnd, c);
         }
         if (c.duration <= 0) throw new Error(`clip "${c.id}" would be empty`);
+      }
+    },
+  }),
+  defineCommand({
+    id: "asset.replace",
+    description:
+      "Replace an imported video, image or audio file with another of the same kind (Replace Media…; agents use media_replace, which probes the file). Its clips keep their places and settings, shortened where the new media ends sooner and removed where it ends before they begin. Not for recordings, whose streams are clips of their own",
+    args: z.strictObject({ asset: Id, path: AssetSchema.shape.path, fingerprint: z.string(), derived: AssetSchema.shape.derived }),
+    apply(doc, { asset, path, fingerprint, derived }, ctx) {
+      const a = doc.assets[asset];
+      if (!a) throw new Error(`no asset "${asset}"`);
+      if (a.kind === "recording") throw new Error("a recording can't be replaced: its screen, camera and audio are clips of their own");
+      Object.assign(a, { path, fingerprint, derived });
+      const uses = [...walkClips(doc.tracks, ctx.registry)].filter((l) => l.clip.assetId === asset);
+      for (const { clip, track } of uses) {
+        const end = latestEnd(doc, clip, ctx.registry);
+        if (end <= clip.start) track.clips.splice(track.clips.indexOf(clip), 1);
+        else if (clipEnd(clip) > end) clip.duration = end - clip.start;
       }
     },
   }),

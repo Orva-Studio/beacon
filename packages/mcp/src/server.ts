@@ -168,6 +168,12 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ asset: z.string(), path: z.string() }),
     run: async ({ asset, path }) => core.relink(project(), asset, expandHome(path)),
   });
+  add("media_replace", {
+    description:
+      "Replace an imported video, image or audio file with another of the same kind; its clips keep their places and settings, shortened where the new file ends sooner. Not for recordings. One undo step; returns the new file's analysis jobs",
+    schema: z.strictObject({ asset: z.string(), path: z.string() }),
+    run: async ({ asset, path }) => core.replace(project(), asset, expandHome(path)),
+  });
   const device = z.strictObject({ id: z.string().optional().describe("A device id from recorder_devices; omitted: the default device") });
   add("recorder_devices", {
     description: "What can be recorded: the Screen Recording, Camera and Microphone permissions, and the displays, cameras and microphones with their ids",

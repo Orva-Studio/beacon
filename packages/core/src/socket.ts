@@ -58,6 +58,7 @@ export const METHODS = [
   "forget",
   "missing",
   "relink",
+  "replace",
   "analysisSize",
   "forgetAll",
   "job",

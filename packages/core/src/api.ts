@@ -199,6 +199,8 @@ export interface BeaconCore {
   missing(h: ProjectHandle): Promise<string[]>;
   /** Points media at a moved file (Locate…), refused unless it is the same kind of media with the same streams and length; one undo step. */
   relink(h: ProjectHandle, assetId: string, path: string): Promise<void>;
+  /** Replace Media…: an imported video, image or audio file swapped for another of the same kind; its clips keep their places, shortened where it ends sooner. Not recordings. One undo step; the new file's analyses start as an import's do. */
+  replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }>;
   /** Bytes on disk of a background analyzer's results across every project (e.g. "proxy": every proxy video). */
   analysisSize(key: string): Promise<number>;
   /** Deletes a background analyzer's results for every project; returns the bytes freed. Preview analyses run again when a project is next shown. */
