@@ -137,6 +137,13 @@ export interface AudioLevel {
 /** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG), or the audio levels. */
 export type RecordPreview = { source: "camera" | "screen"; jpeg: string } | { microphone?: AudioLevel; systemAudio?: AudioLevel };
 
+/** A take just recorded and imported: its media item, to name. */
+export interface RecordedSheet {
+  asset: string;
+  name: string;
+  duration: number;
+}
+
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
 export interface RecordSheet {
   permissions: { screen: string; camera: string; microphone: string };
@@ -155,6 +162,13 @@ export interface ExportJob {
   error?: string;
 }
 
+/** The newest preview frames (base64 JPEG) after `seq`: what a Record dialog or recording panel draws next. */
+export interface RecordFrames {
+  seq: number;
+  camera?: string;
+  screen?: string;
+}
+
 /** What the recording panel shows besides frames and levels: when the take began, and which sources it has. */
 export interface PanelState {
   /** Unix milliseconds. */
@@ -170,6 +184,8 @@ export type PanelRPC = {
     requests: {
       /** The panel's state once its page has loaded. */
       panelInit: { params: {}; response: PanelState | null };
+      /** The newest frames after `after`, as soon as there are any (or after a second without). */
+      recordFrames: { params: { after: number }; response: RecordFrames };
     };
     messages: {
       stopRecording: {};
@@ -221,8 +237,10 @@ export type AppRPC = {
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
-      /** Shows the sources in the Record dialog (`recordPreview` messages); with none, stops. */
+      /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
+      /** The newest frames after `after`, as soon as there are any (or after a second without): pulled, so a slow page never falls behind. */
+      recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
       setAppSettings: { params: AppSettings; response: void };
@@ -277,6 +295,8 @@ export type AppRPC = {
       /** File > Record… (⌘R): open the Record dialog. */
       recordSheet: RecordSheet;
       recordPreview: RecordPreview;
+      /** A take was recorded and imported: offer to name it. */
+      recordedSheet: RecordedSheet;
       exportJob: ExportJob;
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };

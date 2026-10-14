@@ -39,6 +39,14 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
     }
     return out;
   };
+  /** The newest preview frames, pulled by the page as the app's are (`recordFrames`). */
+  const frames: { seq: number; camera?: string; screen?: string; at: Record<string, number> } = { seq: 0, at: {} };
+  let frameWaiters: (() => void)[] = [];
+  const previewFrame = (source: "camera" | "screen", jpeg: string) => {
+    frames[source] = jpeg;
+    frames.at[source] = ++frames.seq;
+    for (const wake of frameWaiters.splice(0)) wake();
+  };
   const opened = async () => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev });
 
   const server = Bun.serve({
@@ -147,12 +155,17 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         else if (msg.type === "recordPreview") {
           const { id: _, type: __, ...sources } = msg;
           menus.push(`recordPreview:${JSON.stringify(sources)}`);
-          for (const source of ["screen", "camera"] as const) if (msg[source]) ws.send(JSON.stringify({ type: "recordPreview", data: { source, jpeg: PREVIEW_JPEG } }));
+          for (const source of ["screen", "camera"] as const) if (msg[source]) previewFrame(source, PREVIEW_JPEG);
           if (msg.microphone || msg.systemAudio)
             ws.send(JSON.stringify({ type: "recordPreview", data: { ...(msg.microphone ? { microphone: { db: -20, peak: -6 } } : {}), ...(msg.systemAudio ? { systemAudio: { db: -30, peak: -12 } } : {}) } }));
           result = { ok: true };
         }
         else if (msg.type === "stopRecording") menus.push("stopRecording");
+        else if (msg.type === "recordFrames") {
+          const after = msg.after as number;
+          if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));
+          result = { seq: frames.seq, ...(["camera", "screen"] as const).reduce((o, k) => (frames.at[k]! > after && frames[k] ? { ...o, [k]: frames[k] } : o), {}) };
+        }
         else if (msg.type === "proxySpace") result = await core.analysisSize("proxy");
         else if (msg.type === "deleteAllProxies") result = await core.forgetAll("proxy").then(() => core.analysisSize("proxy"));
         else if (msg.type === "newProject" || msg.type === "renameProject") {
@@ -172,6 +185,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,
     faults,
+    /** A camera or screen frame (base64 JPEG) for the Record dialog or recording panel to pull. */
+    previewFrame,
     /** A message from the main process, as the app's menus send them (`showClipSpeed`, `rename`...). */
     send(type: string, data: unknown) {
       for (const ws of sockets) ws.send(JSON.stringify({ type, data }));

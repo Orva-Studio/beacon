@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { App, type Host } from "../src/app";
 import { recordPreviewEvent } from "../src/record";
 import { RecordPanel } from "../src/record-panel";
-import type { Init } from "../src/rpc";
+import type { Init, RecordFrames } from "../src/rpc";
 import { replica } from "../src/store";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
@@ -54,6 +54,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
   else if (msg.type === "recordSheet") replica.recordSheet(msg.data);
   else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
+  else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
   else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
@@ -92,6 +93,7 @@ const host: Host = {
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
   recordPreview: (devices) => void request("recordPreview", devices),
+  recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
   cancelExport: (id) => void request("cancelExport", { id }),
   showFile: () => {},
   setAppSettings: (settings) => void request("setAppSettings", { settings }),
@@ -114,7 +116,7 @@ const panel = new URLSearchParams(location.search).get("panel");
 if (panel !== null) {
   const has = (k: string) => panel.split(",").includes(k);
   const state = { started: Date.now(), camera: has("camera"), microphone: has("microphone"), systemAudio: has("systemAudio") };
-  createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} />);
+  createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} pull={(after) => request("recordFrames", { after }) as Promise<RecordFrames>} />);
 } else {
   replica.init(await request<Init>("init"));
   createRoot(document.getElementById("root")!).render(<App host={host} />);

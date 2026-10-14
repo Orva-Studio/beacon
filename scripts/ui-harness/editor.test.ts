@@ -433,13 +433,25 @@ test.skipIf(skip)("Record previews the chosen screen and camera and both audio l
   expect(previews().at(-1)).toEqual({});
 });
 
+test.skipIf(skip)("after a take, its name is offered to type over; Enter renames its media", async () => {
+  const take = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
+  ui.send("recordedSheet", { asset: take.id, name: "2026-10-14 09.53.12", duration: 75 });
+  await page.until("document.activeElement?.matches('[data-recorded-name]') && document.activeElement.selectionEnd > 0");
+  await type("Intro take");
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-recorded]')");
+  await arrived(() => ui.core.doc(ui.handle).assets[take.id]!.name === "Intro take");
+  expect(ui.core.doc(ui.handle).assets[take.id]!.name).toBe("Intro take");
+  await ui.core.undo(ui.handle);
+});
+
 test.skipIf(skip)("the recording panel shows the camera, the time, and rolling waveforms of both levels; Stop stops", async () => {
   const panel = await openPage(`${ui.url}?panel=camera,microphone,systemAudio`);
   try {
     await panel.until("!!document.querySelector('[data-record-panel]')");
     const before = ui.menus.length;
     for (let i = 0; i < 5; i++) {
-      ui.send("recordPreview", { source: "camera", jpeg: "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=" });
+      ui.previewFrame("camera", "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=");
       ui.send("recordPreview", { microphone: { db: -18 - i, peak: -6 }, systemAudio: { db: -40, peak: -20 } });
       await Bun.sleep(30);
     }

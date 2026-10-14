@@ -24,7 +24,7 @@ use crate::monitor::{Meter, channel_level, jpeg};
 /// Camera frames are this wide, the screen's this wide, at most this many a second: enough to frame a shot.
 const CAMERA_WIDTH: i64 = 320;
 const SCREEN_WIDTH: usize = 480;
-const CAMERA_FPS: f64 = 15.0;
+const CAMERA_FPS: f64 = 30.0;
 const SCREEN_FPS: i32 = 5;
 
 /// What to preview; a missing one isn't.

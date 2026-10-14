@@ -383,6 +383,36 @@ const STOP_SHORTCUT = "CommandOrControl+Shift+2";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow } | undefined;
 
+/**
+ * The newest preview frames, for the Record dialog and the recording panel to pull (`recordFrames`): pushing each
+ * one let a slow page fall behind and show the camera late.
+ */
+const frames: import("@beacon/ui").RecordFrames & { at: { camera: number; screen: number } } = { seq: 0, at: { camera: 0, screen: 0 } };
+let frameWaiters: (() => void)[] = [];
+
+/** A frame goes to the store and wakes whoever waits; levels are pushed to `send`. */
+function previewEvent(e: import("@beacon/ui").RecordPreview, send: ((e: import("@beacon/ui").RecordPreview) => void) | undefined) {
+  if (!("jpeg" in e)) return send?.(e);
+  frames[e.source] = e.jpeg;
+  frames.at[e.source] = ++frames.seq;
+  for (const wake of frameWaiters.splice(0)) wake();
+}
+
+/** Frames newer than `after`, once there are some or a second has passed. */
+async function newerFrames(after: number): Promise<import("@beacon/ui").RecordFrames> {
+  if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));
+  return {
+    seq: frames.seq,
+    ...(frames.at.camera > after && frames.camera ? { camera: frames.camera } : {}),
+    ...(frames.at.screen > after && frames.screen ? { screen: frames.screen } : {}),
+  };
+}
+
+function clearFrames() {
+  delete frames.camera;
+  delete frames.screen;
+}
+
 /** The recording panel's title: the recorder leaves the window with it out of the take. */
 const PANEL_TITLE = "Beacon Recording Panel";
 const PANEL_WIDTH = 300;
@@ -405,6 +435,7 @@ async function openPanel(state: PanelState, display: { width: number } | undefin
           loaded();
           return panelState ?? null;
         },
+        recordFrames: ({ after }) => newerFrames(after),
       },
       messages: { stopRecording: () => void stopRecording() },
     },
@@ -445,11 +476,12 @@ async function startRecording({ sources }: { sources: RecordSources }) {
   const panelSources = { camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
   // Opened first, so the recorder can leave it out of the take by its title.
   const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
+  clearFrames();
   const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
   try {
     await core.recordStart(current.path, {
       sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
-      monitor: (e) => panelSend?.(e),
+      monitor: (e) => previewEvent(e, panelSend),
     });
   } catch (e) {
     panel.close();
@@ -488,6 +520,7 @@ async function stopRecording() {
   try {
     const take = await core.recordStop();
     status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration)})`);
+    if (take.assets[0]) send().recordedSheet({ asset: take.assets[0], name: basename(take.take, ".brec"), duration: take.duration });
   } catch (e) {
     status(e instanceof Error ? e.message : String(e));
   } finally {
@@ -683,7 +716,11 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
-      recordPreview: (devices) => reply(() => core.recorderPreview(devices, (e) => send().recordPreview(e))),
+      recordPreview: (devices) => {
+        clearFrames();
+        return reply(() => core.recorderPreview(devices, (e) => previewEvent(e, send().recordPreview)));
+      },
+      recordFrames: ({ after }) => newerFrames(after),
       cancelExport: ({ id }) => reply(() => core.cancelJob(id)),
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),

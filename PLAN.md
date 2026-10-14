@@ -974,7 +974,7 @@ FFmpeg drops them. After a seek it now starts at the keyframe and skips
 what's shown before it (`shim.c`; `matches_ffmpeg.rs` seeks into a camera
 take). The dialog previews every source
 (2026-10-14, the user's choice after looking at Screen Studio, Loom and OBS):
-the display (480 wide, 5 fps) beside the camera (320 wide, 15 fps) at the top,
+the display (480 wide, 5 fps) beside the camera (320 wide, 30 fps) at the top,
 the microphone's and system audio's levels as meters with a held peak on their
 rows. `beacon-recorder serve`'s `preview` runs capture that writes nothing;
 only sources Beacon may already use are previewed (asking waits for Record).
@@ -984,7 +984,10 @@ the take: ScreenCaptureKit's filter excludes the window by its title. The take
 feeds it (`start` with `monitor`): camera frames from its own buffers (scaled
 from BGRA, 420v/420f, 2vuy or yuvs), the microphone's level from its
 connection, the system audio's from its buffers, so nothing opens the devices
-a second time mid-take. Still to come: the
+a second time mid-take. Frames are pulled, not pushed (`recordFrames`
+answers with the newest once there is one): pushed, a busy page fell behind
+and showed the camera late. After a take, Beacon offers to name it (the media
+item and its clips; the folder keeps its date and time). Still to come: the
 sync check in Settings.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by

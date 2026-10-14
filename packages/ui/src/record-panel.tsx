@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, LevelHistory } from "./controls";
-import { previewListeners } from "./record";
-import type { AudioLevel, PanelState, RecordPreview } from "./rpc";
+import { previewListeners, useRecordFrames } from "./record";
+import type { AudioLevel, PanelState, RecordFrames, RecordPreview } from "./rpc";
 
 const clock = (s: number) => {
   const t = Math.max(0, Math.floor(s));
@@ -14,12 +14,12 @@ const clock = (s: number) => {
  * The camera (mirrored, as a self-view is), the time, Stop, and the microphone's and system audio's last few
  * seconds as rolling waveforms. Dragged by anything but its button.
  */
-export function RecordPanel({ state, onStop }: { state: PanelState; onStop: () => void }) {
-  const [camera, setCamera] = useState<string>();
+export function RecordPanel({ state, onStop, pull }: { state: PanelState; onStop: () => void; pull: (after: number) => Promise<RecordFrames> }) {
+  const { camera } = useRecordFrames(pull, state.camera);
   const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const listen = (e: RecordPreview) => ("jpeg" in e ? e.source === "camera" && setCamera(e.jpeg) : setLevels(e));
+    const listen = (e: RecordPreview) => !("jpeg" in e) && setLevels(e);
     previewListeners.add(listen);
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => {

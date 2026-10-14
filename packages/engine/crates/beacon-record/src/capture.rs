@@ -237,7 +237,7 @@ pub type Monitor = Box<dyn Fn(Value) + Send + Sync>;
 
 /// Camera frames for the recording panel: small, and few, so the take's own frames aren't held up.
 const MONITOR_WIDTH: usize = 320;
-const MONITOR_FPS: f64 = 10.0;
+const MONITOR_FPS: f64 = 15.0;
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -256,7 +256,9 @@ define_class!(
             if let Some(t) = track.lock().unwrap().as_mut() {
                 t.append(buf);
             }
-            if is_video && let Some(emit) = &iv.monitor {
+            // Only once the take has begun: a camera's first frames, while its exposure settles, are dark.
+            let begun = is_video && iv.camera.lock().unwrap().as_ref().is_some_and(|t| t.first.is_some());
+            if begun && let Some(emit) = &iv.monitor {
                 {
                     let mut last = iv.last_frame.lock().unwrap();
                     if last.is_some_and(|l| l.elapsed() < Duration::from_secs_f64(1.0 / MONITOR_FPS)) {

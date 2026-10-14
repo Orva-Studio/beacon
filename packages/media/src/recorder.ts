@@ -40,6 +40,8 @@ export class Recorder {
   #waiting = new Map<number, { resolve: (e: Event) => void; reject: (e: Error) => void }>();
   #ready?: Promise<void>;
   #preview?: (e: RecorderPreviewEvent) => void;
+  /** The take's listener: while a take records, its events go here, whatever the dialog's preview does. */
+  #monitor?: (e: RecorderPreviewEvent) => void;
 
   #start(): Promise<void> {
     const path = process.env.BEACON_RECORDER_PATH ?? enginePath("beacon-recorder");
@@ -60,9 +62,9 @@ export class Recorder {
           if (!line.trim()) continue;
           const e = JSON.parse(line) as Event;
           if (e.event === "ready") ready();
-          else if (e.event === "previewFrame") this.#preview?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
+          else if (e.event === "previewFrame") (this.#monitor ?? this.#preview)?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
           else if (e.event === "previewLevel")
-            this.#preview?.({ ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}), ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}) });
+            (this.#monitor ?? this.#preview)?.({ ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}), ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}) });
           const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
           if (!w) continue;
           this.#waiting.delete(e.id!);
@@ -116,8 +118,13 @@ export class Recorder {
 
   /** Starts a take into `dir` (a new `.brec` folder); resolves once every source is delivering. `monitor` gets its camera frames and levels. */
   async start(dir: string, sources: RecorderSources, monitor?: (e: RecorderPreviewEvent) => void): Promise<void> {
-    this.#preview = monitor;
-    await this.#send({ cmd: "start", dir, sources, monitor: !!monitor });
+    this.#monitor = monitor;
+    try {
+      await this.#send({ cmd: "start", dir, sources, monitor: !!monitor });
+    } catch (e) {
+      this.#monitor = undefined;
+      throw e;
+    }
   }
 
   async status(): Promise<{ recording: boolean; dir?: string; elapsed?: number }> {
@@ -128,7 +135,11 @@ export class Recorder {
 
   /** Stops the take and finishes its files; the take's summary (`recording.json`'s). */
   async stop(): Promise<{ dir: string; duration: number; errors: string[] }> {
-    return (await this.#send({ cmd: "stop" })).take as { dir: string; duration: number; errors: string[] };
+    try {
+      return (await this.#send({ cmd: "stop" })).take as { dir: string; duration: number; errors: string[] };
+    } finally {
+      this.#monitor = undefined;
+    }
   }
 
   /** Ends the sidecar; a take still running is finished first. */

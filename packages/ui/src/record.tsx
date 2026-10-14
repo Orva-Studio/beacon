@@ -1,12 +1,44 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, type IconName } from "./controls";
-import type { AudioLevel, RecordPreview, RecordSheet, RecordSources } from "./rpc";
+import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
+import type { AudioLevel, RecordedSheet, RecordFrames, RecordPreview, RecordSheet, RecordSources } from "./rpc";
 import { replica, useView } from "./store";
 
 export interface RecordHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
-  /** Shows the sources (`recordPreviewEvent` gets them); with none, stops. */
+  /** Shows the sources (`recordPreviewEvent` gets their levels, `recordFrames` their frames); with none, stops. */
   recordPreview(sources: RecordSources): void;
+  recordFrames(after: number): Promise<RecordFrames>;
+  run(command: string, args?: unknown, label?: string): void;
+}
+
+/**
+ * The newest camera and screen frames while `on`, pulled one request at a time: each waits for the next frame,
+ * so a busy page skips frames rather than falling behind.
+ */
+export function useRecordFrames(pull: (after: number) => Promise<RecordFrames>, on: boolean) {
+  const [frames, setFrames] = useState<{ camera?: string; screen?: string }>({});
+  useEffect(() => {
+    if (!on) return;
+    let alive = true;
+    void (async () => {
+      let after = 0;
+      while (alive) {
+        try {
+          const f = await pull(after);
+          if (!alive) break;
+          after = f.seq;
+          if (f.camera || f.screen) setFrames((p) => ({ ...p, ...(f.camera ? { camera: f.camera } : {}), ...(f.screen ? { screen: f.screen } : {}) }));
+        } catch {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+      setFrames({});
+    };
+  }, [on]);
+  return frames;
 }
 
 export const previewListeners = new Set<(e: RecordPreview) => void>();
@@ -72,7 +104,6 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const [error, setError] = useState<string>();
   const close = () => replica.recordSheet(undefined);
   const nothing = !s.screen && !s.systemAudio && !s.camera && !s.microphone;
-  const [frames, setFrames] = useState<{ camera?: string; screen?: string }>({});
   const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
 
   // Only what Beacon may already use: asking for a permission waits for Record.
@@ -81,10 +112,11 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const systemAudio = granted("screen") ? s.systemAudio : undefined;
   const camera = granted("camera") ? s.camera : undefined;
   const microphone = granted("microphone") ? s.microphone : undefined;
+  const previewing = !!(screen || camera);
+  const frames = useRecordFrames(host.recordFrames, previewing && counting === undefined);
   useEffect(() => {
-    setFrames({});
     setLevels({});
-    const listen = (e: RecordPreview) => ("jpeg" in e ? setFrames((f) => ({ ...f, [e.source]: e.jpeg })) : setLevels(e));
+    const listen = (e: RecordPreview) => !("jpeg" in e) && setLevels(e);
     previewListeners.add(listen);
     host.recordPreview({
       ...(screen ? { screen: { display: screen.display } } : {}),
@@ -188,7 +220,43 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   );
 }
 
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+/** After a take: its name (the date and time) selected to type over; Enter keeps what is typed, Esc the name it has. */
+function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHost }) {
+  const [name, setName] = useState(sheet.name);
+  const close = () => replica.recordedSheet(undefined);
+  const save = () => {
+    const n = name.trim();
+    if (n && n !== sheet.name) host.run("asset.rename", { asset: sheet.asset, name: n }, "Rename Recording");
+    close();
+  };
+  return (
+    <Modal title="Name the Recording" width={420} onClose={close} onEnter={save}>
+      <div className="flex flex-col gap-2" data-recorded>
+        <TextInput
+          value={name}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setName(e.target.value)}
+          aria-label="Recording name"
+          data-recorded-name
+        />
+        <div className="text-caption text-text-muted">{clock(sheet.duration)} recorded, at the end of the timeline. The name shows in the Media Bin and on its clips.</div>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={close}>Skip</Button>
+        <Button look="primary" onClick={save} data-recorded-save>
+          Save
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 export function RecordUi({ host }: { host: RecordHost }) {
   const sheet = useView((v) => v.recordSheet);
-  return sheet ? <RecordDialog sheet={sheet} host={host} /> : null;
+  const recorded = useView((v) => v.recordedSheet);
+  if (sheet) return <RecordDialog sheet={sheet} host={host} />;
+  return recorded ? <RecordedDialog key={recorded.asset} sheet={recorded} host={host} /> : null;
 }
