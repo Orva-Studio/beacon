@@ -166,10 +166,10 @@ const Time = z.number().nonnegative().describe("Timeline seconds");
 export const SESSION_COMMANDS: SessionCommandDef[] = [
   sessionCommand({
     id: "playhead.set",
-    description: "Move the playhead to a time (seconds, snapped to a frame)",
+    description: "Move the playhead to a time (seconds, snapped to a frame), past the last clip too",
     args: z.strictObject({ time: Time }),
-    apply: (s, { time }, { project, full }) => {
-      s.playhead = Math.min(snap(project, time), snap(project, duration(full)));
+    apply: (s, { time }, { project }) => {
+      s.playhead = snap(project, time);
     },
   }),
   sessionCommand({
@@ -177,7 +177,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     description: "Move the playhead by whole frames (negative steps back); the , and . keys step one, ⌃< and ⌃> fifteen",
     args: z.strictObject({ frames: z.int() }),
     apply: (s, { frames }, { project, full }) => {
-      s.playhead = Math.min(snap(project, s.playhead + frames * frame(project)), snap(project, duration(full)));
+      s.playhead = Math.min(snap(project, s.playhead + frames * frame(project)), Math.max(s.playhead, snap(project, duration(full))));
     },
   }),
   sessionCommand({
@@ -639,7 +639,7 @@ export class SessionStore {
     return this.#set(next);
   }
 
-  /** After a document change: drop deleted clips from the selection, keep the playhead and range inside the project. */
+  /** After a document change: drop deleted clips from the selection, keep the range inside the project. */
   reconcile(full: Project): SessionChange | undefined {
     const open = this.#state.group && full.tracks.some((t) => t.clips.some((c) => c.id === this.#state.group));
     const project = scopedProject(full, editScope(full, open ? this.#state.group : null, nestedOf(this.registry)));
@@ -651,7 +651,6 @@ export class SessionStore {
       if (d.animation && !topClips(project).some((x) => x.clip.id === d.animation!.clip && x.clip.animations.some((a) => a.id === d.animation!.id))) d.animation = null;
       const fx = new Set(topClips(project).flatMap((x) => x.clip.effects.map((e) => `${x.clip.id}/${e.id}`)));
       if (d.effects.some((e) => !fx.has(`${e.clip}/${e.id}`))) d.effects = d.effects.filter((e) => fx.has(`${e.clip}/${e.id}`));
-      if (d.playhead > last) d.playhead = last;
       if (d.range && d.range.out > last) d.range = d.range.in < last ? { in: d.range.in, out: last } : null;
     });
     return next === this.#state ? undefined : this.#set(next);

@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
-import type { Clip } from "@beacon/model";
+import { ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
@@ -400,7 +400,7 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   await page.until("!!document.querySelector('[data-countdown]')");
   await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
   const asked = ui.menus.slice(before).find((m) => m.startsWith("startRecording:"))!;
-  expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
+  expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { display: 1, fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
 });
 
 test.skipIf(skip)("Record previews the chosen screen and camera and both audio levels, and stops when closed", async () => {
@@ -429,6 +429,24 @@ test.skipIf(skip)("Record previews the chosen screen and camera and both audio l
   await page.until("!document.querySelector('[data-record]')");
   await arrived(() => JSON.stringify(previews().at(-1)) === "{}");
   expect(previews().at(-1)).toEqual({});
+});
+
+test.skipIf(skip)("Record moves a remembered display, camera or microphone that was unplugged to one that is there", async () => {
+  const sheet = {
+    permissions: { screen: "granted", camera: "granted", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X" }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }],
+    sources: { screen: { display: 5, fps: 30 }, camera: { id: "gone" }, microphone: { id: "gone" } },
+  };
+  const before = ui.menus.length;
+  ui.send("recordSheet", sheet);
+  await page.until("!!document.querySelector('[data-record]')");
+  const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  await arrived(() => previews().length > 0);
+  expect(previews()[0]).toEqual({ screen: { display: 1 }, camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
 });
 
 test.skipIf(skip)("Check Sync: says what to do, shows the camera, beeps through speakers (not headphones), tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
@@ -618,6 +636,26 @@ test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the rule
   expect(range.in).toBeCloseTo(2, 1);
   await run("range.clear");
   await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("the ruler moves the playhead past the last clip, and an edit leaves it there", async () => {
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  await Bun.sleep(200);
+  const s = await session();
+  const end = Math.max(...clips().map((c) => ticksToSeconds(c.start + c.duration)));
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const past = end + (s.timeline.end - end) * 0.6;
+  await page.click(xAt(past), box.y + 12);
+  await Bun.sleep(300);
+  expect((await session()).playhead).toBeCloseTo(past, 1);
+  await run("marker.add", { time: 1, name: "" });
+  await Bun.sleep(200);
+  expect((await session()).playhead).toBeCloseTo(past, 1);
+  await ui.core.undo(ui.handle);
+  await run("playhead.set", { time: 1 });
 });
 
 test.skipIf(skip)("dragging a clip above the top track drops it on a new top track", async () => {
