@@ -40,7 +40,7 @@ const HEARD_DB = -35;
  * The flash is the clap: the camera sees its light on the room as the microphone hears the beep.
  */
 function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: SyncDevices; host: SyncCheckHost; onClose: () => void; onMeasured: (r: SyncCheck) => void }) {
-  const [display, setDisplay] = useState(devices.display ?? devices.displays[0]?.id);
+  const [display, setDisplay] = useState(devices.displays.some((d) => d.id === devices.display) ? devices.display : devices.displays[0]?.id);
   const current = devices.outputs.find((o) => o.default);
   const [output, setOutput] = useState(speakers(devices.outputs)?.id);
   const chosen = devices.outputs.find((o) => o.id === output);

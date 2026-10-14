@@ -63,9 +63,21 @@ function Source({ label, on, setOn, hint, children }: { label: string; on: boole
   );
 }
 
+/** The sources last used, each moved to the first device there is when its own was unplugged since. */
+function present(sources: RecordSources, sheet: RecordSheet): RecordSources {
+  const { screen, camera, microphone } = sources;
+  const has = <T extends { id: unknown }>(list: T[], id: unknown) => list.some((d) => d.id === id);
+  return {
+    ...sources,
+    ...(screen && !has(sheet.displays, screen.display) ? { screen: { ...screen, display: sheet.displays[0]?.id } } : {}),
+    ...(camera && !has(sheet.cameras, camera.id) ? { camera: { id: sheet.cameras[0]?.id } } : {}),
+    ...(microphone && !has(sheet.microphones, microphone.id) ? { microphone: { id: sheet.microphones[0]?.id } } : {}),
+  };
+}
+
 /** File > Record…: what to record, then a countdown; Beacon then hides and its menu-bar item stops the take. */
 export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost }) {
-  const [s, setS] = useState<RecordSources>(sheet.sources);
+  const [s, setS] = useState<RecordSources>(() => present(sheet.sources, sheet));
   const [counting, setCounting] = useState<number>();
   const [error, setError] = useState<string>();
   const close = () => replica.recordSheet(undefined);
