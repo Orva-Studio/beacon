@@ -979,14 +979,16 @@ the microphone's and system audio's levels as meters with a held peak on their
 rows. `beacon-recorder serve`'s `preview` runs capture that writes nothing;
 only sources Beacon may already use are previewed (asking waits for Record).
 While a take records, a small panel floats top right over the screen (the
-camera, the time, Stop, and both levels as rolling waveforms), left out of
+time, Stop, and both levels as rolling waveforms), left out of
 the take: ScreenCaptureKit's filter excludes the window by its title. The take
-feeds it (`start` with `monitor`): camera frames from its own buffers (scaled
-from BGRA, 420v/420f, 2vuy or yuvs), the microphone's level from its
+feeds it (`start` with `monitor`): the microphone's level from its
 connection, the system audio's from its buffers, so nothing opens the devices
-a second time mid-take. Frames are pulled, not pushed (`recordFrames`
-answers with the newest once there is one): pushed, a busy page fell behind
-and showed the camera late. After a take, Beacon offers to name it (the media
+a second time mid-take. It showed the camera too until 2026-10-14: at 15 fps
+and 320 wide, JPEG-encoded in the camera's own callback, it looked choppy to
+the user and cost the take, and the Record dialog already shows the camera
+before it starts, so it went (the user's choice). The dialog's previews are
+pulled, not pushed (`recordFrames` answers with the newest once there is
+one): pushed, a busy page fell behind and showed the camera late. After a take, Beacon offers to name it (the media
 item and its clips; the folder keeps its date and time). The panel has a grip
 to drag it by and – to hide it to the menu-bar item, whose menu shows it again.
 Check Sync (2026-10-14): Settings ›
@@ -1013,7 +1015,10 @@ play through speakers the room hears: the recorder lists the Mac's sound
 outputs through CoreAudio (Bluetooth, wired headphones in the jack, a USB
 microphone's own headphone jack and virtual devices don't count) and, when
 the sound goes to headphones, the check switches the output to the Mac's
-speakers for its beeps and back after.
+speakers for its beeps and back after. Run by the user (2026-10-14) with the
+Elgato Cam Link 4K and the Blue Yeti: 244 ms (3 flashes within 140 ms), and a
+take recorded with it lined up. The check is arithmetic on pixels and samples,
+no AI.
 
 **After the first in-app run (2026-10-13, the user).** Proxies are off by
 default (Settings › General turns them on; the preview reads originals in

@@ -232,16 +232,9 @@ struct CaptureIvars {
     // The camera's output, to tell its frames from the microphone's; the session retains it. Atomic
     // because the camera and microphone callbacks run on separate queues.
     video_output: AtomicPtr<AVCaptureOutput>,
-    /// Sends the camera's frames to the recording panel, a few a second, when it is shown.
-    monitor: Option<Monitor>,
-    last_frame: Mutex<Option<std::time::Instant>>,
+    /// Set when the recording panel shows the take's levels.
+    monitor: bool,
 }
-
-pub type Monitor = Box<dyn Fn(Value) + Send + Sync>;
-
-/// Camera frames for the recording panel: small, and few, so the take's own frames aren't held up.
-const MONITOR_WIDTH: usize = 320;
-const MONITOR_FPS: f64 = 15.0;
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -259,20 +252,6 @@ define_class!(
             let track = if is_video { &iv.camera } else { &iv.mic };
             if let Some(t) = track.lock().unwrap().as_mut() {
                 t.append(buf);
-            }
-            // Only once the take has begun: a camera's first frames, while its exposure settles, are dark.
-            let begun = is_video && iv.camera.lock().unwrap().as_ref().is_some_and(|t| t.first.is_some());
-            if begun && let Some(emit) = &iv.monitor {
-                {
-                    let mut last = iv.last_frame.lock().unwrap();
-                    if last.is_some_and(|l| l.elapsed() < Duration::from_secs_f64(1.0 / MONITOR_FPS)) {
-                        return;
-                    }
-                    *last = Some(std::time::Instant::now());
-                }
-                if let Some(jpeg) = crate::monitor::jpeg(buf, MONITOR_WIDTH) {
-                    emit(json!({ "event": "previewFrame", "source": "camera", "jpeg": jpeg }));
-                }
             }
         }
     }
@@ -373,8 +352,8 @@ pub struct Take {
 
 impl Take {
     /// Opens every file, starts capture, then begins the take: each file holds only samples from then on.
-    /// `monitor` gets the recording panel's camera frames; `level` gives its audio levels.
-    pub fn start(dir: &Path, sources: &Sources, monitor: Option<Monitor>) -> Result<Take, String> {
+    /// `monitor`: the recording panel is shown, and `level` gives its audio levels.
+    pub fn start(dir: &Path, sources: &Sources, monitor: bool) -> Result<Take, String> {
         if dir.exists() {
             return Err(format!("{} already exists", dir.display()));
         }
@@ -445,7 +424,7 @@ impl Take {
 
         // AVFoundation: the camera and microphone in one session.
         let session = unsafe { AVCaptureSession::new() };
-        let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()), monitor, last_frame: Mutex::new(None) });
+        let capture_out = CaptureOutput::alloc().set_ivars(CaptureIvars { camera: Mutex::new(None), mic: Mutex::new(None), video_output: AtomicPtr::new(std::ptr::null_mut()), monitor });
         let capture_out: Retained<CaptureOutput> = unsafe { msg_send![super(capture_out), init] };
         unsafe { session.beginConfiguration() };
         let mut camera = None;
@@ -581,7 +560,7 @@ impl Take {
     }
 
     pub fn monitored(&self) -> bool {
-        self.capture_out.ivars().monitor.is_some()
+        self.capture_out.ivars().monitor
     }
 
     pub fn mark(&mut self) {

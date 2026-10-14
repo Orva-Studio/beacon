@@ -126,7 +126,7 @@ export class Recorder {
     await this.#send({ cmd: "preview", ...sources, ...(sources.screen ? { screen } : {}) });
   }
 
-  /** Starts a take into `dir` (a new `.brec` folder); resolves once every source is delivering. `monitor` gets its camera frames and levels. */
+  /** Starts a take into `dir` (a new `.brec` folder); resolves once every source is delivering. `monitor` gets its audio levels. */
   async start(dir: string, sources: RecorderSources, monitor?: (e: RecorderPreviewEvent) => void): Promise<void> {
     this.#monitor = monitor;
     try {

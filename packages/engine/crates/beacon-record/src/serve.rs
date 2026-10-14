@@ -138,7 +138,7 @@ pub fn run() -> Result<(), String> {
             },
             Command::Start { id, dir, sources, monitor } => match &take {
                 Some(t) => error(id.as_ref(), format!("already recording to {}", t.dir().display())),
-                None => match Take::start(&dir, &sources, monitor.then(|| Box::new(|e| emit(None, e)) as crate::capture::Monitor)) {
+                None => match Take::start(&dir, &sources, monitor) {
                     Ok(t) => {
                         emit(id.as_ref(), json!({ "event": "recording", "dir": t.dir() }));
                         take = Some(t);

@@ -548,7 +548,6 @@ async function openPanel(state: PanelState, display: { width: number } | undefin
           loaded();
           return panelState ?? null;
         },
-        recordFrames: ({ after }) => newerFrames(after),
       },
       messages: {
         stopRecording: () => void stopRecording(),
@@ -556,7 +555,7 @@ async function openPanel(state: PanelState, display: { width: number } | undefin
       },
     },
   });
-  const height = Math.round(panelHeight(state, PANEL_WIDTH));
+  const height = Math.round(panelHeight(state));
   const panel = new BrowserWindow({
     title: PANEL_TITLE,
     url: "views://recordpanel/index.html",
@@ -589,7 +588,7 @@ async function startRecording({ sources }: { sources: RecordSources }) {
     writeFileSync(RECORD_FILE, JSON.stringify(sources));
   } catch {}
   win.hide();
-  const panelSources = { camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
+  const panelSources = { microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
   // Opened first, so the recorder can leave it out of the take by its title.
   const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
   clearFrames();

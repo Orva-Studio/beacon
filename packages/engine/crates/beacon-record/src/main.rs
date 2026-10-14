@@ -30,7 +30,7 @@ fn record(args: &[String]) -> Result<(), String> {
         microphone: (granted("microphone") && list["microphones"].as_array().is_some_and(|m| !m.is_empty())).then_some(capture::Device { id: None }),
         offsets: Default::default(),
     };
-    let mut take = capture::Take::start(dir, &sources, None)?;
+    let mut take = capture::Take::start(dir, &sources, false)?;
     println!("{}", serde_json::json!({ "event": "recording", "dir": dir, "camera": sources.camera.is_some(), "microphone": sources.microphone.is_some() }));
     let step = if seconds <= 30.0 { 3.0 } else { 20.0 };
     let mut next = (1..).map(|i| i as f64 * step).take_while(|&at| at < seconds - 1.0).peekable();

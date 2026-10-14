@@ -215,7 +215,6 @@ export interface RecordFrames {
 export interface PanelState {
   /** Unix milliseconds. */
   started: number;
-  camera: boolean;
   microphone: boolean;
   systemAudio: boolean;
 }
@@ -226,8 +225,6 @@ export type PanelRPC = {
     requests: {
       /** The panel's state once its page has loaded. */
       panelInit: { params: {}; response: PanelState | null };
-      /** The newest frames after `after`, as soon as there are any (or after a second without). */
-      recordFrames: { params: { after: number }; response: RecordFrames };
     };
     messages: {
       stopRecording: {};

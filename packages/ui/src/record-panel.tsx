@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Icon, LevelHistory } from "./controls";
-import { previewListeners, useRecordFrames } from "./record-preview";
-import type { AudioLevel, PanelState, RecordFrames, RecordPreview } from "./rpc";
+import { previewListeners } from "./record-preview";
+import type { AudioLevel, PanelState, RecordPreview } from "./rpc";
 
 const clock = (s: number) => {
   const t = Math.max(0, Math.floor(s));
@@ -11,11 +11,10 @@ const clock = (s: number) => {
 
 /**
  * The recording panel: a small window floating over the screen while a take records, left out of the recording.
- * The camera (mirrored, as a self-view is), the time, Stop, and the microphone's and system audio's last few
- * seconds as rolling waveforms. Dragged by its grip (or anywhere but its buttons); hidden to the menu bar by –.
+ * The time, Stop, and the microphone's and system audio's last few seconds as rolling waveforms; no camera: a
+ * live picture mid-take was choppy and cost the take (the Record dialog shows it before). Dragged by its grip (or anywhere but its buttons); hidden to the menu bar by –.
  */
-export function RecordPanel({ state, onStop, onHide, pull }: { state: PanelState; onStop: () => void; onHide: () => void; pull: (after: number) => Promise<RecordFrames> }) {
-  const { camera } = useRecordFrames(pull, state.camera);
+export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onStop: () => void; onHide: () => void }) {
   const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -56,11 +55,6 @@ export function RecordPanel({ state, onStop, onHide, pull }: { state: PanelState
           </Button>
         </div>
       </div>
-      {state.camera && (
-        <div className="aspect-video w-full overflow-hidden rounded-md bg-groove">
-          {camera && <img src={`data:image/jpeg;base64,${camera}`} alt="Camera" className="h-full w-full -scale-x-100 object-cover" data-preview="Camera" />}
-        </div>
-      )}
       {audio.map(([label, level]) => (
         <div key={label} className="flex items-center gap-2">
           <span className="w-12 text-caption text-text-muted">{label}</span>
