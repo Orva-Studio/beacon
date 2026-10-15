@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Cuts a version, as hance does: on a clean, up-to-date main, sets the
- * version in every package.json (the app reads the root's), commits
+ * version in every package.json (the app reads the root's) and bun.lock, commits
  * `chore(release): vX`, tags `vX` and pushes both.
  *
  *   bun run release 0.2.0
@@ -40,7 +40,9 @@ for (const file of files) {
   writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
-await $`git add ${files}`;
+// bun.lock records each workspace's version too.
+await $`bun install`;
+await $`git add ${files} bun.lock`;
 await $`git commit -m ${`chore(release): ${tag}`}`;
 await $`git tag ${tag}`;
 await $`git push origin main ${tag}`;
