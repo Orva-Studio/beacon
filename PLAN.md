@@ -1165,9 +1165,11 @@ step 0 done; step 1 done (own LGPL FFmpeg 7.1.3 + whisper-cli 1.9.2 bundled,
 model downloaded on consent, Apple transcriber spike in
 `docs/transcription-spike.md`); step 2: export decodes natively and zero copy
 into the GPU (20 s of the gate project: 13.9 s → 4.9 s, 1.44× → 4.1× real
-time). Left: the native encoder (`encode.rs`, behind `BEACON_ENCODE_NATIVE=1`)
-needs pipelining (it waits on the GPU per frame: 4.7 s) and a parity test
-before it is the default; mixing audio while the video renders (~0.5 s);
+time). Fast export finished 2026-10-15: the native encoder (`encode.rs`)
+keeps three frames in flight, has a parity test against ffmpeg's output
+(H.264, HEVC, ProRes, size, frame rate) and is the default
+(`BEACON_ENCODE_FFMPEG=1` for the old path), and the audio is mixed while the
+video renders: 20 s in 3.45 s (5.8× real time), now bound by decoding. Left:
 step 3 (releases; unsigned for now, see Signing below); the transcriber
 choice below; the gate run.
 **Transcriber choice (decided 2026-10-15):** Settings › General › Transcripts

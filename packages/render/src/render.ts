@@ -167,6 +167,9 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + i * step) : frames.map((f) => f * frameTicks);
 
     const job = renderJob(project, registry, output, opts.cacheDir);
+    // The audio is mixed while the video renders; the two are muxed after.
+    const audio = opts.output.kind === "video" && format !== "gif" ? mixAudio(project, registry, opts.output, tmp!, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step)) : undefined;
+    audio?.catch(() => {});
 
     const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
     let error: string | undefined;
@@ -214,12 +217,13 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     await reader;
     // A worker that dies first breaks the pipe; its own message says why.
     if (error || failure || code !== 0) {
+      await audio?.catch(() => {});
       throw new Error(`render failed: ${error ?? (failure instanceof Error ? failure.message : failure) ?? `beacon-worker exited with ${code}`}`);
     }
 
     if (opts.output.kind === "video") {
       if (format === "gif") copyFileSync(videoOnly!, opts.output.path);
-      else await muxAudio(project, registry, videoOnly!, opts.output, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step));
+      else await mux(videoOnly!, await audio, opts.output);
     }
     return { frames: done };
   } finally {
@@ -290,19 +294,27 @@ export function audioPlaybackArgs(project: Project, registry: FeatureRegistry, s
   return [tool("ffmpeg"), "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
 }
 
-/** Mixes every audible segment in the rendered range under the video. */
-async function muxAudio(project: Project, registry: FeatureRegistry, video: string, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
+/** Mixes every audible segment in the rendered range into a file in `dir`; undefined when silent or without audio. */
+async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, dir: string, start: number, length: number) {
+  const { inputs, filter } = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length);
+  if (!filter) return undefined;
   const webm = videoFormat(o.path) === "webm";
-  const { inputs, filter } = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length, 1);
-  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video, ...inputs];
-  if (filter) {
-    // Opus runs at 48 kHz only.
-    const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
-    args.push("-filter_complex", filter, "-map", "0:v", "-map", "[aout]", "-c:v", "copy", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-shortest");
-  } else {
-    args.push("-map", "0:v", "-c:v", "copy");
-  }
-  if (!webm) args.push("-movflags", "+faststart");
+  // Opus runs at 48 kHz only.
+  const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
+  const path = join(dir, webm ? "audio.webm" : "audio.mov");
+  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
+  await runTool(args).catch((e: Error) => {
+    throw new Error(`audio mix failed: ${e.message}`);
+  });
+  return path;
+}
+
+/** The rendered video with the mixed audio under it, both copied. */
+async function mux(video: string, audio: string | undefined, o: Extract<RenderOutput, { kind: "video" }>) {
+  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video];
+  if (audio) args.push("-protocol_whitelist", "file", "-i", audio, "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest");
+  else args.push("-map", "0:v", "-c:v", "copy");
+  if (videoFormat(o.path) !== "webm") args.push("-movflags", "+faststart");
   args.push(o.path);
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio mux failed: ${e.message}`);

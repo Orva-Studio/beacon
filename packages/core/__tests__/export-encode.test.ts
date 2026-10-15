@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
-import type { VideoEncoding } from "@beacon/render";
+import { audioPlaybackArgs, type VideoEncoding } from "@beacon/render";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -110,3 +110,29 @@ for (const [file, opts] of CASES) {
     expect(worst.off).toBeLessThan(0.02);
   }, 120_000);
 }
+
+/** Mono 48 kHz float samples of a file's audio, or of ffmpeg argv ending before its output. */
+function pcm(input: string | string[]): Float32Array {
+  const args = typeof input === "string" ? [tool("ffmpeg"), "-v", "error", "-i", input] : input;
+  const out = Bun.spawnSync([...args, "-ac", "1", "-ar", "48000", "-f", "f32le", "-"]).stdout;
+  return new Float32Array(out.buffer, out.byteOffset, out.byteLength / 4);
+}
+
+test.skipIf(!ready)("the audio, mixed while the video renders, is the range's mix under it", async () => {
+  const output = join(dir, "audio.mp4");
+  await (await core.export(h, { output, from: 0.5, to: 2 })).done;
+  const exported = pcm(output);
+  const mixed = pcm(audioPlaybackArgs(core.doc(h), core.registry, 0.5, 1.5));
+  expect(exported.length).toBeGreaterThan(0.99 * mixed.length);
+  expect(exported.length).toBeLessThan(1.01 * mixed.length);
+  let signal = 0;
+  let noise = 0;
+  for (let i = 0; i < Math.min(exported.length, mixed.length); i++) {
+    signal += mixed[i]! ** 2;
+    noise += (mixed[i]! - exported[i]!) ** 2;
+  }
+  const snr = 10 * Math.log10(signal / noise);
+  console.log(`audio: ${(exported.length / 48000).toFixed(3)} s against ${(mixed.length / 48000).toFixed(3)} s, ${snr.toFixed(1)} dB`);
+  expect(signal).toBeGreaterThan(0);
+  expect(snr).toBeGreaterThan(20);
+}, 120_000);
