@@ -211,6 +211,8 @@ test.skipIf(skip)("New Project asks for a name and the canvas (presets); the pro
   // Locked, the height keeps the shape.
   await page.until(`${dims} === '1440x2560'`);
   expect(await page.evaluate<string>(`document.querySelector('[data-lock]').dataset.lock`)).toBe("true");
+  await page.click(...(await centre('[aria-label="Standalone project"]')));
+  await page.until(`document.querySelector('[aria-label="Standalone project"]').getAttribute('aria-checked') === 'true'`);
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Create').click()`);
   await page.until("!document.body.innerText.includes('New Project')");
   await page.click(...(await centre('[title="Rename the project"]')));
@@ -221,6 +223,56 @@ test.skipIf(skip)("New Project asks for a name and the canvas (presets); the pro
   expect(ui.menus).toContain("newProject:Episode 12");
   expect(ui.menus).toContain(`newProjectSettings:${JSON.stringify({ width: 1440, height: 2560, fps: 30, background: "#000000", normalize: true })}`);
   expect(ui.menus).toContain("renameProject:Client Demo");
+  expect(ui.menus).toContain("newProjectStandalone");
+});
+
+test.skipIf(skip)("Save As asks for a name, a folder and standalone; a name that is taken keeps the dialog open with why", async () => {
+  ui.send("saveAsSheet", { name: "Episode 12 copy", folder: "/Users/someone/Projects", standalone: false });
+  await page.until("document.body.innerText.includes('Save As')");
+  expect(await page.evaluate<string>(`document.body.innerText`)).toContain("~/Projects");
+  await type("Taken");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Save').click()`);
+  await page.until("document.body.innerText.includes('Taken.beproj already exists')");
+  await page.evaluate(`[...document.querySelectorAll('[tabindex="-1"]')].find((d) => d.innerText.includes('Save As')).querySelector('input').focus()`);
+  await type("Episode 12 to share");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Choose…').click()`);
+  await page.until("document.body.innerText.includes('~/Shared')");
+  await page.click(...(await centre('[aria-label="Standalone project"]')));
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Save').click()`);
+  await page.until("!document.body.innerText.includes('Save As')");
+  expect(ui.menus).toContain("saveAs:/Users/someone/Shared/Episode 12 to share (standalone)");
+});
+
+test.skipIf(skip)("the speech model is downloaded only when the user agrees, with progress; Not Now is remembered; Settings offers it again", async () => {
+  const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "Transcripts are made on this Mac.", bytes: 574_041_195, present: false };
+  const button = (label: string) => `[...document.querySelectorAll('button')].find((b) => b.textContent === '${label}')`;
+  ui.send("resourceSheet", model);
+  await page.until("document.body.innerText.includes('Download the Whisper large-v3-turbo speech model?')");
+  expect(await page.evaluate<string>("document.querySelector('[data-resource]').innerText")).toContain("about 574 MB");
+  await page.evaluate(`${button("Not Now")}.click()`);
+  await page.until("!document.querySelector('[data-resource]')");
+  await arrived(() => ui.menus.includes("declineResource:whisper-model"));
+  expect(ui.menus).toContain("declineResource:whisper-model");
+  expect(ui.menus).not.toContain("fetchResource:whisper-model");
+
+  // Settings › General offers it again; downloading shows progress, Cancel stops it, Hide leaves it running.
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model] });
+  await page.until(`!!${button("Download Speech Model…")}`);
+  await page.evaluate(`${button("Download Speech Model…")}.click()`);
+  await page.until("!!document.querySelector('[data-resource]')");
+  await page.evaluate(`${button("Download")}.click()`);
+  await arrived(() => ui.menus.includes("fetchResource:whisper-model"));
+  ui.send("resourceJob", { id: "job-download", state: "running", progress: 0.42 });
+  await page.until("document.querySelector('[data-resource-progress]')?.innerText.includes('42%')");
+  await page.evaluate(`${button("Cancel Download")}.click()`);
+  await arrived(() => ui.menus.includes("cancelJob:job-download"));
+  ui.send("resourceJob", { id: "job-download", state: "failed", progress: 0.42, error: "cancelled" });
+  await page.until(`!!${button("Download")}`);
+  await page.evaluate(`${button("Download")}.click()`);
+  ui.send("resourceJob", { id: "job-download", state: "running", progress: 0.9 });
+  await page.until("document.querySelector('[data-resource-progress]')?.innerText.includes('90%')");
+  ui.send("resourceJob", { id: "job-download", state: "done", progress: 1 });
+  await page.until("!document.querySelector('[data-resource]')");
 });
 
 test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async () => {

@@ -54,8 +54,9 @@ packages/
                preview handle (render thread into a CAMetalLayer); audio
                output (cpal)
     beacon-decode  in-process video decoding: a C shim over FFmpeg's libraries
-               (headers and libraries found beside the `ffmpeg` on PATH, or
-               `BEACON_FFMPEG_INCLUDE`/`BEACON_FFMPEG_LIB`)
+               (Beacon's own build in `third-party/out`, or
+               `BEACON_FFMPEG_INCLUDE`/`BEACON_FFMPEG_LIB`); `tool()` finds
+               Beacon's own ffmpeg and ffprobe, never PATH's
     beacon-render  wgpu 30 compositor: sources (in-process video with frame indexes,
                stills, .trec cursors, Core Text text, stroked sketches),
                layers, groups, backdrops, runtime-loaded WGSL passes
@@ -257,8 +258,23 @@ Screen, Camera and Audio clips fitted to the canvas, the camera and audio
 linked. Every write an agent asks for (`export`, saved
 frames) passes `checkOutput`: never a project's media, never inside a
 `.cmproj` or `.beproj`, never an existing file without `overwrite`. Asset
-paths must be absolute and every ffmpeg/ffprobe input is limited to the
-`file` protocol, so a shared project can't point ffmpeg at a URL.
+paths must be absolute in memory and every ffmpeg/ffprobe input is limited to the
+`file` protocol, so a shared project can't point ffmpeg at a URL. On disk,
+files inside the project folder are stored relative to it (`persist.ts`), so
+a copied project keeps its takes and snapshots. A standalone project
+(`settings.standalone`) copies imports into `media/` (`media-copy.ts`: clones,
+file times kept so fingerprints match; `DerivedData.carry` gives the copy the
+original's transcript); turning it on copies in what is outside as one undo
+step. `saveAs` writes a copy of the folder with the document as it is, and
+`reveal` shows the folder in Finder.
+
+Resources (`ResourceDef` in the feature contract) are files an analyzer
+`needs` that don't ship with Beacon: the transcript feature's Whisper model
+(about 575 MB). Until one is downloaded its analyses don't start: imports
+report it in `needs` and emit a `needs` event, which the app turns into a
+dialog asking first. `fetchResource` downloads it as a job (macOS's curl,
+checked against its pinned SHA-256), then starts what waited, in every open
+project.
 
 `beacon-mcp` (`packages/mcp`) is a stdio MCP server over `LocalCore`:
 every command and query is a tool (dots become underscores; JSON Schema from
@@ -268,7 +284,7 @@ project summary, timeline, transcript, a command reference generated from
 the registry, the workflows and house style. Prompts: the workflows in
 `skills/workflows/`. `skills/SKILL.md` is the server's instructions, built
 in. `bun run build:mcp` compiles it to `dist/beacon-mcp` beside the
-engine library and worker; `.mcp.json` runs it from source for Claude Code.
+engine library, worker, recorder and Beacon's tools, staged as the app's are; `.mcp.json` runs it from source for Claude Code.
 
 ## Transcripts
 `transcribe()` extracts 16 kHz mono, finds speech with an RMS envelope

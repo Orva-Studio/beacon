@@ -1,15 +1,31 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { hostname } from "node:os";
-import { join } from "node:path";
-import { migrateProject, type FeatureRegistry, type Project } from "@beacon/model";
+import { isAbsolute, join, relative, sep } from "node:path";
+import { migrateProject, SCHEMA_VERSION, type FeatureRegistry, type Project } from "@beacon/model";
 
 export const PROJECT_FILE = "project.json";
 const LOCK_FILE = "lock";
 
-export function readProject(dir: string, registry: FeatureRegistry): Project {
+type Assets = Record<string, { path: string }>;
+
+/**
+ * A project read from disk, its asset paths absolute again. `stale`: written by an older schema, so
+ * the caller writes it back to finish the migration.
+ */
+export function readProject(dir: string, registry: FeatureRegistry): { doc: Project; stale: boolean } {
   const file = join(dir, PROJECT_FILE);
   if (!existsSync(file)) throw new Error(`${dir} is not a Beacon project (no ${PROJECT_FILE})`);
-  return migrateProject(JSON.parse(readFileSync(file, "utf8")), registry);
+  const raw = JSON.parse(readFileSync(file, "utf8")) as { schemaVersion?: unknown; assets?: Assets };
+  for (const a of Object.values(raw.assets ?? {})) if (typeof a.path === "string" && !isAbsolute(a.path)) a.path = join(dir, a.path);
+  return { doc: migrateProject(raw, registry), stale: raw.schemaVersion !== SCHEMA_VERSION };
+}
+
+/** The document as stored: media inside the project folder relative to it, so a copied or moved project keeps it. */
+function onDisk(dir: string, doc: Project): Project {
+  const assets = Object.fromEntries(
+    Object.entries(doc.assets).map(([id, a]) => [id, a.path.startsWith(dir + sep) ? { ...a, path: relative(dir, a.path) } : a]),
+  );
+  return { ...doc, assets };
 }
 
 /** Write temp → fsync → rename, so a crash never leaves a half-written project. */
@@ -18,7 +34,7 @@ export function writeProject(dir: string, doc: Project) {
   const tmp = join(dir, `.${PROJECT_FILE}.${process.pid}.tmp`);
   const fd = openSync(tmp, "w");
   try {
-    writeSync(fd, `${JSON.stringify(doc, null, 2)}\n`);
+    writeSync(fd, `${JSON.stringify(onDisk(dir, doc), null, 2)}\n`);
     fsyncSync(fd);
   } finally {
     closeSync(fd);

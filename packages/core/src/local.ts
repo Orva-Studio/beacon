@@ -31,6 +31,7 @@ import {
   type FeatureRegistry,
   type MediaImporterDef,
   type Project,
+  type ResourceDef,
   type Session,
   type SessionChange,
   placeCanvas,
@@ -56,6 +57,7 @@ import type {
   ProjectHandle,
   QueryInfo,
   RecordOptions,
+  ResourceInfo,
   RecordStatus,
   RunOptions,
   SchemaInfo,
@@ -63,6 +65,8 @@ import type {
   Snapshot,
   TransactionStep,
 } from "./api";
+import { download } from "./download";
+import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
 
 export interface LocalCoreOptions {
@@ -73,6 +77,8 @@ export interface LocalCoreOptions {
   cacheDir?: string;
   /** The app's automation socket, recorded in each project's lock so agents connect to it. */
   socket?: string;
+  /** Shows a file in Finder; the app passes its own. */
+  reveal?: (path: string) => void;
 }
 
 interface OpenProject {
@@ -110,8 +116,8 @@ const KEEP_FINISHED_JOBS = 50;
 
 interface JobEntry {
   info: Omit<JobInfo, "elapsed">;
-  /** The project it belongs to: closing the project cancels it. */
-  project: string;
+  /** The project it belongs to: closing the project cancels it. None for a download. */
+  project?: string;
   /** Processes it has running (ffmpeg, whisper, beacon-worker), killed when it is cancelled. */
   processes: JobProcesses;
   /** What the job works on, for finding a running job again. */
@@ -166,6 +172,7 @@ export class LocalCore implements BeaconCore {
   readonly cacheDir: string;
   readonly #autosave: boolean;
   readonly #socket?: string;
+  readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
   readonly #jobs = new Map<string, JobEntry>();
   /** The last copies in any project, so they paste into the next one opened. */
@@ -176,6 +183,7 @@ export class LocalCore implements BeaconCore {
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
+    this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["open", "-R", path]));
   }
 
   #get(h: ProjectHandle): OpenProject {
@@ -222,7 +230,11 @@ export class LocalCore implements BeaconCore {
   async open(path: string): Promise<ProjectHandle> {
     const dir = resolve(path);
     if (this.#projects.has(dir)) return dir;
-    return this.#attach(dir, readProject(dir, this.registry));
+    const { doc, stale } = readProject(dir, this.registry);
+    const h = this.#attach(dir, doc);
+    // Locked first: another process may hold it, and must not have it rewritten under it.
+    if (stale) writeProject(dir, doc);
+    return h;
   }
 
   async create(opts: NewProjectOptions): Promise<ProjectHandle> {
@@ -238,11 +250,45 @@ export class LocalCore implements BeaconCore {
     } else {
       doc = createProject(this.registry, opts.settings);
     }
+    if (opts.standalone) {
+      doc = { ...doc, settings: { ...doc.settings, standalone: true } };
+      const moved = await this.#copyIn(dir, Object.values(doc.assets));
+      doc = { ...doc, assets: { ...doc.assets, ...Object.fromEntries(moved.map((a) => [a.id, a])) } };
+    }
     writeProject(dir, doc);
     return this.#attach(dir, doc);
   }
 
   readonly #importReports = new Map<string, string[]>();
+
+  /**
+   * Copies media from outside the project folder into its `media` folder: the assets as they will be, each with
+   * its copy's path and the results (transcripts) its original had. Missing files are left as they are.
+   */
+  async #copyIn(dir: string, assets: Asset[]): Promise<Asset[]> {
+    const outside = assets.filter((a) => !isInside(dir, a.path) && existsSync(a.path));
+    if (!outside.length) return [];
+    const copies = await copyIntoProject(dir, outside.map((a) => a.path));
+    const data = new DerivedData(this.registry, this.cacheDir, () => ({ assets: {} }) as unknown as Project);
+    return outside.map((a) => {
+      const path = copies.get(a.path)!;
+      const copy = { ...a, path, fingerprint: fileFingerprint(path) };
+      data.carry(a, copy);
+      return copy;
+    });
+  }
+
+  /** Standalone on: what is outside the project is copied in, and the project points at the copies, as one undo step. */
+  async #makeStandalone(p: OpenProject, args: unknown, opts: RunOptions): Promise<CommandResult> {
+    const assets = Object.values(p.store.doc.assets);
+    const moved = await this.#copyIn(p.path, assets);
+    const missing = assets.filter((a) => !isInside(p.path, a.path) && !existsSync(a.path));
+    const r = this.#saved(p, p.store.transaction(opts.label ?? "Make Project Standalone", (tx) => {
+      tx.run("project.settings.set", args);
+      for (const a of moved) tx.run("asset.relink", { asset: a.id, path: a.path, fingerprint: a.fingerprint });
+    }));
+    return missing.length ? { ...r, diff: [...r.diff, `(${missing.length} missing file(s) stay where they were: ${missing.map((a) => basename(a.path)).join(", ")})`] } : r;
+  }
 
   /** What a project made from a Camtasia project (`create` with `cmproj`) left out or changed, line by line. */
   importReport(h: ProjectHandle): string[] {
@@ -253,6 +299,37 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     writeProject(p.path, p.store.doc);
     this.#emit(p, { kind: "saved", path: p.path });
+  }
+
+  async saveAs(h: ProjectHandle, path: string, opts: { standalone?: boolean } = {}): Promise<string> {
+    const p = this.#get(h);
+    const to = resolve(path);
+    if (extname(to) !== ".beproj") throw new Error("project folders end in .beproj");
+    if (existsSync(to)) throw new Error(`${basename(to)} already exists`);
+    if (isInside(p.path, to)) throw new Error("a project can't be saved inside itself");
+    const doc = p.store.doc;
+    const standalone = opts.standalone ?? !!doc.settings.standalone;
+    // Its own folders come whole (takes, snapshots, and anything else kept there), but not its lock or a save in
+    // progress; links are followed, so the copy doesn't depend on what they pointed at.
+    await copyFollowingLinks(p.path, to, (src) => dirname(src) !== p.path || !/^(lock|\.project\.json\..*\.tmp)$/.test(basename(src)));
+    const assets = Object.values(doc.assets);
+    const inside = assets.filter((a) => isInside(p.path, a.path)).map((a) => {
+      const copy = { ...a, path: to + a.path.slice(p.path.length) };
+      p.data.carry(a, copy);
+      return copy;
+    });
+    const outside = standalone ? await this.#copyIn(to, assets.filter((a) => !isInside(p.path, a.path))) : [];
+    const { standalone: _, ...settings } = doc.settings;
+    writeProject(to, {
+      ...doc,
+      settings: standalone ? { ...settings, standalone: true } : settings,
+      assets: { ...doc.assets, ...Object.fromEntries([...inside, ...outside].map((a) => [a.id, a])) },
+    });
+    return to;
+  }
+
+  async reveal(h: ProjectHandle): Promise<void> {
+    this.#reveal(this.#get(h).path);
   }
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
@@ -281,7 +358,7 @@ export class LocalCore implements BeaconCore {
 
   /**
    * Renames the project's folder to `name`.beproj beside it, closing it first (its undo history ends there);
-   * media kept inside it (snapshots) follow. Returns the new path, for `open`.
+   * media kept inside it (recordings, snapshots) follow. Returns the new path, for `open`.
    */
   async rename(h: ProjectHandle, name: string): Promise<string> {
     const p = this.#get(h);
@@ -291,12 +368,9 @@ export class LocalCore implements BeaconCore {
     if (to === p.path) return to;
     // A change of case only is the same folder on macOS's disks.
     if (existsSync(to) && to.toLowerCase() !== p.path.toLowerCase()) throw new Error(`${basename(to)} already exists`);
+    // Media inside it is stored relative to it, so it follows.
     await this.close(h);
     renameSync(p.path, to);
-    const doc = readProject(to, this.registry);
-    const inside = Object.values(doc.assets).filter((a) => a.path.startsWith(p.path + sep));
-    for (const a of inside) a.path = to + a.path.slice(p.path.length);
-    if (inside.length) writeProject(to, doc);
     return to;
   }
 
@@ -327,6 +401,9 @@ export class LocalCore implements BeaconCore {
   async run(h: ProjectHandle, command: string, args: unknown, opts: RunOptions = {}): Promise<CommandResult> {
     const p = this.#get(h);
     if (p.session.has(command)) return this.#runSession(p, command, args, opts);
+    if (command === "project.settings.set" && (args as { standalone?: unknown } | null)?.standalone === true && !p.store.doc.settings.standalone && !opts.dryRun) {
+      return this.#makeStandalone(p, args, opts);
+    }
     const action = this.registry.actions.get(command);
     if (action) return this.#runAction(p, action, args, opts);
     if (opts.coalesce && !opts.dryRun) {
@@ -391,6 +468,9 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     const editor = steps.find((s) => p.session.has(s.command));
     if (editor) throw new Error(`${editor.command} changes the editor, not the project; run it on its own, outside a transaction`);
+    if (steps.some((s) => s.command === "project.settings.set" && (s.args as { standalone?: unknown } | null)?.standalone === true)) {
+      throw new Error("standalone copies media into the project: run project.settings.set on its own, outside a transaction");
+    }
     return this.#saved(p, p.store.transaction(label, (tx) => {
       for (const s of steps) tx.run(s.command, s.args ?? {});
     }, opts));
@@ -828,23 +908,46 @@ export class LocalCore implements BeaconCore {
     }
     let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
     const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
-    this.#saved(p, p.store.transaction(label, (tx) => {
-      for (const { importer, asset } of probed) {
-        const id = tx.run<string>("asset.add", asset);
-        result.assets.push(id);
-        result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
-        at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
-      }
-    }));
+    const copies = p.store.doc.settings.standalone ? await this.#copyIn(p.path, probed.map(({ asset }, i) => ({ id: String(i), ...asset }))) : [];
+    for (const { id, path, fingerprint } of copies) Object.assign(probed[Number(id)]!.asset, { path, fingerprint });
+    try {
+      this.#saved(p, p.store.transaction(label, (tx) => {
+        for (const { importer, asset } of probed) {
+          const id = tx.run<string>("asset.add", asset);
+          result.assets.push(id);
+          result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
+          at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
+        }
+      }));
+    } catch (e) {
+      for (const c of copies) rmSync(c.path, { recursive: true, force: true });
+      throw e;
+    }
     // The app's view needs proxies and waveforms of new media as well.
     if (p.view) this.#previewJobs(p);
-    for (const id of result.assets) {
+    const { jobs, needs } = this.#importAnalyses(h, result.assets);
+    result.jobs.push(...jobs);
+    return needs ? { ...result, needs } : result;
+  }
+
+  /**
+   * Starts the analyses new media gets (transcripts), except those waiting for a resource that isn't downloaded:
+   * those are reported, to the caller and as a `needs` event, and start when it arrives.
+   */
+  #importAnalyses(h: ProjectHandle, assets: string[]): { jobs: string[]; needs?: string[] } {
+    const p = this.#get(h);
+    const jobs: string[] = [];
+    const needs = new Set<string>();
+    for (const id of assets) {
       for (const def of this.registry.jobAnalyzers.values()) {
         const a = p.store.doc.assets[id]!;
-        if ((def.when ?? "import") === "import" && def.applies(a) && !p.data.has(a, def.id)) result.jobs.push(this.#analyze(h, def.id, id).id);
+        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id)) continue;
+        if (def.needs && !this.#resourceReady(def.needs)) needs.add(def.needs);
+        else jobs.push(this.#analyze(h, def.id, id).id);
       }
     }
-    return result;
+    for (const id of needs) this.#emit(p, { kind: "needs", resource: this.#resourceInfo(this.registry.resources.get(id)!) });
+    return needs.size ? { jobs, needs: [...needs] } : { jobs };
   }
 
   async analyze(h: ProjectHandle, key: string, assetId: string): Promise<Job> {
@@ -963,7 +1066,7 @@ export class LocalCore implements BeaconCore {
     if (p.view) this.#previewJobs(p);
   }
 
-  async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }> {
+  async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[]; needs?: string[] }> {
     const p = this.#get(h);
     const asset = p.store.doc.assets[assetId];
     if (!asset) throw new Error(`no asset "${assetId}"`);
@@ -978,12 +1081,7 @@ export class LocalCore implements BeaconCore {
     const derived = { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
     this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
     if (p.view) this.#previewJobs(p);
-    const jobs: string[] = [];
-    const a = p.store.doc.assets[assetId]!;
-    for (const def of this.registry.jobAnalyzers.values()) {
-      if ((def.when ?? "import") === "import" && def.applies(a) && !p.data.has(a, def.id)) jobs.push(this.#analyze(h, def.id, assetId).id);
-    }
-    return { jobs };
+    return this.#importAnalyses(h, [assetId]);
   }
 
   async analysisSize(key: string): Promise<number> {
@@ -1029,12 +1127,16 @@ export class LocalCore implements BeaconCore {
     const subject = `${key}:${asset.path}\0${asset.fingerprint}`;
     const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
     if (running) return { id: running.info.id, done: running.done };
+    if (def.needs && !this.#resourceReady(def.needs)) {
+      const r = this.registry.resources.get(def.needs)!;
+      throw new Error(`${key} needs the ${r.title} (${Math.round(r.bytes / 1e6)} MB), which isn't downloaded; download it (fetchResource "${r.id}") once the user agrees`);
+    }
     return this.#startJob(
       p,
       key,
       `${key} ${asset.path}`,
       async (progress) => {
-        const value = await def.analyze(asset, progress, { cacheDir: this.cacheDir, quiet: this.#jobMode === "quiet" });
+        const value = await def.analyze(asset, progress, { cacheDir: this.cacheDir, quiet: this.#jobMode === "quiet", resource: (id) => this.#resourcePath(this.registry.resources.get(id)!) });
         p.data.store(asset, def, value);
         this.#emit(p, { kind: "derived", asset: assetId, key, present: true });
         return { asset: assetId };
@@ -1044,12 +1146,12 @@ export class LocalCore implements BeaconCore {
     );
   }
 
-  #startJob(p: OpenProject, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
+  #startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
     const id = shortId("job");
-    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, project: p.path, processes: { procs: new Set(), cancelled: false }, subject, started: performance.now(), done: Promise.resolve() };
+    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, ...(p ? { project: p.path } : {}), processes: { procs: new Set(), cancelled: false }, subject, started: performance.now(), done: Promise.resolve() };
     const report = () => {
       const e = { kind: "job" as const, job: this.#job(id) };
-      this.#emit(p, e);
+      if (p) this.#emit(p, e);
       for (const l of this.#jobListeners) l(e.job);
     };
     // Progress is reported each whole percent, so a window can show it without a flood of events.
@@ -1098,6 +1200,48 @@ export class LocalCore implements BeaconCore {
   #forgetFinishedJobs() {
     const finished = [...this.#jobs.entries()].filter(([, j]) => j.info.state !== "running");
     for (const [id] of finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED_JOBS))) this.#jobs.delete(id);
+  }
+
+  #resourcePath(def: ResourceDef): string {
+    return join(this.cacheDir, def.folder, def.file);
+  }
+
+  /** Its hash was checked when it was downloaded; after that, being there is enough. */
+  #resourceReady(id: string): boolean {
+    return existsSync(this.#resourcePath(this.registry.resources.get(id)!));
+  }
+
+  #resourceInfo(def: ResourceDef): ResourceInfo {
+    const job = [...this.#jobs.values()].find((j) => j.subject === `resource:${def.id}` && j.info.state === "running");
+    return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
+  }
+
+  async resources(): Promise<ResourceInfo[]> {
+    return [...this.registry.resources.values()].map((def) => this.#resourceInfo(def));
+  }
+
+  async fetchResource(id: string): Promise<Job> {
+    const def = this.registry.resources.get(id);
+    if (!def) throw new Error(`no resource "${id}"; there are: ${[...this.registry.resources.keys()].join(", ")}`);
+    const subject = `resource:${id}`;
+    const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
+    if (running) return { id: running.info.id, done: running.done };
+    const path = this.#resourcePath(def);
+    return this.#startJob(undefined, "resource", `Download ${def.title}`, async (progress) => {
+      if (!this.#resourceReady(id)) await download(def, path, progress);
+      this.#resumeWaiting(id);
+      return { path };
+    }, subject);
+  }
+
+  /** A resource arrived: the analyses that were waiting for it start, in every open project. */
+  #resumeWaiting(resource: string) {
+    for (const p of this.#projects.values()) {
+      for (const def of this.registry.jobAnalyzers.values()) {
+        if (def.needs !== resource || (def.when ?? "import") !== "import") continue;
+        for (const a of Object.values(p.store.doc.assets)) if (def.applies(a) && !p.data.has(a, def.id) && existsSync(a.path)) this.#analyze(p.path, def.id, a.id);
+      }
+    }
   }
 
   async job(id: string): Promise<JobInfo> {

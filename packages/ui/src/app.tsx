@@ -10,7 +10,8 @@ import { Timeline } from "./timeline";
 import { CanvasOverlay, type CanvasMark } from "./canvas";
 import { NoticeUi } from "./notice";
 import { MediaPreviewUi, type PreviewHost } from "./media-preview";
-import { NewProjectUi, ProjectName, type ProjectHost } from "./project-name";
+import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project-name";
+import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
@@ -19,7 +20,7 @@ import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost {
+export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
@@ -174,6 +175,8 @@ export function App({ host }: { host: Host }) {
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />
+      <SaveAsUi host={host} />
+      <ResourceUi host={host} />
       <MediaPreviewUi host={host} />
       <NoticeUi />
       {/* The dragged panel item; a mask so it shows over the native canvas too. */}

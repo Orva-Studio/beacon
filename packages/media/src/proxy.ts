@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
-import { runTool, spawn } from "./tool";
+import { runTool, spawn, tool } from "./tool";
 
 /** Keyframe every this many frames: a seek decodes at most this many. */
 const GOP = 10;
@@ -57,7 +57,7 @@ export async function makeProxies(path: string, sources: ProxySource[], duration
     }
     return runTool(
       // One scaling thread: the encoder sets the pace, and more threads only add CPU (a 626 s screen: 23 → 16 s).
-      [...(opts.quiet ? ["taskpolicy", "-b"] : []), "ffmpeg", "-nostdin", "-v", "error", "-stats", "-y", "-protocol_whitelist", "file", "-filter_threads", "1", ...input, "-i", path, ...outputs],
+      [...(opts.quiet ? ["taskpolicy", "-b"] : []), tool("ffmpeg"), "-nostdin", "-v", "error", "-stats", "-y", "-protocol_whitelist", "file", "-filter_threads", "1", ...input, "-i", path, ...outputs],
       {
         onStderr: (chunk) => {
           const m = /time=(\d+):(\d+):([\d.]+)/.exec(chunk);
@@ -85,7 +85,7 @@ export async function makeAudioProxy(path: string, stream: number, out: string):
   mkdirSync(dirname(out), { recursive: true });
   const tmp = `${out}.${process.pid}.tmp.mka`;
   try {
-    await runTool(["ffmpeg", "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${stream}`, "-c", "copy", tmp]);
+    await runTool([tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${stream}`, "-c", "copy", tmp]);
     renameSync(tmp, out);
   } finally {
     rmSync(tmp, { force: true });
@@ -95,7 +95,7 @@ export async function makeAudioProxy(path: string, stream: number, out: string):
 
 /** Peak level per 10 ms of one audio stream, 0–255, for timeline waveforms. */
 export async function waveformPeaks(path: string, stream: number): Promise<number[]> {
-  const proc = spawn(["ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${stream}`, "-ac", "1", "-ar", "4000", "-f", "s16le", "-"], { stdout: "pipe", stderr: "ignore" });
+  const proc = spawn([tool("ffmpeg"), "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${stream}`, "-ac", "1", "-ar", "4000", "-f", "s16le", "-"], { stdout: "pipe", stderr: "ignore" });
   const pcm = new Int16Array(await new Response(proc.stdout).arrayBuffer());
   if ((await proc.exited) !== 0) throw new Error(`ffmpeg could not read the audio of ${path}`);
   const peaks: number[] = [];
@@ -111,7 +111,7 @@ export async function waveformPeaks(path: string, stream: number): Promise<numbe
 export async function thumbnailPng(path: string, stream: number, time: number, height: number): Promise<Uint8Array> {
   const out = await new Response(
     spawn(
-      ["ffmpeg", "-nostdin", "-v", "error", "-ss", Math.max(0, time).toFixed(3), "-protocol_whitelist", "file", "-i", path, "-map", `0:v:${stream}`, "-frames:v", "1", "-vf", `scale=-2:${height}`, "-f", "image2pipe", "-c:v", "png", "-"],
+      [tool("ffmpeg"), "-nostdin", "-v", "error", "-ss", Math.max(0, time).toFixed(3), "-protocol_whitelist", "file", "-i", path, "-map", `0:v:${stream}`, "-frames:v", "1", "-vf", `scale=-2:${height}`, "-f", "image2pipe", "-c:v", "png", "-"],
       { stdout: "pipe", stderr: "ignore" },
     ).stdout,
   ).arrayBuffer();

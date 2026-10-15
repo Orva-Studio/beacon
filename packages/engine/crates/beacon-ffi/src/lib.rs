@@ -45,6 +45,18 @@ fn str_arg<'a>(s: *const c_char) -> Result<&'a str, String> {
     unsafe { CStr::from_ptr(s) }.to_str().map_err(|_| "string is not UTF-8".into())
 }
 
+/// Where Beacon's own ffmpeg and ffprobe are; called once, before anything runs them.
+///
+/// # Safety
+/// `dir` must be NUL-terminated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn beacon_set_tools_dir(dir: *const c_char) -> i32 {
+    guard(-1, || {
+        beacon_render::set_tools_dir(str_arg(dir)?.into());
+        Ok(0)
+    })
+}
+
 /// Valid until the next failing call on this thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn beacon_last_error() -> *const c_char {

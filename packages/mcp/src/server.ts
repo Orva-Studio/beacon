@@ -112,9 +112,11 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       width: z.int().positive().optional(),
       height: z.int().positive().optional(),
       fps: z.int().positive().optional(),
+      standalone: z.boolean().optional().describe("Copy media into the project's media folder as it is imported (a .cmproj's media too), so the project can be moved or shared whole"),
     }),
-    async run({ path, cmproj, width, height, fps }) {
-      const h = await local.create({ path: expandHome(path), cmproj: cmproj && expandHome(cmproj), settings: { ...(width ? { width } : {}), ...(height ? { height } : {}), ...(fps ? { fps: { num: fps, den: 1 } } : {}) } });
+    async run({ path, cmproj, width, height, fps, standalone }) {
+      const settings = { ...(width ? { width } : {}), ...(height ? { height } : {}), ...(fps ? { fps: { num: fps, den: 1 } } : {}) };
+      const h = await local.create({ path: expandHome(path), cmproj: cmproj && expandHome(cmproj), settings, ...(standalone ? { standalone } : {}) });
       await switchTo(h, local);
       return text(`created ${h}\n\n${await core.summary(h)}`);
     },
@@ -136,6 +138,23 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     description: "Save the project now (changes are also saved after every command)",
     schema: z.strictObject({}),
     run: async () => (await core.save(project()), text("saved")),
+  });
+  add("project_saveAs", {
+    description:
+      "Save As: copy the project as it is now to a new .beproj folder, with its recordings and the media kept inside it, and make the copy the session's project (opened by this session; an app showing the original keeps showing it). `standalone` (default: as the project is) also copies media from elsewhere into the copy's media folder, so it can be moved or shared whole",
+    schema: z.strictObject({ path: z.string().describe("New folder ending in .beproj"), standalone: z.boolean().optional() }),
+    async run({ path, standalone }) {
+      const to = await core.saveAs(project(), expandHome(path), standalone === undefined ? {} : { standalone });
+      // Opened here, not in the app: its window stays on the original, which the user is looking at.
+      const h = await local.open(to);
+      await switchTo(h, local);
+      return text(`saved as ${h}\n\n${await core.summary(h)}`);
+    },
+  });
+  add("project_reveal", {
+    description: "Show the project's folder in Finder (on the user's screen)",
+    schema: z.strictObject({}),
+    run: async () => (await core.reveal(project()), text("shown in Finder")),
   });
   add("project_undo", {
     description: "Undo the last change (a command or transaction)",
@@ -309,8 +328,19 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ id: z.string() }),
     run: async ({ id }) => (await core.cancelJob(id), core.job(id)),
   });
+  add("resource_list", {
+    description: "Files analyses need that don't ship with Beacon (Whisper's speech model, for transcripts): what each is for, its size, and whether it is downloaded",
+    schema: z.strictObject({}),
+    run: async () => core.resources(),
+  });
+  add("resource_fetch", {
+    description:
+      "Download a resource from resource_list as a background job (job_status). It can be large (the speech model is about 575 MB): ask the user first. Analyses that waited for it (transcripts) start when it is done",
+    schema: z.strictObject({ id: z.string() }),
+    run: async ({ id }) => ({ job: (await core.fetchResource(id)).id }),
+  });
   add("job_status", {
-    description: "Status of a background job (export, transcript), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
+    description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
     schema: z.strictObject({ id: z.string().optional(), wait: z.number().min(0).max(55).default(0) }),
     async run({ id, wait }) {
       if (!id) return core.jobs();

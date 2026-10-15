@@ -3,7 +3,10 @@ import type { FeatureRegistry } from "./registry";
 import { SCHEMA_VERSION, type Project } from "./schema";
 
 /** Core migrations; `version: n` takes a document from n - 1 to n. */
-export const CORE_MIGRATIONS: Migration[] = [];
+export const CORE_MIGRATIONS: Migration[] = [
+  // Asset paths inside the project folder may be relative on disk; the reader resolves them before this runs.
+  { version: 2, migrate: (doc) => doc },
+];
 
 type Doc = Record<string, unknown> & { schemaVersion?: unknown; features?: Record<string, number> };
 

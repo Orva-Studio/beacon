@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createProject, defineFeature, FeatureRegistry, migrateProject, SCHEMA_VERSION } from "../src";
+import { CORE_MIGRATIONS, createProject, defineFeature, FeatureRegistry, migrateProject, SCHEMA_VERSION } from "../src";
 import { testFeature } from "./fixture";
 
 const clipsV2 = defineFeature({
@@ -36,6 +36,7 @@ test("core then feature migrations bring an old document up to date without touc
         return { ...d, settings: { ...settings, fps: frameRate } };
       },
     },
+    ...CORE_MIGRATIONS,
   ];
 
   const doc = migrateProject(old, new FeatureRegistry([clipsV2]), core);

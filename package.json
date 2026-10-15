@@ -15,7 +15,8 @@
     "packages/desktop"
   ],
   "scripts": {
-    "build": "bun run build:engine",
+    "build": "bun run build:tools && bun run build:engine",
+    "build:tools": "bun run scripts/build-tools.ts",
     "build:engine": "cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo build --release",
     "test": "bun test && bun run test:ui && cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo test --release",
     "test:ui": "bun test ./scripts/ui-harness",
@@ -23,9 +24,9 @@
     "audit": "bun audit && cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo deny check",
     "dump-trec": "bun run scripts/dump-trec.ts",
     "render-cmproj": "bun run scripts/render-cmproj.ts",
-    "build:mcp": "bun build --compile packages/mcp/src/main.ts --outfile dist/beacon-mcp && cp packages/engine/target/release/libbeacon_ffi.dylib packages/engine/target/release/beacon-worker dist/",
+    "build:mcp": "bun scripts/bundle-tools.ts --mcp dist",
     "mcp": "bun packages/mcp/src/main.ts",
-    "app": "bun run build:engine && bun run --cwd packages/desktop dev",
+    "app": "bun run build && bun run --cwd packages/desktop dev",
     "release": "bun run scripts/release.ts"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "@beacon/core": "workspace:*"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/bun": "1.4.2",
     "typescript": "7.0.2"
   }

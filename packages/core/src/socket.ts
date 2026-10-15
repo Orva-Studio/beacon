@@ -43,6 +43,8 @@ export const METHODS = [
   "open",
   "close",
   "save",
+  "saveAs",
+  "reveal",
   "run",
   "transaction",
   "undo",
@@ -64,6 +66,8 @@ export const METHODS = [
   "job",
   "jobs",
   "cancelJob",
+  "resources",
+  "fetchResource",
   "commands",
   "queries",
   "schema",
@@ -153,7 +157,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
         s.data.watching.get(h)?.();
         s.data.watching.delete(h);
         result = null;
-      } else if (method === "export" || method === "analyze") {
+      } else if (method === "export" || method === "analyze" || method === "fetchResource") {
         const job = await (core[method] as (...a: unknown[]) => Promise<{ id: string }>)(...params);
         result = { id: job.id };
       } else {

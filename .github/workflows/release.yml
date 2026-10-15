@@ -1,0 +1,108 @@
+name: release
+
+# A v0.x.y tag (cut by `bun run release`) builds the Apple silicon app and publishes beacon-macos-arm64.dmg,
+# checksums.txt and FFmpeg's source, configure patch and options (THIRD_PARTY_NOTICES promises them) as a GitHub
+# release. Pull requests that change how it is built run everything but the publishing.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/build-tools.ts
+      - scripts/bundle-tools.ts
+      - scripts/check-release.ts
+      - packages/desktop/build-hook.ts
+      - packages/desktop/electrobun.config.ts
+      - packages/desktop/package.json
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve version
+        id: v
+        run: |
+          VERSION=$(jq -r .version package.json)
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if [[ "$TAG" == v* && "$TAG" != "v$VERSION" ]]; then
+            echo "tag $TAG doesn't match package.json's version $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2.0.2
+        with:
+          bun-version: 1.4.2
+
+      - name: pkg-config and cmake
+        run: |
+          command -v pkg-config || brew install pkgconf
+          command -v cmake || brew install cmake
+
+      - name: Cache Beacon's tools
+        uses: actions/cache@v4.2.3
+        with:
+          path: |
+            packages/engine/third-party/out
+            packages/engine/third-party/src
+          key: tools-macos-arm64-${{ hashFiles('scripts/build-tools.ts') }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/engine/target
+          key: cargo-macos-arm64-${{ hashFiles('packages/engine/Cargo.lock', 'packages/engine/rust-toolchain.toml') }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build tools and engine
+        run: bun run build
+
+      - name: Build the app
+        run: bun run --cwd packages/desktop package
+
+      - name: Collect
+        run: |
+          mkdir dist
+          mv packages/desktop/artifacts/macos-arm64-Beacon.dmg dist/beacon-macos-arm64.dmg
+          bun run build:tools --sources dist
+          cd dist && shasum -a 256 * > checksums.txt && cat checksums.txt
+
+      - name: Check the DMG
+        run: bun scripts/check-release.ts dist/beacon-macos-arm64.dmg --version ${{ steps.v.outputs.version }}
+
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: beacon-macos-arm64
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(steps.v.outputs.tag, 'v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          # Notes from the last published release, so a tag whose release failed doesn't hide its commits.
+          PREV=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName' || true)
+          NOTES_ARGS=(--generate-notes)
+          if [ -n "$PREV" ] && [ "$PREV" != "$TAG" ]; then NOTES_ARGS+=(--notes-start-tag "$PREV"); fi
+          gh release create "$TAG" --title "$TAG" "${NOTES_ARGS[@]}" dist/*

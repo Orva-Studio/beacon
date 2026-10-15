@@ -25,7 +25,7 @@ fn ours(path: &str, nth: u32, t: f64, w: u32, h: u32, native: bool) -> Vec<u8> {
 }
 
 fn theirs(path: &str, nth: u32, t: f64, w: u32, h: u32) -> Vec<u8> {
-    let out = Command::new("ffmpeg")
+    let out = Command::new(beacon_decode::tool("ffmpeg"))
         .args(["-v", "error", "-ss", &format!("{:.4}", t - 0.0005), "-i", path, "-map", &format!("0:v:{nth}"), "-frames:v", "1"])
         .args(["-vf", &format!("scale={w}:{h}:flags=area"), "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
         .output()
@@ -69,7 +69,7 @@ fn images_match_the_ffmpeg_command_line() {
     let (w, h) = d.size();
     let mut buf = vec![0u8; (w * h * 4) as usize];
     d.rgba(&mut buf, w, h).unwrap();
-    let out = Command::new("ffmpeg").args(["-v", "error", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]).output().unwrap();
+    let out = Command::new(beacon_decode::tool("ffmpeg")).args(["-v", "error", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]).output().unwrap();
     assert!(buf == out.stdout, "{path} differs");
 }
 

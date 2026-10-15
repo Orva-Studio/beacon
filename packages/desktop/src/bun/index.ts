@@ -5,16 +5,17 @@ import type { Pointer } from "bun:ffi";
 import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, GlobalShortcut, Tray, Utils, WGPUView } from "electrobun/main";
 import { patchInfoPlist } from "./info-plist";
 
-// The engine ships inside the app; set before anything loads it.
+// The engine and Beacon's own ffmpeg, ffprobe and whisper-cli ship inside the app; set before anything loads them.
 const engineDir = join(import.meta.dir, "../engine");
 if (existsSync(join(engineDir, "libbeacon_ffi.dylib"))) {
   process.env.BEACON_FFI_PATH ??= join(engineDir, "libbeacon_ffi.dylib");
   process.env.BEACON_WORKER_PATH ??= join(engineDir, "beacon-worker");
   process.env.BEACON_RECORDER_PATH ??= join(engineDir, "beacon-recorder");
+  process.env.BEACON_TOOLS_DIR ??= engineDir;
 }
 
 // `electrobun dev` builds and launches in one step, so a dev bundle gets its Info.plist entries here (a built one
-// has them from `bun run build`); Launch Services then learns the `.brec` package type.
+// has them from build-hook.ts); Launch Services then learns the `.brec` package type.
 const bundle = import.meta.dir.match(/^(.*?\.app)\/Contents\//)?.[1];
 if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
   Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
@@ -33,7 +34,7 @@ const keymap = (await import("../../../../keymaps/default.json")).default.bindin
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
-const core = new LocalCore({ socket });
+const core = new LocalCore({ socket, reveal: (path) => Utils.showItemInFolder(path) });
 
 interface Current {
   path: string;
@@ -123,6 +124,8 @@ async function switchTo(path: string) {
       if (e.changes.canvas && current?.view) current.view.live.place(...placement(e.changes.canvas, current.view));
     } else if (e.kind === "saved") {
       send().saved({ ok: true });
+    } else if (e.kind === "needs") {
+      offerResource(e.resource);
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -247,7 +250,7 @@ function newProject() {
   send().newProjectSheet({ name: "Untitled Project" });
 }
 
-async function createProject(name: string, canvas?: CanvasValues) {
+async function createProject(name: string, canvas?: CanvasValues, standalone = false) {
   if (/[/:]/.test(name) || name.startsWith(".") || !name.trim()) throw new Error(`"${name}" can't be a project name`);
   const to = freshProject(name.trim());
   const settings = canvas && {
@@ -258,9 +261,30 @@ async function createProject(name: string, canvas?: CanvasValues) {
     // Off: no target (a new project's default has one).
     ...(canvas.normalize ? {} : { loudnessTarget: undefined }),
   };
-  await core.create({ path: to, ...(settings ? { settings } : {}) });
+  await core.create({ path: to, ...(settings ? { settings } : {}), ...(standalone ? { standalone } : {}) });
   await open(to);
   status(`New project: ${to}`);
+}
+
+/** File > Save As…: the window asks for the copy's name, folder and whether it is standalone, then `saveAs`. */
+function saveAsDialog() {
+  if (!current) return status("Open a project first");
+  send().saveAsSheet({ name: `${basename(current.path, ".beproj")} copy`, folder: dirname(current.path), standalone: !!core.doc(current.path).settings.standalone });
+}
+
+/** The copy is opened in place of the project, which stays as last saved. */
+function saveAs({ name, folder, standalone }: { name: string; folder: string; standalone: boolean }): Promise<void> {
+  const next = opening.then(async () => {
+    if (!current) throw new Error("Open a project first");
+    const clean = name.trim().replace(/\.beproj$/i, "");
+    if (!clean || /[/:]/.test(clean) || clean.startsWith(".")) throw new Error(`"${name}" can't be a project name`);
+    if (standalone) status("Copying media into the project…");
+    const to = await core.saveAs(current.path, join(folder, `${clean}.beproj`), { standalone });
+    await switchTo(to);
+    status(`Saved as ${to}`);
+  });
+  opening = next.catch(() => {});
+  return next;
 }
 
 /** Clicking the project's name: its folder takes the new name, and Open Recent follows. */
@@ -326,6 +350,22 @@ function applyAutoProxy() {
 }
 applyAutoProxy();
 
+/** Resources offered this session: the dialog asks once, not on every import. */
+const offered = new Set<string>();
+/** An import's analysis waits for a resource (the speech model): ask, unless the user said Not Now before. */
+function offerResource(r: import("@beacon/core").ResourceInfo) {
+  if (r.present || r.job || offered.has(r.id)) return;
+  offered.add(r.id);
+  if (appSettings.declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › General)`);
+  send().resourceSheet(r);
+}
+core.watchJobs((job) => {
+  if (job.kind !== "resource") return;
+  send().resourceJob({ id: job.id, state: job.state, progress: job.progress, ...(job.error ? { error: job.error } : {}) });
+  if (job.state === "done") status(`${job.label.replace(/^Download /, "")} downloaded: transcripts are being made`);
+  else if (job.state === "failed" && job.error !== "cancelled") status(`${job.label}: ${job.error}`);
+});
+
 /** Exports started from the window, by job id: their output files. */
 const exports = new Map<string, string>();
 // Exports report here rather than through the open project: one keeps going when another project is opened.
@@ -378,7 +418,7 @@ async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recordPrefs();
   const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
-  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) });
+  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources() });
 }
 
 /** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
@@ -882,7 +922,17 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),
       deleteAllProxies: async () => (await core.forgetAll("proxy"), core.analysisSize("proxy")),
-      newProject: ({ name, settings }) => reply(() => createProject(name, settings)),
+      newProject: ({ name, settings, standalone }) => reply(() => createProject(name, settings, standalone)),
+      saveAs: (params) => reply(() => saveAs(params)),
+      fetchResource: async ({ id }) => {
+        try {
+          return { ok: true, result: (await core.fetchResource(id)).id };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+      declineResource: ({ id }) => setAppSettings({ ...appSettings, declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
+      cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
       previewOpen: ({ asset }) => {
         closePreview();
         if (!current) return null;
@@ -1094,6 +1144,9 @@ function setMenu() {
           ],
         },
         { type: "separator" },
+        { label: "Save As…", action: "saveAs", accelerator: "shift+command+s", enabled: !!current },
+        { label: "Show in Finder", action: "reveal", enabled: !!current },
+        { type: "separator" },
         { label: "Import Media…", action: "import", accelerator: "command+i" },
         { label: "Record…", action: "record", accelerator: "command+r" },
         { type: "separator" },
@@ -1263,6 +1316,8 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "export") return void exportDialog().catch(report);
   if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);
+  if (action === "saveAs") return saveAsDialog();
+  if (action === "reveal") return void (current && core.reveal(current.path).catch(report));
   if (action === "settings") return void openSettings();
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {

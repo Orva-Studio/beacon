@@ -16,6 +16,7 @@ import type {
   RecordStatus,
   Job,
   JobInfo,
+  ResourceInfo,
   NewProjectOptions,
   BeaconCore,
   ProjectHandle,
@@ -173,12 +174,29 @@ export class RemoteCore implements BeaconCore {
   forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);
   missing = (h: ProjectHandle) => this.#call<string[]>("missing", h);
   relink = (h: ProjectHandle, assetId: string, path: string) => this.#call<void>("relink", h, assetId, path);
-  replace = (h: ProjectHandle, assetId: string, path: string) => this.#call<{ jobs: string[] }>("replace", h, assetId, path);
+  saveAs = (h: ProjectHandle, path: string, opts?: { standalone?: boolean }) => this.#call<string>("saveAs", h, path, opts);
+  reveal = (h: ProjectHandle) => this.#call<void>("reveal", h);
+  replace = (h: ProjectHandle, assetId: string, path: string) => this.#call<{ jobs: string[]; needs?: string[] }>("replace", h, assetId, path);
   analysisSize = (key: string) => this.#call<number>("analysisSize", key);
   forgetAll = (key: string) => this.#call<number>("forgetAll", key);
   job = (id: string) => this.#call<JobInfo>("job", id);
   jobs = () => this.#call<JobInfo[]>("jobs");
   cancelJob = (id: string) => this.#call<void>("cancelJob", id);
+  resources = () => this.#call<ResourceInfo[]>("resources");
+  // A download belongs to no project, so no project's events say when it ends: ask.
+  fetchResource = async (id: string): Promise<Job> => {
+    const job = (await this.#call<{ id: string }>("fetchResource", id)).id;
+    const done = (async () => {
+      for (;;) {
+        const j = await this.job(job);
+        if (j.state === "done") return j.result;
+        if (j.state === "failed") throw new Error(j.error);
+        await Bun.sleep(500);
+      }
+    })();
+    done.catch(() => {});
+    return { id: job, done };
+  };
   summary = (h: ProjectHandle) => this.#call<string>("summary", h);
   checkOutput = (h: ProjectHandle, path: string, opts?: { overwrite?: boolean }) => this.#call<void>("checkOutput", h, path, opts);
   session = (h: ProjectHandle) => this.#call<Session>("session", h);

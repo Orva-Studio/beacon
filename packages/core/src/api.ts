@@ -13,6 +13,8 @@ export interface NewProjectOptions {
   settings?: Partial<Settings>;
   /** Start from a Camtasia project (read only; never written). */
   cmproj?: string;
+  /** A standalone project: media is copied into its `media` folder as it is imported (a Camtasia project's too). */
+  standalone?: boolean;
 }
 
 export interface FrameOptions {
@@ -88,6 +90,20 @@ export interface ImportResult {
   clips: string[];
   /** Background analysis started for the new assets (e.g. transcripts). */
   jobs: string[];
+  /** Resources an analysis waits for (`resources`), not downloaded yet: ask the user before `fetchResource`. */
+  needs?: string[];
+}
+
+/** A file an analysis needs that isn't shipped with Beacon (the speech model for transcripts). */
+export interface ResourceInfo {
+  id: string;
+  title: string;
+  description: string;
+  /** Download size. */
+  bytes: number;
+  present: boolean;
+  /** Its download, while one runs. */
+  job?: string;
 }
 
 export type JobState = "running" | "done" | "failed";
@@ -158,6 +174,8 @@ export type CoreEvent =
   | { kind: "apply" | "undo" | "redo"; label: string; patches: Patch[] }
   | { kind: "job"; job: JobInfo }
   | { kind: "saved"; path: string }
+  /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
+  | { kind: "needs"; resource: ResourceInfo }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
   | { kind: "preparing"; assets: Record<string, number> }
   /** An asset's background analysis was stored or deleted. */
@@ -172,6 +190,14 @@ export interface BeaconCore {
   open(path: string): Promise<ProjectHandle>;
   create(opts: NewProjectOptions): Promise<ProjectHandle>;
   save(h: ProjectHandle): Promise<void>;
+  /**
+   * Save As: a copy of the project as it is now at `path` (a new `.beproj` folder), with the recordings and media
+   * kept inside it; standalone (by default, as the project is), media from outside is copied into its `media`
+   * folder too. The project stays open as it was; returns the copy's path, to `open`.
+   */
+  saveAs(h: ProjectHandle, path: string, opts?: { standalone?: boolean }): Promise<string>;
+  /** Show in Finder: the project's folder, selected in a Finder window. */
+  reveal(h: ProjectHandle): Promise<void>;
   close(h: ProjectHandle): Promise<void>;
   run(h: ProjectHandle, command: string, args: unknown, opts?: RunOptions): Promise<CommandResult>;
   transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }): Promise<CommandResult>;
@@ -200,11 +226,18 @@ export interface BeaconCore {
   /** Points media at a moved file (Locate…), refused unless it is the same kind of media with the same streams and length; one undo step. */
   relink(h: ProjectHandle, assetId: string, path: string): Promise<void>;
   /** Replace Media…: an imported video, image or audio file swapped for another of the same kind; its clips keep their places, shortened where it ends sooner. Not recordings. One undo step; the new file's analyses start as an import's do. */
-  replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }>;
+  replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[]; needs?: string[] }>;
   /** Bytes on disk of a background analyzer's results across every project (e.g. "proxy": every proxy video). */
   analysisSize(key: string): Promise<number>;
   /** Deletes a background analyzer's results for every project; returns the bytes freed. Preview analyses run again when a project is next shown. */
   forgetAll(key: string): Promise<number>;
+  /** Resources analyses need (the speech model), and whether each is downloaded. */
+  resources(): Promise<ResourceInfo[]>;
+  /**
+   * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
+   * start when it is done. Returns the running download if there is one.
+   */
+  fetchResource(id: string): Promise<Job>;
   job(id: string): Promise<JobInfo>;
   jobs(): Promise<JobInfo[]>;
   /** Stops a running job (an export, an analysis): it fails as "cancelled". */

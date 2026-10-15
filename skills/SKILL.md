@@ -28,6 +28,11 @@ out (`clip_set` transform/crop, or `track_set` hidden): see the
 
 Importing speech starts a background transcript job (whisper.cpp, local,
 seconds per minute of audio). `job_status` with `wait` blocks until it is done.
+The transcript needs Whisper's speech model, which isn't part of Beacon: until
+it is downloaded, imports report it in `needs` and no transcript starts.
+`resource_list` says whether it is there; `resource_fetch` downloads it (about
+575 MB, once) as a job. Ask the user before fetching; transcripts of media
+already imported start when it is done.
 
 ## Recording
 `recorder_start` records a take into the project's `recordings` folder: the

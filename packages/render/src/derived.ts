@@ -34,7 +34,10 @@ export class DerivedData {
 
   get = <T>(assetId: string, key: string): T | undefined => {
     const asset = this.project().assets[assetId];
-    if (!asset) return undefined;
+    return asset && this.#read<T>(asset, key);
+  };
+
+  #read<T>(asset: Asset, key: string): T | undefined {
     const id = this.#key(asset, key);
     if (this.#memo.has(id)) return this.#memo.get(id) as T;
     const job = this.registry.jobAnalyzers.get(key);
@@ -61,7 +64,7 @@ export class DerivedData {
     const value = analyzer?.analyze(asset);
     this.#memo.set(id, value);
     return value as T | undefined;
-  };
+  }
 
   has(asset: Asset, key: string): boolean {
     return this.get(asset.id, key) !== undefined;
@@ -79,6 +82,18 @@ export class DerivedData {
   /** Forgets every result of an analyzer held in memory (its files are deleted by the caller). */
   dropAll(def: JobAnalyzerDef) {
     for (const id of this.#memo.keys()) if (id.endsWith(`\0${def.id}`)) this.#memo.delete(id);
+  }
+
+  /**
+   * Gives a copy of a file the results its original has (a transcript), so they aren't made again. Not results
+   * that own files (proxies): two entries would share them, and dropping one would delete the other's.
+   */
+  carry(from: Asset, to: Asset) {
+    for (const def of this.registry.jobAnalyzers.values()) {
+      if (def.discard) continue;
+      const value = this.#read(from, def.id);
+      if (value !== undefined && !existsSync(this.cacheFile(to, def))) this.store(to, def, value);
+    }
   }
 
   store(asset: Asset, def: JobAnalyzerDef, value: unknown) {

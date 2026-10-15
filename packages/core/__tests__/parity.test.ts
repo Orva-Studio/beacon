@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { tool } from "@beacon/media";
 import { renderProject } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -13,7 +14,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 /** RGBA of a PNG, scaled with an area filter when `width` is given. */
 async function rgba(png: string, width?: number): Promise<Uint8Array> {
   const scale = width ? ["-vf", `scale=${width}:-2:flags=area`] : [];
-  const p = Bun.spawn(["ffmpeg", "-v", "error", "-i", png, ...scale, "-f", "rawvideo", "-pix_fmt", "rgba", "-"], { stdout: "pipe" });
+  const p = Bun.spawn([tool("ffmpeg"), "-v", "error", "-i", png, ...scale, "-f", "rawvideo", "-pix_fmt", "rgba", "-"], { stdout: "pipe" });
   return new Uint8Array(await new Response(p.stdout).arrayBuffer());
 }
 

@@ -370,8 +370,9 @@ Derived data (proxies, waveforms, thumbnails, transcripts) is cached
 globally in `~/Library/Caches/Beacon/derived`, not in the bundle
 (decided in Phase 3). Autosave snapshots (`history/`) aren't built: every
 change is saved as it is made.
-Media is referenced by absolute path plus a content fingerprint so moved files
-can be relinked. Saves are atomic (write temp → fsync → rename). A lock file
+Media is referenced by path plus a content fingerprint so moved files can be
+relinked: files inside the project folder (`recordings/`, `media/`) relative to
+it, others absolute (schema 2). Standalone projects copy imports into `media/`. Saves are atomic (write temp → fsync → rename). A lock file
 prevents two writers; the MCP server talks to the app instead when it is open.
 
 ### Migrations
@@ -1101,7 +1102,11 @@ media until relinked (renaming from the title bar rewrites the paths).
 3. **File › Save As…**: a copy under a new name, then opened; its recordings
    come with it, and outside media too when standalone.
 4. **File › Show in Finder** for the project.
-Agents get each as a command. Then Phase 7.
+Agents get each as a command. Then Phase 6.5.
+**Done 2026-10-15** (`phase-6.5`): schema 2 stores media inside the project
+relative to it; standalone is `project.settings.set { standalone }` (it
+copies, as clones on APFS, keeping file times so fingerprints match and
+transcripts carry over); `project_saveAs` and `project_reveal` for agents.
 
 ### Phase 6.5 — A self-contained app (decided 2026-10-12)
 One downloadable, signed `.app` that works on a Mac with nothing installed:
@@ -1155,6 +1160,43 @@ cache, and audio start. When it starts is the user's call.
    `claude mcp add`, and open the app. Signing matters beyond Gatekeeper: an
    unsigned build is a new app to macOS each version, so screen, camera and
    microphone permissions would be asked again after every update.
+**Progress (2026-10-15, `phase-6.5`, paused at the weekly usage limit):**
+step 0 done; step 1 done (own LGPL FFmpeg 7.1.3 + whisper-cli 1.9.2 bundled,
+model downloaded on consent, Apple transcriber spike in
+`docs/transcription-spike.md`); step 2: export decodes natively and zero copy
+into the GPU (20 s of the gate project: 13.9 s → 4.9 s, 1.44× → 4.1× real
+time). Fast export finished 2026-10-15: the native encoder (`encode.rs`)
+keeps three frames in flight, has a parity test against ffmpeg's output
+(H.264, HEVC, ProRes, size, frame rate) and is the default
+(`BEACON_ENCODE_FFMPEG=1` for the old path), and the audio is mixed while the
+video renders: 20 s in 3.45 s (5.8× real time), now bound by decoding. Step 3
+built 2026-10-15: `bun run --cwd packages/desktop package` makes the DMG (Electrobun's
+stable build: a self-extracting wrapper that unpacks the app in place on first
+launch), with beacon-mcp compiled into the app's engine folder; `build-hook.ts`
+writes the Info.plist entries and signs both apps ad hoc (the packed app is
+unpacked, signed and packed again, since Electrobun writes its version.json
+after postBuild); `scripts/check-release.ts` checks a DMG as a bare Mac would
+see it; `.github/workflows/release.yml` builds, checks and publishes on a tag
+(and builds and checks on pull requests that change it); unsigned for now (see Signing
+below). Left: the first tagged release, the transcriber
+choice below; the gate run.
+**Transcriber choice (decided 2026-10-15):** Settings › General › Transcripts
+picks the transcriber: Whisper on this Mac (default; the model download as
+now), Apple's on-device transcriber (macOS 26 SpeechTranscriber: no download,
+about 8× faster, weaker on technical words: `docs/transcription-spike.md`), or
+Whisper through OpenAI's API with the user's own API key (stored in the macOS
+Keychain, never in a project or settings file; the dialog says plainly that
+the audio is uploaded to OpenAI). Word timings must be good enough for Remove
+Silences in each (check Apple's and the API's against local Whisper's DTW
+times on the fixtures; for the API, use a model that returns word
+timestamps). Choosing Apple or the API never asks to download the model.
+Agents get the same as a setting/command. The transcript cache key includes
+the transcriber.
+**Signing (decided 2026-10-15):** no Apple Developer ID yet. Releases are
+ad-hoc signed and not notarized; the README's install prompt keeps the
+`xattr -dr com.apple.quarantine` step and says macOS will ask again for
+screen, camera and microphone permission after each update. Hardened runtime
+and notarization are added once the user has a Developer ID.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 

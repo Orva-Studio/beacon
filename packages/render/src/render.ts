@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { enginePath, runTool, spawn } from "@beacon/media";
+import { enginePath, runTool, spawn, tool, toolsDir } from "@beacon/media";
 import { DEFAULT_CACHE_DIR, DerivedData } from "./derived";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -9,6 +9,7 @@ import {
   projectDuration,
   ticksPerFrame,
   ticksToSeconds,
+  TICKS_PER_SECOND,
   type AudioSegment,
   type Easing,
   type FeatureRegistry,
@@ -73,7 +74,7 @@ export function renderJob(project: Project, registry: FeatureRegistry, output: u
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
   h264: ["-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", "-tag:v", "avc1"],
   hevc: ["-c:v", "hevc_videotoolbox", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"],
-  prores: ["-c:v", "prores_videotoolbox", "-profile:v", "hq"],
+  prores: ["-c:v", "prores_videotoolbox", "-pix_fmt", "nv12", "-profile:v", "hq"],
 };
 
 /** RGBA → BT.709 limited range, tagged with the transfer of `space`, as players expect for HD. */
@@ -113,6 +114,43 @@ function encoderArgs(o: Extract<RenderOutput, { kind: "video" }>): string[] {
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
 }
 
+/** A frame rate as a fraction: NTSC's 29.97 is 30000/1001, 12.5 is 25/2. */
+export function rational(fps: number): { num: number; den: number } {
+  if (Number.isInteger(fps)) return { num: fps, den: 1 };
+  const ntsc = Math.round(fps * 1001);
+  if (ntsc % 1000 === 0 && Math.abs(fps - ntsc / 1001) < 0.01) return { num: ntsc, den: 1001 };
+  for (let den = 2; den < 1000; den++) if (Math.abs(fps * den - Math.round(fps * den)) < 1e-6) return { num: Math.round(fps * den), den };
+  return { num: Math.round(fps * 1000), den: 1000 };
+}
+
+/** The video's size: the canvas fitted within `size` (as ffmpeg's force_original_aspect_ratio=decrease), even. */
+export function fittedSize(canvas: { width: number; height: number }, size?: { width: number; height: number }): { width: number; height: number } {
+  const s = size ? Math.min(size.width / canvas.width, size.height / canvas.height) : 1;
+  return { width: Math.max(2, Math.floor((canvas.width * s) / 2) * 2), height: Math.max(2, Math.floor((canvas.height * s) / 2) * 2) };
+}
+
+/**
+ * H.264, HEVC and ProRes in MP4 or MOV are encoded by VideoToolbox straight from the GPU's frames, a few in
+ * flight (`BEACON_ENCODE_FFMPEG=1`: piped to ffmpeg instead). GIF and WebM always go through ffmpeg.
+ */
+function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video" }>, path: string) {
+  const format = videoFormat(o.path);
+  if ((format !== "mp4" && format !== "mov") || process.env.BEACON_ENCODE_FFMPEG) return undefined;
+  const codec = o.codec ?? "h264";
+  if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
+  return {
+    kind: "encode",
+    path,
+    codec,
+    ...fittedSize(project.settings, o.size),
+    fps: o.fps ? rational(o.fps) : project.settings.fps,
+    bitrate: (o.bitrate ?? 16_000) * 1000,
+    keyframe: o.keyframe ?? KEYFRAME,
+    ...(codec === "h264" && o.profile ? { profile: o.profile } : {}),
+    srgb: o.colorSpace === "srgb",
+  };
+}
+
 /**
  * Renders a project through the `beacon-worker` sidecar: evaluates each frame,
  * streams scenes to it, and (for video) mixes and muxes the audio clips.
@@ -127,11 +165,19 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   try {
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
     const videoOnly = tmp ? join(tmp, `video.${format === "mp4" ? "mov" : format}`) : undefined;
-    const output = opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(opts.output) } : { kind: "png", dir: opts.output.dir };
+    const native = opts.output.kind === "video" ? nativeEncode(project, opts.output, videoOnly!) : undefined;
+    const output = native ?? (opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(opts.output) } : { kind: "png", dir: opts.output.dir });
+    // Natively encoded at another rate, frames are evaluated at that rate rather than dropped or repeated, each at the
+    // tick nearest its time (a rate like 12.5 fps doesn't divide the tick clock).
+    const step = native ? (TICKS_PER_SECOND * native.fps.den) / native.fps.num : frameTicks;
+    const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + Math.round(i * step)) : frames.map((f) => f * frameTicks);
 
     const job = renderJob(project, registry, output, opts.cacheDir);
+    // The audio is mixed while the video renders; the two are muxed after.
+    const audio = opts.output.kind === "video" && format !== "gif" ? mixAudio(project, registry, opts.output, tmp!, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step)) : undefined;
+    audio?.catch(() => {});
 
-    const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
+    const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
     let error: string | undefined;
     let done = 0;
     const reader = (async () => {
@@ -144,7 +190,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
           const msg = JSON.parse(buf.slice(0, nl)) as { frame?: number; done?: number; error?: string };
           buf = buf.slice(nl + 1);
           if (msg.error) error = msg.error;
-          if (msg.frame !== undefined) opts.onProgress?.(msg.frame, frames.length);
+          if (msg.frame !== undefined) opts.onProgress?.(msg.frame, times.length);
           if (msg.done !== undefined) done = msg.done;
         }
       }
@@ -155,16 +201,16 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     let failure: unknown;
     try {
       proc.stdin.write(`${JSON.stringify(job)}\n`);
-      for (const frame of frames) {
+      for (const [i, time] of times.entries()) {
         if (error) break;
         const sources = new Map<string, SourceDef>();
-        const scene: Scene = evaluate(project, registry, frame * frameTicks, { data, sources });
+        const scene: Scene = evaluate(project, registry, time, { data, sources });
         const fresh = [...sources].filter(([id]) => !known.has(id));
         if (fresh.length) {
           scene.sources = Object.fromEntries(fresh);
           for (const [id] of fresh) known.add(id);
         }
-        if (opts.output.kind === "png") scene.name = `f${String(frame).padStart(6, "0")}`;
+        if (opts.output.kind === "png") scene.name = `f${String(frames[i]).padStart(6, "0")}`;
         proc.stdin.write(`${JSON.stringify(scene)}\n`);
         await proc.stdin.flush();
       }
@@ -177,12 +223,13 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     await reader;
     // A worker that dies first breaks the pipe; its own message says why.
     if (error || failure || code !== 0) {
+      await audio?.catch(() => {});
       throw new Error(`render failed: ${error ?? (failure instanceof Error ? failure.message : failure) ?? `beacon-worker exited with ${code}`}`);
     }
 
     if (opts.output.kind === "video") {
       if (format === "gif") copyFileSync(videoOnly!, opts.output.path);
-      else await muxAudio(project, registry, videoOnly!, opts.output, ticksToSeconds(frames[0]! * frameTicks), frames.length * ticksToSeconds(frameTicks));
+      else await mux(videoOnly!, await audio, opts.output);
     }
     return { frames: done };
   } finally {
@@ -250,22 +297,30 @@ export function audioPlaybackArgs(project: Project, registry: FeatureRegistry, s
   if (!filter) return [];
   // atempo keeps the pitch; ffmpeg 7 takes 0.5-100 in one stage.
   const sped = rate === 1 ? filter : `${filter};[aout]atempo=${rate}[sped]`;
-  return ["ffmpeg", "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
+  return [tool("ffmpeg"), "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
 }
 
-/** Mixes every audible segment in the rendered range under the video. */
-async function muxAudio(project: Project, registry: FeatureRegistry, video: string, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
+/** Mixes every audible segment in the rendered range into a file in `dir`; undefined when silent or without audio. */
+async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, dir: string, start: number, length: number) {
+  const { inputs, filter } = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length);
+  if (!filter) return undefined;
   const webm = videoFormat(o.path) === "webm";
-  const { inputs, filter } = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length, 1);
-  const args = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video, ...inputs];
-  if (filter) {
-    // Opus runs at 48 kHz only.
-    const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
-    args.push("-filter_complex", filter, "-map", "0:v", "-map", "[aout]", "-c:v", "copy", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-shortest");
-  } else {
-    args.push("-map", "0:v", "-c:v", "copy");
-  }
-  if (!webm) args.push("-movflags", "+faststart");
+  // Opus runs at 48 kHz only.
+  const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
+  const path = join(dir, webm ? "audio.webm" : "audio.mov");
+  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
+  await runTool(args).catch((e: Error) => {
+    throw new Error(`audio mix failed: ${e.message}`);
+  });
+  return path;
+}
+
+/** The rendered video with the mixed audio under it, both copied. */
+async function mux(video: string, audio: string | undefined, o: Extract<RenderOutput, { kind: "video" }>) {
+  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video];
+  if (audio) args.push("-protocol_whitelist", "file", "-i", audio, "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest");
+  else args.push("-map", "0:v", "-c:v", "copy");
+  if (videoFormat(o.path) !== "webm") args.push("-movflags", "+faststart");
   args.push(o.path);
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio mux failed: ${e.message}`);

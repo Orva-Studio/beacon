@@ -102,7 +102,8 @@ export function locateTrack(doc: Project, id: string, registry?: FeatureRegistry
 export const CORE_COMMANDS: CommandDef[] = [
   defineCommand({
     id: "project.settings.set",
-    description: "Change project settings (canvas size, frame rate, background colour, loudness target); `loudnessTarget: null` turns Auto-normalize loudness off",
+    description:
+      "Change project settings (canvas size, frame rate, background colour, loudness target, standalone); `loudnessTarget: null` turns Auto-normalize loudness off. `standalone: true` copies media from outside the project into its media folder and points the project at the copies (one undo step), and later imports are copied in too; on its own, not in a transaction",
     args: SettingsSchema.partial().extend({ loudnessTarget: z.number().nullable().optional() }),
     apply(doc, { loudnessTarget, ...args }) {
       Object.assign(doc.settings, args);

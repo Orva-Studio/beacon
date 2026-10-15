@@ -318,18 +318,33 @@ const Range = z.tuple([z.int().nonnegative(), z.int().nonnegative()]);
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
+  resources: [
+    {
+      id: "whisper-model",
+      title: "Whisper large-v3-turbo speech model",
+      description: "Transcripts are made on this Mac, offline, with OpenAI's Whisper. Without the model, everything but transcripts (and Remove Silences, which reads them) still works.",
+      // Pinned to a commit of the repo, checked against the hash Hugging Face publishes for it.
+      url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+      sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      bytes: 574_041_195,
+      folder: "models",
+      file: "ggml-large-v3-turbo-q5_0.bin",
+    },
+  ],
   jobAnalyzers: [
     {
       id: "transcript",
       description: "Word-timed transcript of every audio stream (whisper.cpp large-v3-turbo, clipped to detected speech)",
       version: 7,
+      needs: "whisper-model",
       applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
-      async analyze(asset, progress) {
+      async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
+        const model = env.resource("whisper-model");
         for (const i of audio.keys()) {
           const src = sourceOf(asset, "audio", i);
-          streams[i] = await transcribe(src.path, { stream: src.stream, onProgress: (f) => progress((i + f) / audio.length) });
+          streams[i] = await transcribe(src.path, { stream: src.stream, model, onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },
