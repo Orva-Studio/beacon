@@ -2,6 +2,23 @@
 //! C shim), kept open between seeks: no process to start per jump.
 
 use std::ffi::{CString, c_char, c_int, c_void};
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
+static TOOLS_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Where Beacon's own ffmpeg and ffprobe are, set once before any is run (the app's, through `beacon_set_tools_dir`).
+pub fn set_tools_dir(dir: PathBuf) {
+    let _ = TOOLS_DIR.set(dir);
+}
+
+/// One of Beacon's own tools, never the user's PATH: the directory set, else `BEACON_TOOLS_DIR` (a worker the app
+/// started), else the one `bun run build:tools` built this crate against.
+pub fn tool(name: &str) -> PathBuf {
+    TOOLS_DIR
+        .get_or_init(|| std::env::var_os("BEACON_TOOLS_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("BEACON_TOOLS_BUILD_DIR"))))
+        .join(name)
+}
 
 unsafe extern "C" {
     fn otd_open(path: *const c_char, nth: c_int, hw: c_int, threads: c_int, err: *mut c_char, errlen: c_int) -> *mut c_void;

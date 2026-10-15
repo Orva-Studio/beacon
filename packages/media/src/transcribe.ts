@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { roundSeconds } from "@beacon/model";
-import { runTool } from "./tool";
+import { runTool, tool } from "./tool";
 
 export interface Word {
   text: string;
@@ -205,7 +205,7 @@ export async function transcribe(path: string, opts: TranscribeOptions = {}): Pr
   const dir = mkdtempSync(join(tmpdir(), "beacon-whisper-"));
   try {
     const raw = join(dir, "audio.pcm");
-    await runTool(["ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${opts.stream ?? 0}`, "-ac", "1", "-ar", String(RATE), "-f", "s16le", raw]);
+    await runTool([tool("ffmpeg"), "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${opts.stream ?? 0}`, "-ac", "1", "-ar", String(RATE), "-f", "s16le", raw]);
     const bytes = await Bun.file(raw).bytes();
     const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
     const db = levels(pcm);
@@ -220,7 +220,7 @@ export async function transcribe(path: string, opts: TranscribeOptions = {}): Pr
     let done = 0;
     if (files.length) {
       const dtw = opts.dtw ?? process.env.BEACON_WHISPER_DTW ?? "large.v3.turbo";
-      await runTool(["whisper-cli", "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
+      await runTool([tool("whisper-cli"), "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
         done += chunk.match(/saving output/g)?.length ?? 0;
         opts.onProgress?.(done / files.length);
       } });

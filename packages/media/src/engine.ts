@@ -1,8 +1,10 @@
 import { dlopen, FFIType, CString, type Pointer } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { toolsDir } from "./tool";
 
 const symbols = {
+  beacon_set_tools_dir: { args: [FFIType.ptr], returns: FFIType.i32 },
   beacon_last_error: { args: [], returns: FFIType.ptr },
   beacon_string_free: { args: [FFIType.ptr], returns: FFIType.void },
   beacon_font_families: { args: [], returns: FFIType.ptr },
@@ -65,7 +67,11 @@ function libraryPath(): string {
 }
 
 export function loadEngine(): Engine {
-  engine ??= dlopen(libraryPath(), symbols).symbols;
+  if (!engine) {
+    const e = dlopen(libraryPath(), symbols).symbols;
+    checkStatus(e, e.beacon_set_tools_dir(Buffer.from(`${toolsDir()}\0`)));
+    engine = e;
+  }
   return engine;
 }
 

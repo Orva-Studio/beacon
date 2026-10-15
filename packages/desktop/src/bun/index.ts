@@ -5,12 +5,13 @@ import type { Pointer } from "bun:ffi";
 import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, GlobalShortcut, Tray, Utils, WGPUView } from "electrobun/main";
 import { patchInfoPlist } from "./info-plist";
 
-// The engine ships inside the app; set before anything loads it.
+// The engine and Beacon's own ffmpeg, ffprobe and whisper-cli ship inside the app; set before anything loads them.
 const engineDir = join(import.meta.dir, "../engine");
 if (existsSync(join(engineDir, "libbeacon_ffi.dylib"))) {
   process.env.BEACON_FFI_PATH ??= join(engineDir, "libbeacon_ffi.dylib");
   process.env.BEACON_WORKER_PATH ??= join(engineDir, "beacon-worker");
   process.env.BEACON_RECORDER_PATH ??= join(engineDir, "beacon-recorder");
+  process.env.BEACON_TOOLS_DIR ??= engineDir;
 }
 
 // `electrobun dev` builds and launches in one step, so a dev bundle gets its Info.plist entries here (a built one

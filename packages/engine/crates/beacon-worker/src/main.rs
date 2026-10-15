@@ -19,7 +19,7 @@ enum Sink {
 fn open_sink(job: &Job) -> Result<Sink, String> {
     match &job.output {
         Output::Video { path, args } => {
-            let mut child = Command::new("ffmpeg")
+            let mut child = Command::new(beacon_render::tool("ffmpeg"))
                 .args(["-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba"])
                 .args(["-s", &format!("{}x{}", job.width, job.height)])
                 .args(["-framerate", &format!("{}/{}", job.fps.num, job.fps.den), "-i", "-"])

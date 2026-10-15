@@ -54,8 +54,9 @@ packages/
                preview handle (render thread into a CAMetalLayer); audio
                output (cpal)
     beacon-decode  in-process video decoding: a C shim over FFmpeg's libraries
-               (headers and libraries found beside the `ffmpeg` on PATH, or
-               `BEACON_FFMPEG_INCLUDE`/`BEACON_FFMPEG_LIB`)
+               (Beacon's own build in `third-party/out`, or
+               `BEACON_FFMPEG_INCLUDE`/`BEACON_FFMPEG_LIB`); `tool()` finds
+               Beacon's own ffmpeg and ffprobe, never PATH's
     beacon-render  wgpu 30 compositor: sources (in-process video with frame indexes,
                stills, .trec cursors, Core Text text, stroked sketches),
                layers, groups, backdrops, runtime-loaded WGSL passes

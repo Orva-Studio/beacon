@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "devkit": "electrobun prepare",
-    "dev": "bun run --cwd ../ui css && electrobun dev",
-    "build": "bun run --cwd ../ui css && electrobun build && bun src/bun/info-plist.ts \"$(ls -t build/*/*.app/Contents/Info.plist | head -1)\""
+    "dev": "bun run --cwd ../ui css && bun ../../scripts/bundle-tools.ts && electrobun dev",
+    "build": "bun run --cwd ../ui css && bun ../../scripts/bundle-tools.ts && electrobun build && bun src/bun/info-plist.ts \"$(ls -t build/*/*.app/Contents/Info.plist | head -1)\""
   },
   "dependencies": {
     "@beacon/core": "workspace:*",

@@ -1,0 +1,3 @@
+# Room in the headers for scripts/bundle-tools.ts to point FFmpeg's libraries at the app's own copies.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,-headerpad_max_install_names"]

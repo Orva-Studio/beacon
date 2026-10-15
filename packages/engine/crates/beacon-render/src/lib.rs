@@ -1,6 +1,7 @@
 //! The compositor shared by export and the live preview: draws a `Scene` of
 //! generic layers, running effect passes by name from WGSL loaded at runtime.
 
+pub use beacon_decode::{set_tools_dir, tool};
 pub mod preview;
 mod cursor;
 mod render;

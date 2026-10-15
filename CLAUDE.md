@@ -3,11 +3,13 @@ Beacon (by Orva): a macOS screen-recording editor on its own project format, wit
 
 ## Stack
 - Bun workspaces (`packages/*`, consumed as TypeScript source, no per-package build), TypeScript 7, Zod 4, Immer
-- Rust engine: Cargo workspace in `packages/engine` (`beacon-media`, `beacon-decode` over FFmpeg's libraries, `beacon-ffi` cdylib loaded with `bun:ffi`); building needs FFmpeg's headers: Nix keeps them in the `-dev` output (`nix build '<ffmpeg drv>^dev'`), else set `BEACON_FFMPEG_INCLUDE`/`BEACON_FFMPEG_LIB`, toolchain pinned in `rust-toolchain.toml`
+- Rust engine: Cargo workspace in `packages/engine` (`beacon-media`, `beacon-decode` over FFmpeg's libraries, `beacon-ffi` cdylib loaded with `bun:ffi`), toolchain pinned in `rust-toolchain.toml`
+- Beacon's own LGPL FFmpeg (ffmpeg, ffprobe, libraries) and whisper-cli, built from pinned sources by `scripts/build-tools.ts` into `packages/engine/third-party/out` (needs pkg-config and cmake; it uses `nix shell` when they're missing). Nothing runs tools from PATH: `tool()` in `packages/media/src/tool.ts` and `beacon_decode::tool` resolve them
 - App: Electrobun 2.0.2 (Bun main process) in `packages/desktop`, React 19 + Tailwind 4 UI in `packages/ui`; Electrobun's SDK comes from its Hutch toolchain into `packages/desktop/.hutch/devkit` (`electrobun prepare`), not from npm
 
 ## Commands
-- `bun run build` - build the Rust engine (needed before anything that reads media)
+- `bun run build` - build Beacon's tools (once, ~1 min) and the Rust engine (needed before anything that reads media)
+- `bun scripts/bundle-tools.ts` - stage the app's `engine` folder (engine, tools, FFmpeg libraries via @rpath); `dev` and `build` in `packages/desktop` run it
 - `bun run app` - build the engine and run the editor (`BEACON_PROJECT=<x.beproj>` opens a project; `BEACON_BACKGROUND=1` opens without taking focus)
 - `bun run test` - bun tests + cargo tests (the app test builds and launches the app in the background)
 - `bun run test:ui` - the editor's flows in headless Chromium (`scripts/ui-harness/editor.test.ts`, no window); part of `bun run test`. Add a flow there when a UI feature lands

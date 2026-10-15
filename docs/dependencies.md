@@ -85,3 +85,23 @@ has the same two** (it pins Electrobun `^1.18.1` and wgpu 24), so the shared
   `-core-video`, `-screen-capture-kit`, `-av-foundation` with its
   `objc2-core-media` feature), and the workspace's serde. MIT / Zlib /
   Apache-2.0; `cargo deny` passes.
+
+## Beacon's own tools (Phase 6.5, 2026-10-15)
+The app runs only its own builds, made by `scripts/build-tools.ts` from pinned,
+hash-checked sources into `packages/engine/third-party/out` and staged into
+the app by `scripts/bundle-tools.ts` (FFmpeg libraries found through
+`@rpath`, so the app works on a Mac with no Homebrew or FFmpeg).
+
+| Tool | Version | Licence | Source check |
+|---|---|---|---|
+| FFmpeg (ffmpeg, ffprobe, libav*, libsw*) | 7.1.3 | LGPL 2.1+ (no GPL, version3 or non-free parts; the script refuses another licence) | release tarball, signed by FFmpeg's release key FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8 |
+| libvpx (VP9 encoding for WebM, static) | 1.15.2 | BSD 3-Clause | GitHub tag archive, hash pinned as fetched |
+| Opus (WebM audio, static) | 1.5.2 | BSD 3-Clause | Xiph's SHA256SUMS |
+| whisper.cpp (whisper-cli, Metal, static) | 1.9.2 | MIT | GitHub tag archive, hash pinned as fetched |
+
+FFmpeg is configured with `--disable-everything` and only the protocols,
+formats, codecs and filters Beacon uses (the list is in the script). H.264,
+HEVC and ProRes encode through VideoToolbox; there is no x264. One line is
+added to its configure script: 7.1.3 forgets that the `metadata` filter
+needs libavformat. FFmpeg 9.x is out; 7.1.3 is the version `tscc2` decoding
+and the decoder parity tests were checked on.

@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { enginePath, runTool, spawn } from "@beacon/media";
+import { enginePath, runTool, spawn, tool, toolsDir } from "@beacon/media";
 import { DEFAULT_CACHE_DIR, DerivedData } from "./derived";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -131,7 +131,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
 
     const job = renderJob(project, registry, output, opts.cacheDir);
 
-    const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
+    const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
     let error: string | undefined;
     let done = 0;
     const reader = (async () => {
@@ -250,14 +250,14 @@ export function audioPlaybackArgs(project: Project, registry: FeatureRegistry, s
   if (!filter) return [];
   // atempo keeps the pitch; ffmpeg 7 takes 0.5-100 in one stage.
   const sped = rate === 1 ? filter : `${filter};[aout]atempo=${rate}[sped]`;
-  return ["ffmpeg", "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
+  return [tool("ffmpeg"), "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
 }
 
 /** Mixes every audible segment in the rendered range under the video. */
 async function muxAudio(project: Project, registry: FeatureRegistry, video: string, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
   const webm = videoFormat(o.path) === "webm";
   const { inputs, filter } = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length, 1);
-  const args = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video, ...inputs];
+  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video, ...inputs];
   if (filter) {
     // Opus runs at 48 kHz only.
     const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];

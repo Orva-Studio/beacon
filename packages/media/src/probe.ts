@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { isBrec, loadBrecCursor, probeBrec } from "./brec";
 import { Trec } from "./trec";
-import { runTool, spawn } from "./tool";
+import { runTool, spawn, tool } from "./tool";
 
 export interface StreamInfo {
   kind: "video" | "audio";
@@ -43,7 +43,7 @@ export async function probeMedia(path: string): Promise<MediaInfo> {
     );
     return { duration: trec.info.duration, streams };
   }
-  const out = await runTool(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,duration,sample_rate,channels", "-of", "json", "-protocol_whitelist", "file", path]).catch((e: Error) => {
+  const out = await runTool([tool("ffprobe"), "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,duration,sample_rate,channels", "-of", "json", "-protocol_whitelist", "file", path]).catch((e: Error) => {
     throw new Error(`ffprobe ${path}: ${e.message}`);
   });
   const json = JSON.parse(out) as {
@@ -99,7 +99,7 @@ export async function measureLoudness(path: string, info: MediaInfo): Promise<Re
   for (let i = 0; i < audio; i++) {
     const src = streamSource(path, info, "audio", i);
     const log = await new Promise<string>((resolve) => {
-      const proc = spawn(["ffmpeg", "-nostdin", "-hide_banner", "-protocol_whitelist", "file", "-i", src.path, "-map", `0:a:${src.stream}`, "-af", "ebur128=framelog=quiet", "-f", "null", "-"], { stdout: "ignore", stderr: "pipe" });
+      const proc = spawn([tool("ffmpeg"), "-nostdin", "-hide_banner", "-protocol_whitelist", "file", "-i", src.path, "-map", `0:a:${src.stream}`, "-af", "ebur128=framelog=quiet", "-f", "null", "-"], { stdout: "ignore", stderr: "pipe" });
       void new Response(proc.stderr).text().then(resolve);
     });
     const lufs = [...log.matchAll(/I:\s+(-?[\d.]+) LUFS/g)].at(-1)?.[1];

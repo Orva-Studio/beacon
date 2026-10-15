@@ -107,7 +107,7 @@ pub fn frame_index(path: &str, stream: u32, cache_dir: Option<&Path>) -> Result<
     let select = format!("v:{stream}");
     let ffprobe = |entries: &str| {
         run(
-            Command::new("ffprobe").args(["-v", "error", "-select_streams", &select, "-show_entries", entries, "-of", "json"]).args(FILES_ONLY).arg(path),
+            Command::new(beacon_decode::tool("ffprobe")).args(["-v", "error", "-select_streams", &select, "-show_entries", entries, "-of", "json"]).args(FILES_ONLY).arg(path),
             &format!("ffprobe {path}"),
         )
     };

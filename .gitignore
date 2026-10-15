@@ -12,3 +12,6 @@ target/
 .claude/
 .worktrees/
 spikes/
+
+# Beacon's own ffmpeg and whisper-cli (scripts/build-tools.ts)
+packages/engine/third-party/

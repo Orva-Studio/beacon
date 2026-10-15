@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { Subprocess } from "bun";
 
 /**
@@ -28,6 +28,26 @@ export const spawn = ((...args: Parameters<typeof Bun.spawn>) => {
   }
   return proc;
 }) as typeof Bun.spawn;
+
+export type ToolName = "ffmpeg" | "ffprobe" | "whisper-cli";
+
+/**
+ * Where Beacon's own ffmpeg, ffprobe and whisper-cli are: `BEACON_TOOLS_DIR` (the app sets it), beside a compiled
+ * binary (`beacon-mcp` in the app), else the repo's `bun run build:tools`. Never the user's PATH: a Homebrew
+ * upgrade, or a Mac with none, must not change what Beacon does.
+ */
+export function toolsDir(): string {
+  if (process.env.BEACON_TOOLS_DIR) return process.env.BEACON_TOOLS_DIR;
+  if (import.meta.dir.startsWith("/$bunfs")) return dirname(process.execPath);
+  return join(import.meta.dir, "../../engine/third-party/out/bin");
+}
+
+/** The path of one of Beacon's own tools, for `runTool` and `spawn`. */
+export function tool(name: ToolName): string {
+  const path = join(toolsDir(), name);
+  if (!existsSync(path)) throw new Error(`Beacon's ${name} isn't at ${path}; run \`bun run build\` (it builds Beacon's own tools)`);
+  return path;
+}
 
 /**
  * Runs a command-line tool (ffmpeg, ffprobe, whisper-cli) and returns its
