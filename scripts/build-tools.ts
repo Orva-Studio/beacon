@@ -5,11 +5,13 @@
  * and Opus for WebM, and whisper.cpp's whisper-cli with Metal. Output: packages/engine/third-party/out.
  * Needs pkg-config and cmake (`nix shell nixpkgs#pkg-config nixpkgs#cmake`, or Homebrew's).
  *
- *   bun run build:tools          builds what is out of date
- *   bun run build:tools --force  builds everything again
+ *   bun run build:tools                 builds what is out of date
+ *   bun run build:tools --force         builds everything again
+ *   bun run build:tools --sources dir   writes what a release attaches for FFmpeg's LGPL: its source as
+ *                                       downloaded, the change to its configure as a patch, and the options
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
 
@@ -87,6 +89,38 @@ async function fetchSource(s: Source): Promise<string> {
 const env = { ...process.env, MACOSX_DEPLOYMENT_TARGET: MACOS, PKG_CONFIG_LIBDIR: join(DEPS, "lib/pkgconfig"), PKG_CONFIG_PATH: "" };
 const cflags = `-mmacosx-version-min=${MACOS} -O2`;
 
+/** 7.1.3's configure forgets that the metadata filter (its `file=` output) needs libavformat, as fsync's does. */
+function changeConfigure(text: string): string {
+  const fsync = `enabled fsync_filter        && prepend avfilter_deps "avformat"`;
+  if (!text.includes(fsync)) throw new Error("ffmpeg's configure changed: check the metadata filter's libavformat dependency");
+  return text.replace(fsync, `${fsync}\nenabled metadata_filter     && prepend avfilter_deps "avformat"`);
+}
+
+const configureArgs = (prefix: string) => [
+  `--prefix=${prefix}`,
+  ...FFMPEG_FLAGS,
+  "--pkg-config=pkg-config",
+  `--extra-cflags=${cflags}`,
+  // Headers padded so the app's bundling can point the libraries at @rpath (scripts/bundle-tools.ts).
+  `--extra-ldflags=-mmacosx-version-min=${MACOS} -Wl,-headerpad_max_install_names`,
+];
+
+/** FFmpeg's source as downloaded, the configure change as a patch, and the configure options, into `to`. */
+async function releaseSources(to: string) {
+  mkdirSync(to, { recursive: true });
+  const ff = await fetchSource(FFMPEG);
+  copyFileSync(join(SRC, `${FFMPEG.name}.tar.xz`), join(to, `${FFMPEG.name}.tar.xz`));
+  const configure = join(ff, "configure");
+  writeFileSync(`${configure}.changed`, changeConfigure(readFileSync(configure, "utf8")));
+  // diff exits 1 when the files differ, which they must.
+  const patch = await $`diff -u -L a/configure -L b/configure configure configure.changed`.cwd(ff).nothrow().text();
+  if (!patch.includes("+enabled metadata_filter")) throw new Error("the configure patch is empty");
+  writeFileSync(join(to, `${FFMPEG.name}-configure.patch`), patch);
+  const options = `# ${FFMPEG.name}, configured on macOS ${MACOS}+ (arm64) with static libvpx and Opus in the prefix's pkg-config path:\n./configure \\\n${configureArgs("<prefix>").map((a) => `  '${a}'`).join(" \\\n")}\n`;
+  writeFileSync(join(to, `${FFMPEG.name}-configure-options.txt`), options);
+  rmSync(ff, { recursive: true, force: true });
+}
+
 async function buildFfmpeg() {
   const s = stamp("ffmpeg", FFMPEG, VPX, OPUS, FFMPEG_FLAGS);
   if (fresh("ffmpeg", s)) return console.log("ffmpeg: up to date");
@@ -104,15 +138,11 @@ async function buildFfmpeg() {
 
   const ff = await fetchSource(FFMPEG);
   console.log(`building ${FFMPEG.name}…`);
-  // 7.1.3's configure forgets that the metadata filter (its `file=` output) needs libavformat, as fsync's does.
   const configure = join(ff, "configure");
-  const fsync = `enabled fsync_filter        && prepend avfilter_deps "avformat"`;
-  if (!readFileSync(configure, "utf8").includes(fsync)) throw new Error("ffmpeg's configure changed: check the metadata filter's libavformat dependency");
-  writeFileSync(configure, readFileSync(configure, "utf8").replace(fsync, `${fsync}\nenabled metadata_filter     && prepend avfilter_deps "avformat"`));
+  writeFileSync(configure, changeConfigure(readFileSync(configure, "utf8")));
   for (const d of ["bin", "lib", "include"]) rmSync(join(OUT, d, d === "bin" ? "ffmpeg" : ""), { recursive: d !== "bin", force: true });
   rmSync(join(OUT, "bin", "ffprobe"), { force: true });
-  // Headers padded so the app's bundling can point the libraries at @rpath (scripts/bundle-tools.ts).
-  const configured = await $`./configure --prefix=${OUT} ${FFMPEG_FLAGS} --pkg-config=pkg-config --extra-cflags=${cflags} --extra-ldflags=${`-mmacosx-version-min=${MACOS} -Wl,-headerpad_max_install_names`}`.cwd(ff).env(env).text();
+  const configured = await $`./configure ${configureArgs(OUT)}`.cwd(ff).env(env).text();
   const license = /License: (.*)/.exec(configured)?.[1];
   if (license !== "LGPL version 2.1 or later") throw new Error(`ffmpeg would be "${license}", not LGPL 2.1`);
   await $`make -j${JOBS} && make install`.cwd(ff).env(env).quiet();
@@ -163,7 +193,13 @@ function needTools() {
   throw new Error(`building Beacon's tools needs ${missing.join(" and ")} (brew install ${missing.join(" ")})`);
 }
 
-if (import.meta.main) {
+const sources = process.argv.indexOf("--sources");
+if (import.meta.main && sources > 0) {
+  const to = process.argv[sources + 1];
+  if (!to) throw new Error("usage: bun run build:tools --sources <dir>");
+  await releaseSources(to);
+  console.log(`FFmpeg's source, configure patch and options in ${to}`);
+} else if (import.meta.main) {
   mkdirSync(OUT, { recursive: true });
   const ffmpegStamp = stamp("ffmpeg", FFMPEG, VPX, OPUS, FFMPEG_FLAGS);
   if (!fresh("ffmpeg", ffmpegStamp) || !fresh("whisper", whisperStamp())) needTools();
