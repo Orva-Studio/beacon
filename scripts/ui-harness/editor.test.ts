@@ -6,7 +6,7 @@ import { LocalCore } from "@beacon/core";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
-import { cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
+import { clipBox, cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
 import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 
 /**
@@ -477,6 +477,19 @@ test.skipIf(skip)("Record lists displays at the size each records at, and follow
   expect(await page.evaluate<boolean>("!!document.querySelector('[data-record]')")).toBe(false);
 });
 
+test.skipIf(skip)("The title bar drags the window, and its name, buttons and menus still click", async () => {
+  // Electrobun moves the window on a mousedown in an element with its drag class, unless a no-drag region is nearer.
+  const regions = await page.evaluate<{ bar: boolean; plain: string; controls: string[] }>(`(() => {
+    const bar = document.querySelector('[data-titlebar]');
+    const region = (el) => getComputedStyle(el).getPropertyValue('--electrobun-app-region').trim();
+    return { bar: bar.classList.contains('electrobun-webkit-app-region-drag'), plain: region(bar.querySelector('span') ?? bar), controls: [...bar.querySelectorAll('button, select, input')].map(region) };
+  })()`);
+  expect(regions.bar).toBe(true);
+  expect(regions.plain).toBe("");
+  expect(regions.controls.length).toBeGreaterThan(1);
+  expect(new Set(regions.controls)).toEqual(new Set(["no-drag"]));
+});
+
 test.skipIf(skip)("Check Sync: says what to do, shows the camera, beeps through speakers (not headphones), tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
   const displays = [{ id: 5, width: 3360, height: 1890 }, { id: 1, width: 1800, height: 1169 }];
   const outputs = [
@@ -911,6 +924,42 @@ test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock to
   await run("timeline.trackHeight", { height });
 });
 
+test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being dragged, not where the end was", async () => {
+  await select([]);
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  const doc = ui.core.doc(ui.handle);
+  const c = doc.tracks.flatMap((t) => t.clips).find((k) => k.id === screen.id)!;
+  const end = ticksToSeconds(c.start + c.duration);
+  await run("timeline.view", { start: Math.max(0, end - 8), end: end + 2 });
+  // Past the badge's flash for a new effect.
+  await Bun.sleep(1800);
+  const s = await session();
+  const header = headerWidth(doc.tracks);
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const row = doc.tracks.length - 1 - doc.tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
+  const xAt = (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const top = clipBox(row, s.timeline.trackHeight).y;
+  // The badge's left part, clear of its "fx": 6 px in from the edge, 20 wide, 14 high, 4 down.
+  const yellow = async (right: number) => {
+    const [r, g, b] = await page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${right - 6 - 17} * k), Math.round(${top + 4 + 3} * k), 1, 1).data]; })()`);
+    return r! > 200 && g! > 160 && b! < 120;
+  };
+  expect(await yellow(xAt(end))).toBe(true);
+  const y = box.y + top + s.timeline.trackHeight / 2;
+  const to = end - 3;
+  await page.down(box.x + xAt(end) - 2, y);
+  await page.move(box.x + xAt(end - 1.5), y);
+  await page.move(box.x + xAt(to) - 2, y);
+  await Bun.sleep(200);
+  expect([await yellow(xAt(to)), await yellow(xAt(end))]).toEqual([true, false]);
+  await page.key("Escape", "Escape");
+  await page.up(box.x + xAt(to) - 2, y);
+  await Bun.sleep(200);
+  expect(ticksToSeconds(ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).find((k) => k.id === screen.id)!.duration)).toBeCloseTo(ticksToSeconds(c.duration), 3);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the diamond clicked turns red", async () => {
   await select([screen.id]);
   await run("playhead.set", { time: 4 });
@@ -1086,6 +1135,17 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   type Found = { silences: { start: number; end: number; cut: boolean }[]; saved: number };
   const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; keepActive: boolean; flipped: number[] } } | undefined;
   const found = async () => (await ui.core.query(ui.handle, "transcript.silences", (await review())!.silences)) as Found;
+  // Its settings are sliders: clicked along, the review follows.
+  const track = (i: number) => page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelectorAll('[data-silence-review] .bg-groove')[${i}].getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const cutOver = await track(0);
+  await page.click(cutOver.x + cutOver.w * (1 / 4.8), cutOver.y + cutOver.h / 2);
+  for (let i = 0; i < 50 && (await review())?.silences?.min !== 1.2; i++) await Bun.sleep(50);
+  const leave = await track(1);
+  await page.click(leave.x + leave.w / 2, leave.y + leave.h / 2);
+  for (let i = 0; i < 50 && (await review())?.silences?.keep !== 1; i++) await Bun.sleep(50);
+  expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
+  await run("silences.review", { min: 0.6, keep: 0.3 });
+  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
   const first = await found();
   // The widest silence to cut, clicked in the middle of its band on the timeline: kept now.
   const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;

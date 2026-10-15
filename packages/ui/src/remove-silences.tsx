@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
-import { Button, NumberBox, Row } from "./controls";
+import { Button, Slider } from "./controls";
 import { useQuery } from "./query";
 import type { Host } from "./app";
 
@@ -43,6 +43,9 @@ export function useSilences(host: Host, session: Session | undefined): Silences 
   return review ? found : undefined;
 }
 
+// A slider's steps of 0.1 come out as 0.30000000000000004.
+const tenths = (v: number) => Math.round(v * 10) / 10;
+
 const clock = (s: number) => {
   const t = Math.max(0, Math.round(s));
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
@@ -69,12 +72,8 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
   return (
     <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-silence-review>
       <div className="mb-4 text-title font-semibold text-text-strong">Remove Silences</div>
-      <Row label="Cut over" title="Silences longer than this are cut">
-        <NumberBox value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={10} onCommit={(min) => set({ min })} />
-      </Row>
-      <Row label="Leave" title="How much of each cut silence is left in, half each side">
-        <NumberBox value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onCommit={(keep) => set({ keep })} />
-      </Row>
+      <Slider label="Cut over" title="Silences longer than this are cut" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
+      <Slider label="Leave" title="How much of each cut silence is left in, half each side" value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
       <label className="mt-1 mb-1 flex items-center gap-2 text-text">
         <input type="checkbox" checked={review.keepActive} onChange={(e) => set({ keepActive: e.target.checked })} data-keep-active />
         Keep silences with screen action

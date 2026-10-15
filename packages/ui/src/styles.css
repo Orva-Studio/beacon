@@ -149,3 +149,8 @@ body {
   /* Checkboxes and radio buttons in the one green, not WebKit's blue. */
   accent-color: var(--color-accent);
 }
+
+/* Electrobun moves the window from a mousedown anywhere in a drag region; its controls must still click. */
+.electrobun-webkit-app-region-drag :is(button, input, select, a) {
+  --electrobun-app-region: no-drag;
+}

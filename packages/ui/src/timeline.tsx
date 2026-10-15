@@ -375,9 +375,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         const cs = ticksToSeconds(clip.start);
         const ce = ticksToSeconds(clip.start + clip.duration);
         if (ce < start || cs > end) continue;
+        // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
+        const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
+        const left = trim?.edge === "start" ? trim.t : cs;
+        const right = trim && trim.edge !== "start" ? trim.t : ce;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x(cs), y, (ce - cs) * pps, ch);
+        ctx.rect(x(left), y, (right - left) * pps, ch);
         ctx.clip();
         const selectedClip = session.selection.includes(clip.id);
         if (clipTypes[clip.type]?.includes("audio")) {
@@ -446,7 +450,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         if (clip.effects.length) {
           const age = flashes.current.get(clip.id);
           const pulse = age === undefined ? undefined : 0.55 + 0.45 * Math.abs(Math.sin(((now - age) / 400) * Math.PI));
-          drawFxBadge(ctx, Math.min(x(ce), w) - 6, y + 4, clip.effects.some((fx) => fx.enabled), pulse);
+          drawFxBadge(ctx, Math.min(x(right), w) - 6, y + 4, clip.effects.some((fx) => fx.enabled), pulse);
         }
         ctx.restore();
       }
