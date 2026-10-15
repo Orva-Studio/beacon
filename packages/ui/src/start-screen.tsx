@@ -20,17 +20,21 @@ export function whenOpened(at: number, now = Date.now()): string {
   return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", ...(new Date(at).getFullYear() !== new Date(now).getFullYear() ? { year: "numeric" } : {}) });
 }
 
-function RecentRow({ project, host }: { project: RecentProject; host: StartHost }) {
+function RecentCard({ project, host }: { project: RecentProject; host: StartHost }) {
   return (
     <button
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-control"
+      className="group flex min-w-0 flex-col gap-1.5 rounded-lg p-1.5 text-left hover:bg-control"
       title={project.path.replace(/^\/Users\/[^/]+/, "~")}
       onClick={() => host.openRecent(project.path)}
       data-recent={project.path}
     >
-      <Icon name="film-strip" size={18} />
-      <span className="min-w-0 flex-1 truncate text-text-strong">{project.name}</span>
-      <span className="shrink-0 text-label text-text-faint">{whenOpened(project.opened)}</span>
+      <div className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-md border border-field-edge bg-app text-text-faint">
+        {project.thumb ? <img src={project.thumb} draggable={false} className="h-full w-full object-contain" /> : <Icon name="film-strip" size={22} />}
+      </div>
+      <div className="flex items-baseline gap-2 px-0.5">
+        <span className="min-w-0 flex-1 truncate text-text-strong">{project.name}</span>
+        <span className="shrink-0 text-label text-text-faint">{whenOpened(project.opened)}</span>
+      </div>
     </button>
   );
 }
@@ -43,7 +47,7 @@ export function StartScreen({ host }: { host: StartHost }) {
   const newProject = () => replica.newProject({ name: "Untitled Project" });
   return (
     <Modal
-      width={480}
+      width={560}
       onClose={() => {}}
       onKey={(e) => {
         if (e.metaKey && e.code === "KeyO") host.openDialog();
@@ -61,9 +65,9 @@ export function StartScreen({ host }: { host: StartHost }) {
       </div>
       <div className="mt-5 mb-1 text-label text-text-faint">Recent</div>
       {recent?.length ? (
-        <div className="-mx-3">
+        <div className="-mx-1.5 grid grid-cols-2 gap-1">
           {recent.slice(0, 4).map((p) => (
-            <RecentRow key={p.path} project={p} host={host} />
+            <RecentCard key={p.path} project={p} host={host} />
           ))}
         </div>
       ) : (

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
@@ -22,7 +22,7 @@ if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
   Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
 }
 
-const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, serveCore, walkClips, windowNumber } = await import("@beacon/core");
+const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, projectDuration, serveCore, ticksToSeconds, walkClips, windowNumber } = await import("@beacon/core");
 type LiveView = import("@beacon/core").LiveView;
 type Session = import("@beacon/core").Session;
 type ExportSettings = import("@beacon/ui").ExportSettings;
@@ -97,8 +97,39 @@ function setRecent(list: Recent[]) {
   }
   setMenu();
   send().recent(recentProjects());
+  try {
+    const kept = new Set(recent.map((r) => basename(projectThumbFile(r.path))));
+    for (const f of readdirSync(PROJECT_THUMBS)) if (!kept.has(f)) rmSync(join(PROJECT_THUMBS, f), { force: true });
+  } catch {}
 }
-const recentProjects = () => recent.map((r) => ({ ...r, name: basename(r.path, ".beproj") }));
+const recentProjects = () => recent.map((r) => ({ ...r, name: basename(r.path, ".beproj"), thumb: projectThumb(r.path) }));
+
+/** The start screen's pictures: each recent project's frame at its playhead, as it was last left. */
+const PROJECT_THUMBS = join(homedir(), "Library/Application Support/Beacon/project-thumbs");
+const projectThumbFile = (path: string) => join(PROJECT_THUMBS, `${Bun.hash(path).toString(16)}.png`);
+function projectThumb(path: string): string | undefined {
+  try {
+    return `data:image/png;base64,${readFileSync(projectThumbFile(path)).toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
+async function saveProjectThumb(h: string) {
+  try {
+    const end = ticksToSeconds(projectDuration(core.doc(h)));
+    if (!end) return;
+    const { playhead } = await core.session(h);
+    const img = await core.frame(h, playhead < end ? playhead : 0, { width: 480 });
+    mkdirSync(PROJECT_THUMBS, { recursive: true });
+    writeFileSync(projectThumbFile(h), img.png);
+  } catch {}
+}
+// Quitting can't wait for a render, so the picture follows edits, a while after they stop.
+let thumbTimer: ReturnType<typeof setTimeout> | undefined;
+function saveProjectThumbSoon(h: string) {
+  clearTimeout(thumbTimer);
+  thumbTimer = setTimeout(() => void saveProjectThumb(h), 5000);
+}
 function openRecent(path: string) {
   if (existsSync(path)) return void open(path).catch((err: unknown) => status(err instanceof Error ? err.message : String(err)));
   setRecent(recent.filter((r) => r.path !== path));
@@ -120,6 +151,8 @@ async function switchTo(path: string) {
   // The webview keeps its canvas element across projects, so it won't report it again.
   const canvas = current?.view;
   if (current) {
+    clearTimeout(thumbTimer);
+    if (!current.closed) await saveProjectThumb(current.path);
     current.unwatch();
     // A failed final save still releases the old project; say so and finish switching.
     if (!current.closed) await core.close(current.path).catch((e: unknown) => status(e instanceof Error ? e.message : String(e)));
@@ -136,6 +169,7 @@ async function switchTo(path: string) {
       if (e.changes.canvas && current?.view) current.view.live.place(...placement(e.changes.canvas, current.view));
     } else if (e.kind === "saved") {
       send().saved({ ok: true });
+      saveProjectThumbSoon(h);
     } else if (e.kind === "needs") {
       offerResource(e.resource);
     } else if (e.kind === "preparing") {
@@ -169,6 +203,7 @@ async function switchTo(path: string) {
   lastMissing = undefined;
   void sendMissing();
   void sendThumbs();
+  if (!existsSync(projectThumbFile(h))) saveProjectThumbSoon(h);
 }
 
 /** The missing media last sent, so the check below only sends changes. */

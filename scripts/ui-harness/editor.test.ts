@@ -233,7 +233,7 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
   const now = Date.now();
   const recent = [
     { path, name: "start", opened: now - 5 * 60_000 },
-    { path: "/Users/someone/Movies/Beacon/Launch.beproj", name: "Launch", opened: now - 3 * 3_600_000 },
+    { path: "/Users/someone/Movies/Beacon/Launch.beproj", name: "Launch", opened: now - 3 * 3_600_000, thumb: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" },
     { path: "/Users/someone/Movies/Beacon/Tutorial.beproj", name: "Tutorial", opened: now - 26 * 3_600_000 },
     { path: "/Users/someone/Movies/Beacon/Old.beproj", name: "Old", opened: new Date(2025, 2, 3).getTime() },
     { path: "/Users/someone/Movies/Beacon/Fifth.beproj", name: "Fifth", opened: new Date(2025, 1, 1).getTime() },
@@ -245,6 +245,8 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
     await view.until("!!document.querySelector('[data-start-screen]')");
     const shown = await view.evaluate<string[]>(rows);
     expect(shown.slice(0, 3)).toEqual(["start 5 minutes ago", "Launch 3 hours ago", "Tutorial yesterday"]);
+    // Each shows the project as it was last left, when the app has a picture of it.
+    expect(await view.evaluate<boolean[]>(`[...document.querySelectorAll('[data-recent]')].map((r) => !!r.querySelector('img'))`)).toEqual([false, true, false, false]);
     // Older ones by date, in the Mac's format.
     expect(shown[3]).toMatch(/^Old .*\b3\b.*2025$/);
     // Nothing to go back to: Escape leaves it open.

@@ -35,6 +35,8 @@ export interface RecentProject {
   path: string;
   name: string;
   opened: number;
+  /** A PNG data URL of the project as it was last left. */
+  thumb?: string;
 }
 
 export interface Init {
