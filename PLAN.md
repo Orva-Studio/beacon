@@ -1108,6 +1108,16 @@ Apple's frameworks. Its order: a benchmark first, then all-intra scrub
 proxies, item 2's in-process decoders kept open (a small pool per source),
 zero-copy VideoToolbox frames into wgpu, prefetch ahead with a small frame
 cache, and audio start. When it starts is the user's call.
+3. **Releases** (decided 2026-10-15): Apple silicon only, no Intel, Linux or
+   `install.sh`. A `v0.x.y` tag builds `beacon-macos-arm64.dmg` and
+   `checksums.txt` onto a GitHub release, as Hance does. The app carries
+   `beacon-mcp`, so agents get the tools without the repo. The README's
+   install steps end with a copyable prompt for an AI agent: download the DMG,
+   copy the app to Applications, clear the quarantine flag (`xattr -dr
+   com.apple.quarantine`, dropped once notarized), add the MCP server with
+   `claude mcp add`, and open the app. Signing matters beyond Gatekeeper: an
+   unsigned build is a new app to macOS each version, so screen, camera and
+   microphone permissions would be asked again after every update.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 
