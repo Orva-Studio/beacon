@@ -1,5 +1,12 @@
 # Beacon
 
+> [!WARNING]
+> **Beacon is very early alpha software.** Expect bugs, missing features and
+> things that break between versions; formats and commands may still change.
+> Keep your own copies of anything you edit with it, and please
+> [open an issue](https://github.com/Orva-Studio/beacon/issues) when something
+> goes wrong.
+
 Beacon by Orva: a macOS screen-recording editor on its own project format and
 renderer, built so every edit can be automated.
 
