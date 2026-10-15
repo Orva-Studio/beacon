@@ -3,6 +3,7 @@ import type { Patch, Project, Session } from "@beacon/model";
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
+import type { ResourceInfo, ResourceJob } from "./resource";
 
 export type { CanvasValues };
 export type { CanvasMark };
@@ -83,7 +84,7 @@ export interface Notice {
 export type SettingsTab = "general" | "recording" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
-export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices };
+export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[] };
 
 /** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
 export interface SoundOutput {
@@ -132,6 +133,8 @@ export interface AppSettings {
   snapshotFolder?: string;
   /** By camera and microphone (`syncKey`): how late the camera is; each take's camera clip moves earlier by it. */
   cameraSync?: Record<string, CameraSync>;
+  /** Resources the user said Not Now to: not offered again on their own. */
+  declinedResources?: string[];
 }
 
 /** The Export dialog's settings. */
@@ -305,6 +308,10 @@ export type AppRPC = {
       newProject: { params: { name: string; settings: CanvasValues; standalone: boolean }; response: RunReply };
       /** File > Save As…: `name`.beproj in `folder`, opened in place of the open project. */
       saveAs: { params: { name: string; folder: string; standalone: boolean }; response: RunReply };
+      /** Download a resource (the speech model): replies with its job id. */
+      fetchResource: { params: { id: string }; response: RunReply & { result?: string } };
+      declineResource: { params: { id: string }; response: void };
+      cancelJob: { params: { id: string }; response: RunReply };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
       /** play (from `time`), pause, seek (to `time`), close. */
@@ -344,6 +351,9 @@ export type AppRPC = {
       newProjectSheet: { name: string };
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;
+      /** An analysis needs a resource that isn't downloaded: ask. */
+      resourceSheet: ResourceInfo;
+      resourceJob: ResourceJob;
       /** Add Clip Speed: show the clip's Clip Speed section. */
       showClipSpeed: { clip: string };
       /** A shortcut the native menu took before the page could see it, replayed as a keydown. */

@@ -328,8 +328,19 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ id: z.string() }),
     run: async ({ id }) => (await core.cancelJob(id), core.job(id)),
   });
+  add("resource_list", {
+    description: "Files analyses need that don't ship with Beacon (Whisper's speech model, for transcripts): what each is for, its size, and whether it is downloaded",
+    schema: z.strictObject({}),
+    run: async () => core.resources(),
+  });
+  add("resource_fetch", {
+    description:
+      "Download a resource from resource_list as a background job (job_status). It can be large (the speech model is about 575 MB): ask the user first. Analyses that waited for it (transcripts) start when it is done",
+    schema: z.strictObject({ id: z.string() }),
+    run: async ({ id }) => ({ job: (await core.fetchResource(id)).id }),
+  });
   add("job_status", {
-    description: "Status of a background job (export, transcript), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
+    description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
     schema: z.strictObject({ id: z.string().optional(), wait: z.number().min(0).max(55).default(0) }),
     async run({ id, wait }) {
       if (!id) return core.jobs();

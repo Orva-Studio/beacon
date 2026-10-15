@@ -23,7 +23,7 @@ const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
  */
-export function SettingsWindow({ app: { tab: opening, devices, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+export function SettingsWindow({ app: { tab: opening, devices, resources, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   const [proxySpace, setProxySpace] = useState<number | "deleting">();
@@ -90,6 +90,17 @@ export function SettingsWindow({ app: { tab: opening, devices, ...app }, project
               </Select>
             </div>
           </Row>
+          {resources?.map((r) => (
+            <Row key={r.id} label="Transcripts" hint={`Made on this Mac with the ${r.title}${r.present ? "." : `, a one-time download of about ${Math.round(r.bytes / 1e6)} MB.`}`}>
+              <div className="flex items-center gap-3" data-resource-row={r.id}>
+                {r.present ? (
+                  <span className="text-text-muted">Speech model downloaded</span>
+                ) : (
+                  <Button onClick={() => (close(), replica.resource(r))}>Download Speech Model…</Button>
+                )}
+              </div>
+            </Row>
+          ))}
           <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
             <div className="flex items-center gap-3" data-proxy-space>
               <Button

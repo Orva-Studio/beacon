@@ -31,6 +31,7 @@ import {
   type FeatureRegistry,
   type MediaImporterDef,
   type Project,
+  type ResourceDef,
   type Session,
   type SessionChange,
   placeCanvas,
@@ -56,6 +57,7 @@ import type {
   ProjectHandle,
   QueryInfo,
   RecordOptions,
+  ResourceInfo,
   RecordStatus,
   RunOptions,
   SchemaInfo,
@@ -63,6 +65,7 @@ import type {
   Snapshot,
   TransactionStep,
 } from "./api";
+import { download } from "./download";
 import { copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
 
@@ -113,8 +116,8 @@ const KEEP_FINISHED_JOBS = 50;
 
 interface JobEntry {
   info: Omit<JobInfo, "elapsed">;
-  /** The project it belongs to: closing the project cancels it. */
-  project: string;
+  /** The project it belongs to: closing the project cancels it. None for a download. */
+  project?: string;
   /** Processes it has running (ffmpeg, whisper, beacon-worker), killed when it is cancelled. */
   processes: JobProcesses;
   /** What the job works on, for finding a running job again. */
@@ -921,13 +924,17 @@ export class LocalCore implements BeaconCore {
     }
     // The app's view needs proxies and waveforms of new media as well.
     if (p.view) this.#previewJobs(p);
+    const needs = new Set<string>();
     for (const id of result.assets) {
       for (const def of this.registry.jobAnalyzers.values()) {
         const a = p.store.doc.assets[id]!;
-        if ((def.when ?? "import") === "import" && def.applies(a) && !p.data.has(a, def.id)) result.jobs.push(this.#analyze(h, def.id, id).id);
+        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id)) continue;
+        if (def.needs && !this.#resourceReady(def.needs)) needs.add(def.needs);
+        else result.jobs.push(this.#analyze(h, def.id, id).id);
       }
     }
-    return result;
+    for (const id of needs) this.#emit(p, { kind: "needs", resource: this.#resourceInfo(this.registry.resources.get(id)!) });
+    return needs.size ? { ...result, needs: [...needs] } : result;
   }
 
   async analyze(h: ProjectHandle, key: string, assetId: string): Promise<Job> {
@@ -1112,12 +1119,16 @@ export class LocalCore implements BeaconCore {
     const subject = `${key}:${asset.path}\0${asset.fingerprint}`;
     const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
     if (running) return { id: running.info.id, done: running.done };
+    if (def.needs && !this.#resourceReady(def.needs)) {
+      const r = this.registry.resources.get(def.needs)!;
+      throw new Error(`${key} needs the ${r.title} (${Math.round(r.bytes / 1e6)} MB), which isn't downloaded; download it (fetchResource "${r.id}") once the user agrees`);
+    }
     return this.#startJob(
       p,
       key,
       `${key} ${asset.path}`,
       async (progress) => {
-        const value = await def.analyze(asset, progress, { cacheDir: this.cacheDir, quiet: this.#jobMode === "quiet" });
+        const value = await def.analyze(asset, progress, { cacheDir: this.cacheDir, quiet: this.#jobMode === "quiet", resource: (id) => this.#resourcePath(this.registry.resources.get(id)!) });
         p.data.store(asset, def, value);
         this.#emit(p, { kind: "derived", asset: assetId, key, present: true });
         return { asset: assetId };
@@ -1127,12 +1138,12 @@ export class LocalCore implements BeaconCore {
     );
   }
 
-  #startJob(p: OpenProject, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
+  #startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
     const id = shortId("job");
-    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, project: p.path, processes: { procs: new Set(), cancelled: false }, subject, started: performance.now(), done: Promise.resolve() };
+    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, ...(p ? { project: p.path } : {}), processes: { procs: new Set(), cancelled: false }, subject, started: performance.now(), done: Promise.resolve() };
     const report = () => {
       const e = { kind: "job" as const, job: this.#job(id) };
-      this.#emit(p, e);
+      if (p) this.#emit(p, e);
       for (const l of this.#jobListeners) l(e.job);
     };
     // Progress is reported each whole percent, so a window can show it without a flood of events.
@@ -1181,6 +1192,48 @@ export class LocalCore implements BeaconCore {
   #forgetFinishedJobs() {
     const finished = [...this.#jobs.entries()].filter(([, j]) => j.info.state !== "running");
     for (const [id] of finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED_JOBS))) this.#jobs.delete(id);
+  }
+
+  #resourcePath(def: ResourceDef): string {
+    return join(this.cacheDir, def.folder, def.file);
+  }
+
+  /** Its hash was checked when it was downloaded; after that, being there is enough. */
+  #resourceReady(id: string): boolean {
+    return existsSync(this.#resourcePath(this.registry.resources.get(id)!));
+  }
+
+  #resourceInfo(def: ResourceDef): ResourceInfo {
+    const job = [...this.#jobs.values()].find((j) => j.subject === `resource:${def.id}` && j.info.state === "running");
+    return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
+  }
+
+  async resources(): Promise<ResourceInfo[]> {
+    return [...this.registry.resources.values()].map((def) => this.#resourceInfo(def));
+  }
+
+  async fetchResource(id: string): Promise<Job> {
+    const def = this.registry.resources.get(id);
+    if (!def) throw new Error(`no resource "${id}"; there are: ${[...this.registry.resources.keys()].join(", ")}`);
+    const subject = `resource:${id}`;
+    const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
+    if (running) return { id: running.info.id, done: running.done };
+    const path = this.#resourcePath(def);
+    return this.#startJob(undefined, "resource", `Download ${def.title}`, async (progress) => {
+      if (!this.#resourceReady(id)) await download(def, path, progress);
+      this.#resumeWaiting(id);
+      return { path };
+    }, subject);
+  }
+
+  /** A resource arrived: the analyses that were waiting for it start, in every open project. */
+  #resumeWaiting(resource: string) {
+    for (const p of this.#projects.values()) {
+      for (const def of this.registry.jobAnalyzers.values()) {
+        if (def.needs !== resource || (def.when ?? "import") !== "import") continue;
+        for (const a of Object.values(p.store.doc.assets)) if (def.applies(a) && !p.data.has(a, def.id) && existsSync(a.path)) this.#analyze(p.path, def.id, a.id);
+      }
+    }
   }
 
   async job(id: string): Promise<JobInfo> {

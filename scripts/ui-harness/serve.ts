@@ -191,6 +191,15 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         }
         else if (msg.type === "chooseFolder") result = "/Users/someone/Shared";
         else if (msg.type === "cancelExport") result = await reply(() => core.cancelJob(msg.id));
+        // A stand-in download: the test sends its progress as the app forwards a real one's.
+        else if (msg.type === "fetchResource") {
+          menus.push(`fetchResource:${msg.id}`);
+          result = { ok: true, result: "job-download" };
+        }
+        else if (msg.type === "declineResource" || msg.type === "cancelJob") {
+          menus.push(`${msg.type}:${msg.id}`);
+          result = { ok: true };
+        }
         ws.send(JSON.stringify({ id: msg.id, result }));
       },
     },

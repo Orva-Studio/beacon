@@ -4,17 +4,19 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
-const [RECORDING, VIDEO] = ["recording.trec", "video.mp4"].map((f) => join(FIXTURES, f)) as [string, string];
+const [RECORDING, VIDEO, AUDIO] = ["recording.trec", "video.mp4", "audio.m4a"].map((f) => join(FIXTURES, f)) as [string, string, string];
 const SYSTEM_ONLY = "/usr/bin:/bin:/usr/sbin:/sbin";
 
-test.skipIf(![RECORDING, VIDEO].every(existsSync))("with no ffmpeg on PATH, Beacon imports, draws and exports MP4, GIF and WebM with its own", () => {
+test.skipIf(![RECORDING, VIDEO, AUDIO].every(existsSync))("with no ffmpeg or whisper on PATH, Beacon imports, draws, transcribes and exports MP4, GIF and WebM with its own", () => {
   expect(Bun.which("ffmpeg", { PATH: SYSTEM_ONLY })).toBeNull();
+  expect(Bun.which("whisper-cli", { PATH: SYSTEM_ONLY })).toBeNull();
   const { BEACON_TOOLS_DIR: _, ...env } = process.env;
-  const r = Bun.spawnSync([process.execPath, join(import.meta.dir, "helpers/without-path.ts"), RECORDING, VIDEO], { env: { ...env, PATH: SYSTEM_ONLY }, stderr: "pipe" });
+  const r = Bun.spawnSync([process.execPath, join(import.meta.dir, "helpers/without-path.ts"), RECORDING, VIDEO, AUDIO], { env: { ...env, PATH: SYSTEM_ONLY }, stderr: "pipe" });
   expect(r.exitCode, r.stderr.toString()).toBe(0);
   const out = JSON.parse(r.stdout.toString().trim().split("\n").at(-1)!);
   expect(out.frame).toBeGreaterThan(1000);
   for (const ext of ["mp4", "gif", "webm"]) expect(out.sizes[ext]).toBeGreaterThan(1000);
+  if (out.words !== undefined) expect(out.words).toBeGreaterThan(5);
 }, 180_000);
 
 test.skipIf(![RECORDING, VIDEO].every(existsSync))("the app's engine folder, moved anywhere, carries everything it loads", async () => {

@@ -243,6 +243,38 @@ test.skipIf(skip)("Save As asks for a name, a folder and standalone; a name that
   expect(ui.menus).toContain("saveAs:/Users/someone/Shared/Episode 12 to share (standalone)");
 });
 
+test.skipIf(skip)("the speech model is downloaded only when the user agrees, with progress; Not Now is remembered; Settings offers it again", async () => {
+  const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "Transcripts are made on this Mac.", bytes: 574_041_195, present: false };
+  const button = (label: string) => `[...document.querySelectorAll('button')].find((b) => b.textContent === '${label}')`;
+  ui.send("resourceSheet", model);
+  await page.until("document.body.innerText.includes('Download the Whisper large-v3-turbo speech model?')");
+  expect(await page.evaluate<string>("document.querySelector('[data-resource]').innerText")).toContain("about 574 MB");
+  await page.evaluate(`${button("Not Now")}.click()`);
+  await page.until("!document.querySelector('[data-resource]')");
+  await arrived(() => ui.menus.includes("declineResource:whisper-model"));
+  expect(ui.menus).toContain("declineResource:whisper-model");
+  expect(ui.menus).not.toContain("fetchResource:whisper-model");
+
+  // Settings › General offers it again; downloading shows progress, Cancel stops it, Hide leaves it running.
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model] });
+  await page.until(`!!${button("Download Speech Model…")}`);
+  await page.evaluate(`${button("Download Speech Model…")}.click()`);
+  await page.until("!!document.querySelector('[data-resource]')");
+  await page.evaluate(`${button("Download")}.click()`);
+  await arrived(() => ui.menus.includes("fetchResource:whisper-model"));
+  ui.send("resourceJob", { id: "job-download", state: "running", progress: 0.42 });
+  await page.until("document.querySelector('[data-resource-progress]')?.innerText.includes('42%')");
+  await page.evaluate(`${button("Cancel Download")}.click()`);
+  await arrived(() => ui.menus.includes("cancelJob:job-download"));
+  ui.send("resourceJob", { id: "job-download", state: "failed", progress: 0.42, error: "cancelled" });
+  await page.until(`!!${button("Download")}`);
+  await page.evaluate(`${button("Download")}.click()`);
+  ui.send("resourceJob", { id: "job-download", state: "running", progress: 0.9 });
+  await page.until("document.querySelector('[data-resource-progress]')?.innerText.includes('90%')");
+  ui.send("resourceJob", { id: "job-download", state: "done", progress: 1 });
+  await page.until("!document.querySelector('[data-resource]')");
+});
+
 test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async () => {
   await run("timeline.zoom", { to: "max" });
   const s = await session();

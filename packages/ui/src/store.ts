@@ -54,6 +54,9 @@ export interface ViewState {
   /** The New Project dialog, while open, with the name it offers. */
   newProject?: { name: string };
   saveAs?: import("./project-name").SaveAsSheet;
+  /** The dialog asking to download a resource (the speech model), and its download. */
+  resource?: import("./resource").ResourceInfo;
+  resourceJob?: import("./resource").ResourceJob;
   /** A callout double-clicked on the canvas: its text box takes focus. */
   editingText?: string;
   /** The colour picker's eyedropper is waiting for a click on the canvas: called with its colour (0-1 RGB), or nothing if it failed. */
@@ -171,6 +174,14 @@ export const replica = {
   },
   saveAs(saveAs: ViewState["saveAs"]) {
     set({ saveAs });
+  },
+  resource(resource: ViewState["resource"]) {
+    // A finished or failed download isn't shown when the dialog opens again; a running one is.
+    set({ resource, ...(state.resourceJob?.state === "running" ? {} : { resourceJob: undefined }) });
+  },
+  /** A download finished: the dialog has done its job. */
+  resourceJob(resourceJob: ViewState["resourceJob"]) {
+    set(resourceJob?.state === "done" ? { resourceJob: undefined, resource: undefined } : { resourceJob });
   },
   showClipSpeed(clip: string, on: boolean) {
     set({ clipSpeed: on ? [...new Set([...state.clipSpeed, clip])] : state.clipSpeed.filter((c) => c !== clip) });

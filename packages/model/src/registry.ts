@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ActionDef, AnalyzerDef, ClipTypeDef, CommandDef, EffectDef, Feature, JobAnalyzerDef, MediaImporterDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef } from "./feature";
+import type { ActionDef, AnalyzerDef, ClipTypeDef, CommandDef, EffectDef, Feature, JobAnalyzerDef, MediaImporterDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef, ResourceDef } from "./feature";
 import type { SessionCommandDef } from "./session";
 import { CORE_COMMANDS } from "./commands";
 import { formatIssues, ProjectSchema, type Clip, type Project, type Track } from "./schema";
@@ -24,6 +24,7 @@ export class FeatureRegistry {
   readonly commands = new Map<string, CommandDef>();
   readonly analyzers = new Map<string, AnalyzerDef>();
   readonly jobAnalyzers = new Map<string, JobAnalyzerDef>();
+  readonly resources = new Map<string, ResourceDef>();
   readonly queries = new Map<string, QueryDef>();
   readonly importers = new Map<string, MediaImporterDef>();
   readonly actions = new Map<string, ActionDef>();
@@ -47,6 +48,8 @@ export class FeatureRegistry {
     claim(this.commands, feature.commands ?? [], "command", feature.id);
     claim(this.analyzers, feature.analyzers ?? [], "analyzer", feature.id);
     claim(this.jobAnalyzers, feature.jobAnalyzers ?? [], "analyzer", feature.id);
+    claim(this.resources, feature.resources ?? [], "resource", feature.id);
+    for (const a of feature.jobAnalyzers ?? []) if (a.needs && !this.resources.has(a.needs)) throw new Error(`analyzer "${a.id}" needs resource "${a.needs}", which no feature registers`);
     // Both kinds are read by the same key, so an id may be one or the other.
     for (const a of [...(feature.analyzers ?? []), ...(feature.jobAnalyzers ?? [])]) {
       if (this.analyzers.has(a.id) && this.jobAnalyzers.has(a.id)) throw new Error(`analyzer "${a.id}" from feature "${feature.id}" is already registered`);

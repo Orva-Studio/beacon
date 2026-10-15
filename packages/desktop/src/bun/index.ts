@@ -124,6 +124,8 @@ async function switchTo(path: string) {
       if (e.changes.canvas && current?.view) current.view.live.place(...placement(e.changes.canvas, current.view));
     } else if (e.kind === "saved") {
       send().saved({ ok: true });
+    } else if (e.kind === "needs") {
+      offerResource(e.resource);
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -348,6 +350,22 @@ function applyAutoProxy() {
 }
 applyAutoProxy();
 
+/** Resources offered this session: the dialog asks once, not on every import. */
+const offered = new Set<string>();
+/** An import's analysis waits for a resource (the speech model): ask, unless the user said Not Now before. */
+function offerResource(r: import("@beacon/core").ResourceInfo) {
+  if (r.present || r.job || offered.has(r.id)) return;
+  offered.add(r.id);
+  if (appSettings.declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › General)`);
+  send().resourceSheet(r);
+}
+core.watchJobs((job) => {
+  if (job.kind !== "resource") return;
+  send().resourceJob({ id: job.id, state: job.state, progress: job.progress, ...(job.error ? { error: job.error } : {}) });
+  if (job.state === "done") status(`${job.label.replace(/^Download /, "")} downloaded: transcripts are being made`);
+  else if (job.state === "failed" && job.error !== "cancelled") status(`${job.label}: ${job.error}`);
+});
+
 /** Exports started from the window, by job id: their output files. */
 const exports = new Map<string, string>();
 // Exports report here rather than through the open project: one keeps going when another project is opened.
@@ -400,7 +418,7 @@ async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recordPrefs();
   const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
-  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) });
+  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources() });
 }
 
 /** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
@@ -906,6 +924,15 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       deleteAllProxies: async () => (await core.forgetAll("proxy"), core.analysisSize("proxy")),
       newProject: ({ name, settings, standalone }) => reply(() => createProject(name, settings, standalone)),
       saveAs: (params) => reply(() => saveAs(params)),
+      fetchResource: async ({ id }) => {
+        try {
+          return { ok: true, result: (await core.fetchResource(id)).id };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+      declineResource: ({ id }) => setAppSettings({ ...appSettings, declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
+      cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
       previewOpen: ({ asset }) => {
         closePreview();
         if (!current) return null;

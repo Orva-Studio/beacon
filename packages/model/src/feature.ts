@@ -129,20 +129,39 @@ export interface AnalyzerDef {
  * Slow derived data (transcripts) produced as a background job and cached on
  * disk by asset fingerprint; read like `AnalyzerDef` data once it exists.
  */
+/**
+ * A file an analyzer needs that doesn't ship with Beacon (a speech model): downloaded only when the user
+ * agrees (`fetchResource`), checked against its hash, into `cacheDir/<folder>/<file>`.
+ */
+export interface ResourceDef {
+  id: string;
+  /** What it is, for the dialog that asks: "Whisper large-v3-turbo speech model". */
+  title: string;
+  /** What it is for and what not having it means, in a sentence or two. */
+  description: string;
+  url: string;
+  sha256: string;
+  bytes: number;
+  folder: string;
+  file: string;
+}
+
 export interface JobAnalyzerDef {
   id: string;
   description: string;
   /** Bump to rebuild cached results. */
   version: number;
+  /** A resource it can't run without: until it is downloaded, the analyzer waits instead of starting. */
+  needs?: string;
   /** Assets it applies to; the job is started for these on import, or when shown (`when`). */
   applies: (asset: Asset) => boolean;
   /** "import" (default): on import, for agents too; "preview": when the app shows the project (e.g. proxies). */
   when?: "import" | "preview";
   /**
    * `cacheDir`: where derived files (e.g. proxies) may be written; `quiet`: run tools at background
-   * priority, slower but quiet (the app's Quiet setting).
+   * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is.
    */
-  analyze: (asset: Asset, progress: (fraction: number) => void, env: { cacheDir: string; quiet?: boolean }) => Promise<unknown>;
+  analyze: (asset: Asset, progress: (fraction: number) => void, env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string }) => Promise<unknown>;
   /** Removes files a result points at (e.g. proxies) when the result is deleted. */
   discard?: (result: unknown) => void;
   /**
@@ -330,6 +349,7 @@ export interface Feature {
   passes?: RenderPassDef[];
   analyzers?: AnalyzerDef[];
   jobAnalyzers?: JobAnalyzerDef[];
+  resources?: ResourceDef[];
   importers?: MediaImporterDef[];
   evaluate?: EvaluateHook;
   camtasia?: CamtasiaMapper;

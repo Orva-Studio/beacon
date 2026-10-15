@@ -268,6 +268,14 @@ original's transcript); turning it on copies in what is outside as one undo
 step. `saveAs` writes a copy of the folder with the document as it is, and
 `reveal` shows the folder in Finder.
 
+Resources (`ResourceDef` in the feature contract) are files an analyzer
+`needs` that don't ship with Beacon: the transcript feature's Whisper model
+(about 575 MB). Until one is downloaded its analyses don't start: imports
+report it in `needs` and emit a `needs` event, which the app turns into a
+dialog asking first. `fetchResource` downloads it as a job (macOS's curl,
+checked against its pinned SHA-256), then starts what waited, in every open
+project.
+
 `beacon-mcp` (`packages/mcp`) is a stdio MCP server over `LocalCore`:
 every command and query is a tool (dots become underscores; JSON Schema from
 the Zod args; commands also take `dryRun`/`label`), plus project, import,

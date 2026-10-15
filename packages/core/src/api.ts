@@ -90,6 +90,20 @@ export interface ImportResult {
   clips: string[];
   /** Background analysis started for the new assets (e.g. transcripts). */
   jobs: string[];
+  /** Resources an analysis waits for (`resources`), not downloaded yet: ask the user before `fetchResource`. */
+  needs?: string[];
+}
+
+/** A file an analysis needs that isn't shipped with Beacon (the speech model for transcripts). */
+export interface ResourceInfo {
+  id: string;
+  title: string;
+  description: string;
+  /** Download size. */
+  bytes: number;
+  present: boolean;
+  /** Its download, while one runs. */
+  job?: string;
 }
 
 export type JobState = "running" | "done" | "failed";
@@ -160,6 +174,8 @@ export type CoreEvent =
   | { kind: "apply" | "undo" | "redo"; label: string; patches: Patch[] }
   | { kind: "job"; job: JobInfo }
   | { kind: "saved"; path: string }
+  /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
+  | { kind: "needs"; resource: ResourceInfo }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
   | { kind: "preparing"; assets: Record<string, number> }
   /** An asset's background analysis was stored or deleted. */
@@ -215,6 +231,13 @@ export interface BeaconCore {
   analysisSize(key: string): Promise<number>;
   /** Deletes a background analyzer's results for every project; returns the bytes freed. Preview analyses run again when a project is next shown. */
   forgetAll(key: string): Promise<number>;
+  /** Resources analyses need (the speech model), and whether each is downloaded. */
+  resources(): Promise<ResourceInfo[]>;
+  /**
+   * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
+   * start when it is done. Returns the running download if there is one.
+   */
+  fetchResource(id: string): Promise<Job>;
   job(id: string): Promise<JobInfo>;
   jobs(): Promise<JobInfo[]>;
   /** Stops a running job (an export, an analysis): it fails as "cancelled". */

@@ -63,6 +63,8 @@ ws.onmessage = (m) => {
   else if (msg.type === "previewClock") replica.previewClock(msg.data);
   else if (msg.type === "newProjectSheet") replica.newProject(msg.data);
   else if (msg.type === "saveAsSheet") replica.saveAs(msg.data);
+  else if (msg.type === "resourceSheet") replica.resource(msg.data);
+  else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
   else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
 };
 
@@ -100,6 +102,9 @@ const host: Host = {
   checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, display, output }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,
   testBeep: (output) => request("testBeep", { output }) as Promise<void>,
   cancelExport: (id) => void request("cancelExport", { id }),
+  fetchResource: (id) => request("fetchResource", { id }) as Promise<{ ok: boolean; error?: string; result?: string }>,
+  declineResource: (id) => void request("declineResource", { id }),
+  cancelJob: (id) => void request("cancelJob", { id }),
   showFile: () => {},
   setAppSettings: (settings) => void request("setAppSettings", { settings }),
   proxySpace: () => request("proxySpace") as Promise<number>,
