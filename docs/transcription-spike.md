@@ -5,7 +5,7 @@ Phase 6.5 asked whether macOS 26's `SpeechTranscriber` (Speech framework,
 was switched.
 
 **Setup.** The 5.3-minute fixture `audio.m4a` (a developer-tools video:
-Firecrawl, PDF Inspector, SDKs, OCR, Rust), M5 Pro, macOS 26.6.2. Apple:
+product names, SDKs, OCR, Rust), M5 Pro, macOS 26.6.2. Apple:
 `SpeechTranscriber(locale: en-US)` through `SpeechAnalyzer.analyzeSequence`
 (a 90-line Swift tool; its speech assets are installed and managed by
 macOS). Whisper: Beacon's own pipeline (`transcribe`, bundled whisper-cli
@@ -13,11 +13,11 @@ macOS). Whisper: Beacon's own pipeline (`transcribe`, bundled whisper-cli
 
 | | Apple SpeechTranscriber | Whisper large-v3-turbo |
 |---|---|---|
-| "Firecrawl's parse endpoint" | "fire calls pass, endpoint" | right |
+| "<Product>'s parse endpoint" | the product name split into two words, "pass, endpoint" | right |
 | "language-specific SDKs" | "STKs" | right |
 | "want to parse documents" | "pass" | right |
 | "part of the parse endpoint" | "past and point" | right |
-| Firecrawl (first mention), Claude Code, Rust, CLI, OCR, struct, glyph, LLMs, PDF Inspector | right | right ("ClaudeCode" joined) |
+| The product name (first mention), a feature name, Claude Code, Rust, CLI, OCR, struct, glyph, LLMs | right | right ("ClaudeCode" joined) |
 | Other errors | "all when" for "or when" | a word lost at a few chunk edges ("really does [help]", "If I open [it]"), one garble ("MWAT" for "and what") |
 | Time | 4.2 s | 32.6 s |
 | Download | none (system assets) | about 575 MB, once |
