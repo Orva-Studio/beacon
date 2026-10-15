@@ -42,7 +42,7 @@ const symbols = {
   beacon_audio_rate: { args: [FFIType.ptr], returns: FFIType.i32 },
   beacon_audio_play: { args: [FFIType.ptr, FFIType.ptr, FFIType.f64], returns: FFIType.i32 },
   beacon_audio_time: { args: [FFIType.ptr], returns: FFIType.f64 },
-  beacon_audio_sent: { args: [FFIType.ptr], returns: FFIType.f64 },
+  beacon_audio_halt: { args: [FFIType.ptr], returns: FFIType.f64 },
   beacon_audio_stop: { args: [FFIType.ptr], returns: FFIType.i32 },
   beacon_audio_free: { args: [FFIType.ptr], returns: FFIType.void },
 } as const;

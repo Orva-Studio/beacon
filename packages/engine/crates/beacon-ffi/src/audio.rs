@@ -103,13 +103,14 @@ pub extern "C" fn beacon_audio_new() -> *mut FfiAudio {
 impl FfiAudio {
     fn stop(&mut self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
-        if let Some(mut c) = self.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
+        // Silent first: the output stops taking samples before the mix is killed, not after.
         if let Ok(mut p) = self.state.lock() {
             p.playing = false;
             p.buf.clear();
+        }
+        if let Some(mut c) = self.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
         }
     }
 }
@@ -210,20 +211,23 @@ pub unsafe extern "C" fn beacon_audio_time(h: *mut FfiAudio) -> f64 {
     })
 }
 
-/// Timeline seconds up to which samples have gone to the device, heard or not yet (`beacon_audio_time` plus the
-/// output's latency), or -1 when stopped.
+/// Stops, and returns the timeline second up to which samples had gone to the device (heard or not yet), or -1
+/// when it wasn't playing. Taken under the lock that stops the output, so no buffer goes out after it is read.
 ///
 /// # Safety
 /// `h` must be a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn beacon_audio_sent(h: *mut FfiAudio) -> f64 {
+pub unsafe extern "C" fn beacon_audio_halt(h: *mut FfiAudio) -> f64 {
     guard(-1.0, || {
         let a = handle(h)?;
-        let p = a.state.lock().map_err(|_| "audio state poisoned")?;
-        if !p.playing {
-            return Ok(-1.0);
-        }
-        Ok(p.start + p.played as f64 / a.rate as f64)
+        let sent = {
+            let mut p = a.state.lock().map_err(|_| "audio state poisoned")?;
+            let sent = if p.playing { p.start + p.played as f64 / a.rate as f64 } else { -1.0 };
+            p.playing = false;
+            sent
+        };
+        a.stop();
+        Ok(sent)
     })
 }
 

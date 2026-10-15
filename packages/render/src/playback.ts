@@ -28,8 +28,10 @@ class SilentClock {
   time() {
     return this.#start && this.#start.from + (performance.now() - this.#start.at) / 1000;
   }
-  sent() {
-    return this.time();
+  halt() {
+    const t = this.time();
+    this.stop();
+    return t;
   }
   stop() {
     this.#start = undefined;
@@ -257,15 +259,17 @@ export class LiveView {
   /**
    * Where a new speed starts when playback is already where `from` is: sound already sent to the device still
    * plays after a restart, so the new mix starts where that sound ends, or the stretch in between (the output's
-   * latency, longer over Bluetooth) is heard twice. A seek elsewhere starts where it says.
+   * latency, longer over Bluetooth) is heard twice. Only a change of speed: a seek, near or not, starts where it says.
    */
   #resumeAt(from: number, rate: number): number {
     const clock = this.#clock;
-    if (!clock || this.#rate <= 0 || rate <= 0) return from;
-    const [heard, sent] = [clock.time(), clock.sent()];
-    if (heard === undefined || sent === undefined) return from;
+    if (!clock || rate === this.#rate || this.#rate <= 0 || rate <= 0) return from;
+    const heard = clock.time();
     const at = (raw: number) => this.#from + (raw - this.#from) * this.#rate;
-    return Math.abs(from - at(heard)) < RESUME_SECONDS ? Math.max(from, at(sent)) : from;
+    if (heard === undefined || Math.abs(from - at(heard)) >= RESUME_SECONDS) return from;
+    // Stopped and read at once, so no more old sound goes out after the position is taken.
+    const sent = clock.halt();
+    return sent === undefined ? from : Math.max(from, at(sent));
   }
 
   /** Each segment's audio from its asset's proxy copy, when built: opening the originals costs ~0.15 s per segment. */
