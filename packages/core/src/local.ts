@@ -4,7 +4,7 @@ import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, type JobProcesses, measureLoudness, pastePng, probeMedia, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, measureSync, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -37,6 +37,7 @@ import {
   rationalToNumber,
   scopedProject,
   walkClips,
+  assetName,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -54,6 +55,8 @@ import type {
   BeaconCore,
   ProjectHandle,
   QueryInfo,
+  RecordOptions,
+  RecordStatus,
   RunOptions,
   SchemaInfo,
   SheetOptions,
@@ -152,6 +155,12 @@ interface PreviewQueue {
 }
 
 /** In-process core: owns the documents, runs the engine, reads and writes `.beproj` folders (PLAN §7.1). */
+/** A take's default name: when it began, sortable ("2026-10-13 21.43.05"). */
+function takeName(d: Date): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`;
+}
+
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
@@ -248,6 +257,8 @@ export class LocalCore implements BeaconCore {
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
   async close(h: ProjectHandle): Promise<void> {
+    // A take being recorded for it is stopped and imported first, rather than left in its folder.
+    if (this.#recording?.h === h) await this.recordStop();
     const p = this.#get(h);
     clearTimeout(p.saveTimer);
     // Exports render a copy of the document taken when they started: they finish after the project closes.
@@ -640,7 +651,8 @@ export class LocalCore implements BeaconCore {
     const stream = Number((clip.props.media as { stream?: number } | undefined)?.stream ?? 0);
     const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[stream];
     const time = asset.kind === "image" ? 0 : ticksToSeconds(at);
-    return this.#cachedThumb(asset, stream, time, height, () => (asset.kind === "image" ? thumbnailPng(asset.path, 0, 0, height) : thumbnailPng(proxy?.path ?? asset.path, proxy ? 0 : stream, time, height)));
+    const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", stream);
+    return this.#cachedThumb(asset, stream, time, height, () => (asset.kind === "image" ? thumbnailPng(asset.path, 0, 0, height) : thumbnailPng(src.path, src.stream, time, height)));
   }
 
   /** The visual media clip showing at `at` (media time) in `clip`, looking inside groups and stitched clips, top track first; and its media time there. */
@@ -675,14 +687,15 @@ export class LocalCore implements BeaconCore {
     return png;
   }
 
-  /** PNG of an asset for the media bin: its first video stream a second in (the screen, for a recording). */
-  async assetThumbnail(h: ProjectHandle, assetId: string, height: number): Promise<Uint8Array | undefined> {
+  /** PNG of an asset for the media bin: its first video stream `at` seconds in (a second by default; the screen, for a recording). */
+  async assetThumbnail(h: ProjectHandle, assetId: string, height: number, at?: number): Promise<Uint8Array | undefined> {
     const p = this.#get(h);
     const asset = p.store.doc.assets[assetId];
     if (!asset || asset.kind === "audio") return undefined;
     const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[0];
-    const time = asset.kind === "image" ? 0 : 1;
-    return this.#cachedThumb(asset, -1, time, height, () => thumbnailPng(proxy?.path ?? asset.path, 0, time, height));
+    const time = asset.kind === "image" ? 0 : (at ?? 1);
+    const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", 0);
+    return this.#cachedThumb(asset, -1, time, height, () => thumbnailPng(src.path, src.stream, time, height));
   }
 
   /** Reported by the app so "canvas.zoom in" can step from the fitted size. */
@@ -865,6 +878,70 @@ export class LocalCore implements BeaconCore {
     return def.folder ? [...results, join(this.cacheDir, def.folder)] : results;
   }
 
+  #recorder = new Recorder();
+  #recording?: { h: ProjectHandle; dir: string };
+
+  async recorderDevices() {
+    return this.#recorder.devices();
+  }
+
+  async recorderAccess(kind: "camera" | "microphone") {
+    return this.#recorder.access(kind);
+  }
+
+  async recorderSetOutput(output: string) {
+    return this.#recorder.setOutput(output);
+  }
+
+  async recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void) {
+    return this.#recorder.preview(sources, fn);
+  }
+
+  async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
+    const p = this.#get(h);
+    if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
+    const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
+    const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
+    mkdirSync(dirname(dir), { recursive: true });
+    await this.#recorder.start(dir, sources, opts.monitor);
+    this.#recording = { h, dir };
+    return { take: dir };
+  }
+
+  async recordSyncCheck(sources: RecorderSources, show: () => Promise<void>) {
+    if (this.#recording) throw new Error(`recording ${basename(this.#recording.dir)}: stop it first`);
+    const dir = join(this.cacheDir, "sync-check", `${takeName(new Date())}.brec`);
+    mkdirSync(dirname(dir), { recursive: true });
+    await this.#recorder.start(dir, sources);
+    try {
+      await show();
+    } finally {
+      await this.#recorder.stop();
+    }
+    try {
+      return await measureSync(dir);
+    } finally {
+      // The take is only for measuring; recording.json stays, to look at a check that went wrong.
+      for (const f of readdirSync(dir)) if (f !== "recording.json") rmSync(join(dir, f), { force: true });
+    }
+  }
+
+  async recordStatus(): Promise<RecordStatus> {
+    const rec = this.#recording;
+    if (!rec) return { recording: false };
+    const s = await this.#recorder.status();
+    return { recording: s.recording, take: rec.dir, project: rec.h, ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}) };
+  }
+
+  async recordStop(opts: ImportOptions = {}): Promise<ImportResult & { take: string; duration: number }> {
+    const rec = this.#recording;
+    if (!rec) throw new Error("not recording");
+    this.#recording = undefined;
+    const take = await this.#recorder.stop();
+    if (take.errors.length) console.warn(`recording ${basename(rec.dir)}: ${take.errors.join("; ")}`);
+    return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
+  }
+
   async missing(h: ProjectHandle): Promise<string[]> {
     return Object.values(this.#get(h).store.doc.assets).filter((a) => !existsSync(a.path)).map((a) => a.id);
   }
@@ -884,6 +961,29 @@ export class LocalCore implements BeaconCore {
     }
     this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file) }, { label: `Locate ${basename(file)}` }));
     if (p.view) this.#previewJobs(p);
+  }
+
+  async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }> {
+    const p = this.#get(h);
+    const asset = p.store.doc.assets[assetId];
+    if (!asset) throw new Error(`no asset "${assetId}"`);
+    const file = resolve(path);
+    if (!existsSync(file)) throw new Error(`${file} doesn't exist`);
+    const kind = this.registry.importerFor(extname(file))?.kind;
+    if (asset.kind === "recording") throw new Error(`${assetName(asset)} is a recording: it can't be replaced`);
+    const like = { video: "video", image: "image", audio: "audio file" }[asset.kind];
+    if (kind !== asset.kind) throw new Error(`${assetName(asset)} can only be replaced with another ${like}`);
+    const media = await probeMedia(file);
+    const loudness = await measureLoudness(file, media);
+    const derived = { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
+    this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
+    if (p.view) this.#previewJobs(p);
+    const jobs: string[] = [];
+    const a = p.store.doc.assets[assetId]!;
+    for (const def of this.registry.jobAnalyzers.values()) {
+      if ((def.when ?? "import") === "import" && def.applies(a) && !p.data.has(a, def.id)) jobs.push(this.#analyze(h, def.id, assetId).id);
+    }
+    return { jobs };
   }
 
   async analysisSize(key: string): Promise<number> {
@@ -1025,6 +1125,7 @@ export class LocalCore implements BeaconCore {
     return [
       ...[...this.registry.commands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "core" })),
       ...SESSION_COMMANDS.map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: "session" })),
+      ...[...this.registry.sessionCommands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "session" })),
       ...[...this.registry.actions.values()].map((a) => ({ id: a.id, description: a.description, args: jsonSchemaOf(a.args), feature: owner.get(a.id) ?? "core" })),
     ];
   }
@@ -1043,7 +1144,7 @@ export class LocalCore implements BeaconCore {
 
   /** Command and query id → the feature that registered it; core's own are absent. */
   #owners(): Map<string, string> {
-    return new Map([...this.registry.features.values()].flatMap((f) => [...(f.commands ?? []), ...(f.queries ?? []), ...(f.actions ?? [])].map((x) => [x.id, f.id] as const)));
+    return new Map([...this.registry.features.values()].flatMap((f) => [...(f.commands ?? []), ...(f.queries ?? []), ...(f.actions ?? []), ...(f.sessionCommands ?? [])].map((x) => [x.id, f.id] as const)));
   }
 
   /** The registered summary query's text, if any. */

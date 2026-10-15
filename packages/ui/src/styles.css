@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./fonts/fonts.css";
+@import "./art/art.css";
 
 /*
  * The editor's design tokens: every colour the UI uses, by role. Tailwind
@@ -42,7 +43,6 @@
   --color-groove: #0d0f0e;
   --color-slider-fill: var(--color-accent);
   --color-slider-thumb: #eef7f2;
-  --color-toggle-on: var(--color-accent);
   --color-section-head: #131615;
 
   /* Text and icons */
@@ -88,6 +88,7 @@
   --color-clip-annotation-edge: #45336a;
   --color-clip-ghost: rgba(37, 43, 40, 0.85);
   --color-wave: #e8964a;
+  --color-clip-badge: rgba(13, 15, 14, 0.8);
   --color-audio-selected: #4a3219;
   --color-audio-selected-top: #ff9d3a;
   --color-audio-selected-wave: #ffc27a;
@@ -111,6 +112,9 @@
   --color-axis-z: #4b8df8;
   --color-range-ruler: rgba(62, 230, 141, 0.28);
   --color-range-band: rgba(62, 230, 141, 0.1);
+  /* Remove Silences' review: the silences it cuts, and those it keeps */
+  --color-silence-cut: rgba(255, 93, 93, 0.32);
+  --color-silence-keep: rgba(255, 255, 255, 0.12);
   /* Animations: keyframe diamonds joined by a band */
   --color-arrow: #c99a1e;
   --color-arrow-selected: var(--color-fx-badge);
@@ -142,4 +146,11 @@ body {
   background: var(--color-app);
   overflow: hidden;
   font-family: var(--font-ui);
+  /* Checkboxes and radio buttons in the one green, not WebKit's blue. */
+  accent-color: var(--color-accent);
+}
+
+/* Electrobun moves the window from a mousedown anywhere in a drag region; its controls must still click. */
+.electrobun-webkit-app-region-drag :is(button, input, select, a) {
+  --electrobun-app-region: no-drag;
 }

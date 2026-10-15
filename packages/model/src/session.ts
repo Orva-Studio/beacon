@@ -46,6 +46,8 @@ export interface Session {
   clipboard: Clipboard | null;
   /** What `properties.copy` copied (Copy Properties), for `clip.pasteProperties`; shared like `clipboard`. */
   properties: CopiedProperties | null;
+  /** Features' own editor state, by feature id, set by their session commands (Remove Silences' review). */
+  features: Record<string, unknown>;
 }
 
 /** A clip's property groups and effects, as Copy Properties takes them. */
@@ -84,6 +86,7 @@ export const TOOL_PANELS = [
   "visualEffects",
   "audioEffects",
   "narration",
+  "ai",
 ] as const;
 
 export const TRACK_HEIGHT = { min: 26, max: 120, default: 44 };
@@ -108,6 +111,7 @@ export function defaultSession(project: Project, shared: Partial<SharedSession> 
     snapping: true,
     clipboard: shared.clipboard ?? null,
     properties: shared.properties ?? null,
+    features: {},
   };
 }
 
@@ -142,10 +146,10 @@ function stops(project: Project, kind: "edit" | "marker" | "animation"): number[
   return [...new Set(out.map((t) => roundSeconds(ticksToSeconds(t))))].sort((a, b) => a - b);
 }
 
-/** Keeps the visible span inside [0, max(duration, span)] and at least a few frames long. */
+/** Keeps the visible span inside [0, max(duration, span, playhead)] and at least a few frames long. */
 function setView(s: Session, project: Project, start: number, endAt: number) {
   const span = Math.max(MIN_SPAN_FRAMES * frame(project), endAt - start);
-  const limit = Math.max(duration(project) * 1.05, span);
+  const limit = Math.max(duration(project) * 1.05, span, s.playhead);
   const from = Math.min(Math.max(0, start), limit - span);
   s.timeline = { start: roundSeconds(from), end: roundSeconds(from + span), trackHeight: s.timeline.trackHeight };
 }
@@ -166,10 +170,10 @@ const Time = z.number().nonnegative().describe("Timeline seconds");
 export const SESSION_COMMANDS: SessionCommandDef[] = [
   sessionCommand({
     id: "playhead.set",
-    description: "Move the playhead to a time (seconds, snapped to a frame)",
+    description: "Move the playhead to a time (seconds, snapped to a frame), past the last clip too",
     args: z.strictObject({ time: Time }),
-    apply: (s, { time }, { project, full }) => {
-      s.playhead = Math.min(snap(project, time), snap(project, duration(full)));
+    apply: (s, { time }, { project }) => {
+      s.playhead = snap(project, time);
     },
   }),
   sessionCommand({
@@ -177,7 +181,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     description: "Move the playhead by whole frames (negative steps back); the , and . keys step one, ⌃< and ⌃> fifteen",
     args: z.strictObject({ frames: z.int() }),
     apply: (s, { frames }, { project, full }) => {
-      s.playhead = Math.min(snap(project, s.playhead + frames * frame(project)), snap(project, duration(full)));
+      s.playhead = Math.min(snap(project, s.playhead + frames * frame(project)), Math.max(s.playhead, snap(project, duration(full))));
     },
   }),
   sessionCommand({
@@ -606,7 +610,8 @@ export interface SessionChange {
 export class SessionStore {
   #state: Session;
   readonly #listeners = new Set<(c: SessionChange) => void>();
-  readonly commands = new Map(SESSION_COMMANDS.map((c) => [c.id, c]));
+  /** Core's and the features'. */
+  readonly commands: Map<string, SessionCommandDef>;
   /** The canvas's fit zoom in percent, reported by the app, for stepping from "fit". */
   fitPercent?: number;
 
@@ -616,6 +621,7 @@ export class SessionStore {
     shared: Partial<SharedSession> = {},
   ) {
     this.#state = defaultSession(project, shared);
+    this.commands = new Map([...SESSION_COMMANDS, ...registry.sessionCommands.values()].map((c) => [c.id, c]));
   }
 
   get state(): Session {
@@ -639,7 +645,7 @@ export class SessionStore {
     return this.#set(next);
   }
 
-  /** After a document change: drop deleted clips from the selection, keep the playhead and range inside the project. */
+  /** After a document change: drop deleted clips from the selection, keep the range inside the project. */
   reconcile(full: Project): SessionChange | undefined {
     const open = this.#state.group && full.tracks.some((t) => t.clips.some((c) => c.id === this.#state.group));
     const project = scopedProject(full, editScope(full, open ? this.#state.group : null, nestedOf(this.registry)));
@@ -651,7 +657,6 @@ export class SessionStore {
       if (d.animation && !topClips(project).some((x) => x.clip.id === d.animation!.clip && x.clip.animations.some((a) => a.id === d.animation!.id))) d.animation = null;
       const fx = new Set(topClips(project).flatMap((x) => x.clip.effects.map((e) => `${x.clip.id}/${e.id}`)));
       if (d.effects.some((e) => !fx.has(`${e.clip}/${e.id}`))) d.effects = d.effects.filter((e) => fx.has(`${e.clip}/${e.id}`));
-      if (d.playhead > last) d.playhead = last;
       if (d.range && d.range.out > last) d.range = d.range.in < last ? { in: d.range.in, out: last } : null;
     });
     return next === this.#state ? undefined : this.#set(next);

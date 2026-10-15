@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
+import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { replica } from "./store";
 
@@ -24,6 +25,10 @@ const rpc = Electroview.defineRPC<AppRPC>({
       saved: ({ ok }) => replica.saved(ok),
       media: (m) => replica.media(m),
       exportSheet: (s) => replica.exportSheet(s),
+      recordSheet: (s) => replica.recordSheet(s),
+      recordDevices: (d) => replica.recordDevices(d),
+      recordPreview: (e) => recordPreviewEvent(e),
+      recordedSheet: (s) => replica.recordedSheet(s),
       exportJob: (j) => replica.exportJob(j),
       snapshotSaved: ({ path }) => replica.snapshot(path),
       settingsSheet: (s) => replica.settings(s),
@@ -83,8 +88,15 @@ const host: Host = {
   dropFiles: (files, at) => void report(request.dropFiles({ files, ...at })),
   captureFrame: () => void report(request.captureFrame({})),
   frameImage: () => request.frameImage({}),
+  binFrame: (asset, time) => request.binFrame({ asset, time }),
+  analyze: (key, asset) => void request.analyze({ key, asset }),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
+  startRecording: (sources) => request.startRecording({ sources }),
+  recordPreview: (devices) => void request.recordPreview(devices),
+  recordFrames: (after) => request.recordFrames({ after }),
+  checkSync: (camera, microphone, display, output) => request.checkSync({ camera, microphone, ...(display !== undefined ? { display } : {}), ...(output ? { output } : {}) }),
+  testBeep: (output) => request.testBeep(output ? { output } : {}),
   cancelExport: (id) => void report(request.cancelExport({ id })),
   showFile: (path, open) => void request.showFile({ path, open }),
   setAppSettings: (s) => void request.setAppSettings(s),

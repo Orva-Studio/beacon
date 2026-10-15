@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
 import { App, type Host } from "../src/app";
-import type { Init } from "../src/rpc";
+import { recordPreviewEvent } from "../src/record-preview";
+import { RecordPanel } from "../src/record-panel";
+import type { Init, RecordFrames, SyncCheck } from "../src/rpc";
 import { replica } from "../src/store";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
@@ -50,6 +52,10 @@ ws.onmessage = (m) => {
   else if (msg.type === "status") replica.status(msg.data.text);
   else if (msg.type === "media") replica.media(msg.data);
   else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
+  else if (msg.type === "recordSheet") replica.recordSheet(msg.data);
+  else if (msg.type === "recordDevices") replica.recordDevices(msg.data);
+  else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
+  else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
   else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
@@ -83,8 +89,15 @@ const host: Host = {
   dropFiles: (files, at) => void report(request("dropFiles", { files, ...at })),
   captureFrame: () => void report(request("captureFrame")),
   frameImage: () => request("frameImage") as Promise<string | null>,
+  binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
+  analyze: (key, asset) => void request("analyze", { key, asset }),
   chooseFolder: async () => null,
   startExport: (params) => request("startExport", params),
+  startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
+  recordPreview: (devices) => void request("recordPreview", devices),
+  recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
+  checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, display, output }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,
+  testBeep: (output) => request("testBeep", { output }) as Promise<void>,
   cancelExport: (id) => void request("cancelExport", { id }),
   showFile: () => {},
   setAppSettings: (settings) => void request("setAppSettings", { settings }),
@@ -102,5 +115,13 @@ const host: Host = {
 
 (window as unknown as { harness: unknown }).harness = { replica };
 await new Promise((r) => (ws.onopen = r));
-replica.init(await request<Init>("init"));
-createRoot(document.getElementById("root")!).render(<App host={host} />);
+// `?panel=<sources>` shows the recording panel instead, as its own window does, its levels sent as recordPreview messages.
+const panel = new URLSearchParams(location.search).get("panel");
+if (panel !== null) {
+  const has = (k: string) => panel.split(",").includes(k);
+  const state = { started: Date.now(), screen: has("screen"), camera: has("camera"), microphone: has("microphone"), systemAudio: has("systemAudio") };
+  createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} onHide={() => void request("hidePanel")} />);
+} else {
+  replica.init(await request<Init>("init"));
+  createRoot(document.getElementById("root")!).render(<App host={host} />);
+}

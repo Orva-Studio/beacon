@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { assetName, type Asset, type Clip, type Project, type Track } from "@beacon/model";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { assetName, type Asset, type Project } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
-import type { Init } from "./rpc";
 import { replica, useView, type BinKind, type BinSort } from "./store";
-import { Icon, MediaTile, Progress, TextInput, Waveform, type IconName } from "./controls";
+import { Icon, MediaTile, PLAIN_TEXT, Progress, TextInput, Waveform, type IconName } from "./controls";
 import { openPreview } from "./media-preview";
-import { innerTracks } from "./timeline";
 
 /** Each sort with its two directions, as one menu. */
 const SORTS: [BinSort, string, string, string][] = [
@@ -53,20 +51,63 @@ const clock = (s: number) => {
   return t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}:${two(t % 60)}` : `${Math.floor(t / 60)}:${two(t % 60)}`;
 };
 
-/** Assets with a clip on the timeline, inside groups and stitched clips too. */
-function usedAssets(project: Project, nested: Record<string, string>): Set<string> {
-  const used = new Set<string>();
-  const walk = (tracks: Track[]) => {
-    for (const t of tracks) {
-      for (const c of t.clips as Clip[]) {
-        if (c.assetId) used.add(c.assetId);
-        const inner = innerTracks(c, nested);
-        if (inner) walk(inner);
-      }
-    }
+/** Frames across a video for scrubbing its tile: one per few pixels of a grid tile. */
+const SCRUB_FRAMES = 30;
+
+/**
+ * Hovering a tile scrubs it: where the pointer is across it, as a fraction, and for video the nearest frame
+ * fetched so far. The frame under the pointer is fetched first, then the rest outward from it, one at a time;
+ * they are cached on disk, so a tile hovered again fills at once.
+ */
+function useScrub(a: Asset, host: Host, on: boolean) {
+  const [at, setAt] = useState<number>();
+  const [, fetched] = useState(0);
+  const frames = useRef(new Map<number, string>());
+  const want = useRef<number | undefined>(undefined);
+  const busy = useRef(false);
+  const seconds = duration(a);
+  const pictures = a.kind === "video" || a.kind === "recording";
+  const pump = () => {
+    const w = want.current;
+    if (busy.current || w === undefined || !pictures) return;
+    let i: number | undefined;
+    for (let d = 0; d < SCRUB_FRAMES && i === undefined; d++) i = [w - d, w + d].find((j) => j >= 0 && j < SCRUB_FRAMES && !frames.current.has(j));
+    if (i === undefined) return;
+    busy.current = true;
+    void host
+      .binFrame(a.id, ((i + 0.5) / SCRUB_FRAMES) * seconds)
+      .catch(() => null)
+      .then((url) => {
+        frames.current.set(i, url ?? "");
+        busy.current = false;
+        fetched((n) => n + 1);
+        pump();
+      });
   };
-  walk(project.tracks);
-  return used;
+  const bucket = (f: number) => Math.min(SCRUB_FRAMES - 1, Math.floor(f * SCRUB_FRAMES));
+  let frame: string | undefined;
+  if (at !== undefined) {
+    const b = bucket(at);
+    for (let d = 0; d < SCRUB_FRAMES && !frame; d++) frame = frames.current.get(b - d) || frames.current.get(b + d) || undefined;
+  }
+  const handlers = on && seconds > 0
+    ? {
+        onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
+          // A press is a drag to the timeline, not a scrub.
+          if (e.buttons) return setAt(undefined);
+          const r = e.currentTarget.getBoundingClientRect();
+          const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+          setAt(f);
+          want.current = bucket(f);
+          pump();
+        },
+        onPointerLeave: () => {
+          setAt(undefined);
+          want.current = undefined;
+        },
+      }
+    : {};
+  return { at, seconds, frame, handlers };
 }
 
 /** A Media Bin item as something to drag onto the timeline or canvas. */
@@ -74,17 +115,15 @@ const binItem = (a: Asset): PanelItem => ({ label: assetName(a), command: "edit.
 
 /**
  * The Media Bin: search, a kind filter, sorting and grid or list, with an Import tile first. Tiles show the
- * picture with its duration and kind; a P when it has a proxy, a check when it is on the timeline.
+ * picture with its duration and kind, and a P when it has a proxy.
  */
 export function MediaBin({
   project,
-  init,
   thumbs,
   waveforms,
   host,
 }: {
   project: Project;
-  init?: Init;
   thumbs: Record<string, string>;
   waveforms: Record<string, Record<number, number[]>>;
   host: Host;
@@ -111,7 +150,6 @@ export function MediaBin({
   const all = Object.values(project.assets);
   const query = bin.query.trim().toLowerCase();
   const assets = sortAssets(all, sort).filter((a) => ofKind(a, bin.kind) && (!query || assetName(a).toLowerCase().includes(query)));
-  const used = usedAssets(project, init?.nested ?? {});
   const list = bin.view === "list";
   return (
     <div className="panel-card flex w-[290px] shrink-0 flex-col overflow-hidden" data-media-bin>
@@ -206,7 +244,7 @@ export function MediaBin({
       >
         <ImportTile list={list} host={host} empty={!all.length} />
         {assets.map((a) => (
-          <BinItem key={a.id} asset={a} list={list} used={used.has(a.id)} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
+          <BinItem key={a.id} asset={a} list={list} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
         ))}
         {box && (
           <div
@@ -237,17 +275,22 @@ function ImportTile({ list, host, empty }: { list: boolean; host: Host; empty: b
   );
 }
 
-function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asset: Asset; list: boolean; used: boolean; thumb?: string; peaks?: number[]; selection: string[]; host: Host }) {
+function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Asset; list: boolean; thumb?: string; peaks?: number[]; selection: string[]; host: Host }) {
   const selected = selection.includes(a.id);
   const renaming = useView((s) => s.renamingMedia === a.id);
   const preparing = useView((s) => s.preparing[a.id]);
   const proxy = useView((s) => !!s.proxies[a.id]);
   const missing = useView((s) => s.missing.includes(a.id));
-  const seconds = duration(a);
+  const scrub = useScrub(a, host, !list && !missing && a.kind !== "image");
+  const seconds = scrub.seconds;
   const picture = (
-    <div className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-md ${a.kind === "audio" && peaks ? "bg-clip-audio" : "bg-black"} ${list ? "h-9 w-14" : "aspect-[16/10] w-full"}`}>
-      {thumb ? (
-        <img src={thumb} draggable={false} className="h-full w-full object-cover" />
+    <div
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-md ${a.kind === "audio" && peaks ? "bg-clip-audio" : "bg-black"} ${list ? "h-9 w-14" : "aspect-[16/10] w-full"}`}
+      data-scrub={scrub.at}
+      {...scrub.handlers}
+    >
+      {thumb || scrub.frame ? (
+        <img src={(scrub.at !== undefined && scrub.frame) || thumb} draggable={false} className="h-full w-full object-cover" data-scrub-frame={scrub.at !== undefined && scrub.frame ? "" : undefined} />
       ) : a.kind === "audio" && peaks ? (
         <Waveform peaks={peaks} className="h-full w-full" />
       ) : (
@@ -258,12 +301,12 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
           <span className="absolute bottom-1 left-1 flex size-4 items-center justify-center rounded-[3px] bg-black/60 text-white" title={a.kind}>
             <Icon name={KIND_ICON[a.kind]} size={11} />
           </span>
-          {seconds > 0 && <span className="absolute right-1 bottom-1 rounded-[3px] bg-black/60 px-1 text-[10px] leading-4 font-medium text-white tabular-nums">{clock(seconds)}</span>}
-          {used && (
-            <span className="absolute top-1 left-1 flex size-4 items-center justify-center rounded-full bg-black/60 text-white" data-used title="On the timeline">
-              <Icon name="check" size={10} />
+          {seconds > 0 && (
+            <span className="absolute right-1 bottom-1 rounded-[3px] bg-black/60 px-1 text-[10px] leading-4 font-medium text-white tabular-nums" data-scrub-time>
+              {clock(scrub.at === undefined ? seconds : scrub.at * seconds)}
             </span>
           )}
+          {scrub.at !== undefined && <span className="pointer-events-none absolute inset-y-0 w-px bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.45)]" style={{ left: `${scrub.at * 100}%` }} />}
         </>
       )}
       {preparing !== undefined ? (
@@ -288,6 +331,7 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
   );
   const name = renaming ? (
     <input
+      {...PLAIN_TEXT}
       // Rename… comes from a native menu: take focus once it has closed, with the name selected to type over.
       ref={(el) => {
         if (el && document.activeElement !== el) requestAnimationFrame(() => (el.focus(), el.select()));
@@ -322,7 +366,13 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
         else if (!selected) replica.selectBin([a.id]);
         // Focused, it takes ⌫ (Delete Media) from the timeline's Delete.
         e.currentTarget.focus({ preventScroll: true });
-        pressItem(e, binItem(a), (command, args) => host.run(command, args), false);
+        const item = binItem(a);
+        // What the drag's ghost shows on the timeline: every clip it makes (a recording's are on tracks above each other).
+        void host
+          .query("asset.clips", { asset: a.id })
+          .then((clips) => (item.media!.layers = (clips as { track: string; seconds: number }[]).map((c) => ({ label: `${assetName(a)} · ${c.track}`, seconds: c.seconds }))))
+          .catch(() => {});
+        pressItem(e, item, (command, args) => host.run(command, args), false);
       }}
       // A plain click on one of several selected items leaves just it selected (after any drag of it).
       onClick={(e) => !e.shiftKey && !e.metaKey && selection.length > 1 && replica.selectBin([a.id])}
@@ -345,11 +395,6 @@ function BinItem({ asset: a, list, used, thumb, peaks, selection, host }: { asse
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-label text-text-strong">
           {name}
           <span className="flex-1" />
-          {used && (
-            <span data-used title="On the timeline" className="text-text-muted">
-              <Icon name="check" size={12} />
-            </span>
-          )}
           {proxy && (
             <span className="flex size-3.5 shrink-0 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black" data-proxy title="Has a proxy: scrubbing reads a quick-to-seek copy">
               P

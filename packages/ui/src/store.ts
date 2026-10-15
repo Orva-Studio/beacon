@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, Init, Opened, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, Init, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
 
 enablePatches();
 
@@ -37,6 +37,8 @@ export interface ViewState {
   dragging?: { item: PanelItem; x: number; y: number };
   /** The Export dialog, while open. */
   exportSheet?: ExportSheet;
+  recordSheet?: RecordSheet;
+  recordedSheet?: RecordedSheet;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
   /** The Settings window, while open, with the app settings it opened with. */
@@ -128,6 +130,16 @@ export const replica = {
   },
   exportSheet(exportSheet: ExportSheet | undefined) {
     set({ exportSheet });
+  },
+  recordSheet(recordSheet: RecordSheet | undefined) {
+    set({ recordSheet });
+  },
+  recordDevices(devices: Pick<RecordSheet, "permissions" | "displays" | "cameras" | "microphones" | "outputs">) {
+    const s = state.recordSheet;
+    if (s) set({ recordSheet: { ...s, ...devices } });
+  },
+  recordedSheet(recordedSheet: RecordedSheet | undefined) {
+    set({ recordedSheet });
   },
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });

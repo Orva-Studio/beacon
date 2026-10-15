@@ -325,7 +325,7 @@ function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: numbe
   );
 }
 
-type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
+type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
 /** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
 function Effect({ clip, effect, host, schema, selected }: { clip: Clip; effect: EffectInstance; host: Host; schema?: Record<string, unknown>; selected: boolean }) {
@@ -349,6 +349,10 @@ function Effect({ clip, effect, host, schema, selected }: { clip: Clip; effect: 
             if (typeof v === "number") {
               const min = f.slider?.min ?? f.minimum ?? f.exclusiveMinimum ?? 0;
               const max = f.slider?.max ?? f.maximum;
+              if (f.degrees) {
+                const deg = (((v * 180) / Math.PI) % 360 + 360) % 360;
+                return <Slider key={k} label={label} value={Math.round(deg)} max={360} unit="°" onChange={(x, key) => set({ [k]: (x * Math.PI) / 180 }, key)} />;
+              }
               if (max !== undefined && f.percent) return <Slider key={k} label={label} value={v * 100} min={min * 100} max={max * 100} unit="%" onChange={(x, key) => set({ [k]: x / 100 }, key)} />;
               if (max !== undefined) {
                 const whole = f.type === "integer";

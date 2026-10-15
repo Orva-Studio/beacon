@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { Switch } from "./fields";
+import { Check } from "./fields";
 import { Icon } from "./icons";
 
 /**
  * A section that folds, as effects and Clip Speed: a dark header with a chevron, the title
- * (clicking it calls `onSelect`, e.g. to select an effect for ⌘C), a trash button (`remove`), "•••" with `menu`'s items, an optional switch.
+ * (clicking it calls `onSelect`, e.g. to select an effect for ⌘C), a trash button (`remove`), "•••" with `menu`'s items, an optional on/off tick.
  */
 export function FoldSection({
   title,
@@ -54,7 +54,7 @@ export function FoldSection({
             ))}
           </div>
         )}
-        {onEnable && <Switch on={!!enabled} title={enabled ? `Turn ${title} off` : `Turn ${title} on`} onChange={onEnable} />}
+        {onEnable && <Check checked={!!enabled} title={enabled ? `Turn ${title} off` : `Turn ${title} on`} onChange={onEnable} />}
       </div>
       {open && <div className="px-4 py-3">{children}</div>}
     </div>

@@ -1,0 +1,67 @@
+name: Bug report
+description: Something in Beacon doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Beacon takes issues, not pull requests: it's fixed in due course (see CONTRIBUTING.md).
+        **Don't attach anything private**: recordings and projects can show your screen, email and face.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem.
+      placeholder: |
+        1. Open a project
+        2. Import a .trec recording
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - Editing (timeline, canvas, properties)
+        - Recording
+        - Importing (.trec, .cmproj, media)
+        - Playback and preview
+        - Export
+        - Transcripts
+        - Agents and MCP
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Beacon version
+      description: Beacon › About, or the commit if you built it yourself.
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: macOS and Mac
+      placeholder: macOS 26.1, MacBook Pro M4
+    validations:
+      required: true
+  - type: input
+    id: devices
+    attributes:
+      label: Recording devices
+      description: For recording problems, the camera, capture card and microphone you used.
+      placeholder: Elgato Cam Link 4K, Blue Yeti
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Error messages, screenshots, how often it happens.

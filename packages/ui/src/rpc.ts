@@ -70,6 +70,7 @@ export interface DroppedFile {
 
 export { exportOptions } from "./export-options";
 export { DEFAULT_EXPORT } from "./export-defaults";
+export { panelHeight } from "./record-panel-size";
 
 export interface Notice {
   title: string;
@@ -78,9 +79,47 @@ export interface Notice {
 }
 
 /** App-wide settings (Settings > General), kept by the main process. */
-export type SettingsTab = "general" | "project";
+export type SettingsTab = "general" | "recording" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
-export type SettingsSheet = AppSettings & { tab?: SettingsTab };
+/** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
+export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices };
+
+/** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
+export interface SoundOutput {
+  id: string;
+  name: string;
+  kind: string;
+  speakers: boolean;
+  default: boolean;
+}
+
+export interface RecordDevices {
+  displays: { id: number; width: number; height: number }[];
+  outputs: SoundOutput[];
+  /** The display last recorded. */
+  display?: number;
+  cameras: { id: string; name: string }[];
+  microphones: { id: string; name: string }[];
+  camera?: string;
+  microphone?: string;
+}
+
+/** How late a camera's picture is behind a microphone's sound, typed or measured by Check Sync. */
+export interface CameraSync {
+  cameraLateMs: number;
+  /** When it was measured (Unix ms), from how many flashes, and how far they spread (ms). */
+  checked?: { at: number; flashes: number; spreadMs: number };
+}
+
+/** A sync check's result. */
+export interface SyncCheck {
+  cameraLateMs: number;
+  flashes: number;
+  spreadMs: number;
+}
+
+/** `AppSettings.cameraSync`'s key: a camera and microphone pair. */
+export const syncKey = (camera: string | undefined, microphone: string | undefined) => `${camera ?? ""}|${microphone ?? ""}`;
 
 export interface AppSettings {
   exportColorSpace: "bt709" | "srgb";
@@ -90,6 +129,8 @@ export interface AppSettings {
   proxyMode: "quiet" | "fast";
   /** Where Snapshot saves its PNGs; unset, the project's own media folder. */
   snapshotFolder?: string;
+  /** By camera and microphone (`syncKey`): how late the camera is; each take's camera clip moves earlier by it. */
+  cameraSync?: Record<string, CameraSync>;
 }
 
 /** The Export dialog's settings. */
@@ -119,6 +160,44 @@ export interface ExportSheet {
   canvas: { width: number; height: number; fps: number };
 }
 
+/** What a take records; a missing source isn't recorded, a device without an id is the default one. */
+export interface RecordSources {
+  screen?: { display?: number; fps?: number };
+  systemAudio?: boolean;
+  camera?: { id?: string };
+  microphone?: { id?: string };
+}
+
+/** An audio level in dBFS: the average and the recent peak. */
+export interface AudioLevel {
+  db: number;
+  peak: number;
+}
+
+/** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG), or the audio levels. */
+/** `live`: each source a take records, and whether it still sends; `picture.camera`: a camera still sending, but black or frozen. */
+export type RecordPreview =
+  | { source: "camera" | "screen"; jpeg: string }
+  | { microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>; picture?: { camera?: "black" | "frozen" | null } };
+
+/** A take just recorded and imported: its media item, to name. */
+export interface RecordedSheet {
+  asset: string;
+  name: string;
+  duration: number;
+}
+
+/** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
+export interface RecordSheet {
+  permissions: { screen: string; camera: string; microphone: string };
+  displays: { id: number; width: number; height: number; pixelWidth?: number; pixelHeight?: number; x?: number; y?: number }[];
+  cameras: { id: string; name: string; width?: number; height?: number; fps?: number }[];
+  microphones: { id: string; name: string }[];
+  outputs: SoundOutput[];
+  sources: RecordSources;
+  cameraSync?: Record<string, CameraSync>;
+}
+
 /** An export running or finished, for the window's progress panel. */
 export interface ExportJob {
   id: string;
@@ -127,6 +206,46 @@ export interface ExportJob {
   progress: number;
   error?: string;
 }
+
+/** The newest preview frames (base64 JPEG) after `seq`: what a Record dialog or recording panel draws next. */
+export interface RecordFrames {
+  seq: number;
+  camera?: string;
+  screen?: string;
+}
+
+/** What the recording panel shows besides frames and levels: when the take began, and which sources it has. */
+export interface PanelState {
+  /** Unix milliseconds. */
+  started: number;
+  screen: boolean;
+  camera: boolean;
+  microphone: boolean;
+  systemAudio: boolean;
+}
+
+/** Electrobun RPC between the main process and the recording panel, the small window over the screen while a take records. */
+export type PanelRPC = {
+  bun: {
+    requests: {
+      /** The panel's state once its page has loaded. */
+      panelInit: { params: {}; response: PanelState | null };
+    };
+    messages: {
+      stopRecording: {};
+      /** Hides the panel; the menu-bar item shows it again. */
+      hidePanel: {};
+    };
+  };
+  webview: {
+    requests: {};
+    messages: {
+      recordPreview: RecordPreview;
+      /** The take has begun (its sources are delivering): the time counts from here. */
+      recordStarted: { started: number };
+    };
+  };
+};
 
 /** Electrobun RPC between the main process (document owner) and the webview (a view of it). */
 export type AppRPC = {
@@ -155,11 +274,26 @@ export type AppRPC = {
       trackMenu: { params: { track: string | null }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
+      /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
+      binFrame: { params: { asset: string; time: number }; response: string | null };
+      /** Starts a media item's background analysis unless it is running (Remove Silences' missing transcripts). */
+      analyze: { params: { key: string; asset: string }; response: void };
       /** A folder picked in the Finder dialog, starting at `start`. */
       chooseFolder: { params: { start: string }; response: string | null };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
+      /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
+      startRecording: { params: { sources: RecordSources }; response: RunReply };
+      /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
+      recordPreview: { params: RecordSources; response: RunReply };
+      /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */
+      /** `output`: the speakers to beep through (the Mac's output is switched for the check, then back). */
+      checkSync: { params: { camera: string; microphone: string; display?: number; output?: string }; response: { ok: boolean; result?: SyncCheck; error?: string } };
+      /** One sync-check beep at the check's volume and through its speakers, to see the microphone hear it. */
+      testBeep: { params: { output?: string }; response: void };
+      /** The newest frames after `after`, as soon as there are any (or after a second without): pulled, so a slow page never falls behind. */
+      recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
       setAppSettings: { params: AppSettings; response: void };
@@ -211,6 +345,13 @@ export type AppRPC = {
       key: { code: string; meta: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
       exportSheet: ExportSheet;
+      /** File > Record… (⌘R): open the Record dialog. */
+      recordSheet: RecordSheet;
+      /** A display, camera or microphone was connected or removed: the open Record dialog's lists again. */
+      recordDevices: Pick<RecordSheet, "permissions" | "displays" | "cameras" | "microphones" | "outputs">;
+      recordPreview: RecordPreview;
+      /** A take was recorded and imported: offer to name it. */
+      recordedSheet: RecordedSheet;
       exportJob: ExportJob;
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };

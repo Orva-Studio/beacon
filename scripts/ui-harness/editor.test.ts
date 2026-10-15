@@ -3,10 +3,10 @@ import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
-import type { Clip } from "@beacon/model";
+import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
-import { cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
+import { clipBox, cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
 import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 
 /**
@@ -307,14 +307,12 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   await run("timeline.zoom", { to: "fit" });
 });
 
-test.skipIf(skip)("the Media Bin searches, filters by kind, sorts, shows a list, and marks what is on the timeline; its Import tile imports", async () => {
+test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a list; its Import tile imports", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("!!document.querySelector('[data-media-bin]')");
   const shown = () => page.evaluate<number>("document.querySelectorAll('[data-media-bin] [data-asset]').length");
   const all = await shown();
   expect(all).toBeGreaterThan(1);
-  // The recording is on the timeline; the Snapshot image isn't.
-  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-asset="${screen.assetId}"] [data-used]')`)).toBe(true);
   await page.evaluate("document.querySelector('[data-bin-kind=image]').click()");
   await Bun.sleep(200);
   expect(await shown()).toBe(Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "image").length);
@@ -382,6 +380,255 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
+test.skipIf(skip)("Record lists the sources with their devices, counts down, and asks for what was chosen", async () => {
+  const sheet = {
+    permissions: { screen: "granted", camera: "denied", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X" }, { id: "cam-2", name: "MacBook Pro Camera" }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }, { id: "mic-2", name: "MacBook Pro Microphone" }],
+    sources: { screen: { fps: 60 }, microphone: { id: "mic-1" }, systemAudio: true },
+  };
+  ui.send("recordSheet", sheet);
+  await page.until("!!document.querySelector('[data-record]')");
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([true, false, true, true]);
+  await page.evaluate(`document.querySelector('[data-source="Camera"]').click()`);
+  await page.until("!!document.querySelector('[data-permission=camera]')");
+  await page.evaluate(`document.querySelector('[data-source="System audio"]').click()`);
+  const before = ui.menus.length;
+  await page.evaluate("document.querySelector('[data-record-start]').click()");
+  await page.until("!!document.querySelector('[data-countdown]')");
+  await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
+  const asked = ui.menus.slice(before).find((m) => m.startsWith("startRecording:"))!;
+  expect(JSON.parse(asked.slice("startRecording:".length))).toEqual({ screen: { display: 1, fps: 60 }, microphone: { id: "mic-1" }, camera: { id: "cam-1" } });
+});
+
+test.skipIf(skip)("Record previews the chosen screen and camera with the size each records at, and both audio levels, and stops when closed", async () => {
+  const sheet = {
+    permissions: { screen: "granted", camera: "granted", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169, pixelWidth: 3600, pixelHeight: 2338 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X", width: 3840, height: 2160, fps: 30 }, { id: "cam-2", name: "MacBook Pro Camera", width: 1280, height: 720, fps: 30 }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }],
+    sources: { screen: { display: 1, fps: 60 }, systemAudio: true, camera: { id: "cam-1" }, microphone: { id: "mic-1" } },
+  };
+  const before = ui.menus.length;
+  ui.send("recordSheet", sheet);
+  await page.until(
+    "!!document.querySelector('[data-preview=Screen]') && !!document.querySelector('[data-preview=Camera]') && document.querySelector('[aria-label=\"Microphone level\"]')?.dataset.level === '-20' && document.querySelector('[aria-label=\"System audio level\"]')?.dataset.level === '-30'",
+  );
+  expect(await page.evaluate<string>("document.querySelector('[data-preview=Camera]').src")).toStartWith("data:image/jpeg;base64,");
+  const size = (label: string) => page.evaluate<string>(`document.querySelector('[data-record-size=${label}]')?.textContent ?? ''`);
+  expect([await size("Screen"), await size("Camera")]).toEqual(["3600 × 2338 · 60 fps", "3840 × 2160 · 30 fps"]);
+  const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  expect(previews().at(-1)).toEqual({ screen: { display: 1 }, systemAudio: true, camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
+  // Another camera is previewed instead.
+  await page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'cam-2')); s.value = 'cam-2'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await arrived(() => previews().at(-1)?.camera?.id === "cam-2");
+  await page.until(`document.querySelector('[data-record-size=Camera]')?.textContent === '1280 × 720 · 30 fps'`);
+  // A source turned off shows as off.
+  await page.evaluate(`document.querySelector('[data-source="Screen"]').click()`);
+  await page.until("!document.querySelector('[data-preview=Screen]') && document.querySelector('[data-record-monitors]').textContent.includes('Off')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
+  await arrived(() => JSON.stringify(previews().at(-1)) === "{}");
+  expect(previews().at(-1)).toEqual({});
+});
+
+test.skipIf(skip)("Record moves a remembered display, camera or microphone that was unplugged to one that is there", async () => {
+  const sheet = {
+    permissions: { screen: "granted", camera: "granted", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [{ id: "cam-1", name: "Elgato 4K X" }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }],
+    sources: { screen: { display: 5, fps: 30 }, camera: { id: "gone" }, microphone: { id: "gone" } },
+  };
+  const before = ui.menus.length;
+  ui.send("recordSheet", sheet);
+  await page.until("!!document.querySelector('[data-record]')");
+  const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  await arrived(() => previews().length > 0);
+  expect(previews()[0]).toEqual({ screen: { display: 1 }, camera: { id: "cam-1" }, microphone: { id: "mic-1" } });
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
+});
+
+test.skipIf(skip)("Record lists displays at the size each records at, and follows a display unplugged and plugged back while open", async () => {
+  const big = { id: 5, width: 3360, height: 1890, pixelWidth: 3840, pixelHeight: 2160 };
+  const laptop = { id: 1, width: 1800, height: 1169, pixelWidth: 3326, pixelHeight: 2160 };
+  const devices = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, cameras: [], microphones: [], outputs: [] };
+  const before = ui.menus.length;
+  ui.send("recordSheet", { ...devices, displays: [big, laptop], sources: { screen: { display: 5, fps: 60 } } });
+  await page.until("!!document.querySelector('[data-record]')");
+  const options = () => page.evaluate<string[]>("[...document.querySelector('[data-record] select').options].map((o) => o.textContent)");
+  expect(await options()).toEqual(["Display 1 (3840 × 2160)", "Display 2 (3326 × 2160)"]);
+  const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  await arrived(() => previews().at(-1)?.screen?.display === 5);
+  ui.send("recordDevices", { ...devices, displays: [laptop] });
+  await arrived(() => previews().at(-1)?.screen?.display === 1);
+  expect(await options()).toEqual(["Display 1 (3326 × 2160)"]);
+  expect(await page.evaluate<string>("document.querySelector('[data-record-size=Screen]')?.textContent ?? ''")).toBe("3326 × 2160 · 60 fps");
+  ui.send("recordDevices", { ...devices, displays: [big, laptop] });
+  await page.until("document.querySelector('[data-record] select').options.length === 2");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
+  // With the dialog closed, a change doesn't open it.
+  ui.send("recordDevices", { ...devices, displays: [laptop] });
+  await Bun.sleep(200);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-record]')")).toBe(false);
+});
+
+test.skipIf(skip)("The title bar drags the window, and its name, buttons and menus still click", async () => {
+  // Electrobun moves the window on a mousedown in an element with its drag class, unless a no-drag region is nearer.
+  const regions = await page.evaluate<{ bar: boolean; plain: string; controls: string[] }>(`(() => {
+    const bar = document.querySelector('[data-titlebar]');
+    const region = (el) => getComputedStyle(el).getPropertyValue('--electrobun-app-region').trim();
+    return { bar: bar.classList.contains('electrobun-webkit-app-region-drag'), plain: region(bar.querySelector('span') ?? bar), controls: [...bar.querySelectorAll('button, select, input')].map(region) };
+  })()`);
+  expect(regions.bar).toBe(true);
+  expect(regions.plain).toBe("");
+  expect(regions.controls.length).toBeGreaterThan(1);
+  expect(new Set(regions.controls)).toEqual(new Set(["no-drag"]));
+});
+
+test.skipIf(skip)("Check Sync: says what to do, shows the camera, beeps through speakers (not headphones), tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
+  const displays = [{ id: 5, width: 3360, height: 1890 }, { id: 1, width: 1800, height: 1169 }];
+  const outputs = [
+    { id: "bt", name: "WH-XB900N", kind: "bluetooth", speakers: false, default: true },
+    { id: "yeti-out", name: "Yeti Stereo Microphone", kind: "usb", speakers: false, default: false },
+    { id: "BuiltInSpeakerDevice", name: "MacBook Pro Speakers", kind: "built-in", speakers: true, default: false },
+  ];
+  const devices = { displays, display: 5, outputs, cameras: [{ id: "elgato", name: "Elgato Cam Link 4K" }], microphones: [{ id: "yeti", name: "Yeti Stereo Microphone" }], camera: "elgato", microphone: "yeti" };
+  const app = { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" };
+  const before = ui.menus.length;
+  ui.send("settingsSheet", { ...app, tab: "recording", devices });
+  await page.until("!!document.querySelector('[data-recording-settings] [data-camera-sync]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-sync-status]').textContent")).toContain("Not checked");
+  await page.evaluate("document.querySelector('[data-check-sync]').click()");
+  // Setup: what to do, the camera, a test beep the microphone hears, the screen to flash.
+  await page.until("!!document.querySelector('[data-sync-setup] [data-preview=Camera]') && document.querySelector('[data-sync-setup]').textContent.includes('volume')");
+  // The Mac's sound goes to Bluetooth headphones: the beeps play through its speakers instead, and say so.
+  expect(await page.evaluate<string>("document.querySelector('[data-sync-output]').value")).toBe("BuiltInSpeakerDevice");
+  expect(await page.evaluate<string>("document.querySelector('[data-sync-setup]').textContent")).toContain("WH-XB900N (Bluetooth headphones): Beacon plays the beeps through MacBook Pro Speakers");
+  await page.evaluate("document.querySelector('[data-test-beep]').click()");
+  await page.until("document.querySelector('[data-sync-setup]').closest('[tabindex]').textContent.includes('Heard the beep')");
+  await page.evaluate("(() => { const s = document.querySelector('[data-sync-display]'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await page.evaluate("document.querySelector('[data-start-sync]').click()");
+  await page.until("document.querySelector('[data-sync-result]')?.textContent.includes('112 ms behind')");
+  expect(ui.menus.slice(before)).toEqual(expect.arrayContaining(["testBeep>BuiltInSpeakerDevice", "checkSync:elgato|yeti@1>BuiltInSpeakerDevice"]));
+  const saved = () => ui.menus.slice(before).filter((m) => m.startsWith("setAppSettings:")).map((m) => JSON.parse(m.slice("setAppSettings:".length)));
+  await arrived(() => saved().at(-1)?.cameraSync?.["elgato|yeti"]?.cameraLateMs === 112);
+  expect(saved().at(-1).cameraSync["elgato|yeti"]).toMatchObject({ cameraLateMs: 112, checked: { flashes: 6, spreadMs: 4 } });
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done' && b.closest('[tabindex]')?.querySelector('[data-sync-result]')).click()");
+  await page.until("!document.querySelector('[data-sync-result]') && document.querySelector('[data-sync-status]').textContent.includes('6 flashes')");
+  // Typed: it is saved without a measurement.
+  await page.evaluate("[...document.querySelectorAll('[data-camera-sync] span')].find((s) => s.textContent === '112 ms').click()");
+  await page.until("document.activeElement?.tagName === 'INPUT'");
+  await type("90");
+  await page.key("Enter", "Enter");
+  await arrived(() => saved().at(-1)?.cameraSync?.["elgato|yeti"]?.cameraLateMs === 90);
+  expect(saved().at(-1).cameraSync["elgato|yeti"]).toEqual({ cameraLateMs: 90 });
+  await page.evaluate("document.querySelector('[aria-label=Close]').click()");
+  await page.until("!document.querySelector('[data-recording-settings]')");
+  // The Record dialog shows the pair's delay (not typed there) and opens the same check.
+  ui.send("recordSheet", {
+    permissions: { screen: "granted", camera: "granted", microphone: "granted" },
+    displays,
+    cameras: devices.cameras,
+    microphones: devices.microphones,
+    outputs,
+    sources: { camera: { id: "elgato" }, microphone: { id: "yeti" } },
+    cameraSync: { "elgato|yeti": { cameraLateMs: 90 } },
+  });
+  await page.until("!!document.querySelector('[data-record] [data-camera-sync]')");
+  expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-record] [data-camera-sync] span')].some((s) => s.textContent === '90 ms')")).toBe(true);
+  await page.evaluate("document.querySelector('[data-record] [data-check-sync]').click()");
+  await page.until("!!document.querySelector('[data-sync-setup]')");
+  await page.evaluate("document.querySelector('[data-start-sync]').click()");
+  await page.until("!!document.querySelector('[data-sync-result]')");
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done' && b.closest('[tabindex]')?.querySelector('[data-sync-result]')).click()");
+  await page.until("!document.querySelector('[data-sync-result]') && document.querySelector('[data-record] [data-sync-status]').textContent.includes('6 flashes')");
+  await page.evaluate("document.querySelector('[data-record]').closest('[tabindex]').querySelector('[aria-label=Close]').click()");
+  await page.until("!document.querySelector('[data-record]')");
+}, 20000);
+
+test.skipIf(skip)("after a take, its name is offered to type over; Enter renames its media", async () => {
+  const take = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
+  ui.send("recordedSheet", { asset: take.id, name: "2026-10-14 09.53.12", duration: 75 });
+  await page.until("document.activeElement?.matches('[data-recorded-name]') && document.activeElement.selectionEnd > 0");
+  // macOS would otherwise capitalise a name's first letter.
+  expect(await page.evaluate<string[]>("['autocapitalize', 'autocorrect'].map((a) => document.activeElement.getAttribute(a))")).toEqual(["off", "off"]);
+  await type("Intro take");
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-recorded]')");
+  await arrived(() => ui.core.doc(ui.handle).assets[take.id]!.name === "Intro take");
+  expect(ui.core.doc(ui.handle).assets[take.id]!.name).toBe("Intro take");
+  await ui.core.undo(ui.handle);
+});
+
+test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels; – hides it, Stop stops", async () => {
+  const panel = await openPage(`${ui.url}?panel=screen,camera,microphone,systemAudio`);
+  try {
+    await panel.until("!!document.querySelector('[data-record-panel]')");
+    const before = ui.menus.length;
+    for (let i = 0; i < 5; i++) {
+      ui.send("recordPreview", { microphone: { db: -18 - i, peak: -6 }, systemAudio: { db: -40, peak: -20 } });
+      await Bun.sleep(30);
+    }
+    await panel.until("[...document.querySelectorAll('canvas[data-history]')].length === 2 && [...document.querySelectorAll('canvas[data-history]')].every((c) => Number(c.dataset.history) >= 4)");
+    expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-panel] img')")).toBe(false);
+    const chips = () => panel.evaluate<string>("[...document.querySelectorAll('[data-source-live]')].map((c) => c.textContent + ':' + c.dataset.sourceLive).join(' ')");
+    expect(await chips()).toBe("Screen:live Camera:live Mic:live System:live");
+    ui.send("recordPreview", { microphone: { db: -20, peak: -6 }, live: { screen: true, camera: false, microphone: true, systemAudio: true } });
+    await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'stopped'");
+    expect(await chips()).toBe("Screen:live Camera:stopped Mic:live System:live");
+    // Frames coming, but black: amber, and back to green when the picture returns.
+    ui.send("recordPreview", { live: { screen: true, camera: true, microphone: true, systemAudio: true }, picture: { camera: "black" } });
+    await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'black'");
+    expect(await panel.evaluate<string>("document.querySelector('[data-source=camera] span').className")).toContain("bg-warning");
+    ui.send("recordPreview", { live: { screen: true, camera: true, microphone: true, systemAudio: true }, picture: { camera: null } });
+    await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'live'");
+    expect(await panel.evaluate<string>("document.querySelector('[data-record-time]').textContent")).toMatch(/^0:0\d$/);
+    expect(await panel.evaluate<boolean>("!!document.querySelector('[data-record-grip]')")).toBe(true);
+    await panel.evaluate("document.querySelector('[data-record-hide]').click()");
+    await arrived(() => ui.menus.slice(before).includes("hidePanel"));
+    await panel.evaluate("document.querySelector('[data-record-stop]').click()");
+    await arrived(() => ui.menus.slice(before).includes("stopRecording"));
+    expect(ui.menus.slice(before)).toEqual(expect.arrayContaining(["hidePanel", "stopRecording"]));
+  } finally {
+    panel.close();
+  }
+});
+
+test.skipIf(skip)("hovering a video in the Media Bin scrubs it: the frame and time under the pointer, back to its thumbnail on leaving", async () => {
+  await run("panel.show", { tool: "media" });
+  const take = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
+  const tile = `[data-asset="${take.id}"] [data-scrub], [data-asset="${take.id}"] > div:first-child`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('${tile}').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const time = () => page.evaluate<string>(`document.querySelector('[data-asset="${take.id}"] [data-scrub-time]').textContent`);
+  const whole = await time();
+  await page.hover(box.x + box.w * 0.75, box.y + box.h / 2);
+  await page.until(`!!document.querySelector('[data-asset="${take.id}"] [data-scrub-frame]')`, 15000);
+  const late = await time();
+  await page.hover(box.x + box.w * 0.1, box.y + box.h / 2);
+  await page.until(`document.querySelector('[data-asset="${take.id}"] [data-scrub-time]').textContent !== ${JSON.stringify(late)}`);
+  expect(late).not.toBe(whole);
+  await page.hover(box.x + box.w / 2, box.y - 40);
+  await page.until(`!document.querySelector('[data-asset="${take.id}"] [data-scrub-frame]')`);
+  expect(await time()).toBe(whole);
+}, 30000);
+
+test.skipIf(skip)("every tile in the effect and annotation panels shows its picture", async () => {
+  for (const tool of ["visualEffects", "annotations", "audioEffects"]) {
+    await run("panel.show", { tool });
+    await page.until("document.querySelectorAll('[data-art]').length > 0");
+    const missing = await page.evaluate<string[]>(
+      "[...document.querySelectorAll('.panel-card .grid > button')].filter((b) => { const a = b.querySelector('[data-art]'); return !a || getComputedStyle(a).backgroundImage === 'none'; }).map((b) => b.textContent)",
+    );
+    expect({ tool, missing }).toEqual({ tool, missing: [] });
+  }
+});
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");
@@ -442,6 +689,42 @@ test.skipIf(skip)("an in/out range's edge drags on the ruler; elsewhere the rule
   expect(range.in).toBeCloseTo(2, 1);
   await run("range.clear");
   await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("the ruler moves the playhead past the last clip, and an edit leaves it there", async () => {
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  await Bun.sleep(200);
+  const s = await session();
+  const end = Math.max(...clips().map((c) => ticksToSeconds(c.start + c.duration)));
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const past = end + (s.timeline.end - end) * 0.6;
+  await page.click(xAt(past), box.y + 12);
+  await Bun.sleep(300);
+  expect((await session()).playhead).toBeCloseTo(past, 1);
+  await run("marker.add", { time: 1, name: "" });
+  await Bun.sleep(200);
+  expect((await session()).playhead).toBeCloseTo(past, 1);
+  await ui.core.undo(ui.handle);
+  // Held at the right edge, the playhead keeps going and the view follows it.
+  const y = box.y + 12;
+  await page.down(xAt(past), y);
+  await page.move(box.x + box.w - 6, y);
+  await Bun.sleep(1000);
+  const followed = await session();
+  expect(followed.playhead).toBeGreaterThan(s.timeline.end + 1);
+  expect(followed.timeline.end).toBeCloseTo(followed.playhead, 0);
+  // Back out of the edge, still held: the view stops.
+  await page.move(box.x + box.w / 2, y);
+  await Bun.sleep(300);
+  const settled = (await session()).timeline.start;
+  await Bun.sleep(500);
+  expect((await session()).timeline.start).toBe(settled);
+  await page.up(box.x + box.w / 2, y);
+  await run("timeline.zoom", { to: "fit" });
+  await run("playhead.set", { time: 1 });
 });
 
 test.skipIf(skip)("dragging a clip above the top track drops it on a new top track", async () => {
@@ -641,6 +924,42 @@ test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock to
   await run("timeline.trackHeight", { height });
 });
 
+test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being dragged, not where the end was", async () => {
+  await select([]);
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  const doc = ui.core.doc(ui.handle);
+  const c = doc.tracks.flatMap((t) => t.clips).find((k) => k.id === screen.id)!;
+  const end = ticksToSeconds(c.start + c.duration);
+  await run("timeline.view", { start: Math.max(0, end - 8), end: end + 2 });
+  // Past the badge's flash for a new effect.
+  await Bun.sleep(1800);
+  const s = await session();
+  const header = headerWidth(doc.tracks);
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const row = doc.tracks.length - 1 - doc.tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
+  const xAt = (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const top = clipBox(row, s.timeline.trackHeight).y;
+  // The badge's left part, clear of its "fx": 6 px in from the edge, 20 wide, 14 high, 4 down.
+  const yellow = async (right: number) => {
+    const [r, g, b] = await page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${right - 6 - 17} * k), Math.round(${top + 4 + 3} * k), 1, 1).data]; })()`);
+    return r! > 200 && g! > 160 && b! < 120;
+  };
+  expect(await yellow(xAt(end))).toBe(true);
+  const y = box.y + top + s.timeline.trackHeight / 2;
+  const to = end - 3;
+  await page.down(box.x + xAt(end) - 2, y);
+  await page.move(box.x + xAt(end - 1.5), y);
+  await page.move(box.x + xAt(to) - 2, y);
+  await Bun.sleep(200);
+  expect([await yellow(xAt(to)), await yellow(xAt(end))]).toEqual([true, false]);
+  await page.key("Escape", "Escape");
+  await page.up(box.x + xAt(to) - 2, y);
+  await Bun.sleep(200);
+  expect(ticksToSeconds(ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).find((k) => k.id === screen.id)!.duration)).toBeCloseTo(ticksToSeconds(c.duration), 3);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the diamond clicked turns red", async () => {
   await select([screen.id]);
   await run("playhead.set", { time: 4 });
@@ -786,3 +1105,90 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await page.until(`[...document.querySelectorAll('button[title]')].some((b) => /^colou?r$/i.test(b.title))`);
   await ui.core.undo(ui.handle);
 });
+
+test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "effects" });
+  const spans = "[...document.querySelectorAll('span')].map((s) => s.textContent)";
+  await page.until(`${spans}.includes('315.0°') && ${spans}.includes('40%')`);
+  await page.evaluate(`[...document.querySelectorAll('span')].find((s) => s.textContent === '315.0°').click()`);
+  await page.until("document.activeElement?.tagName === 'INPUT'");
+  await type("90");
+  await page.key("Enter", "Enter");
+  await Bun.sleep(300);
+  const fx = clip(screen.id).effects.find((e) => e.type === "drop-shadow")!;
+  expect(fx.params.angle as number).toBeCloseTo(Math.PI / 2, 5);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+});
+
+test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, a click flips one, Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  await run("panel.show", { tool: "ai" });
+  await page.until("!!document.querySelector('[data-ai=silences]')");
+  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+  await page.until("!!document.querySelector('[data-silence-review]')");
+  // The recording's transcript may still be being made in the background.
+  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
+  type Found = { silences: { start: number; end: number; cut: boolean }[]; saved: number };
+  const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; keepActive: boolean; flipped: number[] } } | undefined;
+  const found = async () => (await ui.core.query(ui.handle, "transcript.silences", (await review())!.silences)) as Found;
+  // Its settings are sliders: clicked along, the review follows.
+  const track = (i: number) => page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelectorAll('[data-silence-review] .bg-groove')[${i}].getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const cutOver = await track(0);
+  await page.click(cutOver.x + cutOver.w * (1 / 4.8), cutOver.y + cutOver.h / 2);
+  for (let i = 0; i < 50 && (await review())?.silences?.min !== 1.2; i++) await Bun.sleep(50);
+  const leave = await track(1);
+  await page.click(leave.x + leave.w / 2, leave.y + leave.h / 2);
+  for (let i = 0; i < 50 && (await review())?.silences?.keep !== 1; i++) await Bun.sleep(50);
+  expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
+  await run("silences.review", { min: 0.6, keep: 0.3 });
+  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  // An edit while the review is open: the marks and summary describe the timeline as it is now, not as it was.
+  const counts = async () => {
+    const f = await found();
+    const cut = f.silences.filter((x) => x.cut).length;
+    return `${f.silences.length} silences: ${cut} to cut, ${f.silences.length - cut} kept.`;
+  };
+  const shows = (text: string) => page.until(`(document.querySelector('[data-silences-summary]')?.textContent ?? '').startsWith(${JSON.stringify(text)})`);
+  const reviewed = await counts();
+  await shows(reviewed);
+  await run("timeline.rippleDelete", { ranges: [{ start: 0, end: 30 }] });
+  const edited = await counts();
+  expect(edited).not.toBe(reviewed);
+  await shows(edited);
+  await ui.core.undo(ui.handle);
+  await shows(reviewed);
+  const first = await found();
+  // The widest silence to cut, clicked in the middle of its band on the timeline: kept now.
+  const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
+  const s = await session();
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+  for (let i = 0; i < 50 && !(await review())?.silences?.flipped.length; i++) await Bun.sleep(50);
+  const flipped = await found();
+  expect(flipped.silences.find((x) => x.start === target.start)!.cut).toBe(false);
+  expect(flipped.saved).toBeLessThan(first.saved);
+  const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const before = length();
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate("document.querySelector('[data-silences-apply]').click()");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => length() < before);
+  expect(before - length()).toBeCloseTo(flipped.saved, 2);
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  expect((await review())?.silences).toBeUndefined();
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // Opened again and cancelled: nothing cut.
+  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+  await page.until("!!document.querySelector('[data-silences-cancel]')");
+  await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  expect(length()).toBeCloseTo(before, 3);
+  await run("panel.show", { tool: null });
+}, 150_000);

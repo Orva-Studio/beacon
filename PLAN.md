@@ -8,13 +8,16 @@ then the recorder too (Phase 6).
 This document is architecture-first. The goal is that adding a feature later is
 "add one folder", not "touch ten layers".
 
-**Status (2026-10-12):** Phases 1–5 are done (Phase 3: headless Claude Code
+**Status (2026-10-15):** Phases 1–6 are done (Phase 3: headless Claude Code
 rough-cut a recording from its transcript, laid it out, zoomed and exported
-it; Phase 5 closed after the user's runs in the app, cut as v0.1.0). Video is
-decoded in process (`beacon-decode` over FFmpeg's libraries), with frames kept
-for steps back (`docs/performance.md`). **Phase 5.5** (the new look) is in
-progress (§13 Phase 5.5). Phase 6 (the recorder) started 2026-10-13 with its
-spike. Packaging as one self-contained app is Phase 6.5.
+it; Phase 5 closed after the user's runs in the app, cut as v0.1.0; Phase 5.5,
+the new look, closed 2026-10-13 with more to add later; Phase 6, the
+recorder, passed its gate 2026-10-15: the user recorded screen, Cam Link,
+Yeti and system audio, edited (Remove Silences) and exported in Beacon
+alone). Video is decoded in process (`beacon-decode` over FFmpeg's
+libraries), with frames kept for steps back (`docs/performance.md`). Next:
+projects you can move and share, then **Phase 6.5** (one self-contained app,
+fast export).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -811,6 +814,7 @@ type sizes as tokens (`text-caption`, `-label`, `-body`, `-title`); effect
 colours marked in their schema (`RgbaSchema`). Checked in the app over MCP
 (preview, timeline, effects, proxy cancel); the dialogs over the native
 canvas are the user's to check.
+**Closed 2026-10-13** (the user: finished for now, with things to add later).
 
 ### Phase 6 — Recorder
 A native recorder: a small window
@@ -883,8 +887,221 @@ was skipped (its permission was never asked; asking shows a prompt).
   against the audio with a visible flash, and the camera against the
   microphone. Both pairs share their framework's clock, as the two audio
   streams did.
+**Steps (2026-10-13):** (1) the recorder process and `.brec` takes; (2) the
+cursor log; (3) importing `.brec` as linked clips; (4) the recorder window and
+`recorder.*` commands; (5) the gate.
+
+**1. The recorder process (2026-10-13).** `beacon-recorder serve` takes one
+JSON command per stdin line (`devices`, `access`, `start`, `status`, `stop`)
+and answers with one JSON event per stdout line; `record <dir> [seconds]
+[--tones]` does the same from the command line (it replaces `spike`). A take
+is a `.brec` folder (`docs/formats/brec.md`): `screen.mp4` (HEVC, fragmented),
+`camera.mp4`, `system-audio.wav`, `microphone.wav` and `recording.json`, the
+data file, written when the take starts and again when it stops. Every file is
+opened before capture starts, so a refused source leaves nothing running or
+behind. Checked on this Mac: a take's streams start within 19 ms of it, no
+buffer dropped, no audio drift; stdin closing mid-take (the app quit or
+crashed) stops the take and finishes every file; `kill -9` mid-take leaves
+the screen readable to its last 2 s fragment, the WAVs to the kill, and
+`recording.json` saying `complete: false`. The camera (1920×1080 at
+30 fps, HEVC) uses its own encoder settings: AVFoundation recommends none for
+this Mac's camera. A camera's first frame comes about 0.5 s after it starts, so
+a take begins once the camera and microphone deliver (up to 3 s), and every
+stream starts within 35 ms of it. The app will need
+`NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in its
+Info.plist for `access` (step 4). **Sync, measured (2026-10-13):** a video flashing white with a 1 kHz beep
+every 2 s, played full screen by QuickTime through the Mac's speakers while
+recording screen, system audio, camera and the built-in microphone; each
+stream's events at its `start` plus the time in its file, the same at all five
+flashes to 1 ms: system audio 9.064 s, screen 9.058 s (6 ms before it, under
+one 60 fps frame), microphone 9.090 s (26 ms after the system audio: the
+speakers and the air, as the spike's 25 ms), camera first lit at 9.089 s and
+fully at 9.123 s (30 fps, so within one frame of the microphone). Lined up by
+their timestamps the streams need no correction: the camera's picture is at
+most a frame behind its sound, inside what viewers notice (sound leading by
+over ~45 ms). The display's and camera's own delays can't be told apart this
+way, nor any better than a camera frame.
+
+**2. The cursor log (2026-10-13).** A take recording the screen writes
+`cursor.jsonl` and a `cursor-N.png` per image (`docs/formats/brec.md`):
+positions and buttons polled about 100 times a second through CoreGraphics
+(no permission), images through `NSCursor.currentSystemCursor` (deprecated,
+the only public way, working on macOS 26 without registering as an app),
+`.trec`'s button codes. Checked against a probe reading every input API side
+by side: the same 12 left clicks at the same times, 2 right clicks, and the
+arrow, I-beam and hand. macOS's large-cursor setting enlarges the arrow and
+I-beam images (28×40 points) but not the hand (32×32): step 3 draws them at
+their own sizes.
+
+**3. Importing a take (2026-10-13).** A `.brec` imports as one recording asset
+(the folder), as a `.trec` does: one Media Bin item, its clips stacked and
+linked the same way (`docs/formats/brec.md`). Everything that opens a stream
+(the renderer's video and audio, proxies, waveforms, transcripts, loudness,
+thumbnails) goes through `streamSource`, since a take keeps each stream in its
+own file. Each clip starts into its file by how much later the latest stream
+began, so all show the same moment (checked: the screen 4.0 ms in, the camera
+12.4 ms, the system audio 2.2 ms); a stream's `offset` from the sync check
+will move it the same way. The cursor is drawn from the take's PNGs at the
+logged positions (checked in rendered frames: the arrow's tip and the I-beam's
+middle on the logged point). Drag and drop takes a `.brec` folder.
+
+**4. Recording from the app and agents (2026-10-13, under way).** Core
+records (`recorderDevices`, `recorderAccess`, `recordStart`, `recordStatus`,
+`recordStop`), over the app's socket too, through one `beacon-recorder serve`
+sidecar (`Recorder` in `@beacon/media`); MCP has `recorder_*` tools. A take
+goes in the project's `recordings/<date time>.brec`, and stopping imports it
+into the project it was started for; closing that project stops and imports it
+first. Checked headless: a 3 s take started (about 0.5 s while the sources
+warm up), refused a second start, reported its status, stopped and imported as
+linked clips with its cursor. Info.plist gets the camera and microphone usage
+strings and declares `.brec` a package (`dev.beacon.recording`): Electrobun's
+config can't, and Hutch's build doesn't run `postWrap`, so `bun run build`
+patches the built bundle and a dev bundle patches itself at startup
+(`src/bun/info-plist.ts`). File › Record… (⌘R; the user chose
+2026-10-13: a dialog in the editor, Beacon hidden while recording, the take at
+the end of the timeline) lists each source with a checkbox and its device
+(display and frame rate, camera, microphone, system audio), the last ones used
+remembered, and a refused permission's place in System Settings under it.
+Record counts down 3-2-1, asks for the camera or microphone permission if
+needed while the window is up, hides Beacon and starts; a menu-bar item shows
+● and the time with Stop Recording, as ⌘⇧2 does anywhere; stopping imports the
+take and brings Beacon back. Checkboxes and radio buttons are green
+(`accent-color`), not WebKit's blue. Run in the app by the user (2026-10-13):
+recording, hiding, the menu-bar item and ⌘⇧2 worked, and the camera prompt
+came up with the new usage string. Editing the take, its camera vanished once
+its proxy was deleted: AVFoundation's camera encoder writes open-GOP HEVC
+(CRA keyframes with leading pictures that reference frames before them), and
+the preview's native VideoToolbox decoding failed every seek on them where
+FFmpeg drops them. After a seek it now starts at the keyframe and skips
+what's shown before it (`shim.c`; `matches_ffmpeg.rs` seeks into a camera
+take). The dialog previews every source
+(2026-10-14, the user's choice after looking at Screen Studio, Loom and OBS):
+the display (480 wide, 5 fps) beside the camera (320 wide, 30 fps) at the top,
+the microphone's and system audio's levels as meters with a held peak on their
+rows. `beacon-recorder serve`'s `preview` runs capture that writes nothing;
+only sources Beacon may already use are previewed (asking waits for Record).
+Under each preview, the size and rate a take records it at (as Camtasia shows
+on its camera): the display's points by its backing scale, the camera's active
+format, both reported by `devices`.
+While a take records, a small panel floats top right over the screen (the
+time, Stop, and both levels as rolling waveforms), left out of
+the take: ScreenCaptureKit's filter excludes the window by its title. The take
+feeds it (`start` with `monitor`): the microphone's level from its
+connection, the system audio's from its buffers, so nothing opens the devices
+a second time mid-take. It showed the camera too until 2026-10-14: at 15 fps
+and 320 wide, JPEG-encoded in the camera's own callback, it looked choppy to
+the user and cost the take, and the Record dialog already shows the camera
+before it starts, so it went (the user's choice). The dialog's previews are
+pulled, not pushed (`recordFrames` answers with the newest once there is
+one): pushed, a busy page fell behind and showed the camera late. A chip per
+source recorded sits under the time (2026-10-14, the user's choice, kept
+minimal): its dot turns red once nothing has arrived from it for 2 s (an idle
+screen's empty frames count) or its writer failed, from `live` in the take's
+level events. The camera's turns amber while its picture is black (every sample of a
+32×18 glance, four a second, under 24 of 255 for a second) or frozen (the same
+glance for 1.5 s: a live camera's noise always changes some of it), as a card
+that loses its camera sends (2026-10-14, after the 5 s of black below). After a take, Beacon offers to name it (the media
+item and its clips; the folder keeps its date and time). The panel has a grip
+to drag it by and – to hide it to the menu-bar item, whose menu shows it again.
+Check Sync (2026-10-14): Settings ›
+Recording (a camera and microphone, their delay typed or measured) and the
+Record dialog's Sync row run it. A black window covers the display and
+flashes white six times, 1.5 s apart, each with a 1 kHz beep played by
+`afplay`, while a take of the screen, system audio, camera and microphone
+records into the cache (`recordSyncCheck`); `measureSync` (`@beacon/media`)
+finds each flash's brightening (halfway up, between camera frames by straight
+line) and each beep's start (1 kHz energy in 2 ms steps), and takes the median
+over flashes of (camera - microphone) - (screen - system audio): the second
+term is how far apart Beacon fired the flash and the beep, so they needn't fire
+together. Left over: the display's and speakers' own delays, a few ms. On a
+made-up take with the camera 110 ms late it measured 121 ms (a 30 fps camera
+sees a frame every 33 ms). The delay is saved per pair in the app's settings,
+and a take recorded with the pair gets the camera's `offset` (minus it) in
+`recording.json`. Its dialog says what to do first (sit where you record facing the
+screen that flashes, stay still and quiet) and shows the camera being
+measured, its microphone's level, a test beep (heard when the microphone's
+peak passes -35 dBFS) and the display to flash; Beacon raises the Mac's
+volume to at least 75% and unmutes it for the beeps, then puts it back. No
+clap: the flash and beep are the clap, found to the millisecond. The beeps
+play through speakers the room hears: the recorder lists the Mac's sound
+outputs through CoreAudio (Bluetooth, wired headphones in the jack, a USB
+microphone's own headphone jack and virtual devices don't count) and, when
+the sound goes to headphones, the check switches the output to the Mac's
+speakers for its beeps and back after. Run by the user (2026-10-14) with the
+Elgato Cam Link 4K and the Blue Yeti: 244 ms (3 flashes within 140 ms), and a
+take recorded with it lined up. The check is arithmetic on pixels and samples,
+no AI. Drift (2026-10-14): a 10.5-minute take with the Cam Link and the Yeti
+showed none to the user's eye and ear at its end; its `driftPpm` reads 0, but
+that compares the Yeti's samples with timestamps macOS derives from the same
+device, so only a look at a take's end can tell. The same take is black for 5 s
+at 4:08: the Cam Link kept sending 30 fps, but each frame was black (16 KB a
+second against 1.2 MB), so the card lost its picture (the camera's HDMI, or
+Camera Hub, open at the time); the chips' amber camera now flags it.
+
+**After the first in-app run (2026-10-13, the user).** Proxies are off by
+default (Settings › General turns them on; the preview reads originals in
+process). Corner Rounding's radius, Drop Shadow's offset and blur and Motion
+Blur's intensity have sliders. An effect's on/off is a tick box in its
+header, as its other options are, not Camtasia's green pill switch. Drop
+Shadow's angle shows in degrees and its opacity as a percentage (stored as
+radians and a fraction, as before). A linked clip's chain is drawn in its top-left
+corner on a dark badge (it sat after a video's thumbnail, out of line with its
+audio's). Hovering a Media Bin tile scrubs it (2026-10-14), as other editors
+do: a line and the time under the pointer, and for video the frame there, from
+30 frames across it fetched as it is hovered (under the pointer first) and
+cached on disk with the bin's thumbnails.
+
+**Device delays (decided 2026-10-13).** A camera through a capture card (the
+user's Elgato) arrives late by the camera's and card's processing, often
+50–150 ms, which no API reports and which differs per camera, so Beacon
+measures it on the user's own setup rather than shipping a table: a sync check
+in the recorder runs the flash-and-beep test above for a camera and microphone
+pair (about 10 s; the speakers on, the camera seeing the screen's light),
+saves the offset per pair, and writes it into each take's `recording.json`;
+importing a take (step 3) moves the camera clip by it, so nothing is
+re-encoded and it stays adjustable. Without a check, a manual offset per
+device does the same. The check is run from Settings › Recording ("Check
+Sync…", for the chosen camera and microphone, showing and saving the result)
+and from the recorder window's menu. It replaces the user's `cuca` (a live
+virtual microphone delaying the real one by a fixed 150 ms through VB-Cable so
+Camtasia's takes line up): moving the camera earlier fixes lip sync and keeps
+the voice in step with the screen, where delaying the microphone makes it late
+against the screen; and nothing runs live while recording. When the capture card also carries the camera's own
+audio (HDMI), matching that against the microphone's waveform gives the offset
+from ordinary speech, with no test (the user's Cam Link 4K does offer one, as a
+microphone named after it, seen 2026-10-14). Camtasia has neither: its only fix is moving the clip by hand.
+A clap test is the fallback when the speakers can't be used; estimating sync from lip movement is for the AI features after Phase 6.
+To check with the user's setup (Blue Yeti, Elgato): the offset, and a long
+take's `driftPpm` (a USB microphone keeps its own clock).
+
 **Gate:** record a video with screen, camera, mic and system audio, then edit
-and export it in Beacon alone.
+and export it in Beacon alone. **Passed 2026-10-15** (a 7:22 take, 6:49 after
+Remove Silences, exported to 1080p H.264). The run turned up, all fixed:
+screens recorded at 6K kept the encoder flat out (the 4K camera dropped 8% of
+its frames, the Mac ran hot), so screens now record at 4K at most; the
+recorder didn't see devices unplugged and plugged back (its run loop never
+ran), and a take recorded without a chosen camera or microphone that sent
+nothing; the Record dialog's lists didn't follow displays coming and going;
+the title bar didn't drag the window; a trimmed clip's fx badge stayed at
+the old end. macOS's Edge Light (a ring of light on the screen in dim rooms)
+turns on for any app using the camera: Control Center › Video Effects.
+
+### After the Phase 6 gate: projects you can move and share (decided 2026-10-15)
+Today every asset is an absolute path, even a take in the project's own
+`recordings/`, so a `.beproj` copied in Finder or to another Mac loses its
+media until relinked (renaming from the title bar rewrites the paths).
+1. **Paths inside the project are stored relative to it** (a migration for
+   existing projects), so a copied or moved project keeps working.
+2. **Standalone projects**, as Camtasia's "Create standalone project": a
+   project setting, offered as a checkbox in New Project and in Save As.
+   While it is on, every import is copied into the project's `media/` as it
+   comes in, and turning it on (or Save As with it ticked) copies what is
+   already outside. Off, imports are referenced where they are, as now.
+   Proxies and transcripts stay in the cache and are rebuilt on another Mac.
+3. **File › Save As…**: a copy under a new name, then opened; its recordings
+   come with it, and outside media too when standalone.
+4. **File › Show in Finder** for the project.
+Agents get each as a command. Then Phase 7.
 
 ### Phase 6.5 — A self-contained app (decided 2026-10-12)
 One downloadable, signed `.app` that works on a Mac with nothing installed:
@@ -913,17 +1130,82 @@ audio mix, speed and loudness, muxing, transcription audio).
    source per jump, which is much of why jumps on the benchmark project take ~0.5 s.
    Export through AVAssetWriter for MP4/MOV; FFmpeg kept for GIF/WebM and
    the audio filters (not worth rewriting).
+Export speed (measured 2026-10-15 on the gate project, M5 Pro): 20 s of a
+6720×3780 screen and a 4K camera export in 13.7 s (about 1.5× real time; the
+user finds Camtasia much quicker). Decoding (ffmpeg processes and CPU RGBA
+conversion) is 55% of it, drawing and readback 18%, upload 10%; only the
+H.264 encode is hardware. Camtasia links Metal, IOSurface, VideoToolbox and
+AVFoundation, the usual pipeline with frames kept on the GPU throughout.
+So export moves to the preview's in-process decoders (with a parity test
+against today's frames), then zero copy both ways: VideoToolbox frames into
+textures, and the composited texture straight to the encoder, no readback.
 Performance research (2026-10-12, `docs/performance.md`): the user wants
 fast playback and scrubbing, done in Rust and
 Apple's frameworks. Its order: a benchmark first, then all-intra scrub
 proxies, item 2's in-process decoders kept open (a small pool per source),
 zero-copy VideoToolbox frames into wgpu, prefetch ahead with a small frame
 cache, and audio start. When it starts is the user's call.
+3. **Releases** (decided 2026-10-15): Apple silicon only, no Intel, Linux or
+   `install.sh`. A `v0.x.y` tag builds `beacon-macos-arm64.dmg` and
+   `checksums.txt` onto a GitHub release, as Hance does. The app carries
+   `beacon-mcp`, so agents get the tools without the repo. The README's
+   install steps end with a copyable prompt for an AI agent: download the DMG,
+   copy the app to Applications, clear the quarantine flag (`xattr -dr
+   com.apple.quarantine`, dropped once notarized), add the MCP server with
+   `claude mcp add`, and open the app. Signing matters beyond Gatekeeper: an
+   unsigned build is a new app to macOS each version, so screen, camera and
+   microphone permissions would be asked again after every update.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 
 ### Phase 7 — Growth
 New features, each as a folder in `packages/features`.
+- **Remove Silences, one click** (the user, 2026-10-14; the first AI feature;
+  built the same day, before the Phase 6 gate, as below except the timeline
+  marks): it was agents only (`transcript_removePauses`
+  over MCP); the transcript itself is already made locally by whisper.cpp
+  when speech is imported. A button and menu item (Edit › Remove Silences…)
+  opens a small dialog: what it found (e.g. "42 silences, 3:12 shorter") and
+  two settings (shortest silence to cut, pause to keep), the silences marked on
+  the timeline while it is open, then Remove as one undo step through the same
+  `transcript.removePauses` command. A silence can be screen action worth
+  keeping (typing, clicking): Beacon's own takes log clicks, cursor movement
+  and which screen frames changed, so silences with that activity are kept by
+  default (a tick box), the cheap stand-in for an agent looking at frames.
+  Waits for the transcript job if it is still running. Retakes and filler words
+  stay with agents (MCP), where judgement is needed. As built: an **AI** panel
+  in the left sidebar, not the Edit menu (the user's choice: it is the home for
+  later AI features), nor Audio Effects (those are dragged onto one clip; this
+  edits the whole timeline). Its tile opens a **review**, not a dialog (the
+  user's choice, 2026-10-14: a dialog was one-shot and showed nothing on the
+  timeline): the properties panel shows the settings and a summary, the
+  timeline marks each silence red (cut) or grey (kept) live, a click on one
+  flips it, and Apply cuts as one undo step (Cancel cuts nothing). The review
+  is editor state (`session.features.transcript.silences`, through
+  `silences.review`/`flip`/`close` and the `silences.apply` action), so an
+  agent can prepare it for the user to look over; features got their own
+  session state and session commands for it (`Feature.sessionCommands`). Not
+  live after Apply (re-cutting under later edits would move them); the media is
+  untouched, so a clip edge dragged back restores a pause. The
+  `transcript.silences` query says what would be cut (the same ranges the
+  command removes, to the frame); screen action is the recording's cursor
+  moving over 24 points or clicking during the silence (typing alone isn't
+  seen yet: screen frames changing would catch it); a missing transcript
+  (an import whose app quit first) is started by the review. Checked on a
+  3:37 recording: 35 silences, 11 kept for screen action, 1:10 shorter.
+- **Captions** (the user, 2026-10-14; next after Remove Silences, in the AI
+  panel): phrase captions from the transcript's word timings (2-4 words, or a
+  line at a time), on their own track as caption clips styled by one schema
+  (font, size, box, position, highlight of the word being spoken), edited by
+  editing the transcript's words; burned into the export, and an `.srt`
+  beside it. The words are already timed, so most of the work is the
+  caption clip and its style.
+- **Keyboard shortcuts** (the user, 2026-10-14): Settings › Shortcuts lists
+  every action with its shortcut (from the registry and
+  `keymaps/default.json`), searchable, and rebinds one by pressing the new
+  keys, warning on a clash; changes go in the user override file merged over
+  the defaults (§7), and menus show them. Shares its list with the command
+  palette below.
 - **Command palette** (the user, 2026-10-12; Phase 7 or later): a key (⇧⌘P
   or ⌘K, to pick then) opens a search over every action, command and menu
   item by its name and description, showing its shortcut, and runs it through

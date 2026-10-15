@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   animationRamps,
   defineFeature,
+  defineQuery,
   IDENTITY,
   clipSpeed,
   ticksToSeconds,
@@ -17,7 +18,7 @@ import {
   type VisualLayer,
 } from "@beacon/model";
 import { basename, join } from "node:path";
-import { makeAudioProxy, makeProxies, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
+import { makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
 
 /** `waveform` job data: peak level per 10 ms, 0–255, by audio stream index. */
 export interface WaveformData {
@@ -46,6 +47,11 @@ interface AudioProps {
   normalize: boolean;
 }
 
+/** Where to read an asset's `n`th stream of a kind: a `.brec` keeps each stream in its own file. */
+export function sourceOf(asset: Asset, kind: "video" | "audio", n: number): { path: string; stream: number } {
+  return streamSource(asset.path, mediaInfo(asset), kind, n);
+}
+
 /** An audio clip's segment of the mix: its volume envelope, scaled by its gain and the levelling to the project's target. */
 function audioSegment(project: Project, clip: Clip, asset: Asset, stream: number): AudioSegment {
   const a: AudioProps = { gain: 1, volume: 1, normalize: false, ...(clip.props.audio as Partial<AudioProps> | undefined) };
@@ -53,8 +59,7 @@ function audioSegment(project: Project, clip: Clip, asset: Asset, stream: number
   const measured = (asset.derived.loudness as Loudness | undefined)?.[stream];
   const k = a.gain * (a.normalize && target !== undefined && measured !== undefined ? 10 ** ((target - measured) / 20) : 1);
   return {
-    path: asset.path,
-    stream,
+    ...sourceOf(asset, "audio", stream),
     start: ticksToSeconds(clip.start),
     duration: ticksToSeconds(clip.duration),
     mediaStart: ticksToSeconds(clip.mediaStart ?? 0),
@@ -77,6 +82,11 @@ function videoStreams(asset: Asset) {
 /** The `.trec` screen codec, as ffmpeg names it. */
 export function isScreenCodec(codec: string): boolean {
   return codec === "tsc2" || codec === "tscc2";
+}
+
+/** A recording's screen: a `.trec`'s by its codec, a `.brec`'s by its role. */
+function isScreen(s: StreamInfo): boolean {
+  return s.role === "screen" || isScreenCodec(s.codec);
 }
 
 /** Index of the stream a media clip uses among its asset's streams of that kind. */
@@ -117,6 +127,8 @@ function fitted(project: Project, width: number, height: number): Clip["props"][
   return { x: 0, y: 0, scaleX: k, scaleY: k, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 };
 }
 
+const AUDIO_TRACKS: Partial<Record<NonNullable<StreamInfo["role"]>, string>> = { microphone: "Microphone", systemAudio: "System Audio" };
+
 /** Separate linked clips per stream, as you nearly always use recordings. */
 function importClips(asset: Asset, project: Project): ImportClipSpec[] {
   const info = mediaInfo(asset);
@@ -128,23 +140,29 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
     return [{ track: "Image", type: "image", duration: secondsToTicks(5), props: { media: { stream: 0 }, transform: fitted(project, s.width!, s.height!) } }];
   }
   // A recording's audio is linked to its camera (or, with no camera, its screen); the screen and camera are placed and cut apart.
-  const camera = video.some((s) => !isScreenCodec(s.codec));
+  const camera = video.some((s) => !isScreen(s));
+  // A `.brec`'s files start at slightly different moments of the take (and a measured device delay moves a
+  // stream too): each clip starts that far into its file from the latest start, so all show the same moment.
+  const latest = Math.max(0, ...info.streams.map((s) => s.start ?? 0));
+  const into = (s: StreamInfo) => secondsToTicks(latest - (s.start ?? 0));
   for (const [i, s] of video.entries()) {
-    const screen = isScreenCodec(s.codec);
+    const screen = isScreen(s);
     specs.push({
       track: screen ? "Screen" : asset.kind === "recording" ? "Camera" : "Video",
       type: screen ? "screen" : "video",
-      duration: secondsToTicks(s.duration || info.duration),
+      duration: secondsToTicks(s.duration || info.duration) - into(s),
+      mediaStart: into(s),
       props: { media: { stream: i }, transform: fitted(project, s.width!, s.height!) },
       link: screen && camera ? undefined : "picture",
     });
   }
   const audio = info.streams.filter((s) => s.kind === "audio");
   for (const [i, s] of audio.entries()) {
-    specs.push({ track: audio.length > 1 ? `Audio ${i + 1}` : "Audio", type: "audio", duration: secondsToTicks(s.duration || info.duration), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } }, link: "picture" });
+    const track = (s.role && AUDIO_TRACKS[s.role]) ?? (audio.length > 1 ? `Audio ${i + 1}` : "Audio");
+    specs.push({ track, type: "audio", duration: secondsToTicks(s.duration || info.duration) - into(s), mediaStart: into(s), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } }, link: "picture" });
   }
   // Streams of one recording differ by a few ms; linked clips share the shortest length.
-  const shortest = Math.min(duration, ...specs.map((x) => x.duration));
+  const shortest = Math.min(duration - secondsToTicks(latest), ...specs.map((x) => x.duration));
   return specs.map((x) => ({ ...x, duration: shortest }));
 }
 
@@ -197,16 +215,30 @@ export const media = defineFeature({
         const sound = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const key = new Bun.CryptoHasher("sha256").update(`${asset.path}\0${asset.fingerprint}`).digest("hex").slice(0, 16);
         const audio: NonNullable<ProxyData["audio"]> = {};
-        for (const i of sound.keys()) audio[i] = await makeAudioProxy(asset.path, i, join(cacheDir, "proxies", `${key}-a${i}.mka`));
+        for (const i of sound.keys()) {
+          const src = sourceOf(asset, "audio", i);
+          audio[i] = await makeAudioProxy(src.path, src.stream, join(cacheDir, "proxies", `${key}-a${i}.mka`));
+        }
         // Version 2's H.264 copies, left behind by the version bump.
         for (const i of video.keys()) rmSync(join(cacheDir, "proxies", `${key}-v${i}.mp4`), { force: true });
-        const built = await makeProxies(
-          asset.path,
-          video.map((s, i) => ({ stream: i, codec: s.codec, width: s.width ?? 0, height: s.height ?? 0, out: join(cacheDir, "proxies", `${key}-v${i}.hevc.mp4`) })),
-          mediaInfo(asset).duration,
-          { quiet, onProgress: progress },
-        );
-        const streams: ProxyData["streams"] = Object.fromEntries(built.entries());
+        // One ffmpeg run per file: a `.trec`'s streams together, a `.brec`'s each from its own file.
+        const byFile = new Map<string, { i: number; stream: number }[]>();
+        for (const i of video.keys()) {
+          const src = sourceOf(asset, "video", i);
+          byFile.set(src.path, [...(byFile.get(src.path) ?? []), { i, stream: src.stream }]);
+        }
+        const streams: ProxyData["streams"] = {};
+        let done = 0;
+        for (const [path, items] of byFile) {
+          const built = await makeProxies(
+            path,
+            items.map(({ i, stream }) => ({ stream, codec: video[i]!.codec, width: video[i]!.width ?? 0, height: video[i]!.height ?? 0, out: join(cacheDir, "proxies", `${key}-v${i}.hevc.mp4`) })),
+            byFile.size > 1 ? video[items[0]!.i]!.duration : mediaInfo(asset).duration,
+            { quiet, onProgress: (f) => progress((done + f * items.length) / video.length) },
+          );
+          for (const [k, { i }] of items.entries()) streams[i] = built[k]!;
+          done += items.length;
+        }
         return { streams, audio } satisfies ProxyData;
       },
       discard(result) {
@@ -246,13 +278,30 @@ export const media = defineFeature({
       async analyze(asset) {
         const sound = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: WaveformData["streams"] = {};
-        for (const i of sound.keys()) streams[i] = await waveformPeaks(asset.path, i);
+        for (const i of sound.keys()) {
+          const src = sourceOf(asset, "audio", i);
+          streams[i] = await waveformPeaks(src.path, src.stream);
+        }
         return { streams } satisfies WaveformData;
       },
     },
   ],
+  queries: [
+    defineQuery({
+      id: "asset.clips",
+      description: "The clips putting media on the timeline makes (asset.place), bottom track first: what each is (Screen, Camera, Audio…), its type and length in seconds",
+      args: z.strictObject({ asset: z.string().min(1) }),
+      run({ asset }, { project, registry }) {
+        const a = project.assets[asset];
+        if (!a) throw new Error(`no asset "${asset}"`);
+        const importer = registry.importerFor(a.path.slice(a.path.lastIndexOf(".")));
+        if (!importer) throw new Error(`no feature places ${a.path}`);
+        return importer.clips(a, project).map((c) => ({ track: c.track, type: c.type, seconds: ticksToSeconds(c.duration) }));
+      },
+    }),
+  ],
   importers: [
-    { id: "recording", extensions: [".trec"], kind: "recording", clips: importClips },
+    { id: "recording", extensions: [".trec", ".brec"], kind: "recording", clips: importClips },
     { id: "video", extensions: [".mp4", ".mov", ".m4v"], kind: "video", clips: importClips },
     { id: "image", extensions: [".png", ".jpg", ".jpeg", ".gif", ".heic", ".webp", ".tif", ".tiff", ".bmp"], kind: "image", clips: importClips },
     { id: "audio", extensions: [".mp3", ".m4a", ".wav", ".aac", ".aif", ".aiff", ".flac"], kind: "audio", clips: importClips },
@@ -301,7 +350,7 @@ export const media = defineFeature({
       const s = streamOf(asset, "video", stream);
       const time = clip.type === "still" ? ticksToSeconds(clip.mediaStart ?? 0) : ticksToSeconds(e.mediaTime);
       visual(e, {
-        content: { type: "source", source: ctx.source({ kind: "video", path: asset.path, stream, ...proxyOf(ctx.data<ProxyData>(asset.id, "proxy"), stream) }), time },
+        content: { type: "source", source: ctx.source({ kind: "video", ...sourceOf(asset, "video", stream), ...proxyOf(ctx.data<ProxyData>(asset.id, "proxy"), stream) }), time },
         size: [s.width!, s.height!],
       });
     },

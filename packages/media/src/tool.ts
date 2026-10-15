@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Subprocess } from "bun";
 
 /**
@@ -45,8 +46,17 @@ export async function runTool(args: string[], opts: { onStderr?: (chunk: string)
   return out;
 }
 
-/** Size and modification time: cheap, and what relinking and derived-data caches key on. */
+/** Size and modification time (of every file, for a folder like a `.brec`): cheap, and what relinking and derived-data caches key on. */
 export function fileFingerprint(path: string): string {
   const s = statSync(path);
+  if (s.isDirectory()) {
+    const files = readdirSync(path)
+      .sort()
+      .map((f) => {
+        const fs = statSync(join(path, f));
+        return `${f}:${fs.size}-${Math.round(fs.mtimeMs)}`;
+      });
+    return Bun.hash(files.join("\n")).toString(16);
+  }
   return `${s.size}-${Math.round(s.mtimeMs)}`;
 }

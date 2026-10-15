@@ -1,5 +1,7 @@
 export * from "./trec";
 export * from "./probe";
+export { isBrec } from "./brec";
+export * from "./recorder";
 export * from "./renderer";
 export * from "./preview";
 export * from "./transcribe";
@@ -9,3 +11,4 @@ export * from "./window";
 export * from "./proxy";
 export * from "./dropped";
 export * from "./text";
+export * from "./sync";

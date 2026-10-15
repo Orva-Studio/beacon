@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { transcribe, type Transcription } from "@beacon/media";
 import {
+  defineAction,
   defineCommand,
   defineFeature,
   defineQuery,
@@ -13,9 +14,12 @@ import {
   type CommandContext,
   type FeatureRegistry,
   type Project,
+  type Session,
+  type SessionCommandDef,
 } from "@beacon/model";
-import { clipStream, mediaInfo } from "../media";
+import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
+import type { CursorData } from "../cursor";
 
 /** `Asset.derived.transcript` / the `transcript` analyzer: one transcription per audio stream index. */
 export interface TranscriptData {
@@ -149,12 +153,17 @@ function withoutSlivers(doc: Project, ranges: [number, number][]): [number, numb
 }
 
 /** Rounded out to whole frames, so a cut never leaves the edge of a word it removes, nor a sliver of a clip. */
-function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: number }[]) {
+/** The ranges `cut` removes: out to whole frames, without leaving slivers of clips. */
+function cutRanges(doc: Project, ranges: { start: number; end: number }[]) {
   const { fps } = doc.settings;
-  const outward = withoutSlivers(
+  return withoutSlivers(
     doc,
     ranges.map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number]).filter(([a, b]) => b > a),
   ).map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+}
+
+function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: number }[]) {
+  const outward = cutRanges(doc, ranges);
   rippleDeleteRanges(doc, outward, ctx);
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
@@ -167,6 +176,141 @@ function subtract(r: { start: number; end: number }, holes: { start: number; end
   }
   return parts;
 }
+
+/** What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it before the first word, none after the last), outside `except`. */
+function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
+  const words = timelineWords(doc, registry, data);
+  if (!words.length) return undefined;
+  return pauses(doc, registry, data, words)
+    .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
+    .flatMap((p) =>
+      subtract(
+        {
+          start: p.after === undefined ? 0 : p.start + o.keep / 2,
+          end: p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2,
+        },
+        o.except,
+      ),
+    );
+}
+
+/**
+ * Whether a recording's cursor moved or clicked between two timeline times, on any screen clip shown then: a
+ * silence that is screen action (clicking through something, dragging) rather than a pause. Typing alone
+ * isn't seen.
+ */
+function screenActive(project: Project, data: Data, start: number, end: number): boolean {
+  for (const track of project.tracks) {
+    if (track.hidden) continue;
+    for (const clip of track.clips) {
+      const cursor = clip.assetId ? data<CursorData>(clip.assetId, "cursor") : undefined;
+      if (!cursor) continue;
+      const at = ticksToSeconds(clip.start);
+      const [a, b] = [Math.max(start, at), Math.min(end, at + ticksToSeconds(clip.duration))];
+      if (b <= a) continue;
+      const speed = clipSpeed(clip);
+      const src = (t: number) => ticksToSeconds(clip.mediaStart ?? 0) + (t - at) * speed;
+      const [sa, sb] = [src(a), src(b)];
+      if (cursor.buttons.t.some((t) => t >= sa && t <= sb)) return true;
+      // Positions are logged only when they change, so the first inside the silence is measured from where the
+      // cursor was before it.
+      let from = -1;
+      for (let i = 0; i < cursor.t.length; i++) {
+        const t = cursor.t[i]!;
+        if (t > sb) break;
+        if (t < sa || from < 0) {
+          from = i;
+          if (t < sa) continue;
+        }
+        if (Math.hypot(cursor.x[i]! - cursor.x[from]!, cursor.y[i]! - cursor.y[from]!) > 24) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Media heard on the timeline whose transcript isn't made yet. */
+function untranscribed(project: Project, registry: FeatureRegistry, data: Data): string[] {
+  const clips = project.tracks.filter((t) => !t.muted).flatMap((t) => t.clips);
+  return [...new Set(clips.filter((c) => c.assetId && registry.hasTrait(c.type, "audio") && !data<TranscriptData>(c.assetId, "transcript")?.streams[clipStream(c)]).map((c) => c.assetId!))];
+}
+
+/** Refuses a cut from the transcript while media heard on the timeline has none yet: it may speak in what would go. */
+function refuseUntranscribed(project: Project, registry: FeatureRegistry, data: Data) {
+  const waiting = untranscribed(project, registry, data);
+  if (waiting.length) throw new Error(`still transcribing ${waiting.map((id) => project.assets[id]?.name ?? id).join(", ")}: nothing is cut until every audio heard has a transcript`);
+}
+
+/** Remove Silences' settings, and in review (`session.features.transcript.silences`) the silences flipped by hand. */
+export interface SilenceReview {
+  min: number;
+  keep: number;
+  keepActive: boolean;
+  /** Times inside silences whose cut-or-keep was flipped: an odd number in a silence flips it. */
+  flipped: number[];
+}
+
+const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, keepActive: true, flipped: [] };
+
+export const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
+
+/**
+ * What Remove Silences does with `o`: each silence over `min`, whether it is screen action and whether it is cut
+ * (screen action is kept with `keepActive`, and a flip turns either way round), and the ranges removed.
+ */
+function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: SilenceReview) {
+  const waiting = untranscribed(project, registry, data);
+  const words = timelineWords(project, registry, data);
+  if (!words.length) return { waiting, words: 0, silences: [], ranges: [] };
+  const silences = pauses(project, registry, data, words)
+    .filter((p) => p.end - p.start > o.min)
+    .map((p) => {
+      const active = screenActive(project, data, p.start, p.end);
+      const flips = o.flipped.filter((t) => t >= p.start - 1e-3 && t <= p.end).length;
+      return { start: p.start, end: p.end, active, cut: !(o.keepActive && active) !== (flips % 2 === 1) };
+    });
+  const except = silences.filter((p) => !p.cut).map(({ start, end }) => ({ start, end }));
+  const ranges = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except }) ?? [];
+  return { waiting, words: words.length, silences, ranges };
+}
+
+const SilenceSettings = {
+  min: z.number().positive().max(10).describe("Silences longer than this many seconds are cut"),
+  keep: z.number().nonnegative().max(2).describe("Seconds of each cut silence left in, half each side"),
+  keepActive: z.boolean().describe("Keep silences where the recording's cursor moves or clicks (screen action)"),
+};
+
+const silenceSessionCommands: SessionCommandDef[] = [
+  {
+    id: "silences.review",
+    description:
+      "Open Remove Silences' review (the AI panel's tile does): the timeline marks each silence to cut or keep and the properties panel shows these settings, until silences.apply or silences.close; with settings, change them. The user sees it, so an agent can prepare the cuts for them to look over",
+    args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional(), keepActive: SilenceSettings.keepActive.optional() }),
+    apply: (s, a: Partial<SilenceReview>) => {
+      const r = { ...(silenceReview(s) ?? SILENCE_DEFAULTS), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
+      s.features.transcript = { ...(s.features.transcript as object | undefined), silences: { ...r, keep: Math.min(r.keep, r.min) } };
+    },
+  },
+  {
+    id: "silences.flip",
+    description: "In Remove Silences' review, keep a silence it would cut, or cut one it would keep (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_silences",
+    args: z.strictObject({ at: z.number().nonnegative() }),
+    apply: (s, { at }: { at: number }) => {
+      const r = silenceReview(s);
+      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
+      r.flipped.push(at);
+    },
+  },
+  {
+    id: "silences.close",
+    description: "Close Remove Silences' review without cutting anything",
+    args: z.strictObject({}),
+    apply: (s) => {
+      const t = s.features.transcript as { silences?: SilenceReview } | undefined;
+      if (t?.silences) delete t.silences;
+    },
+  },
+];
 
 const Range = z.tuple([z.int().nonnegative(), z.int().nonnegative()]);
 
@@ -184,7 +328,8 @@ export const transcript = defineFeature({
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
         for (const i of audio.keys()) {
-          streams[i] = await transcribe(asset.path, { stream: i, onProgress: (f) => progress((i + f) / audio.length) });
+          const src = sourceOf(asset, "audio", i);
+          streams[i] = await transcribe(src.path, { stream: src.stream, onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },
@@ -217,6 +362,23 @@ export const transcript = defineFeature({
       },
     }),
     defineQuery({
+      id: "transcript.silences",
+      description:
+        "What Remove Silences would cut: each silence over `min` seconds (timeline seconds), whether it is screen action (the recording's cursor moved or clicked) and whether it is cut, with the seconds saved. Settings not given are the defaults (the open review's are in ui_state). `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one)",
+      args: z.strictObject({
+        min: SilenceSettings.min.optional(),
+        keep: SilenceSettings.keep.optional(),
+        keepActive: SilenceSettings.keepActive.optional(),
+        flipped: z.array(z.number()).optional().describe("Times inside silences to flip, as silences.flip does"),
+      }),
+      run(args, { project, registry, data }) {
+        const o = { ...SILENCE_DEFAULTS, ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) } as SilenceReview;
+        const plan = silencePlan(project, registry, data, o);
+        const removed = cutRanges(project, plan.ranges);
+        return { waiting: plan.waiting, silences: plan.silences, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)) };
+      },
+    }),
+    defineQuery({
       id: "transcript.joins",
       description:
         "Every point where an audio clip starts or ends, in timeline seconds, flagged `chopped` when it falls inside a word, or inside speech the transcript has no words for, in its source: an audible skip. Joins between two words of continuous speech are fine. Check after any cut made by hand with timeline_rippleDelete",
@@ -238,7 +400,32 @@ export const transcript = defineFeature({
       },
     }),
   ],
+  sessionCommands: silenceSessionCommands,
+  actions: [
+    defineAction({
+      id: "silences.apply",
+      description: "Cut what Remove Silences' open review marks to cut (its Apply button), one undo step, and close the review",
+      args: z.strictObject({}),
+      resolve: (_, { session }) => {
+        const r = silenceReview(session);
+        if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
+        return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: r }], after: () => [{ command: "silences.close" }] };
+      },
+    }),
+  ],
   commands: [
+    defineCommand({
+      id: "transcript.removeSilences",
+      description:
+        "Remove Silences: cut every silence over `min` seconds down to `keep`, keeping screen action with `keepActive` and turning round the silences `flipped` names, as transcript_silences shows; one undo step. silences.apply runs it from the open review",
+      args: z.strictObject({ ...SilenceSettings, flipped: z.array(z.number()).default([]) }),
+      apply(doc, o, ctx) {
+        const plan = silencePlan(doc, ctx.registry, ctx.data, o);
+        if (!plan.words) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
+        return cut(doc, ctx, plan.ranges);
+      },
+    }),
     defineCommand({
       id: "transcript.cut",
       description:
@@ -274,19 +461,9 @@ export const transcript = defineFeature({
         except: z.array(z.strictObject({ start: z.number(), end: z.number() })).default([]),
       }),
       apply(doc, { min, keep, from, to, except }, ctx) {
-        const words = timelineWords(doc, ctx.registry, ctx.data);
-        if (!words.length) throw new Error("no transcript on the timeline yet");
-        const ranges = pauses(doc, ctx.registry, ctx.data, words)
-          .filter((p) => p.end - p.start > min && (from === undefined || p.start >= from) && (to === undefined || p.end <= to))
-          .flatMap((p) =>
-            subtract(
-              {
-                start: p.after === undefined ? 0 : p.start + keep / 2,
-                end: p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - keep / 2,
-              },
-              except,
-            ),
-          );
+        const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, from, to, except });
+        if (!ranges) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
         return cut(doc, ctx, ranges);
       },
     }),

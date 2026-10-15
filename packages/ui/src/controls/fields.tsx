@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { PLAIN_TEXT } from "./buttons";
 
 /** A block of controls in a panel, divided from the next. */
 export function Section({ children }: { children: ReactNode }) {
@@ -77,6 +78,7 @@ export function NumberBox({
   };
   return (
     <input
+      {...PLAIN_TEXT}
       autoFocus
       className={`${cls} outline-none focus:border-accent`}
       style={{ width }}
@@ -212,20 +214,21 @@ export function Stepper({ axis, value, min, max, onChange }: { axis: string; val
   );
 }
 
-export function Check({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange?: (on: boolean) => void; disabled?: boolean }) {
+/** A tick box: with a label beside it, or alone with `title` as its tooltip (an effect's on/off). */
+export function Check({ label, title, checked, onChange, disabled }: { label?: string; title?: string; checked: boolean; onChange?: (on: boolean) => void; disabled?: boolean }) {
   return (
-    <button disabled={disabled || !onChange} className="flex items-center gap-2 text-left text-text disabled:opacity-50" onClick={() => onChange?.(!checked)}>
+    <button
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label ?? title}
+      title={title}
+      disabled={disabled || !onChange}
+      className="flex shrink-0 items-center gap-2 text-left text-text disabled:opacity-50"
+      onClick={() => onChange?.(!checked)}
+    >
       <span className={`flex h-4 w-4 items-center justify-center rounded-xs border text-caption font-bold ${checked ? "border-accent bg-accent text-accent-text" : "border-text-faint"}`}>{checked ? "✓" : ""}</span>
       {label}
     </button>
   );
 }
 
-/** A green on/off switch. */
-export function Switch({ on, title, onChange }: { on: boolean; title?: string; onChange: (on: boolean) => void }) {
-  return (
-    <button role="switch" aria-checked={on} title={title} className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-toggle-on" : "bg-control"}`} onClick={() => onChange(!on)}>
-      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-text-strong transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
-    </button>
-  );
-}

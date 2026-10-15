@@ -83,4 +83,5 @@ has the same two** (it pins Electrobun `^1.18.1` and wgpu 24), so the shared
   block2 0.6.2, dispatch2 0.3.1, and the generated framework crates at
   **0.3.2** (`objc2-foundation`, `-core-foundation`, `-core-media`,
   `-core-video`, `-screen-capture-kit`, `-av-foundation` with its
-  `objc2-core-media` feature). MIT / Zlib / Apache-2.0; `cargo deny` passes.
+  `objc2-core-media` feature), and the workspace's serde. MIT / Zlib /
+  Apache-2.0; `cargo deny` passes.

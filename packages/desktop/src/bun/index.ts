@@ -2,22 +2,33 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
-import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, Utils, WGPUView } from "electrobun/main";
+import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, GlobalShortcut, Tray, Utils, WGPUView } from "electrobun/main";
+import { patchInfoPlist } from "./info-plist";
 
 // The engine ships inside the app; set before anything loads it.
 const engineDir = join(import.meta.dir, "../engine");
 if (existsSync(join(engineDir, "libbeacon_ffi.dylib"))) {
   process.env.BEACON_FFI_PATH ??= join(engineDir, "libbeacon_ffi.dylib");
   process.env.BEACON_WORKER_PATH ??= join(engineDir, "beacon-worker");
+  process.env.BEACON_RECORDER_PATH ??= join(engineDir, "beacon-recorder");
+}
+
+// `electrobun dev` builds and launches in one step, so a dev bundle gets its Info.plist entries here (a built one
+// has them from `bun run build`); Launch Services then learns the `.brec` package type.
+const bundle = import.meta.dir.match(/^(.*?\.app)\/Contents\//)?.[1];
+if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
+  Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
 }
 
 const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, serveCore, walkClips, windowNumber } = await import("@beacon/core");
 type LiveView = import("@beacon/core").LiveView;
 type Session = import("@beacon/core").Session;
 type ExportSettings = import("@beacon/ui").ExportSettings;
+type RecordSources = import("@beacon/ui").RecordSources;
+type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportOptions } = await import("@beacon/ui");
+const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey } = await import("@beacon/ui");
 const keymap = (await import("../../../../keymaps/default.json")).default.bindings as import("@beacon/ui").Init["keymap"];
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
@@ -289,7 +300,8 @@ function exportPrefs(): ExportPrefs {
 /** Beacon > Settings… > General (`~/Library/Application Support/Beacon/settings.json`). */
 const SETTINGS_FILE = join(homedir(), "Library/Application Support/Beacon/settings.json");
 let appSettings: AppSettings = (() => {
-  const defaults: AppSettings = { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" };
+  // Proxies are off until turned on: the preview reads originals in process, and a proxy is one more copy to build.
+  const defaults: AppSettings = { exportColorSpace: "bt709", autoProxy: { recording: false, video: false }, proxyMode: "quiet" };
   try {
     return { ...defaults, ...(JSON.parse(readFileSync(SETTINGS_FILE, "utf8")) as Partial<AppSettings>) };
   } catch {
@@ -348,6 +360,317 @@ async function startExport({ name, folder, settings, range, overwrite }: { name:
   const job = await core.export(current.path, { output, overwrite: true, ...exportOptions(settings), colorSpace: appSettings.exportColorSpace, ...(range ? { from: range.in, to: range.out } : {}) });
   exports.set(job.id, output);
   send().exportJob({ id: job.id, output, state: "running", progress: 0 });
+}
+
+/** The Record dialog's last sources, offered next time. */
+const RECORD_FILE = join(homedir(), "Library/Application Support/Beacon/record.json");
+const recordPrefs = (): RecordSources => {
+  try {
+    return JSON.parse(readFileSync(RECORD_FILE, "utf8")) as RecordSources;
+  } catch {
+    return { screen: { fps: 60 }, microphone: {}, systemAudio: true };
+  }
+};
+
+/** File > Record… (⌘R): the Record dialog, with what the recorder can use. */
+/** Beacon > Settings…, with the cameras and microphones Settings › Recording picks from. */
+async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
+  const d = await core.recorderDevices().catch(() => undefined);
+  const prefs = recordPrefs();
+  const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
+  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) });
+}
+
+/** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
+function beepFile(): string {
+  const path = join(core.cacheDir, "sync-check", "beep.wav");
+  if (existsSync(path)) return path;
+  const rate = 48_000;
+  const n = Math.round(rate * 0.15);
+  const wav = Buffer.alloc(44 + n * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + n * 2, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) {
+    // 5 ms ramps: no clicks, which would read as a beep starting early.
+    const ramp = Math.min(1, i / (rate * 0.005), (n - i) / (rate * 0.005));
+    wav.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 1000 * i) / rate) * ramp * 0.8 * 32767), 44 + i * 2);
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, wav);
+  return path;
+}
+
+/**
+ * The Mac's sound through `output` (speakers, when it was going to headphones), at least 75% and unmuted, while
+ * `run` runs, so the microphone hears the sync check's beeps over the room; then as it was.
+ */
+async function loudly<T>(output: string | undefined, run: () => Promise<T>): Promise<T> {
+  const before = output ? (await core.recorderDevices()).outputs.find((o) => o.default)?.id : undefined;
+  const switched = !!output && output !== before;
+  if (switched) await core.recorderSetOutput(output);
+  try {
+    return await raised(run);
+  } finally {
+    if (switched && before) await core.recorderSetOutput(before).catch(() => {});
+  }
+}
+
+async function raised<T>(run: () => Promise<T>): Promise<T> {
+  const read = Bun.spawnSync(["osascript", "-e", "get volume settings"]).stdout.toString();
+  const volume = Number(/output volume:(\d+)/.exec(read)?.[1]);
+  const muted = /output muted:true/.test(read);
+  const raise = Number.isFinite(volume) && (volume < 75 || muted);
+  if (raise) Bun.spawnSync(["osascript", "-e", `set volume output volume ${Math.max(volume, 75)}`, "-e", "set volume without output muted"]);
+  try {
+    return await run();
+  } finally {
+    if (raise) Bun.spawnSync(["osascript", "-e", `set volume output volume ${volume}`, ...(muted ? ["-e", "set volume with output muted"] : [])]);
+  }
+}
+
+/** A test beep at the check's volume, through its speakers. */
+async function testBeep({ output }: { output?: string }) {
+  await loudly(output, async () => {
+    await Bun.spawn(["afplay", beepFile()], { stdout: "ignore", stderr: "ignore" }).exited;
+    await Bun.sleep(200);
+  });
+}
+
+/** The sync check's window: black over the whole display, flashing white on cue. */
+const FLASH_HTML = `<!doctype html><html><body style="margin:0;background:#000;height:100vh;display:flex;align-items:center;justify-content:center;font:14px -apple-system,sans-serif;color:#666;cursor:none">
+<div>Checking sync: keep the camera seeing the screen</div>
+<script>window.flash=()=>{document.body.style.background="#fff";setTimeout(()=>document.body.style.background="#000",250)}</script></body></html>`;
+
+/**
+ * Check Sync: covers the display in black and flashes it white with a beep six times while the screen, system
+ * audio, camera and microphone record, then measures how late the camera is and saves it for the pair.
+ */
+async function checkSync({ camera, microphone, display: wanted, output }: { camera: string; microphone: string; display?: number; output?: string }) {
+  if (recording) throw new Error("Stop the recording first");
+  const devices = await core.recorderDevices();
+  if (devices.permissions.screen !== "granted") throw new Error("Check Sync records the screen: allow Beacon in System Settings › Privacy & Security › Screen & System Audio Recording");
+  for (const kind of ["camera", "microphone"] as const) {
+    if (devices.permissions[kind] !== "granted" && (await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
+  }
+  const display = devices.displays.find((d) => d.id === wanted) ?? devices.displays[0];
+  if (!display) throw new Error("No display to flash (is the screen asleep?)");
+  const beep = beepFile();
+  const flash = new BrowserWindow({ title: "Beacon Sync Check", html: FLASH_HTML, frame: { x: display.x ?? 0, y: display.y ?? 0, width: display.width, height: display.height }, titleBarStyle: "hidden", activate: false });
+  flash.setAlwaysOnTop(true);
+  try {
+    await Bun.sleep(600);
+    const result = await loudly(output, () => core.recordSyncCheck({ screen: { display: display.id, fps: 60 }, systemAudio: true, camera: { id: camera }, microphone: { id: microphone } }, async () => {
+      await Bun.sleep(800);
+      for (let i = 0; i < 6; i++) {
+        flash.webview.executeJavascript("flash()");
+        Bun.spawn(["afplay", beep], { stdout: "ignore", stderr: "ignore" });
+        await Bun.sleep(1500);
+      }
+      await Bun.sleep(400);
+    }));
+    const key = syncKey(camera, microphone);
+    setAppSettings({ ...appSettings, cameraSync: { ...appSettings.cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
+    return result;
+  } finally {
+    flash.close();
+  }
+}
+
+async function recordDialog() {
+  if (!current) return status("Open a project first");
+  if (recording) return status("Already recording: stop from the menu bar or ⌘⇧2");
+  send().recordSheet({ ...(await core.recorderDevices()), sources: recordPrefs(), cameraSync: appSettings.cameraSync ?? {} });
+}
+
+const STOP_SHORTCUT = "CommandOrControl+Shift+2";
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow; panelShown: boolean } | undefined;
+
+/**
+ * The newest preview frames, for the Record dialog and the recording panel to pull (`recordFrames`): pushing each
+ * one let a slow page fall behind and show the camera late.
+ */
+const frames: import("@beacon/ui").RecordFrames & { at: { camera: number; screen: number } } = { seq: 0, at: { camera: 0, screen: 0 } };
+let frameWaiters: (() => void)[] = [];
+
+/** A frame goes to the store and wakes whoever waits; levels are pushed to `send`. */
+function previewEvent(e: import("@beacon/ui").RecordPreview, send: ((e: import("@beacon/ui").RecordPreview) => void) | undefined) {
+  if (!("jpeg" in e)) return send?.(e);
+  frames[e.source] = e.jpeg;
+  frames.at[e.source] = ++frames.seq;
+  for (const wake of frameWaiters.splice(0)) wake();
+}
+
+/** Frames newer than `after`, once there are some or a second has passed. */
+async function newerFrames(after: number): Promise<import("@beacon/ui").RecordFrames> {
+  if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));
+  return {
+    seq: frames.seq,
+    ...(frames.at.camera > after && frames.camera ? { camera: frames.camera } : {}),
+    ...(frames.at.screen > after && frames.screen ? { screen: frames.screen } : {}),
+  };
+}
+
+function clearFrames() {
+  delete frames.camera;
+  delete frames.screen;
+}
+
+/** The recording panel's title: the recorder leaves the window with it out of the take. */
+const PANEL_TITLE = "Beacon Recording Panel";
+const PANEL_WIDTH = 300;
+let panelState: PanelState | undefined;
+/** The panel's webview, once it has loaded: the take's frames and levels go to it. */
+let panelSend: ((e: import("@beacon/ui").RecordPreview) => void) | undefined;
+
+/**
+ * The small window over the screen while a take records: its camera, time, levels and Stop, not recorded.
+ * Resolves once its page has loaded (or after 2 s), so ScreenCaptureKit lists the window to leave out.
+ */
+async function openPanel(state: PanelState, display: { width: number } | undefined) {
+  panelState = state;
+  let loaded!: () => void;
+  const ready = new Promise<void>((r) => (loaded = r));
+  const rpc = BrowserView.defineRPC<import("@beacon/ui").PanelRPC>({
+    handlers: {
+      requests: {
+        panelInit: async () => {
+          loaded();
+          return panelState ?? null;
+        },
+      },
+      messages: {
+        stopRecording: () => void stopRecording(),
+        hidePanel: () => showPanel(false),
+      },
+    },
+  });
+  const height = Math.round(panelHeight(state));
+  const panel = new BrowserWindow({
+    title: PANEL_TITLE,
+    url: "views://recordpanel/index.html",
+    rpc,
+    frame: { x: Math.max(0, (display?.width ?? 1440) - PANEL_WIDTH - 24), y: 48, width: PANEL_WIDTH, height },
+    titleBarStyle: "hidden",
+    transparent: true,
+    activate: false,
+  });
+  panel.setAlwaysOnTop(true);
+  panel.setVisibleOnAllWorkspaces(true);
+  panelSend = (e) => panel.webview.rpc?.send.recordPreview(e);
+  await Promise.race([ready, Bun.sleep(2000)]);
+  return panel;
+}
+
+/** Record: Beacon hides while the take records; a menu-bar item shows the time and stops it, as ⌘⇧2 does. */
+async function startRecording({ sources }: { sources: RecordSources }) {
+  if (!current) throw new Error("Open a project first");
+  if (recording) throw new Error("Already recording");
+  // Asked while the window is up, so macOS's prompt has somewhere to show.
+  const devices = await core.recorderDevices();
+  const { permissions } = devices;
+  for (const kind of ["camera", "microphone"] as const) {
+    if (!sources[kind] || permissions[kind] === "granted") continue;
+    if ((await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
+  }
+  try {
+    mkdirSync(dirname(RECORD_FILE), { recursive: true });
+    writeFileSync(RECORD_FILE, JSON.stringify(sources));
+  } catch {}
+  win.hide();
+  const panelSources = { screen: !!sources.screen, camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
+  // Opened first, so the recorder can leave it out of the take by its title.
+  const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
+  clearFrames();
+  const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
+  try {
+    // The pair's measured delay goes into the take, so its camera clip lines up on import.
+    const sync = sources.camera?.id && sources.microphone?.id ? appSettings.cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
+    await core.recordStart(current.path, {
+      sources: {
+        ...(sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources),
+        ...(sync?.cameraLateMs ? { offsets: { camera: -sync.cameraLateMs / 1000 } } : {}),
+      },
+      monitor: (e) => !("devicesChanged" in e) && previewEvent(e, panelSend),
+    });
+  } catch (e) {
+    panel.close();
+    panelSend = undefined;
+    panelState = undefined;
+    win.show();
+    throw e;
+  }
+  // The take begins once its sources deliver, a moment after the panel opened.
+  if (panelState) {
+    panelState.started = Date.now();
+    panel.webview.rpc?.send.recordStarted({ started: panelState.started });
+  }
+  const tray = new Tray({ title: "● 0:00" });
+  tray.on("tray-clicked", (e) => {
+    const action = (e as { data?: { action?: string } }).data?.action;
+    if (action === "stopRecording") void stopRecording();
+    else if (action === "showPanel") showPanel(true);
+    else if (action === "hidePanel") showPanel(false);
+  });
+  const started = Date.now();
+  const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000)}`), 1000);
+  GlobalShortcut.register(STOP_SHORTCUT, () => void stopRecording());
+  recording = { tray, timer, panel, panelShown: true };
+  trayMenu();
+}
+
+/** The menu-bar item's menu: the panel's Show or Hide, and Stop. */
+function trayMenu() {
+  const r = recording;
+  if (!r) return;
+  r.tray.setMenu([
+    { type: "normal", label: r.panelShown ? "Hide Recording Panel" : "Show Recording Panel", action: r.panelShown ? "hidePanel" : "showPanel" },
+    { type: "separator" },
+    { type: "normal", label: "Stop Recording  (⌘⇧2)", action: "stopRecording" },
+  ]);
+}
+
+/** Hidden, the panel stops covering the screen and the take carries on; the menu-bar item brings it back. */
+function showPanel(shown: boolean) {
+  const r = recording;
+  if (!r?.panel || r.panelShown === shown) return;
+  if (shown) r.panel.showInactive();
+  else r.panel.hide();
+  r.panelShown = shown;
+  trayMenu();
+}
+
+/** Stops the take, imports it at the end of the timeline and brings Beacon back. */
+async function stopRecording() {
+  const r = recording;
+  if (!r) return;
+  recording = undefined;
+  clearInterval(r.timer);
+  GlobalShortcut.unregister(STOP_SHORTCUT);
+  r.tray.remove();
+  r.panel?.close();
+  panelSend = undefined;
+  panelState = undefined;
+  try {
+    const take = await core.recordStop();
+    status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration)})`);
+    if (take.assets[0]) send().recordedSheet({ asset: take.assets[0], name: basename(take.take, ".brec"), duration: take.duration });
+  } catch (e) {
+    status(e instanceof Error ? e.message : String(e));
+  } finally {
+    win.show();
+    win.activate();
+  }
 }
 
 /** Attaches the project's preview to the canvas's native view, or follows its new size; returns the fit zoom in percent. */
@@ -536,6 +859,25 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       openDialog: () => reply(openDialog),
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
+      startRecording: (params) => reply(() => startRecording(params)),
+      recordPreview: (devices) => {
+        clearFrames();
+        return reply(() =>
+          core.recorderPreview(devices, (e) => {
+            if (!("devicesChanged" in e)) return previewEvent(e, send().recordPreview);
+            void core.recorderDevices().then((d) => send().recordDevices(d), () => {});
+          }),
+        );
+      },
+      recordFrames: ({ after }) => newerFrames(after),
+      testBeep: (params) => testBeep(params),
+      checkSync: async (params) => {
+        try {
+          return { ok: true, result: await checkSync(params) };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
       cancelExport: ({ id }) => reply(() => core.cancelJob(id)),
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),
@@ -628,15 +970,16 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         ContextMenu.showContextMenu([
           ...(missing ? [item("Locate Media…", "locate"), sep] : []),
           item("Add to Timeline at Playhead", "add"),
+          item("Add to End of Timeline", "addEnd"),
           ...(proxyable ? [{ label: "Proxy Video", submenu: [item("Create Proxy Video", "proxyCreate", !hasProxy && !making), item("Delete Proxy Video", "proxyDelete", hasProxy || making)] }] : []),
           sep,
           item("Delete", "delete"),
           item("Rename…", "rename"),
+          // Only what was imported from elsewhere: a recording's streams are clips of their own.
+          ...(a && a.kind !== "recording" ? [item("Replace Media…", "replace")] : []),
           sep,
           item("Reveal in Finder", "reveal"),
           item("Select on Timeline", "select", used),
-          sep,
-          item("Import Media…", "import"),
         ]);
       },
       dropFiles: ({ files, time, track }) =>
@@ -680,6 +1023,13 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           send().media({ highlight: r.asset });
           void sendThumbs();
         }),
+      analyze: async ({ key, asset }) => {
+        if (current) await core.analyze(current.path, key, asset).catch((e: Error) => status(e.message));
+      },
+      binFrame: async ({ asset, time }) => {
+        const png = current && (await core.assetThumbnail(current.path, asset, THUMB_HEIGHT * 2, time).catch(() => undefined));
+        return png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;
+      },
       frameImage: async () => {
         if (!current) return null;
         const img = await core.frame(current.path, (await core.session(current.path)).playhead);
@@ -745,6 +1095,8 @@ function setMenu() {
         },
         { type: "separator" },
         { label: "Import Media…", action: "import", accelerator: "command+i" },
+        { label: "Record…", action: "record", accelerator: "command+r" },
+        { type: "separator" },
         { label: "Export…", action: "export", accelerator: "command+e" },
         { label: "Export Selection…", action: "exportSelection" },
       ],
@@ -806,7 +1158,7 @@ ContextMenu.on("context-menu-clicked", (e) => {
   if (current && action.startsWith("run:")) return void core.run(current.path, ...menuCommand(action.slice(4))).catch((err: Error) => status(err.message));
   if (current && action.startsWith("track:")) return trackAction(current.path, action.split(":")[1]!, action.split(":")[2]!);
   if (current && action.startsWith("media:")) return mediaAction(current.path, action.split(":")[1]!, action.split(":")[2]!);
-  if (action === "app:projectSettings") return void send().settingsSheet({ ...appSettings, tab: "project" });
+  if (action === "app:projectSettings") return void openSettings("project");
   const [op, clip] = action.split(":");
   if (!current || !clip) return;
   const h = current.path;
@@ -840,20 +1192,34 @@ async function locateMedia(h: string, asset: string) {
   status(`Found ${basename(file)}`);
 }
 
+/** Replace Media…: another file of the same kind, picked in Finder, starting where the media is. */
+async function replaceMedia(h: string, asset: string) {
+  const a = core.doc(h).assets[asset];
+  if (!a) return;
+  let start = dirname(a.path);
+  while (!existsSync(start) && start !== "/") start = dirname(start);
+  const types = [...core.registry.importers.values()].filter((i) => i.kind === a.kind).flatMap((i) => i.extensions.map((e) => e.slice(1)));
+  const [file] = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: start, allowedFileTypes: types.join(",") });
+  if (!file) return;
+  await core.replace(h, asset, file);
+  status(`Replaced with ${basename(file)}`);
+}
+
 /** Media Bin menu items. */
 function mediaAction(h: string, op: string, asset: string) {
   const fail = (err: Error) => status(err.message);
   const a = core.doc(h).assets[asset];
   if (!a) return;
   if (op === "add") void core.run(h, "edit.addMedia", { asset }).catch(fail);
+  else if (op === "addEnd") void core.run(h, "edit.addMedia", { asset, end: true }).catch(fail);
   else if (op === "delete") void core.run(h, "edit.deleteMedia", { asset }).catch(fail);
   else if (op === "rename") send().renameMedia({ asset });
   else if (op === "reveal") Bun.spawn(["open", "-R", a.path]);
   else if (op === "select") void core.run(h, "edit.selectMedia", { asset }).catch(fail);
-  else if (op === "import") void importMedia().catch(fail);
   else if (op === "proxyCreate") void core.analyze(h, "proxy", asset).catch(fail);
   else if (op === "proxyDelete") void core.forget(h, "proxy", asset).catch(fail);
   else if (op === "locate") void locateMedia(h, asset).catch(fail);
+  else if (op === "replace") void replaceMedia(h, asset).catch(fail);
 }
 
 /** A track on the timeline or inside a group, and whether it is a timeline one. */
@@ -893,10 +1259,11 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "open") return void openDialog().catch(report);
   if (action === "new") return newProject();
   if (action === "import") return void importMedia().catch(report);
+  if (action === "record") return void recordDialog().catch(report);
   if (action === "export") return void exportDialog().catch(report);
   if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);
-  if (action === "settings") return send().settingsSheet(appSettings);
+  if (action === "settings") return void openSettings();
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {
     quitLog("⌘Q");

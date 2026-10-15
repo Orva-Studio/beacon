@@ -6,6 +6,7 @@ import {
   defineAction,
   editedValue,
   mediaTimeAt,
+  projectDuration,
   secondsToTicks,
   ticksToSeconds,
   type ActionContext,
@@ -252,13 +253,14 @@ export const actions = [
   defineAction({
     id: "edit.addMedia",
     description:
-      "Put media from the Media Bin on the timeline (Add to Timeline at Playhead, or a drag from the bin): at `time` (default the playhead), on `track` when dropped on one, and select it",
-    args: z.strictObject({ asset: z.string().min(1), time: z.number().nonnegative().optional(), track: z.string().min(1).optional() }),
-    resolve: ({ asset, time, track }, ctx) => {
+      "Put media from the Media Bin on the timeline (Add to Timeline at Playhead, Add to End of Timeline, or a drag from the bin): at `time` (default the playhead), or after the last clip with `end`, on `track` when dropped on one, and select it",
+    args: z.strictObject({ asset: z.string().min(1), time: z.number().nonnegative().optional(), end: z.boolean().optional(), track: z.string().min(1).optional() }),
+    resolve: ({ asset, time, end, track }, ctx) => {
       mainTimelineOnly(ctx, "add media");
+      const at = end ? ticksToSeconds(projectDuration(ctx.project)) : (time ?? ctx.session.playhead);
       return {
         label: "Add Media",
-        steps: [{ command: "asset.place", args: { asset, time: time ?? ctx.session.playhead, ...(track ? { track } : {}) } }],
+        steps: [{ command: "asset.place", args: { asset, time: at, ...(track ? { track } : {}) } }],
         after: (results) => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }],
       };
     },

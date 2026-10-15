@@ -1,4 +1,5 @@
 import type { CommandResult, Patch, Session, Settings } from "@beacon/model";
+import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
 export type { CommandResult, Session };
@@ -62,6 +63,25 @@ export interface ImportOptions {
   /** A timeline track to put them on, as a drop does (the rest of a recording goes on the tracks above); refused over other media. */
   track?: string;
 }
+
+export interface RecordOptions {
+  /** What to record; by default the main display, the default microphone and the system audio. */
+  sources?: RecorderSources;
+  /** The take's name (its `.brec` folder in the project's `recordings`); by default the date and time. */
+  name?: string;
+  /** Gets the take's camera frames and audio levels while it records, for the app's recording panel. */
+  monitor?: (e: RecorderPreviewEvent) => void;
+}
+
+export interface RecordStatus {
+  recording: boolean;
+  /** The take's folder, the project it imports into, and seconds recorded. */
+  take?: string;
+  project?: ProjectHandle;
+  elapsed?: number;
+}
+
+export type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult };
 
 export interface ImportResult {
   assets: string[];
@@ -179,6 +199,8 @@ export interface BeaconCore {
   missing(h: ProjectHandle): Promise<string[]>;
   /** Points media at a moved file (Locate…), refused unless it is the same kind of media with the same streams and length; one undo step. */
   relink(h: ProjectHandle, assetId: string, path: string): Promise<void>;
+  /** Replace Media…: an imported video, image or audio file swapped for another of the same kind; its clips keep their places, shortened where it ends sooner. Not recordings. One undo step; the new file's analyses start as an import's do. */
+  replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }>;
   /** Bytes on disk of a background analyzer's results across every project (e.g. "proxy": every proxy video). */
   analysisSize(key: string): Promise<number>;
   /** Deletes a background analyzer's results for every project; returns the bytes freed. Preview analyses run again when a project is next shown. */
@@ -201,5 +223,24 @@ export interface BeaconCore {
    * files, not inside a `.cmproj` or `.beproj`, and not existing unless `overwrite`.
    */
   checkOutput(h: ProjectHandle, path: string, opts?: { overwrite?: boolean }): Promise<void>;
+  /** Permissions, displays, cameras and microphones the recorder can use. */
+  recorderDevices(): Promise<RecorderDevices>;
+  /** Asks macOS for the camera or microphone permission; the status after. */
+  recorderAccess(kind: "camera" | "microphone"): Promise<string>;
+  /** The Record dialog's preview of the sources, sent to `fn` until called again; with none, it stops. Only in the app. */
+  recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void): Promise<void>;
+  /** Makes `output` (from `recorderDevices`) the Mac's sound output; the one it replaced. */
+  recorderSetOutput(output: string): Promise<string | undefined>;
+  /** Starts recording a take into the project's `recordings` folder; one take at a time. Resolves once every source is delivering. */
+  recordStart(h: ProjectHandle, opts?: RecordOptions): Promise<{ take: string }>;
+  recordStatus(): Promise<RecordStatus>;
+  /**
+   * A sync check (docs/formats/brec.md): records the screen, system audio, camera and microphone into the cache
+   * while `show` flashes the screen white and beeps, then measures how late the camera is behind the microphone.
+   * Only in the app, which does the flashing.
+   */
+  recordSyncCheck(sources: RecorderSources, show: () => Promise<void>): Promise<SyncResult>;
+  /** Stops the take and imports it into the project it was started for (at the end, or as `opts` says). */
+  recordStop(opts?: ImportOptions): Promise<ImportResult & { take: string; duration: number }>;
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
 }

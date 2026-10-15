@@ -14,10 +14,12 @@ import { NewProjectUi, ProjectName, type ProjectHost } from "./project-name";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
+import { RecordUi, type RecordHost } from "./record";
+import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, SettingsHost, ProjectHost, PreviewHost {
+export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
@@ -39,6 +41,9 @@ export interface Host extends ExportHost, SettingsHost, ProjectHost, PreviewHost
   captureFrame(): void;
   /** The canvas at the playhead as a PNG data URL, at the canvas size (the eyedropper samples it). */
   frameImage(): Promise<string | null>;
+  binFrame(asset: string, time: number): Promise<string | null>;
+  /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
+  analyze(key: string, asset: string): void;
 }
 
 /** Points around the canvas preview, where handles on its edges can still be grabbed. */
@@ -55,6 +60,7 @@ export function App({ host }: { host: Host }) {
   const opened = useView((s) => s.opened);
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
+  const silences = useSilences(host, session, project);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);
@@ -132,7 +138,7 @@ export function App({ host }: { host: Host }) {
           <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
           {project && session && <Transport project={project} session={session} host={host} init={init} />}
         </div>
-        {session?.panels.properties && project && <Properties project={project} session={session} host={host} init={init} />}
+        {session?.panels.properties && project && (reviewOf(session) ? <SilenceReviewPanel project={project} session={session} host={host} found={silences} /> : <Properties project={project} session={session} host={host} init={init} />)}
       </div>
       {project && session ? (
         <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
@@ -148,6 +154,8 @@ export function App({ host }: { host: Host }) {
             menu={host.clipMenu}
             trackMenu={host.trackMenu}
             dropFiles={host.dropFiles}
+            marks={silences?.silences.map((s) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep" }))}
+            markClick={(m) => host.run("silences.flip", { at: m.start })}
           />
         </div>
       ) : (
@@ -162,6 +170,7 @@ export function App({ host }: { host: Host }) {
           for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
         }}
       />
+      <RecordUi host={host} />
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />
@@ -220,7 +229,7 @@ function TopBar({ name, session, host, status, saved, preparing }: { name?: stri
     return () => (window.removeEventListener("keydown", onKey), clearTimeout(timer));
   }, []);
   return (
-    <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20" data-electrobun-drag-region>
+    <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20 electrobun-webkit-app-region-drag" data-titlebar>
       <ProjectName name={name} host={host} />
       {/* Every change is written as it is made, so there is no Save; say so, and say when it fails. */}
       {name && (saved === false ? <span className="text-xs text-danger" title={status}>Not saved</span> : <span className={`text-xs transition-colors ${confirm ? "text-accent" : "text-text-faint"}`} data-saved title="Every change is saved as you make it">{confirm ? "✓ " : ""}Saved automatically</span>)}

@@ -24,8 +24,8 @@ import {
 } from "@beacon/model";
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
-import { drawIcon, type IconName } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
+import { drawIcon, PLAIN_TEXT, type IconName } from "./controls";
+import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -94,7 +94,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
 }
 
 /** Clips are coloured by kind; selection adds an accent border, and brightens audio. */
-const CLIP = { text: () => color("text-bright"), wave: () => color("wave") };
+const CLIP = { text: () => color("text-bright"), wave: () => color("wave"), badge: () => color("clip-badge") };
 const KIND: Record<string, string> = { screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation" };
 
 /**
@@ -130,6 +130,17 @@ interface Props {
   trackMenu: (track: string | null) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
+  /** Spans marked across the tracks while something is reviewed (Remove Silences: red to cut, grey to keep). */
+  marks?: TimelineMark[];
+  /** A click on a mark (not by the playhead): Remove Silences flips it. */
+  markClick?: (mark: TimelineMark) => void;
+}
+
+/** A span over every track, in timeline seconds. */
+export interface TimelineMark {
+  start: number;
+  end: number;
+  tone: "cut" | "keep";
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -183,7 +194,7 @@ function clipLabel(project: Project, clip: Clip, nested: Record<string, string>,
  * The timeline, drawn on a canvas (PLAN §10). Drags draw a ghost and send
  * one command when they end, so each is one undo step.
  */
-export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles }: Props) {
+export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
@@ -202,14 +213,15 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     if (pickedDiamond.current?.anim !== session.animation?.id) pickedDiamond.current = undefined;
   }, [session.animation?.id]);
   const pending = useRef(0);
-  const latest = useRef({ project, session, waveforms, thumbs, dragging });
+  const edge = useRef({ x: 0, raf: 0 });
+  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
   const loaded = useRef(0);
   /** When each clip last had an effect added, for its badge's flash. */
   const flashes = useRef(new Map<string, number>());
   const effectCounts = useRef<Map<string, number> | null>(null);
-  latest.current = { project, session, waveforms, thumbs, dragging };
+  latest.current = { project, session, waveforms, thumbs, dragging, marks };
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
@@ -217,7 +229,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const draw = () => {
     const c = canvas.current;
     if (!c) return;
-    const { project, session, waveforms, thumbs } = latest.current;
+    const { project, session, waveforms, thumbs, marks } = latest.current;
     const tracks = [...project.tracks].reverse();
     const TRACK = session.timeline.trackHeight;
     const fps = rationalToNumber(project.settings.fps);
@@ -329,11 +341,16 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             textX = x0 + 6 + tw + 10;
           }
         }
-        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain before the name says so.
+        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
+        // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.
         if (clip.linkId && cw > 40) {
+          ctx.fillStyle = CLIP.badge();
+          ctx.beginPath();
+          ctx.roundRect(x0 + 4, y + 4, 20, 18, 4);
+          ctx.fill();
           ctx.fillStyle = CLIP.text();
-          drawIcon(ctx, "link-simple-horizontal", textX + 7, audio ? y + 12 : y + ch / 2, 14);
-          textX += 18;
+          drawIcon(ctx, "link-simple-horizontal", x0 + 14, y + 13, 14);
+          textX = Math.max(textX, x0 + 30);
         }
         if (cw > 24) {
           ctx.fillStyle = CLIP.text();
@@ -358,9 +375,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         const cs = ticksToSeconds(clip.start);
         const ce = ticksToSeconds(clip.start + clip.duration);
         if (ce < start || cs > end) continue;
+        // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
+        const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
+        const left = trim?.edge === "start" ? trim.t : cs;
+        const right = trim && trim.edge !== "start" ? trim.t : ce;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x(cs), y, (ce - cs) * pps, ch);
+        ctx.rect(x(left), y, (right - left) * pps, ch);
         ctx.clip();
         const selectedClip = session.selection.includes(clip.id);
         if (clipTypes[clip.type]?.includes("audio")) {
@@ -429,7 +450,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         if (clip.effects.length) {
           const age = flashes.current.get(clip.id);
           const pulse = age === undefined ? undefined : 0.55 + 0.45 * Math.abs(Math.sin(((now - age) / 400) * Math.PI));
-          drawFxBadge(ctx, Math.min(x(ce), w) - 6, y + 4, clip.effects.some((fx) => fx.enabled), pulse);
+          drawFxBadge(ctx, Math.min(x(right), w) - 6, y + 4, clip.effects.some((fx) => fx.enabled), pulse);
         }
         ctx.restore();
       }
@@ -478,10 +499,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.restore();
     });
     // Where a drag would put things.
-    const ghost = (a: number, b: number, i: number, label: string, bad?: boolean) => {
-      const gy = RULER + Math.max(0, i) * TRACK + 3;
-      // Above the top track: the drop makes a new track.
-      if (i < 0) ctx.setLineDash([5, 4]);
+    const ghost = (a: number, b: number, i: number, label: string, bad?: boolean) => ghostRow(a, b, Math.max(0, i), label, i < 0, bad);
+    /** `fresh`: on a track the drop makes, dashed. */
+    const ghostRow = (a: number, b: number, row: number, label: string, fresh: boolean, bad?: boolean) => {
+      const gy = RULER + row * TRACK + 3;
+      if (fresh) ctx.setLineDash([5, 4]);
       ctx.beginPath();
       ctx.roundRect(x(a) + 0.5, gy, Math.max(1, (b - a) * pps - 1.5), TRACK - 6, CLIP_RADIUS);
       ctx.fillStyle = color("clip-ghost");
@@ -519,7 +541,21 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.stroke();
     }
     const media = over?.item.media && mediaHit(over.x, over.y, over.item.media.seconds);
-    if (media) ghost(media.time, media.time + over!.item.media!.seconds, media.row ?? -1, over!.item.label, media.bad);
+    if (media) {
+      const { seconds, layers } = over!.item.media!;
+      const stack = layers?.length ? layers : [{ label: over!.item.label, seconds }];
+      const t = media.time;
+      if (media.row === undefined) {
+        // No track under the pointer: each clip on a new track at the top, the last listed highest.
+        stack.forEach((l, k) => ghostRow(t, t + l.seconds, stack.length - 1 - k, l.label, true));
+      } else {
+        // The first clip on the track under the pointer, the rest on the tracks above it; those past the top make new tracks.
+        const fits = stack.slice(0, media.row + 1);
+        const extra = stack.slice(media.row + 1);
+        fits.forEach((l, k) => ghost(t, t + l.seconds, media.row! - k, l.label, media.bad && k === 0));
+        if (extra.length) ghost(t, t + Math.max(...extra.map((l) => l.seconds)), -1, `New tracks: ${extra.map((l) => l.label).join(", ")}`);
+      }
+    }
     if (d?.kind === "marquee") {
       ctx.setLineDash([4, 3]);
       ctx.strokeStyle = color("text-dim");
@@ -673,6 +709,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, 0, RANGE_TAB, 2);
         ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, RULER - 2, RANGE_TAB, 2);
       }
+    }
+    for (const m of marks ?? []) {
+      const [a, b] = [x(m.start), x(m.end)];
+      if (b < HEADER || a > w) continue;
+      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : "silence-keep");
+      ctx.fillRect(a, RULER, Math.max(1, b - a), h - RULER);
+      ctx.fillRect(a, RULER - 4, Math.max(1, b - a), 4);
     }
     const drag = dragState.current;
     const dragged = drag?.kind === "volume" && drag.at ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === drag.clip) : undefined;
@@ -914,6 +957,33 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const scrub = (clientX: number) => throttled("playhead.set", { time: timeAt(clientX) });
 
+  /** Points into the edge zone a dragged playhead is in where the view can scroll: positive on the right, negative on the left, else 0. */
+  const intoEdge = (clientX: number) => {
+    const r = canvas.current!.getBoundingClientRect();
+    const x = clientX - r.left;
+    if (x > r.width - EDGE_ZONE) return x - (r.width - EDGE_ZONE);
+    return x < HEADER + EDGE_ZONE && latest.current.session.timeline.start > 0 ? x - (HEADER + EDGE_ZONE) : 0;
+  };
+  /** A playhead dragged into an edge takes the view with it a frame at a time, as far as it goes, past the end too. */
+  const follow = (clientX: number) => {
+    cancelAnimationFrame(pending.current);
+    edge.current.x = clientX;
+    if (edge.current.raf) return;
+    const step = () => {
+      edge.current.raf = 0;
+      const over = intoEdge(edge.current.x);
+      const { start, end } = latest.current.session.timeline;
+      if (dragState.current?.kind !== "playhead" || !over) return;
+      const dt = Math.sign(over) * Math.min(40, 2 + Math.abs(over) / 2) * spp();
+      const from = Math.max(0, start + dt);
+      // The playhead first: the view may only reach past the end as far as it.
+      run("playhead.set", { time: over > 0 ? end + dt : from });
+      run("timeline.scroll", { start: from });
+      edge.current.raf = requestAnimationFrame(step);
+    };
+    edge.current.raf = requestAnimationFrame(step);
+  };
+
   const pointer = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -1066,6 +1136,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             }
             return;
           }
+          const t = timeAt(e.clientX);
+          const mark = y >= RULER && markClick ? latest.current.marks?.find((m) => t >= m.start && t <= m.end) : undefined;
+          if (mark) return markClick!(mark);
           capture();
           const arrow = arrowAt(e.clientX, e.clientY);
           if (arrow) {
@@ -1108,7 +1181,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             canvas.current!.style.cursor = onPlayhead || (clip && edgeAt(clip, e.clientX)) ? "ew-resize" : "default";
             return;
           }
-          if (d.kind === "playhead") return scrub(e.clientX);
+          if (d.kind === "playhead") {
+            // Every move, so a pointer back out of the edge stops the scrolling.
+            edge.current.x = e.clientX;
+            return intoEdge(e.clientX) ? follow(e.clientX) : scrub(e.clientX);
+          }
           if (d.kind === "anim") {
             let dt = (x - d.x0) * spp();
             const edges = d.part === "start" ? [d.a + dt] : d.part === "end" ? [d.b + dt] : [d.a + dt, d.b + dt];
@@ -1238,6 +1315,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       />
       {renaming && tracks.some((t) => t.id === renaming) && (
         <input
+          {...PLAIN_TEXT}
           autoFocus
           defaultValue={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
           className="absolute rounded-sm border border-accent bg-well px-1 text-body font-semibold text-text-strong outline-none"

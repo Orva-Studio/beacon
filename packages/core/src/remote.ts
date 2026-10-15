@@ -11,6 +11,9 @@ import type {
   Image,
   ImportOptions,
   ImportResult,
+  RecorderDevices,
+  RecordOptions,
+  RecordStatus,
   Job,
   JobInfo,
   NewProjectOptions,
@@ -158,10 +161,19 @@ export class RemoteCore implements BeaconCore {
   frame = (h: ProjectHandle, time: number, opts?: FrameOptions) => this.#call<Image>("frame", h, time, opts);
   captureFrame = (h: ProjectHandle, time?: number, opts?: { folder?: string }) => this.#call<{ asset: string; path: string }>("captureFrame", h, time, opts);
   sheet = (h: ProjectHandle, opts: SheetOptions) => this.#call<Image & { times: number[] }>("sheet", h, opts);
+  recorderDevices = () => this.#call<RecorderDevices>("recorderDevices");
+  recorderPreview = (): Promise<void> => Promise.reject(new Error("the recorder's preview is only shown in the app"));
+  recorderSetOutput = (): Promise<never> => Promise.reject(new Error("the sound output is set in the app"));
+  recordSyncCheck = (): Promise<never> => Promise.reject(new Error("the sync check runs in the app"));
+  recorderAccess = (kind: "camera" | "microphone") => this.#call<string>("recorderAccess", kind);
+  recordStart = (h: ProjectHandle, opts?: RecordOptions) => this.#call<{ take: string }>("recordStart", h, opts);
+  recordStatus = () => this.#call<RecordStatus>("recordStatus");
+  recordStop = (opts?: ImportOptions) => this.#call<ImportResult & { take: string; duration: number }>("recordStop", opts);
   import = (h: ProjectHandle, files: string[], opts?: ImportOptions) => this.#call<ImportResult>("import", h, files, opts);
   forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);
   missing = (h: ProjectHandle) => this.#call<string[]>("missing", h);
   relink = (h: ProjectHandle, assetId: string, path: string) => this.#call<void>("relink", h, assetId, path);
+  replace = (h: ProjectHandle, assetId: string, path: string) => this.#call<{ jobs: string[] }>("replace", h, assetId, path);
   analysisSize = (key: string) => this.#call<number>("analysisSize", key);
   forgetAll = (key: string) => this.#call<number>("forgetAll", key);
   job = (id: string) => this.#call<JobInfo>("job", id);

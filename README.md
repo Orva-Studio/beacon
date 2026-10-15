@@ -51,7 +51,8 @@ The server's built-in instructions are in `skills/SKILL.md`.
 
 Tests on real media read it from `BEACON_FIXTURES` (default `~/beacon-fixtures`):
 `project.cmproj`, `small.cmproj`, `recording.trec`, `recording-2.trec`,
-`video.mp4`, `video-2.mp4`, `video-3.mp4`, `audio.m4a` and `image.png`. A test
+`video.mp4`, `video-2.mp4`, `video-3.mp4`, `audio.m4a`, `image.png` and
+`take.brec` (a take from `beacon-recorder`). A test
 whose file is missing is skipped.
 
 `scripts/ui-harness/` serves the editor UI to headless Chromium against a real
@@ -72,6 +73,9 @@ names a feature.
 - [`PLAN.md`](PLAN.md): scope, architecture, phases and status
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): what exists today
 - [`docs/formats/`](docs/formats): file formats Beacon reads
+
+## Contributing
+Beacon takes issues, not pull requests: see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 [FSL-1.1-ALv2](LICENSE): free to use, modify and redistribute, but not to

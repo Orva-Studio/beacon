@@ -4,6 +4,9 @@ import { existsSync } from "node:fs";
 import { exportOptions } from "../../packages/ui/src/export-options";
 import keymap from "../../keymaps/default.json";
 
+/** A 16×9 grey JPEG, the camera preview's stand-in. */
+const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
+
 /**
  * Serves the editor's UI to a browser, backed by a LocalCore with the
  * project open, in place of the app's window: for testing the UI offscreen
@@ -35,6 +38,14 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
       if (w) out[id] = w.streams;
     }
     return out;
+  };
+  /** The newest preview frames, pulled by the page as the app's are (`recordFrames`). */
+  const frames: { seq: number; camera?: string; screen?: string; at: Record<string, number> } = { seq: 0, at: {} };
+  let frameWaiters: (() => void)[] = [];
+  const previewFrame = (source: "camera" | "screen", jpeg: string) => {
+    frames[source] = jpeg;
+    frames.at[source] = ++frames.seq;
+    for (const wake of frameWaiters.splice(0)) wake();
   };
   const opened = async () => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev });
 
@@ -126,6 +137,11 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
             });
             ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: "running", progress: 0 } }));
           });
+        else if (msg.type === "analyze") await core.analyze(h, msg.key, msg.asset);
+        else if (msg.type === "binFrame") {
+          const png = await core.assetThumbnail(h, msg.asset, 128, msg.time).catch(() => undefined);
+          result = png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;
+        }
         else if (msg.type === "previewOpen") result = core.assetPreviewInfo(h, msg.asset);
         // No native view here: the preview's controls are recorded, and play/seek move its clock as the app's would.
         else if (msg.type === "previewControl") {
@@ -134,6 +150,33 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         }
         // The harness keeps its one project: these are recorded, as menus are.
         else if (msg.type === "setAppSettings") menus.push(`setAppSettings:${JSON.stringify(msg.settings)}`);
+        // Never records: the sources it was asked for are what a test checks.
+        else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
+        // No devices here: still frames and levels stand in for them.
+        else if (msg.type === "recordPreview") {
+          const { id: _, type: __, ...sources } = msg;
+          menus.push(`recordPreview:${JSON.stringify(sources)}`);
+          for (const source of ["screen", "camera"] as const) if (msg[source]) previewFrame(source, PREVIEW_JPEG);
+          if (msg.microphone || msg.systemAudio)
+            ws.send(JSON.stringify({ type: "recordPreview", data: { ...(msg.microphone ? { microphone: { db: -20, peak: -6 } } : {}), ...(msg.systemAudio ? { systemAudio: { db: -30, peak: -12 } } : {}) } }));
+          result = { ok: true };
+        }
+        else if (msg.type === "stopRecording" || msg.type === "hidePanel") menus.push(msg.type);
+        // The beep the stand-in microphone hears.
+        else if (msg.type === "testBeep") {
+          menus.push(`testBeep>${msg.output}`);
+          ws.send(JSON.stringify({ type: "recordPreview", data: { microphone: { db: -24, peak: -12 } } }));
+        }
+        // No screen to flash here: a fixed measurement stands in.
+        else if (msg.type === "checkSync") {
+          menus.push(`checkSync:${msg.camera}|${msg.microphone}@${msg.display}>${msg.output}`);
+          result = { ok: true, result: { cameraLateMs: 112, flashes: 6, spreadMs: 4 } };
+        }
+        else if (msg.type === "recordFrames") {
+          const after = msg.after as number;
+          if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));
+          result = { seq: frames.seq, ...(["camera", "screen"] as const).reduce((o, k) => (frames.at[k]! > after && frames[k] ? { ...o, [k]: frames[k] } : o), {}) };
+        }
         else if (msg.type === "proxySpace") result = await core.analysisSize("proxy");
         else if (msg.type === "deleteAllProxies") result = await core.forgetAll("proxy").then(() => core.analysisSize("proxy"));
         else if (msg.type === "newProject" || msg.type === "renameProject") {
@@ -153,6 +196,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,
     faults,
+    /** A camera or screen frame (base64 JPEG) for the Record dialog or recording panel to pull. */
+    previewFrame,
     /** A message from the main process, as the app's menus send them (`showClipSpeed`, `rename`...). */
     send(type: string, data: unknown) {
       for (const ws of sockets) ws.send(JSON.stringify({ type, data }));

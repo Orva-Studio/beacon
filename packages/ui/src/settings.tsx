@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { DEFAULT_SETTINGS, type Project } from "@beacon/model";
 import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
-import type { AppSettings, SettingsSheet, SettingsTab } from "./rpc";
+import { syncKey, type AppSettings, type CameraSync, type RecordDevices, type SettingsSheet, type SettingsTab } from "./rpc";
+import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 
-export interface SettingsHost {
+export interface SettingsHost extends SyncCheckHost {
   run(command: string, args?: unknown, label?: string): void;
   setAppSettings(settings: AppSettings): void;
   proxySpace(): Promise<number>;
@@ -22,7 +23,7 @@ const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
  */
-export function SettingsWindow({ app: { tab: opening, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+export function SettingsWindow({ app: { tab: opening, devices, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   const [proxySpace, setProxySpace] = useState<number | "deleting">();
@@ -34,7 +35,7 @@ export function SettingsWindow({ app: { tab: opening, ...app }, project, host }:
   };
   const close = () => replica.settings(undefined);
   const s = project?.settings;
-  const tabs = (["general", "project"] as const).map((t) => (
+  const tabs = (["general", "recording", "project"] as const).map((t) => (
     <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
       {t}
     </button>
@@ -105,6 +106,7 @@ export function SettingsWindow({ app: { tab: opening, ...app }, project, host }:
           </Row>
         </div>
       )}
+      {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
       {tab === "project" &&
         (s ? (
           <CanvasSettings
@@ -138,4 +140,55 @@ export function SettingsUi({ host }: { host: SettingsHost }) {
   const app = useView((v) => v.settings);
   const project = useView((v) => v.project);
   return app ? <SettingsWindow app={app} project={project} host={host} /> : null;
+}
+
+/**
+ * Settings › Recording: a camera and microphone pair's delay, typed or measured by Check Sync, saved for the pair.
+ * It replaces delaying the microphone live: moving the camera earlier keeps the voice in step with the screen too.
+ */
+function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: Partial<AppSettings>) => void; host: SyncCheckHost }) {
+  const [camera, setCamera] = useState(devices?.camera ?? devices?.cameras[0]?.id);
+  const [microphone, setMicrophone] = useState(devices?.microphone ?? devices?.microphones[0]?.id);
+  if (!devices?.cameras.length || !devices.microphones.length) return <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>;
+  const key = syncKey(camera, microphone);
+  const save = (sync: CameraSync) => update({ cameraSync: { ...settings.cameraSync, [key]: sync } });
+  return (
+    <div className="flex flex-col gap-3" data-recording-settings>
+      <Row label="Camera">
+        <Select value={camera} onChange={(e) => setCamera(e.target.value)}>
+          {devices.cameras.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <Row label="Microphone">
+        <Select value={microphone} onChange={(e) => setMicrophone(e.target.value)}>
+          {devices.microphones.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <Row label="Sync" hint="A camera through a capture card shows its picture late. Each take recorded with this pair moves its camera clip earlier by this much, so lips match the voice.">
+        <div className="min-w-0 flex-1">
+          <CameraSyncControl
+            key={key}
+            sync={settings.cameraSync?.[key]}
+            onChange={save}
+            host={host}
+            devices={{
+              camera: devices.cameras.find((c) => c.id === camera) ?? { id: camera!, name: camera! },
+              microphone: devices.microphones.find((m) => m.id === microphone) ?? { id: microphone!, name: microphone! },
+              displays: devices.displays,
+              display: devices.display,
+              outputs: devices.outputs,
+            }}
+          />
+        </div>
+      </Row>
+    </div>
+  );
 }

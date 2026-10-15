@@ -10,6 +10,8 @@ const BUTTON = {
   solid: "rounded-md bg-control px-2.5 py-1 text-text-strong hover:bg-tile-hover disabled:opacity-50 disabled:hover:bg-control",
   /** The one action a sheet is for (Export, Done). */
   primary: "rounded-md bg-accent px-3 py-1 font-semibold text-accent-text hover:brightness-110 disabled:opacity-50 disabled:hover:brightness-100",
+  /** Stopping something under way (a recording). */
+  danger: "rounded-md bg-danger px-3 py-1 font-semibold text-white hover:brightness-110 disabled:opacity-50 disabled:hover:brightness-100",
   /** An icon in a toolbar or the transport. */
   icon: "rounded-md px-2 py-1 text-base hover:bg-control disabled:opacity-35 disabled:hover:bg-transparent",
   /** A small text or × button inside a panel. */
@@ -37,8 +39,11 @@ export function Select({ look = "field", onChange, ...props }: SelectHTMLAttribu
 const FIELD = "rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent disabled:opacity-50";
 
 /** A text or number field in a dialog or panel; `className` only sizes and aligns it. */
+/** For names and values: macOS's text settings would capitalise the first letter and swap in corrections. */
+export const PLAIN_TEXT = { autoCapitalize: "off", autoCorrect: "off" } as const;
+
 export function TextInput({ className = "", ...props }: ComponentProps<"input">) {
-  return <input {...props} className={`${FIELD} ${className}`} />;
+  return <input {...PLAIN_TEXT} {...props} className={`${FIELD} ${className}`} />;
 }
 
 export function TextArea({ className = "", ...props }: ComponentProps<"textarea">) {
@@ -66,8 +71,14 @@ export function RailButton({ active, ...props }: ButtonHTMLAttributes<HTMLButton
 }
 
 /** An item in a tool panel, dragged onto media or clicked. */
-export function ItemTile(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...props} className="cursor-grab rounded-lg bg-tile p-2 text-left text-label text-text-strong hover:bg-tile-hover hover:ring-1 hover:ring-accent/40" />;
+/** A tool panel's item: its picture (an `art-<id>` class from art/art.css) over its name. */
+export function ItemTile({ art, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { art?: string }) {
+  return (
+    <button {...props} className="flex cursor-grab flex-col gap-1.5 rounded-lg bg-tile p-1.5 text-left text-label text-text-strong hover:bg-tile-hover hover:ring-1 hover:ring-accent/40">
+      {art && <span className={`aspect-[3/2] w-full rounded-md bg-groove bg-cover bg-center art-${art}`} data-art={art} />}
+      <span className="px-0.5">{children}</span>
+    </button>
+  );
 }
 
 /** A Media Bin item: a thumbnail over its name, outlined while selected. */

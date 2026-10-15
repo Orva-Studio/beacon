@@ -15,6 +15,7 @@ export const TOOLS: { id: string; label: string; icon: IconName }[] = [
   { id: "visualEffects", label: "Visual Effects", icon: "magic-wand" },
   { id: "audioEffects", label: "Audio Effects", icon: "waveform" },
   { id: "narration", label: "Narration", icon: "microphone" },
+  { id: "ai", label: "AI", icon: "sparkle" },
 ];
 
 export function ToolRail({ session, host }: { session?: Session; host: Host }) {
@@ -32,8 +33,11 @@ export function ToolRail({ session, host }: { session?: Session; host: Host }) {
   );
 }
 
+/** A panel item with its tooltip and its tile's picture (`art/<art>.webp`). */
+type Item = PanelItem & { title: string; art?: string };
+
 /** The Annotations panel: presets of `edit.addAnnotation`, so agents add the same ones. */
-const ANNOTATIONS: (PanelItem & { title: string })[] = (
+const ANNOTATIONS: Item[] = (
   [
     ["Text", "text", "White text with a drop shadow"],
     ["Rectangle", "rectangle", "A black rounded rectangle"],
@@ -41,7 +45,7 @@ const ANNOTATIONS: (PanelItem & { title: string })[] = (
     ["Blur", "blur", "Blur what is inside the box"],
     ["Pixelate", "pixelate", "Pixelate what is inside the box"],
   ] as const
-).map(([label, preset, title]) => ({ label, title, command: "edit.addAnnotation", args: { preset }, traits: [], media: { seconds: 5 } }));
+).map(([label, preset, title]) => ({ label, title, art: preset, command: "edit.addAnnotation", args: { preset }, traits: [], media: { seconds: 5 } }));
 
 /** The default favourites. */
 const FAVORITES = ["Text", "Rectangle", "Spotlight", "round-corners", "crt-monitor", "drop-shadow", "motion-blur"];
@@ -63,16 +67,17 @@ export const ToolPanel = memo(function ToolPanel({
   host: Host;
 }) {
   const label = TOOLS.find((t) => t.id === tool)?.label ?? tool;
-  if (tool === "media") return <MediaBin project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />;
+  if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
+  if (tool === "ai") return <AiPanel host={host} />;
   // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
-  const items: Record<string, (PanelItem & { title: string })[]> = {
+  const items: Record<string, Item[]> = {
     audioEffects: [
-      { label: "Fade In", title: "Fade the audio in from silence over its first second", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
-      { label: "Fade Out", title: "Fade the audio out to silence over its last second", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
+      { label: "Fade In", title: "Fade the audio in from silence over its first second", art: "fade-in", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
+      { label: "Fade Out", title: "Fade the audio out to silence over its last second", art: "fade-out", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
     ],
   };
   const effects = (init?.effects ?? []).filter((e) => !e.traits.every((t) => t === "cursor"));
-  const effect = (e: (typeof effects)[number]) => ({ label: effectName(e.id), title: e.description, command: "edit.addEffect", args: { type: e.id }, traits: e.traits });
+  const effect = (e: (typeof effects)[number]): Item => ({ label: effectName(e.id), title: e.description, art: e.id, command: "edit.addEffect", args: { type: e.id }, traits: e.traits });
   if (tool === "visualEffects") items.visualEffects = effects.map(effect);
   if (tool === "annotations") items.annotations = ANNOTATIONS;
   if (tool === "favorites") items.favorites = [...ANNOTATIONS.filter((a) => FAVORITES.includes(a.label)), ...effects.filter((e) => FAVORITES.includes(e.id)).map(effect)];
@@ -82,7 +87,7 @@ export const ToolPanel = memo(function ToolPanel({
         <div className="mb-3 text-center text-label text-text-faint">Drag onto media, or click to apply to the selection</div>
         <div className="grid grid-cols-2 gap-2">
           {items[tool]!.map((it) => (
-            <ItemTile key={it.label} title={`${it.title}. Drag it onto media, or click to apply it to the selection`} onPointerDown={(e) => pressItem(e, it, (command, args) => host.run(command, args))}>
+            <ItemTile key={it.label} art={it.art} title={`${it.title}. Drag it onto media, or click to apply it to the selection`} onPointerDown={(e) => pressItem(e, it, (command, args) => host.run(command, args))}>
               {it.label}
             </ItemTile>
           ))}
@@ -96,6 +101,24 @@ export const ToolPanel = memo(function ToolPanel({
     </Panel>
   );
 });
+
+/** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
+function AiPanel({ host }: { host: Host }) {
+  const review = () => {
+    host.run("silences.review", {});
+    host.run("panel.show", { properties: true });
+  };
+  return (
+    <Panel title="AI">
+      <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
+      <div className="grid grid-cols-2 gap-2">
+        <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={review} data-ai="silences">
+          Remove Silences
+        </ItemTile>
+      </div>
+    </Panel>
+  );
+}
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (

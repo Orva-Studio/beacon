@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { DEFAULT_SETTINGS } from "@beacon/model";
 import { CanvasSettings, type CanvasValues } from "./canvas-settings";
-import { Button, Modal, SettingsRow, TextInput } from "./controls";
+import { Button, Modal, PLAIN_TEXT, SettingsRow, TextInput } from "./controls";
 import { replica, useView } from "./store";
 
 export interface ProjectHost {
@@ -78,6 +78,7 @@ export function ProjectName({ name, host }: { name?: string; host: ProjectHost }
   };
   return (
     <input
+      {...PLAIN_TEXT}
       autoFocus
       className="w-56 rounded-sm border border-accent bg-well px-1 font-medium text-text-strong outline-none"
       defaultValue={name}
