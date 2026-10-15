@@ -157,22 +157,31 @@ pub struct VideoDecoder {
     /// Decode H.264/HEVC natively through VideoToolbox (the preview): seeks ~4× faster at a hundredth
     /// of the CPU, with frames identical to FFmpeg's (beacon-decode's matches_ffmpeg test).
     pub native: bool,
+    /// Hand natively decoded NV12 frames over in their IOSurfaces, for the renderer to convert on the GPU.
+    pub surfaces: bool,
     pipe: Option<Pipe>,
     worker: Option<Worker>,
     /// Index of the next frame the pipe will deliver.
     next: usize,
-    /// Index of the frame in `buf`.
+    /// Index of the frame in `frame`.
     current: Option<usize>,
-    buf: Vec<u8>,
+    frame: Frame,
     /// The first frame ffmpeg failed to deliver (a truncated or damaged file):
     /// later frames show the last good one instead of restarting ffmpeg for
     /// every frame.
     pub broken_at: Option<usize>,
 }
 
+/// A decoded frame: still in its IOSurface for the GPU to convert (VideoToolbox's NV12), or RGBA at the decode
+/// size, converted on the CPU (tscc2, ProRes, 10-bit, or when the renderer can't take surfaces).
+pub enum Frame {
+    Rgba(Vec<u8>),
+    Surface(beacon_decode::Surface, beacon_decode::Matrix),
+}
+
 /// Frames from the decoding thread, starting at the frame asked for.
 struct Pipe {
-    frames: Receiver<std::result::Result<Vec<u8>, String>>,
+    frames: Receiver<std::result::Result<Frame, String>>,
 }
 
 /// Where the decoding thread should start, and where its frames go.
@@ -180,7 +189,7 @@ struct Start {
     time: f64,
     width: u32,
     height: u32,
-    frames: SyncSender<std::result::Result<Vec<u8>, String>>,
+    frames: SyncSender<std::result::Result<Frame, String>>,
 }
 
 /// A thread owning one in-process decoder, opened once and kept open across
@@ -196,7 +205,7 @@ const KEEP_BYTES: usize = 256 << 20;
 const KEEP_BEFORE: f64 = 0.5;
 
 impl Worker {
-    fn spawn(path: String, stream: u32, hardware: bool, native: bool) -> Self {
+    fn spawn(path: String, stream: u32, hardware: bool, native: bool, surfaces: bool) -> Self {
         let (starts, rx) = channel::<Start>();
         std::thread::Builder::new()
             .name("beacon-decode".into())
@@ -226,12 +235,18 @@ impl Worker {
                         },
                     };
                     let convert = |d: &mut beacon_decode::Decoder, k: Option<&beacon_decode::Kept>| {
+                        if surfaces && let Some(surface) = match k {
+                            Some(k) => d.surface_of(k),
+                            None => d.surface(),
+                        } {
+                            return Ok(Frame::Surface(surface, d.matrix()));
+                        }
                         let mut frame = vec![0u8; start.width as usize * start.height as usize * 4];
                         match k {
                             Some(k) => d.rgba_of(k, &mut frame, start.width, start.height),
                             None => d.rgba(&mut frame, start.width, start.height),
                         }
-                        .map(|_| frame)
+                        .map(|_| Frame::Rgba(frame))
                         .map_err(|e| e.0)
                     };
                     let held = kept.front().is_some_and(|(p, _)| *p <= start.time) && kept.back().is_some_and(|(p, _)| *p >= start.time);
@@ -333,11 +348,12 @@ impl VideoDecoder {
             proxy: false,
             hardware: true,
             native: false,
+            surfaces: false,
             pipe: None,
             worker: None,
             next: 0,
             current: None,
-            buf: Vec::new(),
+            frame: Frame::Rgba(Vec::new()),
             broken_at: None,
         })
     }
@@ -376,7 +392,7 @@ impl VideoDecoder {
         while self.next <= i {
             let frame = self.pipe.as_ref().unwrap().frames.recv();
             match frame {
-                Ok(Ok(data)) => self.buf = data,
+                Ok(Ok(frame)) => self.frame = frame,
                 Ok(Err(e)) => {
                     self.broken_at = Some(self.next);
                     self.pipe = None;
@@ -398,7 +414,7 @@ impl VideoDecoder {
         self.pipe = None;
         let hardware = self.hardware && matches!(self.index.codec.as_deref(), Some("h264" | "hevc" | "prores"));
         let native = self.native && hardware;
-        let worker = self.worker.get_or_insert_with(|| Worker::spawn(self.path.clone(), self.stream, hardware, native));
+        let worker = self.worker.get_or_insert_with(|| Worker::spawn(self.path.clone(), self.stream, hardware, native, native && self.surfaces));
         let (tx, rx) = sync_channel(READ_AHEAD);
         // Frames presented before frame `i` are dropped, so the run starts exactly at it.
         let start = Start { time: self.index.pts[i] - 0.0005, width: self.width, height: self.height, frames: tx };
@@ -413,8 +429,8 @@ impl VideoDecoder {
         self.current.is_some()
     }
 
-    pub fn pixels(&self) -> &[u8] {
-        &self.buf
+    pub fn frame(&self) -> &Frame {
+        &self.frame
     }
 }
 

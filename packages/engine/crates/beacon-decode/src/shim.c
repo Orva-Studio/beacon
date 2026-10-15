@@ -144,8 +144,10 @@ static int vt_open(otd *d, AVCodecParameters *par) {
   int32_t pixels = deep ? (full ? kCVPixelFormatType_420YpCbCr10BiPlanarFullRange : kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange)
                         : (full ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
   CFNumberRef pixels_num = CFNumberCreate(NULL, kCFNumberSInt32Type, &pixels);
-  const void *dest_key = kCVPixelBufferPixelFormatTypeKey;
-  CFDictionaryRef dest = CFDictionaryCreate(NULL, &dest_key, (const void **)&pixels_num, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  // Metal compatible (IOSurface backed), so the renderer can sample the planes where they are (otd_surface).
+  const void *dest_keys[] = {kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferMetalCompatibilityKey};
+  const void *dest_values[] = {pixels_num, kCFBooleanTrue};
+  CFDictionaryRef dest = CFDictionaryCreate(NULL, dest_keys, dest_values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
   VTDecompressionOutputCallbackRecord cb = {vt_output, d};
   s = VTDecompressionSessionCreate(NULL, d->vt_format, spec, dest, &cb, &d->vt);
   CFRelease(dest);
@@ -469,6 +471,23 @@ AVFrame *otd_keep(otd *d, size_t *bytes) {
   int n = f ? av_image_get_buffer_size(fmt, f->width, f->height, 1) : 0;
   *bytes = n > 0 ? (size_t)n : 0;
   return f;
+}
+
+// `f`'s (or, NULL, the last frame's) pixel buffer, retained, when VideoToolbox decoded it natively as 8-bit
+// NV12; NULL otherwise (those frames go through otd_rgba_of).
+CVPixelBufferRef otd_surface(otd *d, AVFrame *f) {
+  if (!f) f = d->frame;
+  if (f->format != AV_PIX_FMT_VIDEOTOOLBOX || f->hw_frames_ctx || !f->data[3]) return NULL;
+  CVPixelBufferRef buf = (CVPixelBufferRef)f->data[3];
+  OSType type = CVPixelBufferGetPixelFormatType(buf);
+  if (type != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange && type != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) return NULL;
+  if (!CVPixelBufferGetIOSurface(buf)) return NULL;
+  return CVPixelBufferRetain(buf);
+}
+
+// The matrix a frame's YCbCr is converted with, as swscale reads the stream (otd_rgba_of): AVColorSpace.
+int otd_color_space(otd *d) {
+  return d->fmt->streams[d->stream]->codecpar->color_space;
 }
 
 void otd_drop(AVFrame *f) {

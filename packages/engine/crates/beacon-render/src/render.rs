@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
 
 use crate::scene::{Affine, Backdrop, Content, Job, Layer, PassUse, Scene, Source, Visual};
-use crate::sources::{self, VideoDecoder};
+use crate::sources::{self, Frame, VideoDecoder};
 use crate::{Error, Result};
 
 pub(crate) const FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -68,6 +68,11 @@ pub struct Renderer {
     comp_pipe: wgpu::RenderPipeline,
     mip_pipe: wgpu::RenderPipeline,
     mask_pipe: wgpu::RenderPipeline,
+    yuv_bgl: wgpu::BindGroupLayout,
+    yuv_pipe: wgpu::RenderPipeline,
+    /// Where VideoToolbox's frames become textures without a copy; None: every frame is converted on the CPU
+    /// (`BEACON_DECODE_FFMPEG` or `BEACON_NO_ZERO_COPY`).
+    surfaces: Option<crate::surface::TextureCache>,
     passes: HashMap<String, Vec<wgpu::RenderPipeline>>,
     sources: HashMap<String, Source>,
     /// Keyed by source id and its occurrence in the scene, so one recording
@@ -211,6 +216,15 @@ impl Renderer {
         let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", Some(over));
         let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", None);
         let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", Some(over));
+        let yuv_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("yuv"),
+            entries: &[uniform(0), texture(1), texture(2), sampler_entry(3)],
+        });
+        let yuv = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("yuv"), source: wgpu::ShaderSource::Wgsl(include_str!("yuv.wgsl").into()) });
+        let yuv_pipe = pipeline(&device, &yuv, &yuv_bgl, "vs", "fs", None);
+        let surfaces = (std::env::var_os("BEACON_DECODE_FFMPEG").is_none() && std::env::var_os("BEACON_NO_ZERO_COPY").is_none())
+            .then(|| crate::surface::TextureCache::new(&device))
+            .flatten();
 
         let mut passes = HashMap::new();
         for (id, def) in &job.passes {
@@ -244,6 +258,9 @@ impl Renderer {
             comp_pipe,
             mip_pipe,
             mask_pipe,
+            yuv_bgl,
+            yuv_pipe,
+            surfaces,
             passes,
             sources: job.sources.clone(),
             textures: HashMap::new(),
@@ -424,7 +441,7 @@ impl Renderer {
             if changed {
                 let t = std::time::Instant::now();
                 let st = &self.textures[&key];
-                self.upload(st, st.decoder.as_ref().unwrap().pixels(), enc);
+                self.upload_frame(st, st.decoder.as_ref().unwrap().frame(), enc)?;
                 self.profile.upload += t.elapsed().as_secs_f64();
             }
         }
@@ -489,6 +506,7 @@ impl Renderer {
         };
         d.scale = factor;
         d.native = self.native_decode;
+        d.surfaces = self.surfaces.is_some();
         Ok(d)
     }
 
@@ -523,6 +541,45 @@ impl Renderer {
         Ok(())
     }
 
+    fn upload_frame(&self, st: &SourceTex, frame: &Frame, enc: &mut wgpu::CommandEncoder) -> Result<()> {
+        match frame {
+            Frame::Rgba(data) => {
+                self.upload(st, data, enc);
+                Ok(())
+            }
+            Frame::Surface(surface, matrix) => {
+                let cache = self.surfaces.as_ref().ok_or_else(|| Error::Source("a video frame came as a surface, which this renderer can't take".into()))?;
+                let (y, uv) = cache.planes(&self.device, surface.clone()).ok_or_else(|| Error::Source("CoreVideo couldn't make textures of a video frame".into()))?;
+                let (kr, kb) = match matrix {
+                    beacon_decode::Matrix::Bt601 => (0.299, 0.114),
+                    beacon_decode::Matrix::Bt709 => (0.2126, 0.0722),
+                    beacon_decode::Matrix::Bt2020 => (0.2627, 0.0593),
+                };
+                let (w, h) = (st.width as f32, st.height as f32);
+                let size = |t: &wgpu::Texture| (t.width() as f32, t.height() as f32);
+                let ((yw, yh), (cw, ch)) = (size(&y), size(&uv));
+                let u: [f32; 12] = [yw, yh, yw / w, yh / h, cw, ch, cw / w, ch / h, kr, kb, if surface.full_range { 1.0 } else { 0.0 }, 0.0];
+                let buf = self.uniform(bytemuck::cast_slice(&u));
+                let view = |t: &wgpu::Texture| t.create_view(&Default::default());
+                let (yv, uvv) = (view(&y), view(&uv));
+                let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("yuv"),
+                    layout: &self.yuv_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&yv) },
+                        wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&uvv) },
+                        wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    ],
+                });
+                let dst = st.tex.create_view(&wgpu::TextureViewDescriptor { base_mip_level: 0, mip_level_count: Some(1), ..Default::default() });
+                run_fullscreen(enc, &dst, None, &self.yuv_pipe, &bg);
+                self.mips(st, enc);
+                Ok(())
+            }
+        }
+    }
+
     fn upload(&self, st: &SourceTex, data: &[u8], enc: &mut wgpu::CommandEncoder) {
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo { texture: &st.tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
@@ -530,6 +587,10 @@ impl Renderer {
             wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(st.width * 4), rows_per_image: Some(st.height) },
             wgpu::Extent3d { width: st.width, height: st.height, depth_or_array_layers: 1 },
         );
+        self.mips(st, enc);
+    }
+
+    fn mips(&self, st: &SourceTex, enc: &mut wgpu::CommandEncoder) {
         for level in 1..st.tex.mip_level_count() {
             let view = |l| st.tex.create_view(&wgpu::TextureViewDescriptor { base_mip_level: l, mip_level_count: Some(1), ..Default::default() });
             let (src, dst) = (view(level - 1), view(level));

@@ -30,6 +30,58 @@ unsafe extern "C" {
     fn otd_rgba_of(d: *mut c_void, f: *mut c_void, out: *mut u8, width: c_int, height: c_int, stride: c_int) -> c_int;
     fn otd_keep(d: *mut c_void, bytes: *mut usize) -> *mut c_void;
     fn otd_drop(f: *mut c_void);
+    fn otd_surface(d: *mut c_void, f: *mut c_void) -> *mut c_void;
+    fn otd_color_space(d: *mut c_void) -> c_int;
+    fn CVPixelBufferRelease(buf: *mut c_void);
+    fn CVPixelBufferRetain(buf: *mut c_void) -> *mut c_void;
+    fn CVPixelBufferIsPlanar(buf: *mut c_void) -> u8;
+    fn CVPixelBufferGetPixelFormatType(buf: *mut c_void) -> u32;
+}
+
+/// A frame VideoToolbox decoded, still in its IOSurface: 8-bit NV12, sampled by the GPU where it is.
+pub struct Surface {
+    raw: *mut c_void,
+    /// Full range ("420f") rather than video range ("420v").
+    pub full_range: bool,
+}
+
+// A retained CVPixelBuffer; CoreVideo's retain counts are thread safe.
+unsafe impl Send for Surface {}
+
+impl Surface {
+    fn wrap(raw: *mut c_void) -> Option<Self> {
+        if raw.is_null() {
+            return None;
+        }
+        debug_assert!(unsafe { CVPixelBufferIsPlanar(raw) } != 0);
+        // 'f' ends kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ('420f').
+        Some(Self { raw, full_range: unsafe { CVPixelBufferGetPixelFormatType(raw) } & 0xff == b'f' as u32 })
+    }
+
+    /// The CVPixelBufferRef, valid while this lives.
+    pub fn as_ptr(&self) -> *mut c_void {
+        self.raw
+    }
+}
+
+impl Clone for Surface {
+    fn clone(&self) -> Self {
+        Self { raw: unsafe { CVPixelBufferRetain(self.raw) }, full_range: self.full_range }
+    }
+}
+
+impl Drop for Surface {
+    fn drop(&mut self) {
+        unsafe { CVPixelBufferRelease(self.raw) };
+    }
+}
+
+/// How YCbCr becomes RGB, from the stream's tags as swscale reads them (untagged: BT.601).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Matrix {
+    Bt601,
+    Bt709,
+    Bt2020,
 }
 
 /// A decoded frame kept for later (a reference: no pixels are copied).
@@ -132,6 +184,25 @@ impl Decoder {
 }
 
 impl Decoder {
+    /// The last frame in its IOSurface, when VideoToolbox decoded it natively as NV12; else use `rgba`.
+    pub fn surface(&mut self) -> Option<Surface> {
+        Surface::wrap(unsafe { otd_surface(self.raw, std::ptr::null_mut()) })
+    }
+
+    /// A kept frame in its IOSurface, as `surface`.
+    pub fn surface_of(&mut self, kept: &Kept) -> Option<Surface> {
+        Surface::wrap(unsafe { otd_surface(self.raw, kept.raw) })
+    }
+
+    pub fn matrix(&self) -> Matrix {
+        // AVCOL_SPC_BT709 = 1, AVCOL_SPC_BT2020_NCL = 9, AVCOL_SPC_BT2020_CL = 10.
+        match unsafe { otd_color_space(self.raw) } {
+            1 => Matrix::Bt709,
+            9 | 10 => Matrix::Bt2020,
+            _ => Matrix::Bt601,
+        }
+    }
+
     /// Keeps the last decoded frame.
     pub fn keep(&mut self) -> Option<Kept> {
         let mut bytes = 0;

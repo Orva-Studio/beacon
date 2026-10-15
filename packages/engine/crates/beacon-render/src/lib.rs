@@ -8,6 +8,8 @@ mod render;
 pub mod scene;
 pub mod sources;
 #[cfg(target_os = "macos")]
+mod surface;
+#[cfg(target_os = "macos")]
 pub mod text;
 
 pub use preview::{Mark, Placement, Preview};
