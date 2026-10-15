@@ -58,6 +58,8 @@ const RunFlags = { dryRun: z.boolean().optional().describe("Return the change wi
 export interface ServerOptions {
   /** The open app's core for a project it holds, so edits go live; local otherwise. */
   appCore?: (project: string) => Promise<BeaconCore | undefined>;
+  /** The projects open in running Beacon apps (`project_open` without a path). */
+  appProjects?: () => Promise<string[]>;
 }
 
 /**
@@ -69,7 +71,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   let core = local;
   let current: ProjectHandle | undefined;
   const project = () => {
-    if (!current) throw new Error("no project open: call project_create or project_open first");
+    if (!current) throw new Error("no project open: call project_open (with no path, it connects to the project open in the Beacon app) or project_create first");
     return current;
   };
 
@@ -121,12 +123,18 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       return text(`created ${h}\n\n${await core.summary(h)}`);
     },
   });
+  const appProject = async () => {
+    const open = (await opts.appProjects?.()) ?? [];
+    if (open.length === 1) return open[0]!;
+    if (!open.length) throw new Error("the Beacon app isn't running or has no project open: give project_open a path");
+    throw new Error(`Beacon apps have ${open.length} projects open; give project_open one of their paths: ${open.join(", ")}`);
+  };
   add("project_open", {
     description:
-      "Open an existing .beproj project as the session's project. If the Beacon app has it open, the session connects to the app: edits appear on its timeline live and share its undo history",
-    schema: z.strictObject({ path: z.string() }),
+      "Open an existing .beproj project as the session's project. If the Beacon app has it open, the session connects to the app: edits appear on its timeline live and share its undo history. Without `path`, the project open in the Beacon app",
+    schema: z.strictObject({ path: z.string().optional().describe("A .beproj folder; omitted: the one open in the Beacon app") }),
     async run({ path }) {
-      const p = expandHome(path);
+      const p = path ? expandHome(path) : await appProject();
       const app = await opts.appCore?.(p);
       const next = app ?? local;
       const h = await next.open(p);

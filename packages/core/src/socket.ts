@@ -35,6 +35,18 @@ function removeStaleSockets(dir: string) {
   }
 }
 
+/** The running apps' sockets: `BEACON_SOCKET` when set (tests), else every live one in the app's folder. */
+export function appSockets(): string[] {
+  if (process.env.BEACON_SOCKET) return existsSync(process.env.BEACON_SOCKET) ? [process.env.BEACON_SOCKET] : [];
+  if (!existsSync(SOCKET_DIR)) return [];
+  return readdirSync(SOCKET_DIR)
+    .filter((name) => {
+      const pid = Number(name.match(/^app-(\d+)\.sock$/)?.[1]);
+      return pid && pid !== process.pid && alive(pid);
+    })
+    .map((name) => join(SOCKET_DIR, name));
+}
+
 export const PROTOCOL_VERSION = 1;
 
 /** Methods a client may call; `close` only detaches the client, the project stays open in the app. */
@@ -122,9 +134,9 @@ export interface CoreServer {
 
 /**
  * Serves a core (the app's own) on a unix socket only this user can reach.
- * `canOpen` decides which project paths a client may attach to.
+ * `canOpen` decides which project paths a client may attach to; `projects` lists them, for `hello`.
  */
-export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (path: string) => boolean } = {}): CoreServer {
+export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (path: string) => boolean; projects?: () => string[] } = {}): CoreServer {
   const path = opts.path ?? DEFAULT_SOCKET;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   removeStaleSockets(dirname(path));
@@ -145,7 +157,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
       if (!(METHODS as readonly string[]).includes(req.method)) throw new Error(`unknown method "${req.method}"`);
       const method = req.method as Method;
       let result: unknown;
-      if (method === "hello") result = { protocol: PROTOCOL_VERSION, pid: process.pid };
+      if (method === "hello") result = { protocol: PROTOCOL_VERSION, pid: process.pid, projects: opts.projects?.() ?? [] };
       else if (method === "open") {
         const p = String(params[0]);
         if (opts.canOpen && !opts.canOpen(p)) throw new Error(`${p} is not open in the app`);
