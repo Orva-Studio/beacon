@@ -27,7 +27,8 @@
     "build:mcp": "bun scripts/bundle-tools.ts --mcp dist",
     "mcp": "bun packages/mcp/src/main.ts",
     "app": "bun run build && bun run --cwd packages/desktop dev",
-    "release": "bun run scripts/release.ts"
+    "release": "bun run scripts/release.ts",
+    "icon": "bun scripts/icon.ts"
   },
   "dependencies": {
     "@beacon/camtasia": "workspace:*",
@@ -39,6 +40,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@resvg/resvg-js": "2.6.2",
     "@types/bun": "1.4.2",
     "typescript": "7.0.2"
   }
