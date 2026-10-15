@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { cp, readdir, stat } from "node:fs/promises";
 import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
@@ -63,6 +63,7 @@ import type {
   Snapshot,
   TransactionStep,
 } from "./api";
+import { copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
 
 export interface LocalCoreOptions {
@@ -73,6 +74,8 @@ export interface LocalCoreOptions {
   cacheDir?: string;
   /** The app's automation socket, recorded in each project's lock so agents connect to it. */
   socket?: string;
+  /** Shows a file in Finder; the app passes its own. */
+  reveal?: (path: string) => void;
 }
 
 interface OpenProject {
@@ -166,6 +169,7 @@ export class LocalCore implements BeaconCore {
   readonly cacheDir: string;
   readonly #autosave: boolean;
   readonly #socket?: string;
+  readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
   readonly #jobs = new Map<string, JobEntry>();
   /** The last copies in any project, so they paste into the next one opened. */
@@ -176,6 +180,7 @@ export class LocalCore implements BeaconCore {
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
+    this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["open", "-R", path]));
   }
 
   #get(h: ProjectHandle): OpenProject {
@@ -242,11 +247,45 @@ export class LocalCore implements BeaconCore {
     } else {
       doc = createProject(this.registry, opts.settings);
     }
+    if (opts.standalone) {
+      doc = { ...doc, settings: { ...doc.settings, standalone: true } };
+      const moved = await this.#copyIn(dir, Object.values(doc.assets));
+      doc = { ...doc, assets: { ...doc.assets, ...Object.fromEntries(moved.map((a) => [a.id, a])) } };
+    }
     writeProject(dir, doc);
     return this.#attach(dir, doc);
   }
 
   readonly #importReports = new Map<string, string[]>();
+
+  /**
+   * Copies media from outside the project folder into its `media` folder: the assets as they will be, each with
+   * its copy's path and the results (transcripts) its original had. Missing files are left as they are.
+   */
+  async #copyIn(dir: string, assets: Asset[]): Promise<Asset[]> {
+    const outside = assets.filter((a) => !isInside(dir, a.path) && existsSync(a.path));
+    if (!outside.length) return [];
+    const copies = await copyIntoProject(dir, outside.map((a) => a.path));
+    const data = new DerivedData(this.registry, this.cacheDir, () => ({ assets: {} }) as unknown as Project);
+    return outside.map((a) => {
+      const path = copies.get(a.path)!;
+      const copy = { ...a, path, fingerprint: fileFingerprint(path) };
+      data.carry(a, copy);
+      return copy;
+    });
+  }
+
+  /** Standalone on: what is outside the project is copied in, and the project points at the copies, as one undo step. */
+  async #makeStandalone(p: OpenProject, args: unknown, opts: RunOptions): Promise<CommandResult> {
+    const assets = Object.values(p.store.doc.assets);
+    const moved = await this.#copyIn(p.path, assets);
+    const missing = assets.filter((a) => !isInside(p.path, a.path) && !existsSync(a.path));
+    const r = this.#saved(p, p.store.transaction(opts.label ?? "Make Project Standalone", (tx) => {
+      tx.run("project.settings.set", args);
+      for (const a of moved) tx.run("asset.relink", { asset: a.id, path: a.path, fingerprint: a.fingerprint });
+    }));
+    return missing.length ? { ...r, diff: [...r.diff, `(${missing.length} missing file(s) stay where they were: ${missing.map((a) => basename(a.path)).join(", ")})`] } : r;
+  }
 
   /** What a project made from a Camtasia project (`create` with `cmproj`) left out or changed, line by line. */
   importReport(h: ProjectHandle): string[] {
@@ -257,6 +296,36 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     writeProject(p.path, p.store.doc);
     this.#emit(p, { kind: "saved", path: p.path });
+  }
+
+  async saveAs(h: ProjectHandle, path: string, opts: { standalone?: boolean } = {}): Promise<string> {
+    const p = this.#get(h);
+    const to = resolve(path);
+    if (extname(to) !== ".beproj") throw new Error("project folders end in .beproj");
+    if (existsSync(to)) throw new Error(`${basename(to)} already exists`);
+    if (isInside(p.path, to)) throw new Error("a project can't be saved inside itself");
+    const doc = p.store.doc;
+    const standalone = opts.standalone ?? !!doc.settings.standalone;
+    // Its own folders come whole (takes, snapshots, and anything else kept there), but not its lock or a save in progress.
+    await cp(p.path, to, { recursive: true, preserveTimestamps: true, errorOnExist: true, force: false, filter: (src) => dirname(src) !== p.path || !/^(lock|\.project\.json\..*\.tmp)$/.test(basename(src)) });
+    const assets = Object.values(doc.assets);
+    const inside = assets.filter((a) => isInside(p.path, a.path)).map((a) => {
+      const copy = { ...a, path: to + a.path.slice(p.path.length) };
+      p.data.carry(a, copy);
+      return copy;
+    });
+    const outside = standalone ? await this.#copyIn(to, assets) : [];
+    const { standalone: _, ...settings } = doc.settings;
+    writeProject(to, {
+      ...doc,
+      settings: standalone ? { ...settings, standalone: true } : settings,
+      assets: { ...doc.assets, ...Object.fromEntries([...inside, ...outside].map((a) => [a.id, a])) },
+    });
+    return to;
+  }
+
+  async reveal(h: ProjectHandle): Promise<void> {
+    this.#reveal(this.#get(h).path);
   }
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
@@ -328,6 +397,9 @@ export class LocalCore implements BeaconCore {
   async run(h: ProjectHandle, command: string, args: unknown, opts: RunOptions = {}): Promise<CommandResult> {
     const p = this.#get(h);
     if (p.session.has(command)) return this.#runSession(p, command, args, opts);
+    if (command === "project.settings.set" && (args as { standalone?: unknown } | null)?.standalone === true && !p.store.doc.settings.standalone && !opts.dryRun) {
+      return this.#makeStandalone(p, args, opts);
+    }
     const action = this.registry.actions.get(command);
     if (action) return this.#runAction(p, action, args, opts);
     if (opts.coalesce && !opts.dryRun) {
@@ -392,6 +464,9 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     const editor = steps.find((s) => p.session.has(s.command));
     if (editor) throw new Error(`${editor.command} changes the editor, not the project; run it on its own, outside a transaction`);
+    if (steps.some((s) => s.command === "project.settings.set" && (s.args as { standalone?: unknown } | null)?.standalone === true)) {
+      throw new Error("standalone copies media into the project: run project.settings.set on its own, outside a transaction");
+    }
     return this.#saved(p, p.store.transaction(label, (tx) => {
       for (const s of steps) tx.run(s.command, s.args ?? {});
     }, opts));
@@ -829,14 +904,21 @@ export class LocalCore implements BeaconCore {
     }
     let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
     const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
-    this.#saved(p, p.store.transaction(label, (tx) => {
-      for (const { importer, asset } of probed) {
-        const id = tx.run<string>("asset.add", asset);
-        result.assets.push(id);
-        result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
-        at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
-      }
-    }));
+    const copies = p.store.doc.settings.standalone ? await this.#copyIn(p.path, probed.map(({ asset }, i) => ({ id: String(i), ...asset }))) : [];
+    for (const { id, path, fingerprint } of copies) Object.assign(probed[Number(id)]!.asset, { path, fingerprint });
+    try {
+      this.#saved(p, p.store.transaction(label, (tx) => {
+        for (const { importer, asset } of probed) {
+          const id = tx.run<string>("asset.add", asset);
+          result.assets.push(id);
+          result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
+          at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
+        }
+      }));
+    } catch (e) {
+      for (const c of copies) rmSync(c.path, { recursive: true, force: true });
+      throw e;
+    }
     // The app's view needs proxies and waveforms of new media as well.
     if (p.view) this.#previewJobs(p);
     for (const id of result.assets) {

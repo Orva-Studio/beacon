@@ -43,6 +43,8 @@ export const METHODS = [
   "open",
   "close",
   "save",
+  "saveAs",
+  "reveal",
   "run",
   "transaction",
   "undo",

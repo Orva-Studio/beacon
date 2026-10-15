@@ -370,8 +370,9 @@ Derived data (proxies, waveforms, thumbnails, transcripts) is cached
 globally in `~/Library/Caches/Beacon/derived`, not in the bundle
 (decided in Phase 3). Autosave snapshots (`history/`) aren't built: every
 change is saved as it is made.
-Media is referenced by absolute path plus a content fingerprint so moved files
-can be relinked. Saves are atomic (write temp → fsync → rename). A lock file
+Media is referenced by path plus a content fingerprint so moved files can be
+relinked: files inside the project folder (`recordings/`, `media/`) relative to
+it, others absolute (schema 2). Standalone projects copy imports into `media/`. Saves are atomic (write temp → fsync → rename). A lock file
 prevents two writers; the MCP server talks to the app instead when it is open.
 
 ### Migrations
@@ -1101,7 +1102,11 @@ media until relinked (renaming from the title bar rewrites the paths).
 3. **File › Save As…**: a copy under a new name, then opened; its recordings
    come with it, and outside media too when standalone.
 4. **File › Show in Finder** for the project.
-Agents get each as a command. Then Phase 7.
+Agents get each as a command. Then Phase 6.5.
+**Done 2026-10-15** (`phase-6.5`): schema 2 stores media inside the project
+relative to it; standalone is `project.settings.set { standalone }` (it
+copies, as clones on APFS, keeping file times so fingerprints match and
+transcripts carry over); `project_saveAs` and `project_reveal` for agents.
 
 ### Phase 6.5 — A self-contained app (decided 2026-10-12)
 One downloadable, signed `.app` that works on a Mac with nothing installed:

@@ -13,6 +13,8 @@ export interface NewProjectOptions {
   settings?: Partial<Settings>;
   /** Start from a Camtasia project (read only; never written). */
   cmproj?: string;
+  /** A standalone project: media is copied into its `media` folder as it is imported (a Camtasia project's too). */
+  standalone?: boolean;
 }
 
 export interface FrameOptions {
@@ -172,6 +174,14 @@ export interface BeaconCore {
   open(path: string): Promise<ProjectHandle>;
   create(opts: NewProjectOptions): Promise<ProjectHandle>;
   save(h: ProjectHandle): Promise<void>;
+  /**
+   * Save As: a copy of the project as it is now at `path` (a new `.beproj` folder), with the recordings and media
+   * kept inside it; standalone (by default, as the project is), media from outside is copied into its `media`
+   * folder too. The project stays open as it was; returns the copy's path, to `open`.
+   */
+  saveAs(h: ProjectHandle, path: string, opts?: { standalone?: boolean }): Promise<string>;
+  /** Show in Finder: the project's folder, selected in a Finder window. */
+  reveal(h: ProjectHandle): Promise<void>;
   close(h: ProjectHandle): Promise<void>;
   run(h: ProjectHandle, command: string, args: unknown, opts?: RunOptions): Promise<CommandResult>;
   transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }): Promise<CommandResult>;

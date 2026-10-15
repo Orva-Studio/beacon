@@ -173,6 +173,8 @@ export class RemoteCore implements BeaconCore {
   forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);
   missing = (h: ProjectHandle) => this.#call<string[]>("missing", h);
   relink = (h: ProjectHandle, assetId: string, path: string) => this.#call<void>("relink", h, assetId, path);
+  saveAs = (h: ProjectHandle, path: string, opts?: { standalone?: boolean }) => this.#call<string>("saveAs", h, path, opts);
+  reveal = (h: ProjectHandle) => this.#call<void>("reveal", h);
   replace = (h: ProjectHandle, assetId: string, path: string) => this.#call<{ jobs: string[] }>("replace", h, assetId, path);
   analysisSize = (key: string) => this.#call<number>("analysisSize", key);
   forgetAll = (key: string) => this.#call<number>("forgetAll", key);

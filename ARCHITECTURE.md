@@ -257,8 +257,15 @@ Screen, Camera and Audio clips fitted to the canvas, the camera and audio
 linked. Every write an agent asks for (`export`, saved
 frames) passes `checkOutput`: never a project's media, never inside a
 `.cmproj` or `.beproj`, never an existing file without `overwrite`. Asset
-paths must be absolute and every ffmpeg/ffprobe input is limited to the
-`file` protocol, so a shared project can't point ffmpeg at a URL.
+paths must be absolute in memory and every ffmpeg/ffprobe input is limited to the
+`file` protocol, so a shared project can't point ffmpeg at a URL. On disk,
+files inside the project folder are stored relative to it (`persist.ts`), so
+a copied project keeps its takes and snapshots. A standalone project
+(`settings.standalone`) copies imports into `media/` (`media-copy.ts`: clones,
+file times kept so fingerprints match; `DerivedData.carry` gives the copy the
+original's transcript); turning it on copies in what is outside as one undo
+step. `saveAs` writes a copy of the folder with the document as it is, and
+`reveal` shows the folder in Finder.
 
 `beacon-mcp` (`packages/mcp`) is a stdio MCP server over `LocalCore`:
 every command and query is a tool (dots become underscores; JSON Schema from
