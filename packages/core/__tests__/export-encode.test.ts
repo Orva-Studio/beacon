@@ -83,21 +83,27 @@ const CASES: [string, VideoEncoding][] = [
   ["prores.mov", { codec: "prores" }],
   ["small.mp4", { codec: "h264", size: { width: 640, height: 640 } }],
   ["24fps.mp4", { codec: "h264", fps: 24 }],
+  ["12.5fps.mp4", { codec: "h264", fps: 12.5 }],
 ];
+
+/** Frames of an export at another rate at the same instants as the project's 30 fps: every `step`th is every `ref`th. */
+const SAME_INSTANTS: Record<number, { step: number; ref: number }> = { 24: { step: 4, ref: 5 }, 12.5: { step: 5, ref: 12 } };
 
 for (const [file, opts] of CASES) {
   test.skipIf(!ready)(`the native encoder's ${file} matches ffmpeg's`, async () => {
     const [before, after] = [await exportWith(false, file, opts), await exportWith(true, file, opts)];
     const [a, b] = [probe(before), probe(after)];
     // ffmpeg's -r rounds the frame count up past the range (50 frames for 2 s at 24 fps); natively it is exact.
+    // Its rate is the same fraction ("25/2" at 12.5 fps).
     const frames = Math.round(2 * (opts.fps ?? 30));
     expect(b).toEqual({ ...a, frames });
     const pb = decode(after);
     const size = a.width * a.height * 4;
     expect(pb.length).toBe(frames * size);
     // ffmpeg drops or repeats frames for another rate where they are evaluated at it natively: compare the frames
-    // at the same instants in ffmpeg's export at the project's rate (every 4th at 24 fps is every 5th at 30).
-    const [reference, step, refStep] = opts.fps ? [await exportWith(false, `30-${file}`, { ...opts, fps: undefined }), 4, 5] : [before, 1, 1];
+    // at the same instants in ffmpeg's export at the project's rate.
+    const { step, ref: refStep } = opts.fps ? SAME_INSTANTS[opts.fps]! : { step: 1, ref: 1 };
+    const reference = opts.fps ? await exportWith(false, `30-${file}`, { ...opts, fps: undefined }) : before;
     const pa = decode(reference);
     let worst = { psnr: Infinity, off: 0 };
     for (let i = 0; i * step < frames; i++) {

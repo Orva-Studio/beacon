@@ -9,6 +9,7 @@ import {
   projectDuration,
   ticksPerFrame,
   ticksToSeconds,
+  TICKS_PER_SECOND,
   type AudioSegment,
   type Easing,
   type FeatureRegistry,
@@ -113,9 +114,13 @@ function encoderArgs(o: Extract<RenderOutput, { kind: "video" }>): string[] {
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
 }
 
-/** A frame rate as a fraction: 29.97 is 30000/1001. */
-function rational(fps: number): { num: number; den: number } {
-  return Number.isInteger(fps) ? { num: fps, den: 1 } : { num: Math.round(fps * 1001), den: 1001 };
+/** A frame rate as a fraction: NTSC's 29.97 is 30000/1001, 12.5 is 25/2. */
+export function rational(fps: number): { num: number; den: number } {
+  if (Number.isInteger(fps)) return { num: fps, den: 1 };
+  const ntsc = Math.round(fps * 1001);
+  if (ntsc % 1000 === 0 && Math.abs(fps - ntsc / 1001) < 0.01) return { num: ntsc, den: 1001 };
+  for (let den = 2; den < 1000; den++) if (Math.abs(fps * den - Math.round(fps * den)) < 1e-6) return { num: Math.round(fps * den), den };
+  return { num: Math.round(fps * 1000), den: 1000 };
 }
 
 /** The video's size: the canvas fitted within `size` (as ffmpeg's force_original_aspect_ratio=decrease), even. */
@@ -162,9 +167,10 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const videoOnly = tmp ? join(tmp, `video.${format === "mp4" ? "mov" : format}`) : undefined;
     const native = opts.output.kind === "video" ? nativeEncode(project, opts.output, videoOnly!) : undefined;
     const output = native ?? (opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(opts.output) } : { kind: "png", dir: opts.output.dir });
-    // Natively encoded at another rate, frames are evaluated at that rate rather than dropped or repeated.
-    const step = native ? ticksPerFrame(native.fps) : frameTicks;
-    const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + i * step) : frames.map((f) => f * frameTicks);
+    // Natively encoded at another rate, frames are evaluated at that rate rather than dropped or repeated, each at the
+    // tick nearest its time (a rate like 12.5 fps doesn't divide the tick clock).
+    const step = native ? (TICKS_PER_SECOND * native.fps.den) / native.fps.num : frameTicks;
+    const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + Math.round(i * step)) : frames.map((f) => f * frameTicks);
 
     const job = renderJob(project, registry, output, opts.cacheDir);
     // The audio is mixed while the video renders; the two are muxed after.
