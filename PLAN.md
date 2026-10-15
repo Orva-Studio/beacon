@@ -1263,8 +1263,16 @@ Making the transcript do the editing.
   editing the transcript's words; burned into the export, and an `.srt`
   beside it. The words are already timed, so most of the work is the
   caption clip and its style.
+- **Border** (the user, 2026-10-15; small, not transcript work, but wanted
+  in this phase): a visual effect for camera footage (any clip, in the
+  Visual Effects panel like Round Corners and Drop Shadow) with two settings,
+  thickness and colour, drawn just inside the clip's edge so it adds no size
+  and follows Round Corners' rounded edge when both are on. A feature folder
+  with one WGSL pass, so the inspector, undo, copy properties and agent
+  commands come from its schema; preview/export parity as for every pass.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
-captions export burned in with a matching `.srt`, with each transcriber.
+captions export burned in with a matching `.srt`, with each transcriber; a
+camera clip with a rounded border looks the same in preview and export.
 
 ### Phase 8 — Faster editing
 Getting to everything quicker, by hand or by agent.
