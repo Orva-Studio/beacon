@@ -3,9 +3,11 @@
 //   bun scripts/perf.ts <project.cmproj | .beproj> [--size 1280x720] [--jumps 40] [--play 10]
 //     [--cache dir] (proxies built there, not in the shared cache) [--mode quiet|fast] (how they are built)
 //     [--no-proxies] (an empty cache and no proxy jobs: everything read from the originals)
-import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+//     [--export from-to] (instead: times an MP4 export of those timeline seconds; BEACON_PROFILE=1 adds its stages)
+// A .beproj is copied without its media: only its project.json, the media read where it is.
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, extname, isAbsolute, join } from "node:path";
 import { parseArgs } from "node:util";
 import { LocalCore } from "@beacon/core";
 import { DEFAULT_CACHE_DIR } from "@beacon/render";
@@ -20,6 +22,7 @@ const { values, positionals } = parseArgs({
     cache: { type: "string" },
     mode: { type: "string", default: "fast" },
     "no-proxies": { type: "boolean", default: false },
+    export: { type: "string" },
   },
 });
 const source = positionals[0];
@@ -41,7 +44,10 @@ try {
   const path = join(dir, `${basename(source, extname(source))}.beproj`);
   let h;
   if (extname(source) === ".beproj") {
-    cpSync(source, path, { recursive: true });
+    const doc = JSON.parse(readFileSync(join(source, "project.json"), "utf8")) as { assets: Record<string, { path: string }> };
+    for (const a of Object.values(doc.assets)) if (!isAbsolute(a.path)) a.path = join(source, a.path);
+    mkdirSync(path);
+    writeFileSync(join(path, "project.json"), JSON.stringify(doc));
     h = await core.open(path);
   } else {
     h = await core.create({ path, cmproj: source });
@@ -49,6 +55,18 @@ try {
   const doc = core.doc(h);
   const fps = doc.settings.fps.num / doc.settings.fps.den;
   const duration = ticksToSeconds(projectDuration(doc));
+
+  if (values.export) {
+    const [from, to] = values.export.split("-").map(Number) as [number, number];
+    const output = join(dir, "export.mp4");
+    const t0 = performance.now();
+    await (await core.export(h, { output, from, to })).done;
+    const seconds = (performance.now() - t0) / 1000;
+    console.log(`${basename(source)}: export ${from}-${to} s (${doc.settings.width}×${doc.settings.height} at ${fps} fps) in ${seconds.toFixed(1)} s, ${((to - from) / seconds).toFixed(2)}× real time, ${(statSync(output).size / 1e6).toFixed(1)} MB`);
+    await core.close(h);
+    rmSync(dir, { recursive: true, force: true });
+    process.exit(0);
+  }
 
   // The proxies the app would build (cached across runs); the bench waits for them.
   const running = new Set<string>();

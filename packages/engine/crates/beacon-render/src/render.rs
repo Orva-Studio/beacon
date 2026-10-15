@@ -93,7 +93,8 @@ pub struct Renderer {
     /// preview): that layer keeps its last frame and the error is kept in
     /// `source_error`. Export fails instead.
     pub lenient_sources: bool,
-    /// Decode H.264/HEVC natively through VideoToolbox (the live preview): seeks several times faster.
+    /// Decode H.264/HEVC natively through VideoToolbox: seeks several times faster, and frames identical to
+    /// FFmpeg's VideoToolbox path (`BEACON_DECODE_FFMPEG=1` uses that instead, for the parity test).
     pub native_decode: bool,
     pub source_error: Option<String>,
     /// Proxies that failed to open (deleted, or a cache record pointing at a moved file):
@@ -257,7 +258,7 @@ impl Renderer {
             profile: Profile::default(),
             use_proxies: false,
             lenient_sources: false,
-            native_decode: false,
+            native_decode: std::env::var_os("BEACON_DECODE_FFMPEG").is_none(),
             source_error: None,
             bad_proxies: HashSet::new(),
             stills: Default::default(),

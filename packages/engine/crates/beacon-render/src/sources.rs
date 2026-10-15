@@ -137,9 +137,9 @@ pub fn frame_index(path: &str, stream: u32, cache_dir: Option<&Path>) -> Result<
     Ok(index)
 }
 
-/// Reads frames of one video stream through an ffmpeg pipe, decoding ahead
-/// on a thread, at a reduced size when the frame is drawn small. Seeks only
-/// when the wanted frame is behind or far ahead of the pipe.
+/// Reads frames of one video stream from an in-process decoder (beacon-decode), decoding ahead on a
+/// thread, at a reduced size when the frame is drawn small. Seeks only when the wanted frame is behind or
+/// far ahead of what the thread is decoding.
 pub struct VideoDecoder {
     path: String,
     stream: u32,

@@ -199,7 +199,6 @@ impl Preview {
 
     fn build(mut renderer: Renderer, target: Target, format: wgpu::TextureFormat) -> Self {
         renderer.lenient_sources = true;
-        renderer.native_decode = true;
         let device = renderer.device();
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("fit"), source: wgpu::ShaderSource::Wgsl(FIT_WGSL.into()) });
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
