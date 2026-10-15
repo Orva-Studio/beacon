@@ -93,6 +93,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const [cameraSync, setCameraSync] = useState<Record<string, CameraSync>>(sheet.cameraSync ?? {});
   // A sync check records the same devices: the preview lets go of them while it runs.
   const [checking, setChecking] = useState(false);
+  useEffect(() => setS((s) => present(s, sheet)), [sheet.displays, sheet.cameras, sheet.microphones]);
 
   // Only what Beacon may already use: asking for a permission waits for Record.
   const granted = (k: keyof RecordSheet["permissions"]) => sheet.permissions[k] === "granted";
@@ -164,7 +165,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
             <Select value={display(s.screen?.display)?.id ?? ""} onChange={(e) => setS({ ...s, screen: { ...s.screen, display: Number(e.target.value) } })}>
               {sheet.displays.map((d, i) => (
                 <option key={d.id} value={d.id}>
-                  Display {i + 1} ({d.width} × {d.height})
+                  Display {i + 1} ({d.pixelWidth ?? d.width} × {d.pixelHeight ?? d.height})
                 </option>
               ))}
             </Select>

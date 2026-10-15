@@ -347,6 +347,8 @@ export type AppRPC = {
       exportSheet: ExportSheet;
       /** File > Record… (⌘R): open the Record dialog. */
       recordSheet: RecordSheet;
+      /** A display, camera or microphone was connected or removed: the open Record dialog's lists again. */
+      recordDevices: Pick<RecordSheet, "permissions" | "displays" | "cameras" | "microphones" | "outputs">;
       recordPreview: RecordPreview;
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;

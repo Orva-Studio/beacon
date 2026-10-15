@@ -12,6 +12,24 @@ use serde_json::{Value, json};
 unsafe extern "C" {
     /// CoreGraphics: whether this process may capture the screen, without asking.
     fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
+}
+
+/// Which displays, cameras and microphones there are, to notice one connected or removed; cheap enough to ask every second.
+pub fn present() -> Vec<String> {
+    let mut ids = [0u32; 32];
+    let mut count = 0u32;
+    let mut out: Vec<String> = if unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) } == 0 {
+        ids[..count as usize].iter().map(|d| format!("display {d}")).collect()
+    } else {
+        Vec::new()
+    };
+    for kind in unsafe { [AVMediaTypeVideo, AVMediaTypeAudio] }.into_iter().flatten() {
+        #[allow(deprecated)]
+        out.extend(unsafe { AVCaptureDevice::devicesWithMediaType(kind) }.iter().map(|d| unsafe { d.uniqueID() }.to_string()));
+    }
+    out.sort();
+    out
 }
 
 fn status(s: AVAuthorizationStatus) -> &'static str {

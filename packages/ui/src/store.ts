@@ -134,6 +134,10 @@ export const replica = {
   recordSheet(recordSheet: RecordSheet | undefined) {
     set({ recordSheet });
   },
+  recordDevices(devices: Pick<RecordSheet, "permissions" | "displays" | "cameras" | "microphones" | "outputs">) {
+    const s = state.recordSheet;
+    if (s) set({ recordSheet: { ...s, ...devices } });
+  },
   recordedSheet(recordedSheet: RecordedSheet | undefined) {
     set({ recordedSheet });
   },

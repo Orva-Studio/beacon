@@ -53,6 +53,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "media") replica.media(msg.data);
   else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
   else if (msg.type === "recordSheet") replica.recordSheet(msg.data);
+  else if (msg.type === "recordDevices") replica.recordDevices(msg.data);
   else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
   else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);

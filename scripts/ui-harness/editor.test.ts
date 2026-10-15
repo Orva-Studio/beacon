@@ -452,6 +452,31 @@ test.skipIf(skip)("Record moves a remembered display, camera or microphone that 
   await page.until("!document.querySelector('[data-record]')");
 });
 
+test.skipIf(skip)("Record lists displays at the size each records at, and follows a display unplugged and plugged back while open", async () => {
+  const big = { id: 5, width: 3360, height: 1890, pixelWidth: 3840, pixelHeight: 2160 };
+  const laptop = { id: 1, width: 1800, height: 1169, pixelWidth: 3326, pixelHeight: 2160 };
+  const devices = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, cameras: [], microphones: [], outputs: [] };
+  const before = ui.menus.length;
+  ui.send("recordSheet", { ...devices, displays: [big, laptop], sources: { screen: { display: 5, fps: 60 } } });
+  await page.until("!!document.querySelector('[data-record]')");
+  const options = () => page.evaluate<string[]>("[...document.querySelector('[data-record] select').options].map((o) => o.textContent)");
+  expect(await options()).toEqual(["Display 1 (3840 × 2160)", "Display 2 (3326 × 2160)"]);
+  const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  await arrived(() => previews().at(-1)?.screen?.display === 5);
+  ui.send("recordDevices", { ...devices, displays: [laptop] });
+  await arrived(() => previews().at(-1)?.screen?.display === 1);
+  expect(await options()).toEqual(["Display 1 (3326 × 2160)"]);
+  expect(await page.evaluate<string>("document.querySelector('[data-record-size=Screen]')?.textContent ?? ''")).toBe("3326 × 2160 · 60 fps");
+  ui.send("recordDevices", { ...devices, displays: [big, laptop] });
+  await page.until("document.querySelector('[data-record] select').options.length === 2");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
+  // With the dialog closed, a change doesn't open it.
+  ui.send("recordDevices", { ...devices, displays: [laptop] });
+  await Bun.sleep(200);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-record]')")).toBe(false);
+});
+
 test.skipIf(skip)("Check Sync: says what to do, shows the camera, beeps through speakers (not headphones), tests the beep, flashes the chosen screen, and saves the delay; the Record dialog shows and checks it", async () => {
   const displays = [{ id: 5, width: 3360, height: 1890 }, { id: 1, width: 1800, height: 1169 }];
   const outputs = [

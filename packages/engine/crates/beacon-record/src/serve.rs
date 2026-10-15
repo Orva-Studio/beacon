@@ -8,7 +8,8 @@
 //! started with `monitor` shows its camera and levels in the recording panel.
 //! Both send `previewFrame` events (`source` and base64 JPEG) and
 //! `previewLevel` events (`microphone` and `systemAudio` in dBFS) without an
-//! `id`. When stdin closes (the app quit or crashed), a take still recording is
+//! `id`. `devicesChanged` (no `id`) says a display, camera or microphone was
+//! connected or removed, while no take records. When stdin closes (the app quit or crashed), a take still recording is
 //! stopped and its files finished.
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -81,6 +82,7 @@ pub fn run() -> Result<(), String> {
     let mut take: Option<Take> = None;
     let mut preview: Option<Preview> = None;
     let mut level_at = std::time::Instant::now();
+    let mut present = (crate::devices::present(), std::time::Instant::now());
     // The main thread polls the cursor (AppKit's), so stdin is read on another.
     let (tx, rx) = mpsc::channel::<String>();
     std::thread::spawn(move || {
@@ -103,6 +105,13 @@ pub fn run() -> Result<(), String> {
                 }
                 if let Some(t) = &mut take {
                     t.poll_cursor();
+                }
+                if take.is_none() && present.1.elapsed() >= Duration::from_secs(1) {
+                    let now = crate::devices::present();
+                    if now != present.0 {
+                        emit(None, json!({ "event": "devicesChanged" }));
+                    }
+                    present = (now, std::time::Instant::now());
                 }
                 if level_at.elapsed() >= Duration::from_millis(50) {
                     level_at = std::time::Instant::now();

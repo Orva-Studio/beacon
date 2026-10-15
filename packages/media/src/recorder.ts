@@ -36,7 +36,11 @@ export interface RecorderLevel {
 export type RecorderLive = Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>;
 /** A camera whose frames keep coming but show black or the same picture (a capture card that lost its camera). */
 export type RecorderPicture = { camera?: "black" | "frozen" | null };
-export type RecorderPreviewEvent = { source: "camera" | "screen"; jpeg: string } | { microphone?: RecorderLevel; systemAudio?: RecorderLevel; live?: RecorderLive; picture?: RecorderPicture };
+/** `devicesChanged`: a display, camera or microphone was connected or removed (only while previewing). */
+export type RecorderPreviewEvent =
+  | { source: "camera" | "screen"; jpeg: string }
+  | { microphone?: RecorderLevel; systemAudio?: RecorderLevel; live?: RecorderLive; picture?: RecorderPicture }
+  | { devicesChanged: true };
 
 type Event = { event: string; id?: number; message?: string; [k: string]: unknown };
 
@@ -73,6 +77,7 @@ export class Recorder {
           const e = JSON.parse(line) as Event;
           if (e.event === "ready") ready();
           else if (e.event === "previewFrame") (this.#monitor ?? this.#preview)?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
+          else if (e.event === "devicesChanged") this.#preview?.({ devicesChanged: true });
           else if (e.event === "previewLevel")
             (this.#monitor ?? this.#preview)?.({
               ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}),

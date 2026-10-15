@@ -26,6 +26,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       media: (m) => replica.media(m),
       exportSheet: (s) => replica.exportSheet(s),
       recordSheet: (s) => replica.recordSheet(s),
+      recordDevices: (d) => replica.recordDevices(d),
       recordPreview: (e) => recordPreviewEvent(e),
       recordedSheet: (s) => replica.recordedSheet(s),
       exportJob: (j) => replica.exportJob(j),

@@ -601,7 +601,7 @@ async function startRecording({ sources }: { sources: RecordSources }) {
         ...(sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources),
         ...(sync?.cameraLateMs ? { offsets: { camera: -sync.cameraLateMs / 1000 } } : {}),
       },
-      monitor: (e) => previewEvent(e, panelSend),
+      monitor: (e) => !("devicesChanged" in e) && previewEvent(e, panelSend),
     });
   } catch (e) {
     panel.close();
@@ -862,7 +862,12 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       startRecording: (params) => reply(() => startRecording(params)),
       recordPreview: (devices) => {
         clearFrames();
-        return reply(() => core.recorderPreview(devices, (e) => previewEvent(e, send().recordPreview)));
+        return reply(() =>
+          core.recorderPreview(devices, (e) => {
+            if (!("devicesChanged" in e)) return previewEvent(e, send().recordPreview);
+            void core.recorderDevices().then((d) => send().recordDevices(d), () => {});
+          }),
+        );
       },
       recordFrames: ({ after }) => newerFrames(after),
       testBeep: (params) => testBeep(params),
