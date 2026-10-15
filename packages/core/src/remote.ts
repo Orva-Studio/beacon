@@ -245,14 +245,32 @@ export async function appCoreFor(project: string): Promise<RemoteCore | undefine
   return RemoteCore.connect(owner.socket);
 }
 
-/** The projects open in running Beacon apps, which `project_open` can connect to. */
-export async function appProjects(): Promise<string[]> {
-  const found: string[] = [];
-  for (const socket of appSockets()) {
-    const app = await RemoteCore.connect(socket).catch(() => undefined);
-    if (!app) continue;
-    found.push(...app.projects);
-    app.disconnect();
+/** How long an app has to answer `hello` before discovery moves on without it (a frozen app still has its socket). */
+const PROBE_MS = 1000;
+
+/** The projects one app has open, from its `hello` alone; undefined when it doesn't answer in time. */
+async function probe(path: string): Promise<string[] | undefined> {
+  let socket: Socket | undefined;
+  let done: (projects: string[] | undefined) => void = () => {};
+  const answer = new Promise<string[] | undefined>((resolve) => (done = resolve));
+  const timer = setTimeout(() => done(undefined), PROBE_MS);
+  const reader = new LineReader((line) => {
+    const msg = decode(line) as { result?: { protocol?: number; projects?: string[] } };
+    done(msg.result?.protocol === PROTOCOL_VERSION ? (msg.result.projects ?? []) : undefined);
+  });
+  try {
+    socket = await Bun.connect({ unix: path, socket: { data: (_, chunk) => reader.push(chunk), close: () => done(undefined), error: () => done(undefined) } });
+    socket.write(`${encode({ jsonrpc: "2.0", id: 1, method: "hello", params: [] })}\n`);
+    return await answer;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+    socket?.end();
   }
-  return found;
+}
+
+/** The projects open in running Beacon apps, which `project_open` can connect to; an app that doesn't answer is skipped. */
+export async function appProjects(): Promise<string[]> {
+  return (await Promise.all(appSockets().map(probe))).flatMap((p) => p ?? []);
 }
