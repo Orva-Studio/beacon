@@ -1169,8 +1169,16 @@ time). Fast export finished 2026-10-15: the native encoder (`encode.rs`)
 keeps three frames in flight, has a parity test against ffmpeg's output
 (H.264, HEVC, ProRes, size, frame rate) and is the default
 (`BEACON_ENCODE_FFMPEG=1` for the old path), and the audio is mixed while the
-video renders: 20 s in 3.45 s (5.8× real time), now bound by decoding. Left:
-step 3 (releases; unsigned for now, see Signing below); the transcriber
+video renders: 20 s in 3.45 s (5.8× real time), now bound by decoding. Step 3
+built 2026-10-15: `bun run --cwd packages/desktop package` makes the DMG (Electrobun's
+stable build: a self-extracting wrapper that unpacks the app in place on first
+launch), with beacon-mcp compiled into the app's engine folder; `build-hook.ts`
+writes the Info.plist entries and signs both apps ad hoc (the packed app is
+unpacked, signed and packed again, since Electrobun writes its version.json
+after postBuild); `scripts/check-release.ts` checks a DMG as a bare Mac would
+see it; `.github/workflows/release.yml` builds, checks and publishes on a tag
+(and builds and checks on pull requests that change it); unsigned for now (see Signing
+below). Left: the first tagged release, the transcriber
 choice below; the gate run.
 **Transcriber choice (decided 2026-10-15):** Settings › General › Transcripts
 picks the transcriber: Whisper on this Mac (default; the model download as

@@ -15,14 +15,42 @@ renderer, built so every edit can be automated.
 
 Personal project: macOS 26+ on Apple silicon only.
 
-## Requirements
+## Install
+Download `beacon-macos-arm64.dmg` from the
+[latest release](https://github.com/Orva-Studio/beacon/releases/latest), open
+it and drag Beacon to Applications. It carries everything it needs (its own
+FFmpeg and whisper-cli); the speech model for transcripts is downloaded the
+first time you ask for one. Beacon isn't signed with a Developer ID yet, so
+macOS refuses to open it until its quarantine flag is cleared (step 3 below),
+and it asks again for screen recording, camera and microphone permission after
+each update.
+
+Or paste this into an AI agent such as Claude Code:
+
+```text
+Install Beacon, a macOS screen-recording editor, on this Mac (Apple silicon):
+1. Download beacon-macos-arm64.dmg and checksums.txt from the latest release of
+   github.com/Orva-Studio/beacon (`gh release download --repo Orva-Studio/beacon
+   --pattern beacon-macos-arm64.dmg --pattern checksums.txt`), and check it:
+   `grep beacon-macos-arm64.dmg checksums.txt | shasum -a 256 -c`.
+2. Quit Beacon if it is running. Mount the DMG (`hdiutil attach -nobrowse`), copy
+   Beacon.app to /Applications (replacing an older one), and detach it.
+3. Beacon isn't signed with a Developer ID yet, so clear the quarantine flag:
+   `xattr -dr com.apple.quarantine /Applications/Beacon.app`.
+4. Open it: `open /Applications/Beacon.app`. Its first launch unpacks the app in
+   place; wait until /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp
+   exists.
+5. Add its MCP server (replacing an existing `beacon` one):
+   `claude mcp add -s user beacon -- /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp`.
+Then tell me that until Beacon is signed, macOS asks again for screen recording,
+camera and microphone permission after each update.
+```
+
+## Requirements (to build it)
 - [Bun](https://bun.sh) 1.4
 - Rust via rustup (the toolchain is pinned in `packages/engine/rust-toolchain.toml`)
-- ffmpeg (`brew install ffmpeg`)
-- For transcripts: whisper.cpp (`brew install whisper-cpp`) and
-  `ggml-large-v3-turbo-q5_0.bin` from
-  [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)
-  in `~/Library/Caches/Beacon/models/` (or set `BEACON_WHISPER_MODEL`)
+- pkg-config and cmake: `bun run build` builds Beacon's own FFmpeg and
+  whisper-cli from pinned sources (it uses `nix shell` when they're missing)
 
 ## Getting started
 ```sh
@@ -61,8 +89,15 @@ core, for clicking, dragging and screenshotting without a window.
 ## Releasing
 `bun run release 0.2.0` on a clean, up-to-date `main` sets the version in
 every `package.json` (the app takes the root's), commits
-`chore(release): v0.2.0`, tags `v0.2.0` and pushes, as hance does. The app is
-built by hand from the tag.
+`chore(release): v0.2.0`, tags `v0.2.0` and pushes, as hance does. The tag
+runs `.github/workflows/release.yml`, which builds the app, checks the DMG and
+publishes `beacon-macos-arm64.dmg`, `checksums.txt` and FFmpeg's source,
+configure patch and options as a GitHub release. Locally,
+`bun run --cwd packages/desktop package` builds the DMG into
+`packages/desktop/artifacts`, and `bun scripts/check-release.ts <dmg>` checks it
+as a Mac without Homebrew would see it: both apps signed (ad hoc until there is
+a Developer ID), nothing linked from outside the app, and the app's own
+`beacon-mcp` exporting MP4 and GIF with nothing on PATH.
 
 ## Layout
 `packages/` holds the TypeScript workspaces (`model`, `features`, `core`,
