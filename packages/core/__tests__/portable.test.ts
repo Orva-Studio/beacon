@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "../src";
@@ -149,5 +149,33 @@ test.skipIf(!existsSync(VIDEO))("Save As copies the project with what is inside 
   // The original is untouched and still open.
   expect(core.doc(h).assets[outside]!.path).toBe(VIDEO);
   expect(core.doc(h).settings.standalone).toBeUndefined();
+  await core.close(h);
+}, 60_000);
+
+test.skipIf(!existsSync(VIDEO))("a standalone project copies what a link points at, and its Save As copies nothing twice", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const original = join(dir, "elsewhere.mp4");
+  copyFileSync(VIDEO, original);
+  const link = join(dir, "link.mp4");
+  symlinkSync(original, link);
+  const project = join(dir, "Linked.beproj");
+  const h = await core.create({ path: project, standalone: true });
+  const [asset] = (await importQuietly(core, h, [link])).assets as [string];
+  const copy = join(project, "media", "link.mp4");
+  expect(core.doc(h).assets[asset]!.path).toBe(copy);
+  expect(lstatSync(copy).isSymbolicLink()).toBe(false);
+  rmSync(original);
+  expect(await core.missing(h)).toEqual([]);
+
+  let from = h;
+  for (const name of ["Linked 2.beproj", "Linked 3.beproj"]) {
+    const to = await core.saveAs(from, join(dir, name));
+    expect(readdirSync(join(to, "media"))).toEqual(["link.mp4"]);
+    expect(stored(to).assets[asset].path).toBe("media/link.mp4");
+    if (from !== h) await core.close(from);
+    from = await core.open(to);
+    expect(await core.missing(from)).toEqual([]);
+  }
+  await core.close(from);
   await core.close(h);
 }, 60_000);

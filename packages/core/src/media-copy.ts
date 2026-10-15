@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync } from "node:fs";
-import { cp } from "node:fs/promises";
+import { constants, existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { copyFile, mkdir, readdir, readlink, stat, symlink, utimes } from "node:fs/promises";
 import { basename, extname, join, sep } from "node:path";
 
 export const MEDIA_FOLDER = "media";
@@ -31,6 +31,34 @@ export async function copyIntoProject(dir: string, files: string[]): Promise<Map
     taken.add(to);
     copies.set(file, to);
   }
-  await Promise.all([...copies].map(([from, to]) => cp(from, to, { recursive: true, preserveTimestamps: true, errorOnExist: true, force: false })));
+  await Promise.all([...copies].map(([from, to]) => copyFollowingLinks(from, to)));
   return copies;
+}
+
+/**
+ * Copies a file or folder (for which `filter` says yes) with its times kept exactly, as a clone on APFS, and links
+ * replaced by what they point at, nested ones too: a copy holding a link would still need the original. A broken
+ * link stays a link. (`cp` keeps links unless dereferencing, and rounds times down to the millisecond, which changes
+ * a fingerprint.)
+ */
+export async function copyFollowingLinks(from: string, to: string, filter: (src: string) => boolean = () => true): Promise<void> {
+  if (!filter(from)) return;
+  if (existsSync(to)) throw new Error(`${to} already exists`);
+  let src = from;
+  if (lstatSync(from).isSymbolicLink()) {
+    try {
+      src = realpathSync(from);
+    } catch {
+      await symlink(await readlink(from), to);
+      return;
+    }
+  }
+  const st = await stat(src);
+  if (st.isDirectory()) {
+    await mkdir(to);
+    for (const f of await readdir(src)) await copyFollowingLinks(join(from, f), join(to, f), filter);
+  } else {
+    await copyFile(src, to, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
+  }
+  await utimes(to, st.atimeMs / 1000, st.mtimeMs / 1000);
 }

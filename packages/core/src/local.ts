@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { cp, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { z } from "zod";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
@@ -66,7 +66,7 @@ import type {
   TransactionStep,
 } from "./api";
 import { download } from "./download";
-import { copyIntoProject, isInside } from "./media-copy";
+import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
 
 export interface LocalCoreOptions {
@@ -309,15 +309,16 @@ export class LocalCore implements BeaconCore {
     if (isInside(p.path, to)) throw new Error("a project can't be saved inside itself");
     const doc = p.store.doc;
     const standalone = opts.standalone ?? !!doc.settings.standalone;
-    // Its own folders come whole (takes, snapshots, and anything else kept there), but not its lock or a save in progress.
-    await cp(p.path, to, { recursive: true, preserveTimestamps: true, errorOnExist: true, force: false, filter: (src) => dirname(src) !== p.path || !/^(lock|\.project\.json\..*\.tmp)$/.test(basename(src)) });
+    // Its own folders come whole (takes, snapshots, and anything else kept there), but not its lock or a save in
+    // progress; links are followed, so the copy doesn't depend on what they pointed at.
+    await copyFollowingLinks(p.path, to, (src) => dirname(src) !== p.path || !/^(lock|\.project\.json\..*\.tmp)$/.test(basename(src)));
     const assets = Object.values(doc.assets);
     const inside = assets.filter((a) => isInside(p.path, a.path)).map((a) => {
       const copy = { ...a, path: to + a.path.slice(p.path.length) };
       p.data.carry(a, copy);
       return copy;
     });
-    const outside = standalone ? await this.#copyIn(to, assets) : [];
+    const outside = standalone ? await this.#copyIn(to, assets.filter((a) => !isInside(p.path, a.path))) : [];
     const { standalone: _, ...settings } = doc.settings;
     writeProject(to, {
       ...doc,
