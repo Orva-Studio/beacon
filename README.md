@@ -1,4 +1,13 @@
-# Beacon
+<p align="center">
+  <img src="packages/desktop/icon.iconset/icon_256x256@2x.png" alt="Beacon" width="160" height="160">
+</p>
+
+<h1 align="center">Beacon</h1>
+
+<p align="center">
+  <b>The screen-recording editor your AI agent can drive.</b><br>
+  Record, cut and export on your Mac, by hand or through MCP.
+</p>
 
 > [!WARNING]
 > **Beacon is very early alpha software.** Expect bugs, missing features and
@@ -7,20 +16,32 @@
 > [open an issue](https://github.com/Orva-Studio/beacon/issues) when something
 > goes wrong.
 
-Beacon by Orva: a macOS screen-recording editor on its own project format and
-renderer, built so every edit can be automated.
+Beacon by Orva is a macOS screen-recording editor on its own project format
+and renderer, built so every edit can be automated. Personal project: macOS
+26+ on Apple silicon only.
 
-- **Editor:** an Electrobun desktop app (Bun main process, React UI in
-  WKWebView): timeline, canvas, properties panel and keymap.
-- **Renderer:** a Rust/wgpu compositor; the preview and the export draw the
-  same frames.
-- **Automation:** every edit is a command, and an MCP server exposes each one
-  as a tool. An agent can edit a project headlessly, or the one open in the app,
-  live, sharing its undo history.
-- **Imports:** reads `.trec` screen recordings and imports Camtasia `.cmproj`
+## Features
+- **Every edit is an MCP tool.** Beacon ships its own MCP server
+  (`beacon-mcp`, inside the app) with about 150 tools: import, cut, trim, zoom,
+  animate, add effects and annotations, read transcripts, remove silences,
+  look at frames and export. An agent can edit a project on its own, or the
+  one open in the app, live on its timeline and sharing your undo history.
+- **Record your screen, camera and microphone** (and system audio) straight
+  into a project, with the cursor recorded separately so it can be smoothed,
+  enlarged or hidden later.
+- **A timeline editor:** tracks, clips, ripple cuts, speed, linked audio,
+  animations, zooms, effects, text and shape annotations, blur and spotlight.
+- **Transcripts and Remove Silences:** speech is transcribed on your Mac by
+  Whisper; the AI panel marks every silence on the timeline for you to review
+  and removes them in one undo step, keeping the ones with screen action.
+- **Fast export:** MP4 and MOV (H.264, HEVC, ProRes) encoded by VideoToolbox
+  straight from the GPU, plus GIF and WebM. Preview and export draw the same
+  frames, through Beacon's Rust/wgpu renderer.
+- **Opens Camtasia work:** reads `.trec` recordings and imports `.cmproj`
   projects (read only; nothing is written back).
-
-Personal project: macOS 26+ on Apple silicon only.
+- **Self-contained:** the app carries its own FFmpeg and whisper-cli, so
+  there's nothing else to install; projects can be made standalone, with their
+  media inside, to move or share.
 
 ## Install
 Download `beacon-macos-arm64.dmg` from the
