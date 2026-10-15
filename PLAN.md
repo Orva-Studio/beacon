@@ -1235,6 +1235,15 @@ New features, each as a folder in `packages/features`.
   seen yet: screen frames changing would catch it); a missing transcript
   (an import whose app quit first) is started by the review. Checked on a
   3:37 recording: 35 silences, 11 kept for screen action, 1:10 shorter.
+- **Remove Filler Words** (the user, 2026-10-15, after trying v0.2.1's Remove
+  Silences): "um", "uh" and the like, found in the transcript and cut, in the
+  AI panel beside Remove Silences and reviewed the same way (each marked on the
+  timeline, a click flips one, Apply cuts as one undo step; an agent can
+  prepare it). The catch: Whisper tends to leave fillers out of its
+  transcript, so first check, on the fixtures, whether priming it with a
+  prompt full of fillers keeps them with good word times, and what Apple's
+  transcriber and the API do (after the transcriber choice). Until then agents
+  cut what the transcript has with `transcript_cut`.
 - **Captions** (the user, 2026-10-14; next after Remove Silences, in the AI
   panel): phrase captions from the transcript's word timings (2-4 words, or a
   line at a time), on their own track as caption clips styled by one schema

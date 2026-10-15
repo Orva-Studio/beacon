@@ -37,14 +37,23 @@ Install Beacon, a macOS screen-recording editor, on this Mac (Apple silicon):
    Beacon.app to /Applications (replacing an older one), and detach it.
 3. Beacon isn't signed with a Developer ID yet, so clear the quarantine flag:
    `xattr -dr com.apple.quarantine /Applications/Beacon.app`.
-4. Open it: `open /Applications/Beacon.app`. Its first launch unpacks the app in
-   place; wait until /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp
-   exists.
+4. Open it once: `open /Applications/Beacon.app`. Its first launch unpacks the
+   app in place; wait until
+   /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp exists,
+   then quit it: `osascript -e 'quit app "Beacon"'`.
 5. Add its MCP server (replacing an existing `beacon` one):
    `claude mcp add -s user beacon -- /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp`.
-Then tell me that until Beacon is signed, macOS asks again for screen recording,
-camera and microphone permission after each update.
+Then tell me two things: Beacon's tools appear in Claude Code sessions started
+from now on (not this one), and until Beacon is signed, macOS asks again for
+screen recording, camera and microphone permission after each update.
 ```
+
+Each AI tool starts its own `beacon-mcp` when a session begins; the app
+needn't be running. To use Beacon from another MCP client (Claude Desktop,
+Cursor…), point its MCP config at the same
+`/Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp`. With the
+app open on a project, `project_open` connects to it: the agent's edits show
+on its timeline, sharing your undo history.
 
 ## Requirements (to build it)
 - [Bun](https://bun.sh) 1.4
