@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import { Button, Slider } from "./controls";
 import { useQuery } from "./query";
@@ -24,13 +24,16 @@ export interface Silences {
 export const reviewOf = (session: Session | undefined) => (session?.features.transcript as { silences?: Review } | undefined)?.silences;
 
 /**
- * The open review's silences, for the timeline's marks and the review panel; asked again each second while a
- * transcript is still being made, and a missing one (an import whose app quit first) is started.
+ * The open review's silences, for the timeline's marks and the review panel; asked again after each edit, and each
+ * second while a transcript is still being made, and a missing one (an import whose app quit first) is started.
  */
-export function useSilences(host: Host, session: Session | undefined): Silences | undefined {
+export function useSilences(host: Host, session: Session | undefined, project: Project | undefined): Silences | undefined {
   const review = reviewOf(session);
   const [tick, setTick] = useState(0);
-  const found = useQuery<Silences>(host, review ? "transcript.silences" : "", review ?? {}, tick);
+  // Each edit is a new project: the marks and Apply must describe the timeline as it is now.
+  const edits = useRef({ project, n: 0 });
+  if (edits.current.project !== project) edits.current = { project, n: edits.current.n + 1 };
+  const found = useQuery<Silences>(host, review ? "transcript.silences" : "", review ?? {}, `${tick}:${edits.current.n}`);
   const missing = review ? (found?.waiting.join() ?? "") : "";
   useEffect(() => {
     for (const asset of missing ? missing.split(",") : []) host.analyze("transcript", asset);

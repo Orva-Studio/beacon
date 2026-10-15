@@ -60,7 +60,7 @@ export function App({ host }: { host: Host }) {
   const opened = useView((s) => s.opened);
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
-  const silences = useSilences(host, session);
+  const silences = useSilences(host, session, project);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);

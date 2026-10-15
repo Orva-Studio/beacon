@@ -1146,6 +1146,21 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   await run("silences.review", { min: 0.6, keep: 0.3 });
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  // An edit while the review is open: the marks and summary describe the timeline as it is now, not as it was.
+  const counts = async () => {
+    const f = await found();
+    const cut = f.silences.filter((x) => x.cut).length;
+    return `${f.silences.length} silences: ${cut} to cut, ${f.silences.length - cut} kept.`;
+  };
+  const shows = (text: string) => page.until(`(document.querySelector('[data-silences-summary]')?.textContent ?? '').startsWith(${JSON.stringify(text)})`);
+  const reviewed = await counts();
+  await shows(reviewed);
+  await run("timeline.rippleDelete", { ranges: [{ start: 0, end: 30 }] });
+  const edited = await counts();
+  expect(edited).not.toBe(reviewed);
+  await shows(edited);
+  await ui.core.undo(ui.handle);
+  await shows(reviewed);
   const first = await found();
   // The widest silence to cut, clicked in the middle of its band on the timeline: kept now.
   const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
