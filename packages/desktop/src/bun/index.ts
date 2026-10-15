@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
@@ -74,16 +74,20 @@ function placement(c: Session["canvas"], view: { rect: { width: number; height: 
   return enginePlacement(canvas, px, placeCanvas(canvas, px, c.zoom, c.pan ?? [0, 0], view.scale));
 }
 
-/** File > Open Recent: the last projects opened, newest first. */
+/** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
 const RECENT_FILE = join(homedir(), "Library/Application Support/Beacon/recent.json");
-let recent: string[] = (() => {
+type Recent = { path: string; opened: number };
+let recent: Recent[] = (() => {
   try {
-    return (JSON.parse(readFileSync(RECENT_FILE, "utf8")) as string[]).filter((p) => existsSync(p));
+    // Before 0.5 the file held paths alone: their folders' modification times stand in.
+    return (JSON.parse(readFileSync(RECENT_FILE, "utf8")) as (string | Recent)[])
+      .map((r) => (typeof r === "string" ? { path: r, opened: existsSync(r) ? statSync(r).mtimeMs : 0 } : r))
+      .filter((r) => existsSync(r.path));
   } catch {
     return [];
   }
 })();
-function setRecent(list: string[]) {
+function setRecent(list: Recent[]) {
   recent = list.slice(0, 10);
   try {
     mkdirSync(dirname(RECENT_FILE), { recursive: true });
@@ -92,6 +96,13 @@ function setRecent(list: string[]) {
     status(`could not remember recent projects: ${e instanceof Error ? e.message : e}`);
   }
   setMenu();
+  send().recent(recentProjects());
+}
+const recentProjects = () => recent.map((r) => ({ ...r, name: basename(r.path, ".beproj") }));
+function openRecent(path: string) {
+  if (existsSync(path)) return void open(path).catch((err: unknown) => status(err instanceof Error ? err.message : String(err)));
+  setRecent(recent.filter((r) => r.path !== path));
+  status(`${path} no longer exists`);
 }
 
 /** Opens run one at a time: two at once would both pass the "already open" check and interleave the switch. */
@@ -147,7 +158,7 @@ async function switchTo(path: string) {
     }
   });
   current = { path: h, unwatch };
-  setRecent([h, ...recent.filter((p) => p !== h)]);
+  setRecent([{ path: h, opened: Date.now() }, ...recent.filter((r) => r.path !== h)]);
   win.setTitle(`${basename(h)} — Beacon`);
   thumbs.clear();
   proxyProgress = { queued: {}, jobs: {} };
@@ -297,7 +308,7 @@ function renameProject(name: string): Promise<void> {
     if (to === from) return;
     current.closed = true;
     await switchTo(to);
-    setRecent(recent.filter((p) => p !== from));
+    setRecent(recent.filter((r) => r.path !== from));
   });
   opening = next.catch(() => {});
   return next;
@@ -876,6 +887,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         const schema = core.schema();
         return {
           opened: current ? await openedPayload(current.path) : undefined,
+          recent: recentProjects(),
           keymap,
           propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
           effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
@@ -898,6 +910,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       undo: () => reply(async () => current && (await core.undo(current.path))),
       redo: () => reply(async () => current && (await core.redo(current.path))),
       openDialog: () => reply(openDialog),
+      openRecent: ({ path }) => openRecent(path),
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
@@ -1139,7 +1152,7 @@ function setMenu() {
         {
           label: "Open Recent",
           submenu: [
-            ...recent.map((path) => ({ label: basename(path, ".beproj"), action: `recent:${path}` })),
+            ...recent.map(({ path }) => ({ label: basename(path, ".beproj"), action: `recent:${path}` })),
             ...(recent.length ? [{ type: "separator" as const }] : []),
             { label: "Clear Menu", action: "recentClear", enabled: recent.length > 0 },
           ],
@@ -1331,12 +1344,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
     const [mods, code] = action.slice(4).split("+") as [string, string];
     return send().key({ code, meta: mods === "command" });
   }
-  if (action?.startsWith("recent:")) {
-    const path = action.slice(7);
-    if (existsSync(path)) return void open(path).catch(report);
-    setRecent(recent.filter((p) => p !== path));
-    return status(`${path} no longer exists`);
-  }
+  if (action?.startsWith("recent:")) return openRecent(action.slice(7));
   if (!current) return;
   const h = current.path;
   const fail = (err: Error) => status(err.message);

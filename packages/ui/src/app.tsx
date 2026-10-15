@@ -18,16 +18,16 @@ import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { RecordUi, type RecordHost } from "./record";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { SettingsUi, type SettingsHost } from "./settings";
+import { StartScreen, type StartHost } from "./start-screen";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost {
+export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
   query(name: string, args?: unknown): Promise<unknown>;
   undo(): void;
   redo(): void;
-  openDialog(): void;
   canvasView(id: number, rect: { x: number; y: number; width: number; height: number }, scale: number, surround: [number, number, number]): void;
   /** Draws the selection and guides in the native preview: positions in canvas pixels, sizes in points; without it the overlay draws them itself. */
   canvasMarks?(marks: CanvasMark[]): void;
@@ -174,6 +174,7 @@ export function App({ host }: { host: Host }) {
       <RecordUi host={host} />
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
+      <StartScreen host={host} />
       <NewProjectUi host={host} />
       <SaveAsUi host={host} />
       <ResourceUi host={host} />

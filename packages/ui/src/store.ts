@@ -169,6 +169,9 @@ export const replica = {
   previewClock(previewClock: ViewState["previewClock"]) {
     set({ previewClock });
   },
+  recent(recent: import("./rpc").RecentProject[]) {
+    if (state.init) set({ init: { ...state.init, recent } });
+  },
   newProject(newProject: ViewState["newProject"]) {
     set({ newProject });
   },

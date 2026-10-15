@@ -29,8 +29,16 @@ export interface Opened {
   rev: number;
 }
 
+/** A project from Open Recent; `opened`: ms since 1970. */
+export interface RecentProject {
+  path: string;
+  name: string;
+  opened: number;
+}
+
 export interface Init {
   opened?: Opened;
+  recent: RecentProject[];
   keymap: Binding[];
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
@@ -264,6 +272,7 @@ export type AppRPC = {
       undo: { params: {}; response: RunReply };
       redo: { params: {}; response: RunReply };
       openDialog: { params: {}; response: RunReply };
+      openRecent: { params: { path: string }; response: void };
       /** Shows the right-click menu for a clip (a native menu). */
       /** `canvas`: opened from the canvas, which adds Project Settings… and Zoom to Fit. */
       clipMenu: { params: { clip: string; canvas?: boolean }; response: void };
@@ -349,6 +358,7 @@ export type AppRPC = {
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
       newProjectSheet: { name: string };
+      recent: RecentProject[];
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;
       /** An analysis needs a resource that isn't downloaded: ask. */

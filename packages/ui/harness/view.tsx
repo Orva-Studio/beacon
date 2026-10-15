@@ -62,6 +62,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "notice") replica.notice(msg.data);
   else if (msg.type === "previewClock") replica.previewClock(msg.data);
   else if (msg.type === "newProjectSheet") replica.newProject(msg.data);
+  else if (msg.type === "recent") replica.recent(msg.data);
   else if (msg.type === "saveAsSheet") replica.saveAs(msg.data);
   else if (msg.type === "resourceSheet") replica.resource(msg.data);
   else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
@@ -82,7 +83,8 @@ const host: Host = {
   },
   undo: () => void report(request("undo")),
   redo: () => void report(request("redo")),
-  openDialog: () => {},
+  openDialog: () => void request("openDialog"),
+  openRecent: (path) => void request("openRecent", { path }),
   canvasView: () => {},
   clipMenu: (clip) => void request("clipMenu", { clip }),
   canvasMenu: () => void request("canvasMenu"),

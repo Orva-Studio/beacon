@@ -226,6 +226,63 @@ test.skipIf(skip)("New Project asks for a name and the canvas (presets); the pro
   expect(ui.menus).toContain("newProjectStandalone");
 });
 
+test.skipIf(skip)("opened without a project, the start screen offers New Project, the last four projects with when each was opened, and Open…", async () => {
+  const path = join(dir, "start.beproj");
+  const core = new LocalCore();
+  await core.close(await core.create({ path }));
+  const now = Date.now();
+  const recent = [
+    { path, name: "start", opened: now - 5 * 60_000 },
+    { path: "/Users/someone/Movies/Beacon/Launch.beproj", name: "Launch", opened: now - 3 * 3_600_000 },
+    { path: "/Users/someone/Movies/Beacon/Tutorial.beproj", name: "Tutorial", opened: now - 26 * 3_600_000 },
+    { path: "/Users/someone/Movies/Beacon/Old.beproj", name: "Old", opened: new Date(2025, 2, 3).getTime() },
+    { path: "/Users/someone/Movies/Beacon/Fifth.beproj", name: "Fifth", opened: new Date(2025, 1, 1).getTime() },
+  ];
+  const start = await serveUi(path, { closed: true, recent });
+  const view = await openPage(start.url);
+  try {
+    const rows = `[...document.querySelectorAll('[data-recent]')].map((r) => r.innerText.replace(/\\s+/g, ' ').trim())`;
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    const shown = await view.evaluate<string[]>(rows);
+    expect(shown.slice(0, 3)).toEqual(["start 5 minutes ago", "Launch 3 hours ago", "Tutorial yesterday"]);
+    // Older ones by date, in the Mac's format.
+    expect(shown[3]).toMatch(/^Old .*\b3\b.*2025$/);
+    // Nothing to go back to: Escape leaves it open.
+    await view.key("Escape", "Escape");
+    await Bun.sleep(100);
+    expect(await view.evaluate<boolean>("!!document.querySelector('[data-start-screen]')")).toBe(true);
+    // New Project replaces it; cancelled, it is back.
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'New Project').click()`);
+    await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    // The list follows Open Recent as the app changes it.
+    start.send("recent", recent.slice(1));
+    await view.until(`${rows}.length === 4 && ${rows}[0].startsWith('Launch')`);
+    start.send("recent", recent);
+    await view.until(`${rows}[0].startsWith('start ')`);
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Open…').click()`);
+    await arrived(() => start.menus.includes("openDialog"));
+    expect(start.menus).toContain("openDialog");
+    await view.until("!document.querySelector('[data-start-screen]')");
+  } finally {
+    view.close();
+    await start.close();
+  }
+  // A click on a recent project opens it, and the editor shows it.
+  const again = await serveUi(path, { closed: true, recent });
+  const page2 = await openPage(again.url);
+  try {
+    await page2.until("!!document.querySelector('[data-start-screen]')");
+    await page2.click(...(await page2.evaluate<[number, number]>(`(() => { const r = document.querySelector('[data-recent="${path}"]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`)));
+    await page2.until(`!document.querySelector('[data-start-screen]') && !!document.querySelector('[title="Rename the project"]')`);
+    expect(again.menus).toContain(`openRecent:${path}`);
+  } finally {
+    page2.close();
+    await again.close();
+  }
+}, 30000);
+
 test.skipIf(skip)("Save As asks for a name, a folder and standalone; a name that is taken keeps the dialog open with why", async () => {
   ui.send("saveAsSheet", { name: "Episode 12 copy", folder: "/Users/someone/Projects", standalone: false });
   await page.until("document.body.innerText.includes('Save As')");

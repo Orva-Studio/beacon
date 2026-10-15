@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { importDropped, LocalCore } from "@beacon/core";
 import { existsSync } from "node:fs";
 import { exportOptions } from "../../packages/ui/src/export-options";
+import type { RecentProject } from "../../packages/ui/src/rpc";
 import keymap from "../../keymaps/default.json";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
@@ -12,8 +13,13 @@ const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAA
  * project open, in place of the app's window: for testing the UI offscreen
  * (with `browser.ts`) when an app window would be in the way.
  */
-export async function serveUi(project: string, opts: { cacheDir?: string } = {}) {
-  const core = new LocalCore(opts);
+/**
+ * `closed`: the page starts as the app does with no project open (the start screen, listing `recent`);
+ * Open Recent or Open… then opens the harness's project.
+ */
+export async function serveUi(project: string, opts: { cacheDir?: string; closed?: boolean; recent?: RecentProject[] } = {}) {
+  const core = new LocalCore({ ...(opts.cacheDir ? { cacheDir: opts.cacheDir } : {}) });
+  let shown = !opts.closed;
   const h = await core.open(project);
   const root = join(import.meta.dir, "../..");
   const css = Bun.spawnSync(["bun", "run", "--cwd", join(root, "packages/ui"), "css"], { stdout: "ignore", stderr: "pipe" });
@@ -99,7 +105,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         if (msg.type === "init") {
           const schema = core.schema();
           result = {
-            opened: await opened(),
+            opened: shown ? await opened() : undefined,
+            recent: opts.recent ?? [],
             keymap: keymap.bindings,
             propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
             effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
@@ -112,6 +119,12 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         else if (msg.type === "query") result = await reply(() => core.query(h, msg.name, msg.args ?? {}));
         else if (msg.type === "undo") result = await reply(() => core.undo(h));
         else if (msg.type === "redo") result = await reply(() => core.redo(h));
+        else if (msg.type === "openRecent" || msg.type === "openDialog") {
+          menus.push(msg.type === "openRecent" ? `openRecent:${msg.path}` : "openDialog");
+          shown = true;
+          ws.send(JSON.stringify({ type: "opened", data: await opened() }));
+          result = { ok: true };
+        }
         else if (msg.type === "clipMenu") menus.push(msg.clip);
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${msg.track}`);
