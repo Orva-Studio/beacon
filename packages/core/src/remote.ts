@@ -28,7 +28,7 @@ import type {
   Snapshot,
   TransactionStep,
 } from "./api";
-import { decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
+import { appSockets, decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
 
 interface Pending {
   resolve: (v: any) => void;
@@ -83,7 +83,8 @@ export class RemoteCore implements BeaconCore {
         error: (_, e) => r.#fail(e),
       },
     });
-    const hello = await r.#call<{ protocol: number }>("hello");
+    const hello = await r.#call<{ protocol: number; projects?: string[] }>("hello");
+    r.projects = hello.projects ?? [];
     if (hello.protocol !== PROTOCOL_VERSION) {
       r.disconnect();
       throw new Error(`the Beacon app speaks protocol ${hello.protocol}, this client ${PROTOCOL_VERSION}; update one of them`);
@@ -91,6 +92,9 @@ export class RemoteCore implements BeaconCore {
     [r.#commands, r.#queries, r.#schema] = await Promise.all([r.#call<CommandInfo[]>("commands"), r.#call<QueryInfo[]>("queries"), r.#call<SchemaInfo>("schema")]);
     return r;
   }
+
+  /** The projects the app has open, as it said when this client connected. */
+  projects: string[] = [];
 
   disconnect() {
     this.#socket.end();
@@ -239,4 +243,34 @@ export async function appCoreFor(project: string): Promise<RemoteCore | undefine
   const owner = lockOwner(resolve(project));
   if (!owner?.socket || owner.pid === process.pid || !existsSync(owner.socket)) return undefined;
   return RemoteCore.connect(owner.socket);
+}
+
+/** How long an app has to answer `hello` before discovery moves on without it (a frozen app still has its socket). */
+const PROBE_MS = 1000;
+
+/** The projects one app has open, from its `hello` alone; undefined when it doesn't answer in time. */
+async function probe(path: string): Promise<string[] | undefined> {
+  let socket: Socket | undefined;
+  let done: (projects: string[] | undefined) => void = () => {};
+  const answer = new Promise<string[] | undefined>((resolve) => (done = resolve));
+  const timer = setTimeout(() => done(undefined), PROBE_MS);
+  const reader = new LineReader((line) => {
+    const msg = decode(line) as { result?: { protocol?: number; projects?: string[] } };
+    done(msg.result?.protocol === PROTOCOL_VERSION ? (msg.result.projects ?? []) : undefined);
+  });
+  try {
+    socket = await Bun.connect({ unix: path, socket: { data: (_, chunk) => reader.push(chunk), close: () => done(undefined), error: () => done(undefined) } });
+    socket.write(`${encode({ jsonrpc: "2.0", id: 1, method: "hello", params: [] })}\n`);
+    return await answer;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+    socket?.end();
+  }
+}
+
+/** The projects open in running Beacon apps, which `project_open` can connect to; an app that doesn't answer is skipped. */
+export async function appProjects(): Promise<string[]> {
+  return (await Promise.all(appSockets().map(probe))).flatMap((p) => p ?? []);
 }

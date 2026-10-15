@@ -1353,7 +1353,7 @@ const win = new BrowserWindow({
   activate: process.env.BEACON_BACKGROUND !== "1",
 });
 
-const server = serveCore(core, { path: socket, canOpen: (p) => current?.path === resolve(p) });
+const server = serveCore(core, { path: socket, canOpen: (p) => current?.path === resolve(p), projects: () => (current ? [current.path] : []) });
 core.setSnapshotter(async () => {
   const png = await captureWindow(windowNumber(win.ptr as Pointer));
   const v = current?.view;

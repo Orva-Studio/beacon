@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#151816"/><stop offset="1" stop-color="#050606"/></linearGradient>
+  <linearGradient id="green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5cf0a3"/><stop offset="1" stop-color="#26c172"/></linearGradient>
+  <linearGradient id="deep" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f5c45"/><stop offset="1" stop-color="#1f3a2d"/></linearGradient>
+  <linearGradient id="grey" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9dfdb"/><stop offset="1" stop-color="#a9b2ad"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#343a37"/><stop offset="1" stop-color="#252b28"/></linearGradient>
+  <radialGradient id="sheen" cx="0.5" cy="0" r="0.9"><stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feGaussianBlur stdDeviation="9"/></filter>
+  <filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feGaussianBlur stdDeviation="14"/></filter>
+  <filter id="shadow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feGaussianBlur stdDeviation="14"/></filter>
+  <clipPath id="left"><rect x="0" y="0" width="318" height="1024"/></clipPath>
+  <clipPath id="right"><rect x="318" y="0" width="706" height="1024"/></clipPath>
+</defs>
+<rect x="100" y="112" width="824" height="824" rx="185" fill="#000" opacity="0.45" filter="url(#shadow)"/>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+<rect x="101.5" y="101.5" width="821" height="821" rx="184" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
+<g opacity="0.35" filter="url(#soft)"><rect x="340" y="277" width="290" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/><rect x="575" y="375" width="130" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/><rect x="340" y="473" width="315" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/><rect x="600" y="571" width="130" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/><rect x="340" y="669" width="320" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/></g>
+<rect x="340" y="277" width="290" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/>
+<rect x="575" y="375" width="130" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/>
+<rect x="340" y="473" width="315" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/>
+<rect x="600" y="571" width="130" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/>
+<rect x="340" y="669" width="320" height="78" rx="22" fill="url(#green)" stroke="rgba(255,255,255,0.18)" stroke-width="3"/>
+<g>
+  <rect x="309" y="236" width="18" height="560" rx="9" fill="#ffffff" opacity="0.55" filter="url(#glow)"/>
+  <rect x="313" y="236" width="10" height="560" rx="5" fill="#ffffff"/>
+  <rect x="301" y="208" width="34" height="50" rx="17" fill="#ffffff"/>
+</g>
+</svg>

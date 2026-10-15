@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Checks a release DMG as a Mac without Homebrew or FFmpeg would see it: the app inside unpacked as its first launch
- * does, both signed (ad hoc), its Info.plist entries, nothing linked from outside the app or the system, and the
+ * does, both signed (ad hoc), its Info.plist entries and icon, nothing linked from outside the app or the system, and the
  * app's own beacon-mcp, run with a bare PATH and an empty home, making a project, exporting MP4 and GIF, importing
  * the MP4 and reading a frame back. The release workflow runs it before publishing.
  *
@@ -52,7 +52,9 @@ async function appEngine(): Promise<string> {
   for (const k of ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"]) if (!(await key(k))) throw new Error(`Info.plist has no ${k}`);
   const version = await key("CFBundleVersion");
   if (values.version && version !== values.version) throw new Error(`the app is version ${version}, not ${values.version}`);
-  step(`Info.plist: camera and microphone prompts, version ${version}`);
+  const icon = await key("CFBundleIconFile");
+  if (!icon || !existsSync(join(app, "Contents/Resources", icon.endsWith(".icns") ? icon : `${icon}.icns`))) throw new Error("the app has no icon");
+  step(`Info.plist: camera and microphone prompts, version ${version}, its icon`);
 
   const engine = join(app, "Contents/Resources/app/engine");
   const missing = ENGINE_FILES.filter((f) => !existsSync(join(engine, f)));
