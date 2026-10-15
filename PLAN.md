@@ -15,9 +15,10 @@ the new look, closed 2026-10-13 with more to add later; Phase 6, the
 recorder, passed its gate 2026-10-15: the user recorded screen, Cam Link,
 Yeti and system audio, edited (Remove Silences) and exported in Beacon
 alone). Video is decoded in process (`beacon-decode` over FFmpeg's
-libraries), with frames kept for steps back (`docs/performance.md`). Next:
-projects you can move and share, then **Phase 6.5** (one self-contained app,
-fast export).
+libraries), with frames kept for steps back (`docs/performance.md`). Phase
+6.5 made Beacon one self-contained app with fast export, released as v0.2.1
+and v0.3.0 (its gate run is left). Next: **Phase 7** (transcript tools), then
+8 (faster editing), 9 (workspace) and 10 (looks).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -637,7 +638,7 @@ they diverge beyond a small threshold.
 - **Copy/paste properties** is generic: copies a selected set of schema groups
   (transform, cursor, effects) from one clip and applies them to others as one
   transaction.
-- **Command palette** (planned, Phase 7) lists every registered command, so
+- **Command palette** (planned, Phase 8) lists every registered command, so
   nothing is reachable only by mouse.
 
 ---
@@ -1178,8 +1179,8 @@ unpacked, signed and packed again, since Electrobun writes its version.json
 after postBuild); `scripts/check-release.ts` checks a DMG as a bare Mac would
 see it; `.github/workflows/release.yml` builds, checks and publishes on a tag
 (and builds and checks on pull requests that change it); unsigned for now (see Signing
-below). Left: the first tagged release, the transcriber
-choice below; the gate run.
+below). Released as v0.2.1 and v0.3.0 (in-app updates from 0.4.0). Left: the
+gate run; the transcriber choice below moved to Phase 7 (2026-10-15).
 **Transcriber choice (decided 2026-10-15):** Settings › General › Transcripts
 picks the transcriber: Whisper on this Mac (default; the model download as
 now), Apple's on-device transcriber (macOS 26 SpeechTranscriber: no download,
@@ -1200,9 +1201,20 @@ and notarization are added once the user has a Developer ID.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 
-### Phase 7 — Growth
-New features, each as a folder in `packages/features`.
-- **Remove Silences, one click** (the user, 2026-10-14; the first AI feature;
+### Phases 7–10 (split 2026-10-15)
+Phase 7 was one list of everything next ("Growth"); the user split it by
+theme, each with a gate, as the earlier phases had. Each feature is a folder
+in `packages/features` where it can be (§6: the checklist passes with no core
+changes); each phase ends with a minor release.
+
+### Phase 7 — Transcript tools
+Making the transcript do the editing.
+- **Transcriber choice** (carried over from Phase 6.5, where it is described:
+  Whisper on this Mac, Apple's on-device transcriber, or OpenAI's API with the
+  key in the Keychain; Settings, a command, the transcriber in the cache key,
+  word timings checked against local Whisper). First, because which
+  transcribers keep "um" decides how Remove Filler Words works.
+- **Remove Silences, one click** (done; the user, 2026-10-14; the first AI feature;
   built the same day, before the Phase 6 gate, as below except the timeline
   marks): it was agents only (`transcript_removePauses`
   over MCP); the transcript itself is already made locally by whisper.cpp
@@ -1251,6 +1263,14 @@ New features, each as a folder in `packages/features`.
   editing the transcript's words; burned into the export, and an `.srt`
   beside it. The words are already timed, so most of the work is the
   caption clip and its style.
+**Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
+captions export burned in with a matching `.srt`, with each transcriber.
+
+### Phase 8 — Faster editing
+Getting to everything quicker, by hand or by agent.
+- **Record button** (the user, 2026-10-15, after trying v0.2.1): a red-dot
+  Record button at the top left of the window, as Camtasia has, opening the
+  Record dialog; today only File › Record… (⌘R) does. Plus a UI-harness flow.
 - **Keyboard shortcuts** (the user, 2026-10-14): Settings › Shortcuts lists
   every action with its shortcut (from the registry and
   `keymaps/default.json`), searchable, and rebinds one by pressing the new
@@ -1264,25 +1284,17 @@ New features, each as a folder in `packages/features`.
   everything it lists (ids, descriptions, keymap), so it is mostly UI built
   from `ui/src/controls/` (a Modal with a filtered list); later AI features
   can add entries to it.
-- **A window per project** (the user, 2026-10-12): several projects open at
-  once, each in its own window (macOS's Merge All Windows then
-  gives tabs). Core already holds several projects and shares one clipboard
-  between them (copying clips across projects works); the desktop main
-  process keeps one `current` project and view, so its state (project, live
-  view, thumbnails, proxy progress, RPC) moves to a per-window record, and
-  menus and keys go to the focused window. Playing in one window pauses the
-  others. Mostly `packages/desktop`; the UI and core are unchanged.
-- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
-  show frames along their length, not only the first. Measured on demo_1
-  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
-  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
-  (camera), ~3 s of CPU, about 4% of building the proxies; from the
-  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
-  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
-  the proxy, cached like waveforms; the timeline draws slices of the sprite
-  (its clips layer is redrawn only on zoom, scroll and edits). Design for
-  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
-  for what is in view, or keep two densities (1 s, 10 s).
+- **Favourites you choose** (the user, 2026-10-13): today the Favorites panel
+  is a fixed list (`FAVORITES` in `ui/src/sidebar.tsx`: Text, Rectangle,
+  Spotlight and four effects). Instead: a star on any annotation, visual
+  or audio effect (on hover, and Add to Favorites in its menu) adds it;
+  favourites are reordered by dragging and removed by un-starring; the
+  current list is the default for new users. Stored app-wide with the other
+  app settings, owned by core (`favorites.add`/`remove`/`move`, so agents
+  and the command palette use them too; see "App settings as commands"
+  above). Open: whether a configured item can be a favourite too (a drop
+  shadow with your colour and blur, a text style), saved as a preset with
+  its params, which is the larger and probably more useful half.
 - **App settings as commands, then dialogs an agent can open** (the user,
   2026-10-12; found driving the app over MCP to check Phase 5.5). §7 says
   preferences are commands, but they aren't yet:
@@ -1302,16 +1314,30 @@ New features, each as a folder in `packages/features`.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
-- **Film look from hance** (the user, 2026-10-13; small, not hance's full
-  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
-  sliders (strength, grain, halation, fade, warmth, or whichever few hance
-  treats as its core), so the inspector, undo, copy properties and agent
-  commands come from the schema; hance's `.hlook` files import onto those
-  sliders, with what doesn't map listed in an import report rather than
-  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
-  fixes reach both; preview/export parity as for every pass. Open: what a
-  `.hlook` holds (values, a LUT, or both) decides whether the renderer
-  needs LUTs.
+**Gate:** an edit from record to export using only keys and the palette;
+an agent changes settings and opens each dialog.
+
+### Phase 9 — Workspace
+Seeing more at once.
+- **A window per project** (the user, 2026-10-12): several projects open at
+  once, each in its own window (macOS's Merge All Windows then
+  gives tabs). Core already holds several projects and shares one clipboard
+  between them (copying clips across projects works); the desktop main
+  process keeps one `current` project and view, so its state (project, live
+  view, thumbnails, proxy progress, RPC) moves to a per-window record, and
+  menus and keys go to the focused window. Playing in one window pauses the
+  others. Mostly `packages/desktop`; the UI and core are unchanged.
+- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
+  show frames along their length, not only the first. Measured on demo_1
+  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
+  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
+  (camera), ~3 s of CPU, about 4% of building the proxies; from the
+  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
+  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
+  the proxy, cached like waveforms; the timeline draws slices of the sprite
+  (its clips layer is redrawn only on zoom, scroll and edits). Design for
+  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
+  for what is in view, or keep two densities (1 s, 10 s).
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,
@@ -1323,17 +1349,23 @@ New features, each as a folder in `packages/features`.
   zone anywhere on the timeline ("nothing under the TikTok buttons", one
   tool call for an agent); snapping to safe-area edges comes cheap. Face
   detection for the head guide is later, if wanted.
-- **Favourites you choose** (the user, 2026-10-13): today the Favorites panel
-  is a fixed list (`FAVORITES` in `ui/src/sidebar.tsx`: Text, Rectangle,
-  Spotlight and four effects). Instead: a star on any annotation, visual
-  or audio effect (on hover, and Add to Favorites in its menu) adds it;
-  favourites are reordered by dragging and removed by un-starring; the
-  current list is the default for new users. Stored app-wide with the other
-  app settings, owned by core (`favorites.add`/`remove`/`move`, so agents
-  and the command palette use them too; see "App settings as commands"
-  above). Open: whether a configured item can be a favourite too (a drop
-  shadow with your colour and blur, a text style), saved as a preset with
-  its params, which is the larger and probably more useful half.
+**Gate:** two projects open side by side, clips show their frames, and a
+9:16 Short checks clean against its platform's safe areas.
+
+### Phase 10 — Looks
+- **Film look from hance** (the user, 2026-10-13; small, not hance's full
+  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
+  sliders (strength, grain, halation, fade, warmth, or whichever few hance
+  treats as its core), so the inspector, undo, copy properties and agent
+  commands come from the schema; hance's `.hlook` files import onto those
+  sliders, with what doesn't map listed in an import report rather than
+  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
+  fixes reach both; preview/export parity as for every pass. Open: what a
+  `.hlook` holds (values, a LUT, or both) decides whether the renderer
+  needs LUTs.
+**Gate:** the look matches between preview and export, and a `.hlook`
+imports with a report of what didn't map.
+
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
