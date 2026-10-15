@@ -1075,6 +1075,23 @@ take's `driftPpm` (a USB microphone keeps its own clock).
 **Gate:** record a video with screen, camera, mic and system audio, then edit
 and export it in Beacon alone.
 
+### After the Phase 6 gate: projects you can move and share (decided 2026-10-15)
+Today every asset is an absolute path, even a take in the project's own
+`recordings/`, so a `.beproj` copied in Finder or to another Mac loses its
+media until relinked (renaming from the title bar rewrites the paths).
+1. **Paths inside the project are stored relative to it** (a migration for
+   existing projects), so a copied or moved project keeps working.
+2. **Standalone projects**, as Camtasia's "Create standalone project": a
+   project setting, offered as a checkbox in New Project and in Save As.
+   While it is on, every import is copied into the project's `media/` as it
+   comes in, and turning it on (or Save As with it ticked) copies what is
+   already outside. Off, imports are referenced where they are, as now.
+   Proxies and transcripts stay in the cache and are rebuilt on another Mac.
+3. **File › Save As…**: a copy under a new name, then opened; its recordings
+   come with it, and outside media too when standalone.
+4. **File › Show in Finder** for the project.
+Agents get each as a command. Then Phase 7.
+
 ### Phase 6.5 — A self-contained app (decided 2026-10-12)
 One downloadable, signed `.app` that works on a Mac with nothing installed:
 today Beacon runs `ffmpeg`, `ffprobe` and `whisper-cli` from the user's
