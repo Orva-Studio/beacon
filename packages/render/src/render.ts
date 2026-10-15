@@ -73,7 +73,7 @@ export function renderJob(project: Project, registry: FeatureRegistry, output: u
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
   h264: ["-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", "-tag:v", "avc1"],
   hevc: ["-c:v", "hevc_videotoolbox", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"],
-  prores: ["-c:v", "prores_videotoolbox", "-profile:v", "hq"],
+  prores: ["-c:v", "prores_videotoolbox", "-pix_fmt", "nv12", "-profile:v", "hq"],
 };
 
 /** RGBA → BT.709 limited range, tagged with the transfer of `space`, as players expect for HD. */
