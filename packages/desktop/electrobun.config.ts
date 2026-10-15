@@ -1,7 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ElectrobunConfig } from "electrobun";
-import { version } from "../../package.json";
+
+// Read, not imported: Electrobun's config runtime gives a JSON import's `version` as undefined, and the app then
+// silently becomes its default 0.1.0.
+const { version } = JSON.parse(readFileSync(join(import.meta.dir, "../../package.json"), "utf8")) as { version: string };
 
 // The engine and Beacon's own ffmpeg, ffprobe and whisper-cli, staged by scripts/bundle-tools.ts (run by `dev` and `build`).
 const STAGE = "../engine/target/bundle";
