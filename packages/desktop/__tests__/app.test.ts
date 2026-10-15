@@ -33,7 +33,7 @@ test.skipIf(!existsSync(SMALL))(
     expect(existsSync(socket)).toBe(true);
 
     const client = new Client({ name: "app-test", version: "0" });
-    await client.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dir, "../../mcp/src/main.ts")], stderr: "ignore" }));
+    await client.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dir, "../../mcp/src/main.ts")], env: { ...process.env, BEACON_SOCKET: socket } as Record<string, string>, stderr: "ignore" }));
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { type: string; text?: string; data?: string }[] };
       if (r.isError) throw new Error(`${name}: ${r.content[0]?.text}`);
@@ -51,7 +51,9 @@ test.skipIf(!existsSync(SMALL))(
       throw new Error(`the window never showed ${want}; last snapshot:\n${text}`);
     };
     try {
-      expect((await call("project_open", { path: project }))[0]!.text).toContain("connected to the open Beacon app");
+      // Before any project, an agent is told where to find the app's; with no path, project_open connects to it.
+      await expect(call("ui_state")).rejects.toThrow("connects to the project open in the Beacon app");
+      expect((await call("project_open"))[0]!.text).toContain("connected to the open Beacon app");
 
       await call("playhead_set", { time: 100 });
       await call("selection_step", { direction: "next", scope: "playhead" });

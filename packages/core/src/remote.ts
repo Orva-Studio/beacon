@@ -28,7 +28,7 @@ import type {
   Snapshot,
   TransactionStep,
 } from "./api";
-import { decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
+import { appSockets, decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
 
 interface Pending {
   resolve: (v: any) => void;
@@ -83,7 +83,8 @@ export class RemoteCore implements BeaconCore {
         error: (_, e) => r.#fail(e),
       },
     });
-    const hello = await r.#call<{ protocol: number }>("hello");
+    const hello = await r.#call<{ protocol: number; projects?: string[] }>("hello");
+    r.projects = hello.projects ?? [];
     if (hello.protocol !== PROTOCOL_VERSION) {
       r.disconnect();
       throw new Error(`the Beacon app speaks protocol ${hello.protocol}, this client ${PROTOCOL_VERSION}; update one of them`);
@@ -91,6 +92,9 @@ export class RemoteCore implements BeaconCore {
     [r.#commands, r.#queries, r.#schema] = await Promise.all([r.#call<CommandInfo[]>("commands"), r.#call<QueryInfo[]>("queries"), r.#call<SchemaInfo>("schema")]);
     return r;
   }
+
+  /** The projects the app has open, as it said when this client connected. */
+  projects: string[] = [];
 
   disconnect() {
     this.#socket.end();
@@ -239,4 +243,16 @@ export async function appCoreFor(project: string): Promise<RemoteCore | undefine
   const owner = lockOwner(resolve(project));
   if (!owner?.socket || owner.pid === process.pid || !existsSync(owner.socket)) return undefined;
   return RemoteCore.connect(owner.socket);
+}
+
+/** The projects open in running Beacon apps, which `project_open` can connect to. */
+export async function appProjects(): Promise<string[]> {
+  const found: string[] = [];
+  for (const socket of appSockets()) {
+    const app = await RemoteCore.connect(socket).catch(() => undefined);
+    if (!app) continue;
+    found.push(...app.projects);
+    app.disconnect();
+  }
+  return found;
 }

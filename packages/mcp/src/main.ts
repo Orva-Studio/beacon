@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { appCoreFor, LocalCore } from "@beacon/core";
+import { appCoreFor, appProjects, LocalCore } from "@beacon/core";
 import { createServer } from "./server";
 import pkg from "../package.json";
 
@@ -9,7 +9,7 @@ console.log = console.error;
 console.info = console.error;
 
 const core = new LocalCore();
-const server = createServer(core, pkg.version, { appCore: appCoreFor });
+const server = createServer(core, pkg.version, { appCore: appCoreFor, appProjects });
 const exit = () => {
   core.closeAll();
   process.exit(0);
