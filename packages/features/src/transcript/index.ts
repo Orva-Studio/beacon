@@ -212,13 +212,17 @@ function screenActive(project: Project, data: Data, start: number, end: number):
       const src = (t: number) => ticksToSeconds(clip.mediaStart ?? 0) + (t - at) * speed;
       const [sa, sb] = [src(a), src(b)];
       if (cursor.buttons.t.some((t) => t >= sa && t <= sb)) return true;
-      let first = -1;
+      // Positions are logged only when they change, so the first inside the silence is measured from where the
+      // cursor was before it.
+      let from = -1;
       for (let i = 0; i < cursor.t.length; i++) {
         const t = cursor.t[i]!;
-        if (t < sa) continue;
         if (t > sb) break;
-        if (first < 0) first = i;
-        else if (Math.hypot(cursor.x[i]! - cursor.x[first]!, cursor.y[i]! - cursor.y[first]!) > 24) return true;
+        if (t < sa || from < 0) {
+          from = i;
+          if (t < sa) continue;
+        }
+        if (Math.hypot(cursor.x[i]! - cursor.x[from]!, cursor.y[i]! - cursor.y[from]!) > 24) return true;
       }
     }
   }
@@ -229,6 +233,12 @@ function screenActive(project: Project, data: Data, start: number, end: number):
 function untranscribed(project: Project, registry: FeatureRegistry, data: Data): string[] {
   const clips = project.tracks.filter((t) => !t.muted).flatMap((t) => t.clips);
   return [...new Set(clips.filter((c) => c.assetId && registry.hasTrait(c.type, "audio") && !data<TranscriptData>(c.assetId, "transcript")?.streams[clipStream(c)]).map((c) => c.assetId!))];
+}
+
+/** Refuses a cut from the transcript while media heard on the timeline has none yet: it may speak in what would go. */
+function refuseUntranscribed(project: Project, registry: FeatureRegistry, data: Data) {
+  const waiting = untranscribed(project, registry, data);
+  if (waiting.length) throw new Error(`still transcribing ${waiting.map((id) => project.assets[id]?.name ?? id).join(", ")}: nothing is cut until every audio heard has a transcript`);
 }
 
 /** Remove Silences' settings, and in review (`session.features.transcript.silences`) the silences flipped by hand. */
@@ -412,6 +422,7 @@ export const transcript = defineFeature({
       apply(doc, o, ctx) {
         const plan = silencePlan(doc, ctx.registry, ctx.data, o);
         if (!plan.words) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
         return cut(doc, ctx, plan.ranges);
       },
     }),
@@ -452,6 +463,7 @@ export const transcript = defineFeature({
       apply(doc, { min, keep, from, to, except }, ctx) {
         const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, from, to, except });
         if (!ranges) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
         return cut(doc, ctx, ranges);
       },
     }),
