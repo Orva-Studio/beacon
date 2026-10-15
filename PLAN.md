@@ -1168,7 +1168,25 @@ into the GPU (20 s of the gate project: 13.9 s → 4.9 s, 1.44× → 4.1× real
 time). Left: the native encoder (`encode.rs`, behind `BEACON_ENCODE_NATIVE=1`)
 needs pipelining (it waits on the GPU per frame: 4.7 s) and a parity test
 before it is the default; mixing audio while the video renders (~0.5 s);
-step 3 (releases, signing: needs the user's Developer ID); the gate run.
+step 3 (releases; unsigned for now, see Signing below); the transcriber
+choice below; the gate run.
+**Transcriber choice (decided 2026-10-15):** Settings › General › Transcripts
+picks the transcriber: Whisper on this Mac (default; the model download as
+now), Apple's on-device transcriber (macOS 26 SpeechTranscriber: no download,
+about 8× faster, weaker on technical words: `docs/transcription-spike.md`), or
+Whisper through OpenAI's API with the user's own API key (stored in the macOS
+Keychain, never in a project or settings file; the dialog says plainly that
+the audio is uploaded to OpenAI). Word timings must be good enough for Remove
+Silences in each (check Apple's and the API's against local Whisper's DTW
+times on the fixtures; for the API, use a model that returns word
+timestamps). Choosing Apple or the API never asks to download the model.
+Agents get the same as a setting/command. The transcript cache key includes
+the transcriber.
+**Signing (decided 2026-10-15):** no Apple Developer ID yet. Releases are
+ad-hoc signed and not notarized; the README's install prompt keeps the
+`xattr -dr com.apple.quarantine` step and says macOS will ask again for
+screen, camera and microphone permission after each update. Hardened runtime
+and notarization are added once the user has a Developer ID.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 
