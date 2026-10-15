@@ -109,7 +109,7 @@ pub fn list() -> Value {
                     .map(|d| unsafe {
                         let f = d.frame();
                         let scale = SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), d, &NSArray::new()).pointPixelScale() as f64;
-                        let (pw, ph) = ((f.size.width * scale) as usize, (f.size.height * scale) as usize);
+                        let (pw, ph) = crate::capture::record_size((f.size.width * scale) as usize, (f.size.height * scale) as usize);
                         json!({ "id": d.displayID(), "width": d.width(), "height": d.height(), "pixelWidth": pw, "pixelHeight": ph, "x": f.origin.x, "y": f.origin.y })
                     })
                     .collect::<Vec<_>>()

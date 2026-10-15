@@ -54,6 +54,16 @@ fn sixty() -> u32 {
     60
 }
 
+/// The size a display of `width`×`height` pixels is recorded at: never larger than 4K (3840×2160, or 2160×3840 on
+/// a portrait display), keeping its shape. A 6K display at full size is more than the hardware encoder keeps up with
+/// alongside a 4K camera (measured on an M5 Pro, 2026-10-15: the camera dropped 8% of its frames, and the Mac ran hot).
+pub(crate) fn record_size(width: usize, height: usize) -> (usize, usize) {
+    let (long, short) = (width.max(height) as f64, width.min(height) as f64);
+    let scale = (3840.0 / long).min(2160.0 / short).min(1.0);
+    let even = |v: usize| ((v as f64 * scale / 2.0).round() as usize * 2).max(2);
+    if scale < 1.0 { (even(width), even(height)) } else { (width, height) }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Device {
@@ -396,7 +406,7 @@ impl Take {
                 Some(_) => unsafe {
                     let f = display.frame();
                     let scale = filter.pointPixelScale() as f64;
-                    ((f.size.width * scale) as usize, (f.size.height * scale) as usize)
+                    record_size((f.size.width * scale) as usize, (f.size.height * scale) as usize)
                 },
                 None => (2, 2),
             };
@@ -511,6 +521,15 @@ impl Take {
             let live = |m: &Mutex<Option<Track>>| m.lock().unwrap().as_ref().is_none_or(|t| t.seen);
             while !(live(&capture_out.ivars().camera) && live(&capture_out.ivars().mic)) && warm.elapsed() < Duration::from_secs(3) {
                 std::thread::sleep(Duration::from_millis(5));
+            }
+            let seen = |m: &Mutex<Option<Track>>| m.lock().unwrap().as_ref().map(|t| (t.info["device"].as_str().unwrap_or_default().to_string(), t.seen));
+            if let Some(e) = silent(&[("camera", seen(&capture_out.ivars().camera)), ("microphone", seen(&capture_out.ivars().mic))]) {
+                unsafe { session.stopRunning() };
+                if let Some(s) = &stream {
+                    let _ = wait_for(|done| unsafe { s.stopCaptureWithCompletionHandler(Some(done)) });
+                }
+                let _ = std::fs::remove_dir_all(dir);
+                return Err(e);
             }
         }
 
@@ -647,5 +666,38 @@ impl Take {
         }
         self.write(Some(duration), &errors)?;
         Ok(json!({ "dir": self.dir, "duration": duration, "streams": self.streams(), "cursor": self.cursor_summary, "errors": errors }))
+    }
+}
+
+/// Why a take can't begin: a chosen camera or microphone (`(device name, sent anything)`) that sent nothing while
+/// the take waited for it, as one that was unplugged, or is held by another app, doesn't.
+fn silent(sources: &[(&str, Option<(String, bool)>)]) -> Option<String> {
+    let quiet: Vec<String> = sources.iter().filter_map(|(kind, s)| s.as_ref().filter(|(_, seen)| !seen).map(|(name, _)| format!("{kind} \"{name}\""))).collect();
+    (!quiet.is_empty()).then(|| format!("{} sent nothing for 3 s (unplugged, or in use by another app?)", quiet.join(" and ")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn displays_record_at_4k_at_most() {
+        assert_eq!(record_size(6720, 3780), (3840, 2160));
+        assert_eq!(record_size(3600, 2338), (3326, 2160));
+        assert_eq!(record_size(3780, 6720), (2160, 3840));
+        assert_eq!(record_size(3840, 2160), (3840, 2160));
+        assert_eq!(record_size(2560, 1440), (2560, 1440));
+        assert_eq!(record_size(1920, 1201), (1920, 1201));
+    }
+
+    #[test]
+    fn a_take_does_not_begin_without_a_chosen_device() {
+        let dev = |n: &str, seen| Some((n.to_string(), seen));
+        assert_eq!(silent(&[("camera", dev("Cam Link 4K", true)), ("microphone", dev("Yeti", true))]), None);
+        assert_eq!(silent(&[("camera", None), ("microphone", None)]), None);
+        assert_eq!(
+            silent(&[("camera", dev("Cam Link 4K", false)), ("microphone", dev("Yeti", false))]).as_deref(),
+            Some("camera \"Cam Link 4K\" and microphone \"Yeti\" sent nothing for 3 s (unplugged, or in use by another app?)")
+        );
     }
 }

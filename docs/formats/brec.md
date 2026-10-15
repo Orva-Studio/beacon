@@ -7,7 +7,7 @@ A take recorded by `beacon-recorder` (PLAN §13 Phase 6): a folder named
 ## Files
 | File | Stream | Format |
 |-|-|-|
-| `screen.mp4` | the display, without the cursor | HEVC (VideoToolbox), fragmented MPEG-4 (2 s fragments), the display's pixel size, up to 60 fps, frames only when the screen changes |
+| `screen.mp4` | the display, without the cursor | HEVC (VideoToolbox), fragmented MPEG-4 (2 s fragments), the display's pixel size, scaled down to fit 4K (3840×2160) when larger, up to 60 fps, frames only when the screen changes |
 | `camera.mp4` | the camera | HEVC, fragmented MPEG-4, the camera's recommended size |
 | `system-audio.wav` | what the Mac plays | 16-bit PCM, 48 kHz stereo |
 | `microphone.wav` | the microphone | 16-bit PCM, the device's rate and channels (e.g. 16 kHz mono for Bluetooth headphones) |

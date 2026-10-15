@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use objc2_core_foundation::{CFRunLoop, CFRunLoopRunResult, kCFRunLoopDefaultMode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -91,9 +92,15 @@ pub fn run() -> Result<(), String> {
     });
     emit(None, json!({ "event": "ready" }));
     loop {
-        let line = match rx.recv_timeout(Duration::from_micros(8333)) {
+        // AVFoundation learns of cameras and microphones connected or removed on the main run loop; without running
+        // it, a device unplugged and plugged back (a monitor's hub losing power) stays the dead one until a restart.
+        let line = match rx.try_recv() {
             Ok(line) => line,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
+            Err(mpsc::TryRecvError::Empty) => {
+                // With nothing on the run loop yet it returns at once, so wait out the tick instead.
+                if CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, 0.008333, false) == CFRunLoopRunResult::Finished {
+                    std::thread::sleep(Duration::from_micros(8333));
+                }
                 if let Some(t) = &mut take {
                     t.poll_cursor();
                 }
@@ -110,7 +117,7 @@ pub fn run() -> Result<(), String> {
                 }
                 continue;
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Disconnected) => break,
         };
         if let Some(t) = &mut take {
             t.poll_cursor();
