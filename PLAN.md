@@ -1160,6 +1160,15 @@ cache, and audio start. When it starts is the user's call.
    `claude mcp add`, and open the app. Signing matters beyond Gatekeeper: an
    unsigned build is a new app to macOS each version, so screen, camera and
    microphone permissions would be asked again after every update.
+**Progress (2026-10-15, `phase-6.5`, paused at the weekly usage limit):**
+step 0 done; step 1 done (own LGPL FFmpeg 7.1.3 + whisper-cli 1.9.2 bundled,
+model downloaded on consent, Apple transcriber spike in
+`docs/transcription-spike.md`); step 2: export decodes natively and zero copy
+into the GPU (20 s of the gate project: 13.9 s → 4.9 s, 1.44× → 4.1× real
+time). Left: the native encoder (`encode.rs`, behind `BEACON_ENCODE_NATIVE=1`)
+needs pipelining (it waits on the GPU per frame: 4.7 s) and a parity test
+before it is the default; mixing audio while the video renders (~0.5 s);
+step 3 (releases, signing: needs the user's Developer ID); the gate run.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 

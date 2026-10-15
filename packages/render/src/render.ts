@@ -113,6 +113,40 @@ function encoderArgs(o: Extract<RenderOutput, { kind: "video" }>): string[] {
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
 }
 
+/** A frame rate as a fraction: 29.97 is 30000/1001. */
+function rational(fps: number): { num: number; den: number } {
+  return Number.isInteger(fps) ? { num: fps, den: 1 } : { num: Math.round(fps * 1001), den: 1001 };
+}
+
+/** The video's size: the canvas fitted within `size` (as ffmpeg's force_original_aspect_ratio=decrease), even. */
+export function fittedSize(canvas: { width: number; height: number }, size?: { width: number; height: number }): { width: number; height: number } {
+  const s = size ? Math.min(size.width / canvas.width, size.height / canvas.height) : 1;
+  return { width: Math.max(2, Math.floor((canvas.width * s) / 2) * 2), height: Math.max(2, Math.floor((canvas.height * s) / 2) * 2) };
+}
+
+/**
+ * With `BEACON_ENCODE_NATIVE=1`, H.264, HEVC and ProRes in MP4 or MOV are encoded by VideoToolbox straight from
+ * the GPU's frames. Not yet the default: it waits for the GPU each frame (4.9 → 4.7 s on the gate project) and has
+ * no parity test against ffmpeg's output. GIF and WebM always go through ffmpeg.
+ */
+function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video" }>, path: string) {
+  const format = videoFormat(o.path);
+  if ((format !== "mp4" && format !== "mov") || !process.env.BEACON_ENCODE_NATIVE) return undefined;
+  const codec = o.codec ?? "h264";
+  if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
+  return {
+    kind: "encode",
+    path,
+    codec,
+    ...fittedSize(project.settings, o.size),
+    fps: o.fps ? rational(o.fps) : project.settings.fps,
+    bitrate: (o.bitrate ?? 16_000) * 1000,
+    keyframe: o.keyframe ?? KEYFRAME,
+    ...(codec === "h264" && o.profile ? { profile: o.profile } : {}),
+    srgb: o.colorSpace === "srgb",
+  };
+}
+
 /**
  * Renders a project through the `beacon-worker` sidecar: evaluates each frame,
  * streams scenes to it, and (for video) mixes and muxes the audio clips.
@@ -127,7 +161,11 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   try {
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
     const videoOnly = tmp ? join(tmp, `video.${format === "mp4" ? "mov" : format}`) : undefined;
-    const output = opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(opts.output) } : { kind: "png", dir: opts.output.dir };
+    const native = opts.output.kind === "video" ? nativeEncode(project, opts.output, videoOnly!) : undefined;
+    const output = native ?? (opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(opts.output) } : { kind: "png", dir: opts.output.dir });
+    // Natively encoded at another rate, frames are evaluated at that rate rather than dropped or repeated.
+    const step = native ? ticksPerFrame(native.fps) : frameTicks;
+    const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + i * step) : frames.map((f) => f * frameTicks);
 
     const job = renderJob(project, registry, output, opts.cacheDir);
 
@@ -144,7 +182,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
           const msg = JSON.parse(buf.slice(0, nl)) as { frame?: number; done?: number; error?: string };
           buf = buf.slice(nl + 1);
           if (msg.error) error = msg.error;
-          if (msg.frame !== undefined) opts.onProgress?.(msg.frame, frames.length);
+          if (msg.frame !== undefined) opts.onProgress?.(msg.frame, times.length);
           if (msg.done !== undefined) done = msg.done;
         }
       }
@@ -155,16 +193,16 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     let failure: unknown;
     try {
       proc.stdin.write(`${JSON.stringify(job)}\n`);
-      for (const frame of frames) {
+      for (const [i, time] of times.entries()) {
         if (error) break;
         const sources = new Map<string, SourceDef>();
-        const scene: Scene = evaluate(project, registry, frame * frameTicks, { data, sources });
+        const scene: Scene = evaluate(project, registry, time, { data, sources });
         const fresh = [...sources].filter(([id]) => !known.has(id));
         if (fresh.length) {
           scene.sources = Object.fromEntries(fresh);
           for (const [id] of fresh) known.add(id);
         }
-        if (opts.output.kind === "png") scene.name = `f${String(frame).padStart(6, "0")}`;
+        if (opts.output.kind === "png") scene.name = `f${String(frames[i]).padStart(6, "0")}`;
         proc.stdin.write(`${JSON.stringify(scene)}\n`);
         await proc.stdin.flush();
       }
@@ -182,7 +220,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
 
     if (opts.output.kind === "video") {
       if (format === "gif") copyFileSync(videoOnly!, opts.output.path);
-      else await muxAudio(project, registry, videoOnly!, opts.output, ticksToSeconds(frames[0]! * frameTicks), frames.length * ticksToSeconds(frameTicks));
+      else await muxAudio(project, registry, videoOnly!, opts.output, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step));
     }
     return { frames: done };
   } finally {

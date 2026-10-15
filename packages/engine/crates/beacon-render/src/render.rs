@@ -115,6 +115,8 @@ pub struct Profile {
     pub decode: f64,
     pub upload: f64,
     pub draw_and_readback: f64,
+    /// Converting each frame on the GPU and handing it to VideoToolbox (the native encoder).
+    pub encode: f64,
 }
 
 /// None for a degenerate transform (a scale of 0), which draws nothing.

@@ -33,16 +33,37 @@ unsafe extern "C" {
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRelease(cf: *const c_void);
+    fn CFNumberCreate(alloc: *const c_void, kind: isize, value: *const c_void) -> *const c_void;
+    fn CFDictionaryCreate(alloc: *const c_void, keys: *const *const c_void, values: *const *const c_void, n: isize, key_cb: *const c_void, value_cb: *const c_void) -> *const c_void;
+    static kCFTypeDictionaryKeyCallBacks: u8;
+    static kCFTypeDictionaryValueCallBacks: u8;
+}
+
+#[link(name = "CoreVideo", kind = "framework")]
+unsafe extern "C" {
+    static kCVMetalTextureUsage: *const c_void;
+}
+
+/// `{ kCVMetalTextureUsage: render target | shader read }`, made once and kept.
+fn render_target_attrs() -> *const c_void {
+    static ATTRS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *ATTRS.get_or_init(|| unsafe {
+        // MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget, as a CFNumber of kCFNumberSInt64Type (4).
+        let usage: i64 = 0x0001 | 0x0004;
+        let value = CFNumberCreate(std::ptr::null(), 4, &usage as *const i64 as *const c_void);
+        let key = kCVMetalTextureUsage;
+        CFDictionaryCreate(std::ptr::null(), &key, &value, 1, &kCFTypeDictionaryKeyCallBacks as *const u8 as *const c_void, &kCFTypeDictionaryValueCallBacks as *const u8 as *const c_void) as usize
+    }) as *const c_void
 }
 
 /// MTLPixelFormatR8Unorm and MTLPixelFormatRG8Unorm.
 const R8: usize = 10;
 const RG8: usize = 30;
 
-/// What a plane's texture needs kept until the GPU is done with it: its CVMetalTexture and the frame.
+/// What a plane's texture needs kept until the GPU is done with it: its CVMetalTexture and the pixel buffer.
 struct Held {
     cv: *mut c_void,
-    _surface: std::sync::Arc<Surface>,
+    _owner: std::sync::Arc<dyn std::any::Any + Send + Sync>,
 }
 
 // Released once, by wgpu, after the last command buffer using the texture has completed.
@@ -78,20 +99,38 @@ impl TextureCache {
         (unsafe { CVMetalTextureCacheCreate(std::ptr::null(), std::ptr::null(), mtl, std::ptr::null(), &mut raw) } == 0 && !raw.is_null()).then_some(Self { raw })
     }
 
-    /// The frame's luma (R8) and chroma (RG8) planes as wgpu textures. They keep the frame alive until wgpu
-    /// releases them, after the GPU has finished with them.
+    /// A decoded frame's luma (R8) and chroma (RG8) planes as wgpu textures. They keep the frame alive until
+    /// wgpu releases them, after the GPU has finished with them.
     pub fn planes(&self, device: &wgpu::Device, surface: Surface) -> Option<(wgpu::Texture, wgpu::Texture)> {
+        let buf = surface.as_ptr();
+        unsafe { self.nv12(device, buf, std::sync::Arc::new(surface), wgpu::TextureUsages::TEXTURE_BINDING, std::ptr::null()) }
+    }
+
+    /// An NV12 pixel buffer's planes as textures to draw into (the encoder's frames), kept alive as `planes`'.
+    ///
+    /// # Safety
+    /// `buf` must be an NV12 CVPixelBuffer backed by an IOSurface, kept alive by `owner`.
+    pub unsafe fn targets(&self, device: &wgpu::Device, buf: *mut c_void, owner: std::sync::Arc<dyn std::any::Any + Send + Sync>) -> Option<(wgpu::Texture, wgpu::Texture)> {
+        unsafe { self.nv12(device, buf, owner, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, render_target_attrs()) }
+    }
+
+    unsafe fn nv12(
+        &self,
+        device: &wgpu::Device,
+        buf: *mut c_void,
+        owner: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+        usage: wgpu::TextureUsages,
+        attrs: *const c_void,
+    ) -> Option<(wgpu::Texture, wgpu::Texture)> {
         unsafe { CVMetalTextureCacheFlush(self.raw, 0) };
-        let surface = std::sync::Arc::new(surface);
         let plane = |i: usize, mtl_format: usize, format: wgpu::TextureFormat| -> Option<wgpu::Texture> {
-            let buf = surface.as_ptr();
             let (w, h) = unsafe { (CVPixelBufferGetWidthOfPlane(buf, i), CVPixelBufferGetHeightOfPlane(buf, i)) };
             let mut cv = null_mut();
-            let r = unsafe { CVMetalTextureCacheCreateTextureFromImage(std::ptr::null(), self.raw, buf, std::ptr::null(), mtl_format, w, h, i, &mut cv) };
+            let r = unsafe { CVMetalTextureCacheCreateTextureFromImage(std::ptr::null(), self.raw, buf, attrs, mtl_format, w, h, i, &mut cv) };
             if r != 0 || cv.is_null() {
                 return None;
             }
-            let held = Held { cv, _surface: surface.clone() };
+            let held = Held { cv, _owner: owner.clone() };
             let raw = unsafe { Retained::retain(CVMetalTextureGetTexture(cv)) }?;
             let (w, h) = (w as u32, h as u32);
             let hal = unsafe {
@@ -112,7 +151,7 @@ impl TextureCache {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                usage,
                 view_formats: &[],
             };
             Some(unsafe { device.create_texture_from_hal::<wgpu::hal::api::Metal>(hal, &desc, wgpu::TextureUses::RESOURCE) })

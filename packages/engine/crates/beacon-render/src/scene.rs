@@ -35,6 +35,45 @@ pub enum Output {
     Png { dir: String },
     /// Raw RGBA frames on stdout.
     Raw,
+    /// Encoded by VideoToolbox from the GPU's frames, through AVAssetWriter (H.264, HEVC, ProRes).
+    Encode(Encode),
+}
+
+/// The native encoder's settings (`Output::Encode`): `width`×`height` is the video's size, the canvas fitted.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Encode {
+    pub path: String,
+    pub codec: Codec,
+    pub width: u32,
+    pub height: u32,
+    /// The video's frame rate (frames are evaluated at it).
+    pub fps: Fps,
+    /// Average bits per second (H.264, HEVC).
+    pub bitrate: Option<u64>,
+    /// A keyframe at most this many frames apart (H.264, HEVC).
+    pub keyframe: u32,
+    /// H.264's profile.
+    pub profile: Option<H264Profile>,
+    /// The transfer function tagged: sRGB's shows in macOS players as the editor does.
+    #[serde(default)]
+    pub srgb: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Codec {
+    H264,
+    Hevc,
+    Prores,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum H264Profile {
+    Baseline,
+    Main,
+    High,
 }
 
 #[derive(Debug, Clone, Deserialize)]

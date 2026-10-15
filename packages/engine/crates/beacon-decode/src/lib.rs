@@ -45,8 +45,9 @@ pub struct Surface {
     pub full_range: bool,
 }
 
-// A retained CVPixelBuffer; CoreVideo's retain counts are thread safe.
+// A retained CVPixelBuffer, only read through; CoreVideo's retain counts are thread safe.
 unsafe impl Send for Surface {}
+unsafe impl Sync for Surface {}
 
 impl Surface {
     fn wrap(raw: *mut c_void) -> Option<Self> {
