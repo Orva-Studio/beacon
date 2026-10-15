@@ -24,7 +24,7 @@
     "audit": "bun audit && cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo deny check",
     "dump-trec": "bun run scripts/dump-trec.ts",
     "render-cmproj": "bun run scripts/render-cmproj.ts",
-    "build:mcp": "bun build --compile packages/mcp/src/main.ts --outfile dist/beacon-mcp && cp packages/engine/target/release/libbeacon_ffi.dylib packages/engine/target/release/beacon-worker dist/",
+    "build:mcp": "bun scripts/bundle-tools.ts --mcp dist",
     "mcp": "bun packages/mcp/src/main.ts",
     "app": "bun run build && bun run --cwd packages/desktop dev",
     "release": "bun run scripts/release.ts"

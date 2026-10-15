@@ -5,11 +5,13 @@
  * app's own beacon-mcp, run with a bare PATH and an empty home, making a project, exporting MP4 and GIF, importing
  * the MP4 and reading a frame back. The release workflow runs it before publishing.
  *
- *   bun scripts/check-release.ts <beacon-macos-arm64.dmg> [--version 0.2.0]
+ * Given a folder instead (`bun run build:mcp`'s dist), it runs only the beacon-mcp part, on the beacon-mcp there.
+ *
+ *   bun scripts/check-release.ts <beacon-macos-arm64.dmg | dist> [--version 0.2.0]
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -17,7 +19,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { version: { type: "string" } } });
 const dmg = positionals[0];
-if (!dmg || !existsSync(dmg)) throw new Error("usage: bun scripts/check-release.ts <dmg> [--version x.y.z]");
+if (!dmg || !existsSync(dmg)) throw new Error("usage: bun scripts/check-release.ts <dmg | folder with beacon-mcp> [--version x.y.z]");
 
 const ENGINE_FILES = ["beacon-mcp", "beacon-worker", "beacon-recorder", "libbeacon_ffi.dylib", "ffmpeg", "ffprobe", "whisper-cli"];
 const dir = mkdtempSync(join(tmpdir(), "beacon-release-"));
@@ -29,7 +31,8 @@ async function checkApp(app: string, what: string) {
   step(`${what} is signed`);
 }
 
-try {
+/** The app's engine folder, unpacked from the DMG and checked. */
+async function appEngine(): Promise<string> {
   await $`hdiutil attach -nobrowse -readonly -mountpoint ${mount} ${dmg}`.quiet();
   const wrapper = join(mount, "Beacon.app");
   if (!existsSync(wrapper)) throw new Error(`no Beacon.app in the DMG (${readdirSync(mount).join(", ")})`);
@@ -60,6 +63,11 @@ try {
     if (foreign.length) throw new Error(`${f} loads ${foreign.join(", ")} from outside the app`);
   }
   step(`the engine folder has ${ENGINE_FILES.join(", ")}, linked only to the system and each other`);
+  return engine;
+}
+
+/** beacon-mcp from `engine`, with a bare PATH and an empty home: a project, MP4 and GIF exports, an import, a frame. */
+async function driveMcp(engine: string) {
 
   const home = join(dir, "home");
   mkdirSync(home);
@@ -100,6 +108,10 @@ try {
   const whisper = Bun.spawnSync([join(engine, "whisper-cli"), "--help"], { env: { PATH: "/usr/bin:/bin" } });
   if (!whisper.stderr.toString().includes("usage") && !whisper.stdout.toString().includes("usage")) throw new Error(`whisper-cli doesn't run: ${whisper.stderr}`);
   step("whisper-cli runs");
+}
+
+try {
+  await driveMcp(statSync(dmg).isDirectory() ? resolve(dmg) : await appEngine());
 } finally {
   await $`hdiutil detach ${mount} -force`.quiet().nothrow();
   rmSync(dir, { recursive: true, force: true });

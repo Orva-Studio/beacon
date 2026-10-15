@@ -23,7 +23,8 @@ async function linked(file: string): Promise<string[]> {
 }
 
 export async function bundleTools(to = STAGE): Promise<string[]> {
-  rmSync(to, { recursive: true, force: true });
+  // The app's stage is rebuilt from nothing; another folder (`build:mcp`'s dist) only gains these files.
+  if (to === STAGE) rmSync(to, { recursive: true, force: true });
   mkdirSync(to, { recursive: true });
   const ours = join(TOOLS, "lib") + "/";
   // The FFmpeg libraries by the names their users link (libavcodec.61.dylib), symlinks followed.
@@ -44,7 +45,7 @@ export async function bundleTools(to = STAGE): Promise<string[]> {
       await $`codesign --force --sign - ${out}`.quiet();
     }
   }
-  const staged = readdirSync(to);
+  const staged = files.map((f) => basename(f));
   for (const f of staged) {
     const foreign = (await linked(join(to, f))).filter((l) => !l.startsWith("/System/") && !l.startsWith("/usr/lib/") && !(l.startsWith("@rpath/") && staged.includes(l.slice(7))));
     if (foreign.length) throw new Error(`${f} would load ${foreign.join(", ")}, which a Mac without them doesn't have`);

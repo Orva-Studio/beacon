@@ -284,7 +284,7 @@ project summary, timeline, transcript, a command reference generated from
 the registry, the workflows and house style. Prompts: the workflows in
 `skills/workflows/`. `skills/SKILL.md` is the server's instructions, built
 in. `bun run build:mcp` compiles it to `dist/beacon-mcp` beside the
-engine library and worker; `.mcp.json` runs it from source for Claude Code.
+engine library, worker, recorder and Beacon's tools, staged as the app's are; `.mcp.json` runs it from source for Claude Code.
 
 ## Transcripts
 `transcribe()` extracts 16 kHz mono, finds speech with an RMS envelope

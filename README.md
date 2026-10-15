@@ -64,7 +64,8 @@ bun run app          # build and open the editor
 ## Driving it with an agent
 `.mcp.json` runs the MCP server from source, so Claude Code in this repo has
 the `beacon` tools. To use it elsewhere, run `bun run mcp`, or
-`bun run build:mcp` for a standalone `dist/beacon-mcp`. If the app has the
+`bun run build:mcp` for a standalone `dist/beacon-mcp` (with the engine and
+Beacon's tools beside it, as in the app). If the app has the
 project open, `project_open` connects to it and the edits show on its timeline.
 The server's built-in instructions are in `skills/SKILL.md`.
 
