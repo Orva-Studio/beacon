@@ -125,13 +125,12 @@ export function fittedSize(canvas: { width: number; height: number }, size?: { w
 }
 
 /**
- * With `BEACON_ENCODE_NATIVE=1`, H.264, HEVC and ProRes in MP4 or MOV are encoded by VideoToolbox straight from
- * the GPU's frames, a few in flight. Not yet the default: it has no parity test against ffmpeg's output. GIF and
- * WebM always go through ffmpeg.
+ * H.264, HEVC and ProRes in MP4 or MOV are encoded by VideoToolbox straight from the GPU's frames, a few in
+ * flight (`BEACON_ENCODE_FFMPEG=1`: piped to ffmpeg instead). GIF and WebM always go through ffmpeg.
  */
 function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video" }>, path: string) {
   const format = videoFormat(o.path);
-  if ((format !== "mp4" && format !== "mov") || !process.env.BEACON_ENCODE_NATIVE) return undefined;
+  if ((format !== "mp4" && format !== "mov") || process.env.BEACON_ENCODE_FFMPEG) return undefined;
   const codec = o.codec ?? "h264";
   if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
   return {

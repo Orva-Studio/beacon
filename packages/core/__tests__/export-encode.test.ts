@@ -65,11 +65,11 @@ function compare(a: Uint8Array, b: Uint8Array): { psnr: number; off: number } {
 
 async function exportWith(native: boolean, file: string, opts: VideoEncoding): Promise<string> {
   const output = join(dir, `${native ? "native" : "ffmpeg"}-${file}`);
-  process.env[native ? "BEACON_ENCODE_NATIVE" : "BEACON_ENCODE_FFMPEG"] = "1";
+  if (native) delete process.env.BEACON_ENCODE_FFMPEG;
+  else process.env.BEACON_ENCODE_FFMPEG = "1";
   try {
     await (await core.export(h, { output, from: 0, to: 2, ...opts })).done;
   } finally {
-    delete process.env.BEACON_ENCODE_NATIVE;
     delete process.env.BEACON_ENCODE_FFMPEG;
   }
   return output;
