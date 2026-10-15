@@ -12,6 +12,7 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/build-tools.ts
+      - packages/engine/speech/**
       - scripts/bundle-tools.ts
       - scripts/check-release.ts
       - packages/desktop/build-hook.ts
@@ -23,6 +24,7 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/build-tools.ts
+      - packages/engine/speech/**
       - scripts/bundle-tools.ts
       - scripts/check-release.ts
       - packages/desktop/build-hook.ts
@@ -41,7 +43,8 @@ permissions:
 
 jobs:
   macos-arm64:
-    runs-on: macos-15
+    # macOS 26's SDK: beacon-speech uses its SpeechTranscriber.
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4.2.2
@@ -75,7 +78,7 @@ jobs:
           path: |
             packages/engine/third-party/out
             packages/engine/third-party/src
-          key: tools-macos-arm64-${{ hashFiles('scripts/build-tools.ts') }}
+          key: tools-macos-arm64-${{ hashFiles('scripts/build-tools.ts', 'packages/engine/speech/**') }}
 
       - name: Cache cargo
         uses: actions/cache@v4.2.3

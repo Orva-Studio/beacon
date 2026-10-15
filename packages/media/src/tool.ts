@@ -29,7 +29,7 @@ export const spawn = ((...args: Parameters<typeof Bun.spawn>) => {
   return proc;
 }) as typeof Bun.spawn;
 
-export type ToolName = "ffmpeg" | "ffprobe" | "whisper-cli";
+export type ToolName = "ffmpeg" | "ffprobe" | "whisper-cli" | "beacon-speech";
 
 /**
  * Where Beacon's own ffmpeg, ffprobe and whisper-cli are: `BEACON_TOOLS_DIR` (the app sets it), beside a compiled

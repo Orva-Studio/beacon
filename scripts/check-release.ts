@@ -23,7 +23,7 @@ if (!dmg || !existsSync(dmg)) throw new Error("usage: bun scripts/check-release.
 
 /** Where the app looks for updates: the latest GitHub release's files. */
 const UPDATES = "https://github.com/Orva-Studio/beacon/releases/latest/download";
-const ENGINE_FILES = ["beacon-mcp", "beacon-worker", "beacon-recorder", "libbeacon_ffi.dylib", "ffmpeg", "ffprobe", "whisper-cli"];
+const ENGINE_FILES = ["beacon-mcp", "beacon-worker", "beacon-recorder", "libbeacon_ffi.dylib", "ffmpeg", "ffprobe", "whisper-cli", "beacon-speech"];
 const dir = mkdtempSync(join(tmpdir(), "beacon-release-"));
 const mount = join(dir, "mnt");
 const step = (what: string) => console.log(`✓ ${what}`);
@@ -139,6 +139,9 @@ async function driveMcp(engine: string) {
   const whisper = Bun.spawnSync([join(engine, "whisper-cli"), "--help"], { env: { PATH: "/usr/bin:/bin" } });
   if (!whisper.stderr.toString().includes("usage") && !whisper.stdout.toString().includes("usage")) throw new Error(`whisper-cli doesn't run: ${whisper.stderr}`);
   step("whisper-cli runs");
+  const speech = Bun.spawnSync([join(engine, "beacon-speech")], { env: { PATH: "/usr/bin:/bin" } });
+  if (!speech.stderr.toString().includes("usage")) throw new Error(`beacon-speech doesn't run: ${speech.stderr}`);
+  step("beacon-speech runs");
 }
 
 try {
