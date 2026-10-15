@@ -8,14 +8,16 @@ then the recorder too (Phase 6).
 This document is architecture-first. The goal is that adding a feature later is
 "add one folder", not "touch ten layers".
 
-**Status (2026-10-13):** Phases 1–5.5 are done (Phase 3: headless Claude Code
+**Status (2026-10-15):** Phases 1–6 are done (Phase 3: headless Claude Code
 rough-cut a recording from its transcript, laid it out, zoomed and exported
 it; Phase 5 closed after the user's runs in the app, cut as v0.1.0; Phase 5.5,
-the new look, closed 2026-10-13 with more to add later). Video is decoded in
-process (`beacon-decode` over FFmpeg's libraries), with frames kept for steps
-back (`docs/performance.md`). **Phase 6** (the recorder) is under way: after
-its spike, the recorder process records `.brec` takes (§13 Phase 6). Packaging
-as one self-contained app is Phase 6.5.
+the new look, closed 2026-10-13 with more to add later; Phase 6, the
+recorder, passed its gate 2026-10-15: the user recorded screen, Cam Link,
+Yeti and system audio, edited (Remove Silences) and exported in Beacon
+alone). Video is decoded in process (`beacon-decode` over FFmpeg's
+libraries), with frames kept for steps back (`docs/performance.md`). Next:
+projects you can move and share, then **Phase 6.5** (one self-contained app,
+fast export).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -1073,7 +1075,16 @@ To check with the user's setup (Blue Yeti, Elgato): the offset, and a long
 take's `driftPpm` (a USB microphone keeps its own clock).
 
 **Gate:** record a video with screen, camera, mic and system audio, then edit
-and export it in Beacon alone.
+and export it in Beacon alone. **Passed 2026-10-15** (a 7:22 take, 6:49 after
+Remove Silences, exported to 1080p H.264). The run turned up, all fixed:
+screens recorded at 6K kept the encoder flat out (the 4K camera dropped 8% of
+its frames, the Mac ran hot), so screens now record at 4K at most; the
+recorder didn't see devices unplugged and plugged back (its run loop never
+ran), and a take recorded without a chosen camera or microphone that sent
+nothing; the Record dialog's lists didn't follow displays coming and going;
+the title bar didn't drag the window; a trimmed clip's fx badge stayed at
+the old end. macOS's Edge Light (a ring of light on the screen in dim rooms)
+turns on for any app using the camera: Control Center › Video Effects.
 
 ### After the Phase 6 gate: projects you can move and share (decided 2026-10-15)
 Today every asset is an absolute path, even a take in the project's own
@@ -1119,6 +1130,15 @@ audio mix, speed and loudness, muxing, transcription audio).
    source per jump, which is much of why jumps on the benchmark project take ~0.5 s.
    Export through AVAssetWriter for MP4/MOV; FFmpeg kept for GIF/WebM and
    the audio filters (not worth rewriting).
+Export speed (measured 2026-10-15 on the gate project, M5 Pro): 20 s of a
+6720×3780 screen and a 4K camera export in 13.7 s (about 1.5× real time; the
+user finds Camtasia much quicker). Decoding (ffmpeg processes and CPU RGBA
+conversion) is 55% of it, drawing and readback 18%, upload 10%; only the
+H.264 encode is hardware. Camtasia links Metal, IOSurface, VideoToolbox and
+AVFoundation, the usual pipeline with frames kept on the GPU throughout.
+So export moves to the preview's in-process decoders (with a parity test
+against today's frames), then zero copy both ways: VideoToolbox frames into
+textures, and the composited texture straight to the encoder, no readback.
 Performance research (2026-10-12, `docs/performance.md`): the user wants
 fast playback and scrubbing, done in Rust and
 Apple's frameworks. Its order: a benchmark first, then all-intra scrub
