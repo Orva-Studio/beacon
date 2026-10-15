@@ -75,11 +75,13 @@ fn ct_weight(css: f64) -> f64 {
     v0 + (v1 - v0) * ((css - w0) / (w1 - w0)).clamp(0.0, 1.0)
 }
 
+/// What a family that isn't installed (a project made on another Mac) is drawn in: every Mac has it.
+const FALLBACK: &str = "Helvetica Neue";
+
 /// The family member closest to the wanted weight and slant.
 fn find_font(spec: &TextSpec, size: f64) -> Result<CTFont> {
-    let family = font_collection::create_for_family(&spec.font)
-        .and_then(|c| c.get_descriptors())
-        .ok_or_else(|| Error::Source(format!("font \"{}\" is not installed", spec.font)))?;
+    let faces = |name: &str| font_collection::create_for_family(name).and_then(|c| c.get_descriptors()).filter(|d| d.len() > 0);
+    let family = faces(&spec.font).or_else(|| faces(FALLBACK)).ok_or_else(|| Error::Source(format!("font \"{}\" is not installed", spec.font)))?;
     let want = ct_weight(spec.weight);
     let best = family
         .iter()
