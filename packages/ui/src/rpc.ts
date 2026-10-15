@@ -2,6 +2,7 @@ import type { CanvasValues } from "./canvas-settings";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
+import type { SaveAsSheet } from "./project-name";
 
 export type { CanvasValues };
 export type { CanvasMark };
@@ -301,7 +302,9 @@ export type AppRPC = {
       proxySpace: { params: {}; response: number };
       /** Settings > General > Delete All Proxy Videos; replies with the bytes still used. */
       deleteAllProxies: { params: {}; response: number };
-      newProject: { params: { name: string; settings: CanvasValues }; response: RunReply };
+      newProject: { params: { name: string; settings: CanvasValues; standalone: boolean }; response: RunReply };
+      /** File > Save As…: `name`.beproj in `folder`, opened in place of the open project. */
+      saveAs: { params: { name: string; folder: string; standalone: boolean }; response: RunReply };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
       /** play (from `time`), pause, seek (to `time`), close. */
@@ -339,6 +342,8 @@ export type AppRPC = {
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
       newProjectSheet: { name: string };
+      /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
+      saveAsSheet: SaveAsSheet;
       /** Add Clip Speed: show the clip's Clip Speed section. */
       showClipSpeed: { clip: string };
       /** A shortcut the native menu took before the page could see it, replayed as a keydown. */

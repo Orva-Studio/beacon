@@ -53,6 +53,7 @@ export interface ViewState {
   previewClock: { time: number; playing: boolean };
   /** The New Project dialog, while open, with the name it offers. */
   newProject?: { name: string };
+  saveAs?: import("./project-name").SaveAsSheet;
   /** A callout double-clicked on the canvas: its text box takes focus. */
   editingText?: string;
   /** The colour picker's eyedropper is waiting for a click on the canvas: called with its colour (0-1 RGB), or nothing if it failed. */
@@ -167,6 +168,9 @@ export const replica = {
   },
   newProject(newProject: ViewState["newProject"]) {
     set({ newProject });
+  },
+  saveAs(saveAs: ViewState["saveAs"]) {
+    set({ saveAs });
   },
   showClipSpeed(clip: string, on: boolean) {
     set({ clipSpeed: on ? [...new Set([...state.clipSpeed, clip])] : state.clipSpeed.filter((c) => c !== clip) });

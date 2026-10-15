@@ -62,6 +62,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "notice") replica.notice(msg.data);
   else if (msg.type === "previewClock") replica.previewClock(msg.data);
   else if (msg.type === "newProjectSheet") replica.newProject(msg.data);
+  else if (msg.type === "saveAsSheet") replica.saveAs(msg.data);
   else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
 };
 
@@ -91,7 +92,7 @@ const host: Host = {
   frameImage: () => request("frameImage") as Promise<string | null>,
   binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
   analyze: (key, asset) => void request("analyze", { key, asset }),
-  chooseFolder: async () => null,
+  chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
   recordPreview: (devices) => void request("recordPreview", devices),
@@ -103,7 +104,8 @@ const host: Host = {
   setAppSettings: (settings) => void request("setAppSettings", { settings }),
   proxySpace: () => request("proxySpace") as Promise<number>,
   deleteAllProxies: () => request("deleteAllProxies") as Promise<number>,
-  newProject: (name, settings) => request("newProject", { name, settings }) as Promise<{ ok: boolean; error?: string }>,
+  newProject: (name, settings, standalone) => request("newProject", { name, settings, standalone }) as Promise<{ ok: boolean; error?: string }>,
+  saveAs: (params) => request("saveAs", params) as Promise<{ ok: boolean; error?: string }>,
   renameProject: (name) => request("renameProject", { name }) as Promise<{ ok: boolean; error?: string }>,
   previewOpen: (asset) => request("previewOpen", { asset }) as Promise<never>,
   previewView: () => {},

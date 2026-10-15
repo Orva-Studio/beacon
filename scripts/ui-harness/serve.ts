@@ -182,8 +182,14 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         else if (msg.type === "newProject" || msg.type === "renameProject") {
           menus.push(`${msg.type}:${msg.name}`);
           if (msg.settings) menus.push(`newProjectSettings:${JSON.stringify(msg.settings)}`);
+          if (msg.standalone) menus.push("newProjectStandalone");
           result = { ok: true };
         }
+        else if (msg.type === "saveAs") {
+          menus.push(`saveAs:${msg.folder}/${msg.name}${msg.standalone ? " (standalone)" : ""}`);
+          result = msg.name === "Taken" ? { ok: false, error: "Taken.beproj already exists" } : { ok: true };
+        }
+        else if (msg.type === "chooseFolder") result = "/Users/someone/Shared";
         else if (msg.type === "cancelExport") result = await reply(() => core.cancelJob(msg.id));
         ws.send(JSON.stringify({ id: msg.id, result }));
       },

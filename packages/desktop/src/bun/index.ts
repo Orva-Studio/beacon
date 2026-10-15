@@ -33,7 +33,7 @@ const keymap = (await import("../../../../keymaps/default.json")).default.bindin
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
-const core = new LocalCore({ socket });
+const core = new LocalCore({ socket, reveal: (path) => Utils.showItemInFolder(path) });
 
 interface Current {
   path: string;
@@ -247,7 +247,7 @@ function newProject() {
   send().newProjectSheet({ name: "Untitled Project" });
 }
 
-async function createProject(name: string, canvas?: CanvasValues) {
+async function createProject(name: string, canvas?: CanvasValues, standalone = false) {
   if (/[/:]/.test(name) || name.startsWith(".") || !name.trim()) throw new Error(`"${name}" can't be a project name`);
   const to = freshProject(name.trim());
   const settings = canvas && {
@@ -258,9 +258,30 @@ async function createProject(name: string, canvas?: CanvasValues) {
     // Off: no target (a new project's default has one).
     ...(canvas.normalize ? {} : { loudnessTarget: undefined }),
   };
-  await core.create({ path: to, ...(settings ? { settings } : {}) });
+  await core.create({ path: to, ...(settings ? { settings } : {}), ...(standalone ? { standalone } : {}) });
   await open(to);
   status(`New project: ${to}`);
+}
+
+/** File > Save As…: the window asks for the copy's name, folder and whether it is standalone, then `saveAs`. */
+function saveAsDialog() {
+  if (!current) return status("Open a project first");
+  send().saveAsSheet({ name: `${basename(current.path, ".beproj")} copy`, folder: dirname(current.path), standalone: !!core.doc(current.path).settings.standalone });
+}
+
+/** The copy is opened in place of the project, which stays as last saved. */
+function saveAs({ name, folder, standalone }: { name: string; folder: string; standalone: boolean }): Promise<void> {
+  const next = opening.then(async () => {
+    if (!current) throw new Error("Open a project first");
+    const clean = name.trim().replace(/\.beproj$/i, "");
+    if (!clean || /[/:]/.test(clean) || clean.startsWith(".")) throw new Error(`"${name}" can't be a project name`);
+    if (standalone) status("Copying media into the project…");
+    const to = await core.saveAs(current.path, join(folder, `${clean}.beproj`), { standalone });
+    await switchTo(to);
+    status(`Saved as ${to}`);
+  });
+  opening = next.catch(() => {});
+  return next;
 }
 
 /** Clicking the project's name: its folder takes the new name, and Open Recent follows. */
@@ -882,7 +903,8 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       setAppSettings: (next) => setAppSettings(next),
       proxySpace: () => core.analysisSize("proxy"),
       deleteAllProxies: async () => (await core.forgetAll("proxy"), core.analysisSize("proxy")),
-      newProject: ({ name, settings }) => reply(() => createProject(name, settings)),
+      newProject: ({ name, settings, standalone }) => reply(() => createProject(name, settings, standalone)),
+      saveAs: (params) => reply(() => saveAs(params)),
       previewOpen: ({ asset }) => {
         closePreview();
         if (!current) return null;
@@ -1094,6 +1116,9 @@ function setMenu() {
           ],
         },
         { type: "separator" },
+        { label: "Save As…", action: "saveAs", accelerator: "shift+command+s", enabled: !!current },
+        { label: "Show in Finder", action: "reveal", enabled: !!current },
+        { type: "separator" },
         { label: "Import Media…", action: "import", accelerator: "command+i" },
         { label: "Record…", action: "record", accelerator: "command+r" },
         { type: "separator" },
@@ -1263,6 +1288,8 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "export") return void exportDialog().catch(report);
   if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);
+  if (action === "saveAs") return saveAsDialog();
+  if (action === "reveal") return void (current && core.reveal(current.path).catch(report));
   if (action === "settings") return void openSettings();
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {

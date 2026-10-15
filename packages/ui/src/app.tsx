@@ -10,7 +10,7 @@ import { Timeline } from "./timeline";
 import { CanvasOverlay, type CanvasMark } from "./canvas";
 import { NoticeUi } from "./notice";
 import { MediaPreviewUi, type PreviewHost } from "./media-preview";
-import { NewProjectUi, ProjectName, type ProjectHost } from "./project-name";
+import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project-name";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
@@ -174,6 +174,7 @@ export function App({ host }: { host: Host }) {
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
       <NewProjectUi host={host} />
+      <SaveAsUi host={host} />
       <MediaPreviewUi host={host} />
       <NoticeUi />
       {/* The dragged panel item; a mask so it shows over the native canvas too. */}
