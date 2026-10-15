@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Checks a release DMG as a Mac without Homebrew or FFmpeg would see it: the app inside unpacked as its first launch
- * does, both signed (ad hoc), its Info.plist entries and icon, nothing linked from outside the app or the system, and the
+ * does, both signed (ad hoc), its Info.plist entries and icon, the update files beside it, nothing linked from outside the app or the system, and the
  * app's own beacon-mcp, run with a bare PATH and an empty home, making a project, exporting MP4 and GIF, importing
  * the MP4 and reading a frame back. The release workflow runs it before publishing.
  *
@@ -11,7 +11,7 @@
  */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -21,6 +21,8 @@ const { values, positionals } = parseArgs({ allowPositionals: true, options: { v
 const dmg = positionals[0];
 if (!dmg || !existsSync(dmg)) throw new Error("usage: bun scripts/check-release.ts <dmg | folder with beacon-mcp> [--version x.y.z]");
 
+/** Where the app looks for updates: the latest GitHub release's files. */
+const UPDATES = "https://github.com/Orva-Studio/beacon/releases/latest/download";
 const ENGINE_FILES = ["beacon-mcp", "beacon-worker", "beacon-recorder", "libbeacon_ffi.dylib", "ffmpeg", "ffprobe", "whisper-cli"];
 const dir = mkdtempSync(join(tmpdir(), "beacon-release-"));
 const mount = join(dir, "mnt");
@@ -29,6 +31,31 @@ const step = (what: string) => console.log(`✓ ${what}`);
 async function checkApp(app: string, what: string) {
   await $`codesign --verify --deep --strict ${app}`.quiet();
   step(`${what} is signed`);
+}
+
+/**
+ * The update files beside the DMG, which Check for Updates reads from the latest release: update.json names this
+ * app and version, its hash is the app's own build (version.json, which points at the releases), and the archive it
+ * names unpacks into the same app, signed.
+ */
+async function checkUpdate(app: string, version: string) {
+  const manifest = join(dirname(dmg!), "stable-macos-arm64-update.json");
+  if (!existsSync(manifest)) throw new Error(`no ${basename(manifest)} beside the DMG`);
+  const update = JSON.parse(readFileSync(manifest, "utf8")) as { identifier: string; channel: string; version: string; hash: string; platform: string; arch: string; artifact: { file: string } };
+  const local = JSON.parse(readFileSync(join(app, "Contents/Resources/version.json"), "utf8")) as { hash: string; baseUrl: string; channel: string };
+  const expected = { identifier: "dev.beacon.editor", channel: "stable", version, hash: local.hash, platform: "macos", arch: "arm64" };
+  for (const [k, v] of Object.entries(expected)) if (update[k as keyof typeof expected] !== v) throw new Error(`update.json's ${k} is ${update[k as keyof typeof expected]}, not ${v}`);
+  if (local.baseUrl !== UPDATES) throw new Error(`the app looks for updates at ${local.baseUrl || "nowhere"}, not ${UPDATES}`);
+  const archive = join(dirname(dmg!), update.artifact.file);
+  if (!existsSync(archive)) throw new Error(`no ${update.artifact.file} beside the DMG`);
+  const into = join(dir, "update");
+  mkdirSync(into);
+  writeFileSync(join(dir, "update.tar"), Bun.zstdDecompressSync(readFileSync(archive)));
+  await $`tar -xf ${join(dir, "update.tar")} -C ${into}`.quiet();
+  await checkApp(join(into, "Beacon.app"), "the update's Beacon.app");
+  const updated = JSON.parse(readFileSync(join(into, "Beacon.app/Contents/Resources/version.json"), "utf8")) as { hash: string };
+  if (updated.hash !== local.hash) throw new Error(`the update archive is build ${updated.hash}, not ${local.hash}`);
+  step(`update.json and ${update.artifact.file}: version ${version}, build ${local.hash}, from ${UPDATES}`);
 }
 
 /** The app's engine folder, unpacked from the DMG and checked. */
@@ -55,6 +82,8 @@ async function appEngine(): Promise<string> {
   const icon = await key("CFBundleIconFile");
   if (!icon || !existsSync(join(app, "Contents/Resources", icon.endsWith(".icns") ? icon : `${icon}.icns`))) throw new Error("the app has no icon");
   step(`Info.plist: camera and microphone prompts, version ${version}, its icon`);
+
+  await checkUpdate(app, version);
 
   const engine = join(app, "Contents/Resources/app/engine");
   const missing = ENGINE_FILES.filter((f) => !existsSync(join(engine, f)));

@@ -4,6 +4,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
 import Electrobun, { ApplicationMenu, BrowserView, BrowserWindow, ContextMenu, GlobalShortcut, Tray, Utils, WGPUView } from "electrobun/main";
 import { patchInfoPlist } from "./info-plist";
+import { checkForUpdates, checkForUpdatesSoon } from "./updates";
 
 // The engine and Beacon's own ffmpeg, ffprobe and whisper-cli ship inside the app; set before anything loads them.
 const engineDir = join(import.meta.dir, "../engine");
@@ -1128,7 +1129,7 @@ const MENU: Record<string, string> = {
 };
 function setMenu() {
   ApplicationMenu.setApplicationMenu([
-    { submenu: [{ role: "about" }, { type: "separator" }, { label: "Settings…", action: "settings", accelerator: "command+," }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { label: "Quit Beacon", action: "quit", accelerator: "command+q" }] },
+    { submenu: [{ role: "about" }, { label: "Check for Updates…", action: "checkUpdates" }, { type: "separator" }, { label: "Settings…", action: "settings", accelerator: "command+," }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { label: "Quit Beacon", action: "quit", accelerator: "command+q" }] },
     {
       label: "File",
       submenu: [
@@ -1319,6 +1320,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "saveAs") return saveAsDialog();
   if (action === "reveal") return void (current && core.reveal(current.path).catch(report));
   if (action === "settings") return void openSettings();
+  if (action === "checkUpdates") return void checkForUpdates({ status });
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {
     quitLog("⌘Q");
@@ -1389,6 +1391,7 @@ const quit = () => {
   quitLog("closed");
 };
 Electrobun.events.on("before-quit", quit);
+checkForUpdatesSoon(status);
 process.on("exit", quit);
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
