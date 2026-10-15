@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { AudioOutput } from "@beacon/media";
 import { DEFAULT_CACHE_DIR } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -61,3 +62,20 @@ test.skipIf(!existsSync(SMALL))(
   },
   120_000,
 );
+
+test("the audio clock says how far ahead of what is heard its sound has gone, so a new speed doesn't repeat it", async () => {
+  const out = new AudioOutput();
+  try {
+    // An empty mix plays silence, so nothing is heard, but the device's clock and latency are real.
+    out.play([], 10);
+    await Bun.sleep(300);
+    const [heard, sent] = [out.time()!, out.sent()!];
+    expect(heard).toBeGreaterThan(10);
+    expect(sent).toBeGreaterThanOrEqual(heard);
+    expect(sent - heard).toBeLessThan(1);
+    out.stop();
+    expect(out.sent()).toBeUndefined();
+  } finally {
+    out.close();
+  }
+});

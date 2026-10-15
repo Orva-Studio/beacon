@@ -28,6 +28,9 @@ class SilentClock {
   time() {
     return this.#start && this.#start.from + (performance.now() - this.#start.at) / 1000;
   }
+  sent() {
+    return this.time();
+  }
   stop() {
     this.#start = undefined;
   }
@@ -36,6 +39,9 @@ class SilentClock {
 
 /** Around the canvas: a dark grey (23, 27, 29). */
 const SURROUND: [number, number, number] = [23 / 255, 27 / 255, 29 / 255];
+
+/** A play request within this of where playback is continues it (a new speed) rather than seeking. */
+const RESUME_SECONDS = 0.25;
 
 /** How often playback checks the audio clock; well under a frame at 60 fps. */
 const TICK_MS = 4;
@@ -66,6 +72,8 @@ export class LiveView {
   #wall?: SilentClock;
   #clock?: AudioOutput | SilentClock;
   #rate = 1;
+  /** Where the current play started. */
+  #from = 0;
   #timer?: ReturnType<typeof setTimeout>;
   #lastFrame = -1;
   #shown = 0;
@@ -206,8 +214,10 @@ export class LiveView {
 
   /** Plays from a timeline time until `pause` or the end (the start, in reverse); `rate` as the session's. */
   play(from: number, rate = 1) {
+    from = this.#resumeAt(from, rate);
     this.pause();
     this.#rate = rate;
+    this.#from = from;
     const project = this.opts.project();
     const end = ticksToSeconds(projectDuration(project));
     // Reverse plays without sound, on the wall clock.
@@ -242,6 +252,20 @@ export class LiveView {
       this.#timer = setTimeout(tick, TICK_MS);
     };
     this.#timer = setTimeout(tick, 0);
+  }
+
+  /**
+   * Where a new speed starts when playback is already where `from` is: sound already sent to the device still
+   * plays after a restart, so the new mix starts where that sound ends, or the stretch in between (the output's
+   * latency, longer over Bluetooth) is heard twice. A seek elsewhere starts where it says.
+   */
+  #resumeAt(from: number, rate: number): number {
+    const clock = this.#clock;
+    if (!clock || this.#rate <= 0 || rate <= 0) return from;
+    const [heard, sent] = [clock.time(), clock.sent()];
+    if (heard === undefined || sent === undefined) return from;
+    const at = (raw: number) => this.#from + (raw - this.#from) * this.#rate;
+    return Math.abs(from - at(heard)) < RESUME_SECONDS ? Math.max(from, at(sent)) : from;
   }
 
   /** Each segment's audio from its asset's proxy copy, when built: opening the originals costs ~0.15 s per segment. */

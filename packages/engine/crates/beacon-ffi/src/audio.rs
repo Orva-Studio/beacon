@@ -210,6 +210,23 @@ pub unsafe extern "C" fn beacon_audio_time(h: *mut FfiAudio) -> f64 {
     })
 }
 
+/// Timeline seconds up to which samples have gone to the device, heard or not yet (`beacon_audio_time` plus the
+/// output's latency), or -1 when stopped.
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn beacon_audio_sent(h: *mut FfiAudio) -> f64 {
+    guard(-1.0, || {
+        let a = handle(h)?;
+        let p = a.state.lock().map_err(|_| "audio state poisoned")?;
+        if !p.playing {
+            return Ok(-1.0);
+        }
+        Ok(p.start + p.played as f64 / a.rate as f64)
+    })
+}
+
 /// # Safety
 /// `h` must be a live handle.
 #[unsafe(no_mangle)]

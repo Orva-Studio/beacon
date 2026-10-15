@@ -134,6 +134,12 @@ export class AudioOutput {
     return t < 0 ? undefined : t;
   }
 
+  /** Timeline seconds up to which sound has gone to the device (some not heard yet), or undefined when stopped. */
+  sent(): number | undefined {
+    const t = loadEngine().beacon_audio_sent(this.#live());
+    return t < 0 ? undefined : t;
+  }
+
   stop(): void {
     const e = loadEngine();
     checkStatus(e, e.beacon_audio_stop(this.#live()));
