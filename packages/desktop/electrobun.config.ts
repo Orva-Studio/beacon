@@ -9,6 +9,7 @@ const staged = existsSync(join(import.meta.dir, STAGE)) ? readdirSync(join(impor
 
 export default {
   app: { name: "Beacon", identifier: "dev.beacon.editor", version },
+  scripts: { postBuild: "build-hook.ts", postWrap: "build-hook.ts" },
   build: {
     // Bun, not Cottontail: the engine loads through bun:ffi and the packages are Bun TypeScript.
     mainProcess: "bun",

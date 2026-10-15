@@ -3,9 +3,10 @@
  * Stages the app's `engine` folder (packages/engine/target/bundle, which electrobun.config.ts copies whole):
  * beacon-ffi, the worker and the recorder, and Beacon's own ffmpeg, ffprobe and whisper-cli with the FFmpeg
  * libraries they load. The libraries are found through @rpath beside whatever loads them, so the folder works
- * wherever the app is, on a Mac with no FFmpeg. Run after `bun run build`.
+ * wherever the app is, on a Mac with no FFmpeg. Run after `bun run build`. With `--mcp`, also beacon-mcp, compiled,
+ * so agents get Beacon's tools from the app alone (it finds the engine and tools beside itself).
  *
- *   bun scripts/bundle-tools.ts [dir]
+ *   bun scripts/bundle-tools.ts [--mcp] [dir]
  */
 import { copyFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -51,7 +52,16 @@ export async function bundleTools(to = STAGE): Promise<string[]> {
   return staged;
 }
 
+export async function bundleMcp(to = STAGE) {
+  const out = join(to, "beacon-mcp");
+  await $`bun build --compile ${join(import.meta.dir, "../packages/mcp/src/main.ts")} --outfile ${out}`.quiet();
+  await $`codesign --force --sign - ${out}`.quiet();
+}
+
 if (import.meta.main) {
-  const staged = await bundleTools(process.argv[2]);
-  console.log(`staged ${staged.length} files in ${process.argv[2] ?? STAGE}`);
+  const args = process.argv.slice(2);
+  const to = args.find((a) => !a.startsWith("--"));
+  const staged = await bundleTools(to);
+  if (args.includes("--mcp")) await bundleMcp(to);
+  console.log(`staged ${staged.length + (args.includes("--mcp") ? 1 : 0)} files in ${to ?? STAGE}`);
 }

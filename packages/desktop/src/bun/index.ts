@@ -15,7 +15,7 @@ if (existsSync(join(engineDir, "libbeacon_ffi.dylib"))) {
 }
 
 // `electrobun dev` builds and launches in one step, so a dev bundle gets its Info.plist entries here (a built one
-// has them from `bun run build`); Launch Services then learns the `.brec` package type.
+// has them from build-hook.ts); Launch Services then learns the `.brec` package type.
 const bundle = import.meta.dir.match(/^(.*?\.app)\/Contents\//)?.[1];
 if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
   Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
