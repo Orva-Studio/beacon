@@ -10,6 +10,7 @@ import { LocalCore, type CoreEvent } from "../src";
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
 const VIDEO = join(FIXTURES, "video.mp4");
 const IMAGE = join(FIXTURES, "image.png");
+const OTHER_VIDEO = join(FIXTURES, "video-3.mp4");
 const dir = mkdtempSync(join(tmpdir(), "beacon-resources-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -33,7 +34,7 @@ function registry(file: string, sha256: string) {
   return new FeatureRegistry([...FEATURES, fake]);
 }
 
-test.skipIf(![VIDEO, IMAGE].every(existsSync))("an analysis whose resource isn't downloaded waits; the download is checked, and what waited starts after", async () => {
+test.skipIf(![VIDEO, IMAGE, OTHER_VIDEO].every(existsSync))("an analysis whose resource isn't downloaded waits, on import and on Replace Media; the download is checked, and what waited starts after", async () => {
   const sha = createHash("sha256").update(readFileSync(IMAGE)).digest("hex");
   const cacheDir = join(dir, "cache");
 
@@ -53,6 +54,13 @@ test.skipIf(![VIDEO, IMAGE].every(existsSync))("an analysis whose resource isn't
   expect(r.needs).toContain("test-model");
   expect(events.find((e) => e.kind === "needs")).toMatchObject({ resource: { id: "test-model", present: false } });
   await expect(core.analyze(h, "uses-model", r.assets[0]!)).rejects.toThrow("isn't downloaded");
+  // Replacing the media is done, and the analysis waits as an import's does.
+  events.length = 0;
+  const replaced = await core.replace(h, r.assets[0]!, OTHER_VIDEO);
+  for (const j of replaced.jobs) await core.cancelJob(j).catch(() => {});
+  expect(replaced.needs).toEqual(["test-model"]);
+  expect(core.doc(h).assets[r.assets[0]!]!.path).toBe(OTHER_VIDEO);
+  expect(events.find((e) => e.kind === "needs")).toMatchObject({ resource: { id: "test-model" } });
 
   const job = await core.fetchResource("test-model");
   expect((await core.fetchResource("test-model")).id).toBe(job.id);

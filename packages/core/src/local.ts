@@ -925,17 +925,29 @@ export class LocalCore implements BeaconCore {
     }
     // The app's view needs proxies and waveforms of new media as well.
     if (p.view) this.#previewJobs(p);
+    const { jobs, needs } = this.#importAnalyses(h, result.assets);
+    result.jobs.push(...jobs);
+    return needs ? { ...result, needs } : result;
+  }
+
+  /**
+   * Starts the analyses new media gets (transcripts), except those waiting for a resource that isn't downloaded:
+   * those are reported, to the caller and as a `needs` event, and start when it arrives.
+   */
+  #importAnalyses(h: ProjectHandle, assets: string[]): { jobs: string[]; needs?: string[] } {
+    const p = this.#get(h);
+    const jobs: string[] = [];
     const needs = new Set<string>();
-    for (const id of result.assets) {
+    for (const id of assets) {
       for (const def of this.registry.jobAnalyzers.values()) {
         const a = p.store.doc.assets[id]!;
         if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id)) continue;
         if (def.needs && !this.#resourceReady(def.needs)) needs.add(def.needs);
-        else result.jobs.push(this.#analyze(h, def.id, id).id);
+        else jobs.push(this.#analyze(h, def.id, id).id);
       }
     }
     for (const id of needs) this.#emit(p, { kind: "needs", resource: this.#resourceInfo(this.registry.resources.get(id)!) });
-    return needs.size ? { ...result, needs: [...needs] } : result;
+    return needs.size ? { jobs, needs: [...needs] } : { jobs };
   }
 
   async analyze(h: ProjectHandle, key: string, assetId: string): Promise<Job> {
@@ -1054,7 +1066,7 @@ export class LocalCore implements BeaconCore {
     if (p.view) this.#previewJobs(p);
   }
 
-  async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[] }> {
+  async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[]; needs?: string[] }> {
     const p = this.#get(h);
     const asset = p.store.doc.assets[assetId];
     if (!asset) throw new Error(`no asset "${assetId}"`);
@@ -1069,12 +1081,7 @@ export class LocalCore implements BeaconCore {
     const derived = { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
     this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
     if (p.view) this.#previewJobs(p);
-    const jobs: string[] = [];
-    const a = p.store.doc.assets[assetId]!;
-    for (const def of this.registry.jobAnalyzers.values()) {
-      if ((def.when ?? "import") === "import" && def.applies(a) && !p.data.has(a, def.id)) jobs.push(this.#analyze(h, def.id, assetId).id);
-    }
-    return { jobs };
+    return this.#importAnalyses(h, [assetId]);
   }
 
   async analysisSize(key: string): Promise<number> {
