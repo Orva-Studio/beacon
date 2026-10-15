@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeMedia, runTool, type MediaInfo } from "@beacon/media";
@@ -70,3 +70,18 @@ test.skipIf(!existsSync(TAKE))("a .brec take exports as an MP4 as long as the ti
   expect(peak).toBeGreaterThan(-50);
   await core.close(h);
 }, 120_000);
+
+test.skipIf(!existsSync(TAKE))("a take whose recorder was killed imports from what its last checkpoint says", async () => {
+  const take = join(dir, "killed.brec");
+  cpSync(TAKE, take, { recursive: true });
+  const meta = JSON.parse(readFileSync(join(take, "recording.json"), "utf8"));
+  writeFileSync(join(take, "recording.json"), JSON.stringify({ ...meta, complete: false, duration: null }));
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const h = await core.create({ path: join(dir, "killed.beproj") });
+  const r = await core.import(h, [take]);
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const info = core.doc(h).assets[r.assets[0]!]!.derived.media as MediaInfo;
+  expect(info.streams.map((s) => s.role)).toEqual(["screen", "camera", "microphone", "systemAudio"]);
+  expect(info.duration).toBeGreaterThan(1.5);
+  await core.close(h);
+}, 60_000);

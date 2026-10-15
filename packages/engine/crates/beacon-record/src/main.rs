@@ -42,6 +42,7 @@ fn record(args: &[String]) -> Result<(), String> {
             let _ = std::process::Command::new("afplay").arg("/System/Library/Sounds/Ping.aiff").spawn();
         }
         take.poll_cursor();
+        take.checkpoint();
         std::thread::sleep(Duration::from_millis(8));
     }
     println!("{}", serde_json::json!({ "event": "stopped", "take": take.stop()? }));

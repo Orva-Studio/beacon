@@ -105,6 +105,7 @@ pub fn run() -> Result<(), String> {
                 }
                 if let Some(t) = &mut take {
                     t.poll_cursor();
+                    t.checkpoint();
                 }
                 if take.is_none() && present.1.elapsed() >= Duration::from_secs(1) {
                     let now = crate::devices::present();

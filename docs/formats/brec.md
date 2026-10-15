@@ -60,8 +60,10 @@ global screen points (top-left origin), as `display` is.
   says which image is in use from `t` on.
 
 ## `recording.json`
-Written when the take starts (`complete: false`, `duration: null`) and again
-when it stops, so a take the recorder never finished still describes itself.
+Written when the take starts (`complete: false`, `duration: null`), again as
+soon as each stream's first sample arrives and every 5 s while recording, and
+once more when it stops. A take whose recorder was killed still says where
+each stream starts, so its files import.
 
 ```json
 {

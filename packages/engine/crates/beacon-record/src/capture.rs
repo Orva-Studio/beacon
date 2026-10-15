@@ -368,6 +368,8 @@ pub struct Take {
     offsets: std::collections::HashMap<String, f64>,
     /// Host-clock seconds into the take, of anything worth marking (`record --tones`).
     pub marks: Vec<f64>,
+    /// What `recording.json` last said: which streams had begun, and when it was written.
+    written: (Vec<bool>, f64),
 }
 
 impl Take {
@@ -555,6 +557,7 @@ impl Take {
             cursor_summary,
             offsets: sources.offsets.clone(),
             marks: Vec::new(),
+            written: (Vec::new(), t0),
         };
         // Written now so a take the recorder never finished still says what it holds.
         take.write(None, &[])?;
@@ -596,6 +599,16 @@ impl Take {
 
     pub fn monitored(&self) -> bool {
         self.capture_out.ivars().monitor
+    }
+
+    /// Rewrites `recording.json` once another stream has begun, and every few seconds: a take whose recorder
+    /// is killed then still says where each stream starts, so its files can be imported.
+    pub fn checkpoint(&mut self) {
+        let begun: Vec<bool> = self.tracks().iter().map(|m| m.lock().unwrap().as_ref().is_some_and(|t| t.first.is_some())).collect();
+        let now = host_now();
+        if checkpoint_due(&self.written.0, &begun, now - self.written.1) && self.write(None, &[]).is_ok() {
+            self.written = (begun, now);
+        }
     }
 
     pub fn mark(&mut self) {
@@ -669,6 +682,11 @@ impl Take {
     }
 }
 
+/// Whether `recording.json` is to be written again: a stream has begun since, or `since` seconds passed.
+fn checkpoint_due(written: &[bool], begun: &[bool], since: f64) -> bool {
+    written != begun || since >= 5.0
+}
+
 /// Why a take can't begin: a chosen camera or microphone (`(device name, sent anything)`) that sent nothing while
 /// the take waited for it, as one that was unplugged, or is held by another app, doesn't.
 fn silent(sources: &[(&str, Option<(String, bool)>)]) -> Option<String> {
@@ -688,6 +706,15 @@ mod tests {
         assert_eq!(record_size(3840, 2160), (3840, 2160));
         assert_eq!(record_size(2560, 1440), (2560, 1440));
         assert_eq!(record_size(1920, 1201), (1920, 1201));
+    }
+
+    #[test]
+    fn a_take_says_where_each_stream_starts_as_soon_as_it_begins() {
+        assert!(checkpoint_due(&[], &[false, false], 0.0));
+        assert!(!checkpoint_due(&[false, false], &[false, false], 1.0));
+        assert!(checkpoint_due(&[false, false], &[true, false], 0.1));
+        assert!(!checkpoint_due(&[true, true], &[true, true], 4.9));
+        assert!(checkpoint_due(&[true, true], &[true, true], 5.0));
     }
 
     #[test]
