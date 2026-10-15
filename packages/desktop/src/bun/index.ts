@@ -1320,7 +1320,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "saveAs") return saveAsDialog();
   if (action === "reveal") return void (current && core.reveal(current.path).catch(report));
   if (action === "settings") return void openSettings();
-  if (action === "checkUpdates") return void checkForUpdates({ status });
+  if (action === "checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {
     quitLog("⌘Q");
@@ -1391,7 +1391,7 @@ const quit = () => {
   quitLog("closed");
 };
 Electrobun.events.on("before-quit", quit);
-checkForUpdatesSoon(status);
+checkForUpdatesSoon(status, () => stopped);
 process.on("exit", quit);
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
