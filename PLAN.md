@@ -1279,9 +1279,19 @@ Making the transcript do the editing.
   and follows Round Corners' rounded edge when both are on. A feature folder
   with one WGSL pass, so the inspector, undo, copy properties and agent
   commands come from its schema; preview/export parity as for every pass.
+- **Start screen** (the user, 2026-10-15; not transcript work, but wanted in
+  this phase): opened without a project, Beacon shows an empty window today.
+  Instead, a start screen (a modal over the empty editor) with **New
+  Project** (the New Project dialog, as File › New Project) and the **last
+  four projects** from Open Recent, each with its name and when it was last
+  opened, a click opening it; plus Open… for any other. Opening one, or
+  creating one, closes it. Maybe later, a third choice: **Start Recording**
+  (a new project, then the Record dialog), left out for now since the Record
+  button (Phase 8) is one click away. A UI-harness flow covers it.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
-camera clip with a rounded border looks the same in preview and export.
+camera clip with a rounded border looks the same in preview and export; and
+Beacon opened without a project offers New Project and its recent projects.
 
 ### Phase 8 — Faster editing
 Getting to everything quicker, by hand or by agent.

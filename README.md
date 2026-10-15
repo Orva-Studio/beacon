@@ -57,10 +57,11 @@ Or paste this into an AI agent such as Claude Code:
 
 ```text
 Install Beacon, a macOS screen-recording editor, on this Mac (Apple silicon):
-1. Download beacon-macos-arm64.dmg and checksums.txt from the latest release of
-   github.com/Orva-Studio/beacon (`gh release download --repo Orva-Studio/beacon
-   --pattern beacon-macos-arm64.dmg --pattern checksums.txt`), and check it:
-   `grep beacon-macos-arm64.dmg checksums.txt | shasum -a 256 -c`.
+1. In a new temporary folder (`cd "$(mktemp -d)"`), download the DMG and its
+   checksums from the latest release with curl (no other tools needed):
+   `curl -fLO https://github.com/Orva-Studio/beacon/releases/latest/download/beacon-macos-arm64.dmg
+   -fLO https://github.com/Orva-Studio/beacon/releases/latest/download/checksums.txt`,
+   and check it: `grep beacon-macos-arm64.dmg checksums.txt | shasum -a 256 -c`.
 2. Quit Beacon if it is running. Mount the DMG (`hdiutil attach -nobrowse`), copy
    Beacon.app to /Applications (replacing an older one), and detach it.
 3. Beacon isn't signed with a Developer ID yet, so clear the quarantine flag:
@@ -93,11 +94,12 @@ again for screen recording, camera and microphone permission after each update.
 To update from an agent instead (or from 0.3.0 and earlier), paste this:
 
 ```text
-Update Beacon on this Mac to the latest release of github.com/Orva-Studio/beacon:
-download beacon-macos-arm64.dmg and checksums.txt from the latest release
-(`gh release download --repo Orva-Studio/beacon --pattern beacon-macos-arm64.dmg
---pattern checksums.txt`) and check it (`grep beacon-macos-arm64.dmg checksums.txt
-| shasum -a 256 -c`). Quit Beacon (`osascript -e 'quit app "Beacon"'`), mount the
+Update Beacon on this Mac to the latest release of github.com/Orva-Studio/beacon.
+In a new temporary folder (`cd "$(mktemp -d)"`), download the DMG and its
+checksums with curl (`curl -fLO
+https://github.com/Orva-Studio/beacon/releases/latest/download/beacon-macos-arm64.dmg
+-fLO https://github.com/Orva-Studio/beacon/releases/latest/download/checksums.txt`)
+and check it (`grep beacon-macos-arm64.dmg checksums.txt | shasum -a 256 -c`). Quit Beacon (`osascript -e 'quit app "Beacon"'`), mount the
 DMG (`hdiutil attach -nobrowse`), replace /Applications/Beacon.app with its
 Beacon.app, detach it, and run `xattr -dr com.apple.quarantine
 /Applications/Beacon.app`. Open it once (`open /Applications/Beacon.app`) so it
