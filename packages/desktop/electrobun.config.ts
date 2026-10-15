@@ -12,7 +12,10 @@ const staged = existsSync(join(import.meta.dir, STAGE)) ? readdirSync(join(impor
 
 export default {
   app: { name: "Beacon", identifier: "dev.beacon.editor", version },
-  scripts: { postBuild: "build-hook.ts", postWrap: "build-hook.ts" },
+  scripts: { postBuild: "build-hook.ts", postWrap: "build-hook.ts", postPackage: "package-hook.ts" },
+  // Check for Updates reads <baseUrl>/stable-macos-arm64-update.json, which each GitHub release carries (the latest
+  // release's files are always at this URL). No delta patches: they would be made by downloading the previous release.
+  release: { baseUrl: "https://github.com/Orva-Studio/beacon/releases/latest/download", generatePatch: false },
   build: {
     // Bun, not Cottontail: the engine loads through bun:ffi and the packages are Bun TypeScript.
     mainProcess: "bun",

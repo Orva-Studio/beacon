@@ -100,6 +100,8 @@ jobs:
         run: |
           mkdir dist
           mv packages/desktop/artifacts/macos-arm64-Beacon.dmg dist/beacon-macos-arm64.dmg
+          # What Check for Updates reads from the latest release.
+          mv packages/desktop/artifacts/stable-macos-arm64-update.json packages/desktop/artifacts/stable-macos-arm64-Beacon.app.tar.zst dist/
           bun run build:tools --sources dist
           cd dist && shasum -a 256 * > checksums.txt && cat checksums.txt
 

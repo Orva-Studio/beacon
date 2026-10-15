@@ -1192,6 +1192,15 @@ times on the fixtures; for the API, use a model that returns word
 timestamps). Choosing Apple or the API never asks to download the model.
 Agents get the same as a setting/command. The transcript cache key includes
 the transcriber.
+**Updates (the user, 2026-10-15, after installing v0.3.0):** in the app, not
+only by reinstalling: Beacon › Check for Updates…, and a quiet check a little
+after launch, through Electrobun's updater (`release.baseUrl` is the latest
+GitHub release's download URL; each release carries
+`stable-macos-arm64-update.json` and the signed packed app, checked by
+`check-release.ts`); Update and Restart downloads, saves projects and swaps the
+app in place, with no quarantine to clear. The README keeps an update prompt
+for agents. No delta patches (they'd be made by downloading the previous
+release). First visible from 0.4.0 to 0.4.1.
 **Signing (decided 2026-10-15):** no Apple Developer ID yet. Releases are
 ad-hoc signed and not notarized; the README's install prompt keeps the
 `xattr -dr com.apple.quarantine` step and says macOS will ask again for

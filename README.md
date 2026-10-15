@@ -83,6 +83,29 @@ Cursor…), point its MCP config at the same
 app open on a project, `project_open` connects to it: the agent's edits show
 on its timeline, sharing your undo history.
 
+## Update
+From 0.4.0, Beacon checks for a new version a little after it opens, and
+**Beacon › Check for Updates…** checks now; when there is one, **Update and
+Restart** downloads it, saves your projects and restarts into it. Updated this
+way, there's no quarantine flag to clear. Until Beacon is signed, macOS asks
+again for screen recording, camera and microphone permission after each update.
+
+To update from an agent instead (or from 0.3.0 and earlier), paste this:
+
+```text
+Update Beacon on this Mac to the latest release of github.com/Orva-Studio/beacon:
+download beacon-macos-arm64.dmg and checksums.txt from the latest release
+(`gh release download --repo Orva-Studio/beacon --pattern beacon-macos-arm64.dmg
+--pattern checksums.txt`) and check it (`grep beacon-macos-arm64.dmg checksums.txt
+| shasum -a 256 -c`). Quit Beacon (`osascript -e 'quit app "Beacon"'`), mount the
+DMG (`hdiutil attach -nobrowse`), replace /Applications/Beacon.app with its
+Beacon.app, detach it, and run `xattr -dr com.apple.quarantine
+/Applications/Beacon.app`. Open it once (`open /Applications/Beacon.app`) so it
+unpacks, wait until
+/Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp exists, then
+quit it. The MCP server's path doesn't change, so `claude mcp` needs nothing.
+```
+
 ## Requirements (to build it)
 - [Bun](https://bun.sh) 1.4
 - Rust via rustup (the toolchain is pinned in `packages/engine/rust-toolchain.toml`)
