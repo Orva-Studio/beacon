@@ -2,10 +2,21 @@ name: release
 
 # A v0.x.y tag (cut by `bun run release`) builds the Apple silicon app and publishes beacon-macos-arm64.dmg,
 # checksums.txt and FFmpeg's source, configure patch and options (THIRD_PARTY_NOTICES promises them) as a GitHub
-# release. Pull requests that change how it is built run everything but the publishing.
+# release. Pull requests that change how it is built run everything but the publishing, as do such changes on main:
+# GitHub shares only main's caches with other branches and tags, so main's runs keep the tools and Rust builds cached
+# for them.
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - scripts/build-tools.ts
+      - scripts/bundle-tools.ts
+      - scripts/check-release.ts
+      - packages/desktop/build-hook.ts
+      - packages/desktop/electrobun.config.ts
+      - packages/desktop/package.json
   pull_request:
     paths:
       - .github/workflows/release.yml
@@ -77,6 +88,8 @@ jobs:
         run: bun run build
 
       - name: Build the app
+        env:
+          BEACON_RELEASE: ${{ startsWith(steps.v.outputs.tag, 'v') && '1' || '' }}
         run: bun run --cwd packages/desktop package
 
       - name: Collect
