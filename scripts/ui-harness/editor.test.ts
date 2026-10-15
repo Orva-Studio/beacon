@@ -313,7 +313,7 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   expect(ui.menus).not.toContain("fetchResource:whisper-model");
 
   // Settings › General offers it again; downloading shows progress, Cancel stops it, Hide leaves it running.
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model] });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
   await page.until(`!!${button("Download Speech Model…")}`);
   await page.evaluate(`${button("Download Speech Model…")}.click()`);
   await page.until("!!document.querySelector('[data-resource]')");
@@ -331,6 +331,43 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   ui.send("resourceJob", { id: "job-download", state: "done", progress: 1 });
   await page.until("!document.querySelector('[data-resource]')");
 });
+
+test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's waits for a key, says the audio is uploaded, and removing the key goes back to Whisper", async () => {
+  const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "", bytes: 574_041_195, present: false };
+  const button = (label: string) => `[...document.querySelectorAll('button')].find((b) => b.textContent === '${label}')`;
+  const pick = (value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-transcriber]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const value = async () => (await ui.core.preferences()).find((p) => p.id === "transcriber")!.value;
+  // Changing the transcriber transcribes the project's media again: not here (OpenAI's would be sent the test key).
+  ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+  await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
+  expect(await has("[data-resource-row]")).toBe(true);
+  // Apple's needs nothing: chosen at once, and the model isn't offered.
+  await pick("apple");
+  await arrived(() => ui.menus.includes("setPreference:transcriber=apple"));
+  await page.until("!document.querySelector('[data-resource-row]')");
+  expect(await value()).toBe("apple");
+  // OpenAI's waits for its key, and says where the audio goes.
+  await pick("openai");
+  await page.until("!!document.querySelector('[data-api-key=\"unset\"]')");
+  expect(await page.evaluate<string>(`document.querySelector('[data-api-key]').closest('[tabindex="-1"]').innerText`)).toContain("uploaded to OpenAI");
+  expect(await value()).toBe("apple");
+  expect(ui.menus).not.toContain("setPreference:transcriber=openai");
+  await page.click(...(await centre('[data-api-key="unset"] input')));
+  await type("sk-test-123");
+  await page.evaluate(`${button("Save and Use")}.click()`);
+  await page.until("!!document.querySelector('[data-api-key=\"set\"]')");
+  expect(ui.menus).toContain("setSecret:openai-api-key=set");
+  expect(await value()).toBe("openai");
+  // An agent can't choose an option whose key is missing; without its key, OpenAI's goes back to Whisper.
+  await page.evaluate(`${button("Remove")}.click()`);
+  await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
+  expect(await value()).toBe("whisper");
+  await expect(ui.core.setPreference("transcriber", "openai")).rejects.toThrow(/only the user can add/);
+  await page.evaluate(`${button("Done")}.click()`);
+  await page.until("!document.querySelector('[data-transcriber]')");
+  ui.core.setAutomatic(() => true);
+}, 20000);
 
 test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async () => {
   await run("timeline.zoom", { to: "max" });

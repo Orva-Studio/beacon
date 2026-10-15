@@ -80,6 +80,8 @@ export const METHODS = [
   "cancelJob",
   "resources",
   "fetchResource",
+  "preferences",
+  "setPreference",
   "commands",
   "queries",
   "schema",

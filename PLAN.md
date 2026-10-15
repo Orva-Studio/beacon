@@ -1288,6 +1288,14 @@ Making the transcript do the editing.
   creating one, closes it. Maybe later, a third choice: **Start Recording**
   (a new project, then the Record dialog), left out for now since the Record
   button (Phase 8) is one click away. A UI-harness flow covers it.
+**Progress (2026-10-15, `phase-7`):** Border and the start screen are built.
+The transcriber choice is built: Settings › General › Transcripts and the
+`transcriber` preference (`preference_list`/`preference_set` for agents; the
+contract gained feature preferences, Keychain secrets and per-variant analyzer
+caches). Apple's transcriber is `beacon-speech`, a Swift tool built with
+Beacon's tools, so CI moved to macOS 26. Word timings were checked on the
+fixtures (`docs/transcription-spike.md`): the API is close to local Whisper,
+Apple's are looser, and Remove Silences is identical with all three.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
 camera clip with a rounded border looks the same in preview and export; and

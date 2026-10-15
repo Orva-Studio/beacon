@@ -347,6 +347,18 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ id: z.string() }),
     run: async ({ id }) => ({ job: (await core.fetchResource(id)).id }),
   });
+  add("preference_list", {
+    description:
+      "App-wide choices, kept across projects: the transcriber (Whisper on this Mac, needing its speech model; Apple's on-device transcriber, no download; or Whisper through OpenAI's API, which uploads the audio and needs the user's API key). Each option says what it means and whether a key it needs is set",
+    schema: z.strictObject({}),
+    run: async () => core.preferences(),
+  });
+  add("preference_set", {
+    description:
+      "Change an app-wide choice, e.g. id \"transcriber\", value \"apple\". Transcripts are kept per transcriber: media without one by the new choice is transcribed again (job_status), or waits for Whisper's model as an import does. An option needing an API key is refused until the user adds it in Settings. Choosing OpenAI uploads the user's audio to OpenAI and costs them: only when they ask",
+    schema: z.strictObject({ id: z.string(), value: z.string() }),
+    run: async ({ id, value }) => (await core.setPreference(id, value), core.preferences()),
+  });
   add("job_status", {
     description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
     schema: z.strictObject({ id: z.string().optional(), wait: z.number().min(0).max(55).default(0) }),

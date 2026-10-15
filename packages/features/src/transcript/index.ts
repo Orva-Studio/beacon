@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { transcribe, type Transcription } from "@beacon/media";
+import { transcribe, type Transcriber, type Transcription } from "@beacon/media";
 import {
   defineAction,
   defineCommand,
@@ -314,10 +314,27 @@ const silenceSessionCommands: SessionCommandDef[] = [
 
 const Range = z.tuple([z.int().nonnegative(), z.int().nonnegative()]);
 
-/** Transcripts of recordings and audio (whisper.cpp, local), and editing by transcript. */
+const TRANSCRIBERS = ["whisper", "apple", "openai"] as const satisfies readonly Transcriber[];
+const transcriber = (pref: (id: string) => string): Transcriber => (TRANSCRIBERS as readonly string[]).includes(pref("transcriber")) ? (pref("transcriber") as Transcriber) : "whisper";
+
+/** Transcripts of recordings and audio (Whisper on this Mac, Apple's transcriber or OpenAI's API), and editing by transcript. */
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
+  preferences: [
+    {
+      id: "transcriber",
+      title: "Transcriber",
+      description: "Who makes transcripts (Remove Silences, cutting by transcript, captions). Transcripts already made by one are kept for when it is chosen again",
+      options: [
+        { id: "whisper", title: "Whisper on this Mac", description: "OpenAI's Whisper, run on this Mac, offline. Needs its speech model (about 575 MB, downloaded once). Best on technical words" },
+        { id: "apple", title: "Apple's transcriber", description: "macOS's own on-device transcriber: offline, no download and about 5× faster, but weaker on technical words and on exact word times" },
+        { id: "openai", title: "Whisper through OpenAI", description: "OpenAI's Whisper over its API with your own API key: the audio is uploaded to OpenAI to be transcribed, and OpenAI charges your account for it", secret: "openai-api-key" },
+      ],
+      default: "whisper",
+    },
+  ],
+  secrets: [{ id: "openai-api-key", title: "OpenAI API key" }],
   resources: [
     {
       id: "whisper-model",
@@ -334,17 +351,21 @@ export const transcript = defineFeature({
   jobAnalyzers: [
     {
       id: "transcript",
-      description: "Word-timed transcript of every audio stream (whisper.cpp large-v3-turbo, clipped to detected speech)",
+      description: "Word-timed transcript of every audio stream (by the chosen transcriber, clipped to detected speech)",
       version: 7,
-      needs: "whisper-model",
+      needs: (pref) => (transcriber(pref) === "whisper" ? "whisper-model" : undefined),
+      // Local Whisper's results keep the cache entries made before there was a choice.
+      variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
       applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
       async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
-        const model = env.resource("whisper-model");
+        const who = transcriber(env.pref);
+        const model = who === "whisper" ? env.resource("whisper-model") : undefined;
+        const apiKey = who === "openai" ? await env.secret("openai-api-key") : undefined;
         for (const i of audio.keys()) {
           const src = sourceOf(asset, "audio", i);
-          streams[i] = await transcribe(src.path, { stream: src.stream, model, onProgress: (f) => progress((i + f) / audio.length) });
+          streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },

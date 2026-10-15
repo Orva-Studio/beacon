@@ -106,6 +106,9 @@ const host: Host = {
   cancelExport: (id) => void request("cancelExport", { id }),
   fetchResource: (id) => request("fetchResource", { id }) as Promise<{ ok: boolean; error?: string; result?: string }>,
   declineResource: (id) => void request("declineResource", { id }),
+  // Not `id`: that field routes the reply.
+  setPreference: (pref, value) => request("setPreference", { pref, value }) as Promise<{ ok: boolean; error?: string }>,
+  setSecret: (secret, value) => request("setSecret", { secret, value }) as Promise<{ ok: boolean; error?: string }>,
   cancelJob: (id) => void request("cancelJob", { id }),
   showFile: () => {},
   setAppSettings: (settings) => void request("setAppSettings", { settings }),

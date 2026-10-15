@@ -4,6 +4,7 @@ import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
 import type { ResourceInfo, ResourceJob } from "./resource";
+import type { PreferenceInfo } from "./transcripts-settings";
 
 export type { CanvasValues };
 export type { CanvasMark };
@@ -92,7 +93,7 @@ export interface Notice {
 export type SettingsTab = "general" | "recording" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
-export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[] };
+export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
 
 /** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
 export interface SoundOutput {
@@ -320,6 +321,10 @@ export type AppRPC = {
       /** Download a resource (the speech model): replies with its job id. */
       fetchResource: { params: { id: string }; response: RunReply & { result?: string } };
       declineResource: { params: { id: string }; response: void };
+      /** Settings › General › Transcripts: replies with the preferences as they now are. */
+      setPreference: { params: { id: string; value: string }; response: RunReply & { result?: PreferenceInfo[] } };
+      /** Saves an API key in the Keychain, or removes it (null). */
+      setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };

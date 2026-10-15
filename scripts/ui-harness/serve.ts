@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { importDropped, LocalCore } from "@beacon/core";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
 import type { RecentProject } from "../../packages/ui/src/rpc";
 import keymap from "../../keymaps/default.json";
@@ -18,7 +19,14 @@ const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAA
  * Open Recent or Open… then opens the harness's project.
  */
 export async function serveUi(project: string, opts: { cacheDir?: string; closed?: boolean; recent?: RecentProject[] } = {}) {
-  const core = new LocalCore({ ...(opts.cacheDir ? { cacheDir: opts.cacheDir } : {}) });
+  // Never the user's preferences or Keychain: a folder of its own, and secrets kept in memory.
+  const secrets = new Map<string, string>();
+  const configDir = mkdtempSync(join(tmpdir(), "beacon-ui-config-"));
+  const core = new LocalCore({
+    ...(opts.cacheDir ? { cacheDir: opts.cacheDir } : {}),
+    configDir,
+    secrets: { get: async (id) => secrets.get(id), set: async (id, value) => void (value === null ? secrets.delete(id) : secrets.set(id, value)) },
+  });
   let shown = !opts.closed;
   const h = await core.open(project);
   const root = join(import.meta.dir, "../..");
@@ -209,6 +217,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           menus.push(`fetchResource:${msg.id}`);
           result = { ok: true, result: "job-download" };
         }
+        else if (msg.type === "setPreference" || msg.type === "setSecret") {
+          menus.push(msg.type === "setPreference" ? `setPreference:${msg.pref}=${msg.value}` : `setSecret:${msg.secret}=${msg.value === null ? "removed" : "set"}`);
+          result = await reply(async () => (msg.type === "setPreference" ? await core.setPreference(msg.pref, msg.value) : await core.setSecret(msg.secret, msg.value), core.preferences()));
+        }
         else if (msg.type === "declineResource" || msg.type === "cancelJob") {
           menus.push(`${msg.type}:${msg.id}`);
           result = { ok: true };
@@ -238,6 +250,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     async close() {
       server.stop(true);
       await core.close(h);
+      rmSync(configDir, { recursive: true, force: true });
     },
   };
 }

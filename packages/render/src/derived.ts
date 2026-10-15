@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Asset, FeatureRegistry, JobAnalyzerDef, Project } from "@beacon/model";
+import type { Asset, FeatureRegistry, JobAnalyzerDef, Preferences, Project } from "@beacon/model";
 
 /** Frame indexes and derived data (transcripts), shared by every project and script. */
 export const DEFAULT_CACHE_DIR = join(homedir(), "Library/Caches/Beacon");
@@ -12,8 +12,9 @@ function hash(s: string): string {
 
 /**
  * Derived asset data for evaluation and queries. Quick analyzers run on first
- * use; job analyzers' results are cached on disk by asset path, fingerprint
- * and analyzer version, so any project using the same file reuses them.
+ * use; job analyzers' results are cached on disk by asset path, fingerprint,
+ * analyzer version and variant (the transcriber), so any project using the
+ * same file reuses them.
  */
 export class DerivedData {
   readonly #memo = new Map<string, unknown>();
@@ -22,14 +23,20 @@ export class DerivedData {
     readonly registry: FeatureRegistry,
     readonly cacheDir: string,
     readonly project: () => Project,
+    readonly pref: Preferences = (id) => registry.preferences.get(id)!.default,
   ) {}
 
+  #variant(key: string): string | undefined {
+    return this.registry.jobAnalyzers.get(key)?.variant?.(this.pref);
+  }
+
   #key(asset: Asset, key: string) {
-    return `${asset.path}\0${asset.fingerprint}\0${key}`;
+    return `${asset.path}\0${asset.fingerprint}\0${key}\0${this.#variant(key) ?? ""}`;
   }
 
   cacheFile(asset: Asset, def: JobAnalyzerDef): string {
-    return join(this.cacheDir, "derived", `${def.id}-v${def.version}-${hash(`${asset.path}\0${asset.fingerprint}`)}.json`);
+    const variant = def.variant?.(this.pref);
+    return join(this.cacheDir, "derived", `${def.id}-v${def.version}${variant ? `-${variant}` : ""}-${hash(`${asset.path}\0${asset.fingerprint}`)}.json`);
   }
 
   get = <T>(assetId: string, key: string): T | undefined => {
@@ -81,7 +88,7 @@ export class DerivedData {
 
   /** Forgets every result of an analyzer held in memory (its files are deleted by the caller). */
   dropAll(def: JobAnalyzerDef) {
-    for (const id of this.#memo.keys()) if (id.endsWith(`\0${def.id}`)) this.#memo.delete(id);
+    for (const id of this.#memo.keys()) if (id.split("\0")[2] === def.id) this.#memo.delete(id);
   }
 
   /**

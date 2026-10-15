@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { z } from "zod";
+import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
@@ -29,6 +30,7 @@ import {
   type Clip,
   type Ticks,
   type FeatureRegistry,
+  type JobAnalyzerDef,
   type MediaImporterDef,
   type Project,
   type ResourceDef,
@@ -58,6 +60,7 @@ import type {
   QueryInfo,
   RecordOptions,
   ResourceInfo,
+  PreferenceInfo,
   RecordStatus,
   RunOptions,
   SchemaInfo,
@@ -66,6 +69,7 @@ import type {
   TransactionStep,
 } from "./api";
 import { download } from "./download";
+import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
 
@@ -79,7 +83,13 @@ export interface LocalCoreOptions {
   socket?: string;
   /** Shows a file in Finder; the app passes its own. */
   reveal?: (path: string) => void;
+  /** Where app-wide preferences are kept (`preferences.json`): Beacon's Application Support folder. */
+  configDir?: string;
+  /** Where secrets (API keys) are kept: the login Keychain. */
+  secrets?: Secrets;
 }
+
+const DEFAULT_CONFIG_DIR = join(homedir(), "Library/Application Support/Beacon");
 
 interface OpenProject {
   path: string;
@@ -178,9 +188,26 @@ export class LocalCore implements BeaconCore {
   /** The last copies in any project, so they paste into the next one opened. */
   #shared: SharedSession = { clipboard: null, properties: null };
 
+  readonly #configDir: string;
+  readonly #secrets: Secrets;
+  #prefs: Record<string, string>;
+  readonly #pref = (id: string): string => {
+    const def = this.registry.preferences.get(id);
+    if (!def) throw new Error(`no preference "${id}"`);
+    const v = this.#prefs[id];
+    return v !== undefined && def.options.some((o) => o.id === v) ? v : def.default;
+  };
+
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
+    this.#configDir = opts.configDir ?? DEFAULT_CONFIG_DIR;
+    this.#secrets = opts.secrets ?? keychain;
+    try {
+      this.#prefs = JSON.parse(readFileSync(join(this.#configDir, "preferences.json"), "utf8")) as Record<string, string>;
+    } catch {
+      this.#prefs = {};
+    }
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["open", "-R", path]));
@@ -194,7 +221,7 @@ export class LocalCore implements BeaconCore {
 
   #attach(path: string, doc: Project): ProjectHandle {
     let current = doc;
-    const data = new DerivedData(this.registry, this.cacheDir, () => current);
+    const data = new DerivedData(this.registry, this.cacheDir, () => current, this.#pref);
     const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get });
     lock(path, this.#socket);
     store.subscribe((e) => void (current = e.doc));
@@ -269,7 +296,7 @@ export class LocalCore implements BeaconCore {
     const outside = assets.filter((a) => !isInside(dir, a.path) && existsSync(a.path));
     if (!outside.length) return [];
     const copies = await copyIntoProject(dir, outside.map((a) => a.path));
-    const data = new DerivedData(this.registry, this.cacheDir, () => ({ assets: {} }) as unknown as Project);
+    const data = new DerivedData(this.registry, this.cacheDir, () => ({ assets: {} }) as unknown as Project, this.#pref);
     return outside.map((a) => {
       const path = copies.get(a.path)!;
       const copy = { ...a, path, fingerprint: fileFingerprint(path) };
@@ -684,10 +711,10 @@ export class LocalCore implements BeaconCore {
     this.#jobMode = mode;
   }
 
-  /** Which preview analyses start on their own (the app's settings); the rest run only when asked. */
+  /** Which analyses start on their own (the app's settings: proxies), on import, when shown or when a preference changes; the rest run only when asked. */
   #automatic: (analyzer: string, asset: Asset) => boolean = () => true;
 
-  /** Sets which preview analyses (e.g. proxies) start on their own when a project is shown; projects shown now follow at once. */
+  /** Sets which analyses (e.g. proxies) start on their own; projects shown now follow at once. */
   setAutomatic(fn: (analyzer: string, asset: Asset) => boolean) {
     this.#automatic = fn;
     for (const p of this.#projects.values()) if (p.view) this.#previewJobs(p);
@@ -878,7 +905,7 @@ export class LocalCore implements BeaconCore {
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
     // Edits made while it renders must not reach the export, its derived data included.
-    const data = new DerivedData(this.registry, this.cacheDir, () => project);
+    const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
     return this.#startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
@@ -941,9 +968,10 @@ export class LocalCore implements BeaconCore {
     for (const id of assets) {
       for (const def of this.registry.jobAnalyzers.values()) {
         const a = p.store.doc.assets[id]!;
-        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id)) continue;
-        if (def.needs && !this.#resourceReady(def.needs)) needs.add(def.needs);
-        else jobs.push(this.#analyze(h, def.id, id).id);
+        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id) || !this.#automatic(def.id, a)) continue;
+        const need = this.#needsOf(def);
+        if (need && !this.#resourceReady(need)) needs.add(need);
+        else if (existsSync(a.path)) jobs.push(this.#analyze(h, def.id, id).id);
       }
     }
     for (const id of needs) this.#emit(p, { kind: "needs", resource: this.#resourceInfo(this.registry.resources.get(id)!) });
@@ -977,7 +1005,7 @@ export class LocalCore implements BeaconCore {
   #analysisFiles(key: string): string[] {
     const def = this.#jobAnalyzer(key);
     const derived = join(this.cacheDir, "derived");
-    const results = existsSync(derived) ? readdirSync(derived).filter((f) => f.startsWith(`${key}-v`) && /^\d+-[0-9a-f]+\.json$/.test(f.slice(key.length + 2))).map((f) => join(derived, f)) : [];
+    const results = existsSync(derived) ? readdirSync(derived).filter((f) => f.startsWith(`${key}-v`) && /^\d+(-[a-z0-9]+)?-[0-9a-f]{16}\.json$/.test(f.slice(key.length + 2))).map((f) => join(derived, f)) : [];
     return def.folder ? [...results, join(this.cacheDir, def.folder)] : results;
   }
 
@@ -1124,11 +1152,13 @@ export class LocalCore implements BeaconCore {
     const asset = p.store.doc.assets[assetId];
     if (!asset) throw new Error(`no asset "${assetId}"`);
     if (!existsSync(asset.path)) throw new Error(`${basename(asset.path)} is missing: it was moved, renamed or deleted (Locate… in the Media Bin's menu finds it)`);
-    const subject = `${key}:${asset.path}\0${asset.fingerprint}`;
+    const variant = def.variant?.(this.#pref);
+    const subject = `${key}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
     const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
     if (running) return { id: running.info.id, done: running.done };
-    if (def.needs && !this.#resourceReady(def.needs)) {
-      const r = this.registry.resources.get(def.needs)!;
+    const need = this.#needsOf(def);
+    if (need && !this.#resourceReady(need)) {
+      const r = this.registry.resources.get(need)!;
       throw new Error(`${key} needs the ${r.title} (${Math.round(r.bytes / 1e6)} MB), which isn't downloaded; download it (fetchResource "${r.id}") once the user agrees`);
     }
     return this.#startJob(
@@ -1136,7 +1166,15 @@ export class LocalCore implements BeaconCore {
       key,
       `${key} ${asset.path}`,
       async (progress) => {
-        const value = await def.analyze(asset, progress, { cacheDir: this.cacheDir, quiet: this.#jobMode === "quiet", resource: (id) => this.#resourcePath(this.registry.resources.get(id)!) });
+        const value = await def.analyze(asset, progress, {
+          cacheDir: this.cacheDir,
+          quiet: this.#jobMode === "quiet",
+          resource: (id) => this.#resourcePath(this.registry.resources.get(id)!),
+          pref: this.#pref,
+          secret: (id) => this.#secrets.get(id),
+        });
+        // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
+        if (def.variant?.(this.#pref) !== variant) throw new Error(`${key} was for a setting since changed`);
         p.data.store(asset, def, value);
         this.#emit(p, { kind: "derived", asset: assetId, key, present: true });
         return { asset: assetId };
@@ -1216,6 +1254,61 @@ export class LocalCore implements BeaconCore {
     return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
   }
 
+  #needsOf(def: JobAnalyzerDef): string | undefined {
+    return typeof def.needs === "function" ? def.needs(this.#pref) : def.needs;
+  }
+
+  async preferences(): Promise<PreferenceInfo[]> {
+    return Promise.all(
+      [...this.registry.preferences.values()].map(async (def) => ({
+        id: def.id,
+        title: def.title,
+        description: def.description,
+        value: this.#pref(def.id),
+        options: await Promise.all(
+          def.options.map(async (o) => ({
+            id: o.id,
+            title: o.title,
+            description: o.description,
+            ...(o.secret ? { secret: { id: o.secret, title: this.registry.secrets.get(o.secret)!.title, set: (await this.#secrets.get(o.secret)) !== undefined } } : {}),
+          })),
+        ),
+      })),
+    );
+  }
+
+  async setPreference(id: string, value: string): Promise<void> {
+    const def = this.registry.preferences.get(id);
+    if (!def) throw new Error(`no preference "${id}"; there are: ${[...this.registry.preferences.keys()].join(", ")}`);
+    const option = def.options.find((o) => o.id === value);
+    if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);
+    if (option.secret && (await this.#secrets.get(option.secret)) === undefined) {
+      throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add (Settings › General)`);
+    }
+    if (this.#pref(id) === value) return;
+    this.#prefs = { ...this.#prefs, [id]: value };
+    mkdirSync(this.#configDir, { recursive: true });
+    const file = join(this.#configDir, "preferences.json");
+    writeFileSync(`${file}.tmp`, JSON.stringify(this.#prefs, null, 2));
+    renameSync(`${file}.tmp`, file);
+    const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
+    this.#cancelJobsOf(undefined, (j) => decided.has(j.info.kind));
+    for (const p of this.#projects.values()) {
+      this.#emit(p, { kind: "preference", id, value });
+      this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
+    }
+  }
+
+  /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */
+  async setSecret(id: string, value: string | null): Promise<void> {
+    if (!this.registry.secrets.has(id)) throw new Error(`no secret "${id}"`);
+    await this.#secrets.set(id, value);
+    if (value !== null) return;
+    for (const def of this.registry.preferences.values()) {
+      if (def.options.find((o) => o.id === this.#pref(def.id))?.secret === id) await this.setPreference(def.id, def.default);
+    }
+  }
+
   async resources(): Promise<ResourceInfo[]> {
     return [...this.registry.resources.values()].map((def) => this.#resourceInfo(def));
   }
@@ -1238,7 +1331,7 @@ export class LocalCore implements BeaconCore {
   #resumeWaiting(resource: string) {
     for (const p of this.#projects.values()) {
       for (const def of this.registry.jobAnalyzers.values()) {
-        if (def.needs !== resource || (def.when ?? "import") !== "import") continue;
+        if (this.#needsOf(def) !== resource || (def.when ?? "import") !== "import") continue;
         for (const a of Object.values(p.store.doc.assets)) if (def.applies(a) && !p.data.has(a, def.id) && existsSync(a.path)) this.#analyze(p.path, def.id, a.id);
       }
     }

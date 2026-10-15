@@ -146,22 +146,65 @@ export interface ResourceDef {
   file: string;
 }
 
+/**
+ * An app-wide choice a feature offers (which transcriber): one of `options`, kept by core across projects
+ * and launches, shown in Settings and set by agents (`setPreference`); analyzers read it.
+ */
+export interface PreferenceDef {
+  id: string;
+  /** "Transcriber". */
+  title: string;
+  description: string;
+  options: {
+    id: string;
+    title: string;
+    /** What choosing it means, for Settings and agents: "No download; weaker on technical words". */
+    description: string;
+    /** A secret it can't work without (an API key): until it is set, the option can't be chosen. */
+    secret?: string;
+  }[];
+  default: string;
+}
+
+/** A credential an analyzer needs (an API key): kept in the macOS Keychain, never in a file; set by the user. */
+export interface SecretDef {
+  id: string;
+  /** "OpenAI API key". */
+  title: string;
+}
+
+/** The current value of each preference, by id. */
+export type Preferences = (id: string) => string;
+
 export interface JobAnalyzerDef {
   id: string;
   description: string;
   /** Bump to rebuild cached results. */
   version: number;
-  /** A resource it can't run without: until it is downloaded, the analyzer waits instead of starting. */
-  needs?: string;
+  /**
+   * A resource it can't run without: until it is downloaded, the analyzer waits instead of starting. A
+   * function when that depends on preferences (only local Whisper needs the speech model).
+   */
+  needs?: string | ((pref: Preferences) => string | undefined);
+  /**
+   * What else a result depends on (the transcriber): results are cached per variant, so changing it reads,
+   * or makes, another; undefined is the plain cache entry.
+   */
+  variant?: (pref: Preferences) => string | undefined;
   /** Assets it applies to; the job is started for these on import, or when shown (`when`). */
   applies: (asset: Asset) => boolean;
   /** "import" (default): on import, for agents too; "preview": when the app shows the project (e.g. proxies). */
   when?: "import" | "preview";
   /**
    * `cacheDir`: where derived files (e.g. proxies) may be written; `quiet`: run tools at background
-   * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is.
+   * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is;
+   * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set.
    */
-  analyze: (asset: Asset, progress: (fraction: number) => void, env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string }) => Promise<unknown>;
+  analyze: (
+    asset: Asset,
+    progress: (fraction: number) => void,
+    env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string; pref: Preferences; secret: (id: string) => Promise<string | undefined> },
+  ) => Promise<unknown>;
   /** Removes files a result points at (e.g. proxies) when the result is deleted. */
   discard?: (result: unknown) => void;
   /**
@@ -350,6 +393,8 @@ export interface Feature {
   analyzers?: AnalyzerDef[];
   jobAnalyzers?: JobAnalyzerDef[];
   resources?: ResourceDef[];
+  preferences?: PreferenceDef[];
+  secrets?: SecretDef[];
   importers?: MediaImporterDef[];
   evaluate?: EvaluateHook;
   camtasia?: CamtasiaMapper;

@@ -430,7 +430,7 @@ async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recordPrefs();
   const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
-  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources() });
+  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources(), preferences: await core.preferences() });
 }
 
 /** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
@@ -840,6 +840,14 @@ function sendWaveforms() {
   if (Object.keys(waveforms).length) send().media({ waveforms });
 }
 
+/** As `reply`, with what `fn` returned. */
+const replyWith = async <T,>(fn: () => Promise<T>): Promise<{ ok: boolean; error?: string; result?: T }> => {
+  try {
+    return { ok: true, result: await fn() };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+};
 const reply = async (fn: () => Promise<unknown>) => {
   try {
     await fn();
@@ -945,6 +953,8 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       },
+      setPreference: ({ id, value }) => replyWith(async () => (await core.setPreference(id, value), core.preferences())),
+      setSecret: ({ id, value }) => replyWith(async () => (await core.setSecret(id, value), core.preferences())),
       declineResource: ({ id }) => setAppSettings({ ...appSettings, declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
       cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
       previewOpen: ({ asset }) => {
