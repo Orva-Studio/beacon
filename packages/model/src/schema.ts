@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 export const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -68,7 +68,10 @@ export const TrackSchema = z.strictObject({
 export const AssetSchema = z.strictObject({
   id: IdSchema,
   kind: z.enum(["recording", "video", "image", "audio"]),
-  /** Absolute: paths reach ffmpeg, so relative paths and URLs are refused. */
+  /**
+   * Absolute: paths reach ffmpeg, so relative paths and URLs are refused. On disk, files inside the
+   * project folder are stored relative to it (schema 2), and resolved again when it is read.
+   */
   path: z.string().startsWith("/", "must be an absolute file path"),
   /** Content fingerprint for relinking moved files. */
   fingerprint: z.string(),
@@ -98,6 +101,8 @@ export const SettingsSchema = z.strictObject({
   background: z.string(),
   /** Integrated loudness (LUFS) that clips with `audio.normalize` are levelled to. */
   loudnessTarget: z.number().optional(),
+  /** Standalone: imports are copied into the project's `media` folder, so the project carries all its media. */
+  standalone: z.boolean().optional(),
 });
 
 export const ProjectSchema = z.strictObject({

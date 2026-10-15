@@ -222,7 +222,11 @@ export class LocalCore implements BeaconCore {
   async open(path: string): Promise<ProjectHandle> {
     const dir = resolve(path);
     if (this.#projects.has(dir)) return dir;
-    return this.#attach(dir, readProject(dir, this.registry));
+    const { doc, stale } = readProject(dir, this.registry);
+    const h = this.#attach(dir, doc);
+    // Locked first: another process may hold it, and must not have it rewritten under it.
+    if (stale) writeProject(dir, doc);
+    return h;
   }
 
   async create(opts: NewProjectOptions): Promise<ProjectHandle> {
@@ -281,7 +285,7 @@ export class LocalCore implements BeaconCore {
 
   /**
    * Renames the project's folder to `name`.beproj beside it, closing it first (its undo history ends there);
-   * media kept inside it (snapshots) follow. Returns the new path, for `open`.
+   * media kept inside it (recordings, snapshots) follow. Returns the new path, for `open`.
    */
   async rename(h: ProjectHandle, name: string): Promise<string> {
     const p = this.#get(h);
@@ -291,12 +295,9 @@ export class LocalCore implements BeaconCore {
     if (to === p.path) return to;
     // A change of case only is the same folder on macOS's disks.
     if (existsSync(to) && to.toLowerCase() !== p.path.toLowerCase()) throw new Error(`${basename(to)} already exists`);
+    // Media inside it is stored relative to it, so it follows.
     await this.close(h);
     renameSync(p.path, to);
-    const doc = readProject(to, this.registry);
-    const inside = Object.values(doc.assets).filter((a) => a.path.startsWith(p.path + sep));
-    for (const a of inside) a.path = to + a.path.slice(p.path.length);
-    if (inside.length) writeProject(to, doc);
     return to;
   }
 
