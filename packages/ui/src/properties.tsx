@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
 import { clipSpeed, rationalToNumber, ticksToSeconds } from "@beacon/model";
 import type { Host } from "./app";
@@ -39,6 +39,7 @@ const TRAIT_TABS: [trait: string, tab: Tab][] = [
   ["visual", { id: "transform", title: "Visual Properties", icon: "film-strip" }],
   ["callout", { id: "callout", title: "Annotation Properties", icon: "chat-centered-text" }],
   ["region", { id: "region", title: "Annotation Properties", icon: "chat-centered-text" }],
+  ["caption", { id: "caption", title: "Caption Properties", icon: "closed-captioning" }],
   ["cursor", { id: "cursor", title: "Cursor Properties", icon: "pointer" }],
   ["audio", { id: "audio", title: "Audio Properties", icon: "speaker-high" }],
 ];
@@ -92,6 +93,7 @@ function ClipProperties({
       {tab?.id === "cursor" && <Cursor value={value} clip={clip} edit={edit} />}
       {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
+      {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider
@@ -295,6 +297,94 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
           <Slider unit="" label="Corners" value={c.cornerRadius} max={200} onChange={(v, key) => edit("callout", { cornerRadius: Math.max(0, v) }, "Corner Radius", key)} />
         </Section>
       )}
+    </>
+  );
+}
+
+type CaptionStyle = { font: string; weight: number; size: number; color: RGBA; background: RGBA; cornerRadius: number; position: "bottom" | "middle" | "top"; margin: number; highlight: RGBA; maxWidth: number; uppercase: boolean };
+
+/** The caption's words, then how every caption looks: one style for all of them (`captions.style`). */
+function CaptionProps({ clip, host }: { clip: Clip; host: Host }) {
+  const installed = useQuery<string[]>(host, "callout.fonts");
+  const [draft, setDraft] = useState<string>();
+  const style = clip.props.captionStyle as CaptionStyle | undefined;
+  if (!style) return null;
+  const from = ticksToSeconds(clip.mediaStart ?? 0);
+  const to = from + ticksToSeconds(clip.duration);
+  const words = ((clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []).filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+  const text = words.map((w) => w.text).join(" ");
+  // Typed into a draft and set on leaving the field or Return: the words are re-timed from the whole text.
+  const commit = () => {
+    if (draft !== undefined && draft.trim() && draft !== text) host.run("caption.setText", { clip: clip.id, text: draft }, "Edit Caption");
+    setDraft(undefined);
+  };
+  const set = (fields: Partial<CaptionStyle>, label: string, key?: string) => host.run("captions.style", { style: fields }, label, key);
+  return (
+    <>
+      <Section>
+        <TextArea
+          className="h-16 w-full"
+          value={draft ?? text}
+          title="What this caption says: Return or leaving the field sets it"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              commit();
+            }
+            if (e.key === "Escape") setDraft(undefined);
+          }}
+        />
+      </Section>
+      <Section>
+        <div className="mb-3 text-label text-text-faint">Every caption</div>
+        <Row label="Font">
+          <Select value={style.font} onChange={(e) => set({ font: e.target.value }, "Caption Font")}>
+            {[...new Set([style.font, ...FONTS])].map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+            {installed && (
+              <optgroup label="All fonts">
+                {installed.filter((f) => f !== style.font && !FONTS.includes(f)).map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </optgroup>
+            )}
+          </Select>
+        </Row>
+        <Row label="Weight">
+          <Select value={style.weight} onChange={(e) => set({ weight: Number(e.target.value) }, "Caption Font")}>
+            {(WEIGHTS.some(([w]) => w === style.weight) ? WEIGHTS : [...WEIGHTS, [style.weight, String(style.weight)] as [number, string]]).map(([w, name]) => (
+              <option key={w} value={w}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
+        <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
+        <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
+        <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
+        <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
+        <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
+        <div className="mt-3 ml-[92px]">
+          <Check label="All capitals" checked={style.uppercase} onChange={(uppercase) => set({ uppercase }, "Caption Capitals")} />
+        </div>
+      </Section>
+      <Section>
+        <Row label="Position">
+          <div className="flex gap-1">
+            {(["top", "middle", "bottom"] as const).map((p) => (
+              <Button key={p} look={style.position === p ? "solid" : "quiet"} onClick={() => set({ position: p }, "Caption Position")}>
+                {p[0]!.toUpperCase() + p.slice(1)}
+              </Button>
+            ))}
+          </div>
+        </Row>
+        <Slider unit="" label="Margin" value={style.margin} max={400} onChange={(v, key) => set({ margin: Math.max(0, v) }, "Caption Margin", key)} />
+        <Slider unit="%" label="Width" value={style.maxWidth * 100} min={20} max={100} onChange={(v, key) => set({ maxWidth: Math.min(1, Math.max(0.2, v / 100)) }, "Caption Width", key)} />
+      </Section>
     </>
   );
 }

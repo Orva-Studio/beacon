@@ -1340,3 +1340,38 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   expect(length()).toBeCloseTo(before, 3);
   await run("panel.show", { tool: null });
 }, 150_000);
+
+test.skipIf(skip)("Captions makes caption clips from the transcript and shows the first; its text is edited in place and a style change restyles every caption, each one undo step", async () => {
+  await select([]);
+  await run("panel.show", { tool: "ai" });
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  await page.until("!!document.querySelector('[data-ai=captions]')");
+  const captions = () => clips().filter((c) => c.type === "caption");
+  const undo = async () => (await ui.core.history(ui.handle)).undo.length;
+  const steps = await undo();
+  await page.evaluate("document.querySelector('[data-ai=captions]').click()");
+  await arrived(() => captions().length > 0);
+  expect(captions().length).toBeGreaterThan(10);
+  expect(ui.core.doc(ui.handle).tracks.at(-1)!.name).toBe("Captions");
+  expect(await undo()).toBe(steps + 1);
+  const first = captions()[0]!;
+  expect((await session()).selection).toEqual([first.id]);
+  await page.until("!!document.querySelector('textarea')");
+  // Retyped and confirmed with Return: the caption says it, with its words' times kept when the count is the same.
+  const before = (first.props.caption as { words: { text: string; start: number }[] }).words;
+  await page.evaluate("document.querySelector('textarea').focus()");
+  await type(before.map((w, i) => (i === 0 ? "Fixed" : w.text)).join(" "));
+  await page.key("Enter", "Enter");
+  await arrived(() => (clip(first.id).props.caption as { words: { text: string }[] }).words[0]!.text === "Fixed");
+  const after = (clip(first.id).props.caption as { words: { text: string; start: number }[] }).words;
+  expect(after.map((w) => w.start)).toEqual(before.map((w) => w.start));
+  // Top restyles all of them in one step.
+  const edits = await undo();
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Top').click()");
+  await arrived(() => captions().every((c) => (c.props.captionStyle as { position: string }).position === "top"));
+  expect(captions().every((c) => (c.props.captionStyle as { position: string }).position === "top")).toBe(true);
+  expect(await undo()).toBe(edits + 1);
+  for (let n = (await undo()) - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(captions().length).toBe(0);
+  await run("panel.show", { tool: null });
+}, 150_000);

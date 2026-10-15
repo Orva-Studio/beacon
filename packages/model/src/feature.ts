@@ -318,6 +318,16 @@ export interface QueryDef<A = any> {
   summary?: boolean;
 }
 
+/** A file written beside an export (captions as `.srt`), from what the exported range shows. */
+export interface ExportFileDef {
+  id: string;
+  /** With the dot: ".srt". */
+  extension: string;
+  description: string;
+  /** The file's contents for timeline seconds [from, to), times counted from `from`; undefined writes none. */
+  write: (range: { from: number; to: number }, ctx: QueryContext) => string | undefined;
+}
+
 export interface ActionStep {
   command: string;
   args?: unknown;
@@ -401,6 +411,7 @@ export interface Feature {
   commands?: CommandDef[];
   queries?: QueryDef[];
   actions?: ActionDef[];
+  exportFiles?: ExportFileDef[];
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
   keymap?: KeyBinding[];

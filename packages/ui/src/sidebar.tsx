@@ -115,6 +115,17 @@ function AiPanel({ host }: { host: Host }) {
         <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={review} data-ai="silences">
           Remove Silences
         </ItemTile>
+        <ItemTile
+          art="captions"
+          title="Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it"
+          onClick={() => {
+            host.run("captions.add", {});
+            host.run("panel.show", { properties: true });
+          }}
+          data-ai="captions"
+        >
+          Captions
+        </ItemTile>
       </div>
     </Panel>
   );

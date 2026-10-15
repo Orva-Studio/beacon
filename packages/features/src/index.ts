@@ -1,6 +1,7 @@
 import { FeatureRegistry, type Feature } from "@beacon/model";
 import { border } from "./border";
 import { callouts } from "./callouts";
+import { captions } from "./captions";
 import { cursor } from "./cursor";
 import { groups } from "./groups";
 import { regions } from "./regions";
@@ -26,13 +27,14 @@ export * from "./transcript";
 export * from "./volume";
 export * from "./groups";
 export * from "./stitching";
+export * from "./captions";
 
 /**
  * Every feature, in evaluation order: clip content and cursor are drawn in
  * content space, `transform` maps them to the canvas, then effects.
  * Editing-only features come last.
  */
-export const FEATURES: Feature[] = [media, callouts, regions, groups, stitching, cursor, transform, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, zoom, transcript];
+export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, transform, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, zoom, transcript];
 
 export function createRegistry(): FeatureRegistry {
   return new FeatureRegistry(FEATURES);

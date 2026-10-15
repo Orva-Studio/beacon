@@ -95,7 +95,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
 
 /** Clips are coloured by kind; selection adds an accent border, and brightens audio. */
 const CLIP = { text: () => color("text-bright"), wave: () => color("wave"), badge: () => color("clip-badge") };
-const KIND: Record<string, string> = { screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation" };
+const KIND: Record<string, string> = { screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation", caption: "clip-annotation" };
 
 /**
  * A clip's colour token: a recording's camera blue, other visual media (screen recordings, imported video
@@ -185,6 +185,12 @@ function clipLabel(project: Project, clip: Clip, nested: Record<string, string>,
   const callout = clip.props.callout as { shape?: string; text?: { text?: string } } | undefined;
   if (callout?.shape === "text") return callout.text?.text?.split("\n")[0]?.trim() || "Text";
   if (callout?.shape) return callout.shape === "rectangle" ? "Shape" : callout.shape[0]!.toUpperCase() + callout.shape.slice(1);
+  const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
+  if (caption) {
+    const from = ticksToSeconds(clip.mediaStart ?? 0);
+    const to = from + ticksToSeconds(clip.duration);
+    return caption.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to).map((w) => w.text).join(" ") || "Caption";
+  }
   const region = (clip.props.region as { kind?: string } | undefined)?.kind;
   if (region) return region[0]!.toUpperCase() + region.slice(1);
   return clip.type;

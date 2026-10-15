@@ -1296,6 +1296,24 @@ caches). Apple's transcriber is `beacon-speech`, a Swift tool built with
 Beacon's tools, so CI moved to macOS 26. Word timings were checked on the
 fixtures (`docs/transcription-spike.md`): the API is close to local Whisper,
 Apple's are looser, and Remove Silences is identical with all three.
+The start screen shows each recent project's frame as it was last left.
+**Captions** are built (`packages/features/src/captions`): `captions.create`
+makes caption clips (up to 3 words by default, a new one at sentence ends and
+pauses) on a Captions track from the timeline's transcript; each holds its
+words in its own media time, so ripple cuts and trims keep them in step. One
+style for all (`captions.style`: font, size, colours, box, position, margin,
+width, capitals, the spoken word's highlight), set from the Caption tab;
+`caption.setText` corrects a caption's words. Drawn by the feature, in canvas
+pixels (not a visual clip: no transform or effects); burned into exports, and
+the contract gained `exportFiles` so an `.srt` is written beside the video
+(`captions.srt` for agents). The AI panel's Captions tile runs `captions.add`.
+**Remove Filler Words, first check** (2026-10-15): priming local Whisper with a
+filler-laden prompt is not reliable. Two prompts found different fillers (5
+and 8 on four fixtures, vs 2 without), one with a 50 ms "um" squeezed against
+the next word, and on near-silence Whisper wrote the prompt itself ("Uh, and
+then, er, hmm, okay"); Apple's transcriber kept none. The fixtures may simply
+have few fillers. Next: a take with known fillers, then either the prompt or
+finding fillers from the audio (speech no word accounts for).
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
 camera clip with a rounded border looks the same in preview and export; and
@@ -1435,6 +1453,30 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### AI B-roll and camera angles (the user, 2026-10-15; Phase 10 or later)
+Generated video, through the user's own API keys, as jobs that make media
+assets reviewed before they are placed (as Remove Silences is). Researched
+2026-10-15:
+- **B-roll from the transcript** (low risk, first): an LLM picks 2-6 s
+  cutaways from the word-timed transcript and writes shot prompts with one
+  style sheet; text-to-video with audio off (Veo 3.1 Fast/Lite, Kling 3.0,
+  FLUX 3 Video's draft mode; about $0.05-0.17/s), placed on a B-roll track
+  over the word range. Good for generic shots; weak on real UIs, logos, text.
+- **A new camera angle of the presenter**: (1) no generation first: a
+  punch-in crop of the 4K source and a small depth-parallax move (±5°), in
+  Beacon's renderer; (2) video-to-video re-angling in 3-10 s pieces with
+  Seedance 2.5's reference-to-video (the clip and its audio as references;
+  best in independent tests, $0.30-0.70/s, 720p-1080p, re-rolls expected) or
+  Runway Aleph 2.0; (3) experimental: turn one frame with an image model
+  (FLUX 3 Image, Qwen-Image-Edit multiple-angles), animate it from the
+  original's motion, then lip-sync to the original audio (sync.so sync-3).
+  No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
+  lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
+- Shape: a generation job per provider (fal and Runway cover many models with
+  one key), results as candidates with their prompt, model and cost, a cost
+  estimate before running, then one undoable command to place a take; the
+  original audio kept. MCP tools follow the same suggest/generate/apply path.
 
 ### Background audio cleaning (tuneup / Auphonic)
 Clean each source recording's audio in the background while editing and swap

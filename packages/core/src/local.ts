@@ -906,6 +906,15 @@ export class LocalCore implements BeaconCore {
     if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
+    // Beside a video, files features write from the same range (captions as .srt), named after it.
+    const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)) };
+    const sides = opts.output.endsWith("/")
+      ? []
+      : [...this.registry.exportFiles.values()].flatMap((f) => {
+          const text = f.write(range, { project, registry: this.registry, data: data.get });
+          return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
+        });
+    for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
     return this.#startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
@@ -917,7 +926,8 @@ export class LocalCore implements BeaconCore {
         data: data.get,
         onProgress: (f, total) => progress(f / total),
       });
-      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)) };
+      for (const f of sides) writeFileSync(f.path, f.text);
+      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)), ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };
     });
   }
 
