@@ -100,7 +100,7 @@ fn run(raw: &mut bool) -> Result<u64, String> {
         }
     }
     if let Some(encoder) = encoder {
-        encoder.finish().map_err(|e| e.to_string())?;
+        encoder.finish(&renderer).map_err(|e| e.to_string())?;
     }
     if std::env::var_os("BEACON_PROFILE").is_some() {
         eprintln!("profile: {:?}", renderer.profile);

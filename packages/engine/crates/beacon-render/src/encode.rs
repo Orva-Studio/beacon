@@ -1,6 +1,7 @@
 //! Export's frames straight from the GPU to VideoToolbox: the canvas is converted to BT.709 NV12 on the GPU, in
 //! pixel buffers from AVAssetWriter's own pool, and appended. No readback, no CPU colour conversion, no pipe.
 
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::{Arc, mpsc};
@@ -42,6 +43,9 @@ unsafe extern "C" {
 /// '420v': 8-bit 4:2:0, video range.
 const NV12: i64 = 0x3432_3076;
 
+/// Frames converted and submitted but not yet appended: the GPU works on these while the next is drawn.
+const IN_FLIGHT: usize = 3;
+
 /// A pixel buffer from the pool, released when the GPU and this code are both done with it.
 struct Buffer(*mut c_void);
 
@@ -69,12 +73,12 @@ pub struct Encoder {
     input: Retained<AVAssetWriterInput>,
     adaptor: Retained<AVAssetWriterInputPixelBufferAdaptor>,
     cache: TextureCache,
-    bgl: wgpu::BindGroupLayout,
+    bind: wgpu::BindGroup,
     luma: wgpu::RenderPipeline,
     chroma: wgpu::RenderPipeline,
-    sampler: wgpu::Sampler,
     job: Encode,
     frames: i64,
+    pending: VecDeque<(wgpu::SubmissionIndex, Arc<Buffer>, CMTime)>,
 }
 
 impl Encoder {
@@ -153,7 +157,20 @@ impl Encoder {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
-        Ok(Self { writer, input, adaptor, cache, bgl, luma, chroma, sampler, job: job.clone(), frames: 0 })
+        let canvas = renderer.output();
+        let u = [canvas.width() as f32, canvas.height() as f32, canvas.width() as f32 / job.width as f32, canvas.height() as f32 / job.height as f32];
+        let buf = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&u), usage: wgpu::BufferUsages::UNIFORM });
+        let view = canvas.create_view(&Default::default());
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("nv12"),
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+            ],
+        });
+        Ok(Self { writer, input, adaptor, cache, bind, luma, chroma, job: job.clone(), frames: 0, pending: VecDeque::new() })
     }
 
     /// AVAssetWriter's output settings: codec, size, data rate, keyframes, profile, and BT.709 colour.
@@ -202,15 +219,9 @@ impl Encoder {
         Error::Output(format!("{}: {}", self.job.path, unsafe { self.writer.error() }.map(|e| e.localizedDescription().to_string()).unwrap_or_else(|| "the encoder stopped".into())))
     }
 
-    /// Converts the canvas `renderer` last drew (with `enc`, not yet submitted) and appends it as the next frame.
+    /// Converts the canvas `renderer` last drew (with `enc`, not yet submitted) and queues it as the next frame;
+    /// it is appended once the GPU has written it, up to `IN_FLIGHT` frames later.
     pub fn frame(&mut self, renderer: &Renderer, mut enc: wgpu::CommandEncoder) -> Result<()> {
-        // VideoToolbox takes frames as fast as it encodes them; wait for room rather than drop one.
-        while !unsafe { self.input.isReadyForMoreMediaData() } {
-            if unsafe { self.writer.status() } == AVAssetWriterStatus::Failed {
-                return Err(self.failed());
-            }
-            std::thread::sleep(Duration::from_micros(500));
-        }
         let pool: Retained<CVPixelBufferPool> = unsafe { self.adaptor.pixelBufferPool() }.ok_or_else(|| self.failed())?;
         let mut raw: *mut CVPixelBuffer = std::ptr::null_mut();
         if unsafe { CVPixelBufferPool::create_pixel_buffer(None, &pool, NonNull::from(&mut raw)) } != 0 || raw.is_null() {
@@ -223,22 +234,7 @@ impl Encoder {
                 CVBufferSetAttachment(buffer.0, k, v, 1);
             }
         }
-        let device = renderer.device();
-        let (y, uv) = unsafe { self.cache.targets(device, buffer.0, buffer.clone()) }.ok_or_else(|| Error::Output("CoreVideo couldn't make textures of the encoder's frame".into()))?;
-
-        let canvas = renderer.output();
-        let u = [canvas.width() as f32, canvas.height() as f32, canvas.width() as f32 / self.job.width as f32, canvas.height() as f32 / self.job.height as f32];
-        let buf = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&u), usage: wgpu::BufferUsages::UNIFORM });
-        let view = canvas.create_view(&Default::default());
-        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("nv12"),
-            layout: &self.bgl,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-            ],
-        });
+        let (y, uv) = unsafe { self.cache.targets(renderer.device(), buffer.0, buffer.clone()) }.ok_or_else(|| Error::Output("CoreVideo couldn't make textures of the encoder's frame".into()))?;
         for (target, pipe) in [(&y, &self.luma), (&uv, &self.chroma)] {
             let target = target.create_view(&Default::default());
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -252,23 +248,42 @@ impl Encoder {
                 ..Default::default()
             });
             rp.set_pipeline(pipe);
-            rp.set_bind_group(0, Some(&bg), &[]);
+            rp.set_bind_group(0, Some(&self.bind), &[]);
             rp.draw(0..3, 0..1);
         }
         let submitted = renderer.queue().submit([enc.finish()]);
-        // The encoder reads the IOSurface itself, so the GPU must have written it first.
-        device.poll(wgpu::PollType::Wait { submission_index: Some(submitted), timeout: None }).map_err(|e| Error::Gpu(e.to_string()))?;
-        renderer.check_gpu()?;
         let time = unsafe { CMTime::new(self.frames * self.job.fps.den as i64, self.job.fps.num as i32) };
-        if !unsafe { self.adaptor.appendPixelBuffer_withPresentationTime(&*raw, time) } {
+        self.pending.push_back((submitted, buffer, time));
+        self.frames += 1;
+        while self.pending.len() > IN_FLIGHT {
+            self.append_oldest(renderer)?;
+        }
+        Ok(())
+    }
+
+    /// Appends the oldest queued frame once the GPU has written it (the encoder reads the IOSurface itself).
+    fn append_oldest(&mut self, renderer: &Renderer) -> Result<()> {
+        let Some((submitted, buffer, time)) = self.pending.pop_front() else { return Ok(()) };
+        renderer.device().poll(wgpu::PollType::Wait { submission_index: Some(submitted), timeout: None }).map_err(|e| Error::Gpu(e.to_string()))?;
+        renderer.check_gpu()?;
+        // VideoToolbox takes frames as fast as it encodes them; wait for room rather than drop one.
+        while !unsafe { self.input.isReadyForMoreMediaData() } {
+            if unsafe { self.writer.status() } == AVAssetWriterStatus::Failed {
+                return Err(self.failed());
+            }
+            std::thread::sleep(Duration::from_micros(500));
+        }
+        if !unsafe { self.adaptor.appendPixelBuffer_withPresentationTime(&*buffer.0.cast::<CVPixelBuffer>(), time) } {
             return Err(self.failed());
         }
-        self.frames += 1;
         Ok(())
     }
 
     /// Finishes the file: the last frame lasts one frame.
-    pub fn finish(self) -> Result<()> {
+    pub fn finish(mut self, renderer: &Renderer) -> Result<()> {
+        while !self.pending.is_empty() {
+            self.append_oldest(renderer)?;
+        }
         unsafe { self.input.markAsFinished() };
         unsafe { self.writer.endSessionAtSourceTime(CMTime::new(self.frames * self.job.fps.den as i64, self.job.fps.num as i32)) };
         let (tx, rx) = mpsc::channel();
