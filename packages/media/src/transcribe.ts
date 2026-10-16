@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { roundSeconds } from "@beacon/model";
-import { runTool, tool } from "./tool";
+import { jobSignal, runTool, tool } from "./tool";
 
 export interface Word {
   text: string;
@@ -276,6 +276,8 @@ async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: Tr
   const chunks = chunksOf(speech, pcm.length / RATE);
   const results: Word[][] = [];
   let done = 0;
+  // Cancelled (the job, its project closed), nothing more is uploaded: each chunk is charged to the user's account.
+  const signal = jobSignal();
   const one = async ([a, b]: [number, number]): Promise<Word[]> => {
     const form = new FormData();
     form.append("model", "whisper-1");
@@ -286,7 +288,8 @@ async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: Tr
     form.append("file", new Blob([wavFile(pcm.subarray(Math.floor(a * RATE), Math.ceil(b * RATE)))], { type: "audio/wav" }), "audio.wav");
     let res: Response | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
-      res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${opts.apiKey}` }, body: form });
+      signal?.throwIfAborted();
+      res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${opts.apiKey}` }, body: form, ...(signal ? { signal } : {}) });
       if (res.status !== 429 && res.status < 500) break;
       await Bun.sleep(1000 * 2 ** attempt);
     }
@@ -307,11 +310,13 @@ async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: Tr
   await Promise.all(
     Array.from({ length: Math.min(API_PARALLEL, chunks.length) }, async () => {
       while (next < chunks.length) {
+        signal?.throwIfAborted();
         const i = next++;
         results[i] = await one(chunks[i]!);
       }
     }),
   );
+  signal?.throwIfAborted();
   return { words: results.flat(), model: "openai-whisper-1" };
 }
 

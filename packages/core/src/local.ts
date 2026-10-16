@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, type JobProcesses, type MediaInfo, measureLoudness, measureSync, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -1189,6 +1189,7 @@ export class LocalCore implements BeaconCore {
         });
         // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
         if (def.variant?.(this.#pref) !== variant) throw new Error(`${key} was for a setting since changed`);
+        jobSignal()?.throwIfAborted();
         p.data.store(asset, def, value);
         this.#emit(p, { kind: "derived", asset: assetId, key, present: true });
         return { asset: assetId };
@@ -1200,7 +1201,7 @@ export class LocalCore implements BeaconCore {
 
   #startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
     const id = shortId("job");
-    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, ...(p ? { project: p.path } : {}), processes: { procs: new Set(), cancelled: false }, subject, started: performance.now(), done: Promise.resolve() };
+    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, ...(p ? { project: p.path } : {}), processes: { procs: new Set(), cancelled: false, abort: new AbortController() }, subject, started: performance.now(), done: Promise.resolve() };
     const report = () => {
       const e = { kind: "job" as const, job: this.#job(id) };
       if (p) this.#emit(p, e);
@@ -1242,6 +1243,7 @@ export class LocalCore implements BeaconCore {
   #cancelJob(entry: JobEntry) {
     if (entry.info.state !== "running") return;
     entry.processes.cancelled = true;
+    entry.processes.abort?.abort();
     for (const proc of entry.processes.procs) proc.kill();
   }
 
