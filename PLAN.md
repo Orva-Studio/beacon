@@ -1289,6 +1289,11 @@ Making the transcript do the editing.
   (a new project, then the Record dialog), left out for now since the Record
   button (Phase 8) is one click away. A UI-harness flow covers it.
 **Progress (2026-10-15, `phase-7`):** Border and the start screen are built.
+Border moved from an effect to a property of video and images (2026-10-16,
+the user: rectangles already have an outline, so the effect only ever went on
+camera footage): Border and Color on the Visual tab, off at 0; `border` v2
+converts Border effects. The title bar no longer says "Saved automatically";
+⌘S still shows it, green, for a moment.
 The transcriber choice is built: Settings › General › Transcripts and the
 `transcriber` preference (`preference_list`/`preference_set` for agents; the
 contract gained feature preferences, Keychain secrets and per-variant analyzer

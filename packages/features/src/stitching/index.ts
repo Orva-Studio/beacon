@@ -73,7 +73,7 @@ function stitchClips(doc: { tracks: Track[] }, ids: string[], ctx: CommandContex
 export const stitching = defineFeature({
   id: "stitching",
   version: 1,
-  clipTypes: [{ id: "stitched", description: "Pieces of one recording joined into one clip (stitched media)", traits: ["visual", "stitched"] }],
+  clipTypes: [{ id: "stitched", description: "Pieces of one recording joined into one clip (stitched media)", traits: ["visual", "picture", "stitched"] }],
   props: [
     {
       id: "stitch",

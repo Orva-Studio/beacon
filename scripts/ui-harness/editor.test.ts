@@ -1042,11 +1042,12 @@ test.skipIf(skip)("moved media shows Missing on its Media Bin tile and builds no
   await ui.core.undo(ui.handle);
 }, 30000);
 
-test.skipIf(skip)("⌘S confirms the project is saved automatically, with no dialog", async () => {
+test.skipIf(skip)("⌘S confirms the project is saved automatically for a moment, with no dialog; otherwise the title bar says nothing", async () => {
+  expect(await has("[data-saved]")).toBe(false);
   await page.key("s", "KeyS", ["meta"]);
   await page.until(`(document.querySelector('[data-saved]')?.textContent ?? '').startsWith('✓')`, 1000);
   expect(await has("[role=dialog]")).toBe(false);
-  await page.until(`!(document.querySelector('[data-saved]')?.textContent ?? '').startsWith('✓')`, 3000);
+  await page.until(`!document.querySelector('[data-saved]')`, 3000);
 });
 
 test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock toggle the track", async () => {
@@ -1375,3 +1376,24 @@ test.skipIf(skip)("Captions makes caption clips from the transcript and shows th
   expect(captions().length).toBe(0);
   await run("panel.show", { tool: null });
 }, 150_000);
+
+test.skipIf(skip)("Border is a property of video and images on the Visual tab, not an effect tile; annotations don't have it", async () => {
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until("document.querySelectorAll('[data-art]').length > 0");
+  expect(await has("[data-art=border]")).toBe(false);
+  const label = `[...document.querySelectorAll('span')].some((s) => s.textContent === 'Border')`;
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await page.until(label);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("clip.set", { clips: [screen.id], props: { border: { thickness: 12 } } });
+  expect(clip(screen.id).props.border).toEqual({ thickness: 12, color: [1, 1, 1, 1] });
+  await ui.core.undo(ui.handle);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+  await select([callout.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await Bun.sleep(300);
+  expect(await page.evaluate<boolean>(label)).toBe(false);
+  await select([]);
+  await run("panel.show", { tool: null });
+});

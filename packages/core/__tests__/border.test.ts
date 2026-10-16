@@ -35,7 +35,7 @@ test.skipIf(!existsSync(VIDEO))(
       return rgba(join(dir, name, "f000030.png"));
     };
     const plain = await render("plain");
-    await core.run(h, "effect.add", { clip, type: "border", params: { thickness: 12, color: [1, 0, 0, 1] } });
+    await core.run(h, "clip.set", { clips: [clip], props: { border: { thickness: 12, color: [1, 0, 0, 1] } } });
     const bordered = await render("bordered");
 
     const px = (img: Uint8Array, x: number, y: number) => img.subarray((y * width + x) * 4, (y * width + x) * 4 + 4);

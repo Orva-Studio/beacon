@@ -86,7 +86,7 @@ function ClipProperties({
       </div>
       {selected.length > 1 && <div className="border-b border-divider bg-panel py-2 text-center text-label text-text-faint">Editing {selected.length} clips</div>}
       {session.animation?.clip === clip.id && <AnimationSection clip={clip} id={session.animation.id} host={host} />}
-      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} />}
+      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} />}
       {tab?.id === "speed" && (
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
       )}
@@ -129,7 +129,7 @@ function ClipProperties({
   );
 }
 
-function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit }) {
+function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean }) {
   const size = contentSize(project, clip);
   const crop = (side: string) => value("crop", side);
   const sx = value("transform", "scaleX", 1);
@@ -137,6 +137,7 @@ function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; 
   const cw = size ? size[0] - crop("left") - crop("right") : undefined;
   const ch = size ? size[1] - crop("top") - crop("bottom") : undefined;
   const degrees = (value("transform", "rotation") * 180) / Math.PI;
+  const border = { thickness: 0, color: [1, 1, 1, 1] as RGBA, ...(clip.props.border as { thickness?: number; color?: RGBA } | undefined) };
   // Scale keeps the clip's aspect: the slider scales both axes.
   const setScale = (pct: number, key?: string) => edit("transform", { scaleX: pct / 100, scaleY: (pct / 100) * (sy / (sx || 1)) }, "Scale", key);
   return (
@@ -170,6 +171,12 @@ function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; 
           </div>
         </div>
       </Section>
+      {picture && (
+        <Section>
+          <Slider unit="" label="Border" title="A border just inside the edge, following Round Corners: its thickness, 0 for none" value={border.thickness} max={100} onChange={(v, key) => edit("border", { thickness: Math.max(0, v) }, "Border", key)} />
+          <ColorRow label="Color" color={border.color} onChange={(color, key) => edit("border", { color }, "Border Color", key)} />
+        </Section>
+      )}
     </>
   );
 }

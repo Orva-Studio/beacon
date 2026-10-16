@@ -1,7 +1,6 @@
 /** Display names for effects; others show their id. */
 const NAMES: Record<string, string> = {
   "round-corners": "Corner Rounding",
-  border: "Border",
   "crt-monitor": "CRT Monitor",
   "drop-shadow": "Drop Shadow",
   "motion-blur": "Motion Blur",

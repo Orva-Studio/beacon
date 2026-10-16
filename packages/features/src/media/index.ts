@@ -190,13 +190,13 @@ export const media = defineFeature({
   id: "media",
   version: 1,
   clipTypes: [
-    { id: "screen", description: "Screen recording stream of a .trec, drawn with its cursor", traits: ["visual", "media", "video", "cursor"] },
-    { id: "video", description: "A video stream (camera, mp4, mov)", traits: ["visual", "media", "video"] },
-    { id: "image", description: "A still image file", traits: ["visual", "media"] },
+    { id: "screen", description: "Screen recording stream of a .trec, drawn with its cursor", traits: ["visual", "picture", "media", "video", "cursor"] },
+    { id: "video", description: "A video stream (camera, mp4, mov)", traits: ["visual", "picture", "media", "video"] },
+    { id: "image", description: "A still image file", traits: ["visual", "picture", "media"] },
     {
       id: "still",
       description: "One frame of a video held for the clip's duration (an extended frame); mediaStart picks the frame",
-      traits: ["visual", "media", "cursor", "hold"],
+      traits: ["visual", "picture", "media", "cursor", "hold"],
     },
     { id: "audio", description: "An audio stream", traits: ["audio", "media"] },
   ],
