@@ -14,6 +14,8 @@ export interface RecordHost extends SyncCheckHost {
   startNarration(microphone: { id?: string }, hear: boolean): Promise<{ ok: boolean; error?: string }>;
   /** Ends the narration and places it on the timeline, or throws it away. */
   stopNarration(discard?: boolean): void;
+  /** The microphones and the last narration choices, for the Narration panel. */
+  narrationDevices(): Promise<RecordSheet>;
   /** Shows the sources (`recordPreviewEvent` gets their levels, `recordFrames` their frames); with none, stops. */
   recordPreview(sources: RecordSources): void;
   recordFrames(after: number): Promise<RecordFrames>;

@@ -615,7 +615,8 @@ async function startNarration({ microphone, hear }: { microphone: { id?: string 
     writeFileSync(NARRATION_FILE, JSON.stringify({ hear }));
     writeFileSync(RECORD_FILE, JSON.stringify({ ...recordPrefs(), microphone }));
   } catch {}
-  await core.recordStart(current.path, { sources: { microphone }, narrate: { hear } });
+  // The take's levels go to the window, for the Narration panel's meter.
+  await core.recordStart(current.path, { sources: { microphone }, narrate: { hear }, monitor: (e) => !("devicesChanged" in e) && previewEvent(e, send().recordPreview) });
   const span = (await core.recordStatus()).narration;
   narrating = { started: Date.now(), from: span?.from ?? 0, until: span?.until ?? 0 };
   GlobalShortcut.register(STOP_SHORTCUT, () => void stopNarration({}));
@@ -1022,6 +1023,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
+      narrationDevices: async () => ({ ...(await core.recorderDevices()), sources: recordPrefs(), hear: narrationHear() }),
       openRecord: ({ mode }) => void recordDialog(mode).catch((e: unknown) => status(e instanceof Error ? e.message : String(e))),
       startNarration: (params) => reply(() => startNarration(params)),
       stopNarration: (params) => reply(() => stopNarration(params)),

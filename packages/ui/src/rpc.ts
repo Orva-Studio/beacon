@@ -317,6 +317,8 @@ export type AppRPC = {
       startRecording: { params: { sources: RecordSources }; response: RunReply };
       /** The Record dialog (the Record button), as File › Record… opens it; `narration`, with only the microphone, as Tools › Voice Narration… does. */
       openRecord: { params: { mode?: RecordMode }; response: void };
+      /** What the Narration panel picks from: the microphones and permissions, and the last choices (`sources.microphone`, `hear`). */
+      narrationDevices: { params: {}; response: RecordSheet };
       /** Voice narration: records the microphone while the timeline plays from the playhead (or through the range). */
       startNarration: { params: { microphone: { id?: string }; hear: boolean }; response: RunReply };
       /** Ends the narration and places it, or throws it away (`discard`). */

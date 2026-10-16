@@ -62,6 +62,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     frames.at[source] = ++frames.seq;
     for (const wake of frameWaiters.splice(0)) wake();
   };
+  let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
   const opened = async () => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev });
 
   const server = Bun.serve({
@@ -180,6 +181,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
         else if (msg.type === "startNarration") (menus.push(`startNarration:${JSON.stringify({ microphone: msg.microphone, hear: msg.hear })}`), (result = { ok: true }));
         else if (msg.type === "stopNarration") (menus.push(`stopNarration${msg.discard ? ":discard" : ""}`), (result = { ok: true }));
+        // Stand-in devices: a test sets them with `narrationDevices`.
+        else if (msg.type === "narrationDevices") result = narrationDevices;
         else if (msg.type === "openRecord") menus.push(msg.mode ? `openRecord:${msg.mode}` : "openRecord");
         // No devices here: still frames and levels stand in for them.
         else if (msg.type === "recordPreview") {
@@ -244,6 +247,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,
     faults,
+    /** What the Narration panel is told the microphones and last choices are. */
+    setNarrationDevices(d: unknown) {
+      narrationDevices = d;
+    },
     /** A camera or screen frame (base64 JPEG) for the Record dialog or recording panel to pull. */
     previewFrame,
     /** A message from the main process, as the app's menus send them (`showClipSpeed`, `rename`...). */

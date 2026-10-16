@@ -1,10 +1,11 @@
 import { effectName } from "./effect-names";
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
-import type { Init } from "./rpc";
-import { Button, Icon, ItemTile, RailButton, type IconName } from "./controls";
+import type { AudioLevel, Init, RecordPreview, RecordSheet } from "./rpc";
+import { Button, Icon, ItemTile, LevelMeter, RailButton, Select, type IconName } from "./controls";
+import { previewListeners } from "./record-preview";
 import { clock, useNarrationSpan } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
@@ -106,24 +107,100 @@ export const ToolPanel = memo(function ToolPanel({
   );
 });
 
-/** Voice narration's way in, as Camtasia's tab is: what it does and plays, and the Record dialog with only the microphone. */
+/**
+ * Voice narration, as Camtasia's Narration tab has it: pick the microphone (its level shown), whether the timeline
+ * is heard, then Start: a countdown, and the timeline plays while it records. The Record dialog does the same.
+ */
 function NarrationPanel({ host }: { host: Host }) {
   const span = useNarrationSpan();
   const narrating = useView((v) => !!v.narrating);
+  const dialog = useView((v) => !!v.recordSheet);
+  const [devices, setDevices] = useState<RecordSheet>();
+  const [microphone, setMicrophone] = useState<string>();
+  const [hear, setHear] = useState(false);
+  const [level, setLevel] = useState<AudioLevel>();
+  const [counting, setCounting] = useState<number>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    void host.narrationDevices().then((d) => {
+      setDevices(d);
+      setMicrophone(d.microphones.some((m) => m.id === d.sources.microphone?.id) ? d.sources.microphone!.id : d.microphones[0]?.id);
+      setHear(!!d.hear);
+    });
+  }, []);
+  // Its level: previewed while idle; while it records, the take sends it. The Record dialog has the microphone while open.
+  const granted = devices?.permissions.microphone === "granted";
+  useEffect(() => {
+    const listen = (e: RecordPreview) => "microphone" in e && e.microphone && setLevel(e.microphone);
+    previewListeners.add(listen);
+    const preview = granted && !!microphone && !narrating && !dialog;
+    if (preview) host.recordPreview({ microphone: { id: microphone } });
+    return () => {
+      previewListeners.delete(listen);
+      setLevel(undefined);
+      if (preview) host.recordPreview({});
+    };
+  }, [granted, microphone, narrating, dialog]);
+  useEffect(() => {
+    if (counting === undefined) return;
+    if (counting > 0) {
+      const t = setTimeout(() => setCounting(counting - 1), 1000);
+      return () => clearTimeout(t);
+    }
+    void host.startNarration({ id: microphone }, hear && !span.still).then((r) => {
+      setCounting(undefined);
+      setError(r.ok ? undefined : r.error);
+    });
+  }, [counting]);
+  const start = () => {
+    setError(undefined);
+    setCounting(3);
+  };
   return (
     <Panel title="Narration">
-      <div className="flex flex-col gap-3 text-body text-text-muted" data-narration-panel>
-        <p>Record your voice while the timeline plays, talking over it. It goes on a new track where you began, in step with what played, and is transcribed.</p>
-        <p className="text-text-faint">
+      <div className="flex flex-col gap-3 text-body" data-narration-panel>
+        <Select value={microphone ?? ""} disabled={narrating || counting !== undefined} onChange={(e) => setMicrophone(e.target.value)} aria-label="Microphone">
+          {devices?.microphones.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </Select>
+        <div className="flex">
+          <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />
+        </div>
+        {devices && !granted && devices.permissions.microphone !== "not asked" && (
+          <span className="text-caption text-warning">Allow Beacon in System Settings › Privacy & Security › Microphone</span>
+        )}
+        {!span.still && (
+          <label className="flex items-center gap-2 text-text">
+            <input type="checkbox" checked={hear} disabled={narrating} onChange={(e) => setHear(e.target.checked)} data-narration-hear />
+            Hear the timeline while recording
+          </label>
+        )}
+        {hear && !span.still && <span className="text-caption text-warning">Use headphones: from speakers, the timeline records into the narration</span>}
+        {narrating ? (
+          <Button look="danger" onClick={() => host.stopNarration()} data-narration-stop-panel>
+            Stop Recording
+          </Button>
+        ) : counting !== undefined ? (
+          <Button onClick={() => setCounting(undefined)} data-narration-countdown>
+            Starting in {Math.max(counting, 1)}… (Cancel)
+          </Button>
+        ) : (
+          <Button look="primary" disabled={!microphone} onClick={start} data-narration-start>
+            Start Voice Recording
+          </Button>
+        )}
+        {error && <span className="text-caption text-danger">{error}</span>}
+        <p className="text-caption text-text-faint">
           {span.still
             ? `Nothing plays after the playhead: it records at ${clock(span.from)} until you stop.`
             : span.ranged
-              ? `Plays the range ${clock(span.from)}–${clock(span.until)}.`
-              : `Plays from the playhead (${clock(span.from)}) until you stop or the timeline ends. Set an in/out range to narrate over part of it.`}
+              ? `Plays the range ${clock(span.from)}–${clock(span.until)} while you speak.`
+              : `Plays from the playhead (${clock(span.from)}) while you speak, until you stop or the timeline ends. Set an in/out range to narrate over part of it.`}{" "}
+          It goes on a new track, in step with what played, and is transcribed.
         </p>
-        <Button look="primary" disabled={narrating} onClick={() => host.openRecord("narration")} data-narration-start>
-          Record Narration…
-        </Button>
       </div>
     </Panel>
   );

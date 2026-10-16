@@ -640,15 +640,42 @@ test.skipIf(skip)("The Record button at the top left opens the Record dialog, as
   await page.until("!document.querySelector('[data-record-button]') && !!document.querySelector('[data-narrating]')");
   ui.send("narrating", null);
   await page.until("!!document.querySelector('[data-record-button]') && !document.querySelector('[data-narrating]')");
-  // The Narration panel opens it with only the microphone, as Tools › Voice Narration… does.
-  await run("panel.show", { tool: "narration" });
-  await page.until("document.querySelector('[data-narration-panel]')?.textContent.includes('Plays from the playhead') ?? false");
-  const at = ui.menus.length;
-  await page.evaluate("document.querySelector('[data-narration-start]').click()");
-  await arrived(() => ui.menus.slice(at).includes("openRecord:narration"));
-  expect(ui.menus.slice(at)).toEqual(["openRecord:narration"]);
-  await run("panel.show", { tool: null });
 });
+
+test.skipIf(skip)("The Narration panel records a narration itself, as Camtasia's does: microphone and level, the timeline's sound off by default, a countdown, Stop", async () => {
+  ui.setNarrationDevices({
+    permissions: { screen: "granted", camera: "granted", microphone: "granted" },
+    displays: [],
+    cameras: [],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }, { id: "mic-2", name: "MacBook Pro Microphone" }],
+    outputs: [],
+    sources: { microphone: { id: "mic-2" } },
+    hear: false,
+  });
+  await run("range.clear");
+  await run("playhead.set", { time: 1 });
+  const before = ui.menus.length;
+  await run("panel.show", { tool: "narration" });
+  await page.until("document.querySelector('[data-narration-panel] select')?.value === 'mic-2'");
+  expect(await page.evaluate<boolean>("document.querySelector('[data-narration-hear]').checked")).toBe(false);
+  await page.until("document.querySelector('[data-narration-panel]').textContent.includes('from the playhead (0:01)')");
+  // Its level, previewed while idle.
+  await arrived(() => ui.menus.slice(before).includes(`recordPreview:${JSON.stringify({ microphone: { id: "mic-2" } })}`));
+  await page.until("document.querySelector('[data-narration-panel] [role=meter]')?.dataset.level === '-20'");
+  await page.evaluate("document.querySelector('[data-narration-start]').click()");
+  await page.until("/Starting in 3/.test(document.querySelector('[data-narration-countdown]')?.textContent ?? '')");
+  await page.until("!document.querySelector('[data-narration-countdown]')", 6000);
+  const asked = ui.menus.slice(before).find((m) => m.startsWith("startNarration:"))!;
+  expect(JSON.parse(asked.slice("startNarration:".length))).toEqual({ microphone: { id: "mic-2" }, hear: false });
+  ui.send("narrating", { started: Date.now(), from: 1, until: 5 });
+  await page.until("!!document.querySelector('[data-narration-stop-panel]')");
+  const at = ui.menus.length;
+  await page.evaluate("document.querySelector('[data-narration-stop-panel]').click()");
+  await arrived(() => ui.menus.slice(at).includes("stopNarration"));
+  ui.send("narrating", null);
+  await page.until("!!document.querySelector('[data-narration-start]')");
+  await run("panel.show", { tool: null });
+}, 30000);
 
 test.skipIf(skip)("The microphone alone is voice narration: it plays the timeline from the playhead or through the range, its sound off by default; Stop and Discard end it", async () => {
   const devices = {

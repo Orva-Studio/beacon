@@ -102,6 +102,7 @@ const host: Host = {
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),
+  narrationDevices: () => request.narrationDevices({}),
   openRecord: (mode) => void request.openRecord(mode ? { mode } : {}),
   startNarration: (microphone, hear) => request.startNarration({ microphone, hear }),
   stopNarration: (discard) => void report(request.stopNarration(discard ? { discard } : {})),
