@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { apply, type Affine, type Clip } from "@beacon/model";
+import { apply, type Affine } from "@beacon/model";
 import type { CanvasMark } from "./canvas";
 import { rgba } from "./theme";
 
-/** A line of a callout's text as the renderer lays it out (box units, y down): the `callout.textLayout` query. */
-interface TextLine {
+/** A line of text as the renderer lays it out (box units, y down): the `callout.textLayout` and `captions.layout` queries. */
+export interface TextLine {
   start: number;
   end: number;
   top: number;
@@ -12,11 +12,19 @@ interface TextLine {
   carets: number[];
 }
 
-type Text = { text: string } & Record<string, unknown>;
-
-export interface TextEditHost {
-  run(command: string, args?: unknown, label?: string, coalesce?: string): void;
-  query(name: string, args?: unknown): Promise<unknown>;
+/** Text typed in place: a callout's, or a caption's. */
+export interface TextTarget {
+  id: string;
+  text: string;
+  /** Changes when the layout may have: `lines` is asked again. */
+  layoutKey: string;
+  lines: () => Promise<TextLine[]>;
+  set: (text: string) => void;
+  /**
+   * The field keeps what is typed rather than showing `text` back: a caption's words lose a trailing space,
+   * which would otherwise vanish before the next word is typed.
+   */
+  draft?: boolean;
 }
 
 /** The offset nearest a point in box units. */
@@ -41,40 +49,41 @@ function wordAt(text: string, i: number): [number, number] {
  * keys (so editing, arrows and the clipboard are the system's), clicks and drags in the box place the caret or
  * select, and the caret and selection are drawn as marks over the rendered text, laid out by the renderer itself.
  */
-export function useTextEdit(host: TextEditHost, clip: Clip | undefined, toOverlay: Affine | undefined, onDone: () => void) {
+export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | undefined, onDone: () => void) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [lines, setLines] = useState<TextLine[]>([]);
   const [sel, setSel] = useState<[number, number]>([0, 0]);
   const [blink, setBlink] = useState(true);
   const drag = useRef<number | null>(null);
-  const c = clip?.props.callout as { text?: Text; width: number; height: number } | undefined;
-  const text = c?.text?.text ?? "";
-  const shape = c?.text && JSON.stringify({ ...c.text, width: c.width, height: c.height });
+  const [draft, setDraft] = useState<string>();
+  const text = target?.draft && draft !== undefined ? draft : (target?.text ?? "");
 
   useEffect(() => {
-    if (!clip || !shape) return;
+    if (!target) return;
     let live = true;
-    void host.query("callout.textLayout", { clip: clip.id }).then((l) => live && setLines(l as TextLine[]), () => live && setLines([]));
+    void target.lines().then((l) => live && setLines(l), () => live && setLines([]));
     return () => void (live = false);
-  }, [clip?.id, shape, host]);
+  }, [target?.id, target?.layoutKey]);
+
+  useEffect(() => setDraft(undefined), [target?.id]);
 
   useEffect(() => {
-    if (!clip) return;
+    if (!target) return;
     const f = field.current;
     f?.focus({ preventScroll: true });
     f?.select();
     if (f) setSel([0, f.value.length]);
-  }, [clip?.id]);
+  }, [target?.id]);
 
   useEffect(() => {
     setBlink(true);
-    if (!clip || sel[0] !== sel[1]) return;
+    if (!target || sel[0] !== sel[1]) return;
     const t = setInterval(() => setBlink((b) => !b), 530);
     return () => clearInterval(t);
-  }, [clip?.id, sel[0], sel[1]]);
+  }, [target?.id, sel[0], sel[1]]);
 
   const marks: CanvasMark[] = [];
-  if (clip && toOverlay && lines.length) {
+  if (target && toOverlay && lines.length) {
     const [a, b] = [Math.min(...sel), Math.max(...sel)];
     // Points per box unit along the text's vertical, for the band's width.
     const k = Math.hypot(toOverlay[2], toOverlay[3]);
@@ -99,7 +108,7 @@ export function useTextEdit(host: TextEditHost, clip: Clip | undefined, toOverla
   /** Pointer handling while editing: true when the event was the editor's. `u, v`: the point in box units, if inside the box. */
   const pointer = (type: "down" | "move" | "up", at: [number, number] | undefined, detail = 1, shift = false): boolean => {
     const f = field.current;
-    if (!clip || !f) return false;
+    if (!target || !f) return false;
     if (type === "down") {
       if (!at) return (onDone(), false);
       const i = offsetAt(lines, ...at);
@@ -125,7 +134,7 @@ export function useTextEdit(host: TextEditHost, clip: Clip | undefined, toOverla
     return true;
   };
 
-  const element = clip ? (
+  const element = target ? (
     <textarea
       ref={field}
       aria-label="Text"
@@ -133,7 +142,8 @@ export function useTextEdit(host: TextEditHost, clip: Clip | undefined, toOverla
       className="pointer-events-none absolute top-0 left-0 h-px w-px opacity-0"
       value={text}
       onChange={(e) => {
-        host.run("clip.set", { clips: [clip.id], props: { callout: { text: { ...c!.text, text: e.target.value } } } }, "Edit Text", `text-${clip.id}`);
+        if (target!.draft) setDraft(e.target.value);
+        target!.set(e.target.value);
         sync();
       }}
       onSelect={sync}

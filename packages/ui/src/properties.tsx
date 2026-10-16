@@ -93,7 +93,7 @@ function ClipProperties({
       {tab?.id === "cursor" && <Cursor value={value} clip={clip} edit={edit} />}
       {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
-      {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} host={host} />}
+      {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider
@@ -308,10 +308,34 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
   );
 }
 
-type CaptionStyle = { font: string; weight: number; size: number; color: RGBA; background: RGBA; cornerRadius: number; position: "bottom" | "middle" | "top"; margin: number; highlight: RGBA; maxWidth: number; uppercase: boolean };
+type CaptionStyle = {
+  font: string;
+  weight: number;
+  size: number;
+  color: RGBA;
+  background: RGBA;
+  cornerRadius: number;
+  anchorY: "top" | "middle" | "bottom";
+  offsetY: number;
+  anchorX: "left" | "center" | "right";
+  offsetX: number;
+  highlight: RGBA;
+  maxWidth: number;
+  uppercase: boolean;
+};
+
+/** Align to page: each button puts the captions against an edge, or in the middle, at the usual distance. */
+const ALIGN: { label: string; icon: IconName; fields: (margin: number) => Partial<CaptionStyle> }[] = [
+  { label: "Top", icon: "align-top", fields: (m) => ({ anchorY: "top", offsetY: m }) },
+  { label: "Left", icon: "align-left", fields: (m) => ({ anchorX: "left", offsetX: m }) },
+  { label: "Middle", icon: "align-center-vertical", fields: () => ({ anchorY: "middle", offsetY: 0 }) },
+  { label: "Centre", icon: "align-center-horizontal", fields: () => ({ anchorX: "center", offsetX: 0 }) },
+  { label: "Bottom", icon: "align-bottom", fields: (m) => ({ anchorY: "bottom", offsetY: m }) },
+  { label: "Right", icon: "align-right", fields: (m) => ({ anchorX: "right", offsetX: m }) },
+];
 
 /** The caption's words, then how every caption looks: one style for all of them (`captions.style`). */
-function CaptionProps({ clip, host }: { clip: Clip; host: Host }) {
+function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; host: Host }) {
   const installed = useQuery<string[]>(host, "callout.fonts");
   const [draft, setDraft] = useState<string>();
   const style = clip.props.captionStyle as CaptionStyle | undefined;
@@ -380,16 +404,21 @@ function CaptionProps({ clip, host }: { clip: Clip; host: Host }) {
         </div>
       </Section>
       <Section>
-        <Row label="Position">
-          <div className="flex gap-1">
-            {(["top", "middle", "bottom"] as const).map((p) => (
-              <Button key={p} look={style.position === p ? "solid" : "quiet"} onClick={() => set({ position: p }, "Caption Position")}>
-                {p[0]!.toUpperCase() + p.slice(1)}
+        <div className="mb-2 text-label text-text-faint">Align to page</div>
+        <div className="mb-3 grid grid-cols-2 gap-1.5" data-caption-align>
+          {ALIGN.map((a) => {
+            const fields = a.fields(Math.round((80 * project.settings.height) / 1080));
+            const on = Object.entries(fields).every(([k, v]) => style[k as keyof CaptionStyle] === v);
+            return (
+              <Button key={a.label} look={on ? "solid" : "quiet"} title={`Align the captions to the ${a.label.toLowerCase()} of the canvas`} onClick={() => set(fields, "Align Captions")}>
+                <span className="flex items-center gap-2">
+                  <Icon name={a.icon} size={16} />
+                  {a.label}
+                </span>
               </Button>
-            ))}
-          </div>
-        </Row>
-        <Slider unit="" label="Margin" value={style.margin} max={400} onChange={(v, key) => set({ margin: Math.max(0, v) }, "Caption Margin", key)} />
+            );
+          })}
+        </div>
         <Slider unit="%" label="Width" value={style.maxWidth * 100} min={20} max={100} onChange={(v, key) => set({ maxWidth: Math.min(1, Math.max(0.2, v / 100)) }, "Caption Width", key)} />
       </Section>
     </>

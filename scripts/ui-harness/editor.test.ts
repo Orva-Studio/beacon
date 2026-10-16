@@ -1369,8 +1369,8 @@ test.skipIf(skip)("Captions makes caption clips from the transcript and shows th
   // Top restyles all of them in one step.
   const edits = await undo();
   await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Top').click()");
-  await arrived(() => captions().every((c) => (c.props.captionStyle as { position: string }).position === "top"));
-  expect(captions().every((c) => (c.props.captionStyle as { position: string }).position === "top")).toBe(true);
+  await arrived(() => captions().every((c) => (c.props.captionStyle as { anchorY: string }).anchorY === "top"));
+  expect(captions().every((c) => (c.props.captionStyle as { anchorY: string }).anchorY === "top")).toBe(true);
   expect(await undo()).toBe(edits + 1);
   for (let n = (await undo()) - steps; n > 0; n--) await ui.core.undo(ui.handle);
   expect(captions().length).toBe(0);
@@ -1429,3 +1429,47 @@ test.skipIf(skip || !existsSync(MIC) || !existsSync(MODEL))("Captions asked for 
     await other.close();
   }
 }, 90_000);
+
+test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snapping to the middle), a side handle narrows its lines, and a double-click types into it", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const ids = (await run("captions.create", {})).results[0] as string[];
+  const style = () => clip(ids[0]!).props.captionStyle as { anchorY: string; offsetY: number; offsetX: number; maxWidth: number };
+  const first = clip(ids[0]!);
+  const words = () => (clip(ids[0]!).props.caption as { words: { text: string; start: number }[] }).words;
+  await run("playhead.set", { time: ticksToSeconds(first.start + first.duration / 2) });
+  await select([first.id]);
+  await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${first.id}"]')`);
+  // Captions have side handles only: no corners, no rotation.
+  expect(await has(`[data-handle="se"][data-clip="${first.id}"]`)).toBe(false);
+  expect(await has(`[data-handle="rotate"][data-clip="${first.id}"]`)).toBe(false);
+  const [ex, ey] = await centre(`[data-handle="e"][data-clip="${first.id}"]`);
+  const [wx] = await centre(`[data-handle="w"][data-clip="${first.id}"]`);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  // Up by a third of the canvas: still kept to the bottom, further in, one undo step for every caption.
+  const before = style().offsetY;
+  await page.drag([(ex + wx) / 2, ey], [(ex + wx) / 2 + 3, ey - 120]);
+  await arrived(() => style().offsetY > before + 50);
+  expect(style().anchorY).toBe("bottom");
+  // Snapped back to the centre across.
+  expect(style().offsetX).toBe(0);
+  expect(ids.every((id) => (clip(id).props.captionStyle as { offsetY: number }).offsetY === style().offsetY)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  // The right handle dragged in narrows the lines.
+  await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${first.id}"]')`);
+  const [hx, hy] = await centre(`[data-handle="e"][data-clip="${first.id}"]`);
+  await page.drag([hx, hy], [hx - 20, hy]);
+  await arrived(() => style().maxWidth < 0.8);
+  expect(style().maxWidth).toBeLessThan(0.8);
+  // Double-clicked: typed in place, the words keep their times.
+  const [cx, cy] = await page.evaluate<[number, number]>(`(() => { const g = [...document.querySelectorAll('[data-clip="${first.id}"]')].map(e => e.getBoundingClientRect()); return [(g[0].x + g[1].x) / 2 + g[0].width / 2, g[0].y + g[0].height / 2]; })()`);
+  await page.evaluate(`(() => { const el = document.elementFromPoint(${cx}, ${cy}); for (const t of ['pointerdown','mousedown']) el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: ${cx}, clientY: ${cy}, button: 0, detail: 2, pointerId: 1 })); })()`);
+  await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
+  const times = words().map((w) => w.start);
+  const typed = ["Edited", ...words().slice(1).map((w) => w.text)].join(" ");
+  await page.evaluate(`document.execCommand('insertText', false, ${JSON.stringify(typed)})`);
+  await arrived(() => words()[0]!.text === "Edited");
+  expect(words().map((w) => w.start)).toEqual(times);
+  await page.key("Escape", "Escape");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clips().filter((c) => c.type === "caption").length).toBe(0);
+});

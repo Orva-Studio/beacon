@@ -1312,6 +1312,14 @@ width, capitals, the spoken word's highlight), set from the Caption tab;
 pixels (not a visual clip: no transform or effects); burned into exports, and
 the contract gained `exportFiles` so an `.srt` is written beside the video
 (`captions.srt` for agents). The AI panel's Captions tile runs `captions.add`.
+On the canvas (2026-10-16, the user, after Canva): a caption is selected with a
+click, dragged to move every caption (snapping as clips do), narrowed or
+widened by its side handles, and typed in place after a double-click; the
+Caption tab has Align to page (top/middle/bottom, left/centre/right). Their
+place is an anchor and an offset on each axis (`captions` v2), the box from
+`captions.layout`; typed words keep their times (a word diff). Clicked before
+the transcript exists, Captions starts it, shows its progress and makes them
+when it's done; the app also starts missing transcripts when it shows a project.
 **Remove Filler Words, first check** (2026-10-15): priming local Whisper with a
 filler-laden prompt is not reliable. Two prompts found different fillers (5
 and 8 on four fixtures, vs 2 without), one with a 50 ms "um" squeezed against

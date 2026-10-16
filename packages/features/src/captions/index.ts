@@ -6,6 +6,7 @@ import {
   defineQuery,
   RgbaSchema,
   roundSeconds,
+  secondsToTicks,
   snapSeconds,
   ticksPerFrame,
   ticksToSeconds,
@@ -35,9 +36,14 @@ const styleSchema = z.strictObject({
   /** The box behind the text; transparent for none. */
   background: RgbaSchema,
   cornerRadius: z.number().nonnegative(),
-  position: z.enum(["bottom", "middle", "top"]),
-  /** Canvas pixels from the top or bottom edge. */
-  margin: z.number().nonnegative(),
+  /** The edge or middle the box keeps to, up and down: two-line captions grow away from it. */
+  anchorY: z.enum(["top", "middle", "bottom"]),
+  /** Canvas pixels in from that edge (from the middle, down). */
+  offsetY: z.number(),
+  /** The edge or centre the box keeps to across; the lines align to it too. */
+  anchorX: z.enum(["left", "center", "right"]),
+  /** Canvas pixels in from that edge (from the centre, right). */
+  offsetX: z.number(),
   /** The word being spoken; transparent for none. */
   highlight: RgbaSchema,
   /** Widest a line runs, as a fraction of the canvas width. */
@@ -56,8 +62,10 @@ export function defaultStyle(height = 1080): CaptionStyle {
     color: [1, 1, 1, 1],
     background: [0, 0, 0, 0.75],
     cornerRadius: Math.round(12 * k),
-    position: "bottom",
-    margin: Math.round(80 * k),
+    anchorY: "bottom",
+    offsetY: Math.round(80 * k),
+    anchorX: "center",
+    offsetX: 0,
     highlight: [1, 0.84, 0.2, 1],
     maxWidth: 0.8,
     uppercase: false,
@@ -94,33 +102,38 @@ function solid(color: RGBA, size: [number, number], at: [number, number], radius
   return { kind: "visual", content: { type: "solid", color }, size, transform: [1, 0, 0, 1, at[0], at[1]], radius: [radius, radius, radius, radius] };
 }
 
-function evaluateCaption(e: ClipEval, ctx: EvalContext) {
-  const words = shownWords(e.clip);
-  if (!words.length) return;
-  const style = e.props.captionStyle as CaptionStyle;
+/** Where a caption's box and text sit on a `width` × `height` canvas: the box, the text's origin and lines, the text. */
+export function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { width: number; height: number }) {
+  if (!words.length) return undefined;
   const text = captionText(words, style);
-  const width = Math.max(1, Math.round(ctx.canvas.width * style.maxWidth));
-  const base: TextSpec = { text, font: style.font, weight: style.weight, italic: false, size: style.size, color: style.color, tracking: 0, lineSpacing: 0, align: "center", valign: "top", width, height: ctx.canvas.height, scale: 1 };
-  const lines = layout(base);
-  if (!lines.length) return;
+  const width = Math.max(1, Math.round(canvas.width * style.maxWidth));
+  const spec: TextSpec = { text, font: style.font, weight: style.weight, italic: false, size: style.size, color: style.color, tracking: 0, lineSpacing: 0, align: style.anchorX, valign: "top", width, height: canvas.height, scale: 1 };
+  const lines = layout(spec);
+  if (!lines.length) return undefined;
   const left = Math.min(...lines.map((l) => l.carets[0]!));
   const right = Math.max(...lines.map((l) => l.carets.at(-1)!));
   const top = lines[0]!.top;
   const bottom = lines.at(-1)!.bottom;
   const pad: [number, number] = [style.size * 0.45, style.size * 0.2];
-  const box: [number, number] = [right - left + 2 * pad[0], bottom - top + 2 * pad[1]];
-  const boxX = (ctx.canvas.width - box[0]) / 2;
-  const boxY = style.position === "top" ? style.margin : style.position === "middle" ? (ctx.canvas.height - box[1]) / 2 : ctx.canvas.height - style.margin - box[1];
-  // The text's own box is `width` wide, centred: its lines sit at their carets inside it.
-  const textX = boxX + pad[0] - left;
-  const textY = boxY + pad[1] - top;
-  const textHeight = Math.ceil(bottom) + 2;
-  if (style.background[3] > 0) e.layers.push(solid(style.background, box, [boxX, boxY], Math.min(style.cornerRadius, box[1] / 2)));
+  const size: [number, number] = [right - left + 2 * pad[0], bottom - top + 2 * pad[1]];
+  const x = style.anchorX === "left" ? style.offsetX : style.anchorX === "right" ? canvas.width - style.offsetX - size[0] : (canvas.width - size[0]) / 2 + style.offsetX;
+  const y = style.anchorY === "top" ? style.offsetY : style.anchorY === "bottom" ? canvas.height - style.offsetY - size[1] : (canvas.height - size[1]) / 2 + style.offsetY;
+  // The text's own box is `width` wide: its lines sit at their carets inside it.
+  return { text, spec, lines, box: { x, y, width: size[0], height: size[1] }, origin: [x + pad[0] - left, y + pad[1] - top] as [number, number], height: Math.ceil(bottom) + 2 };
+}
+
+function evaluateCaption(e: ClipEval, ctx: EvalContext) {
+  const words = shownWords(e.clip);
+  const style = e.props.captionStyle as CaptionStyle;
+  const g = captionGeometry(words, style, ctx.canvas);
+  if (!g) return;
+  const { box, origin, lines, text, spec } = g;
+  if (style.background[3] > 0) e.layers.push(solid(style.background, [box.width, box.height], [box.x, box.y], Math.min(style.cornerRadius, box.height / 2)));
   const main: VisualLayer = {
     kind: "visual",
-    content: { type: "source", source: ctx.source({ kind: "text", ...base, height: textHeight }) },
-    size: [width, textHeight],
-    transform: [1, 0, 0, 1, textX, textY],
+    content: { type: "source", source: ctx.source({ kind: "text", ...spec, height: g.height }) },
+    size: [spec.width, g.height],
+    transform: [1, 0, 0, 1, ...origin],
   };
   e.layers.push(main);
   e.main = main;
@@ -134,13 +147,74 @@ function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   if (!line) return;
   const x0 = line.carets[offset - line.start]!;
   const x1 = line.carets[Math.min(offset + word.length, line.end) - line.start]!;
-  const spec: TextSpec = { ...base, text: word, color: style.highlight, align: "left", width: Math.ceil(x1 - x0 + style.size), height: Math.ceil(line.bottom - line.top) + 2 };
+  const one: TextSpec = { ...spec, text: word, color: style.highlight, align: "left", width: Math.ceil(x1 - x0 + style.size), height: Math.ceil(line.bottom - line.top) + 2 };
   e.layers.push({
     kind: "visual",
-    content: { type: "source", source: ctx.source({ kind: "text", ...spec }) },
-    size: [spec.width, spec.height],
-    transform: [1, 0, 0, 1, textX + x0, textY + line.top],
+    content: { type: "source", source: ctx.source({ kind: "text", ...one }) },
+    size: [one.width, one.height],
+    transform: [1, 0, 0, 1, origin[0] + x0, origin[1] + line.top],
   });
+}
+
+const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
+
+/**
+ * `tokens` timed from the words they replace: words kept (matched in order, ignoring case and punctuation) keep
+ * their times; each run of new or changed words shares the time of the old words between the kept ones around it,
+ * or the gap there, by length. Typing a caption a key at a time so keeps its timing.
+ */
+export function retime(old: CaptionWord[], tokens: string[], from: number, to: number): CaptionWord[] {
+  const [n, m] = [old.length, tokens.length];
+  const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i]![j] = norm(old[i]!.text) === norm(tokens[j]!) ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+  const match = new Array<number | undefined>(m);
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (norm(old[i]!.text) === norm(tokens[j]!)) match[j++] = i++;
+    else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) i++;
+    else j++;
+  }
+  const out: CaptionWord[] = [];
+  for (let j = 0; j < m; ) {
+    const i = match[j];
+    if (i !== undefined) {
+      out.push({ ...old[i]!, text: tokens[j]! });
+      j++;
+      continue;
+    }
+    let k = j;
+    while (k < m && match[k] === undefined) k++;
+    const before = j > 0 ? match[j - 1] : undefined;
+    const after = k < m ? match[k] : undefined;
+    const replaced = old.slice(before === undefined ? 0 : before + 1, after === undefined ? n : after);
+    const a = replaced[0]?.start ?? (before === undefined ? from : old[before]!.end);
+    const b = replaced.at(-1)?.end ?? (after === undefined ? to : old[after]!.start);
+    const run = tokens.slice(j, k);
+    const total = run.reduce((t, w) => t + w.length, 0) || 1;
+    let at = a;
+    for (const t of run) {
+      const end = at + ((b - a) * t.length) / total;
+      out.push({ text: t, start: roundSeconds(at), end: roundSeconds(Math.max(end, at)) });
+      at = end;
+    }
+    j = k;
+  }
+  return out;
+}
+
+/** v2: a vertical `position` and `margin` became anchors with offsets on both axes. */
+function anchors(doc: unknown): unknown {
+  const visit = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(visit);
+    if (!v || typeof v !== "object") return;
+    const s = (v as { props?: { captionStyle?: Record<string, unknown> } }).props?.captionStyle;
+    if (s && "position" in s) {
+      const { position, margin, ...rest } = s;
+      (v as { props: Record<string, unknown> }).props.captionStyle = { ...rest, anchorY: position, offsetY: position === "middle" ? 0 : margin, anchorX: "center", offsetX: 0 };
+    }
+    Object.values(v).forEach(visit);
+  };
+  visit(doc);
+  return doc;
 }
 
 /** Captions from the transcript's words: a new caption at a sentence end, a pause, or `maxWords` / `maxChars`. */
@@ -209,7 +283,8 @@ const StyleArgs = styleSchema.partial();
 /** Captions: phrases from the transcript as caption clips on their own track, burned into the export with an `.srt` beside it. */
 export const captions = defineFeature({
   id: "captions",
-  version: 1,
+  version: 2,
+  migrations: [{ version: 2, migrate: anchors }],
   clipTypes: [{ id: "caption", description: "A caption: words from the transcript, shown with the captions' style while they are spoken", traits: ["caption"] }],
   props: [
     { id: "caption", description: "The caption's words, timed in its media seconds", traits: ["caption"], schema: captionSchema, defaults: () => ({ words: [] }), identity: true },
@@ -261,7 +336,8 @@ export const captions = defineFeature({
     }),
     defineCommand({
       id: "captions.style",
-      description: "Change how every caption looks (font, weight, size in canvas pixels, colours, background box, position, margin, highlight of the spoken word, max width, uppercase), one undo step. Transparent colours turn the box or the highlight off",
+      description:
+        "Change how every caption looks, one undo step: font, weight, size in canvas pixels, colours, background box, highlight of the spoken word, max width, uppercase, and where the box sits: `anchorY` top/middle/bottom with `offsetY` canvas pixels in from it (down from the middle), `anchorX` left/center/right with `offsetX` in from it (right of the centre). Transparent colours turn the box or the highlight off",
       args: z.strictObject({ style: StyleArgs }),
       apply(doc, { style }) {
         let n = 0;
@@ -275,26 +351,15 @@ export const captions = defineFeature({
     }),
     defineCommand({
       id: "caption.setText",
-      description: "Correct what a caption says: its words become `text`'s, keeping their times when the count is the same, else spread over the caption's spoken span by length",
+      description: "Correct what a caption says: its words become `text`'s. Words kept keep their times; new or changed ones share the time of the words they replace (or the gap they go in), by length",
       args: z.strictObject({ clip: z.string(), text: z.string() }),
       apply(doc, { clip: id, text }) {
         const clip = doc.tracks.flatMap((t) => t.clips).find((c) => c.id === id);
         if (!clip || !isCaption(clip)) throw new Error(`clip "${id}" is not a caption`);
         const old = shownWords(clip);
-        const tokens = text.split(/\s+/).filter(Boolean);
         const from = old[0]?.start ?? ticksToSeconds(clip.mediaStart ?? 0);
         const to = old.at(-1)?.end ?? from + ticksToSeconds(clip.duration);
-        let words: CaptionWord[];
-        if (tokens.length === old.length) words = old.map((w, i) => ({ ...w, text: tokens[i]! }));
-        else {
-          const total = tokens.reduce((n, t) => n + t.length, 0) || 1;
-          let at = from;
-          words = tokens.map((t) => {
-            const w = { text: t, start: roundSeconds(at), end: roundSeconds(at + ((to - from) * t.length) / total) };
-            at = w.end;
-            return w;
-          });
-        }
+        const words = retime(old, text.split(/\s+/).filter(Boolean), from, to);
         clip.props.caption = { words };
       },
     }),
@@ -315,6 +380,23 @@ export const captions = defineFeature({
     }),
   ],
   queries: [
+    defineQuery({
+      id: "captions.layout",
+      description: "Where a caption sits on the canvas (canvas pixels, y down): its box, its text and the text's lines with their caret positions from `origin`. The caption `clip`, or the one showing at timeline second `time`; null if none. For moving and typing captions on the canvas",
+      args: z.strictObject({ clip: z.string().optional(), time: z.number().nonnegative().optional() }),
+      run({ clip: id, time }, { project }) {
+        const at = time === undefined ? undefined : secondsToTicks(time);
+        const clip = [...project.tracks]
+          .reverse()
+          .filter((t) => !t.hidden)
+          .flatMap((t) => t.clips)
+          .find((c) => isCaption(c) && (id ? c.id === id : at !== undefined && c.start <= at && at < c.start + c.duration));
+        if (!clip) return null;
+        const style = { ...defaultStyle(project.settings.height), ...(clip.props.captionStyle as Partial<CaptionStyle>) };
+        const g = captionGeometry(shownWords(clip), style, project.settings);
+        return g ? { clip: clip.id, box: g.box, origin: g.origin, lines: g.lines, text: g.text } : null;
+      },
+    }),
     defineQuery({
       id: "captions.srt",
       description: "The captions as an .srt (SubRip) file, in timeline seconds, or those within [from, to) counted from `from`, as an export writes it",
