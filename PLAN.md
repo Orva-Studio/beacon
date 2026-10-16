@@ -1530,6 +1530,34 @@ with each finding fixed or written down as an accepted risk in
 **Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
 and a fuzzing run of the file readers finds no crash.
 
+### Phase 12 — Camtasia export (the user, 2026-10-16)
+Handing a Beacon project to someone who keeps editing in Camtasia: File ›
+Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
+media beside it), one way and best effort, as import is (§11). Not for
+finished videos: MP4 and `.srt` export already covers those.
+- **The mappers, reversed.** Each feature's `CamtasiaMapper` gains an
+  export half for what it claims on import (clips, trims, speed, transform,
+  opacity, animation blocks, cursor effects, motion blur, the effects both
+  have); ticks map 1:1. What has no Camtasia equivalent (Beacon's captions
+  as drawn, Border, CRT...) is listed in an export report, as import lists
+  what it skips, never dropped silently. Core never names a feature: a
+  feature that can't export says so through the contract.
+- **The cursor.** Beacon's own recordings (`.brec`) have no cursor in the
+  screen video (Beacon draws it from the click log), and Camtasia draws one
+  only from `.trec` data. So a `.brec` screen is exported with Beacon's
+  cursor rendered into an MP4 (Camtasia's cursor effects can't apply); an
+  imported `.trec` goes as it is. Worth checking first whether Camtasia
+  accepts a `.trec` Beacon writes, which would keep its cursor editable.
+- **Versions.** Camtasia's format isn't documented and changes between
+  releases: write the version the user's projects use, check the result
+  opens in the Camtasia releases they have, and note findings in
+  `docs/formats/`.
+- Round trip as the test: a `.cmproj` imported then exported opens in
+  Camtasia looking the same, on copies (never the user's projects).
+**Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
+captions opens in Camtasia with its edit intact, and the report lists what
+didn't carry over.
+
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
