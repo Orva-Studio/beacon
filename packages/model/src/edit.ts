@@ -107,6 +107,8 @@ export const ClipboardSchema = z.strictObject({
   assets: z.array(AssetSchema),
   /** The tracks the rows were copied from, lowest first, to paste back onto when they are free. */
   tracks: z.array(IdSchema),
+  /** Those tracks' shared settings (`Track.props`), so the clips keep them wherever they are pasted. */
+  trackProps: z.array(z.record(z.string(), z.unknown()).nullable()).optional(),
 });
 export type Clipboard = z.infer<typeof ClipboardSchema>;
 
@@ -154,7 +156,19 @@ export function copyClips(project: Project, opts: { clips?: string[]; range?: [T
     items: picked.map(({ clip, track }) => ({ clip: { ...clip, start: clip.start - origin }, row: track - low })),
     assets: [...assets.values()],
     tracks: project.tracks.slice(low, high + 1).map((t) => t.id),
+    trackProps: project.tracks.slice(low, high + 1).map((t) => (t.props ? clone(t.props) : null)),
   };
+}
+
+/**
+ * Clips arriving on `to` from a track whose shared settings were `from` (a paste, a move, a group made or undone):
+ * `to` takes the prop groups it has none of, so the clips look as they did; its own win where both have one.
+ */
+export function adoptTrackProps(to: Track, from: Record<string, unknown> | null | undefined) {
+  for (const [group, value] of Object.entries(from ?? {})) {
+    if (to.props?.[group] !== undefined) continue;
+    to.props = { ...to.props, [group]: clone(value) };
+  }
 }
 
 /**

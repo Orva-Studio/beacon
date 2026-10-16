@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  adoptTrackProps,
   animatedValue,
   clipEnd,
   clipSpeed,
@@ -115,6 +116,7 @@ export const groups = defineFeature({
           name: doc.tracks[ti]!.name,
           ...(doc.tracks[ti]!.hidden ? { hidden: true } : {}),
           ...(doc.tracks[ti]!.muted ? { muted: true } : {}),
+          ...(doc.tracks[ti]!.props ? { props: JSON.parse(JSON.stringify(doc.tracks[ti]!.props)) } : {}),
           clips: doc.tracks[ti]!.clips.filter((c) => ids.has(c.id)).map((c) => ({ ...JSON.parse(JSON.stringify(c)), start: c.start - start })),
         }));
         // On the topmost of their tracks, else just above it, so nothing that covered them comes on top.
@@ -192,6 +194,7 @@ export const groups = defineFeature({
             doc.tracks.splice(above++, 0, t);
             return t;
           })();
+          adoptTrackProps(target, inner.props);
           target.clips.push(...clips);
           target.clips.sort((x, y) => x.start - y.start);
         });
