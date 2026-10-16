@@ -33,11 +33,11 @@ feature lands and when it is checked.
 | The dragged caption's outline follows the pointer | 2026-10-16 | `bb1fc9f` | Frame by frame: 0.1 px behind (was 5) |
 | A caption placed on its own: ⌥-drag, ⌥⇧ for it and those after, Use shared | 2026-10-16 | `bb1fc9f` | UI flow |
 | Delete acts on what was selected last (a range made after a clip) | 2026-10-16 | `ad42de9` | UI flow |
+| Remove Filler Words: AI tile, review marks, click keeps one, Apply one undo step, Cancel, one review at a time | 2026-10-16 | `a0b1f86` | UI flow (transcript with fillers written in); on a real take headless: 15 fillers, joins checked (PLAN, Phase 7) |
 | Captions burned into the export, `.srt` beside it | 2026-10-15 | `f46d1c5` | Export of a range, frame compared with the preview |
 
 ### Not checked yet
 
-- **Remove Filler Words**: not built.
 - **The Phase 7 gate**, on a real take with each transcriber (Whisper on this Mac, Apple's, OpenAI's, which
   needs an API key): fillers cut cleanly; captions export burned in with a matching `.srt`; a camera clip with a
   rounded border looks the same in preview and export.

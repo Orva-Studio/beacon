@@ -1331,8 +1331,37 @@ filler-laden prompt is not reliable. Two prompts found different fillers (5
 and 8 on four fixtures, vs 2 without), one with a 50 ms "um" squeezed against
 the next word, and on near-silence Whisper wrote the prompt itself ("Uh, and
 then, er, hmm, okay"); Apple's transcriber kept none. The fixtures may simply
-have few fillers. Next: a take with known fillers, then either the prompt or
-finding fillers from the audio (speech no word accounts for).
+have few fillers.
+**Remove Filler Words, decided and built** (2026-10-16), on a 10½-minute take
+full of real "um"s (Yeti microphone), three ways compared:
+(a) the transcript's own fillers: local Whisper kept 21 ("Um", "uh", a
+five-"uh" stutter; 16 places once runs are joined), Apple's transcriber 22
+(19 places, none under 120 ms); about half the places differ between them.
+(b) Whisper primed with a filler prompt: 50 fillers (32 places), but it
+changed 17.5% of the *other* words (a line became "Only Um, I was like, I
+don't know", most likely the prompt), squeezed 5 fillers under 120 ms, and on
+the four fixtures added 1 filler to 2 while squeezing 2 of the 3 (no prompt
+text written in, 0–4% of other words changed).
+(c) the audio: of the 18 or so places only the prompted run found, 4 were
+detected speech no word covered; the rest were inside the next word's times,
+since a word after a pause starts where the sound does. Fillers were longer
+and louder than other words (0.42 s vs 0.19 s median, −40 vs −44 dB) and
+steadier, but singing and music on the take looked the same.
+Chosen: (a), whatever the transcriber; the prompt was dropped. As built
+(`transcript.fillers`, `transcript.removeFillers`, `fillers.review`/`flip`/
+`close`, `fillers.apply`; the AI panel's tile): each run of fillers is cut
+with the shorter of the pauses either side, so the pause left is the longer
+one (cutting the pause after, as `transcript.cut` does, took up to 3 s that
+can be screen action; a long pause stays for Remove Silences); an edge
+touching a kept word goes to the nearest frame rather than outward. "Ah",
+"oh", "mm-hmm" and "uh-huh" aren't fillers. One review is open at a time.
+On the take: 15 fillers, 19.5 s cut; 10 of the 15 joins have silence either
+side, 3 on one side, 2 quiet speech (−50 and −54 dB against −55);
+`transcript.joins` flags 5 joins at 3 places, 4 within half a frame of a
+word boundary (a cut can only fall on a frame) and 1 at a word Whisper
+squeezed to 50 ms. Later: fillers a transcriber leaves out (about half here)
+could come from a second, prompted Whisper pass used only to find them,
+leaving the transcript alone.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
 camera clip with a rounded border looks the same in preview and export; and
