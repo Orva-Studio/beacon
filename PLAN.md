@@ -1519,8 +1519,26 @@ Seeing more at once.
   fixes reach both; preview/export parity as for every pass. Open: what a
   `.hlook` holds (values, a LUT, or both) decides whether the renderer
   needs LUTs.
+- **Remove background** (the user, 2026-10-16): a camera or video clip's
+  background removed, as Camtasia's Remove Color does for green screens
+  but with no green screen. It is person segmentation (a matte per frame),
+  not an LLM. Who makes the matte is the user's choice, as the transcriber
+  is (Settings, a preference agents can read): Apple's Vision on this Mac
+  (`VNGeneratePersonSegmentationRequest`: free, no download, fast; edges
+  around hair are rougher), a local matting model (e.g. Robust Video
+  Matting through Core ML, finer edges, a download like Whisper's model),
+  or Replicate in the cloud with the user's own API key (BYOK, kept in the
+  Keychain as the OpenAI key is; the video is uploaded, so the setting says
+  so). The matte is a background job analyzer per asset (cached like
+  proxies, so a take is segmented once), and a "Remove Background" effect
+  on visual clips draws it in a pass: transparent (the clips below show
+  through), blurred, a colour or an image, with a feather for the edge.
+  Preview and export read the same matte. Open: which is the default, and
+  whether Replicate's models are good enough on a talking head to be worth
+  the upload.
 **Gate:** the look matches between preview and export, and a `.hlook`
-imports with a report of what didn't map.
+imports with a report of what didn't map; a camera take's background removed
+by each provider, with the same matte in preview and export.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
