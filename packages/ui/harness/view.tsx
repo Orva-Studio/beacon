@@ -4,7 +4,7 @@ import { recordPreviewEvent } from "../src/record-preview";
 import { RecordPanel } from "../src/record-panel";
 import type { Init, RecordFrames, SyncCheck } from "../src/rpc";
 import { replica } from "../src/store";
-import { latestPerKey } from "../src/latest";
+import { commandQueue } from "../src/latest";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
 document.head.insertAdjacentHTML("afterbegin", "<style>electrobun-wgpu { display: block; width: 800px; height: 300px; background: #000; overflow: hidden; }</style>");
@@ -75,31 +75,27 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
   if (!r.ok && r.error) replica.status(r.error);
 };
 
-const sendLatest = latestPerKey(report);
+const commands = commandQueue(report);
 
 const host: Host = {
-  run: (command, args, label, coalesce) => {
-    const send = () => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>;
-    if (coalesce) sendLatest(coalesce, send);
-    else void report(send());
-  },
+  run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>, coalesce),
   query: async (name, args) => {
     const r = (await request("query", { name, args })) as { ok: boolean; result?: unknown; error?: string };
     if (!r.ok) throw new Error(r.error);
     return r.result;
   },
-  undo: () => void report(request("undo")),
-  redo: () => void report(request("redo")),
-  openDialog: () => void request("openDialog"),
-  openRecent: (path) => void request("openRecent", { path }),
+  undo: () => commands.send(() => request("undo") as Promise<{ ok: boolean; error?: string }>),
+  redo: () => commands.send(() => request("redo") as Promise<{ ok: boolean; error?: string }>),
+  openDialog: () => void commands.ordered(() => request("openDialog")),
+  openRecent: (path) => void commands.ordered(() => request("openRecent", { path })),
   canvasView: () => {},
   clipMenu: (clip) => void request("clipMenu", { clip }),
   canvasMenu: () => void request("canvasMenu"),
   trackMenu: (track) => void request("trackMenu", { track }),
   binMenu: (asset) => void request("binMenu", { asset }),
   importMedia: () => void request("importMedia"),
-  dropFiles: (files, at) => void report(request("dropFiles", { files, ...at })),
-  captureFrame: () => void report(request("captureFrame")),
+  dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at }) as Promise<{ ok: boolean; error?: string }>),
+  captureFrame: () => commands.send(() => request("captureFrame") as Promise<{ ok: boolean; error?: string }>),
   frameImage: () => request("frameImage") as Promise<string | null>,
   binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
   analyze: (key, asset) => void request("analyze", { key, asset }),
@@ -121,8 +117,8 @@ const host: Host = {
   setAppSettings: (settings) => void request("setAppSettings", { settings }),
   proxySpace: () => request("proxySpace") as Promise<number>,
   deleteAllProxies: () => request("deleteAllProxies") as Promise<number>,
-  newProject: (name, settings, standalone) => request("newProject", { name, settings, standalone }) as Promise<{ ok: boolean; error?: string }>,
-  saveAs: (params) => request("saveAs", params) as Promise<{ ok: boolean; error?: string }>,
+  newProject: (name, settings, standalone) => commands.ordered(() => request("newProject", { name, settings, standalone }) as Promise<{ ok: boolean; error?: string }>),
+  saveAs: (params) => commands.ordered(() => request("saveAs", params) as Promise<{ ok: boolean; error?: string }>),
   renameProject: (name) => request("renameProject", { name }) as Promise<{ ok: boolean; error?: string }>,
   previewOpen: (asset) => request("previewOpen", { asset }) as Promise<never>,
   previewView: () => {},
