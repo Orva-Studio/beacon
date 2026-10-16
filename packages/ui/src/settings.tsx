@@ -5,8 +5,9 @@ import { CanvasSettings } from "./canvas-settings";
 import { syncKey, type AppSettings, type CameraSync, type RecordDevices, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
+import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
 
-export interface SettingsHost extends SyncCheckHost {
+export interface SettingsHost extends SyncCheckHost, TranscriptsHost {
   run(command: string, args?: unknown, label?: string): void;
   setAppSettings(settings: AppSettings): void;
   proxySpace(): Promise<number>;
@@ -23,7 +24,7 @@ const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
  */
-export function SettingsWindow({ app: { tab: opening, devices, resources, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+export function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   const [proxySpace, setProxySpace] = useState<number | "deleting">();
@@ -34,6 +35,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, ...app
     host.setAppSettings(next);
   };
   const close = () => replica.settings(undefined);
+  const transcriber = preferences?.find((p) => p.id === "transcriber");
   const s = project?.settings;
   const tabs = (["general", "recording", "project"] as const).map((t) => (
     <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
@@ -90,17 +92,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, ...app
               </Select>
             </div>
           </Row>
-          {resources?.map((r) => (
-            <Row key={r.id} label="Transcripts" hint={`Made on this Mac with the ${r.title}${r.present ? "." : `, a one-time download of about ${Math.round(r.bytes / 1e6)} MB.`}`}>
-              <div className="flex items-center gap-3" data-resource-row={r.id}>
-                {r.present ? (
-                  <span className="text-text-muted">Speech model downloaded</span>
-                ) : (
-                  <Button onClick={() => (close(), replica.resource(r))}>Download Speech Model…</Button>
-                )}
-              </div>
-            </Row>
-          ))}
+          {transcriber && <TranscriptsSettings pref={transcriber} model={resources?.find((r) => r.id === "whisper-model")} close={close} host={host} />}
           <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
             <div className="flex items-center gap-3" data-proxy-space>
               <Button

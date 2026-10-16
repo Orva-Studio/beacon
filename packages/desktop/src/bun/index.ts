@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
@@ -22,7 +22,7 @@ if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
   Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
 }
 
-const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, serveCore, walkClips, windowNumber } = await import("@beacon/core");
+const { captureWindow, DEFAULT_SOCKET, enginePlacement, findDropped, fitPercent, LocalCore, summarizeReport, locateTrack, placeCanvas, projectDuration, serveCore, ticksToSeconds, walkClips, windowNumber } = await import("@beacon/core");
 type LiveView = import("@beacon/core").LiveView;
 type Session = import("@beacon/core").Session;
 type ExportSettings = import("@beacon/ui").ExportSettings;
@@ -74,16 +74,20 @@ function placement(c: Session["canvas"], view: { rect: { width: number; height: 
   return enginePlacement(canvas, px, placeCanvas(canvas, px, c.zoom, c.pan ?? [0, 0], view.scale));
 }
 
-/** File > Open Recent: the last projects opened, newest first. */
+/** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
 const RECENT_FILE = join(homedir(), "Library/Application Support/Beacon/recent.json");
-let recent: string[] = (() => {
+type Recent = { path: string; opened: number };
+let recent: Recent[] = (() => {
   try {
-    return (JSON.parse(readFileSync(RECENT_FILE, "utf8")) as string[]).filter((p) => existsSync(p));
+    // Before 0.5 the file held paths alone: their folders' modification times stand in.
+    return (JSON.parse(readFileSync(RECENT_FILE, "utf8")) as (string | Recent)[])
+      .map((r) => (typeof r === "string" ? { path: r, opened: existsSync(r) ? statSync(r).mtimeMs : 0 } : r))
+      .filter((r) => existsSync(r.path));
   } catch {
     return [];
   }
 })();
-function setRecent(list: string[]) {
+function setRecent(list: Recent[]) {
   recent = list.slice(0, 10);
   try {
     mkdirSync(dirname(RECENT_FILE), { recursive: true });
@@ -92,6 +96,44 @@ function setRecent(list: string[]) {
     status(`could not remember recent projects: ${e instanceof Error ? e.message : e}`);
   }
   setMenu();
+  send().recent(recentProjects());
+  try {
+    const kept = new Set(recent.map((r) => basename(projectThumbFile(r.path))));
+    for (const f of readdirSync(PROJECT_THUMBS)) if (!kept.has(f)) rmSync(join(PROJECT_THUMBS, f), { force: true });
+  } catch {}
+}
+const recentProjects = () => recent.map((r) => ({ ...r, name: basename(r.path, ".beproj"), thumb: projectThumb(r.path) }));
+
+/** The start screen's pictures: each recent project's frame at its playhead, as it was last left. */
+const PROJECT_THUMBS = join(homedir(), "Library/Application Support/Beacon/project-thumbs");
+const projectThumbFile = (path: string) => join(PROJECT_THUMBS, `${Bun.hash(path).toString(16)}.png`);
+function projectThumb(path: string): string | undefined {
+  try {
+    return `data:image/png;base64,${readFileSync(projectThumbFile(path)).toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
+async function saveProjectThumb(h: string) {
+  try {
+    const end = ticksToSeconds(projectDuration(core.doc(h)));
+    if (!end) return;
+    const { playhead } = await core.session(h);
+    const img = await core.frame(h, playhead < end ? playhead : 0, { width: 480 });
+    mkdirSync(PROJECT_THUMBS, { recursive: true });
+    writeFileSync(projectThumbFile(h), img.png);
+  } catch {}
+}
+// Quitting can't wait for a render, so the picture follows edits, a while after they stop.
+let thumbTimer: ReturnType<typeof setTimeout> | undefined;
+function saveProjectThumbSoon(h: string) {
+  clearTimeout(thumbTimer);
+  thumbTimer = setTimeout(() => void saveProjectThumb(h), 5000);
+}
+function openRecent(path: string) {
+  if (existsSync(path)) return void open(path).catch((err: unknown) => status(err instanceof Error ? err.message : String(err)));
+  setRecent(recent.filter((r) => r.path !== path));
+  status(`${path} no longer exists`);
 }
 
 /** Opens run one at a time: two at once would both pass the "already open" check and interleave the switch. */
@@ -109,6 +151,8 @@ async function switchTo(path: string) {
   // The webview keeps its canvas element across projects, so it won't report it again.
   const canvas = current?.view;
   if (current) {
+    clearTimeout(thumbTimer);
+    if (!current.closed) await saveProjectThumb(current.path);
     current.unwatch();
     // A failed final save still releases the old project; say so and finish switching.
     if (!current.closed) await core.close(current.path).catch((e: unknown) => status(e instanceof Error ? e.message : String(e)));
@@ -125,6 +169,7 @@ async function switchTo(path: string) {
       if (e.changes.canvas && current?.view) current.view.live.place(...placement(e.changes.canvas, current.view));
     } else if (e.kind === "saved") {
       send().saved({ ok: true });
+      saveProjectThumbSoon(h);
     } else if (e.kind === "needs") {
       offerResource(e.resource);
     } else if (e.kind === "preparing") {
@@ -137,6 +182,11 @@ async function switchTo(path: string) {
       status(e.message);
     } else if (e.kind === "job" && e.job.kind !== "export") {
       if (e.job.state === "failed" && e.job.error !== "cancelled") status(`${e.job.label}: ${e.job.error}`);
+      if (e.job.kind === "transcript" && e.job.asset) {
+        if (e.job.state === "running") transcribing[e.job.asset] = e.job.progress;
+        else delete transcribing[e.job.asset];
+        send().media({ transcribing: { ...transcribing } });
+      }
       if (e.job.kind === "proxy" && e.job.asset) {
         if (e.job.state === "running") proxyProgress.jobs[e.job.asset] = e.job.progress;
         else delete proxyProgress.jobs[e.job.asset];
@@ -147,10 +197,11 @@ async function switchTo(path: string) {
     }
   });
   current = { path: h, unwatch };
-  setRecent([h, ...recent.filter((p) => p !== h)]);
+  setRecent([{ path: h, opened: Date.now() }, ...recent.filter((r) => r.path !== h)]);
   win.setTitle(`${basename(h)} — Beacon`);
   thumbs.clear();
   proxyProgress = { queued: {}, jobs: {} };
+  transcribing = {};
   send().opened(await openedPayload(h));
   if (canvas) await canvasView(canvas.id, canvas.rect, canvas.scale);
   sendWaveforms();
@@ -158,6 +209,7 @@ async function switchTo(path: string) {
   lastMissing = undefined;
   void sendMissing();
   void sendThumbs();
+  if (!existsSync(projectThumbFile(h))) saveProjectThumbSoon(h);
 }
 
 /** The missing media last sent, so the check below only sends changes. */
@@ -297,7 +349,7 @@ function renameProject(name: string): Promise<void> {
     if (to === from) return;
     current.closed = true;
     await switchTo(to);
-    setRecent(recent.filter((p) => p !== from));
+    setRecent(recent.filter((r) => r.path !== from));
   });
   opening = next.catch(() => {});
   return next;
@@ -419,7 +471,7 @@ async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recordPrefs();
   const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
-  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources() });
+  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources(), preferences: await core.preferences() });
 }
 
 /** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
@@ -784,6 +836,8 @@ function previewView(id: number, rect: { x: number; y: number; width: number; he
 
 const THUMB_HEIGHT = 64;
 /** Proxies being made: from the app's own queue, and those asked for in the Media Bin. */
+/** Transcripts being made, by asset, and their progress: Remove Silences and Captions show it while they wait. */
+let transcribing: Record<string, number> = {};
 let proxyProgress: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
 
 const thumbs = new Map<string, string>();
@@ -829,6 +883,14 @@ function sendWaveforms() {
   if (Object.keys(waveforms).length) send().media({ waveforms });
 }
 
+/** As `reply`, with what `fn` returned. */
+const replyWith = async <T,>(fn: () => Promise<T>): Promise<{ ok: boolean; error?: string; result?: T }> => {
+  try {
+    return { ok: true, result: await fn() };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+};
 const reply = async (fn: () => Promise<unknown>) => {
   try {
     await fn();
@@ -876,6 +938,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         const schema = core.schema();
         return {
           opened: current ? await openedPayload(current.path) : undefined,
+          recent: recentProjects(),
           keymap,
           propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
           effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
@@ -898,6 +961,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       undo: () => reply(async () => current && (await core.undo(current.path))),
       redo: () => reply(async () => current && (await core.redo(current.path))),
       openDialog: () => reply(openDialog),
+      openRecent: ({ path }) => openRecent(path),
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
@@ -932,6 +996,8 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       },
+      setPreference: ({ id, value }) => replyWith(async () => (await core.setPreference(id, value), core.preferences())),
+      setSecret: ({ id, value }) => replyWith(async () => (await core.setSecret(id, value), core.preferences())),
       declineResource: ({ id }) => setAppSettings({ ...appSettings, declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
       cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
       previewOpen: ({ asset }) => {
@@ -1139,7 +1205,7 @@ function setMenu() {
         {
           label: "Open Recent",
           submenu: [
-            ...recent.map((path) => ({ label: basename(path, ".beproj"), action: `recent:${path}` })),
+            ...recent.map(({ path }) => ({ label: basename(path, ".beproj"), action: `recent:${path}` })),
             ...(recent.length ? [{ type: "separator" as const }] : []),
             { label: "Clear Menu", action: "recentClear", enabled: recent.length > 0 },
           ],
@@ -1331,12 +1397,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
     const [mods, code] = action.slice(4).split("+") as [string, string];
     return send().key({ code, meta: mods === "command" });
   }
-  if (action?.startsWith("recent:")) {
-    const path = action.slice(7);
-    if (existsSync(path)) return void open(path).catch(report);
-    setRecent(recent.filter((p) => p !== path));
-    return status(`${path} no longer exists`);
-  }
+  if (action?.startsWith("recent:")) return openRecent(action.slice(7));
   if (!current) return;
   const h = current.path;
   const fail = (err: Error) => status(err.message);

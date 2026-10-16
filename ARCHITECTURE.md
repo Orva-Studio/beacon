@@ -26,7 +26,7 @@ packages/
 │                  drags: move plans, snapping, copying and pasting clips
 ├── features/  @beacon/features - one folder per feature, in evaluation order:
 │              media, callouts, regions, groups, stitching, cursor, transform,
-│              round-corners, crt-monitor, drop-shadow, motion-blur; then
+│              round-corners, border, crt-monitor, drop-shadow, motion-blur; then
 │              editing-only: timeline (clip editing, ripple rules, magnetic
 │              tracks, editing actions, animation blocks, effects,
 │              markers, project queries), volume (audio points, fades,

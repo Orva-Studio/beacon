@@ -31,7 +31,7 @@ export async function bundleTools(to = STAGE): Promise<string[]> {
   const libs = readdirSync(join(TOOLS, "lib")).filter((f) => /^lib\w+\.\d+\.dylib$/.test(f));
   const files = [
     ...["libbeacon_ffi.dylib", "beacon-worker", "beacon-recorder"].map((f) => join(RELEASE, f)),
-    ...["ffmpeg", "ffprobe", "whisper-cli"].map((f) => join(TOOLS, "bin", f)),
+    ...["ffmpeg", "ffprobe", "whisper-cli", "beacon-speech"].map((f) => join(TOOLS, "bin", f)),
     ...libs.map((f) => join(TOOLS, "lib", f)),
   ];
   for (const file of files) {

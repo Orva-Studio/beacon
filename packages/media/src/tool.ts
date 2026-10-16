@@ -11,8 +11,13 @@ import type { Subprocess } from "bun";
 export interface JobProcesses {
   procs: Set<Subprocess>;
   cancelled: boolean;
+  /** Aborted when the job is cancelled, for work that isn't a process (uploads to an API). */
+  abort?: AbortController;
 }
 export const jobProcesses = new AsyncLocalStorage<JobProcesses>();
+
+/** The running job's cancellation, if this runs within one: pass it to `fetch` and check it between steps. */
+export const jobSignal = (): AbortSignal | undefined => jobProcesses.getStore()?.abort?.signal;
 
 /**
  * `Bun.spawn`, but a process started within a job is the job's to stop; once the job is cancelled
@@ -29,7 +34,7 @@ export const spawn = ((...args: Parameters<typeof Bun.spawn>) => {
   return proc;
 }) as typeof Bun.spawn;
 
-export type ToolName = "ffmpeg" | "ffprobe" | "whisper-cli";
+export type ToolName = "ffmpeg" | "ffprobe" | "whisper-cli" | "beacon-speech";
 
 /**
  * Where Beacon's own ffmpeg, ffprobe and whisper-cli are: `BEACON_TOOLS_DIR` (the app sets it), beside a compiled

@@ -2,7 +2,8 @@
 /**
  * Builds the command-line tools Beacon ships inside the app (PLAN §13, Phase 6.5), from pinned sources:
  * a minimal FFmpeg (ffmpeg, ffprobe and the shared libraries beacon-decode links), LGPL only, with libvpx
- * and Opus for WebM, and whisper.cpp's whisper-cli with Metal. Output: packages/engine/third-party/out.
+ * and Opus for WebM, whisper.cpp's whisper-cli with Metal, and beacon-speech (Apple's on-device transcriber,
+ * packages/engine/speech). Output: packages/engine/third-party/out.
  * Needs pkg-config and cmake (`nix shell nixpkgs#pkg-config nixpkgs#cmake`, or Homebrew's).
  *
  *   bun run build:tools                 builds what is out of date
@@ -172,6 +173,20 @@ async function buildWhisper() {
   writeFileSync(stampFile("whisper"), s);
 }
 
+const SPEECH = join(import.meta.dir, "../packages/engine/speech/beacon-speech.swift");
+/** SpeechTranscriber is macOS 26's: this tool alone needs it, so it alone targets 26. */
+const SPEECH_FLAGS = ["-O", "-target", "arm64-apple-macosx26.0"];
+const speechStamp = () => stamp("speech", readFileSync(SPEECH, "utf8"), SPEECH_FLAGS);
+
+async function buildSpeech() {
+  const s = speechStamp();
+  if (fresh("speech", s)) return console.log("beacon-speech: up to date");
+  console.log("building beacon-speech…");
+  mkdirSync(join(OUT, "bin"), { recursive: true });
+  await $`xcrun swiftc ${SPEECH_FLAGS} ${SPEECH} -o ${join(OUT, "bin/beacon-speech")}`.quiet();
+  writeFileSync(stampFile("speech"), s);
+}
+
 /** Nothing built may load a library from Homebrew, Nix or anywhere else this Mac happens to have. */
 async function checkLinks() {
   const files = [...readdirSync(join(OUT, "bin")).map((f) => join(OUT, "bin", f)), ...readdirSync(join(OUT, "lib")).filter((f) => f.endsWith(".dylib")).map((f) => join(OUT, "lib", f))];
@@ -205,6 +220,7 @@ if (import.meta.main && sources > 0) {
   if (!fresh("ffmpeg", ffmpegStamp) || !fresh("whisper", whisperStamp())) needTools();
   await buildFfmpeg();
   await buildWhisper();
+  await buildSpeech();
   await checkLinks();
   console.log(`tools in ${OUT}`);
 }

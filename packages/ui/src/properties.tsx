@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
 import { clipSpeed, rationalToNumber, ticksToSeconds } from "@beacon/model";
 import type { Host } from "./app";
@@ -39,6 +39,7 @@ const TRAIT_TABS: [trait: string, tab: Tab][] = [
   ["visual", { id: "transform", title: "Visual Properties", icon: "film-strip" }],
   ["callout", { id: "callout", title: "Annotation Properties", icon: "chat-centered-text" }],
   ["region", { id: "region", title: "Annotation Properties", icon: "chat-centered-text" }],
+  ["caption", { id: "caption", title: "Caption Properties", icon: "closed-captioning" }],
   ["cursor", { id: "cursor", title: "Cursor Properties", icon: "pointer" }],
   ["audio", { id: "audio", title: "Audio Properties", icon: "speaker-high" }],
 ];
@@ -85,13 +86,14 @@ function ClipProperties({
       </div>
       {selected.length > 1 && <div className="border-b border-divider bg-panel py-2 text-center text-label text-text-faint">Editing {selected.length} clips</div>}
       {session.animation?.clip === clip.id && <AnimationSection clip={clip} id={session.animation.id} host={host} />}
-      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} />}
+      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} />}
       {tab?.id === "speed" && (
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
       )}
       {tab?.id === "cursor" && <Cursor value={value} clip={clip} edit={edit} />}
       {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
+      {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider
@@ -127,7 +129,7 @@ function ClipProperties({
   );
 }
 
-function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit }) {
+function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean }) {
   const size = contentSize(project, clip);
   const crop = (side: string) => value("crop", side);
   const sx = value("transform", "scaleX", 1);
@@ -135,6 +137,7 @@ function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; 
   const cw = size ? size[0] - crop("left") - crop("right") : undefined;
   const ch = size ? size[1] - crop("top") - crop("bottom") : undefined;
   const degrees = (value("transform", "rotation") * 180) / Math.PI;
+  const border = { thickness: 0, color: [1, 1, 1, 1] as RGBA, ...(clip.props.border as { thickness?: number; color?: RGBA } | undefined) };
   // Scale keeps the clip's aspect: the slider scales both axes.
   const setScale = (pct: number, key?: string) => edit("transform", { scaleX: pct / 100, scaleY: (pct / 100) * (sy / (sx || 1)) }, "Scale", key);
   return (
@@ -168,6 +171,12 @@ function Visual({ clip, project, value, edit }: { clip: Clip; project: Project; 
           </div>
         </div>
       </Section>
+      {picture && (
+        <Section>
+          <Slider unit="" label="Border" title="A border just inside the edge, following Round Corners: its thickness, 0 for none" value={border.thickness} max={100} onChange={(v, key) => edit("border", { thickness: Math.max(0, v) }, "Border", key)} />
+          <ColorRow label="Color" color={border.color} onChange={(color, key) => edit("border", { color }, "Border Color", key)} />
+        </Section>
+      )}
     </>
   );
 }
@@ -295,6 +304,137 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
           <Slider unit="" label="Corners" value={c.cornerRadius} max={200} onChange={(v, key) => edit("callout", { cornerRadius: Math.max(0, v) }, "Corner Radius", key)} />
         </Section>
       )}
+    </>
+  );
+}
+
+type CaptionStyle = {
+  font: string;
+  weight: number;
+  size: number;
+  color: RGBA;
+  background: RGBA;
+  cornerRadius: number;
+  anchorY: "top" | "middle" | "bottom";
+  offsetY: number;
+  anchorX: "left" | "center" | "right";
+  offsetX: number;
+  highlight: RGBA;
+  maxWidth: number;
+  uppercase: boolean;
+};
+
+/** Align to page: each button puts the captions against an edge, or in the middle, at the usual distance. */
+const ALIGN: { label: string; icon: IconName; fields: (margin: number) => Partial<CaptionStyle> }[] = [
+  { label: "Top", icon: "align-top", fields: (m) => ({ anchorY: "top", offsetY: m }) },
+  { label: "Left", icon: "align-left", fields: (m) => ({ anchorX: "left", offsetX: m }) },
+  { label: "Middle", icon: "align-center-vertical", fields: () => ({ anchorY: "middle", offsetY: 0 }) },
+  { label: "Centre", icon: "align-center-horizontal", fields: () => ({ anchorX: "center", offsetX: 0 }) },
+  { label: "Bottom", icon: "align-bottom", fields: (m) => ({ anchorY: "bottom", offsetY: m }) },
+  { label: "Right", icon: "align-right", fields: (m) => ({ anchorX: "right", offsetX: m }) },
+];
+
+/** The caption's words, then how every caption looks: one style for all of them (`captions.style`). */
+function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; host: Host }) {
+  const installed = useQuery<string[]>(host, "callout.fonts");
+  const [draft, setDraft] = useState<string>();
+  // One style for all the captions on a track, kept on the track.
+  const style = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id))?.props?.captionStyle as CaptionStyle | undefined;
+  if (!style) return null;
+  const from = ticksToSeconds(clip.mediaStart ?? 0);
+  const to = from + ticksToSeconds(clip.duration);
+  const words = ((clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []).filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+  const text = words.map((w) => w.text).join(" ");
+  // Typed into a draft and set on leaving the field or Return: the words are re-timed from the whole text.
+  const commit = () => {
+    if (draft !== undefined && draft.trim() && draft !== text) host.run("caption.setText", { clip: clip.id, text: draft }, "Edit Caption");
+    setDraft(undefined);
+  };
+  const set = (fields: Partial<CaptionStyle>, label: string, key?: string) => host.run("captions.style", { style: fields }, label, key);
+  const own = clip.props.captionPlace as Partial<CaptionStyle> | undefined;
+  const place = { ...style, ...own };
+  // Align to page moves a caption placed on its own by itself, else every caption.
+  const align = (fields: Partial<CaptionStyle>) => (own ? host.run("caption.place", { clip: clip.id, place: fields }, "Align Caption") : set(fields, "Align Captions"));
+  return (
+    <>
+      <Section>
+        <TextArea
+          className="h-16 w-full"
+          value={draft ?? text}
+          title="What this caption says: Return or leaving the field sets it"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              commit();
+            }
+            if (e.key === "Escape") setDraft(undefined);
+          }}
+        />
+      </Section>
+      <Section>
+        <div className="mb-3 text-label text-text-faint">Every caption</div>
+        <Row label="Font">
+          <Select value={style.font} onChange={(e) => set({ font: e.target.value }, "Caption Font")}>
+            {[...new Set([style.font, ...FONTS])].map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+            {installed && (
+              <optgroup label="All fonts">
+                {installed.filter((f) => f !== style.font && !FONTS.includes(f)).map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </optgroup>
+            )}
+          </Select>
+        </Row>
+        <Row label="Weight">
+          <Select value={style.weight} onChange={(e) => set({ weight: Number(e.target.value) }, "Caption Font")}>
+            {(WEIGHTS.some(([w]) => w === style.weight) ? WEIGHTS : [...WEIGHTS, [style.weight, String(style.weight)] as [number, string]]).map(([w, name]) => (
+              <option key={w} value={w}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
+        <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
+        <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
+        <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
+        <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
+        <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
+        <div className="mt-3 ml-[92px]">
+          <Check label="All capitals" checked={style.uppercase} onChange={(uppercase) => set({ uppercase }, "Caption Capitals")} />
+        </div>
+      </Section>
+      <Section>
+        {own && (
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-md bg-groove px-3 py-2 text-label text-text" data-caption-own>
+            This caption has its own position
+            <Button look="quiet" onClick={() => host.run("caption.place", { clip: clip.id, place: null }, "Use Shared Position")}>
+              Use shared
+            </Button>
+          </div>
+        )}
+        <div className="mb-2 text-label text-text-faint">Align to page</div>
+        <div className="mb-3 grid grid-cols-2 gap-1.5" data-caption-align>
+          {ALIGN.map((a) => {
+            const fields = a.fields(Math.round((80 * project.settings.height) / 1080));
+            const on = Object.entries(fields).every(([k, v]) => place[k as keyof CaptionStyle] === v);
+            return (
+              <Button key={a.label} look={on ? "solid" : "quiet"} title={`Align ${own ? "this caption" : "the captions"} to the ${a.label.toLowerCase()} of the canvas`} onClick={() => align(fields)}>
+                <span className="flex items-center gap-2">
+                  <Icon name={a.icon} size={16} />
+                  {a.label}
+                </span>
+              </Button>
+            );
+          })}
+        </div>
+        <div className="mb-3 text-caption text-text-faint">Drag a caption to move them all. ⌥-drag moves this one alone; ⌥⇧ moves it and the captions after it.</div>
+        <Slider unit="%" label="Width" value={style.maxWidth * 100} min={20} max={100} onChange={(v, key) => set({ maxWidth: Math.min(1, Math.max(0.2, v / 100)) }, "Caption Width", key)} />
+      </Section>
     </>
   );
 }

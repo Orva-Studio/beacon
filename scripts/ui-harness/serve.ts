@@ -1,7 +1,9 @@
 import { join } from "node:path";
 import { importDropped, LocalCore } from "@beacon/core";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
+import type { RecentProject } from "../../packages/ui/src/rpc";
 import keymap from "../../keymaps/default.json";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
@@ -12,8 +14,20 @@ const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAA
  * project open, in place of the app's window: for testing the UI offscreen
  * (with `browser.ts`) when an app window would be in the way.
  */
-export async function serveUi(project: string, opts: { cacheDir?: string } = {}) {
-  const core = new LocalCore(opts);
+/**
+ * `closed`: the page starts as the app does with no project open (the start screen, listing `recent`);
+ * Open Recent or Open… then opens the harness's project.
+ */
+export async function serveUi(project: string, opts: { cacheDir?: string; closed?: boolean; recent?: RecentProject[] } = {}) {
+  // Never the user's preferences or Keychain: a folder of its own, and secrets kept in memory.
+  const secrets = new Map<string, string>();
+  const configDir = mkdtempSync(join(tmpdir(), "beacon-ui-config-"));
+  const core = new LocalCore({
+    ...(opts.cacheDir ? { cacheDir: opts.cacheDir } : {}),
+    configDir,
+    secrets: { get: async (id) => secrets.get(id), set: async (id, value) => void (value === null ? secrets.delete(id) : secrets.set(id, value)) },
+  });
+  let shown = !opts.closed;
   const h = await core.open(project);
   const root = join(import.meta.dir, "../..");
   const css = Bun.spawnSync(["bun", "run", "--cwd", join(root, "packages/ui"), "css"], { stdout: "ignore", stderr: "pipe" });
@@ -29,6 +43,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
   /** Set by a test: the next patches message is lost, as a dropped message would be. */
   const faults = { dropNext: false };
   /** Proxies being made, as the app tracks them. */
+  const transcribing: Record<string, number> = {};
   const making: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
   /** Every asset's waveform peaks, as the app sends them. */
   const waveforms = () => {
@@ -75,6 +90,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
             if (e.job.state === "running") making.jobs[e.job.asset] = e.job.progress;
             else delete making.jobs[e.job.asset];
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
+          } else if (e.kind === "job" && e.job.kind === "transcript" && e.job.asset) {
+            if (e.job.state === "running") transcribing[e.job.asset] = e.job.progress;
+            else delete transcribing[e.job.asset];
+            ws.send(JSON.stringify({ type: "media", data: { transcribing: { ...transcribing } } }));
           } else if (e.kind === "derived" && e.key === "proxy") ws.send(JSON.stringify({ type: "media", data: { proxies: { [e.asset]: e.present } } }));
           else if (e.kind === "job" && e.job.kind === "waveform" && e.job.state === "done") ws.send(JSON.stringify({ type: "media", data: { waveforms: waveforms() } }));
         });
@@ -99,7 +118,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         if (msg.type === "init") {
           const schema = core.schema();
           result = {
-            opened: await opened(),
+            opened: shown ? await opened() : undefined,
+            recent: opts.recent ?? [],
             keymap: keymap.bindings,
             propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
             effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
@@ -112,6 +132,12 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
         else if (msg.type === "query") result = await reply(() => core.query(h, msg.name, msg.args ?? {}));
         else if (msg.type === "undo") result = await reply(() => core.undo(h));
         else if (msg.type === "redo") result = await reply(() => core.redo(h));
+        else if (msg.type === "openRecent" || msg.type === "openDialog") {
+          menus.push(msg.type === "openRecent" ? `openRecent:${msg.path}` : "openDialog");
+          shown = true;
+          ws.send(JSON.stringify({ type: "opened", data: await opened() }));
+          result = { ok: true };
+        }
         else if (msg.type === "clipMenu") menus.push(msg.clip);
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${msg.track}`);
@@ -196,6 +222,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
           menus.push(`fetchResource:${msg.id}`);
           result = { ok: true, result: "job-download" };
         }
+        else if (msg.type === "setPreference" || msg.type === "setSecret") {
+          menus.push(msg.type === "setPreference" ? `setPreference:${msg.pref}=${msg.value}` : `setSecret:${msg.secret}=${msg.value === null ? "removed" : "set"}`);
+          result = await reply(async () => (msg.type === "setPreference" ? await core.setPreference(msg.pref, msg.value) : await core.setSecret(msg.secret, msg.value), core.preferences()));
+        }
         else if (msg.type === "declineResource" || msg.type === "cancelJob") {
           menus.push(`${msg.type}:${msg.id}`);
           result = { ok: true };
@@ -225,6 +255,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string } = {})
     async close() {
       server.stop(true);
       await core.close(h);
+      rmSync(configDir, { recursive: true, force: true });
     },
   };
 }

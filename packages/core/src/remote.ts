@@ -17,6 +17,7 @@ import type {
   Job,
   JobInfo,
   ResourceInfo,
+  PreferenceInfo,
   NewProjectOptions,
   BeaconCore,
   ProjectHandle,
@@ -187,6 +188,8 @@ export class RemoteCore implements BeaconCore {
   jobs = () => this.#call<JobInfo[]>("jobs");
   cancelJob = (id: string) => this.#call<void>("cancelJob", id);
   resources = () => this.#call<ResourceInfo[]>("resources");
+  preferences = () => this.#call<PreferenceInfo[]>("preferences");
+  setPreference = (id: string, value: string) => this.#call<void>("setPreference", id, value);
   // A download belongs to no project, so no project's events say when it ends: ask.
   fetchResource = async (id: string): Promise<Job> => {
     const job = (await this.#call<{ id: string }>("fetchResource", id)).id;

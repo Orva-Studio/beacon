@@ -26,9 +26,15 @@ its recorded cursor), "Camera" and "Audio", each fitted to the canvas. The camer
 out (`clip_set` transform/crop, or `track_set` hidden): see the
 `beacon://docs/house-style` resource.
 
-Importing speech starts a background transcript job (whisper.cpp, local,
-seconds per minute of audio). `job_status` with `wait` blocks until it is done.
-The transcript needs Whisper's speech model, which isn't part of Beacon: until
+Importing speech starts a background transcript job (seconds per minute of
+audio). `job_status` with `wait` blocks until it is done. Who transcribes is
+the user's choice (`preference_list`, id `transcriber`): Whisper on this Mac
+(the default), Apple's on-device transcriber (no download, faster, weaker on
+technical words and exact word times), or Whisper through OpenAI's API (the
+audio is uploaded, with the user's own key). `preference_set` changes it; media
+without a transcript by the new choice is transcribed again. Only change it
+when the user asks.
+Whisper on this Mac needs its speech model, which isn't part of Beacon: until
 it is downloaded, imports report it in `needs` and no transcript starts.
 `resource_list` says whether it is there; `resource_fetch` downloads it (about
 575 MB, once) as a job. Ask the user before fetching; transcripts of media

@@ -12,3 +12,5 @@ export * from "./session";
 export * from "./edit";
 export * from "./canvas";
 export * from "./perspective";
+/** A draft's state before the command began: read it to find things without drafting every object on the way. */
+export { original } from "immer";

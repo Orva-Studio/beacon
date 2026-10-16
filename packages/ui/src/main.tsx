@@ -3,6 +3,7 @@ import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
+import { commandQueue } from "./latest";
 import { replica } from "./store";
 
 const rpc = Electroview.defineRPC<AppRPC>({
@@ -20,6 +21,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       renameMedia: ({ asset }) => replica.renameMedia(asset),
       showClipSpeed: ({ clip }) => replica.showClipSpeed(clip, true),
       newProjectSheet: ({ name }) => replica.newProject({ name }),
+      recent: (r) => replica.recent(r),
       saveAsSheet: (s) => replica.saveAs(s),
       resourceSheet: (r) => replica.resource(r),
       resourceJob: (j) => replica.resourceJob(j),
@@ -71,16 +73,19 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
   if (!r.ok && r.error) replica.status(r.error);
 };
 
+const commands = commandQueue(report);
+
 const host: Host = {
-  run: (command, args, label, coalesce) => void report(request.run({ command, args, label, coalesce })),
+  run: (command, args, label, coalesce) => commands.send(() => request.run({ command, args, label, coalesce }), coalesce),
   query: async (name, args) => {
     const r = await request.query({ name, args });
     if (!r.ok) throw new Error(r.error);
     return r.result;
   },
-  undo: () => void report(request.undo({})),
-  redo: () => void report(request.redo({})),
-  openDialog: () => void report(request.openDialog({})),
+  undo: () => commands.send(() => request.undo({})),
+  redo: () => commands.send(() => request.redo({})),
+  openDialog: () => commands.send(() => request.openDialog({})),
+  openRecent: (path) => void commands.ordered(() => request.openRecent({ path })),
   canvasView: (id, rect, scale, surround) => void request.canvasView({ id, ...rect, scale, surround }),
   canvasMarks: (marks) => view.rpc!.send.canvasMarks({ marks }),
   clipMenu: (clip, from) => void request.clipMenu({ clip, ...(from ? { canvas: true } : {}) }),
@@ -88,8 +93,8 @@ const host: Host = {
   trackMenu: (track) => void request.trackMenu({ track }),
   binMenu: (asset) => void request.binMenu({ asset }),
   importMedia: () => void request.importMedia({}),
-  dropFiles: (files, at) => void report(request.dropFiles({ files, ...at })),
-  captureFrame: () => void report(request.captureFrame({})),
+  dropFiles: (files, at) => commands.send(() => request.dropFiles({ files, ...at })),
+  captureFrame: () => commands.send(() => request.captureFrame({})),
   frameImage: () => request.frameImage({}),
   binFrame: (asset, time) => request.binFrame({ asset, time }),
   analyze: (key, asset) => void request.analyze({ key, asset }),
@@ -105,10 +110,12 @@ const host: Host = {
   setAppSettings: (s) => void request.setAppSettings(s),
   proxySpace: () => request.proxySpace({}),
   deleteAllProxies: () => request.deleteAllProxies({}),
-  newProject: (name, settings, standalone) => request.newProject({ name, settings, standalone }),
-  saveAs: (params) => request.saveAs(params),
+  newProject: (name, settings, standalone) => commands.ordered(() => request.newProject({ name, settings, standalone })),
+  saveAs: (params) => commands.ordered(() => request.saveAs(params)),
   fetchResource: (id) => request.fetchResource({ id }),
   declineResource: (id) => void request.declineResource({ id }),
+  setPreference: (id, value) => request.setPreference({ id, value }),
+  setSecret: (id, value) => request.setSecret({ id, value }),
   cancelJob: (id) => void report(request.cancelJob({ id })),
   renameProject: (name) => request.renameProject({ name }),
   previewOpen: (asset) => request.previewOpen({ asset }),

@@ -4,6 +4,7 @@ import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
 import type { ResourceInfo, ResourceJob } from "./resource";
+import type { PreferenceInfo } from "./transcripts-settings";
 
 export type { CanvasValues };
 export type { CanvasMark };
@@ -29,8 +30,18 @@ export interface Opened {
   rev: number;
 }
 
+/** A project from Open Recent; `opened`: ms since 1970. */
+export interface RecentProject {
+  path: string;
+  name: string;
+  opened: number;
+  /** A PNG data URL of the project as it was last left. */
+  thumb?: string;
+}
+
 export interface Init {
   opened?: Opened;
+  recent: RecentProject[];
   keymap: Binding[];
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
@@ -84,7 +95,7 @@ export interface Notice {
 export type SettingsTab = "general" | "recording" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
-export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[] };
+export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
 
 /** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
 export interface SoundOutput {
@@ -264,6 +275,7 @@ export type AppRPC = {
       undo: { params: {}; response: RunReply };
       redo: { params: {}; response: RunReply };
       openDialog: { params: {}; response: RunReply };
+      openRecent: { params: { path: string }; response: void };
       /** Shows the right-click menu for a clip (a native menu). */
       /** `canvas`: opened from the canvas, which adds Project Settings… and Zoom to Fit. */
       clipMenu: { params: { clip: string; canvas?: boolean }; response: void };
@@ -311,6 +323,10 @@ export type AppRPC = {
       /** Download a resource (the speech model): replies with its job id. */
       fetchResource: { params: { id: string }; response: RunReply & { result?: string } };
       declineResource: { params: { id: string }; response: void };
+      /** Settings › General › Transcripts: replies with the preferences as they now are. */
+      setPreference: { params: { id: string; value: string }; response: RunReply & { result?: PreferenceInfo[] } };
+      /** Saves an API key in the Keychain, or removes it (null). */
+      setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
@@ -349,6 +365,7 @@ export type AppRPC = {
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
       newProjectSheet: { name: string };
+      recent: RecentProject[];
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;
       /** An analysis needs a resource that isn't downloaded: ask. */
@@ -376,7 +393,7 @@ export type AppRPC = {
       /** Timeline pictures: waveforms by asset and audio stream, first-frame thumbnails (data URLs) by clip. */
       /** `preparing`: every asset whose proxy is being made, its progress 0-1 (replaces the last); `proxies`: whether assets have one (merged). */
       /** `missing`: media whose file is gone (replaces the last). */
-      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; proxies?: Record<string, boolean>; missing?: string[] };
+      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; proxies?: Record<string, boolean>; missing?: string[] };
     };
   };
 };

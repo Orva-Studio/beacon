@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  adoptTrackProps,
   AssetSchema,
   ClipboardSchema,
   clipEnd,
@@ -247,9 +248,11 @@ export const clipCommands = [
       const plan = planMove(list, moves, by);
       if (plan.error) throw new Error(`can't move there: ${plan.error}`);
       const byId = new Map(list.flatMap((t) => t.clips).map((c) => [c.id, c]));
+      const came = new Map<string, Track>();
       for (const p of plan.placements) {
         const c = byId.get(p.clip)!;
         const from = list.find((t) => t.clips.includes(c))!;
+        came.set(c.id, from);
         from.clips.splice(from.clips.indexOf(c), 1);
       }
       for (const p of plan.placements) {
@@ -257,6 +260,7 @@ export const clipCommands = [
         const c = byId.get(p.clip)!;
         c.start = p.start;
         list[p.track]!.clips.push(c);
+        if (came.get(c.id) !== list[p.track]) adoptTrackProps(list[p.track]!, came.get(c.id)!.props);
       }
       for (const t of new Set(plan.placements.map((p) => list[p.track]!))) t.clips.sort((x, y) => x.start - y.start);
     },
@@ -433,6 +437,7 @@ export const clipCommands = [
         const to = doc.tracks[base + row]!;
         unlocked(to);
         if (to.hidden) throw new Error(`track "${to.name}" is disabled`);
+        adoptTrackProps(to, clipboard.trackProps?.[row]);
         const copy: Clip = { ...clone(clip), id: ctx.newId("clip"), start: t0 + clip.start };
         if (copy.assetId) copy.assetId = assets.get(copy.assetId) ?? copy.assetId;
         if (copy.linkId) {

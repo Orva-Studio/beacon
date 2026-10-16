@@ -12,7 +12,8 @@ const NAMES = [
   "skip-back", "skip-forward", "caret-left", "caret-right", "play", "pause",
   "speaker-high", "speaker-slash", "lock-simple", "lock-simple-open", "eye", "eye-slash", "magnet",
   "trash", "x", "sparkle", "monitor-play", "video-camera", "image", "music-note", "sort-ascending", "sort-descending",
-  "caret-down", "dots-three", "eyedropper", "gauge", "link-simple-horizontal", "magnifying-glass", "squares-four", "list", "check",
+  "caret-down", "dots-three", "eyedropper", "gauge", "link-simple-horizontal", "magnifying-glass", "squares-four", "list", "check", "closed-captioning",
+  "align-top", "align-center-vertical", "align-bottom", "align-left", "align-center-horizontal", "align-right",
 ];
 
 /** Drawn for Beacon on the same grid, where Phosphor has no match: regular (a 16-unit outline), then fill. */

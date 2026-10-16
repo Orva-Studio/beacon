@@ -40,6 +40,8 @@ const SUBJECTS: Record<string, string> = {
   "fade-in": `A mint-green (#3ee68d) audio waveform running left to right across a flat dark panel, starting flat and silent at the left and growing smoothly to full loudness at the right. ${NO_TEXT}`,
   "fade-out": `A mint-green (#3ee68d) audio waveform running left to right across a flat dark panel, at full loudness at the left and shrinking smoothly to flat silence at the right. ${NO_TEXT}`,
   "remove-silences": `A flat dark panel with an audio waveform in vivid cyan (#22d3ee) running left to right in three loud bursts of speech, the two flat silent gaps between them cut out and the bursts sliding together, each removed gap marked by a thin dashed cyan cut line and a small sparkle. ${NO_TEXT}`,
+  "remove-fillers": `A flat dark panel with a row of rounded speech-bubble shapes in vivid coral pink (#fb7185), two small wobbly bubbles among them (the hesitations) lifting out of the row and fading, the bubbles either side sliding together to close the gap, a thin dashed coral cut line and a small sparkle where each one left. ${NO_TEXT}`,
+  captions: `A flat dark video frame with a softly lit presenter silhouette, and across its lower third a rounded dark caption bar holding three short pill-shaped word blocks in white, the middle one glowing vivid yellow (#facc15) as the word being spoken, a small sound-wave glyph beside the bar. ${NO_TEXT}`,
 };
 
 async function draw(id: string, keep: string) {

@@ -1,5 +1,5 @@
 import { replica, useView } from "./store";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   animatedValue,
   editedValue,
@@ -25,7 +25,8 @@ import {
 import type { Host } from "./app";
 import { addDropTarget, takes, type DropTarget } from "./drop";
 import { rgba } from "./theme";
-import { useTextEdit } from "./text-edit";
+import { useTextEdit, type TextLine, type TextTarget } from "./text-edit";
+import { useQuery } from "./query";
 import { useDialogsOpen } from "./controls";
 
 const HANDLE = 10;
@@ -187,9 +188,30 @@ type Drag =
   | { kind: "crop"; key: string; handle: Handle; clip: Placed; x0: number; y0: number }
   /** `a0`: the pointer's screen angle about the pivot when the drag starts. */
   | { kind: "rotate"; key: string; clip: Placed; a0: number }
+  /** A caption dragged: the box when it started (canvas pixels) and the anchors and offsets it moves. */
+  /** `alone`: the caption moves on its own (⌥, or it already is), `onward` with those after it (⌥⇧); else all move. */
+  | { kind: "captionMove"; key: string; x0: number; y0: number; box: [number, number][]; style: CaptionPlace; alone: boolean; onward: boolean }
+  /** A caption's side handle: its text's width when it started, which the handle widens or narrows. */
+  | { kind: "captionWidth"; key: string; sx: number; x0: number; width: number; style: CaptionPlace }
   /** A middle-button drag: `c`, the canvas point grabbed. */
   | { kind: "pan"; c: [number, number] }
   | { kind: "text" };
+
+/** Where captions sit (the captions' shared style): an edge or the middle on each axis, and canvas pixels in from it. */
+type CaptionPlace = { anchorX: "left" | "center" | "right"; offsetX: number; anchorY: "top" | "middle" | "bottom"; offsetY: number; size: number; maxWidth: number };
+
+/** The `captions.layout` query: the caption showing, its box and its text's lines from `origin` (canvas pixels). */
+interface CaptionLayout {
+  clip: string;
+  box: { x: number; y: number; width: number; height: number };
+  origin: [number, number];
+  lines: TextLine[];
+  text: string;
+  /** Placed on its own rather than where the track's captions all sit. */
+  own: boolean;
+}
+
+const isCaption = (p: Placed) => p.clip.type === "caption";
 
 /**
  * Canvas handles, over the native preview: click selects the top
@@ -284,7 +306,33 @@ export function CanvasOverlay({
   /** The pan that keeps canvas point `c` under overlay point `p` at zoom percent `zoom`. */
   const panFor = (zoom: number, c: [number, number], [px, py]: [number, number]) => panKeeping(project.settings, size, zoom, c, [px - vx, py - vy]);
   const view: Affine = [k, 0, 0, k, ox, oy];
+  // Captions are laid out by the renderer, so their box comes from the core rather than a transform.
+  const reported = useQuery<CaptionLayout | null>(host, session.playing ? "" : "captions.layout", { time: session.playhead }, project);
+  /**
+   * Where a dragged caption's box is going: drawn from the drag itself, as other clips' outlines are, until the
+   * box the core reports catches up (it is a round trip behind the pointer).
+   */
+  const [moved, setMoved] = useState<{ clip: string; x: number; y: number; done?: boolean }>();
+  const caught = !!moved && !!reported && reported.clip === moved.clip && Math.abs(reported.box.x - moved.x) < 0.5 && Math.abs(reported.box.y - moved.y) < 0.5;
+  useEffect(() => {
+    if (moved?.done && caught) setMoved(undefined);
+  }, [moved, caught]);
+  const caption = reported && moved && moved.clip === reported.clip && !caught ? { ...reported, box: { ...reported.box, x: moved.x, y: moved.y }, origin: [reported.origin[0] + moved.x - reported.box.x, reported.origin[1] + moved.y - reported.box.y] as [number, number] } : reported;
+  /** Each top-level clip and its track's index, built once a timeline change rather than searched per clip. */
+  const where = useMemo(() => new Map(project.tracks.flatMap((t, i) => t.clips.map((c) => [c.id, { clip: c, track: i }] as const))), [project.tracks]);
+  const captionAt = caption ? where.get(caption.clip) : undefined;
+  const captionClip = captionAt?.clip;
   const placed = placedClips(project, session, view, (c) => clipTypes[c.type]?.includes("visual") ?? false);
+  if (caption && captionClip) {
+    const { x, y, width, height } = caption.box;
+    const t = { x: x + width / 2 - CW / 2, y: CH / 2 - (y + height / 2), scaleX: 1, scaleY: 1, rotation: 0 };
+    const crop = { left: 0, top: 0, right: 0, bottom: 0 };
+    const p: Placed = { clip: captionClip, size: [width, height], t, crop, stored: { t, crop }, m: compose(view, translate(x, y)), corners: [apply(view, x, y), apply(view, x + width, y), apply(view, x + width, y + height), apply(view, x, y + height)] };
+    // Drawn in track order like the rest: above the clips on lower tracks.
+    const at = placed.findIndex((q) => (where.get(q.clip.id)?.track ?? -1) < captionAt!.track);
+    placed.splice(at < 0 ? placed.length : at, 0, p);
+  }
+  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(captionAt ? (project.tracks[captionAt.track]!.props?.captionStyle as Partial<CaptionPlace> | undefined) : undefined), ...(captionClip?.props.captionPlace as Partial<CaptionPlace>) });
   const selected = placed.filter((p) => session.selection.includes(p.clip.id));
 
   // Panel items dropped on media on the canvas apply to the top clip there that takes them, at the playhead.
@@ -303,9 +351,34 @@ export function CanvasOverlay({
   useEffect(() => {
     if (typing && (!typed || !session.selection.includes(typing))) setTyping(null);
   }, [typing, typed, session.selection]);
-  const text = useTextEdit(host, typed?.clip, typed?.m, () => setTyping(null));
-  /** A point in the typed callout's box units, if inside it. */
-  const inTyped = (pt: [number, number]): [number, number] | undefined => (typed && inside(pt, typed.corners) ? apply(invert(typed.m), ...pt) : undefined);
+  /** Box units of the typed text → overlay points: a callout's box, or a caption's text origin. */
+  const typedM = typed && (isCaption(typed) && caption ? compose(view, translate(...caption.origin)) : typed.m);
+  const target: TextTarget | undefined = !typed
+    ? undefined
+    : isCaption(typed)
+      ? caption ? {
+          id: typed.clip.id,
+          text: caption.text,
+          layoutKey: JSON.stringify(caption.lines),
+          lines: async () => caption.lines,
+          set: (t) => host.run("caption.setText", { clip: typed.clip.id, text: t }, "Edit Caption", `caption-text-${typed.clip.id}`),
+          draft: true,
+        } : undefined
+      : (() => {
+          const c = typed.clip.props.callout as { text?: { text: string } & Record<string, unknown>; width: number; height: number } | undefined;
+          return (
+            c?.text ? {
+              id: typed.clip.id,
+              text: c.text.text,
+              layoutKey: JSON.stringify({ ...c.text, width: c.width, height: c.height }),
+              lines: async () => (await host.query("callout.textLayout", { clip: typed.clip.id })) as TextLine[],
+              set: (t: string) => host.run("clip.set", { clips: [typed.clip.id], props: { callout: { text: { ...c.text, text: t } } } }, "Edit Text", `text-${typed.clip.id}`),
+            } : undefined
+          );
+        })();
+  const text = useTextEdit(target, typedM, () => setTyping(null));
+  /** A point in the typed text's box units, if inside its box. */
+  const inTyped = (pt: [number, number]): [number, number] | undefined => (typed && typedM && inside(pt, typed.corners) ? apply(invert(typedM), ...pt) : undefined);
 
   const at = (x: number, y: number): [number, number] => [ox + x * k, oy + y * k];
   const marks: CanvasMark[] = [
@@ -316,7 +389,9 @@ export function CanvasOverlay({
       return [line([l, t], [r, t], COLOR.border), line([r, t], [r, b], COLOR.border), line([r, b], [l, b], COLOR.border), line([l, b], [l, t], COLOR.border)];
     })(),
     // While typing in place, the box shows its outline only: the rotate control would sit on the text.
-    ...selected.flatMap((p) => (p.clip.id === typing ? selectionMarks(p, false).filter((m) => m.kind === "line").slice(0, 4) : selectionMarks(p, hot || rotating))),
+    ...selected.flatMap((p) =>
+      p.clip.id === typing ? selectionMarks(p, false).filter((m) => m.kind === "line").slice(0, 4) : isCaption(p) ? captionMarks(p) : selectionMarks(p, hot || rotating),
+    ),
     ...guides.flatMap((g) => {
       const pt = (v: number) => (g.axis === "x" ? at(g.at, v) : at(v, g.at));
       return [line(pt(g.from), pt(g.to), COLOR.guide), ...g.marks.flatMap((m) => cross(pt(m), 3, COLOR.guide))];
@@ -447,6 +522,11 @@ export function CanvasOverlay({
           setRotating(true);
           return;
         }
+        if (target && handle && isCaption(target)) {
+          const place = captionPlace();
+          drag.current = { kind: "captionWidth", key, sx: HANDLES.find((x) => x.id === handle)!.sx, x0: pt[0], width: target.size[0] - 2 * place.size * 0.45, style: place };
+          return;
+        }
         if (target && handle) {
           const h = HANDLES.find((x) => x.id === handle)!;
           drag.current = { kind: e.altKey ? "crop" : "scale", key, handle: h, clip: target, x0: pt[0], y0: pt[1] };
@@ -458,10 +538,18 @@ export function CanvasOverlay({
           return;
         }
         const hit = placed.find((p) => inside(pt, p.corners));
-        // A callout's text is typed in place after a double-click.
-        if (hit && e.detail === 2 && (hit.clip.props.callout as { text?: unknown } | undefined)?.text) {
-          host.run("inspector.tab", { tab: "callout" });
+        // A callout's or a caption's text is typed in place after a double-click.
+        if (hit && e.detail === 2 && (isCaption(hit) || (hit.clip.props.callout as { text?: unknown } | undefined)?.text)) {
+          host.run("inspector.tab", { tab: isCaption(hit) ? "caption" : "callout" });
           setTyping(hit.clip.id);
+          return;
+        }
+        // A caption moves every caption, which share one place, unless it is placed on its own or ⌥ places it so.
+        if (hit && isCaption(hit) && !e.metaKey && (!e.shiftKey || e.altKey)) {
+          if (!session.selection.includes(hit.clip.id) || session.selection.length > 1) host.run("selection.set", { clips: [hit.clip.id], linked: false });
+          const alone = e.altKey || !!caption?.own;
+          drag.current = { kind: "captionMove", key, x0: pt[0], y0: pt[1], box: hit.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as [number, number]), style: captionPlace(), alone, onward: e.altKey && e.shiftKey };
+          setMoved(undefined);
           return;
         }
         if (!hit) {
@@ -486,13 +574,38 @@ export function CanvasOverlay({
         const [px, py] = local(e);
         if (d.kind === "text") {
           // Past the box's edge the selection keeps to the nearest offset.
-          if (typed) text.pointer("move", apply(invert(typed.m), px, py));
+          if (typedM) text.pointer("move", apply(invert(typedM), px, py));
           return;
         }
         if (d.kind === "pan") {
           const zoom = Math.round(k * 1000) / 10;
           cancelAnimationFrame(pending.current);
           pending.current = requestAnimationFrame(() => host.run("canvas.zoom", { zoom, pan: panFor(zoom, d.c, [px, py]) }));
+          return;
+        }
+        if (d.kind === "captionMove") {
+          const snap = snapMove([d.box], (px - d.x0) / k, (py - d.y0) / k, e.ctrlKey);
+          setGuides(snap.guides);
+          const s = d.style;
+          const offsetX = s.offsetX + (s.anchorX === "right" ? -snap.dx : snap.dx);
+          const offsetY = s.offsetY + (s.anchorY === "bottom" ? -snap.dy : snap.dy);
+          // Offsets are whole pixels, so the box drawn now is where the renderer will put it.
+          const [x, y] = [Math.round(offsetX) - s.offsetX, Math.round(offsetY) - s.offsetY];
+          setMoved({ clip: captionClip!.id, x: d.box[0]![0] + (s.anchorX === "right" ? -x : x), y: d.box[0]![1] + (s.anchorY === "bottom" ? -y : y) });
+          const place = { offsetX: Math.round(offsetX), offsetY: Math.round(offsetY) };
+          if (d.alone) host.run("caption.place", { clip: captionClip!.id, place, onward: d.onward }, d.onward ? "Move Captions From Here" : "Move Caption", d.key);
+          else host.run("captions.style", { style: place }, "Move Captions", d.key);
+          return;
+        }
+        if (d.kind === "captionWidth") {
+          const s = d.style;
+          const du = (px - d.x0) / k;
+          // About the centre both sides move; against an edge, the other side moves and the box keeps to the edge.
+          const grow = s.anchorX === "center" ? 2 * d.sx * du : d.sx * du;
+          const width = clamp(d.width + grow, CW * 0.2, CW);
+          const moves = (s.anchorX === "left" && d.sx < 0) || (s.anchorX === "right" && d.sx > 0);
+          const offsetX = moves ? s.offsetX - (width - d.width) : s.offsetX;
+          host.run("captions.style", { style: { maxWidth: Math.round((width / CW) * 1000) / 1000, ...(moves ? { offsetX: Math.round(offsetX) } : {}) } }, "Caption Width", d.key);
           return;
         }
         if (d.kind === "move") {
@@ -563,6 +676,7 @@ export function CanvasOverlay({
       }}
       onPointerUp={(e) => {
         if (drag.current?.kind === "text") text.pointer("up", undefined);
+        if (drag.current?.kind === "captionMove") setMoved((m) => m && { ...m, done: true });
         drag.current = null;
         setGuides([]);
         setRotating(false);
@@ -573,7 +687,7 @@ export function CanvasOverlay({
       {text.element}
       {!host.canvasMarks && <MarksSvg marks={marks} />}
       {selected.filter((p) => p.clip.id !== typing).map((p) => (
-        <Grips key={p.clip.id} p={p} onHot={setHot} crop={alt || cropping} />
+        <Grips key={p.clip.id} p={p} onHot={setHot} crop={alt || cropping} caption={isCaption(p)} />
       ))}
     </div>
   );
@@ -646,7 +760,14 @@ const CROP_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
     '<g stroke="white" stroke-width="2"><path d="M6 2v16h16"/><path d="M2 6h16v16"/></g></svg>',
 )}") 12 12, crosshair`;
 
-function Grips({ p, onHot, crop }: { p: Placed; onHot: (on: boolean) => void; crop: boolean }) {
+/** A caption's selection: its box, and the side handles that set how wide its lines run. */
+function captionMarks(p: Placed): CanvasMark[] {
+  const q = p.corners;
+  const at = handlePoints(p);
+  return [...q.map((a, i) => line(a, q[(i + 1) % 4]!, COLOR.outline)), circle(at.e!, HANDLE / 2, COLOR.handle), circle(at.w!, HANDLE / 2, COLOR.handle)];
+}
+
+function Grips({ p, onHot, crop, caption }: { p: Placed; onHot: (on: boolean) => void; crop: boolean; caption?: boolean }) {
   const at = handlePoints(p);
   const dot = dotAt(p);
   const round = (x: number, y: number, size: number) => ({ left: x - size / 2, top: y - size / 2, width: size, height: size });
@@ -658,10 +779,10 @@ function Grips({ p, onHot, crop }: { p: Placed; onHot: (on: boolean) => void; cr
   };
   return (
     <>
-      {HANDLES.map((h) => (
-        <div key={h.id} data-handle={h.id} data-clip={p.clip.id} className="absolute rounded-full" style={{ ...round(at[h.id]![0], at[h.id]![1], HANDLE + 4), cursor: crop ? CROP_CURSOR : cursorAt(h) }} />
+      {HANDLES.filter((h) => !caption || h.sy === 0).map((h) => (
+        <div key={h.id} data-handle={h.id} data-clip={p.clip.id} className="absolute rounded-full" style={{ ...round(at[h.id]![0], at[h.id]![1], HANDLE + 4), cursor: !caption && crop ? CROP_CURSOR : cursorAt(h) }} />
       ))}
-      <div
+      {!caption && <div
         data-handle="rotate"
         data-clip={p.clip.id}
         title="Drag to rotate (Shift: 15° steps)"
@@ -669,7 +790,7 @@ function Grips({ p, onHot, crop }: { p: Placed; onHot: (on: boolean) => void; cr
         style={round(dot[0], dot[1], ROTATE.dot + 4)}
         onPointerEnter={() => onHot(true)}
         onPointerLeave={() => onHot(false)}
-      />
+      />}
     </>
   );
 }

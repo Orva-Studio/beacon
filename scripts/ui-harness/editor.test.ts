@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
+import { DerivedData } from "@beacon/render";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
@@ -226,6 +227,65 @@ test.skipIf(skip)("New Project asks for a name and the canvas (presets); the pro
   expect(ui.menus).toContain("newProjectStandalone");
 });
 
+test.skipIf(skip)("opened without a project, the start screen offers New Project, the last four projects with when each was opened, and Open…", async () => {
+  const path = join(dir, "start.beproj");
+  const core = new LocalCore();
+  await core.close(await core.create({ path }));
+  const now = Date.now();
+  const recent = [
+    { path, name: "start", opened: now - 5 * 60_000 },
+    { path: "/Users/someone/Movies/Beacon/Launch.beproj", name: "Launch", opened: now - 3 * 3_600_000, thumb: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" },
+    { path: "/Users/someone/Movies/Beacon/Tutorial.beproj", name: "Tutorial", opened: now - 26 * 3_600_000 },
+    { path: "/Users/someone/Movies/Beacon/Old.beproj", name: "Old", opened: new Date(2025, 2, 3).getTime() },
+    { path: "/Users/someone/Movies/Beacon/Fifth.beproj", name: "Fifth", opened: new Date(2025, 1, 1).getTime() },
+  ];
+  const start = await serveUi(path, { closed: true, recent });
+  const view = await openPage(start.url);
+  try {
+    const rows = `[...document.querySelectorAll('[data-recent]')].map((r) => r.innerText.replace(/\\s+/g, ' ').trim())`;
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    const shown = await view.evaluate<string[]>(rows);
+    expect(shown.slice(0, 3)).toEqual(["start 5 minutes ago", "Launch 3 hours ago", "Tutorial yesterday"]);
+    // Each shows the project as it was last left, when the app has a picture of it.
+    expect(await view.evaluate<boolean[]>(`[...document.querySelectorAll('[data-recent]')].map((r) => !!r.querySelector('img'))`)).toEqual([false, true, false, false]);
+    // Older ones by date, in the Mac's format.
+    expect(shown[3]).toMatch(/^Old .*\b3\b.*2025$/);
+    // Nothing to go back to: Escape leaves it open.
+    await view.key("Escape", "Escape");
+    await Bun.sleep(100);
+    expect(await view.evaluate<boolean>("!!document.querySelector('[data-start-screen]')")).toBe(true);
+    // New Project replaces it; cancelled, it is back.
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'New Project').click()`);
+    await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    // The list follows Open Recent as the app changes it.
+    start.send("recent", recent.slice(1));
+    await view.until(`${rows}.length === 4 && ${rows}[0].startsWith('Launch')`);
+    start.send("recent", recent);
+    await view.until(`${rows}[0].startsWith('start ')`);
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Open…').click()`);
+    await arrived(() => start.menus.includes("openDialog"));
+    expect(start.menus).toContain("openDialog");
+    await view.until("!document.querySelector('[data-start-screen]')");
+  } finally {
+    view.close();
+    await start.close();
+  }
+  // A click on a recent project opens it, and the editor shows it.
+  const again = await serveUi(path, { closed: true, recent });
+  const page2 = await openPage(again.url);
+  try {
+    await page2.until("!!document.querySelector('[data-start-screen]')");
+    await page2.click(...(await page2.evaluate<[number, number]>(`(() => { const r = document.querySelector('[data-recent="${path}"]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`)));
+    await page2.until(`!document.querySelector('[data-start-screen]') && !!document.querySelector('[title="Rename the project"]')`);
+    expect(again.menus).toContain(`openRecent:${path}`);
+  } finally {
+    page2.close();
+    await again.close();
+  }
+}, 30000);
+
 test.skipIf(skip)("Save As asks for a name, a folder and standalone; a name that is taken keeps the dialog open with why", async () => {
   ui.send("saveAsSheet", { name: "Episode 12 copy", folder: "/Users/someone/Projects", standalone: false });
   await page.until("document.body.innerText.includes('Save As')");
@@ -256,7 +316,7 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   expect(ui.menus).not.toContain("fetchResource:whisper-model");
 
   // Settings › General offers it again; downloading shows progress, Cancel stops it, Hide leaves it running.
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model] });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
   await page.until(`!!${button("Download Speech Model…")}`);
   await page.evaluate(`${button("Download Speech Model…")}.click()`);
   await page.until("!!document.querySelector('[data-resource]')");
@@ -274,6 +334,43 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   ui.send("resourceJob", { id: "job-download", state: "done", progress: 1 });
   await page.until("!document.querySelector('[data-resource]')");
 });
+
+test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's waits for a key, says the audio is uploaded, and removing the key goes back to Whisper", async () => {
+  const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "", bytes: 574_041_195, present: false };
+  const button = (label: string) => `[...document.querySelectorAll('button')].find((b) => b.textContent === '${label}')`;
+  const pick = (value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-transcriber]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const value = async () => (await ui.core.preferences()).find((p) => p.id === "transcriber")!.value;
+  // Changing the transcriber transcribes the project's media again: not here (OpenAI's would be sent the test key).
+  ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+  await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
+  expect(await has("[data-resource-row]")).toBe(true);
+  // Apple's needs nothing: chosen at once, and the model isn't offered.
+  await pick("apple");
+  await arrived(() => ui.menus.includes("setPreference:transcriber=apple"));
+  await page.until("!document.querySelector('[data-resource-row]')");
+  expect(await value()).toBe("apple");
+  // OpenAI's waits for its key, and says where the audio goes.
+  await pick("openai");
+  await page.until("!!document.querySelector('[data-api-key=\"unset\"]')");
+  expect(await page.evaluate<string>(`document.querySelector('[data-api-key]').closest('[tabindex="-1"]').innerText`)).toContain("uploaded to OpenAI");
+  expect(await value()).toBe("apple");
+  expect(ui.menus).not.toContain("setPreference:transcriber=openai");
+  await page.click(...(await centre('[data-api-key="unset"] input')));
+  await type("sk-test-123");
+  await page.evaluate(`${button("Save and Use")}.click()`);
+  await page.until("!!document.querySelector('[data-api-key=\"set\"]')");
+  expect(ui.menus).toContain("setSecret:openai-api-key=set");
+  expect(await value()).toBe("openai");
+  // An agent can't choose an option whose key is missing; without its key, OpenAI's goes back to Whisper.
+  await page.evaluate(`${button("Remove")}.click()`);
+  await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
+  expect(await value()).toBe("whisper");
+  await expect(ui.core.setPreference("transcriber", "openai")).rejects.toThrow(/only the user can add/);
+  await page.evaluate(`${button("Done")}.click()`);
+  await page.until("!document.querySelector('[data-transcriber]')");
+  ui.core.setAutomatic(() => true);
+}, 20000);
 
 test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async () => {
   await run("timeline.zoom", { to: "max" });
@@ -946,11 +1043,12 @@ test.skipIf(skip)("moved media shows Missing on its Media Bin tile and builds no
   await ui.core.undo(ui.handle);
 }, 30000);
 
-test.skipIf(skip)("⌘S confirms the project is saved automatically, with no dialog", async () => {
+test.skipIf(skip)("⌘S confirms the project is saved automatically for a moment, with no dialog; otherwise the title bar says nothing", async () => {
+  expect(await has("[data-saved]")).toBe(false);
   await page.key("s", "KeyS", ["meta"]);
   await page.until(`(document.querySelector('[data-saved]')?.textContent ?? '').startsWith('✓')`, 1000);
   expect(await has("[role=dialog]")).toBe(false);
-  await page.until(`!(document.querySelector('[data-saved]')?.textContent ?? '').startsWith('✓')`, 3000);
+  await page.until(`!document.querySelector('[data-saved]')`, 3000);
 });
 
 test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock toggle the track", async () => {
@@ -1244,3 +1342,305 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   expect(length()).toBeCloseTo(before, 3);
   await run("panel.show", { tool: null });
 }, 150_000);
+
+test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; one at a time, Cut This One cuts only one; Cancel cuts nothing; one review at a time", async () => {
+  // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
+  // in a cache of its own.
+  type Transcript = { streams: Record<number, { words: { text: string }[] }> };
+  const talk = await ui.core.import(ui.handle, [join(FIXTURES, "audio.m4a")]);
+  let transcript: Transcript | undefined;
+  for (const end = Date.now() + 120_000; !(transcript = ui.core.derived<Transcript>(ui.handle, talk.assets[0]!, "transcript")) && Date.now() < end; ) await Bun.sleep(250);
+  await ui.core.undo(ui.handle);
+  const cacheDir = join(dir, "fillers-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "fillers.beproj");
+  const h = await core.create({ path });
+  const copy = join(dir, `talk-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const { assets } = await core.import(h, [copy]);
+  const asset = core.doc(h).assets[assets[0]!]!;
+  await core.close(h);
+  const edited = structuredClone(transcript!);
+  for (const [i, text] of [[30, "Um,"], [90, "uh,"], [91, "uh"], [150, "Hmm."]] as const) edited.streams[0]!.words[i]!.text = text;
+  mkdirSync(join(cacheDir, "derived"), { recursive: true });
+  writeFileSync(new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify(edited));
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
+    const review = async () => ((await other.core.session(other.handle)).features.transcript as { fillers?: { flipped: number[] }; silences?: object } | undefined);
+    type Found = { fillers: { start: number; end: number; text: string; cut: boolean }[]; saved: number };
+    const found = async () => (await other.core.query(other.handle, "transcript.fillers", (await review())?.fillers ?? {})) as Found;
+    await go("panel.show", { tool: "ai" });
+    await p.until("!!document.querySelector('[data-ai=fillers]')");
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-filler-review]')");
+    await p.until("/shorter\\.$/.test(document.querySelector('[data-fillers-summary]')?.textContent ?? '')", 30_000);
+    const first = await found();
+    expect(first.fillers.map((f) => f.text)).toEqual(["Um,", "uh, uh", "Hmm."]);
+    expect(await p.evaluate<string>("document.querySelector('[data-fillers-summary]').textContent")).toStartWith("3 filler words: 3 to cut, 0 kept.");
+    // The second filler, shown wide and clicked in the middle of its mark: kept now.
+    const target = first.fillers[1]!;
+    await go("timeline.view", { start: target.start - 2, end: target.end + 2 });
+    const s = await other.core.session(other.handle);
+    const box = await p.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+    const header = headerWidth(other.core.doc(other.handle).tracks);
+    const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+    await p.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+    for (let i = 0; i < 50 && !(await review())?.fillers?.flipped.length; i++) await Bun.sleep(50);
+    const flipped = await found();
+    expect(flipped.fillers.map((f) => f.cut)).toEqual([true, false, true]);
+    await p.until("(document.querySelector('[data-fillers-summary]')?.textContent ?? '').startsWith('3 filler words: 2 to cut, 1 kept.')");
+    const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
+    const before = length();
+    const undo = (await other.core.history(other.handle)).undo.length;
+    await p.evaluate("document.querySelector('[data-fillers-apply]').click()");
+    await p.until("!document.querySelector('[data-filler-review]')");
+    await arrived(() => length() < before);
+    expect(before - length()).toBeCloseTo(flipped.saved, 2);
+    expect((await other.core.history(other.handle)).undo.length - undo).toBe(1);
+    expect((await review())?.fillers).toBeUndefined();
+    // What was cut is gone from the transcript; the kept one is still there.
+    const left = ((await other.core.query(other.handle, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text);
+    expect([left.includes("Um,"), left.includes("Hmm."), left.filter((t) => t.startsWith("uh")).length]).toEqual([false, false, 2]);
+    await other.core.undo(other.handle);
+    expect(length()).toBeCloseTo(before, 3);
+    // One at a time: › goes to the first, ⌥-click on the last's mark goes to it, ‹ steps back; Cut This One cuts only
+    // that one, one undo step, and the review stays open on the next.
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-one-next]')");
+    const at = () => p.evaluate<string>("document.querySelector('[data-one-at]')?.textContent ?? ''");
+    await p.evaluate("document.querySelector('[data-one-next]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 3')");
+    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Um,”");
+    expect((await other.core.session(other.handle)).playhead).toBeCloseTo(Math.max(0, first.fillers[0]!.start - 1), 1);
+    const last = first.fillers[2]!;
+    await go("timeline.view", { start: last.start - 2, end: last.end + 2 });
+    const s2 = await other.core.session(other.handle);
+    const xAt2 = (t: number) => box.x + header + ((t - s2.timeline.start) / (s2.timeline.end - s2.timeline.start)) * (box.w - header);
+    await p.click(xAt2((last.start + last.end) / 2), box.y + box.h - 20, ["alt"]);
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('3 of 3')");
+    expect((await review())?.fillers?.flipped).toEqual([]);
+    await p.evaluate("document.querySelector('[data-one-prev]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 3')");
+    const second = first.fillers[1]!;
+    const steps = (await other.core.history(other.handle)).undo.length;
+    await p.evaluate("document.querySelector('[data-one-cut]').click()");
+    await arrived(() => length() < before);
+    expect(before - length()).toBeCloseTo(second.end - second.start, 1);
+    expect((await other.core.history(other.handle)).undo.length - steps).toBe(1);
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 2')");
+    expect(await at()).toEndWith("2 of 2");
+    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Hmm.”");
+    expect(await p.evaluate<boolean>("!!document.querySelector('[data-filler-review]')")).toBe(true);
+    await other.core.undo(other.handle);
+    expect(length()).toBeCloseTo(before, 3);
+    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
+    await p.until("!document.querySelector('[data-filler-review]')");
+    // Opened again: Remove Silences replaces it in the properties panel, and Cancel cuts nothing.
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-fillers-cancel]')");
+    await p.evaluate("document.querySelector('[data-ai=silences]').click()");
+    await p.until("!!document.querySelector('[data-silence-review]') && !document.querySelector('[data-filler-review]')");
+    expect((await review())?.fillers).toBeUndefined();
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-fillers-cancel]') && !document.querySelector('[data-silence-review]')");
+    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
+    await p.until("!document.querySelector('[data-filler-review]')");
+    expect(length()).toBeCloseTo(before, 3);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 180_000);
+
+test.skipIf(skip)("Captions makes caption clips from the transcript and shows the first; its text is edited in place and a style change restyles every caption, each one undo step", async () => {
+  await select([]);
+  await run("panel.show", { tool: "ai" });
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  await page.until("!!document.querySelector('[data-ai=captions]')");
+  const captions = () => clips().filter((c) => c.type === "caption");
+  const undo = async () => (await ui.core.history(ui.handle)).undo.length;
+  const steps = await undo();
+  await page.evaluate("document.querySelector('[data-ai=captions]').click()");
+  await arrived(() => captions().length > 0);
+  expect(captions().length).toBeGreaterThan(10);
+  expect(ui.core.doc(ui.handle).tracks.at(-1)!.name).toBe("Captions");
+  expect(await undo()).toBe(steps + 1);
+  const first = captions()[0]!;
+  expect((await session()).selection).toEqual([first.id]);
+  await page.until("!!document.querySelector('textarea')");
+  // Retyped and confirmed with Return: the caption says it, with its words' times kept when the count is the same.
+  const before = (first.props.caption as { words: { text: string; start: number }[] }).words;
+  await page.evaluate("document.querySelector('textarea').focus()");
+  await type(before.map((w, i) => (i === 0 ? "Fixed" : w.text)).join(" "));
+  await page.key("Enter", "Enter");
+  await arrived(() => (clip(first.id).props.caption as { words: { text: string }[] }).words[0]!.text === "Fixed");
+  const after = (clip(first.id).props.caption as { words: { text: string; start: number }[] }).words;
+  expect(after.map((w) => w.start)).toEqual(before.map((w) => w.start));
+  // Top restyles all of them in one step.
+  const edits = await undo();
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Top').click()");
+  const look = () => ui.core.doc(ui.handle).tracks.find((t) => t.name === "Captions")!.props!.captionStyle as { anchorY: string };
+  await arrived(() => look().anchorY === "top");
+  expect(look().anchorY).toBe("top");
+  expect(await undo()).toBe(edits + 1);
+  for (let n = (await undo()) - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(captions().length).toBe(0);
+  await run("panel.show", { tool: null });
+}, 150_000);
+
+test.skipIf(skip)("Border is a property of video and images on the Visual tab, not an effect tile; annotations don't have it", async () => {
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until("document.querySelectorAll('[data-art]').length > 0");
+  expect(await has("[data-art=border]")).toBe(false);
+  const label = `[...document.querySelectorAll('span')].some((s) => s.textContent === 'Border')`;
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await page.until(label);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("clip.set", { clips: [screen.id], props: { border: { thickness: 12 } } });
+  expect(clip(screen.id).props.border).toEqual({ thickness: 12, color: [1, 1, 1, 1] });
+  await ui.core.undo(ui.handle);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+  await select([callout.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await Bun.sleep(300);
+  expect(await page.evaluate<boolean>(label)).toBe(false);
+  await select([]);
+  await run("panel.show", { tool: null });
+});
+
+const MIC = join(FIXTURES, "take.brec/microphone.wav");
+const MODEL = join(homedir(), "Library/Caches/Beacon/models/ggml-large-v3-turbo-q5_0.bin");
+
+test.skipIf(skip || !existsSync(MIC) || !existsSync(MODEL))("Captions asked for before the transcript exists start it, say so with its progress, and are made when it is done", async () => {
+  // Imported where the speech model isn't, so no transcript is made; then opened where it is.
+  const path = join(dir, "untranscribed.beproj");
+  const bare = new LocalCore({ cacheDir: join(dir, "bare-cache") });
+  const h = await bare.create({ path });
+  expect((await bare.import(h, [MIC])).needs).toEqual(["whisper-model"]);
+  await bare.close(h);
+  const cacheDir = join(dir, "model-cache");
+  mkdirSync(join(cacheDir, "models"), { recursive: true });
+  symlinkSync(MODEL, join(cacheDir, "models", "ggml-large-v3-turbo-q5_0.bin"));
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    await p.until("document.querySelectorAll('[data-asset]').length >= 1", 15000);
+    await other.core.run(other.handle, "panel.show", { tool: "ai" });
+    await p.until("!!document.querySelector('[data-ai=captions]')");
+    await p.evaluate("document.querySelector('[data-ai=captions]').click()");
+    await p.until("/Transcribing/.test(document.querySelector('[data-captions-waiting]')?.textContent ?? '')", 5000);
+    const captions = () => other.core.doc(other.handle).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption");
+    await arrived(() => captions().length > 0, 60_000);
+    expect(captions().length).toBeGreaterThan(0);
+    await p.until("!document.querySelector('[data-captions-waiting]')");
+    expect((await other.core.session(other.handle)).selection).toEqual([captions()[0]!.id]);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 90_000);
+
+test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snapping to the middle), a side handle narrows its lines, and a double-click types into it", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const ids = (await run("captions.create", {})).results[0] as string[];
+  const style = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === ids[0]))!.props!.captionStyle as { anchorY: string; offsetY: number; offsetX: number; maxWidth: number };
+  const first = clip(ids[0]!);
+  const words = () => (clip(ids[0]!).props.caption as { words: { text: string; start: number }[] }).words;
+  await run("playhead.set", { time: ticksToSeconds(first.start + first.duration / 2) });
+  await select([first.id]);
+  await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${first.id}"]')`);
+  // Captions have side handles only: no corners, no rotation.
+  expect(await has(`[data-handle="se"][data-clip="${first.id}"]`)).toBe(false);
+  expect(await has(`[data-handle="rotate"][data-clip="${first.id}"]`)).toBe(false);
+  const [ex, ey] = await centre(`[data-handle="e"][data-clip="${first.id}"]`);
+  const [wx] = await centre(`[data-handle="w"][data-clip="${first.id}"]`);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  // Up by a third of the canvas: still kept to the bottom, further in, one undo step for every caption.
+  const before = style().offsetY;
+  await page.drag([(ex + wx) / 2, ey], [(ex + wx) / 2 + 3, ey - 120]);
+  await arrived(() => style().offsetY > before + 50);
+  expect(style().anchorY).toBe("bottom");
+  // Snapped back to the centre across.
+  expect(style().offsetX).toBe(0);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  // The right handle dragged in narrows the lines.
+  await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${first.id}"]')`);
+  const [hx, hy] = await centre(`[data-handle="e"][data-clip="${first.id}"]`);
+  await page.drag([hx, hy], [hx - 20, hy]);
+  await arrived(() => style().maxWidth < 0.8);
+  expect(style().maxWidth).toBeLessThan(0.8);
+  // Double-clicked: typed in place, the words keep their times.
+  const [cx, cy] = await page.evaluate<[number, number]>(`(() => { const g = [...document.querySelectorAll('[data-clip="${first.id}"]')].map(e => e.getBoundingClientRect()); return [(g[0].x + g[1].x) / 2 + g[0].width / 2, g[0].y + g[0].height / 2]; })()`);
+  await page.evaluate(`(() => { const el = document.elementFromPoint(${cx}, ${cy}); for (const t of ['pointerdown','mousedown']) el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: ${cx}, clientY: ${cy}, button: 0, detail: 2, pointerId: 1 })); })()`);
+  await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
+  const times = words().map((w) => w.start);
+  const typed = ["Edited", ...words().slice(1).map((w) => w.text)].join(" ");
+  await page.evaluate(`document.execCommand('insertText', false, ${JSON.stringify(typed)})`);
+  await arrived(() => words()[0]!.text === "Edited");
+  expect(words().map((w) => w.start)).toEqual(times);
+  await page.key("Escape", "Escape");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clips().filter((c) => c.type === "caption").length).toBe(0);
+});
+
+test.skipIf(skip)("⌥-dragging a caption places it on its own; ⌥⇧ places it and those after it; Use shared puts it back", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const ids = (await run("captions.create", {})).results[0] as string[];
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const own = (id: string) => clip(id).props.captionPlace as { offsetY: number } | undefined;
+  const shared = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === ids[0]))!.props!.captionStyle as { offsetY: number };
+  const dragUp = async (id: string, mods: ("alt" | "shift")[]) => {
+    const c = clip(id);
+    await run("playhead.set", { time: ticksToSeconds(c.start + c.duration / 2) });
+    await select([id]);
+    await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${id}"]')`);
+    const [ex, ey] = await centre(`[data-handle="e"][data-clip="${id}"]`);
+    const [wx] = await centre(`[data-handle="w"][data-clip="${id}"]`);
+    await page.drag([(ex + wx) / 2, ey], [(ex + wx) / 2 + 3, ey - 120], mods);
+  };
+  const before = shared().offsetY;
+  await dragUp(ids[2]!, ["alt"]);
+  await arrived(() => (own(ids[2]!)?.offsetY ?? 0) > before + 50);
+  expect(own(ids[2]!)!.offsetY).toBeGreaterThan(before + 50);
+  expect(shared().offsetY).toBe(before);
+  expect(own(ids[3]!)).toBeUndefined();
+  await page.until("!!document.querySelector('[data-caption-own]')");
+  // From the sixth on, all of them.
+  await dragUp(ids[5]!, ["alt", "shift"]);
+  await arrived(() => !!own(ids.at(-1)!));
+  expect(ids.slice(5).every((id) => !!own(id))).toBe(true);
+  expect(own(ids[4]!)).toBeUndefined();
+  // Put back: it follows the shared place again.
+  await select([ids[2]!]);
+  await page.until("!!document.querySelector('[data-caption-own] button')");
+  await page.evaluate("document.querySelector('[data-caption-own] button').click()");
+  await arrived(() => !own(ids[2]!));
+  expect(own(ids[2]!)).toBeUndefined();
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clips().filter((c) => c.type === "caption").length).toBe(0);
+});
+
+test.skipIf(skip)("Delete acts on what was selected last: a range made after a clip is selected deletes the range; a clip clicked after the range deletes the clip", async () => {
+  const before = clips().length;
+  await select([callout.id]);
+  await run("range.set", { in: 0.5, out: 1 });
+  expect((await session()).selection).toEqual([]);
+  await run("edit.delete");
+  // The range went from the callout's track; the callout itself is still there either side of it.
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === callout.id))!;
+  expect(track.clips.some((c) => ticksToSeconds(c.start) <= 0.75 && ticksToSeconds(c.start + c.duration) > 0.75)).toBe(false);
+  expect(clip(callout.id)).toBeDefined();
+  await ui.core.undo(ui.handle);
+  // The other way round: the clip, chosen last, goes; the range stays.
+  await run("range.set", { in: 0.5, out: 1 });
+  await select([callout.id]);
+  await run("edit.delete");
+  expect(clips().some((c) => c.id === callout.id)).toBe(false);
+  expect((await session()).range).not.toBeNull();
+  await ui.core.undo(ui.handle);
+  await run("range.clear");
+  expect(clips().length).toBe(before);
+});

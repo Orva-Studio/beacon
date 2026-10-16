@@ -106,6 +106,21 @@ export interface ResourceInfo {
   job?: string;
 }
 
+/** An app-wide choice (the transcriber), as Settings and agents see it. */
+export interface PreferenceInfo {
+  id: string;
+  title: string;
+  description: string;
+  value: string;
+  options: {
+    id: string;
+    title: string;
+    description: string;
+    /** A secret it needs (an API key) and whether it is set: the user sets it in Settings, never an agent. */
+    secret?: { id: string; title: string; set: boolean };
+  }[];
+}
+
 export type JobState = "running" | "done" | "failed";
 
 export interface JobInfo {
@@ -176,6 +191,8 @@ export type CoreEvent =
   | { kind: "saved"; path: string }
   /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
   | { kind: "needs"; resource: ResourceInfo }
+  /** A preference changed (the transcriber); analyses it decides start again where they have no result for it. */
+  | { kind: "preference"; id: string; value: string }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
   | { kind: "preparing"; assets: Record<string, number> }
   /** An asset's background analysis was stored or deleted. */
@@ -233,6 +250,14 @@ export interface BeaconCore {
   forgetAll(key: string): Promise<number>;
   /** Resources analyses need (the speech model), and whether each is downloaded. */
   resources(): Promise<ResourceInfo[]>;
+  /** App-wide choices (the transcriber), kept across projects and launches. */
+  preferences(): Promise<PreferenceInfo[]>;
+  /**
+   * Changes one for every project. Transcripts are kept per transcriber: open projects' media without one by
+   * the new choice gets one (or waits for a resource, as an import does). Refused for an option whose secret
+   * (an API key) isn't set.
+   */
+  setPreference(id: string, value: string): Promise<void>;
   /**
    * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
    * start when it is done. Returns the running download if there is one.

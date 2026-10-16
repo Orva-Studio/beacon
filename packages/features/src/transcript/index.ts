@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { transcribe, type Transcription } from "@beacon/media";
+import { transcribe, type Transcriber, type Transcription } from "@beacon/media";
 import {
   defineAction,
   defineCommand,
@@ -229,6 +229,20 @@ function screenActive(project: Project, data: Data, start: number, end: number):
   return false;
 }
 
+/** The item one at a time is on: the one holding `at`, or else the next after it (the one before was just cut). */
+function currentOf(items: { start: number; end: number }[], at: number | undefined): number | undefined {
+  if (at === undefined) return undefined;
+  const i = items.findIndex((x) => x.end > at + 1e-3);
+  return i < 0 ? undefined : i;
+}
+
+/** A time before a cut of `ranges` (timeline seconds, read before it), after it: inside one goes to where it was. */
+function afterCut(t: number, ranges: { start: number; end: number }[]): number {
+  let out = t;
+  for (const r of ranges) if (r.start < t) out -= Math.min(t, r.end) - r.start;
+  return roundSeconds(out);
+}
+
 /** Media heard on the timeline whose transcript isn't made yet. */
 function untranscribed(project: Project, registry: FeatureRegistry, data: Data): string[] {
   const clips = project.tracks.filter((t) => !t.muted).flatMap((t) => t.clips);
@@ -248,6 +262,8 @@ export interface SilenceReview {
   keepActive: boolean;
   /** Times inside silences whose cut-or-keep was flipped: an odd number in a silence flips it. */
   flipped: number[];
+  /** Going through them one at a time: a time in the silence being looked at, or just before it. */
+  current?: number;
 }
 
 const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, keepActive: true, flipped: [] };
@@ -261,7 +277,7 @@ export const silenceReview = (s: Session) => (s.features.transcript as { silence
 function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: SilenceReview) {
   const waiting = untranscribed(project, registry, data);
   const words = timelineWords(project, registry, data);
-  if (!words.length) return { waiting, words: 0, silences: [], ranges: [] };
+  if (!words.length) return { waiting, words: 0, silences: [], ranges: [], current: undefined };
   const silences = pauses(project, registry, data, words)
     .filter((p) => p.end - p.start > o.min)
     .map((p) => {
@@ -271,7 +287,7 @@ function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o:
     });
   const except = silences.filter((p) => !p.cut).map(({ start, end }) => ({ start, end }));
   const ranges = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except }) ?? [];
-  return { waiting, words: words.length, silences, ranges };
+  return { waiting, words: words.length, silences, ranges, current: currentOf(silences, o.current) };
 }
 
 const SilenceSettings = {
@@ -288,7 +304,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
     args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional(), keepActive: SilenceSettings.keepActive.optional() }),
     apply: (s, a: Partial<SilenceReview>) => {
       const r = { ...(silenceReview(s) ?? SILENCE_DEFAULTS), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
-      s.features.transcript = { ...(s.features.transcript as object | undefined), silences: { ...r, keep: Math.min(r.keep, r.min) } };
+      openReview(s, "silences", { ...r, keep: Math.min(r.keep, r.min) });
     },
   },
   {
@@ -302,6 +318,17 @@ const silenceSessionCommands: SessionCommandDef[] = [
     },
   },
   {
+    id: "silences.focus",
+    description:
+      "In Remove Silences' review, go to one silence to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): `at`, a time inside it, e.g. its start from transcript_silences. silences.apply with `one` then cuts only that one",
+    args: z.strictObject({ at: z.number().nonnegative() }),
+    apply: (s, { at }: { at: number }) => {
+      const r = silenceReview(s);
+      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
+      r.current = at;
+    },
+  },
+  {
     id: "silences.close",
     description: "Close Remove Silences' review without cutting anything",
     args: z.strictObject({}),
@@ -312,12 +339,154 @@ const silenceSessionCommands: SessionCommandDef[] = [
   },
 ];
 
+/**
+ * Hesitation sounds as transcribers write them ("Um...", "uh,", "Hmmm", "Er"), not words that can be meant ("ah",
+ * "oh": "Ah crap") nor "mm-hmm"/"uh-huh", which answer something.
+ */
+const FILLER = /^(u+h*m+|u+h+|e+r+m*|h+m+|m{2,}|a+h+m+)$/;
+export const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
+
+/** Remove Filler Words' review (`session.features.transcript.fillers`): the fillers flipped by hand. */
+export interface FillerReview {
+  /** Times inside fillers whose cut-or-keep was flipped: an odd number in one flips it. */
+  flipped: number[];
+  /** Going through them one at a time: a time in the filler being looked at, or just before it. */
+  current?: number;
+}
+
+export const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
+
+/**
+ * The time cut for filler words `first`..`last`: them and the shorter of the pauses either side, so the pause
+ * left is the longer one ("so, um, the" becomes "so, the"; a long pause stays for Remove Silences, which knows
+ * screen action). An edge touching a kept word goes to the nearest frame: `cut` rounds outward, which would
+ * take up to a frame of that word.
+ */
+function fillerCut(project: Project, words: TimelineWord[], first: TimelineWord, last: TimelineWord) {
+  const [prev, next] = [words[first.i - 1], words[last.i + 1]];
+  const pause = Math.min(prev ? first.start - prev.end : Infinity, next ? next.start - last.end : Infinity);
+  const end = last.end + (Number.isFinite(pause) ? Math.max(0, pause) : 0);
+  const frame = (t: number) => ticksToSeconds(snapSeconds(t, project.settings.fps));
+  return { start: prev && first.start - prev.end < 1e-3 ? frame(first.start) : first.start, end: next && next.start - end < 1e-3 ? frame(end) : end };
+}
+
+/**
+ * What Remove Filler Words does: each run of filler words in the transcript ("Uh, uh, uh"), the time it cuts
+ * (`fillerCut`) and whether it is cut (all are, but a flip keeps one), and the ranges removed.
+ */
+function fillerPlan(project: Project, registry: FeatureRegistry, data: Data, o: FillerReview) {
+  const waiting = untranscribed(project, registry, data);
+  const words = timelineWords(project, registry, data);
+  const runs: [TimelineWord, TimelineWord][] = [];
+  for (const w of words) {
+    if (!isFiller(w.text)) continue;
+    const last = runs.at(-1);
+    if (last && last[1].i === w.i - 1) last[1] = w;
+    else runs.push([w, w]);
+  }
+  const found = runs.map(([first, last]) => {
+    const r = fillerCut(project, words, first, last);
+    const flips = o.flipped.filter((t) => t >= r.start - 1e-3 && t <= r.end).length;
+    return { ...r, text: words.slice(first.i, last.i + 1).map((w) => w.text).join(" "), cut: flips % 2 === 0 };
+  });
+  return {
+    waiting,
+    words: words.length,
+    fillers: found.map((f) => ({ ...f, start: roundSeconds(f.start), end: roundSeconds(f.end) })),
+    // Unrounded: a frame time rounded to the millisecond can sit just short of its frame.
+    ranges: found.filter((f) => f.cut).map(({ start, end }) => ({ start, end })),
+    all: found.map(({ start, end }) => ({ start, end })),
+    current: currentOf(found, o.current),
+  };
+}
+
+/** Opening one review closes the other: the properties panel and the timeline's marks show one at a time. */
+function openReview(s: Session, key: "silences" | "fillers", review: SilenceReview | FillerReview) {
+  const t = { ...(s.features.transcript as object | undefined) } as { silences?: SilenceReview; fillers?: FillerReview };
+  delete t.silences;
+  delete t.fillers;
+  s.features.transcript = { ...t, [key]: review };
+}
+
+const fillerSessionCommands: SessionCommandDef[] = [
+  {
+    id: "fillers.review",
+    description:
+      "Open Remove Filler Words' review (the AI panel's tile does): the timeline marks each filler (\"um\", \"uh\", \"er\", \"hmm\" in the transcript) to cut or keep and the properties panel sums it up, until fillers.apply or fillers.close. The user sees it, so an agent can prepare the cuts for them to look over",
+    args: z.strictObject({}),
+    apply: (s) => openReview(s, "fillers", fillerReview(s) ?? { flipped: [] }),
+  },
+  {
+    id: "fillers.flip",
+    description: "In Remove Filler Words' review, keep a filler it would cut, or cut it again (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_fillers",
+    args: z.strictObject({ at: z.number().nonnegative() }),
+    apply: (s, { at }: { at: number }) => {
+      const r = fillerReview(s);
+      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
+      r.flipped.push(at);
+    },
+  },
+  {
+    id: "fillers.focus",
+    description:
+      "In Remove Filler Words' review, go to one filler to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): `at`, a time inside it, e.g. its start from transcript_fillers. fillers.apply with `one` then cuts only that one",
+    args: z.strictObject({ at: z.number().nonnegative() }),
+    apply: (s, { at }: { at: number }) => {
+      const r = fillerReview(s);
+      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
+      r.current = at;
+    },
+  },
+  {
+    id: "fillers.close",
+    description: "Close Remove Filler Words' review without cutting anything",
+    args: z.strictObject({}),
+    apply: (s) => {
+      const t = s.features.transcript as { fillers?: FillerReview } | undefined;
+      if (t?.fillers) delete t.fillers;
+    },
+  },
+];
+
+/** After one item is cut from an open review, its flips and its place move with the timeline. */
+const reviewShift: SessionCommandDef = {
+  id: "reviews.shift",
+  description: "Move the open review's flipped times and the one it is on to match ranges just cut (timeline seconds, read before the cut); silences.apply and fillers.apply with `one` run it",
+  args: z.strictObject({ ranges: z.array(z.strictObject({ start: z.number(), end: z.number() })) }),
+  apply: (s, { ranges }: { ranges: { start: number; end: number }[] }) => {
+    for (const r of [silenceReview(s), fillerReview(s)]) {
+      if (!r) continue;
+      r.flipped = r.flipped.map((t) => afterCut(t, ranges));
+      if (r.current !== undefined) r.current = afterCut(r.current, ranges);
+    }
+  },
+};
+
+const Only = z.number().nonnegative().optional().describe("Cut only the one holding this time, or else the next after it, whether or not it is marked to cut");
+
 const Range = z.tuple([z.int().nonnegative(), z.int().nonnegative()]);
 
-/** Transcripts of recordings and audio (whisper.cpp, local), and editing by transcript. */
+const TRANSCRIBERS = ["whisper", "apple", "openai"] as const satisfies readonly Transcriber[];
+const transcriber = (pref: (id: string) => string): Transcriber => (TRANSCRIBERS as readonly string[]).includes(pref("transcriber")) ? (pref("transcriber") as Transcriber) : "whisper";
+
+/** Transcripts of recordings and audio (Whisper on this Mac, Apple's transcriber or OpenAI's API), and editing by transcript. */
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
+  preferences: [
+    {
+      id: "transcriber",
+      title: "Transcriber",
+      description: "Who makes transcripts (Remove Silences, cutting by transcript, captions). Transcripts already made by one are kept for when it is chosen again",
+      options: [
+        { id: "whisper", title: "Whisper on this Mac", description: "OpenAI's Whisper, run on this Mac, offline. Needs its speech model (about 575 MB, downloaded once). Best on technical words" },
+        { id: "apple", title: "Apple's transcriber", description: "macOS's own on-device transcriber: offline, no download and about 5× faster, but weaker on technical words and on exact word times" },
+        { id: "openai", title: "Whisper through OpenAI", description: "OpenAI's Whisper over its API with your own API key: the audio is uploaded to OpenAI to be transcribed, and OpenAI charges your account for it", secret: "openai-api-key" },
+      ],
+      default: "whisper",
+    },
+  ],
+  secrets: [{ id: "openai-api-key", title: "OpenAI API key" }],
   resources: [
     {
       id: "whisper-model",
@@ -334,17 +503,21 @@ export const transcript = defineFeature({
   jobAnalyzers: [
     {
       id: "transcript",
-      description: "Word-timed transcript of every audio stream (whisper.cpp large-v3-turbo, clipped to detected speech)",
+      description: "Word-timed transcript of every audio stream (by the chosen transcriber, clipped to detected speech)",
       version: 7,
-      needs: "whisper-model",
+      needs: (pref) => (transcriber(pref) === "whisper" ? "whisper-model" : undefined),
+      // Local Whisper's results keep the cache entries made before there was a choice.
+      variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
       applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
       async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
-        const model = env.resource("whisper-model");
+        const who = transcriber(env.pref);
+        const model = who === "whisper" ? env.resource("whisper-model") : undefined;
+        const apiKey = who === "openai" ? await env.secret("openai-api-key") : undefined;
         for (const i of audio.keys()) {
           const src = sourceOf(asset, "audio", i);
-          streams[i] = await transcribe(src.path, { stream: src.stream, model, onProgress: (f) => progress((i + f) / audio.length) });
+          streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },
@@ -385,12 +558,27 @@ export const transcript = defineFeature({
         keep: SilenceSettings.keep.optional(),
         keepActive: SilenceSettings.keepActive.optional(),
         flipped: z.array(z.number()).optional().describe("Times inside silences to flip, as silences.flip does"),
+        current: z.number().optional().describe("A time in the silence being looked at, as silences.focus sets: `current` answers its index"),
       }),
       run(args, { project, registry, data }) {
         const o = { ...SILENCE_DEFAULTS, ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) } as SilenceReview;
         const plan = silencePlan(project, registry, data, o);
         const removed = cutRanges(project, plan.ranges);
-        return { waiting: plan.waiting, silences: plan.silences, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)) };
+        return { waiting: plan.waiting, silences: plan.silences, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)), ...(plan.current === undefined ? {} : { current: plan.current }) };
+      },
+    }),
+    defineQuery({
+      id: "transcript.fillers",
+      description:
+        "What Remove Filler Words would cut: each filler (\"um\", \"uh\", \"er\", \"hmm\"; a run like \"uh, uh, uh\" is one) the transcript has, its text, the time cut (it and the shorter of the pauses either side, timeline seconds) and whether it is cut, with the seconds saved. Only what the transcriber wrote down is found: Whisper on this Mac and Apple's transcriber keep most fillers. `waiting`: media heard on the timeline with no transcript yet",
+      args: z.strictObject({
+        flipped: z.array(z.number()).optional().describe("Times inside fillers to flip, as fillers.flip does"),
+        current: z.number().optional().describe("A time in the filler being looked at, as fillers.focus sets: `current` answers its index"),
+      }),
+      run({ flipped, current }, { project, registry, data }) {
+        const plan = fillerPlan(project, registry, data, { flipped: flipped ?? [], ...(current === undefined ? {} : { current }) });
+        const removed = cutRanges(project, plan.ranges);
+        return { waiting: plan.waiting, fillers: plan.fillers, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)), ...(plan.current === undefined ? {} : { current: plan.current }) };
       },
     }),
     defineQuery({
@@ -415,30 +603,66 @@ export const transcript = defineFeature({
       },
     }),
   ],
-  sessionCommands: silenceSessionCommands,
+  sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands, reviewShift],
   actions: [
     defineAction({
       id: "silences.apply",
-      description: "Cut what Remove Silences' open review marks to cut (its Apply button), one undo step, and close the review",
-      args: z.strictObject({}),
-      resolve: (_, { session }) => {
+      description:
+        "Cut what Remove Silences' open review marks to cut (its Apply button), one undo step, and close the review. With `one`, cut only the silence silences.focus is on (Cut This One), cut or kept, and stay open on the next",
+      args: z.strictObject({ one: z.boolean().default(false) }),
+      resolve: ({ one }, { session }) => {
         const r = silenceReview(session);
         if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
-        return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: r }], after: () => [{ command: "silences.close" }] };
+        const { current, ...settings } = r;
+        if (!one) return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: settings }], after: () => [{ command: "silences.close" }] };
+        if (current === undefined) throw new Error("no silence to cut: silences.focus goes to one");
+        return { label: "Remove Silence", steps: [{ command: "transcript.removeSilences", args: { ...settings, only: current } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }] };
+      },
+    }),
+    defineAction({
+      id: "fillers.apply",
+      description:
+        "Cut what Remove Filler Words' open review marks to cut (its Apply button), one undo step, and close the review. With `one`, cut only the filler fillers.focus is on (Cut This One), cut or kept, and stay open on the next",
+      args: z.strictObject({ one: z.boolean().default(false) }),
+      resolve: ({ one }, { session }) => {
+        const r = fillerReview(session);
+        if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
+        if (!one) return { label: "Remove Filler Words", steps: [{ command: "transcript.removeFillers", args: { flipped: r.flipped } }], after: () => [{ command: "fillers.close" }] };
+        if (r.current === undefined) throw new Error("no filler to cut: fillers.focus goes to one");
+        return { label: "Remove Filler Word", steps: [{ command: "transcript.removeFillers", args: { flipped: r.flipped, only: r.current } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }] };
       },
     }),
   ],
   commands: [
     defineCommand({
+      id: "transcript.removeFillers",
+      description:
+        "Remove Filler Words: cut every filler the transcript has (\"um\", \"uh\", \"er\", \"hmm\") with the shorter of the pauses either side (the longer is left, for Remove Silences), except those `flipped` names, as transcript_fillers shows; one undo step. fillers.apply runs it from the open review",
+      args: z.strictObject({ flipped: z.array(z.number()).default([]), only: Only }),
+      apply(doc, { flipped, only }, ctx) {
+        const plan = fillerPlan(doc, ctx.registry, ctx.data, { flipped, ...(only === undefined ? {} : { current: only }) });
+        if (!plan.words) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
+        if (only === undefined) return cut(doc, ctx, plan.ranges);
+        if (plan.current === undefined) throw new Error(`no filler at or after ${only} s`);
+        return cut(doc, ctx, [plan.all[plan.current]!]);
+      },
+    }),
+    defineCommand({
       id: "transcript.removeSilences",
       description:
         "Remove Silences: cut every silence over `min` seconds down to `keep`, keeping screen action with `keepActive` and turning round the silences `flipped` names, as transcript_silences shows; one undo step. silences.apply runs it from the open review",
-      args: z.strictObject({ ...SilenceSettings, flipped: z.array(z.number()).default([]) }),
-      apply(doc, o, ctx) {
-        const plan = silencePlan(doc, ctx.registry, ctx.data, o);
+      args: z.strictObject({ ...SilenceSettings, flipped: z.array(z.number()).default([]), only: Only }),
+      apply(doc, { only, ...o }, ctx) {
+        const plan = silencePlan(doc, ctx.registry, ctx.data, { ...o, ...(only === undefined ? {} : { current: only }) });
         if (!plan.words) throw new Error("no transcript on the timeline yet");
         refuseUntranscribed(doc, ctx.registry, ctx.data);
-        return cut(doc, ctx, plan.ranges);
+        if (only === undefined) return cut(doc, ctx, plan.ranges);
+        const one = plan.current === undefined ? undefined : plan.silences[plan.current];
+        if (!one) throw new Error(`no silence at or after ${only} s`);
+        // Cut even when marked to keep: it was asked for by name.
+        const all = silencePlan(doc, ctx.registry, ctx.data, { ...o, keepActive: false, flipped: [] });
+        return cut(doc, ctx, all.ranges.filter((r) => r.start >= one.start - 1e-3 && r.end <= one.end + 1e-3));
       },
     }),
     defineCommand({

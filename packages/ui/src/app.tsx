@@ -16,18 +16,20 @@ import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-v
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { RecordUi, type RecordHost } from "./record";
-import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { goTo, reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
+import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
+import { StartScreen, type StartHost } from "./start-screen";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost {
+export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
   query(name: string, args?: unknown): Promise<unknown>;
   undo(): void;
   redo(): void;
-  openDialog(): void;
   canvasView(id: number, rect: { x: number; y: number; width: number; height: number }, scale: number, surround: [number, number, number]): void;
   /** Draws the selection and guides in the native preview: positions in canvas pixels, sizes in points; without it the overlay draws them itself. */
   canvasMarks?(marks: CanvasMark[]): void;
@@ -62,6 +64,8 @@ export function App({ host }: { host: Host }) {
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
+  const fillers = useFillers(host, session, project);
+  useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);
@@ -139,7 +143,15 @@ export function App({ host }: { host: Host }) {
           <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
           {project && session && <Transport project={project} session={session} host={host} init={init} />}
         </div>
-        {session?.panels.properties && project && (reviewOf(session) ? <SilenceReviewPanel project={project} session={session} host={host} found={silences} /> : <Properties project={project} session={session} host={host} init={init} />)}
+        {session?.panels.properties &&
+          project &&
+          (reviewOf(session) ? (
+            <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
+          ) : fillerReviewOf(session) ? (
+            <FillerReviewPanel project={project} host={host} found={fillers} />
+          ) : (
+            <Properties project={project} session={session} host={host} init={init} />
+          ))}
       </div>
       {project && session ? (
         <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
@@ -155,8 +167,8 @@ export function App({ host }: { host: Host }) {
             menu={host.clipMenu}
             trackMenu={host.trackMenu}
             dropFiles={host.dropFiles}
-            marks={silences?.silences.map((s) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep" }))}
-            markClick={(m) => host.run("silences.flip", { at: m.start })}
+            marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
+            markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
           />
         </div>
       ) : (
@@ -174,6 +186,7 @@ export function App({ host }: { host: Host }) {
       <RecordUi host={host} />
       <SnapshotSaved host={host} />
       <SettingsUi host={host} />
+      <StartScreen host={host} />
       <NewProjectUi host={host} />
       <SaveAsUi host={host} />
       <ResourceUi host={host} />
@@ -234,8 +247,8 @@ function TopBar({ name, session, host, status, saved, preparing }: { name?: stri
   return (
     <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20 electrobun-webkit-app-region-drag" data-titlebar>
       <ProjectName name={name} host={host} />
-      {/* Every change is written as it is made, so there is no Save; say so, and say when it fails. */}
-      {name && (saved === false ? <span className="text-xs text-danger" title={status}>Not saved</span> : <span className={`text-xs transition-colors ${confirm ? "text-accent" : "text-text-faint"}`} data-saved title="Every change is saved as you make it">{confirm ? "✓ " : ""}Saved automatically</span>)}
+      {/* Every change is written as it is made, so there is no Save: ⌘S says so for a moment, and a failed save stays. */}
+      {name && (saved === false ? <span className="text-xs text-danger" title={status}>Not saved</span> : confirm && <span className="text-xs text-accent" data-saved title="Every change is saved as you make it">✓ Saved automatically</span>)}
       <Button onClick={() => host.openDialog()}>Open…</Button>
       <div className="flex-1" />
       {preparing && (

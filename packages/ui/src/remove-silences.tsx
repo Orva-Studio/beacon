@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
-import { Button, Slider } from "./controls";
+import { Button, Progress, Slider } from "./controls";
+import { useTranscribing } from "./captions";
 import { useQuery } from "./query";
 import type { Host } from "./app";
 
@@ -19,21 +20,23 @@ export interface Silences {
   silences: { start: number; end: number; active: boolean; cut: boolean }[];
   cuts: number;
   saved: number;
+  /** Index of the silence being looked at, going through them one at a time. */
+  current?: number;
 }
 
 export const reviewOf = (session: Session | undefined) => (session?.features.transcript as { silences?: Review } | undefined)?.silences;
 
 /**
- * The open review's silences, for the timeline's marks and the review panel; asked again after each edit, and each
- * second while a transcript is still being made, and a missing one (an import whose app quit first) is started.
+ * What an open review (`review`, its query's args) finds, for the timeline's marks and the review panel; asked again
+ * after each edit, and each second while a transcript is still being made, and a missing one (an import whose app
+ * quit first) is started.
  */
-export function useSilences(host: Host, session: Session | undefined, project: Project | undefined): Silences | undefined {
-  const review = reviewOf(session);
+export function useReviewed<T extends { waiting: string[] }>(host: Host, query: string, review: object | undefined, project: Project | undefined): T | undefined {
   const [tick, setTick] = useState(0);
   // Each edit is a new project: the marks and Apply must describe the timeline as it is now.
   const edits = useRef({ project, n: 0 });
   if (edits.current.project !== project) edits.current = { project, n: edits.current.n + 1 };
-  const found = useQuery<Silences>(host, review ? "transcript.silences" : "", review ?? {}, `${tick}:${edits.current.n}`);
+  const found = useQuery<T>(host, review ? query : "", review ?? {}, `${tick}:${edits.current.n}`);
   const missing = review ? (found?.waiting.join() ?? "") : "";
   useEffect(() => {
     for (const asset of missing ? missing.split(",") : []) host.analyze("transcript", asset);
@@ -46,13 +49,73 @@ export function useSilences(host: Host, session: Session | undefined, project: P
   return review ? found : undefined;
 }
 
+export const useSilences = (host: Host, session: Session | undefined, project: Project | undefined) => useReviewed<Silences>(host, "transcript.silences", reviewOf(session), project);
+
 // A slider's steps of 0.1 come out as 0.30000000000000004.
 const tenths = (v: number) => Math.round(v * 10) / 10;
 
-const clock = (s: number) => {
+export const clock = (s: number) => {
   const t = Math.max(0, Math.round(s));
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
 };
+
+/** Goes to one silence or filler, with the playhead a second before it to play across it. */
+export function goTo(host: Host, review: "silences" | "fillers", item: { start: number }) {
+  host.run(`${review}.focus`, { at: item.start });
+  host.run("playhead.set", { time: Math.max(0, item.start - 1) });
+}
+
+/**
+ * Going through a review's silences or fillers one at a time: ‹ › step between them (⌥-click one on the timeline
+ * goes to it), Skip moves on, Cut This One cuts only it (one undo step) and moves on.
+ */
+export function OneByOne<T extends { start: number; end: number; cut: boolean }>({ review, items, current, host, describe }: { review: "silences" | "fillers"; items: T[]; current: number | undefined; host: Host; describe: (item: T) => string }) {
+  if (!items.length) return null;
+  const item = current === undefined ? undefined : items[current];
+  const step = (by: 1 | -1) => {
+    const i = current === undefined ? (by > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, current + by));
+    goTo(host, review, items[i]!);
+  };
+  return (
+    <div className="mb-4 rounded-md border border-divider px-3 py-2" data-one-by-one>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="flex-1 text-label text-text-muted" data-one-at>
+          {item ? `One at a time: ${current! + 1} of ${items.length}` : "One at a time"}
+        </span>
+        <Button title="The one before" disabled={current === 0} onClick={() => step(-1)} data-one-prev>
+          ‹
+        </Button>
+        <Button title="The next one" disabled={current === items.length - 1} onClick={() => step(1)} data-one-next>
+          ›
+        </Button>
+      </div>
+      {item ? (
+        <>
+          <div className="mb-2 text-text" data-one-item>
+            {describe(item)}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button title="Leave it as it is and go to the next" onClick={() => step(1)} data-one-skip>
+              Skip
+            </Button>
+            <Button
+              title="Cut only this one, then go to the next"
+              onClick={() => {
+                host.run(`${review}.apply`, { one: true });
+                host.run("playhead.set", { time: Math.max(0, item.start - 1) });
+              }}
+              data-one-cut
+            >
+              Cut This One
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="text-label text-text-faint">Step through them to hear each one and cut them one by one.</div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Remove Silences' review, in the properties panel while it is open: its settings, what it will cut (marked on
@@ -65,10 +128,11 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
   const cut = found?.silences.filter((s) => s.cut).length ?? 0;
   const kept = (found?.silences.length ?? 0) - cut;
   const ready = !!found && !found.waiting.length && cut > 0;
+  const progress = useTranscribing();
   const summary = !found
     ? "Finding silences…"
     : found.waiting.length
-      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`} on this Mac: silences are found from the transcript.`
+      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`} on this Mac${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}: silences are found from the transcript.`
       : !found.silences.length
         ? `No silences longer than ${review.min} s.`
         : `${found.silences.length} silences: ${cut} to cut, ${kept} kept. ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
@@ -84,6 +148,7 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
       <div className="mb-4 text-label text-text-faint">Where the recording's cursor moves or clicks. Typing alone isn't seen.</div>
       <div className="mb-2 rounded-md bg-groove px-3 py-2 text-text" data-silences-summary>
         {summary}
+        {!!found?.waiting.length && <Progress value={progress ?? 0} className="mt-2" />}
       </div>
       <div className="mb-4 flex flex-col gap-1 text-label text-text-muted">
         <span className="flex items-center gap-2">
@@ -92,12 +157,19 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
         </span>
         <span>Click a silence on the timeline to keep or cut it.</span>
       </div>
+      <OneByOne
+        review="silences"
+        items={found?.waiting.length ? [] : (found?.silences ?? [])}
+        current={found?.current}
+        host={host}
+        describe={(s) => `${clock(s.start)}, ${(s.end - s.start).toFixed(1)} s${s.active ? " of screen action" : ""}: ${s.cut ? "to cut" : "kept"}`}
+      />
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={() => host.run("silences.close")} data-silences-cancel>
           Cancel
         </Button>
         <Button look="primary" disabled={!ready} onClick={() => host.run("silences.apply")} data-silences-apply>
-          Apply
+          Apply All
         </Button>
       </div>
     </div>

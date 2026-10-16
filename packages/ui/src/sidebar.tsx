@@ -6,6 +6,8 @@ import { pressItem, type PanelItem } from "./drop";
 import type { Init } from "./rpc";
 import { Icon, ItemTile, RailButton, type IconName } from "./controls";
 import { MediaBin } from "./media-bin";
+import { CaptionsWaiting } from "./captions";
+import { replica } from "./store";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -104,18 +106,30 @@ export const ToolPanel = memo(function ToolPanel({
 
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
 function AiPanel({ host }: { host: Host }) {
-  const review = () => {
-    host.run("silences.review", {});
+  const review = (command: string) => {
+    host.run(command, {});
     host.run("panel.show", { properties: true });
   };
   return (
     <Panel title="AI">
       <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
       <div className="grid grid-cols-2 gap-2">
-        <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={review} data-ai="silences">
+        <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={() => review("silences.review")} data-ai="silences">
           Remove Silences
         </ItemTile>
+        <ItemTile art="remove-fillers" title={'Cut "um", "uh" and the like where the transcript has them'} onClick={() => review("fillers.review")} data-ai="fillers">
+          Remove Filler Words
+        </ItemTile>
+        <ItemTile
+          art="captions"
+          title="Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it"
+          onClick={() => replica.pendCaptions(true)}
+          data-ai="captions"
+        >
+          Captions
+        </ItemTile>
       </div>
+      <CaptionsWaiting />
     </Panel>
   );
 }

@@ -1210,7 +1210,7 @@ and notarization are added once the user has a Developer ID.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 
-### Phases 7–10 (split 2026-10-15)
+### Phases 7–11 (split 2026-10-15)
 Phase 7 was one list of everything next ("Growth"); the user split it by
 theme, each with a gate, as the earlier phases had. Each feature is a folder
 in `packages/features` where it can be (§6: the checklist passes with no core
@@ -1288,6 +1288,94 @@ Making the transcript do the editing.
   creating one, closes it. Maybe later, a third choice: **Start Recording**
   (a new project, then the Record dialog), left out for now since the Record
   button (Phase 8) is one click away. A UI-harness flow covers it.
+**Progress (2026-10-15, `phase-7`):** Border and the start screen are built.
+Border moved from an effect to a property of video and images (2026-10-16,
+the user: rectangles already have an outline, so the effect only ever went on
+camera footage): Border and Color on the Visual tab, off at 0; `border` v2
+converts Border effects. The title bar no longer says "Saved automatically";
+⌘S still shows it, green, for a moment.
+The transcriber choice is built: Settings › General › Transcripts and the
+`transcriber` preference (`preference_list`/`preference_set` for agents; the
+contract gained feature preferences, Keychain secrets and per-variant analyzer
+caches). Apple's transcriber is `beacon-speech`, a Swift tool built with
+Beacon's tools, so CI moved to macOS 26. Word timings were checked on the
+fixtures (`docs/transcription-spike.md`): the API is close to local Whisper,
+Apple's are looser, and Remove Silences is identical with all three.
+The start screen shows each recent project's frame as it was last left.
+**Captions** are built (`packages/features/src/captions`): `captions.create`
+makes caption clips (up to 3 words by default, a new one at sentence ends and
+pauses) on a Captions track from the timeline's transcript; each holds its
+words in its own media time, so ripple cuts and trims keep them in step. One
+style for all (`captions.style`: font, size, colours, box, position, margin,
+width, capitals, the spoken word's highlight), set from the Caption tab;
+`caption.setText` corrects a caption's words. Drawn by the feature, in canvas
+pixels (not a visual clip: no transform or effects); burned into exports, and
+the contract gained `exportFiles` so an `.srt` is written beside the video
+(`captions.srt` for agents). The AI panel's Captions tile runs `captions.add`.
+On the canvas (2026-10-16, the user, after Canva): a caption is selected with a
+click, dragged to move every caption (snapping as clips do), narrowed or
+widened by its side handles, and typed in place after a double-click; the
+Caption tab has Align to page (top/middle/bottom, left/centre/right). Their
+place is an anchor and an offset on each axis (`captions` v2), the box from
+`captions.layout`; typed words keep their times (a word diff). Clicked before
+the transcript exists, Captions starts it, shows its progress and makes them
+when it's done; the app also starts missing transcripts when it shows a project.
+Their style is kept once on the Captions track (prop groups can be `track`
+groups now; `captions` v3), so a drag step is one change, not one per caption.
+A caption can be placed on its own (`caption.place`: ⌥-drag, or ⌥⇧ for it and
+those after it, e.g. clear of a face in a vertical short; Use shared puts it
+back). Later, with the shorts work: "keep clear of the face", placing each
+caption from face detection (Apple's Vision, on-device).
+**Remove Filler Words, first check** (2026-10-15): priming local Whisper with a
+filler-laden prompt is not reliable. Two prompts found different fillers (5
+and 8 on four fixtures, vs 2 without), one with a 50 ms "um" squeezed against
+the next word, and on near-silence Whisper wrote the prompt itself ("Uh, and
+then, er, hmm, okay"); Apple's transcriber kept none. The fixtures may simply
+have few fillers.
+**Remove Filler Words, decided and built** (2026-10-16), on a 10½-minute take
+full of real "um"s (Yeti microphone), three ways compared:
+(a) the transcript's own fillers: local Whisper kept 21 ("Um", "uh", a
+five-"uh" stutter; 16 places once runs are joined), Apple's transcriber 22
+(19 places, none under 120 ms); about half the places differ between them.
+(b) Whisper primed with a filler prompt: 50 fillers (32 places), but it
+changed 17.5% of the *other* words (a line became "Only Um, I was like, I
+don't know", most likely the prompt), squeezed 5 fillers under 120 ms, and on
+the four fixtures added 1 filler to 2 while squeezing 2 of the 3 (no prompt
+text written in, 0–4% of other words changed).
+(c) the audio: of the 18 or so places only the prompted run found, 4 were
+detected speech no word covered; the rest were inside the next word's times,
+since a word after a pause starts where the sound does. Fillers were longer
+and louder than other words (0.42 s vs 0.19 s median, −40 vs −44 dB) and
+steadier, but singing and music on the take looked the same.
+Chosen: (a), whatever the transcriber; the prompt was dropped. As built
+(`transcript.fillers`, `transcript.removeFillers`, `fillers.review`/`flip`/
+`close`, `fillers.apply`; the AI panel's tile): each run of fillers is cut
+with the shorter of the pauses either side, so the pause left is the longer
+one (cutting the pause after, as `transcript.cut` does, took up to 3 s that
+can be screen action; a long pause stays for Remove Silences); an edge
+touching a kept word goes to the nearest frame rather than outward. "Ah",
+"oh", "mm-hmm" and "uh-huh" aren't fillers. One review is open at a time.
+On the take: 15 fillers, 19.5 s cut; 10 of the 15 joins have silence either
+side, 3 on one side, 2 quiet speech (−50 and −54 dB against −55);
+`transcript.joins` flags 5 joins at 3 places, 4 within half a frame of a
+word boundary (a cut can only fall on a frame) and 1 at a word Whisper
+squeezed to 50 ms. Later: fillers a transcriber leaves out (about half here)
+could come from a second, prompted Whisper pass used only to find them,
+leaving the transcript alone.
+**Release:** v0.4.0 was cut from `phase-7` on 2026-10-15, partway through;
+the phase closes as v0.5.0, merged into `main` before Phase 8 starts (the
+user, 2026-10-16).
+**Asked after trying both reviews** (the user, 2026-10-16: "they both work
+great"): going through silences or fillers one at a time, a click making
+that one the only one marked, and applying them one by one to check each.
+Built the same day, for v0.5.0, in both reviews: ‹ › step through them (or
+⌥-click one on the timeline), outlining the one looked at and putting the
+playhead a second before it; Skip moves on; Cut This One cuts only it, as
+its own undo step (marked to keep or not), and the review stays open on the
+next. Apply became Apply All. For agents: `silences.focus`/`fillers.focus`,
+then `silences.apply`/`fillers.apply` with `one`; the review's flips and
+place follow the cut (`reviews.shift`), and the queries answer `current`.
+Later, maybe: dragging a silence's edges to change how much is cut.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
 camera clip with a rounded border looks the same in preview and export; and
@@ -1295,6 +1383,26 @@ Beacon opened without a project offers New Project and its recent projects.
 
 ### Phase 8 — Faster editing
 Getting to everything quicker, by hand or by agent.
+- **Voice narration** (the user, 2026-10-16: as Camtasia has it; first in
+  this phase): record the microphone while the timeline plays, talking over
+  it. From the Record dialog (a Narration choice beside the screen and
+  camera takes, which the Record button below opens too) or Tools ›
+  Voice Narration: pick the microphone, choose whether the timeline's own
+  audio is heard (off by default, so speakers don't bleed into the take;
+  headphones make it safe), then Start. A countdown, the timeline plays
+  from the playhead (or the in/out range) and the take records; Stop, or
+  reaching the end of the range, ends it. The take lands on a new audio
+  track at the time recording began, shifted by the microphone's measured
+  latency (the recorder already logs it per take) so it lines up with what
+  was playing, and is transcribed like any import, so Remove Silences,
+  Remove Filler Words and Captions work on it straight away. A take is one
+  undo step; cancelled, nothing is added. The recorder (Phase 6) already
+  records a microphone alone with its timing: what is new is playing the
+  timeline while it records, placing the take at the playhead, and the
+  alignment. For agents, `recorder.start` with only a microphone and
+  `narrate`. Plus a UI-harness flow (the recorder faked, as the Record
+  dialog's flows do) and a check on a real take that a clap recorded over
+  a click in the timeline lands within a frame of it.
 - **Record button** (the user, 2026-10-15, after trying v0.2.1): a red-dot
   Record button at the top left of the window, as Camtasia has, opening the
   Record dialog; today only File › Record… (⌘R) does. Plus a UI-harness flow.
@@ -1341,8 +1449,9 @@ Getting to everything quicker, by hand or by agent.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
-**Gate:** an edit from record to export using only keys and the palette;
-an agent changes settings and opens each dialog.
+**Gate:** an edit from record to export using only keys and the palette,
+with narration recorded over the timeline and in step with it; an agent
+changes settings and opens each dialog.
 
 ### Phase 9 — Workspace
 Seeing more at once.
@@ -1393,6 +1502,62 @@ Seeing more at once.
 **Gate:** the look matches between preview and export, and a `.hlook`
 imports with a report of what didn't map.
 
+### Phase 11 — Security audit (the user, 2026-10-16)
+A review of what an attacker could reach, before Beacon is shared more widely,
+with each finding fixed or written down as an accepted risk in
+`docs/security.md`. What to look at:
+- **The automation socket.** Any local process that can open the unix socket
+  can drive the app (open, export, record the screen, camera and microphone).
+  Who may connect (file permissions, a per-launch token for MCP clients), and
+  whether recording over MCP needs the user's confirmation in the app.
+- **Untrusted files.** `.trec`, `.cmproj`, `.beproj` and media are parsed by
+  Beacon and its own FFmpeg: fuzz the `.trec` and project readers, keep
+  FFmpeg's demuxers and protocols to what Beacon needs (`file` only, as
+  today), and check paths read from projects (`..`, symlinks) never write
+  outside where they should (`checkOutput`).
+- **The webview.** What the window's RPC lets page script do (it runs
+  commands, opens files and dialogs); no remote content or inline HTML from
+  documents; the CSP.
+- **Secrets and uploads.** The OpenAI key stays in the Keychain and never in
+  logs, crash reports or project files; what is uploaded to OpenAI is only
+  the audio chunks, and the UI says so.
+- **Updates and the build.** In-app updates are signed and checked before
+  they run; the app is signed (hardened runtime) and notarized; pinned
+  dependencies with `bun run audit` (bun audit + cargo deny) in CI;
+  third-party binaries built from pinned, hashed sources.
+- **Permissions.** Screen recording, camera and microphone are asked for only
+  when used, and the recorder can't run without the window knowing.
+**Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
+and a fuzzing run of the file readers finds no crash.
+
+### Phase 12 — Camtasia export (the user, 2026-10-16)
+Handing a Beacon project to someone who keeps editing in Camtasia: File ›
+Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
+media beside it), one way and best effort, as import is (§11). Not for
+finished videos: MP4 and `.srt` export already covers those.
+- **The mappers, reversed.** Each feature's `CamtasiaMapper` gains an
+  export half for what it claims on import (clips, trims, speed, transform,
+  opacity, animation blocks, cursor effects, motion blur, the effects both
+  have); ticks map 1:1. What has no Camtasia equivalent (Beacon's captions
+  as drawn, Border, CRT...) is listed in an export report, as import lists
+  what it skips, never dropped silently. Core never names a feature: a
+  feature that can't export says so through the contract.
+- **The cursor.** Beacon's own recordings (`.brec`) have no cursor in the
+  screen video (Beacon draws it from the click log), and Camtasia draws one
+  only from `.trec` data. So a `.brec` screen is exported with Beacon's
+  cursor rendered into an MP4 (Camtasia's cursor effects can't apply); an
+  imported `.trec` goes as it is. Worth checking first whether Camtasia
+  accepts a `.trec` Beacon writes, which would keep its cursor editable.
+- **Versions.** Camtasia's format isn't documented and changes between
+  releases: write the version the user's projects use, check the result
+  opens in the Camtasia releases they have, and note findings in
+  `docs/formats/`.
+- Round trip as the test: a `.cmproj` imported then exported opens in
+  Camtasia looking the same, on copies (never the user's projects).
+**Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
+captions opens in Camtasia with its edit intact, and the report lists what
+didn't carry over.
+
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
@@ -1427,6 +1592,30 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### AI B-roll and camera angles (the user, 2026-10-15; Phase 10 or later)
+Generated video, through the user's own API keys, as jobs that make media
+assets reviewed before they are placed (as Remove Silences is). Researched
+2026-10-15:
+- **B-roll from the transcript** (low risk, first): an LLM picks 2-6 s
+  cutaways from the word-timed transcript and writes shot prompts with one
+  style sheet; text-to-video with audio off (Veo 3.1 Fast/Lite, Kling 3.0,
+  FLUX 3 Video's draft mode; about $0.05-0.17/s), placed on a B-roll track
+  over the word range. Good for generic shots; weak on real UIs, logos, text.
+- **A new camera angle of the presenter**: (1) no generation first: a
+  punch-in crop of the 4K source and a small depth-parallax move (±5°), in
+  Beacon's renderer; (2) video-to-video re-angling in 3-10 s pieces with
+  Seedance 2.5's reference-to-video (the clip and its audio as references;
+  best in independent tests, $0.30-0.70/s, 720p-1080p, re-rolls expected) or
+  Runway Aleph 2.0; (3) experimental: turn one frame with an image model
+  (FLUX 3 Image, Qwen-Image-Edit multiple-angles), animate it from the
+  original's motion, then lip-sync to the original audio (sync.so sync-3).
+  No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
+  lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
+- Shape: a generation job per provider (fal and Runway cover many models with
+  one key), results as candidates with their prompt, model and cost, a cost
+  estimate before running, then one undoable command to place a take; the
+  original audio kept. MCP tools follow the same suggest/generate/apply path.
 
 ### Background audio cleaning (tuneup / Auphonic)
 Clean each source recording's audio in the background while editing and swap
