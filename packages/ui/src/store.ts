@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, Init, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
 
 enablePatches();
 
@@ -43,6 +43,8 @@ export interface ViewState {
   exportSheet?: ExportSheet;
   recordSheet?: RecordSheet;
   recordedSheet?: RecordedSheet;
+  /** The narration being recorded, while it is. */
+  narrating?: Narrating;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
   /** The Settings window, while open, with the app settings it opened with. */
@@ -149,6 +151,9 @@ export const replica = {
   },
   recordedSheet(recordedSheet: RecordedSheet | undefined) {
     set({ recordedSheet });
+  },
+  narrating(narrating: Narrating | null) {
+    set({ narrating: narrating ?? undefined });
   },
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });

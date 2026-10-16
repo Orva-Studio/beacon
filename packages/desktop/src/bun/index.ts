@@ -154,6 +154,7 @@ async function switchTo(path: string) {
     clearTimeout(thumbTimer);
     if (!current.closed) await saveProjectThumb(current.path);
     current.unwatch();
+    narrationEnded();
     // A failed final save still releases the old project; say so and finish switching.
     if (!current.closed) await core.close(current.path).catch((e: unknown) => status(e instanceof Error ? e.message : String(e)));
   }
@@ -177,8 +178,11 @@ async function switchTo(path: string) {
       sendPreparing();
     } else if (e.kind === "derived" && e.key === "proxy") {
       send().media({ proxies: { [e.asset]: e.present } });
+    } else if (e.kind === "narrated") {
+      narrationEnded(e.result);
     } else if (e.kind === "error") {
       if (e.message.startsWith("could not save")) send().saved({ ok: false });
+      if (e.message.startsWith("narration:")) narrationEnded();
       status(e.message);
     } else if (e.kind === "job" && e.job.kind !== "export") {
       if (e.job.state === "failed" && e.job.error !== "cancelled") status(`${e.job.label}: ${e.job.error}`);
@@ -579,10 +583,63 @@ async function checkSync({ camera, microphone, display: wanted, output }: { came
   }
 }
 
-async function recordDialog() {
+/** Whether Voice Narration plays the timeline's sound while it records, as last chosen. */
+const NARRATION_FILE = join(homedir(), "Library/Application Support/Beacon/narration.json");
+const narrationHear = (): boolean => {
+  try {
+    return !!(JSON.parse(readFileSync(NARRATION_FILE, "utf8")) as { hear?: boolean }).hear;
+  } catch {
+    return false;
+  }
+};
+
+/** File › Record… (⌘R) and the Record button, or Tools › Voice Narration… (`narration`). */
+async function recordDialog(mode: import("@beacon/ui").RecordMode = "take") {
   if (!current) return status("Open a project first");
   if (recording) return status("Already recording: stop from the menu bar or ⌘⇧2");
-  send().recordSheet({ ...(await core.recorderDevices()), sources: recordPrefs(), cameraSync: appSettings.cameraSync ?? {} });
+  if (narrating) return status("Narrating: stop it first");
+  send().recordSheet({ ...(await core.recorderDevices()), mode, hear: narrationHear(), sources: recordPrefs(), cameraSync: appSettings.cameraSync ?? {} });
+}
+
+/** The narration recording over the playing timeline, while it is (Beacon stays in front). */
+let narrating: import("@beacon/ui").Narrating | undefined;
+
+/** Voice narration: the microphone records while the window plays the timeline from the playhead or through the range. */
+async function startNarration({ microphone, hear }: { microphone: { id?: string }; hear: boolean }) {
+  if (!current) throw new Error("Open a project first");
+  if (recording || narrating) throw new Error("Already recording");
+  const { permissions } = await core.recorderDevices();
+  if (permissions.microphone !== "granted" && (await core.recorderAccess("microphone")) !== "granted") throw new Error("Allow Beacon in System Settings › Privacy & Security › Microphone");
+  try {
+    mkdirSync(dirname(NARRATION_FILE), { recursive: true });
+    writeFileSync(NARRATION_FILE, JSON.stringify({ hear }));
+    writeFileSync(RECORD_FILE, JSON.stringify({ ...recordPrefs(), microphone }));
+  } catch {}
+  await core.recordStart(current.path, { sources: { microphone }, narrate: { hear } });
+  const span = (await core.recordStatus()).narration;
+  narrating = { started: Date.now(), from: span?.from ?? 0, until: span?.until ?? 0 };
+  GlobalShortcut.register(STOP_SHORTCUT, () => void stopNarration({}));
+  send().narrating(narrating);
+}
+
+/** Stop or Discard: core then reports the narration ended (`narrated`), as it does when the range runs out. */
+async function stopNarration({ discard }: { discard?: boolean }) {
+  if (!narrating) return;
+  try {
+    await core.recordStop(discard ? { discard } : {});
+  } catch (e) {
+    narrationEnded();
+    throw e;
+  }
+}
+
+/** The narration is over, however it ended: the window stops showing it. */
+function narrationEnded(result?: import("@beacon/core").RecordResult) {
+  if (!narrating) return;
+  narrating = undefined;
+  GlobalShortcut.unregister(STOP_SHORTCUT);
+  send().narrating(null);
+  if (result) status(result.discarded ? "Narration discarded" : `Narration recorded (${clock(result.duration)}) on a new track`);
 }
 
 const STOP_SHORTCUT = "CommandOrControl+Shift+2";
@@ -965,6 +1022,9 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
+      openRecord: () => void recordDialog().catch((e: unknown) => status(e instanceof Error ? e.message : String(e))),
+      startNarration: (params) => reply(() => startNarration(params)),
+      stopNarration: (params) => reply(() => stopNarration(params)),
       recordPreview: (devices) => {
         clearFrames();
         return reply(() =>
@@ -1251,6 +1311,7 @@ function setMenu() {
       ],
     },
     { label: "View", submenu: [run("timeline.snapping")] },
+    { label: "Tools", submenu: [{ label: "Voice Narration…", action: "narration", enabled: !!current }] },
     {
       label: "Window",
       submenu: [
@@ -1380,6 +1441,7 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
   if (action === "new") return newProject();
   if (action === "import") return void importMedia().catch(report);
   if (action === "record") return void recordDialog().catch(report);
+  if (action === "narration") return void recordDialog("narration").catch(report);
   if (action === "export") return void exportDialog().catch(report);
   if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);

@@ -1,12 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
+import { projectDuration, ticksToSeconds } from "@beacon/model";
+import { Button, Icon, LevelMeter, Modal, Segmented, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
 import { previewListeners, useRecordFrames } from "./record-preview";
-import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
+import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordMode, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 
 export interface RecordHost extends SyncCheckHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
+  /** Opens the Record dialog, as File › Record… does. */
+  openRecord(): void;
+  /** Records `microphone` while the timeline plays from the playhead or through the range; `hear`: with its sound. */
+  startNarration(microphone: { id?: string }, hear: boolean): Promise<{ ok: boolean; error?: string }>;
+  /** Ends the narration and places it on the timeline, or throws it away. */
+  stopNarration(discard?: boolean): void;
   /** Shows the sources (`recordPreviewEvent` gets their levels, `recordFrames` their frames); with none, stops. */
   recordPreview(sources: RecordSources): void;
   recordFrames(after: number): Promise<RecordFrames>;
@@ -82,13 +89,31 @@ function present(sources: RecordSources, sheet: RecordSheet): RecordSources {
   };
 }
 
-/** File > Record…: what to record, then a countdown; Beacon then hides and its menu-bar item stops the take. */
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+/** What a narration plays: the in/out range, or from the playhead to the end. */
+function useNarrationSpan(): { from: number; until: number; ranged: boolean } {
+  const range = useView((v) => v.session?.range);
+  const playhead = useView((v) => v.session?.playhead ?? 0);
+  const project = useView((v) => v.project);
+  const end = project ? ticksToSeconds(projectDuration(project)) : 0;
+  return range ? { from: range.in, until: range.out, ranged: true } : { from: playhead, until: end, ranged: false };
+}
+
+/**
+ * File > Record…: what to record, then a countdown; Beacon then hides and its menu-bar item stops the take.
+ * Narration records the microphone alone while the timeline plays in the window.
+ */
 export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost }) {
+  const [mode, setMode] = useState<RecordMode>(sheet.mode ?? "take");
+  const narration = mode === "narration";
+  const [hear, setHear] = useState(!!sheet.hear);
+  const span = useNarrationSpan();
   const [s, setS] = useState<RecordSources>(() => present(sheet.sources, sheet));
   const [counting, setCounting] = useState<number>();
   const [error, setError] = useState<string>();
   const close = () => replica.recordSheet(undefined);
-  const nothing = !s.screen && !s.systemAudio && !s.camera && !s.microphone;
+  const nothing = narration ? !sheet.microphones.length || span.until - span.from <= 0 : !s.screen && !s.systemAudio && !s.camera && !s.microphone;
   const [levels, setLevels] = useState<{ microphone?: AudioLevel; systemAudio?: AudioLevel }>({});
   const [cameraSync, setCameraSync] = useState<Record<string, CameraSync>>(sheet.cameraSync ?? {});
   // A sync check records the same devices: the preview lets go of them while it runs.
@@ -97,10 +122,12 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
 
   // Only what Beacon may already use: asking for a permission waits for Record.
   const granted = (k: keyof RecordSheet["permissions"]) => sheet.permissions[k] === "granted";
-  const screen = granted("screen") ? s.screen : undefined;
-  const systemAudio = granted("screen") ? s.systemAudio : undefined;
-  const camera = granted("camera") ? s.camera : undefined;
-  const microphone = granted("microphone") ? s.microphone : undefined;
+  const screen = granted("screen") && !narration ? s.screen : undefined;
+  const systemAudio = granted("screen") && !narration ? s.systemAudio : undefined;
+  const camera = granted("camera") && !narration ? s.camera : undefined;
+  // A narration always records a microphone: the one last used, or the first.
+  const narrator = s.microphone?.id ? s.microphone : { id: sheet.microphones[0]?.id };
+  const microphone = granted("microphone") ? (narration ? narrator : s.microphone) : undefined;
   const previewing = !!(screen || camera) && !checking;
   const frames = useRecordFrames(host.recordFrames, previewing && counting === undefined);
   useEffect(() => {
@@ -118,7 +145,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
       previewListeners.delete(listen);
       host.recordPreview({});
     };
-  }, [!!screen, screen?.display, !!systemAudio, !!camera, camera?.id, !!microphone, microphone?.id, checking]);
+  }, [!!screen, screen?.display, !!systemAudio, !!camera, camera?.id, !!microphone, microphone?.id, checking, narration]);
   const pair = s.camera?.id && s.microphone?.id ? syncKey(s.camera.id, s.microphone.id) : undefined;
   const why = (on: unknown, kind: keyof RecordSheet["permissions"]) => (!on ? "Off" : !granted(kind) ? "Needs permission" : undefined);
 
@@ -128,7 +155,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
       const t = setTimeout(() => setCounting(counting - 1), 1000);
       return () => clearTimeout(t);
     }
-    void host.startRecording(s).then((r) => {
+    void (narration ? host.startNarration(narrator, hear) : host.startRecording(s)).then((r) => {
       if (r.ok) return close();
       setCounting(undefined);
       setError(r.error);
@@ -142,10 +169,12 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
   const cameraSize = cam?.width && cam.height ? `${cam.width} × ${cam.height}${cam.fps ? ` · ${cam.fps} fps` : ""}` : undefined;
   if (counting !== undefined) {
     return (
-      <Modal title="Record" width={360} onClose={() => setCounting(undefined)}>
+      <Modal title={narration ? "Voice Narration" : "Record"} width={360} onClose={() => setCounting(undefined)}>
         <div className="flex flex-col items-center gap-2 py-6" data-countdown>
           <div className="text-6xl font-semibold tabular-nums text-text-strong">{Math.max(counting, 1)}</div>
-          <div className="text-text-muted">Beacon hides while you record. Stop from the menu bar or ⌘⇧2.</div>
+          <div className="text-center text-text-muted">
+            {narration ? `The timeline plays from ${clock(span.from)} while you speak. Stop in the top bar or ⌘⇧2 ends it.` : "Beacon hides while you record. Stop from the menu bar or ⌘⇧2."}
+          </div>
         </div>
         <div className="flex justify-end">
           <Button onClick={() => setCounting(undefined)}>Cancel</Button>
@@ -154,7 +183,48 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
     );
   }
   return (
-    <Modal title="Record" width={560} onClose={close} onEnter={() => !nothing && setCounting(COUNTDOWN)}>
+    <Modal title={narration ? "Voice Narration" : "Record"} width={560} onClose={close} onEnter={() => !nothing && setCounting(COUNTDOWN)}>
+      <div className="mb-4 flex justify-center">
+        <Segmented<RecordMode>
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "take", label: "Recording", icon: <Icon name="monitor-play" /> },
+            { value: "narration", label: "Narration", icon: <Icon name="microphone" /> },
+          ]}
+          data-record-mode
+        />
+      </div>
+      {narration ? (
+        <div className="flex flex-col gap-3" data-record data-narration>
+          <Row label="Microphone" hint={permission("microphone", sheet.permissions.microphone)}>
+            <div className="w-72">
+              <Select value={narrator.id ?? ""} onChange={(e) => setS({ ...s, microphone: { id: e.target.value } })}>
+                {sheet.microphones.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {microphone && <LevelMeter label="Microphone level" db={levels.microphone?.db} peak={levels.microphone?.peak} />}
+          </Row>
+          <Row label="Timeline sound" hint={hear ? <span className="text-warning">Use headphones: from speakers, the timeline records into the narration</span> : undefined}>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={hear} onChange={(e) => setHear(e.target.checked)} data-hear />
+              Hear it while recording
+            </label>
+          </Row>
+          <div className="text-caption text-text-muted" data-narration-span>
+            {span.until - span.from <= 0
+              ? "The playhead is at the end of the timeline: move it back, or set an in/out range, to narrate over."
+              : span.ranged
+                ? `Plays the range ${clock(span.from)}–${clock(span.until)} while you speak, then stops. The narration goes on a new track at ${clock(span.from)}.`
+                : `Plays from the playhead (${clock(span.from)}) while you speak, until you stop or the timeline ends. The narration goes on a new track at ${clock(span.from)}.`}
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="mb-4 flex gap-3" data-record-monitors>
         <Monitor label="Screen" icon="monitor-play" jpeg={frames.screen} why={why(s.screen, "screen")} size={screenSize} className="flex-[1.6]" />
         <Monitor label="Camera" icon="video-camera" jpeg={frames.camera} mirrored why={why(s.camera, "camera")} size={cameraSize} className="flex-1" />
@@ -225,6 +295,8 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
           {systemAudio && <LevelMeter label="System audio level" db={levels.systemAudio?.db} peak={levels.systemAudio?.peak} />}
         </Source>
       </div>
+      </>
+      )}
       {error && <div className="mt-4 text-danger">{error}</div>}
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={close}>Cancel</Button>
@@ -235,8 +307,6 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
     </Modal>
   );
 }
-
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 /** After a take: its name (the date and time) selected to type over; Enter keeps what is typed, Esc the name it has. */
 function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHost }) {

@@ -11,6 +11,8 @@ import type {
   Image,
   ImportOptions,
   ImportResult,
+  RecordResult,
+  RecordStopOptions,
   RecorderDevices,
   RecordOptions,
   RecordStatus,
@@ -174,7 +176,7 @@ export class RemoteCore implements BeaconCore {
   recorderAccess = (kind: "camera" | "microphone") => this.#call<string>("recorderAccess", kind);
   recordStart = (h: ProjectHandle, opts?: RecordOptions) => this.#call<{ take: string }>("recordStart", h, opts);
   recordStatus = () => this.#call<RecordStatus>("recordStatus");
-  recordStop = (opts?: ImportOptions) => this.#call<ImportResult & { take: string; duration: number }>("recordStop", opts);
+  recordStop = (opts?: RecordStopOptions) => this.#call<RecordResult>("recordStop", opts);
   import = (h: ProjectHandle, files: string[], opts?: ImportOptions) => this.#call<ImportResult>("import", h, files, opts);
   forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);
   missing = (h: ProjectHandle) => this.#call<string[]>("missing", h);

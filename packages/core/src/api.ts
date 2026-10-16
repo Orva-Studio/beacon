@@ -73,7 +73,21 @@ export interface RecordOptions {
   name?: string;
   /** Gets the take's camera frames and audio levels while it records, for the app's recording panel. */
   monitor?: (e: RecorderPreviewEvent) => void;
+  /**
+   * Voice narration: the timeline plays in the app from the playhead (or through the in/out range) while only the
+   * microphone records; stopping, or the end of the range, places the take on a new track under what was playing.
+   * `hear`: play the timeline's sound too (off by default, so speakers don't bleed into the take).
+   */
+  narrate?: { hear?: boolean };
 }
+
+export interface RecordStopOptions extends ImportOptions {
+  /** Throw the take away: nothing is imported and its folder is deleted. */
+  discard?: boolean;
+}
+
+/** What stopping a take imported (nothing, when discarded); a narration's clip is on a track of its own. */
+export type RecordResult = ImportResult & { take: string; duration: number; discarded?: boolean };
 
 export interface RecordStatus {
   recording: boolean;
@@ -81,6 +95,10 @@ export interface RecordStatus {
   take?: string;
   project?: ProjectHandle;
   elapsed?: number;
+  /** Whether the take is a narration, and the timeline span it plays (seconds). */
+  narration?: { from: number; until: number; hear: boolean };
+  /** The last narration that ended by itself (its range or the timeline ran out, or playback was paused): what it imported. */
+  last?: RecordResult;
 }
 
 export type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult };
@@ -197,6 +215,8 @@ export type CoreEvent =
   | { kind: "preparing"; assets: Record<string, number> }
   /** An asset's background analysis was stored or deleted. */
   | { kind: "derived"; asset: string; key: string; present: boolean }
+  /** A narration ended (stopped, or it reached the end of its range) and was placed, or was discarded. */
+  | { kind: "narrated"; result: RecordResult }
   /** Something went wrong outside any call, e.g. the save after a drag: show it, the caller has already returned. */
   | { kind: "error"; message: string }
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
@@ -298,7 +318,10 @@ export interface BeaconCore {
    * Only in the app, which does the flashing.
    */
   recordSyncCheck(sources: RecorderSources, show: () => Promise<void>): Promise<SyncResult>;
-  /** Stops the take and imports it into the project it was started for (at the end, or as `opts` says). */
-  recordStop(opts?: ImportOptions): Promise<ImportResult & { take: string; duration: number }>;
+  /**
+   * Stops the take and imports it into the project it was started for (at the end, or as `opts` says); a narration
+   * goes on a new track where it began, lined up with what was heard. One undo step.
+   */
+  recordStop(opts?: RecordStopOptions): Promise<RecordResult>;
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
 }

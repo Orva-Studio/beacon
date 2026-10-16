@@ -57,6 +57,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "recordDevices") replica.recordDevices(msg.data);
   else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
   else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
+  else if (msg.type === "narrating") replica.narrating(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
   else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
@@ -102,6 +103,9 @@ const host: Host = {
   chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
+  openRecord: () => void request("openRecord"),
+  startNarration: (microphone, hear) => request("startNarration", { microphone, hear }) as Promise<{ ok: boolean; error?: string }>,
+  stopNarration: (discard) => void request("stopNarration", { discard: !!discard }),
   recordPreview: (devices) => void request("recordPreview", devices),
   recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
   checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, display, output }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,

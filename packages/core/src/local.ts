@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -59,6 +59,8 @@ import type {
   ProjectHandle,
   QueryInfo,
   RecordOptions,
+  RecordResult,
+  RecordStopOptions,
   ResourceInfo,
   PreferenceInfo,
   RecordStatus,
@@ -115,6 +117,14 @@ export type Snapshotter = (h: ProjectHandle) => Promise<{
   /** What the window reports it has drawn, as text. */
   shown?: string;
 }>;
+
+/** A narration being recorded: the span it plays, and when its sound was first heard (kept as playback ticks). */
+interface Narration {
+  from: number;
+  until: number;
+  hear: boolean;
+  heard?: PlaybackHeard;
+}
 
 const PLAYBACK = new Set(["playback.play", "playback.toggle", "playback.shuttle"]);
 
@@ -517,6 +527,10 @@ export class LocalCore implements BeaconCore {
       for (const other of this.#projects.values()) if (other !== p) other.session.share(this.#shared);
     }
     this.#emit(p, { kind: "session", changes: Object.fromEntries(changed.map((k) => [k, session[k]])) as Partial<Session>, changed });
+    // A narration lasts while the timeline plays on from where it began: a pause or a seek ends it there.
+    if (this.#recording?.narration && this.#recording.h === p.path && ((changed.includes("playing") && !session.playing) || (changed.includes("playhead") && !p.ticking))) {
+      void this.recordStop().catch((e: unknown) => this.#emit(p, { kind: "error", message: `narration: ${e instanceof Error ? e.message : e}` }));
+    }
     const view = p.view;
     if (!view || p.ticking) return;
     if (changed.includes("playing") && !session.playing) view.pause();
@@ -584,6 +598,10 @@ export class LocalCore implements BeaconCore {
         } finally {
           p.ticking = false;
         }
+        const n = this.#recording?.h === p.path ? this.#recording.narration : undefined;
+        if (!n) return;
+        n.heard = view.heard() ?? n.heard;
+        if (t >= n.until - ticksToSeconds(ticksPerFrame(p.store.doc.settings.fps)) / 2) p.session.run("playback.pause", {}, p.store.doc);
       },
       onEnd: () => p.session.run("playback.pause", {}, p.store.doc),
       silent: opts.silent,
@@ -1024,7 +1042,8 @@ export class LocalCore implements BeaconCore {
   }
 
   #recorder = new Recorder();
-  #recording?: { h: ProjectHandle; dir: string };
+  #recording?: { h: ProjectHandle; dir: string; narration?: Narration };
+  #lastNarration?: RecordResult;
 
   async recorderDevices() {
     return this.#recorder.devices();
@@ -1045,11 +1064,43 @@ export class LocalCore implements BeaconCore {
   async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
     const p = this.#get(h);
     if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
+    if (opts.narrate) return this.#narrate(p, opts);
     const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
     const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, sources, opts.monitor);
     this.#recording = { h, dir };
+    return { take: dir };
+  }
+
+  /** Records the microphone while the app's view plays the timeline from the playhead, or through the range. */
+  async #narrate(p: OpenProject, opts: RecordOptions): Promise<{ take: string }> {
+    const view = p.view;
+    if (!view) throw new Error("a narration plays the timeline in the Beacon app: open the project there");
+    const { screen, camera, systemAudio, microphone, ...rest } = opts.sources ?? { microphone: {} };
+    if (screen || camera || systemAudio) throw new Error("a narration records only a microphone");
+    const doc = p.store.doc;
+    const frame = ticksToSeconds(ticksPerFrame(doc.settings.fps));
+    const { range, playhead } = p.session.state;
+    const from = range?.in ?? playhead;
+    const until = range?.out ?? ticksToSeconds(projectDuration(doc));
+    if (from >= until - frame / 2) throw new Error(range ? "the range is empty" : "the playhead is at the end of the timeline: move it back, or set an in/out range, to narrate over");
+    if (p.session.state.playing) p.session.run("playback.pause", {}, doc);
+    const dir = join(p.path, "recordings", `${opts.name ?? `Narration ${takeName(new Date())}`}.brec`);
+    mkdirSync(dirname(dir), { recursive: true });
+    await this.#recorder.start(dir, { ...rest, microphone: microphone ?? {} }, opts.monitor);
+    const hear = !!opts.narrate?.hear;
+    try {
+      if (playhead !== from) p.session.run("playhead.set", { time: from }, p.store.doc);
+      view.muted = !hear;
+      p.session.run("playback.play", {}, p.store.doc);
+    } catch (e) {
+      view.muted = false;
+      await this.#recorder.stop().catch(() => {});
+      rmSync(dir, { recursive: true, force: true });
+      throw e;
+    }
+    this.#recording = { h: p.path, dir, narration: { from, until, hear } };
     return { take: dir };
   }
 
@@ -1073,18 +1124,79 @@ export class LocalCore implements BeaconCore {
 
   async recordStatus(): Promise<RecordStatus> {
     const rec = this.#recording;
-    if (!rec) return { recording: false };
+    if (!rec) return { recording: false, ...(this.#lastNarration ? { last: this.#lastNarration } : {}) };
     const s = await this.#recorder.status();
-    return { recording: s.recording, take: rec.dir, project: rec.h, ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}) };
+    const n = rec.narration;
+    return {
+      recording: s.recording,
+      take: rec.dir,
+      project: rec.h,
+      ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}),
+      ...(n ? { narration: { from: n.from, until: n.until, hear: n.hear } } : {}),
+    };
   }
 
-  async recordStop(opts: ImportOptions = {}): Promise<ImportResult & { take: string; duration: number }> {
+  async recordStop(opts: RecordStopOptions = {}): Promise<RecordResult> {
     const rec = this.#recording;
     if (!rec) throw new Error("not recording");
     this.#recording = undefined;
+    const p = this.#projects.get(rec.h);
+    const n = rec.narration;
+    // Read before playback stops: pausing lets go of the audio clock.
+    const heard = n && (p?.view?.heard() ?? n.heard);
+    if (n && p) {
+      if (p.session.state.playing) p.session.run("playback.pause", {}, p.store.doc);
+      if (p.view) p.view.muted = false;
+    }
     const take = await this.#recorder.stop();
     if (take.errors.length) console.warn(`recording ${basename(rec.dir)}: ${take.errors.join("; ")}`);
-    return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
+    let result: RecordResult;
+    if (opts.discard) {
+      rmSync(rec.dir, { recursive: true, force: true });
+      result = { assets: [], clips: [], jobs: [], take: rec.dir, duration: take.duration, discarded: true };
+    } else if (n) {
+      if (!heard) throw new Error(`the timeline never played, so the narration can't be lined up: ${basename(rec.dir)} is kept in the project's recordings`);
+      result = { ...(await this.#placeNarration(rec.h, rec.dir, heard, n.from)), take: rec.dir, duration: take.duration };
+    } else return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
+    if (n && p) {
+      this.#lastNarration = result;
+      this.#emit(p, { kind: "narrated", result });
+    }
+    return result;
+  }
+
+  /**
+   * A narration on a new track at `from`, starting as far into its file as the timeline was heard after the
+   * microphone began, so each word sits under what was playing as it was spoken. One undo step.
+   */
+  async #placeNarration(h: ProjectHandle, dir: string, heard: PlaybackHeard, from: number): Promise<ImportResult> {
+    const p = this.#get(h);
+    const file = resolve(dir);
+    const importer = this.registry.importerFor(".brec")!;
+    const media = await probeMedia(file);
+    const loudness = await measureLoudness(file, media);
+    const asset: Omit<Asset, "id"> = { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: { media, ...(Object.keys(loudness).length ? { loudness } : {}) } };
+    const fps = p.store.doc.settings.fps;
+    // The timeline second the file's first sample is under; the clip begins at `from`, or later if the take began after it.
+    const at = narrationStart(file, heard);
+    const start = Math.max(ticksToSeconds(snapSeconds(from, fps)), ticksToSeconds(snapSeconds(at, fps, "ceil")));
+    const drift = heard.last.time - heard.time - (heard.last.host - heard.host);
+    if (Math.abs(drift) > 0.005 || heard.stalled > 0) console.warn(`narration ${basename(dir)}: the timeline ran ${(drift * 1000).toFixed(1)} ms off the host clock and waited ${(heard.stalled * 1000).toFixed(0)} ms for its decoder`);
+    const result: ImportResult = { assets: [], clips: [], jobs: [] };
+    this.#saved(p, p.store.transaction("Record Narration", (tx) => {
+      const id = tx.run<string>("asset.add", asset);
+      const [spec] = importer.clips({ id, ...asset }, p.store.doc);
+      if (!spec) throw new Error(`${basename(dir)} has no audio`);
+      const track = tx.run<string>("track.add", { name: "Narration" });
+      const mediaStart = start - at + ticksToSeconds(spec.mediaStart ?? 0);
+      const duration = ticksToSeconds(spec.duration) - (start - at);
+      result.assets.push(id);
+      result.clips.push(tx.run<string>("clip.add", { track, type: spec.type, start, duration, mediaStart, assetId: id, props: spec.props }));
+    }));
+    if (p.view) this.#previewJobs(p);
+    const { jobs, needs } = this.#importAnalyses(h, result.assets);
+    result.jobs.push(...jobs);
+    return needs ? { ...result, needs } : result;
   }
 
   async missing(h: ProjectHandle): Promise<string[]> {

@@ -49,6 +49,14 @@ microphone). `recorder_stop` ends it and imports it as a `.trec` is imported, at
 the end of the timeline or at `at`. Only record when the user asks: it captures
 their screen, camera and microphone.
 
+Voice narration: `recorder_start` with only a `microphone` and `narrate` (the
+project open in the app). The app plays the timeline from the playhead, or
+through the in/out range, silently unless `hear` (only with headphones), while
+the user speaks over it. `recorder_stop`, a pause or the end of the range ends
+it; the take goes on a new Narration track where it began, lined up with what
+played, and is transcribed. `recorder_status`'s `last` says what a narration
+that ended by itself imported; `recorder_stop` with `discard` throws a take away.
+
 ## Editing
 - `timeline_rippleDelete` removes time ranges from every track at once and
   closes the gaps; all ranges in one call are read against the timeline as it

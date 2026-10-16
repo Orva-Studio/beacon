@@ -214,15 +214,19 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("recorder_start", {
     description:
-      "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it",
+      "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it. " +
+      "`narrate`: voice narration, with only a `microphone`: the app plays the timeline from the playhead (or through the in/out range) while it records, silently unless `hear`; it ends at recorder_stop, the end of the range or a pause, and goes on a new Narration track where it began, lined up with what played, transcribed like an import (recorder_status's `last` says what an ending by itself imported). Needs the project open in the app",
     schema: z.strictObject({
       screen: z.strictObject({ display: z.int().optional().describe("A display id; omitted: the main display"), fps: z.int().min(1).max(60).optional() }).optional(),
       systemAudio: z.boolean().optional(),
       camera: device.optional(),
       microphone: device.optional(),
       name: z.string().min(1).optional().describe("The take's name; omitted: the date and time"),
+      narrate: z.boolean().optional().describe("Voice narration over the timeline: record only the microphone while the app plays it"),
+      hear: z.boolean().optional().describe("With `narrate`: play the timeline's sound too (only with headphones, or it bleeds into the take)"),
     }),
-    run: async ({ name, ...sources }) => core.recordStart(project(), { ...(Object.keys(sources).length ? { sources } : {}), ...(name ? { name } : {}) }),
+    run: async ({ name, narrate, hear, ...sources }) =>
+      core.recordStart(project(), { ...(Object.keys(sources).length ? { sources } : {}), ...(name ? { name } : {}), ...(narrate ? { narrate: { hear: !!hear } } : {}) }),
   });
   add("recorder_status", {
     description: "Whether a take is being recorded, its folder and the seconds recorded",
@@ -230,9 +234,10 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     run: async () => core.recordStatus(),
   });
   add("recorder_stop", {
-    description: "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at the end of the timeline (or at `at`), the cursor drawn from its log",
-    schema: z.strictObject({ at: Seconds.optional() }),
-    run: async ({ at }) => core.recordStop(at === undefined ? {} : { at }),
+    description:
+      "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at the end of the timeline (or at `at`), the cursor drawn from its log; a narration on its own track where it began. `discard`: throw the take away instead. One undo step",
+    schema: z.strictObject({ at: Seconds.optional(), discard: z.boolean().optional() }),
+    run: async ({ at, discard }) => core.recordStop({ ...(at === undefined ? {} : { at }), ...(discard ? { discard } : {}) }),
   });
   add("transaction", {
     description:

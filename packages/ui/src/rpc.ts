@@ -203,7 +203,14 @@ export interface RecordedSheet {
 }
 
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
+/** What the Record dialog records: a take of the screen, camera and audio, or voice narration over the timeline. */
+export type RecordMode = "take" | "narration";
+
 export interface RecordSheet {
+  /** Which choice it opens on (Tools › Voice Narration opens on narration); a take by default. */
+  mode?: RecordMode;
+  /** Narration's last choice: whether the timeline's own sound is heard while recording. */
+  hear?: boolean;
   permissions: { screen: string; camera: string; microphone: string };
   displays: { id: number; width: number; height: number; pixelWidth?: number; pixelHeight?: number; x?: number; y?: number }[];
   cameras: { id: string; name: string; width?: number; height?: number; fps?: number }[];
@@ -211,6 +218,13 @@ export interface RecordSheet {
   outputs: SoundOutput[];
   sources: RecordSources;
   cameraSync?: Record<string, CameraSync>;
+}
+
+/** A narration being recorded: when it began (ms, wall clock), and the timeline span it plays (seconds). */
+export interface Narrating {
+  started: number;
+  from: number;
+  until: number;
 }
 
 /** An export running or finished, for the window's progress panel. */
@@ -301,6 +315,12 @@ export type AppRPC = {
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
+      /** The Record dialog (the Record button), as File › Record… opens it. */
+      openRecord: { params: {}; response: void };
+      /** Voice narration: records the microphone while the timeline plays from the playhead (or through the range). */
+      startNarration: { params: { microphone: { id?: string }; hear: boolean }; response: RunReply };
+      /** Ends the narration and places it, or throws it away (`discard`). */
+      stopNarration: { params: { discard?: boolean }; response: RunReply };
       /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
       /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */
@@ -377,6 +397,8 @@ export type AppRPC = {
       key: { code: string; meta: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
       exportSheet: ExportSheet;
+      /** A narration started, or ended (null). */
+      narrating: Narrating | null;
       /** File > Record… (⌘R): open the Record dialog. */
       recordSheet: RecordSheet;
       /** A display, camera or microphone was connected or removed: the open Record dialog's lists again. */
