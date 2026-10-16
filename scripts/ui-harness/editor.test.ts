@@ -658,7 +658,6 @@ test.skipIf(skip)("The Narration panel records a narration itself, as Camtasia's
   await run("panel.show", { tool: "narration" });
   await page.until("document.querySelector('[data-narration-panel] select')?.value === 'mic-2'");
   expect(await page.evaluate<boolean>("document.querySelector('[data-narration-hear]').checked")).toBe(false);
-  await page.until("document.querySelector('[data-narration-panel]').textContent.includes('from the playhead (0:01)')");
   // Its level, previewed while idle.
   await arrived(() => ui.menus.slice(before).includes(`recordPreview:${JSON.stringify({ microphone: { id: "mic-2" } })}`));
   await page.until("document.querySelector('[data-narration-panel] [role=meter]')?.dataset.level === '-20'");

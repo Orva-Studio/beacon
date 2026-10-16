@@ -193,14 +193,6 @@ function NarrationPanel({ host }: { host: Host }) {
           </Button>
         )}
         {error && <span className="text-caption text-danger">{error}</span>}
-        <p className="text-caption text-text-faint">
-          {span.still
-            ? `Nothing plays after the playhead: it records at ${clock(span.from)} until you stop.`
-            : span.ranged
-              ? `Plays the range ${clock(span.from)}–${clock(span.until)} while you speak.`
-              : `Plays from the playhead (${clock(span.from)}) while you speak, until you stop or the timeline ends. Set an in/out range to narrate over part of it.`}{" "}
-          It goes on a new track, in step with what played, and is transcribed.
-        </p>
       </div>
     </Panel>
   );
