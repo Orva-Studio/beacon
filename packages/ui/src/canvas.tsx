@@ -1,5 +1,5 @@
 import { replica, useView } from "./store";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   animatedValue,
   editedValue,
@@ -318,7 +318,10 @@ export function CanvasOverlay({
     if (moved?.done && caught) setMoved(undefined);
   }, [moved, caught]);
   const caption = reported && moved && moved.clip === reported.clip && !caught ? { ...reported, box: { ...reported.box, x: moved.x, y: moved.y }, origin: [reported.origin[0] + moved.x - reported.box.x, reported.origin[1] + moved.y - reported.box.y] as [number, number] } : reported;
-  const captionClip = caption ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === caption.clip) : undefined;
+  /** Each top-level clip and its track's index, built once a timeline change rather than searched per clip. */
+  const where = useMemo(() => new Map(project.tracks.flatMap((t, i) => t.clips.map((c) => [c.id, { clip: c, track: i }] as const))), [project.tracks]);
+  const captionAt = caption ? where.get(caption.clip) : undefined;
+  const captionClip = captionAt?.clip;
   const placed = placedClips(project, session, view, (c) => clipTypes[c.type]?.includes("visual") ?? false);
   if (caption && captionClip) {
     const { x, y, width, height } = caption.box;
@@ -326,11 +329,10 @@ export function CanvasOverlay({
     const crop = { left: 0, top: 0, right: 0, bottom: 0 };
     const p: Placed = { clip: captionClip, size: [width, height], t, crop, stored: { t, crop }, m: compose(view, translate(x, y)), corners: [apply(view, x, y), apply(view, x + width, y), apply(view, x + width, y + height), apply(view, x, y + height)] };
     // Drawn in track order like the rest: above the clips on lower tracks.
-    const track = (id: string) => project.tracks.findIndex((tr) => tr.clips.some((c) => c.id === id));
-    const at = placed.findIndex((q) => track(q.clip.id) < track(captionClip.id));
+    const at = placed.findIndex((q) => (where.get(q.clip.id)?.track ?? -1) < captionAt!.track);
     placed.splice(at < 0 ? placed.length : at, 0, p);
   }
-  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(project.tracks.find((t) => t.clips.some((c) => c.id === captionClip?.id))?.props?.captionStyle as Partial<CaptionPlace>), ...(captionClip?.props.captionPlace as Partial<CaptionPlace>) });
+  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(captionAt ? (project.tracks[captionAt.track]!.props?.captionStyle as Partial<CaptionPlace> | undefined) : undefined), ...(captionClip?.props.captionPlace as Partial<CaptionPlace>) });
   const selected = placed.filter((p) => session.selection.includes(p.clip.id));
 
   // Panel items dropped on media on the canvas apply to the top clip there that takes them, at the playhead.
