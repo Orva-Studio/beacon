@@ -1343,7 +1343,7 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await run("panel.show", { tool: null });
 }, 150_000);
 
-test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; Cancel cuts nothing; one review at a time", async () => {
+test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; one at a time, Cut This One cuts only one; Cancel cuts nothing; one review at a time", async () => {
   // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
   // in a cache of its own.
   type Transcript = { streams: Record<number, { words: { text: string }[] }> };
@@ -1405,6 +1405,38 @@ test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler mark
     expect([left.includes("Um,"), left.includes("Hmm."), left.filter((t) => t.startsWith("uh")).length]).toEqual([false, false, 2]);
     await other.core.undo(other.handle);
     expect(length()).toBeCloseTo(before, 3);
+    // One at a time: › goes to the first, ⌥-click on the last's mark goes to it, ‹ steps back; Cut This One cuts only
+    // that one, one undo step, and the review stays open on the next.
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-one-next]')");
+    const at = () => p.evaluate<string>("document.querySelector('[data-one-at]')?.textContent ?? ''");
+    await p.evaluate("document.querySelector('[data-one-next]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 3')");
+    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Um,”");
+    expect((await other.core.session(other.handle)).playhead).toBeCloseTo(Math.max(0, first.fillers[0]!.start - 1), 1);
+    const last = first.fillers[2]!;
+    await go("timeline.view", { start: last.start - 2, end: last.end + 2 });
+    const s2 = await other.core.session(other.handle);
+    const xAt2 = (t: number) => box.x + header + ((t - s2.timeline.start) / (s2.timeline.end - s2.timeline.start)) * (box.w - header);
+    await p.click(xAt2((last.start + last.end) / 2), box.y + box.h - 20, ["alt"]);
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('3 of 3')");
+    expect((await review())?.fillers?.flipped).toEqual([]);
+    await p.evaluate("document.querySelector('[data-one-prev]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 3')");
+    const second = first.fillers[1]!;
+    const steps = (await other.core.history(other.handle)).undo.length;
+    await p.evaluate("document.querySelector('[data-one-cut]').click()");
+    await arrived(() => length() < before);
+    expect(before - length()).toBeCloseTo(second.end - second.start, 1);
+    expect((await other.core.history(other.handle)).undo.length - steps).toBe(1);
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 2')");
+    expect(await at()).toEndWith("2 of 2");
+    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Hmm.”");
+    expect(await p.evaluate<boolean>("!!document.querySelector('[data-filler-review]')")).toBe(true);
+    await other.core.undo(other.handle);
+    expect(length()).toBeCloseTo(before, 3);
+    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
+    await p.until("!document.querySelector('[data-filler-review]')");
     // Opened again: Remove Silences replaces it in the properties panel, and Cancel cuts nothing.
     await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
     await p.until("!!document.querySelector('[data-fillers-cancel]')");

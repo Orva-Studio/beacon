@@ -16,7 +16,7 @@ import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-v
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { RecordUi, type RecordHost } from "./record";
-import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { goTo, reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
@@ -167,8 +167,8 @@ export function App({ host }: { host: Host }) {
             menu={host.clipMenu}
             trackMenu={host.trackMenu}
             dropFiles={host.dropFiles}
-            marks={(silences?.silences ?? fillers?.fillers)?.map((s) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep" }))}
-            markClick={(m) => host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start })}
+            marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
+            markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
           />
         </div>
       ) : (

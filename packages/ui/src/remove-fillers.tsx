@@ -1,7 +1,7 @@
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import { Button, Progress } from "./controls";
 import { useTranscribing } from "./captions";
-import { clock, useReviewed } from "./remove-silences";
+import { clock, OneByOne, useReviewed } from "./remove-silences";
 import type { Host } from "./app";
 
 /** What `transcript.fillers` answers. */
@@ -11,6 +11,8 @@ export interface Fillers {
   fillers: { start: number; end: number; text: string; cut: boolean }[];
   cuts: number;
   saved: number;
+  /** Index of the filler being looked at, going through them one at a time. */
+  current?: number;
 }
 
 /** Remove Filler Words' review in `session.features.transcript.fillers` (the transcript feature's `fillers.review`). */
@@ -50,12 +52,13 @@ export function FillerReviewPanel({ project, host, found }: { project: Project; 
         </span>
         <span>Click a filler on the timeline to keep or cut it.</span>
       </div>
+      <OneByOne review="fillers" items={found?.waiting.length ? [] : (found?.fillers ?? [])} current={found?.current} host={host} describe={(f) => `“${f.text}” at ${clock(f.start)}: ${f.cut ? "to cut" : "kept"}`} />
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={() => host.run("fillers.close")} data-fillers-cancel>
           Cancel
         </Button>
         <Button look="primary" disabled={!ready} onClick={() => host.run("fillers.apply")} data-fillers-apply>
-          Apply
+          Apply All
         </Button>
       </div>
     </div>

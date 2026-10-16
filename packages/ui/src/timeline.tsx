@@ -132,8 +132,8 @@ interface Props {
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
   /** Spans marked across the tracks while something is reviewed (Remove Silences: red to cut, grey to keep). */
   marks?: TimelineMark[];
-  /** A click on a mark (not by the playhead): Remove Silences flips it. */
-  markClick?: (mark: TimelineMark) => void;
+  /** A click on a mark (not by the playhead): Remove Silences flips it, or with ⌥ goes to it. */
+  markClick?: (mark: TimelineMark, alt: boolean) => void;
 }
 
 /** A span over every track, in timeline seconds. */
@@ -141,6 +141,8 @@ export interface TimelineMark {
   start: number;
   end: number;
   tone: "cut" | "keep";
+  /** The one being looked at, going through them one at a time: outlined. */
+  current?: boolean;
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -722,6 +724,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : "silence-keep");
       ctx.fillRect(a, RULER, Math.max(1, b - a), h - RULER);
       ctx.fillRect(a, RULER - 4, Math.max(1, b - a), 4);
+      if (m.current) {
+        ctx.strokeStyle = color("accent");
+        ctx.lineWidth = 2;
+        ctx.strokeRect(a - 1, RULER - 3, Math.max(1, b - a) + 2, h - RULER + 2);
+      }
     }
     const drag = dragState.current;
     const dragged = drag?.kind === "volume" && drag.at ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === drag.clip) : undefined;
@@ -1144,7 +1151,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
           const t = timeAt(e.clientX);
           const mark = y >= RULER && markClick ? latest.current.marks?.find((m) => t >= m.start && t <= m.end) : undefined;
-          if (mark) return markClick!(mark);
+          if (mark) return markClick!(mark, e.altKey);
           capture();
           const arrow = arrowAt(e.clientX, e.clientY);
           if (arrow) {

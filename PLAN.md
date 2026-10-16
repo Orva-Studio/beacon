@@ -1368,6 +1368,13 @@ user, 2026-10-16).
 **Asked after trying both reviews** (the user, 2026-10-16: "they both work
 great"): going through silences or fillers one at a time, a click making
 that one the only one marked, and applying them one by one to check each.
+Built the same day, for v0.5.0, in both reviews: ‹ › step through them (or
+⌥-click one on the timeline), outlining the one looked at and putting the
+playhead a second before it; Skip moves on; Cut This One cuts only it, as
+its own undo step (marked to keep or not), and the review stays open on the
+next. Apply became Apply All. For agents: `silences.focus`/`fillers.focus`,
+then `silences.apply`/`fillers.apply` with `one`; the review's flips and
+place follow the cut (`reviews.shift`), and the queries answer `current`.
 Later, maybe: dragging a silence's edges to change how much is cut.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
