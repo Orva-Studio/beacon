@@ -25,16 +25,16 @@ export interface Silences {
 export const reviewOf = (session: Session | undefined) => (session?.features.transcript as { silences?: Review } | undefined)?.silences;
 
 /**
- * The open review's silences, for the timeline's marks and the review panel; asked again after each edit, and each
- * second while a transcript is still being made, and a missing one (an import whose app quit first) is started.
+ * What an open review (`review`, its query's args) finds, for the timeline's marks and the review panel; asked again
+ * after each edit, and each second while a transcript is still being made, and a missing one (an import whose app
+ * quit first) is started.
  */
-export function useSilences(host: Host, session: Session | undefined, project: Project | undefined): Silences | undefined {
-  const review = reviewOf(session);
+export function useReviewed<T extends { waiting: string[] }>(host: Host, query: string, review: object | undefined, project: Project | undefined): T | undefined {
   const [tick, setTick] = useState(0);
   // Each edit is a new project: the marks and Apply must describe the timeline as it is now.
   const edits = useRef({ project, n: 0 });
   if (edits.current.project !== project) edits.current = { project, n: edits.current.n + 1 };
-  const found = useQuery<Silences>(host, review ? "transcript.silences" : "", review ?? {}, `${tick}:${edits.current.n}`);
+  const found = useQuery<T>(host, review ? query : "", review ?? {}, `${tick}:${edits.current.n}`);
   const missing = review ? (found?.waiting.join() ?? "") : "";
   useEffect(() => {
     for (const asset of missing ? missing.split(",") : []) host.analyze("transcript", asset);
@@ -47,10 +47,12 @@ export function useSilences(host: Host, session: Session | undefined, project: P
   return review ? found : undefined;
 }
 
+export const useSilences = (host: Host, session: Session | undefined, project: Project | undefined) => useReviewed<Silences>(host, "transcript.silences", reviewOf(session), project);
+
 // A slider's steps of 0.1 come out as 0.30000000000000004.
 const tenths = (v: number) => Math.round(v * 10) / 10;
 
-const clock = (s: number) => {
+export const clock = (s: number) => {
   const t = Math.max(0, Math.round(s));
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
 };

@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
+import { DerivedData } from "@beacon/render";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
@@ -1341,6 +1342,85 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   expect(length()).toBeCloseTo(before, 3);
   await run("panel.show", { tool: null });
 }, 150_000);
+
+test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; Cancel cuts nothing; one review at a time", async () => {
+  // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
+  // in a cache of its own.
+  type Transcript = { streams: Record<number, { words: { text: string }[] }> };
+  const talk = await ui.core.import(ui.handle, [join(FIXTURES, "audio.m4a")]);
+  let transcript: Transcript | undefined;
+  for (const end = Date.now() + 120_000; !(transcript = ui.core.derived<Transcript>(ui.handle, talk.assets[0]!, "transcript")) && Date.now() < end; ) await Bun.sleep(250);
+  await ui.core.undo(ui.handle);
+  const cacheDir = join(dir, "fillers-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "fillers.beproj");
+  const h = await core.create({ path });
+  const copy = join(dir, `talk-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const { assets } = await core.import(h, [copy]);
+  const asset = core.doc(h).assets[assets[0]!]!;
+  await core.close(h);
+  const edited = structuredClone(transcript!);
+  for (const [i, text] of [[30, "Um,"], [90, "uh,"], [91, "uh"], [150, "Hmm."]] as const) edited.streams[0]!.words[i]!.text = text;
+  mkdirSync(join(cacheDir, "derived"), { recursive: true });
+  writeFileSync(new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify(edited));
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
+    const review = async () => ((await other.core.session(other.handle)).features.transcript as { fillers?: { flipped: number[] }; silences?: object } | undefined);
+    type Found = { fillers: { start: number; end: number; text: string; cut: boolean }[]; saved: number };
+    const found = async () => (await other.core.query(other.handle, "transcript.fillers", (await review())?.fillers ?? {})) as Found;
+    await go("panel.show", { tool: "ai" });
+    await p.until("!!document.querySelector('[data-ai=fillers]')");
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-filler-review]')");
+    await p.until("/shorter\\.$/.test(document.querySelector('[data-fillers-summary]')?.textContent ?? '')", 30_000);
+    const first = await found();
+    expect(first.fillers.map((f) => f.text)).toEqual(["Um,", "uh, uh", "Hmm."]);
+    expect(await p.evaluate<string>("document.querySelector('[data-fillers-summary]').textContent")).toStartWith("3 filler words: 3 to cut, 0 kept.");
+    // The second filler, shown wide and clicked in the middle of its mark: kept now.
+    const target = first.fillers[1]!;
+    await go("timeline.view", { start: target.start - 2, end: target.end + 2 });
+    const s = await other.core.session(other.handle);
+    const box = await p.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+    const header = headerWidth(other.core.doc(other.handle).tracks);
+    const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+    await p.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+    for (let i = 0; i < 50 && !(await review())?.fillers?.flipped.length; i++) await Bun.sleep(50);
+    const flipped = await found();
+    expect(flipped.fillers.map((f) => f.cut)).toEqual([true, false, true]);
+    await p.until("(document.querySelector('[data-fillers-summary]')?.textContent ?? '').startsWith('3 filler words: 2 to cut, 1 kept.')");
+    const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
+    const before = length();
+    const undo = (await other.core.history(other.handle)).undo.length;
+    await p.evaluate("document.querySelector('[data-fillers-apply]').click()");
+    await p.until("!document.querySelector('[data-filler-review]')");
+    await arrived(() => length() < before);
+    expect(before - length()).toBeCloseTo(flipped.saved, 2);
+    expect((await other.core.history(other.handle)).undo.length - undo).toBe(1);
+    expect((await review())?.fillers).toBeUndefined();
+    // What was cut is gone from the transcript; the kept one is still there.
+    const left = ((await other.core.query(other.handle, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text);
+    expect([left.includes("Um,"), left.includes("Hmm."), left.filter((t) => t.startsWith("uh")).length]).toEqual([false, false, 2]);
+    await other.core.undo(other.handle);
+    expect(length()).toBeCloseTo(before, 3);
+    // Opened again: Remove Silences replaces it in the properties panel, and Cancel cuts nothing.
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-fillers-cancel]')");
+    await p.evaluate("document.querySelector('[data-ai=silences]').click()");
+    await p.until("!!document.querySelector('[data-silence-review]') && !document.querySelector('[data-filler-review]')");
+    expect((await review())?.fillers).toBeUndefined();
+    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
+    await p.until("!!document.querySelector('[data-fillers-cancel]') && !document.querySelector('[data-silence-review]')");
+    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
+    await p.until("!document.querySelector('[data-filler-review]')");
+    expect(length()).toBeCloseTo(before, 3);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 180_000);
 
 test.skipIf(skip)("Captions makes caption clips from the transcript and shows the first; its text is edited in place and a style change restyles every caption, each one undo step", async () => {
   await select([]);

@@ -17,6 +17,7 @@ import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { RecordUi, type RecordHost } from "./record";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
@@ -63,6 +64,7 @@ export function App({ host }: { host: Host }) {
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
+  const fillers = useFillers(host, session, project);
   useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
@@ -141,7 +143,15 @@ export function App({ host }: { host: Host }) {
           <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
           {project && session && <Transport project={project} session={session} host={host} init={init} />}
         </div>
-        {session?.panels.properties && project && (reviewOf(session) ? <SilenceReviewPanel project={project} session={session} host={host} found={silences} /> : <Properties project={project} session={session} host={host} init={init} />)}
+        {session?.panels.properties &&
+          project &&
+          (reviewOf(session) ? (
+            <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
+          ) : fillerReviewOf(session) ? (
+            <FillerReviewPanel project={project} host={host} found={fillers} />
+          ) : (
+            <Properties project={project} session={session} host={host} init={init} />
+          ))}
       </div>
       {project && session ? (
         <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
@@ -157,8 +167,8 @@ export function App({ host }: { host: Host }) {
             menu={host.clipMenu}
             trackMenu={host.trackMenu}
             dropFiles={host.dropFiles}
-            marks={silences?.silences.map((s) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep" }))}
-            markClick={(m) => host.run("silences.flip", { at: m.start })}
+            marks={(silences?.silences ?? fillers?.fillers)?.map((s) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep" }))}
+            markClick={(m) => host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start })}
           />
         </div>
       ) : (

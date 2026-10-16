@@ -288,7 +288,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
     args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional(), keepActive: SilenceSettings.keepActive.optional() }),
     apply: (s, a: Partial<SilenceReview>) => {
       const r = { ...(silenceReview(s) ?? SILENCE_DEFAULTS), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
-      s.features.transcript = { ...(s.features.transcript as object | undefined), silences: { ...r, keep: Math.min(r.keep, r.min) } };
+      openReview(s, "silences", { ...r, keep: Math.min(r.keep, r.min) });
     },
   },
   {
@@ -308,6 +308,100 @@ const silenceSessionCommands: SessionCommandDef[] = [
     apply: (s) => {
       const t = s.features.transcript as { silences?: SilenceReview } | undefined;
       if (t?.silences) delete t.silences;
+    },
+  },
+];
+
+/**
+ * Hesitation sounds as transcribers write them ("Um...", "uh,", "Hmmm", "Er"), not words that can be meant ("ah",
+ * "oh": "Ah crap") nor "mm-hmm"/"uh-huh", which answer something.
+ */
+const FILLER = /^(u+h*m+|u+h+|e+r+m*|h+m+|m{2,}|a+h+m+)$/;
+export const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
+
+/** Remove Filler Words' review (`session.features.transcript.fillers`): the fillers flipped by hand. */
+export interface FillerReview {
+  /** Times inside fillers whose cut-or-keep was flipped: an odd number in one flips it. */
+  flipped: number[];
+}
+
+export const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
+
+/**
+ * The time cut for filler words `first`..`last`: them and the shorter of the pauses either side, so the pause
+ * left is the longer one ("so, um, the" becomes "so, the"; a long pause stays for Remove Silences, which knows
+ * screen action). An edge touching a kept word goes to the nearest frame: `cut` rounds outward, which would
+ * take up to a frame of that word.
+ */
+function fillerCut(project: Project, words: TimelineWord[], first: TimelineWord, last: TimelineWord) {
+  const [prev, next] = [words[first.i - 1], words[last.i + 1]];
+  const pause = Math.min(prev ? first.start - prev.end : Infinity, next ? next.start - last.end : Infinity);
+  const end = last.end + (Number.isFinite(pause) ? Math.max(0, pause) : 0);
+  const frame = (t: number) => ticksToSeconds(snapSeconds(t, project.settings.fps));
+  return { start: prev && first.start - prev.end < 1e-3 ? frame(first.start) : first.start, end: next && next.start - end < 1e-3 ? frame(end) : end };
+}
+
+/**
+ * What Remove Filler Words does: each run of filler words in the transcript ("Uh, uh, uh"), the time it cuts
+ * (`fillerCut`) and whether it is cut (all are, but a flip keeps one), and the ranges removed.
+ */
+function fillerPlan(project: Project, registry: FeatureRegistry, data: Data, o: FillerReview) {
+  const waiting = untranscribed(project, registry, data);
+  const words = timelineWords(project, registry, data);
+  const runs: [TimelineWord, TimelineWord][] = [];
+  for (const w of words) {
+    if (!isFiller(w.text)) continue;
+    const last = runs.at(-1);
+    if (last && last[1].i === w.i - 1) last[1] = w;
+    else runs.push([w, w]);
+  }
+  const found = runs.map(([first, last]) => {
+    const r = fillerCut(project, words, first, last);
+    const flips = o.flipped.filter((t) => t >= r.start - 1e-3 && t <= r.end).length;
+    return { ...r, text: words.slice(first.i, last.i + 1).map((w) => w.text).join(" "), cut: flips % 2 === 0 };
+  });
+  return {
+    waiting,
+    words: words.length,
+    fillers: found.map((f) => ({ ...f, start: roundSeconds(f.start), end: roundSeconds(f.end) })),
+    // Unrounded: a frame time rounded to the millisecond can sit just short of its frame.
+    ranges: found.filter((f) => f.cut).map(({ start, end }) => ({ start, end })),
+  };
+}
+
+/** Opening one review closes the other: the properties panel and the timeline's marks show one at a time. */
+function openReview(s: Session, key: "silences" | "fillers", review: SilenceReview | FillerReview) {
+  const t = { ...(s.features.transcript as object | undefined) } as { silences?: SilenceReview; fillers?: FillerReview };
+  delete t.silences;
+  delete t.fillers;
+  s.features.transcript = { ...t, [key]: review };
+}
+
+const fillerSessionCommands: SessionCommandDef[] = [
+  {
+    id: "fillers.review",
+    description:
+      "Open Remove Filler Words' review (the AI panel's tile does): the timeline marks each filler (\"um\", \"uh\", \"er\", \"hmm\" in the transcript) to cut or keep and the properties panel sums it up, until fillers.apply or fillers.close. The user sees it, so an agent can prepare the cuts for them to look over",
+    args: z.strictObject({}),
+    apply: (s) => openReview(s, "fillers", fillerReview(s) ?? { flipped: [] }),
+  },
+  {
+    id: "fillers.flip",
+    description: "In Remove Filler Words' review, keep a filler it would cut, or cut it again (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_fillers",
+    args: z.strictObject({ at: z.number().nonnegative() }),
+    apply: (s, { at }: { at: number }) => {
+      const r = fillerReview(s);
+      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
+      r.flipped.push(at);
+    },
+  },
+  {
+    id: "fillers.close",
+    description: "Close Remove Filler Words' review without cutting anything",
+    args: z.strictObject({}),
+    apply: (s) => {
+      const t = s.features.transcript as { fillers?: FillerReview } | undefined;
+      if (t?.fillers) delete t.fillers;
     },
   },
 ];
@@ -415,6 +509,17 @@ export const transcript = defineFeature({
       },
     }),
     defineQuery({
+      id: "transcript.fillers",
+      description:
+        "What Remove Filler Words would cut: each filler (\"um\", \"uh\", \"er\", \"hmm\"; a run like \"uh, uh, uh\" is one) the transcript has, its text, the time cut (it and the shorter of the pauses either side, timeline seconds) and whether it is cut, with the seconds saved. Only what the transcriber wrote down is found: Whisper on this Mac and Apple's transcriber keep most fillers. `waiting`: media heard on the timeline with no transcript yet",
+      args: z.strictObject({ flipped: z.array(z.number()).optional().describe("Times inside fillers to flip, as fillers.flip does") }),
+      run({ flipped }, { project, registry, data }) {
+        const plan = fillerPlan(project, registry, data, { flipped: flipped ?? [] });
+        const removed = cutRanges(project, plan.ranges);
+        return { waiting: plan.waiting, fillers: plan.fillers, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)) };
+      },
+    }),
+    defineQuery({
       id: "transcript.joins",
       description:
         "Every point where an audio clip starts or ends, in timeline seconds, flagged `chopped` when it falls inside a word, or inside speech the transcript has no words for, in its source: an audible skip. Joins between two words of continuous speech are fine. Check after any cut made by hand with timeline_rippleDelete",
@@ -436,7 +541,7 @@ export const transcript = defineFeature({
       },
     }),
   ],
-  sessionCommands: silenceSessionCommands,
+  sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands],
   actions: [
     defineAction({
       id: "silences.apply",
@@ -448,8 +553,30 @@ export const transcript = defineFeature({
         return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: r }], after: () => [{ command: "silences.close" }] };
       },
     }),
+    defineAction({
+      id: "fillers.apply",
+      description: "Cut what Remove Filler Words' open review marks to cut (its Apply button), one undo step, and close the review",
+      args: z.strictObject({}),
+      resolve: (_, { session }) => {
+        const r = fillerReview(session);
+        if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
+        return { label: "Remove Filler Words", steps: [{ command: "transcript.removeFillers", args: r }], after: () => [{ command: "fillers.close" }] };
+      },
+    }),
   ],
   commands: [
+    defineCommand({
+      id: "transcript.removeFillers",
+      description:
+        "Remove Filler Words: cut every filler the transcript has (\"um\", \"uh\", \"er\", \"hmm\") with the shorter of the pauses either side (the longer is left, for Remove Silences), except those `flipped` names, as transcript_fillers shows; one undo step. fillers.apply runs it from the open review",
+      args: z.strictObject({ flipped: z.array(z.number()).default([]) }),
+      apply(doc, o, ctx) {
+        const plan = fillerPlan(doc, ctx.registry, ctx.data, o);
+        if (!plan.words) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
+        return cut(doc, ctx, plan.ranges);
+      },
+    }),
     defineCommand({
       id: "transcript.removeSilences",
       description:
