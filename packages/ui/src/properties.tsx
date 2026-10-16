@@ -351,6 +351,10 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
     setDraft(undefined);
   };
   const set = (fields: Partial<CaptionStyle>, label: string, key?: string) => host.run("captions.style", { style: fields }, label, key);
+  const own = clip.props.captionPlace as Partial<CaptionStyle> | undefined;
+  const place = { ...style, ...own };
+  // Align to page moves a caption placed on its own by itself, else every caption.
+  const align = (fields: Partial<CaptionStyle>) => (own ? host.run("caption.place", { clip: clip.id, place: fields }, "Align Caption") : set(fields, "Align Captions"));
   return (
     <>
       <Section>
@@ -405,13 +409,21 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
         </div>
       </Section>
       <Section>
+        {own && (
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-md bg-groove px-3 py-2 text-label text-text" data-caption-own>
+            This caption has its own position
+            <Button look="quiet" onClick={() => host.run("caption.place", { clip: clip.id, place: null }, "Use Shared Position")}>
+              Use shared
+            </Button>
+          </div>
+        )}
         <div className="mb-2 text-label text-text-faint">Align to page</div>
         <div className="mb-3 grid grid-cols-2 gap-1.5" data-caption-align>
           {ALIGN.map((a) => {
             const fields = a.fields(Math.round((80 * project.settings.height) / 1080));
-            const on = Object.entries(fields).every(([k, v]) => style[k as keyof CaptionStyle] === v);
+            const on = Object.entries(fields).every(([k, v]) => place[k as keyof CaptionStyle] === v);
             return (
-              <Button key={a.label} look={on ? "solid" : "quiet"} title={`Align the captions to the ${a.label.toLowerCase()} of the canvas`} onClick={() => set(fields, "Align Captions")}>
+              <Button key={a.label} look={on ? "solid" : "quiet"} title={`Align ${own ? "this caption" : "the captions"} to the ${a.label.toLowerCase()} of the canvas`} onClick={() => align(fields)}>
                 <span className="flex items-center gap-2">
                   <Icon name={a.icon} size={16} />
                   {a.label}
@@ -420,6 +432,7 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
             );
           })}
         </div>
+        <div className="mb-3 text-caption text-text-faint">Drag a caption to move them all. ⌥-drag moves this one alone; ⌥⇧ moves it and the captions after it.</div>
         <Slider unit="%" label="Width" value={style.maxWidth * 100} min={20} max={100} onChange={(v, key) => set({ maxWidth: Math.min(1, Math.max(0.2, v / 100)) }, "Caption Width", key)} />
       </Section>
     </>

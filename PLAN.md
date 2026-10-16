@@ -1320,6 +1320,12 @@ place is an anchor and an offset on each axis (`captions` v2), the box from
 `captions.layout`; typed words keep their times (a word diff). Clicked before
 the transcript exists, Captions starts it, shows its progress and makes them
 when it's done; the app also starts missing transcripts when it shows a project.
+Their style is kept once on the Captions track (prop groups can be `track`
+groups now; `captions` v3), so a drag step is one change, not one per caption.
+A caption can be placed on its own (`caption.place`: ⌥-drag, or ⌥⇧ for it and
+those after it, e.g. clear of a face in a vertical short; Use shared puts it
+back). Later, with the shorts work: "keep clear of the face", placing each
+caption from face detection (Apple's Vision, on-device).
 **Remove Filler Words, first check** (2026-10-15): priming local Whisper with a
 filler-laden prompt is not reliable. Two prompts found different fillers (5
 and 8 on four fixtures, vs 2 without), one with a 50 ms "um" squeezed against

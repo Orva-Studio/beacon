@@ -54,6 +54,10 @@ const styleSchema = z.strictObject({
 });
 export type CaptionStyle = z.infer<typeof styleSchema>;
 
+/** A caption placed on its own, over its track's shared place: every field, so later changes to the shared one leave it be. */
+const placeSchema = styleSchema.pick({ anchorX: true, offsetX: true, anchorY: true, offsetY: true }).partial();
+type CaptionPlace = z.infer<typeof placeSchema>;
+
 /** Sized for a canvas `height` pixels tall. */
 export function defaultStyle(height = 1080): CaptionStyle {
   const k = height / 1080;
@@ -77,6 +81,11 @@ export function defaultStyle(height = 1080): CaptionStyle {
 /** The captions' style on `track`: kept there once for all its captions. */
 export function trackStyle(track: Track | undefined, height: number): CaptionStyle {
   return { ...defaultStyle(height), ...(track?.props?.captionStyle as Partial<CaptionStyle> | undefined) };
+}
+
+/** How `clip` looks on `track`: the track's style, with the clip's own place if it has one. */
+export function clipStyle(clip: Clip, track: Track | undefined, height: number): CaptionStyle {
+  return { ...trackStyle(track, height), ...(clip.props.captionPlace as CaptionPlace | undefined) };
 }
 
 /** The words a caption clip shows: those whose middle is inside its window on its media. */
@@ -131,7 +140,7 @@ export function captionGeometry(words: CaptionWord[], style: CaptionStyle, canva
 
 function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const words = shownWords(e.clip);
-  const style = trackStyle(e.track, ctx.canvas.height);
+  const style = clipStyle(e.clip, e.track, ctx.canvas.height);
   const g = captionGeometry(words, style, ctx.canvas);
   if (!g) return;
   const { box, origin, lines, text, spec } = g;
@@ -316,6 +325,7 @@ export const captions = defineFeature({
   clipTypes: [{ id: "caption", description: "A caption: words from the transcript, shown with the captions' style while they are spoken", traits: ["caption"] }],
   props: [
     { id: "caption", description: "The caption's words, timed in its media seconds", traits: ["caption"], schema: captionSchema, defaults: () => ({ words: [] }), identity: true },
+    { id: "captionPlace", description: "Where this caption sits when placed on its own (caption.place), instead of where its track's captions all sit", traits: ["caption"], schema: placeSchema, defaults: () => ({}) },
     {
       id: "captionStyle",
       description: "How the captions on a track look: font, size, colour, the box behind them, where they sit and the spoken word's highlight",
@@ -386,6 +396,31 @@ export const captions = defineFeature({
       },
     }),
     defineCommand({
+      id: "caption.place",
+      description:
+        "Place a caption on its own, where the shared place doesn't suit it (a face in the way): `place` is anchors and offsets as in captions.style, over where it sits now; with `onward`, the captions after it on its track take the same place. `place: null` puts them back in the shared place",
+      args: z.strictObject({ clip: z.string(), place: placeSchema.nullable(), onward: z.boolean().default(false) }),
+      apply(doc, { clip: id, place, onward }) {
+        const tracks = original(doc)!.tracks;
+        const ti = tracks.findIndex((t) => t.clips.some((c) => c.id === id));
+        const from = ti < 0 ? undefined : tracks[ti]!.clips.find((c) => c.id === id);
+        if (!from || !isCaption(from)) throw new Error(`clip "${id}" is not a caption`);
+        const shared = trackStyle(tracks[ti], doc.settings.height);
+        const now = clipStyle(from, tracks[ti], doc.settings.height);
+        const target = { anchorX: now.anchorX, offsetX: now.offsetX, anchorY: now.anchorY, offsetY: now.offsetY, ...place };
+        let n = 0;
+        for (const [ci, c] of tracks[ti]!.clips.entries()) {
+          if (!isCaption(c) || (c.id !== id && !(onward && c.start > from.start))) continue;
+          const clip = doc.tracks[ti]!.clips[ci]!;
+          const same = target.anchorX === shared.anchorX && target.offsetX === shared.offsetX && target.anchorY === shared.anchorY && target.offsetY === shared.offsetY;
+          if (place === null || same) delete clip.props.captionPlace;
+          else clip.props.captionPlace = target;
+          n++;
+        }
+        return n;
+      },
+    }),
+    defineCommand({
       id: "caption.setText",
       description: "Correct what a caption says: its words become `text`'s. Words kept keep their times; new or changed ones share the time of the words they replace (or the gap they go in), by length",
       args: z.strictObject({ clip: z.string(), text: z.string() }),
@@ -420,7 +455,7 @@ export const captions = defineFeature({
   queries: [
     defineQuery({
       id: "captions.layout",
-      description: "Where a caption sits on the canvas (canvas pixels, y down): its box, its text and the text's lines with their caret positions from `origin`. The caption `clip`, or the one showing at timeline second `time`; null if none. For moving and typing captions on the canvas",
+      description: "Where a caption sits on the canvas (canvas pixels, y down): its box, its text and the text's lines with their caret positions from `origin`, and `own` when it is placed on its own (caption.place). The caption `clip`, or the one showing at timeline second `time`; null if none. For moving and typing captions on the canvas",
       args: z.strictObject({ clip: z.string().optional(), time: z.number().nonnegative().optional() }),
       run({ clip: id, time }, { project }) {
         const at = time === undefined ? undefined : secondsToTicks(time);
@@ -428,9 +463,8 @@ export const captions = defineFeature({
         const track = [...project.tracks].reverse().find((t) => !t.hidden && t.clips.some(shows));
         const clip = track?.clips.find(shows);
         if (!clip) return null;
-        const style = trackStyle(track, project.settings.height);
-        const g = captionGeometry(shownWords(clip), style, project.settings);
-        return g ? { clip: clip.id, box: g.box, origin: g.origin, lines: g.lines, text: g.text } : null;
+        const g = captionGeometry(shownWords(clip), clipStyle(clip, track, project.settings.height), project.settings);
+        return g ? { clip: clip.id, box: g.box, origin: g.origin, lines: g.lines, text: g.text, own: !!clip.props.captionPlace } : null;
       },
     }),
     defineQuery({

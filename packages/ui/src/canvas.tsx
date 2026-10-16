@@ -189,7 +189,8 @@ type Drag =
   /** `a0`: the pointer's screen angle about the pivot when the drag starts. */
   | { kind: "rotate"; key: string; clip: Placed; a0: number }
   /** A caption dragged: the box when it started (canvas pixels) and the anchors and offsets it moves. */
-  | { kind: "captionMove"; key: string; x0: number; y0: number; box: [number, number][]; style: CaptionPlace }
+  /** `alone`: the caption moves on its own (⌥, or it already is), `onward` with those after it (⌥⇧); else all move. */
+  | { kind: "captionMove"; key: string; x0: number; y0: number; box: [number, number][]; style: CaptionPlace; alone: boolean; onward: boolean }
   /** A caption's side handle: its text's width when it started, which the handle widens or narrows. */
   | { kind: "captionWidth"; key: string; sx: number; x0: number; width: number; style: CaptionPlace }
   /** A middle-button drag: `c`, the canvas point grabbed. */
@@ -206,6 +207,8 @@ interface CaptionLayout {
   origin: [number, number];
   lines: TextLine[];
   text: string;
+  /** Placed on its own rather than where the track's captions all sit. */
+  own: boolean;
 }
 
 const isCaption = (p: Placed) => p.clip.type === "caption";
@@ -304,7 +307,17 @@ export function CanvasOverlay({
   const panFor = (zoom: number, c: [number, number], [px, py]: [number, number]) => panKeeping(project.settings, size, zoom, c, [px - vx, py - vy]);
   const view: Affine = [k, 0, 0, k, ox, oy];
   // Captions are laid out by the renderer, so their box comes from the core rather than a transform.
-  const caption = useQuery<CaptionLayout | null>(host, session.playing ? "" : "captions.layout", { time: session.playhead }, project);
+  const reported = useQuery<CaptionLayout | null>(host, session.playing ? "" : "captions.layout", { time: session.playhead }, project);
+  /**
+   * Where a dragged caption's box is going: drawn from the drag itself, as other clips' outlines are, until the
+   * box the core reports catches up (it is a round trip behind the pointer).
+   */
+  const [moved, setMoved] = useState<{ clip: string; x: number; y: number; done?: boolean }>();
+  const caught = !!moved && !!reported && reported.clip === moved.clip && Math.abs(reported.box.x - moved.x) < 0.5 && Math.abs(reported.box.y - moved.y) < 0.5;
+  useEffect(() => {
+    if (moved?.done && caught) setMoved(undefined);
+  }, [moved, caught]);
+  const caption = reported && moved && moved.clip === reported.clip && !caught ? { ...reported, box: { ...reported.box, x: moved.x, y: moved.y }, origin: [reported.origin[0] + moved.x - reported.box.x, reported.origin[1] + moved.y - reported.box.y] as [number, number] } : reported;
   const captionClip = caption ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === caption.clip) : undefined;
   const placed = placedClips(project, session, view, (c) => clipTypes[c.type]?.includes("visual") ?? false);
   if (caption && captionClip) {
@@ -317,7 +330,7 @@ export function CanvasOverlay({
     const at = placed.findIndex((q) => track(q.clip.id) < track(captionClip.id));
     placed.splice(at < 0 ? placed.length : at, 0, p);
   }
-  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(project.tracks.find((t) => t.clips.some((c) => c.id === captionClip?.id))?.props?.captionStyle as Partial<CaptionPlace>) });
+  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(project.tracks.find((t) => t.clips.some((c) => c.id === captionClip?.id))?.props?.captionStyle as Partial<CaptionPlace>), ...(captionClip?.props.captionPlace as Partial<CaptionPlace>) });
   const selected = placed.filter((p) => session.selection.includes(p.clip.id));
 
   // Panel items dropped on media on the canvas apply to the top clip there that takes them, at the playhead.
@@ -529,10 +542,12 @@ export function CanvasOverlay({
           setTyping(hit.clip.id);
           return;
         }
-        // A caption moves every caption: they share one place.
-        if (hit && isCaption(hit) && !e.shiftKey && !e.metaKey) {
+        // A caption moves every caption, which share one place, unless it is placed on its own or ⌥ places it so.
+        if (hit && isCaption(hit) && !e.metaKey && (!e.shiftKey || e.altKey)) {
           if (!session.selection.includes(hit.clip.id) || session.selection.length > 1) host.run("selection.set", { clips: [hit.clip.id], linked: false });
-          drag.current = { kind: "captionMove", key, x0: pt[0], y0: pt[1], box: hit.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as [number, number]), style: captionPlace() };
+          const alone = e.altKey || !!caption?.own;
+          drag.current = { kind: "captionMove", key, x0: pt[0], y0: pt[1], box: hit.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as [number, number]), style: captionPlace(), alone, onward: e.altKey && e.shiftKey };
+          setMoved(undefined);
           return;
         }
         if (!hit) {
@@ -572,7 +587,12 @@ export function CanvasOverlay({
           const s = d.style;
           const offsetX = s.offsetX + (s.anchorX === "right" ? -snap.dx : snap.dx);
           const offsetY = s.offsetY + (s.anchorY === "bottom" ? -snap.dy : snap.dy);
-          host.run("captions.style", { style: { offsetX: Math.round(offsetX), offsetY: Math.round(offsetY) } }, "Move Captions", d.key);
+          // Offsets are whole pixels, so the box drawn now is where the renderer will put it.
+          const [x, y] = [Math.round(offsetX) - s.offsetX, Math.round(offsetY) - s.offsetY];
+          setMoved({ clip: captionClip!.id, x: d.box[0]![0] + (s.anchorX === "right" ? -x : x), y: d.box[0]![1] + (s.anchorY === "bottom" ? -y : y) });
+          const place = { offsetX: Math.round(offsetX), offsetY: Math.round(offsetY) };
+          if (d.alone) host.run("caption.place", { clip: captionClip!.id, place, onward: d.onward }, d.onward ? "Move Captions From Here" : "Move Caption", d.key);
+          else host.run("captions.style", { style: place }, "Move Captions", d.key);
           return;
         }
         if (d.kind === "captionWidth") {
@@ -654,6 +674,7 @@ export function CanvasOverlay({
       }}
       onPointerUp={(e) => {
         if (drag.current?.kind === "text") text.pointer("up", undefined);
+        if (drag.current?.kind === "captionMove") setMoved((m) => m && { ...m, done: true });
         drag.current = null;
         setGuides([]);
         setRotating(false);

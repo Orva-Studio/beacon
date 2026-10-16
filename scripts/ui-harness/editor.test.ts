@@ -1473,3 +1473,40 @@ test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snappi
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
   expect(clips().filter((c) => c.type === "caption").length).toBe(0);
 });
+
+test.skipIf(skip)("⌥-dragging a caption places it on its own; ⌥⇧ places it and those after it; Use shared puts it back", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const ids = (await run("captions.create", {})).results[0] as string[];
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const own = (id: string) => clip(id).props.captionPlace as { offsetY: number } | undefined;
+  const shared = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === ids[0]))!.props!.captionStyle as { offsetY: number };
+  const dragUp = async (id: string, mods: ("alt" | "shift")[]) => {
+    const c = clip(id);
+    await run("playhead.set", { time: ticksToSeconds(c.start + c.duration / 2) });
+    await select([id]);
+    await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${id}"]')`);
+    const [ex, ey] = await centre(`[data-handle="e"][data-clip="${id}"]`);
+    const [wx] = await centre(`[data-handle="w"][data-clip="${id}"]`);
+    await page.drag([(ex + wx) / 2, ey], [(ex + wx) / 2 + 3, ey - 120], mods);
+  };
+  const before = shared().offsetY;
+  await dragUp(ids[2]!, ["alt"]);
+  await arrived(() => (own(ids[2]!)?.offsetY ?? 0) > before + 50);
+  expect(own(ids[2]!)!.offsetY).toBeGreaterThan(before + 50);
+  expect(shared().offsetY).toBe(before);
+  expect(own(ids[3]!)).toBeUndefined();
+  await page.until("!!document.querySelector('[data-caption-own]')");
+  // From the sixth on, all of them.
+  await dragUp(ids[5]!, ["alt", "shift"]);
+  await arrived(() => !!own(ids.at(-1)!));
+  expect(ids.slice(5).every((id) => !!own(id))).toBe(true);
+  expect(own(ids[4]!)).toBeUndefined();
+  // Put back: it follows the shared place again.
+  await select([ids[2]!]);
+  await page.until("!!document.querySelector('[data-caption-own] button')");
+  await page.evaluate("document.querySelector('[data-caption-own] button').click()");
+  await arrived(() => !own(ids[2]!));
+  expect(own(ids[2]!)).toBeUndefined();
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clips().filter((c) => c.type === "caption").length).toBe(0);
+});
