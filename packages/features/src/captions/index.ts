@@ -96,10 +96,10 @@ export function shownWords(clip: Clip): CaptionWord[] {
   return words.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
 }
 
-const captionText = (words: CaptionWord[], style: CaptionStyle) => {
-  const text = words.map((w) => w.text).join(" ");
-  return style.uppercase ? text.toUpperCase() : text;
-};
+/** Each word as shown: in capitals, a word can get longer ("Straße" is "STRASSE"), so offsets come from these. */
+const shownTexts = (words: CaptionWord[], style: CaptionStyle) => words.map((w) => (style.uppercase ? w.text.toUpperCase() : w.text));
+
+const captionText = (words: CaptionWord[], style: CaptionStyle) => shownTexts(words, style).join(" ");
 
 /** Laid out once per text and style: evaluated every frame, the same caption shows for seconds. */
 const layouts = new Map<string, TextLine[]>();
@@ -143,7 +143,7 @@ function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const style = clipStyle(e.clip, e.track, ctx.canvas.height);
   const g = captionGeometry(words, style, ctx.canvas);
   if (!g) return;
-  const { box, origin, lines, text, spec } = g;
+  const { box, origin, lines, spec } = g;
   if (style.background[3] > 0) e.layers.push(solid(style.background, [box.width, box.height], [box.x, box.y], Math.min(style.cornerRadius, box.height / 2)));
   const main: VisualLayer = {
     kind: "visual",
@@ -157,8 +157,9 @@ function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const t = ticksToSeconds(e.mediaTime);
   const k = words.findLastIndex((w) => w.start <= t);
   if (k < 0) return;
-  const offset = words.slice(0, k).reduce((n, w) => n + w.text.length + 1, 0);
-  const word = text.slice(offset, offset + words[k]!.text.length);
+  const shown = shownTexts(words, style);
+  const offset = shown.slice(0, k).reduce((n, w) => n + w.length + 1, 0);
+  const word = shown[k]!;
   const line = lines.find((l) => offset >= l.start && offset < l.end);
   if (!line) return;
   const x0 = line.carets[offset - line.start]!;
