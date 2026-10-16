@@ -3,6 +3,7 @@ import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
+import { latestPerKey } from "./latest";
 import { replica } from "./store";
 
 const rpc = Electroview.defineRPC<AppRPC>({
@@ -72,8 +73,14 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
   if (!r.ok && r.error) replica.status(r.error);
 };
 
+const sendLatest = latestPerKey(report);
+
 const host: Host = {
-  run: (command, args, label, coalesce) => void report(request.run({ command, args, label, coalesce })),
+  run: (command, args, label, coalesce) => {
+    const send = () => request.run({ command, args, label, coalesce });
+    if (coalesce) sendLatest(coalesce, send);
+    else void report(send());
+  },
   query: async (name, args) => {
     const r = await request.query({ name, args });
     if (!r.ok) throw new Error(r.error);
