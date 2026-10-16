@@ -1463,7 +1463,12 @@ writes its own host start (`hostStart` in `recording.json`), and the
 microphone's samples are stamped at capture, so the take's file is placed at
 `heard.time - (heard.host - (hostStart + start))`. A pause, a seek or the end
 of the range ends a narration; its sound off, silence still plays to the
-device as the clock. Left: the clap-over-click check on a real take.
+device as the clock. There is no separate Narration choice (the user,
+2026-10-16): ticking only the microphone in the Record dialog makes the take
+a narration (Beacon stays open and plays the timeline); Tools › Voice
+Narration… opens the dialog that way. With nothing after the playhead (an
+empty timeline), it records there until Stop. Left: the clap-over-click
+check on a real take.
 **Gate:** an edit from record to export using only keys and the palette,
 with narration recorded over the timeline and in step with it; an agent
 changes settings and opens each dialog.

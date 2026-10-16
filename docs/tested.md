@@ -16,8 +16,8 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| Voice narration: the Record dialog's Narration choice (and Tools › Voice Narration…), microphone and its level, timeline sound off by default with a headphones warning, the span it plays (playhead or range), countdown, Stop and Discard in the title bar | 2026-10-16 | `f2d6996` | UI flow; screenshots of the dialog and the title bar |
-| Narration in core: plays the range muted on the audio device, ends by itself at the range's end, lands on a new Narration track at its start lined up by the host clock, one undo step; Discard adds nothing and deletes the take | 2026-10-16 | `f2d6996` | Core test with a stand-in recorder (no microphone) and the real audio output |
+| Voice narration: the microphone alone in the Record dialog (or Tools › Voice Narration…) turns it into narration (no previews, timeline sound off by default with a headphones warning, the span it plays: playhead, range, or nothing after the playhead so it records there), countdown, Stop and Discard in the title bar | 2026-10-16 | `9b26e7b` | UI flow; screenshots of the dialog and the title bar |
+| Narration in core: plays the range muted on the audio device, ends by itself at the range's end, lands on a new Narration track at its start lined up by the host clock, one undo step; Discard adds nothing and deletes the take; with nothing after the playhead it records there without playing | 2026-10-16 | `9b26e7b` | Core test with a stand-in recorder (no microphone) and the real audio output |
 | Record button (red dot) at the top left opens the Record dialog; hidden while narrating | 2026-10-16 | `f2d6996` | UI flow; screenshot |
 
 ### Not checked yet
