@@ -215,7 +215,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   add("recorder_start", {
     description:
       "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it. " +
-      "`narrate`: voice narration, with only a `microphone`: the app plays the timeline from the playhead (or through the in/out range) while it records, silently unless `hear`; it ends at recorder_stop, the end of the range or a pause, and goes on a new Narration track where it began, lined up with what played, transcribed like an import (recorder_status's `last` says what an ending by itself imported). Needs the project open in the app",
+      "`narrate`: voice narration, with only a `microphone`: the app plays the timeline from the playhead (or through the in/out range) while it records, silently unless `hear`; it ends at recorder_stop, the end of the range or a pause (with nothing after the playhead, nothing plays and it records there until recorder_stop), and goes on a new Narration track where it began, lined up with what played, transcribed like an import (recorder_status's `last` says what an ending by itself imported). Needs the project open in the app",
     schema: z.strictObject({
       screen: z.strictObject({ display: z.int().optional().describe("A display id; omitted: the main display"), fps: z.int().min(1).max(60).optional() }).optional(),
       systemAudio: z.boolean().optional(),

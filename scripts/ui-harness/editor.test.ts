@@ -642,7 +642,7 @@ test.skipIf(skip)("The Record button at the top left opens the Record dialog, as
   await page.until("!!document.querySelector('[data-record-button]') && !document.querySelector('[data-narrating]')");
 });
 
-test.skipIf(skip)("Voice Narration records a microphone over the timeline from the playhead or through the range, its sound off by default; Stop and Discard end it", async () => {
+test.skipIf(skip)("The microphone alone is voice narration: it plays the timeline from the playhead or through the range, its sound off by default; Stop and Discard end it", async () => {
   const devices = {
     permissions: { screen: "granted", camera: "granted", microphone: "granted" },
     displays: [{ id: 1, width: 1800, height: 1169 }],
@@ -657,7 +657,9 @@ test.skipIf(skip)("Voice Narration records a microphone over the timeline from t
   ui.send("recordSheet", { ...devices, mode: "narration", sources: { screen: { fps: 60 }, microphone: { id: "mic-2" }, systemAudio: true } });
   await page.until("!!document.querySelector('[data-narration]')");
   expect(await has("[data-record-monitors]")).toBe(false);
-  expect(await page.evaluate<string>("document.querySelector('[data-narration] select').value")).toBe("mic-2");
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([false, false, true, false]);
+  expect(await page.evaluate<string>("document.querySelector('[data-source=Microphone]').closest('[data-narration] > *').querySelector('select').value")).toBe("mic-2");
   expect(await page.evaluate<boolean>("document.querySelector('[data-hear]').checked")).toBe(false);
   await page.until("/from the playhead \\(0:02\\)/.test(document.querySelector('[data-narration-span]').textContent)");
   // Only the microphone is previewed, for its level.
@@ -673,17 +675,30 @@ test.skipIf(skip)("Voice Narration records a microphone over the timeline from t
   expect(JSON.parse(asked.slice("startNarration:".length))).toEqual({ microphone: { id: "mic-2" }, hear: false });
   expect(ui.menus.slice(before).some((m) => m.startsWith("startRecording:"))).toBe(false);
 
-  // From File › Record…, the choice switches between a take and narration; hearing the timeline warns about speakers.
+  // From File › Record…, unticking all but the microphone makes it a narration; hearing the timeline warns about speakers.
   ui.send("recordSheet", { ...devices, sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } } });
-  await page.until("!!document.querySelector('[data-record-monitors]')");
-  await page.evaluate("document.querySelector('[data-record-mode] [title=Narration]').click()");
+  await page.until("!!document.querySelector('[data-record-monitors]') && !document.querySelector('[data-narration]')");
+  await page.evaluate(`document.querySelector('[data-source="Screen"]').click()`);
   await page.until("!!document.querySelector('[data-narration]') && !document.querySelector('[data-record-monitors]')");
   await page.evaluate("document.querySelector('[data-hear]').click()");
   await page.until("document.querySelector('[data-narration]').textContent.includes('Use headphones')");
-  await page.evaluate("document.querySelector('[data-record-mode] [title=Recording]').click()");
-  await page.until("!!document.querySelector('[data-record-monitors]')");
+  await page.evaluate(`document.querySelector('[data-source="Screen"]').click()`);
+  await page.until("!!document.querySelector('[data-record-monitors]') && !document.querySelector('[data-hear]')");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-record]')");
+
+  // With nothing after the playhead, it records there and nothing plays.
+  await run("range.clear");
+  await run("playhead.jump", { to: "end" });
+  const end = ui.menus.length;
+  ui.send("recordSheet", { ...devices, mode: "narration", hear: true, sources: { microphone: { id: "mic-1" } } });
+  await page.until("document.querySelector('[data-narration-span]')?.textContent.includes('records at the playhead') ?? false");
+  expect(await has("[data-hear]")).toBe(false);
+  await page.evaluate("document.querySelector('[data-record-start]').click()");
+  await page.until("/Records at /.test(document.querySelector('[data-countdown]')?.textContent ?? '')");
+  await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
+  const still = ui.menus.slice(end).find((m) => m.startsWith("startNarration:"))!;
+  expect(JSON.parse(still.slice("startNarration:".length))).toEqual({ microphone: { id: "mic-1" }, hear: false });
 
   // While it records, the title bar shows it with Stop and Discard.
   ui.send("narrating", { started: Date.now() - 7000, from: 1, until: 3 });
@@ -696,7 +711,7 @@ test.skipIf(skip)("Voice Narration records a microphone over the timeline from t
   ui.send("narrating", null);
   await page.until("!document.querySelector('[data-narrating]')");
   await run("range.clear");
-});
+}, 30000);
 
 test.skipIf(skip)("The title bar drags the window, and its name, buttons and menus still click", async () => {
   // Electrobun moves the window on a mousedown in an element with its drag class, unless a no-drag region is nearer.

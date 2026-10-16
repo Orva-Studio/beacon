@@ -123,6 +123,8 @@ interface Narration {
   from: number;
   until: number;
   hear: boolean;
+  /** Nothing after the playhead to play: it records there, without playback, until stopped. */
+  still: boolean;
   heard?: PlaybackHeard;
 }
 
@@ -528,7 +530,7 @@ export class LocalCore implements BeaconCore {
     }
     this.#emit(p, { kind: "session", changes: Object.fromEntries(changed.map((k) => [k, session[k]])) as Partial<Session>, changed });
     // A narration lasts while the timeline plays on from where it began: a pause or a seek ends it there.
-    if (this.#recording?.narration && this.#recording.h === p.path && ((changed.includes("playing") && !session.playing) || (changed.includes("playhead") && !p.ticking))) {
+    if (this.#recording?.narration && !this.#recording.narration.still && this.#recording.h === p.path && ((changed.includes("playing") && !session.playing) || (changed.includes("playhead") && !p.ticking))) {
       void this.recordStop().catch((e: unknown) => this.#emit(p, { kind: "error", message: `narration: ${e instanceof Error ? e.message : e}` }));
     }
     const view = p.view;
@@ -1084,12 +1086,17 @@ export class LocalCore implements BeaconCore {
     const { range, playhead } = p.session.state;
     const from = range?.in ?? playhead;
     const until = range?.out ?? ticksToSeconds(projectDuration(doc));
-    if (from >= until - frame / 2) throw new Error(range ? "the range is empty" : "the playhead is at the end of the timeline: move it back, or set an in/out range, to narrate over");
+    // Nothing to play after the playhead (an empty timeline, or the playhead on its last frame): it records there until stopped.
+    const still = from >= until - frame * 1.5;
     if (p.session.state.playing) p.session.run("playback.pause", {}, doc);
     const dir = join(p.path, "recordings", `${opts.name ?? `Narration ${takeName(new Date())}`}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, { ...rest, microphone: microphone ?? {} }, opts.monitor);
-    const hear = !!opts.narrate?.hear;
+    const hear = !still && !!opts.narrate?.hear;
+    if (still) {
+      this.#recording = { h: p.path, dir, narration: { from, until: from, hear, still } };
+      return { take: dir };
+    }
     try {
       if (playhead !== from) p.session.run("playhead.set", { time: from }, p.store.doc);
       view.muted = !hear;
@@ -1100,7 +1107,7 @@ export class LocalCore implements BeaconCore {
       rmSync(dir, { recursive: true, force: true });
       throw e;
     }
-    this.#recording = { h: p.path, dir, narration: { from, until, hear } };
+    this.#recording = { h: p.path, dir, narration: { from, until, hear, still } };
     return { take: dir };
   }
 
@@ -1155,8 +1162,14 @@ export class LocalCore implements BeaconCore {
       rmSync(rec.dir, { recursive: true, force: true });
       result = { assets: [], clips: [], jobs: [], take: rec.dir, duration: take.duration, discarded: true };
     } else if (n) {
-      if (!heard) throw new Error(`the timeline never played, so the narration can't be lined up: ${basename(rec.dir)} is kept in the project's recordings`);
-      result = { ...(await this.#placeNarration(rec.h, rec.dir, heard, n.from)), take: rec.dir, duration: take.duration };
+      if (!n.still && !heard) throw new Error(`the timeline never played, so the narration can't be lined up: ${basename(rec.dir)} is kept in the project's recordings`);
+      if (heard) {
+        const drift = heard.last.time - heard.time - (heard.last.host - heard.host);
+        if (Math.abs(drift) > 0.005 || heard.stalled > 0) console.warn(`narration ${basename(rec.dir)}: the timeline ran ${(drift * 1000).toFixed(1)} ms off the host clock and waited ${(heard.stalled * 1000).toFixed(0)} ms for its decoder`);
+      }
+      // The timeline second the file's first sample is under: where it was heard, or (nothing played) the playhead.
+      const at = heard ? narrationStart(rec.dir, heard) : n.from;
+      result = { ...(await this.#placeNarration(rec.h, rec.dir, at, n.from)), take: rec.dir, duration: take.duration };
     } else return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
     if (n && p) {
       this.#lastNarration = result;
@@ -1169,7 +1182,7 @@ export class LocalCore implements BeaconCore {
    * A narration on a new track at `from`, starting as far into its file as the timeline was heard after the
    * microphone began, so each word sits under what was playing as it was spoken. One undo step.
    */
-  async #placeNarration(h: ProjectHandle, dir: string, heard: PlaybackHeard, from: number): Promise<ImportResult> {
+  async #placeNarration(h: ProjectHandle, dir: string, at: number, from: number): Promise<ImportResult> {
     const p = this.#get(h);
     const file = resolve(dir);
     const importer = this.registry.importerFor(".brec")!;
@@ -1177,11 +1190,8 @@ export class LocalCore implements BeaconCore {
     const loudness = await measureLoudness(file, media);
     const asset: Omit<Asset, "id"> = { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: { media, ...(Object.keys(loudness).length ? { loudness } : {}) } };
     const fps = p.store.doc.settings.fps;
-    // The timeline second the file's first sample is under; the clip begins at `from`, or later if the take began after it.
-    const at = narrationStart(file, heard);
+    // The clip begins at `from`, or later if the take began after it.
     const start = Math.max(ticksToSeconds(snapSeconds(from, fps)), ticksToSeconds(snapSeconds(at, fps, "ceil")));
-    const drift = heard.last.time - heard.time - (heard.last.host - heard.host);
-    if (Math.abs(drift) > 0.005 || heard.stalled > 0) console.warn(`narration ${basename(dir)}: the timeline ran ${(drift * 1000).toFixed(1)} ms off the host clock and waited ${(heard.stalled * 1000).toFixed(0)} ms for its decoder`);
     const result: ImportResult = { assets: [], clips: [], jobs: [] };
     this.#saved(p, p.store.transaction("Record Narration", (tx) => {
       const id = tx.run<string>("asset.add", asset);

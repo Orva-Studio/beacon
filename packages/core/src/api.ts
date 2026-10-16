@@ -76,6 +76,7 @@ export interface RecordOptions {
   /**
    * Voice narration: the timeline plays in the app from the playhead (or through the in/out range) while only the
    * microphone records; stopping, or the end of the range, places the take on a new track under what was playing.
+   * With nothing after the playhead to play, it records there until stopped.
    * `hear`: play the timeline's sound too (off by default, so speakers don't bleed into the take).
    */
   narrate?: { hear?: boolean };

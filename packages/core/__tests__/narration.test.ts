@@ -83,3 +83,24 @@ test("a discarded narration adds nothing and leaves no take", async () => {
   expect(core.doc(h)).toEqual(before);
   await core.close(h);
 }, 30000);
+
+test("with nothing after the playhead, a narration records there without playing and starts with its file", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const h = await core.open(join(dir, "n.beproj"));
+  core.attachView(h, { offscreen: { width: 64, height: 36 } }, { proxies: false });
+  await core.run(h, "range.clear", {});
+  await core.run(h, "playhead.jump", { to: "end" });
+  const at = (await core.session(h)).playhead;
+  await core.recordStart(h, { narrate: { hear: true } });
+  expect((await core.session(h)).playing).toBe(false);
+  expect((await core.recordStatus()).narration).toEqual({ from: at, until: at, hear: false });
+  // A click on the timeline doesn't end it: there is no playback to follow.
+  await core.run(h, "playhead.set", { time: 0 });
+  expect((await core.recordStatus()).recording).toBe(true);
+  const r = await core.recordStop();
+  const clip = core.doc(h).tracks.at(-1)!.clips[0]!;
+  expect(r.clips).toEqual([clip.id]);
+  expect(ticksToSeconds(clip.start)).toBe(at);
+  expect(clip.mediaStart ?? 0).toBe(0);
+  await core.close(h);
+}, 30000);

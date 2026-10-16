@@ -52,7 +52,7 @@ their screen, camera and microphone.
 Voice narration: `recorder_start` with only a `microphone` and `narrate` (the
 project open in the app). The app plays the timeline from the playhead, or
 through the in/out range, silently unless `hear` (only with headphones), while
-the user speaks over it. `recorder_stop`, a pause or the end of the range ends
+the user speaks over it; with nothing after the playhead, it records there. `recorder_stop`, a pause or the end of the range ends
 it; the take goes on a new Narration track where it began, lined up with what
 played, and is transcribed. `recorder_status`'s `last` says what a narration
 that ended by itself imported; `recorder_stop` with `discard` throws a take away.
