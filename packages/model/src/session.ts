@@ -7,6 +7,14 @@ import { projectDuration } from "./project";
 import { copyClips, editScope, scopedProject, type Clipboard } from "./edit";
 import { roundSeconds, secondsToTicks, snapSeconds, ticksPerFrame, ticksToSeconds } from "./ticks";
 
+/** A range just made is what Delete, Cut and Copy act on next: the last thing selected wins, so clips selected before it are let go. */
+function rangeMade(s: Session) {
+  if (!s.range) return;
+  s.selection = [];
+  s.effects = [];
+  s.animation = null;
+}
+
 /**
  * What the editor is showing, as opposed to what the project contains:
  * playhead, selection, range, timeline view, panels. Not undoable and not
@@ -381,11 +389,12 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
   }),
   sessionCommand({
     id: "range.set",
-    description: "Set the in/out range on the timeline (seconds); with `playhead`, move the playhead too (a ⌘-drag from the playhead takes it along)",
+    description: "Set the in/out range on the timeline (seconds), deselecting clips so edits act on it; with `playhead`, move the playhead too (a ⌘-drag from the playhead takes it along)",
     args: z.strictObject({ in: Time, out: Time, playhead: Time.optional() }),
     apply: (s, r, { project, full }) => {
       const [a, b] = [snap(project, Math.min(r.in, r.out)), snap(project, Math.max(r.in, r.out))];
       s.range = a === b ? null : { in: a, out: b };
+      rangeMade(s);
       if (r.playhead !== undefined) s.playhead = snap(project, r.playhead);
     },
   }),
@@ -408,6 +417,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       const t = Math.min(snap(project, next), snap(project, duration(full)));
       s.range = side === "left" ? { in: Math.min(t, r.out), out: r.out } : { in: r.in, out: Math.max(t, r.in) };
       if (s.range.in === s.range.out) s.range = null;
+      rangeMade(s);
     },
   }),
   sessionCommand({

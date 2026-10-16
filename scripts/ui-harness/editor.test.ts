@@ -1510,3 +1510,25 @@ test.skipIf(skip)("⌥-dragging a caption places it on its own; ⌥⇧ places it
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
   expect(clips().filter((c) => c.type === "caption").length).toBe(0);
 });
+
+test.skipIf(skip)("Delete acts on what was selected last: a range made after a clip is selected deletes the range; a clip clicked after the range deletes the clip", async () => {
+  const before = clips().length;
+  await select([callout.id]);
+  await run("range.set", { in: 0.5, out: 1 });
+  expect((await session()).selection).toEqual([]);
+  await run("edit.delete");
+  // The range went from the callout's track; the callout itself is still there either side of it.
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === callout.id))!;
+  expect(track.clips.some((c) => ticksToSeconds(c.start) <= 0.75 && ticksToSeconds(c.start + c.duration) > 0.75)).toBe(false);
+  expect(clip(callout.id)).toBeDefined();
+  await ui.core.undo(ui.handle);
+  // The other way round: the clip, chosen last, goes; the range stays.
+  await run("range.set", { in: 0.5, out: 1 });
+  await select([callout.id]);
+  await run("edit.delete");
+  expect(clips().some((c) => c.id === callout.id)).toBe(false);
+  expect((await session()).range).not.toBeNull();
+  await ui.core.undo(ui.handle);
+  await run("range.clear");
+  expect(clips().length).toBe(before);
+});
