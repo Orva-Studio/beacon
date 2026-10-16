@@ -317,7 +317,7 @@ export function CanvasOverlay({
     const at = placed.findIndex((q) => track(q.clip.id) < track(captionClip.id));
     placed.splice(at < 0 ? placed.length : at, 0, p);
   }
-  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(captionClip?.props.captionStyle as Partial<CaptionPlace>) });
+  const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(project.tracks.find((t) => t.clips.some((c) => c.id === captionClip?.id))?.props?.captionStyle as Partial<CaptionPlace>) });
   const selected = placed.filter((p) => session.selection.includes(p.clip.id));
 
   // Panel items dropped on media on the canvas apply to the top clip there that takes them, at the playhead.

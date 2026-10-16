@@ -105,10 +105,10 @@ export class FeatureRegistry {
     return def;
   }
 
-  /** Prop groups that apply to a clip type, in registration order. */
+  /** Prop groups that apply to a clip type, in registration order; those kept on its track are left out. */
   groupsFor(clipType: string): PropGroupDef[] {
     const traits = this.clipTypes.get(clipType)?.traits ?? [];
-    return [...this.propGroups.values()].filter((g) => g.traits.some((t) => traits.includes(t)));
+    return [...this.propGroups.values()].filter((g) => !g.track && g.traits.some((t) => traits.includes(t)));
   }
 
   hasTrait(clipType: string, trait: string): boolean {
@@ -144,6 +144,15 @@ export class FeatureRegistry {
   }
 
   #validateTrack(project: Project, track: Track, path: string, clipIds: Set<string>, issues: string[]) {
+    for (const [key, value] of Object.entries(track.props ?? {})) {
+      const group = this.propGroups.get(key);
+      if (!group?.track) {
+        issues.push(`${path}.props.${key}: no track prop group "${key}"`);
+        continue;
+      }
+      const r = group.schema.safeParse(value);
+      if (!r.success) issues.push(...zodIssues(`${path}.props.${key}`, r.error));
+    }
     let end = -Infinity;
     const sorted = [...track.clips].sort((a, b) => a.start - b.start);
     for (const [ci, clip] of track.clips.entries()) {

@@ -13,7 +13,9 @@ import {
   type Clip,
   type EvalContext,
   type ClipEval,
+  original,
   type Project,
+  type Track,
   type RGBA,
   type TextSpec,
   type VisualLayer,
@@ -72,6 +74,11 @@ export function defaultStyle(height = 1080): CaptionStyle {
   };
 }
 
+/** The captions' style on `track`: kept there once for all its captions. */
+export function trackStyle(track: Track | undefined, height: number): CaptionStyle {
+  return { ...defaultStyle(height), ...(track?.props?.captionStyle as Partial<CaptionStyle> | undefined) };
+}
+
 /** The words a caption clip shows: those whose middle is inside its window on its media. */
 export function shownWords(clip: Clip): CaptionWord[] {
   const words = (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? [];
@@ -124,7 +131,7 @@ export function captionGeometry(words: CaptionWord[], style: CaptionStyle, canva
 
 function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const words = shownWords(e.clip);
-  const style = e.props.captionStyle as CaptionStyle;
+  const style = trackStyle(e.track, ctx.canvas.height);
   const g = captionGeometry(words, style, ctx.canvas);
   if (!g) return;
   const { box, origin, lines, text, spec } = g;
@@ -217,6 +224,23 @@ function anchors(doc: unknown): unknown {
   return doc;
 }
 
+/** v3: the style every caption carried went on their track, once. */
+function styleOnTrack(doc: unknown): unknown {
+  const visit = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(visit);
+    if (!v || typeof v !== "object") return;
+    const o = v as { clips?: { props?: Record<string, unknown> }[]; props?: Record<string, unknown> };
+    if (Array.isArray(o.clips)) {
+      const style = o.clips.find((c) => c.props?.captionStyle)?.props?.captionStyle;
+      for (const c of o.clips) if (c.props) delete c.props.captionStyle;
+      if (style) o.props = { ...o.props, captionStyle: style };
+    }
+    Object.values(v).forEach(visit);
+  };
+  visit(doc);
+  return doc;
+}
+
 /** Captions from the transcript's words: a new caption at a sentence end, a pause, or `maxWords` / `maxChars`. */
 function phrases(words: TimelineWord[], maxWords: number, maxChars: number, gap: number): TimelineWord[][] {
   const out: TimelineWord[][] = [];
@@ -244,11 +268,12 @@ function captionEntries(project: Project, from: number, to: number) {
   const out: { start: number; end: number; text: string }[] = [];
   for (const track of project.tracks) {
     if (track.hidden) continue;
+    const style = trackStyle(track, project.settings.height);
     for (const clip of track.clips.filter(isCaption)) {
       const words = shownWords(clip);
       const start = Math.max(from, ticksToSeconds(clip.start));
       const end = Math.min(to, ticksToSeconds(clip.start + clip.duration));
-      if (words.length && end > start) out.push({ start: start - from, end: end - from, text: captionText(words, { ...defaultStyle(), ...(clip.props.captionStyle as Partial<CaptionStyle>) }) });
+      if (words.length && end > start) out.push({ start: start - from, end: end - from, text: captionText(words, style) });
     }
   }
   return out.sort((a, b) => a.start - b.start);
@@ -283,12 +308,22 @@ const StyleArgs = styleSchema.partial();
 /** Captions: phrases from the transcript as caption clips on their own track, burned into the export with an `.srt` beside it. */
 export const captions = defineFeature({
   id: "captions",
-  version: 2,
-  migrations: [{ version: 2, migrate: anchors }],
+  version: 3,
+  migrations: [
+    { version: 2, migrate: anchors },
+    { version: 3, migrate: styleOnTrack },
+  ],
   clipTypes: [{ id: "caption", description: "A caption: words from the transcript, shown with the captions' style while they are spoken", traits: ["caption"] }],
   props: [
     { id: "caption", description: "The caption's words, timed in its media seconds", traits: ["caption"], schema: captionSchema, defaults: () => ({ words: [] }), identity: true },
-    { id: "captionStyle", description: "How captions look: font, size, colour, the box behind them, where they sit and the spoken word's highlight", traits: ["caption"], schema: styleSchema, defaults: () => defaultStyle() },
+    {
+      id: "captionStyle",
+      description: "How the captions on a track look: font, size, colour, the box behind them, where they sit and the spoken word's highlight",
+      traits: ["caption"],
+      schema: styleSchema,
+      defaults: () => defaultStyle(),
+      track: true,
+    },
   ],
   commands: [
     defineCommand({
@@ -304,7 +339,7 @@ export const captions = defineFeature({
         const words = timelineWords(doc, ctx.registry, ctx.data);
         if (!words.length) throw new Error("no transcript on the timeline yet: captions are made from it");
         const old = doc.tracks.findIndex((t) => t.clips.length > 0 && t.clips.every(isCaption));
-        const previous = old >= 0 ? (doc.tracks[old]!.clips[0]!.props.captionStyle as Partial<CaptionStyle> | undefined) : undefined;
+        const previous = old >= 0 ? (doc.tracks[old]!.props?.captionStyle as Partial<CaptionStyle> | undefined) : undefined;
         const look = { ...defaultStyle(doc.settings.height), ...previous, ...style };
         const groups = phrases(words, maxWords, maxChars ?? Math.min(42, maxWords * 9), 0.5);
         const { fps } = doc.settings;
@@ -323,14 +358,14 @@ export const captions = defineFeature({
             start,
             duration: stop - start,
             mediaStart: start,
-            props: { caption: { words: g.map((w) => ({ text: w.text, start: w.start, end: w.end })) }, captionStyle: look },
+            props: { caption: { words: g.map((w) => ({ text: w.text, start: w.start, end: w.end })) } },
             effects: [],
             animations: [],
           });
         }
         const live = clips.filter((c) => c.duration > 0);
-        if (old >= 0) doc.tracks[old]!.clips = live;
-        else doc.tracks.push({ id: ctx.newId("track"), name: "Captions", clips: live });
+        if (old >= 0) Object.assign(doc.tracks[old]!, { clips: live, props: { ...doc.tracks[old]!.props, captionStyle: look } });
+        else doc.tracks.push({ id: ctx.newId("track"), name: "Captions", clips: live, props: { captionStyle: look } });
         return live.map((c) => c.id);
       },
     }),
@@ -340,13 +375,14 @@ export const captions = defineFeature({
         "Change how every caption looks, one undo step: font, weight, size in canvas pixels, colours, background box, highlight of the spoken word, max width, uppercase, and where the box sits: `anchorY` top/middle/bottom with `offsetY` canvas pixels in from it (down from the middle), `anchorX` left/center/right with `offsetX` in from it (right of the centre). Transparent colours turn the box or the highlight off",
       args: z.strictObject({ style: StyleArgs }),
       apply(doc, { style }) {
-        let n = 0;
-        for (const clip of doc.tracks.flatMap((t) => t.clips).filter(isCaption)) {
-          clip.props.captionStyle = { ...defaultStyle(doc.settings.height), ...(clip.props.captionStyle as Partial<CaptionStyle>), ...style };
-          n++;
+        // One change per Captions track, however many captions it holds: a drag's step stays small.
+        const tracks = original(doc)!.tracks.flatMap((t, i) => (t.clips.some(isCaption) ? [i] : []));
+        if (!tracks.length) throw new Error("no captions: captions.create makes them from the transcript");
+        for (const i of tracks) {
+          const track = doc.tracks[i]!;
+          track.props = { ...track.props, captionStyle: { ...trackStyle(original(doc)!.tracks[i], doc.settings.height), ...style } };
         }
-        if (!n) throw new Error("no captions: captions.create makes them from the transcript");
-        return n;
+        return tracks.length;
       },
     }),
     defineCommand({
@@ -354,7 +390,9 @@ export const captions = defineFeature({
       description: "Correct what a caption says: its words become `text`'s. Words kept keep their times; new or changed ones share the time of the words they replace (or the gap they go in), by length",
       args: z.strictObject({ clip: z.string(), text: z.string() }),
       apply(doc, { clip: id, text }) {
-        const clip = doc.tracks.flatMap((t) => t.clips).find((c) => c.id === id);
+        // Found in the original: walking the draft would make a draft of every clip.
+        const ti = original(doc)!.tracks.findIndex((t) => t.clips.some((c) => c.id === id));
+        const clip = ti < 0 ? undefined : doc.tracks[ti]!.clips[original(doc)!.tracks[ti]!.clips.findIndex((c) => c.id === id)];
         if (!clip || !isCaption(clip)) throw new Error(`clip "${id}" is not a caption`);
         const old = shownWords(clip);
         const from = old[0]?.start ?? ticksToSeconds(clip.mediaStart ?? 0);
@@ -386,13 +424,11 @@ export const captions = defineFeature({
       args: z.strictObject({ clip: z.string().optional(), time: z.number().nonnegative().optional() }),
       run({ clip: id, time }, { project }) {
         const at = time === undefined ? undefined : secondsToTicks(time);
-        const clip = [...project.tracks]
-          .reverse()
-          .filter((t) => !t.hidden)
-          .flatMap((t) => t.clips)
-          .find((c) => isCaption(c) && (id ? c.id === id : at !== undefined && c.start <= at && at < c.start + c.duration));
+        const shows = (c: Clip) => isCaption(c) && (id ? c.id === id : at !== undefined && c.start <= at && at < c.start + c.duration);
+        const track = [...project.tracks].reverse().find((t) => !t.hidden && t.clips.some(shows));
+        const clip = track?.clips.find(shows);
         if (!clip) return null;
-        const style = { ...defaultStyle(project.settings.height), ...(clip.props.captionStyle as Partial<CaptionStyle>) };
+        const style = trackStyle(track, project.settings.height);
         const g = captionGeometry(shownWords(clip), style, project.settings);
         return g ? { clip: clip.id, box: g.box, origin: g.origin, lines: g.lines, text: g.text } : null;
       },

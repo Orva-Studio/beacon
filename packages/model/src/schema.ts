@@ -63,6 +63,8 @@ export const TrackSchema = z.strictObject({
   muted: z.boolean().optional(),
   /** A magnetic track: no gaps; its clips are packed from the start. */
   magnetic: z.boolean().optional(),
+  /** Settings its clips share, by prop group (the captions' style on a Captions track). */
+  props: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const AssetSchema = z.strictObject({

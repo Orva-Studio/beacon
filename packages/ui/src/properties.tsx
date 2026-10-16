@@ -338,7 +338,8 @@ const ALIGN: { label: string; icon: IconName; fields: (margin: number) => Partia
 function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; host: Host }) {
   const installed = useQuery<string[]>(host, "callout.fonts");
   const [draft, setDraft] = useState<string>();
-  const style = clip.props.captionStyle as CaptionStyle | undefined;
+  // One style for all the captions on a track, kept on the track.
+  const style = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id))?.props?.captionStyle as CaptionStyle | undefined;
   if (!style) return null;
   const from = ticksToSeconds(clip.mediaStart ?? 0);
   const to = from + ticksToSeconds(clip.duration);

@@ -31,15 +31,21 @@ test("border v2: a video's Border effect becomes its border property; an annotat
   expect(image!.props.border).toBeUndefined();
 });
 
-test("captions v2: a vertical position and margin become anchors with offsets, centred across", () => {
+test("captions v2 then v3: a vertical position and margin become anchors with offsets, kept once on the track", () => {
   const registry = createRegistry();
   const doc = createProject(registry) as any;
   doc.features.captions = 1;
   const style = (position: string) => ({ font: "Helvetica Neue", weight: 700, size: 54, color: [1, 1, 1, 1], background: [0, 0, 0, 0.75], cornerRadius: 12, position, margin: 80, highlight: [1, 0.84, 0.2, 1], maxWidth: 0.8, uppercase: false });
   const caption = (id: string, start: number, position: string) => ({ id, type: "caption", start, duration: 10, mediaStart: start, props: { caption: { words: [{ text: "Hi", start: 0, end: 1 }] }, captionStyle: style(position) }, effects: [], animations: [] });
-  doc.tracks = [{ id: "t1", name: "Captions", clips: [caption("c1", 0, "bottom"), caption("c2", 20, "middle")] }];
-  const [bottom, middle] = migrateProject(doc, registry).tracks[0]!.clips;
-  expect(bottom!.props.captionStyle).toMatchObject({ anchorY: "bottom", offsetY: 80, anchorX: "center", offsetX: 0 });
-  expect(bottom!.props.captionStyle).not.toHaveProperty("position");
-  expect(middle!.props.captionStyle).toMatchObject({ anchorY: "middle", offsetY: 0 });
+  doc.tracks = [
+    { id: "t1", name: "Captions", clips: [caption("c1", 0, "bottom"), caption("c2", 20, "bottom")] },
+    { id: "t2", name: "More", clips: [caption("c3", 0, "middle")] },
+  ];
+  const out = migrateProject(doc, registry);
+  expect(out.features.captions).toBe(3);
+  const [bottom, middle] = out.tracks;
+  expect(bottom!.props!.captionStyle).toMatchObject({ anchorY: "bottom", offsetY: 80, anchorX: "center", offsetX: 0 });
+  expect(bottom!.props!.captionStyle).not.toHaveProperty("position");
+  expect(middle!.props!.captionStyle).toMatchObject({ anchorY: "middle", offsetY: 0 });
+  expect(out.tracks.flatMap((t) => t.clips).every((c) => !("captionStyle" in c.props))).toBe(true);
 });

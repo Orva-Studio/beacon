@@ -1369,8 +1369,9 @@ test.skipIf(skip)("Captions makes caption clips from the transcript and shows th
   // Top restyles all of them in one step.
   const edits = await undo();
   await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Top').click()");
-  await arrived(() => captions().every((c) => (c.props.captionStyle as { anchorY: string }).anchorY === "top"));
-  expect(captions().every((c) => (c.props.captionStyle as { anchorY: string }).anchorY === "top")).toBe(true);
+  const look = () => ui.core.doc(ui.handle).tracks.find((t) => t.name === "Captions")!.props!.captionStyle as { anchorY: string };
+  await arrived(() => look().anchorY === "top");
+  expect(look().anchorY).toBe("top");
   expect(await undo()).toBe(edits + 1);
   for (let n = (await undo()) - steps; n > 0; n--) await ui.core.undo(ui.handle);
   expect(captions().length).toBe(0);
@@ -1433,7 +1434,7 @@ test.skipIf(skip || !existsSync(MIC) || !existsSync(MODEL))("Captions asked for 
 test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snapping to the middle), a side handle narrows its lines, and a double-click types into it", async () => {
   for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
   const ids = (await run("captions.create", {})).results[0] as string[];
-  const style = () => clip(ids[0]!).props.captionStyle as { anchorY: string; offsetY: number; offsetX: number; maxWidth: number };
+  const style = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === ids[0]))!.props!.captionStyle as { anchorY: string; offsetY: number; offsetX: number; maxWidth: number };
   const first = clip(ids[0]!);
   const words = () => (clip(ids[0]!).props.caption as { words: { text: string; start: number }[] }).words;
   await run("playhead.set", { time: ticksToSeconds(first.start + first.duration / 2) });
@@ -1452,7 +1453,6 @@ test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snappi
   expect(style().anchorY).toBe("bottom");
   // Snapped back to the centre across.
   expect(style().offsetX).toBe(0);
-  expect(ids.every((id) => (clip(id).props.captionStyle as { offsetY: number }).offsetY === style().offsetY)).toBe(true);
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
   // The right handle dragged in narrows the lines.
   await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${first.id}"]')`);

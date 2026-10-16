@@ -31,6 +31,11 @@ export interface PropGroupDef {
   nested?: (value: any) => Track[];
   /** What the clip is rather than how it looks (which stream it plays): Copy Properties leaves it out. */
   identity?: boolean;
+  /**
+   * Kept once on the track (`Track.props`) for all its clips with one of `traits`, not on each clip: one style
+   * that hundreds of captions share changes in one place.
+   */
+  track?: boolean;
 }
 
 export interface EffectDef {
