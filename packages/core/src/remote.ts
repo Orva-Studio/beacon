@@ -192,6 +192,10 @@ export class RemoteCore implements BeaconCore {
   resources = () => this.#call<ResourceInfo[]>("resources");
   preferences = () => this.#call<PreferenceInfo[]>("preferences");
   setPreference = (id: string, value: string) => this.#call<void>("setPreference", id, value);
+  favorites = () => this.#call<string[]>("favorites");
+  favoriteAdd = (item: string, index?: number) => this.#call<string[]>("favoriteAdd", item, index);
+  favoriteRemove = (item: string) => this.#call<string[]>("favoriteRemove", item);
+  favoriteMove = (item: string, index: number) => this.#call<string[]>("favoriteMove", item, index);
   // A download belongs to no project, so no project's events say when it ends: ask.
   fetchResource = async (id: string): Promise<Job> => {
     const job = (await this.#call<{ id: string }>("fetchResource", id)).id;

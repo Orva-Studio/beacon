@@ -364,6 +364,27 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ id: z.string(), value: z.string() }),
     run: async ({ id, value }) => (await core.setPreference(id, value), core.preferences()),
   });
+  add("favorites_list", {
+    description:
+      "The Favorites panel's items, in order (app-wide, the user's): annotation:<preset> (text, rectangle, spotlight, blur, pixelate), effect:<id> (as effect_add takes) or audio:fade-in / audio:fade-out",
+    schema: z.strictObject({}),
+    run: async () => core.favorites(),
+  });
+  add("favorites_add", {
+    description: "Star an item: add it to the Favorites panel (at `index`, else at the end). Only when the user asks: the list is theirs",
+    schema: z.strictObject({ item: z.string(), index: z.int().nonnegative().optional() }),
+    run: async ({ item, index }) => core.favoriteAdd(item, index),
+  });
+  add("favorites_remove", {
+    description: "Un-star an item: remove it from the Favorites panel",
+    schema: z.strictObject({ item: z.string() }),
+    run: async ({ item }) => core.favoriteRemove(item),
+  });
+  add("favorites_move", {
+    description: "Move a favourite to `index` in the Favorites panel (0 first)",
+    schema: z.strictObject({ item: z.string(), index: z.int().nonnegative() }),
+    run: async ({ item, index }) => core.favoriteMove(item, index),
+  });
   add("job_status", {
     description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
     schema: z.strictObject({ id: z.string().optional(), wait: z.number().min(0).max(55).default(0) }),

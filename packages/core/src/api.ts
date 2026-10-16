@@ -210,6 +210,8 @@ export type CoreEvent =
   | { kind: "saved"; path: string }
   /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
   | { kind: "needs"; resource: ResourceInfo }
+  /** The favourites changed (app-wide): the Favorites panel's items, in order. */
+  | { kind: "favorites"; items: string[] }
   /** A preference changed (the transcriber); analyses it decides start again where they have no result for it. */
   | { kind: "preference"; id: string; value: string }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
@@ -279,6 +281,17 @@ export interface BeaconCore {
    * (an API key) isn't set.
    */
   setPreference(id: string, value: string): Promise<void>;
+  /**
+   * The Favorites panel's items, in order, app-wide: `annotation:<preset>` (text, rectangle…), `effect:<id>`
+   * (drop-shadow…) or `audio:fade-in` / `audio:fade-out`. New users start with a few.
+   */
+  favorites(): Promise<string[]>;
+  /** Stars an item (at `index`, else at the end); one already there stays where it is. Returns the list. */
+  favoriteAdd(item: string, index?: number): Promise<string[]>;
+  /** Un-stars an item. Returns the list. */
+  favoriteRemove(item: string): Promise<string[]>;
+  /** Moves a favourite to `index` (0 first). Returns the list. */
+  favoriteMove(item: string, index: number): Promise<string[]>;
   /**
    * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
    * start when it is done. Returns the running download if there is one.

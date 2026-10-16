@@ -125,6 +125,9 @@ const placed = { duration: z.number().positive().default(5), time: z.number().no
 const selectPasted = (results: unknown[]): ActionStep[] => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }];
 
 /** The editing commands as the editor runs them: on the selection, the range and the playhead. */
+/** The Annotations panel's presets, by id: what favourites of annotations name. */
+export const annotationPresets = (): string[] => Object.keys(ANNOTATIONS);
+
 export const actions = [
   defineAction({
     id: "edit.delete",

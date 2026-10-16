@@ -4,7 +4,7 @@ import { z } from "zod";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
-import { createRegistry } from "@beacon/features";
+import { annotationPresets, createRegistry } from "@beacon/features";
 import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
@@ -1435,6 +1435,61 @@ export class LocalCore implements BeaconCore {
       this.#emit(p, { kind: "preference", id, value });
       this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
     }
+  }
+
+  /** What a new user's Favorites panel holds. */
+  static readonly DEFAULT_FAVORITES = ["annotation:text", "annotation:rectangle", "annotation:spotlight", "effect:round-corners", "effect:crt-monitor", "effect:drop-shadow", "effect:motion-blur"];
+
+  #favorites(): string[] {
+    try {
+      const items = JSON.parse(readFileSync(join(this.#configDir, "favorites.json"), "utf8")) as unknown;
+      if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
+    } catch {}
+    return LocalCore.DEFAULT_FAVORITES.filter((i) => this.#favoriteKnown(i));
+  }
+
+  /** An item the panels have: an annotation preset, an effect (not a cursor-only one), or an audio fade. */
+  #favoriteKnown(item: string): boolean {
+    const [kind, id = ""] = item.split(":", 2);
+    if (kind === "annotation") return annotationPresets().includes(id);
+    if (kind === "effect") return this.registry.effects.has(id);
+    return kind === "audio" && (id === "fade-in" || id === "fade-out");
+  }
+
+  #saveFavorites(items: string[]): string[] {
+    mkdirSync(this.#configDir, { recursive: true });
+    const file = join(this.#configDir, "favorites.json");
+    writeFileSync(`${file}.tmp`, JSON.stringify(items, null, 2));
+    renameSync(`${file}.tmp`, file);
+    for (const p of this.#projects.values()) this.#emit(p, { kind: "favorites", items });
+    return items;
+  }
+
+  async favorites(): Promise<string[]> {
+    return this.#favorites();
+  }
+
+  async favoriteAdd(item: string, index?: number): Promise<string[]> {
+    if (!this.#favoriteKnown(item)) throw new Error(`"${item}" isn't an item of the panels: annotation:<preset> (${annotationPresets().join(", ")}), effect:<id> or audio:fade-in / audio:fade-out`);
+    const items = this.#favorites();
+    if (items.includes(item)) return items;
+    items.splice(index === undefined ? items.length : Math.max(0, Math.min(index, items.length)), 0, item);
+    return this.#saveFavorites(items);
+  }
+
+  async favoriteRemove(item: string): Promise<string[]> {
+    const items = this.#favorites();
+    if (!items.includes(item)) return items;
+    return this.#saveFavorites(items.filter((i) => i !== item));
+  }
+
+  async favoriteMove(item: string, index: number): Promise<string[]> {
+    const items = this.#favorites();
+    const from = items.indexOf(item);
+    if (from < 0) throw new Error(`"${item}" isn't a favourite; there are: ${items.join(", ")}`);
+    items.splice(from, 1);
+    items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
+    return this.#saveFavorites(items);
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */
