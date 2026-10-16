@@ -8,7 +8,7 @@ then the recorder too (Phase 6).
 This document is architecture-first. The goal is that adding a feature later is
 "add one folder", not "touch ten layers".
 
-**Status (2026-10-15):** Phases 1–6 are done (Phase 3: headless Claude Code
+**Status (2026-10-16):** Phases 1–6 are done (Phase 3: headless Claude Code
 rough-cut a recording from its transcript, laid it out, zoomed and exported
 it; Phase 5 closed after the user's runs in the app, cut as v0.1.0; Phase 5.5,
 the new look, closed 2026-10-13 with more to add later; Phase 6, the
@@ -17,8 +17,11 @@ Yeti and system audio, edited (Remove Silences) and exported in Beacon
 alone). Video is decoded in process (`beacon-decode` over FFmpeg's
 libraries), with frames kept for steps back (`docs/performance.md`). Phase
 6.5 made Beacon one self-contained app with fast export, released as v0.2.1
-and v0.3.0 (its gate run is left). Next: **Phase 7** (transcript tools), then
-8 (faster editing), 9 (workspace) and 10 (looks).
+and v0.3.0 (its gate run is left). Phase 7, transcript tools, is built and
+merged, released as v0.5.0 (2026-10-16; v0.4.0 was cut partway through it),
+with two of its gate checks left (below). Next: **Phase 8** (faster editing,
+voice narration first), then 9 (workspace), 10 (looks), 11 (security audit)
+and 12 (Camtasia export).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -1363,8 +1366,10 @@ squeezed to 50 ms. Later: fillers a transcriber leaves out (about half here)
 could come from a second, prompted Whisper pass used only to find them,
 leaving the transcript alone.
 **Release:** v0.4.0 was cut from `phase-7` on 2026-10-15, partway through;
-the phase closes as v0.5.0, merged into `main` before Phase 8 starts (the
-user, 2026-10-16).
+the phase was merged into `main` (PR #15, after a review whose five findings
+were fixed) and released as v0.5.0 on 2026-10-16, before two gate checks:
+Remove Filler Words and captions with Apple's transcriber, and a rounded
+border compared between preview and export (`docs/tested.md`).
 **Asked after trying both reviews** (the user, 2026-10-16: "they both work
 great"): going through silences or fillers one at a time, a click making
 that one the only one marked, and applying them one by one to check each.
