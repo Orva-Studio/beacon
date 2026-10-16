@@ -29,3 +29,4 @@ Beacon (by Orva): a macOS screen-recording editor on its own project format, wit
 - Tests: few, on real data (PLAN §12), read from `BEACON_FIXTURES` (default `~/beacon-fixtures`, links to the user's media); never name client files in the repo. Unit tests only for undo exactness, migrations, ticks maths.
 - Exact pinned versions; commit `bun.lock` and `Cargo.lock`.
 - Conventional Commits; work on a branch, not `main`.
+- `docs/tested.md` records what was checked by hand and what only headless, with dates and commits: add a feature there when it lands, move it when the user confirms it, and ask the user to check only what isn't checked by hand.
