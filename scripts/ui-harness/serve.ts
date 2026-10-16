@@ -180,7 +180,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
         else if (msg.type === "startNarration") (menus.push(`startNarration:${JSON.stringify({ microphone: msg.microphone, hear: msg.hear })}`), (result = { ok: true }));
         else if (msg.type === "stopNarration") (menus.push(`stopNarration${msg.discard ? ":discard" : ""}`), (result = { ok: true }));
-        else if (msg.type === "openRecord") menus.push("openRecord");
+        else if (msg.type === "openRecord") menus.push(msg.mode ? `openRecord:${msg.mode}` : "openRecord");
         // No devices here: still frames and levels stand in for them.
         else if (msg.type === "recordPreview") {
           const { id: _, type: __, ...sources } = msg;

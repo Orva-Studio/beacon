@@ -1022,7 +1022,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
       startExport: (params) => reply(() => startExport(params)),
       startRecording: (params) => reply(() => startRecording(params)),
-      openRecord: () => void recordDialog().catch((e: unknown) => status(e instanceof Error ? e.message : String(e))),
+      openRecord: ({ mode }) => void recordDialog(mode).catch((e: unknown) => status(e instanceof Error ? e.message : String(e))),
       startNarration: (params) => reply(() => startNarration(params)),
       stopNarration: (params) => reply(() => stopNarration(params)),
       recordPreview: (devices) => {

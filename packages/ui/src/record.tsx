@@ -2,14 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { projectDuration, rationalToNumber, ticksToSeconds } from "@beacon/model";
 import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
 import { previewListeners, useRecordFrames } from "./record-preview";
-import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
+import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordMode, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 
 export interface RecordHost extends SyncCheckHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
-  /** Opens the Record dialog, as File › Record… does. */
-  openRecord(): void;
+  /** Opens the Record dialog, as File › Record… does; `narration`: with only the microphone, as Tools › Voice Narration… does. */
+  openRecord(mode?: RecordMode): void;
   /** Records `microphone` while the timeline plays from the playhead or through the range; `hear`: with its sound. */
   startNarration(microphone: { id?: string }, hear: boolean): Promise<{ ok: boolean; error?: string }>;
   /** Ends the narration and places it on the timeline, or throws it away. */
@@ -89,10 +89,10 @@ function present(sources: RecordSources, sheet: RecordSheet): RecordSources {
   };
 }
 
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 /** What a narration plays: the in/out range, or from the playhead to the end. */
-function useNarrationSpan(): { from: number; until: number; ranged: boolean; still: boolean } {
+export function useNarrationSpan(): { from: number; until: number; ranged: boolean; still: boolean } {
   const range = useView((v) => v.session?.range);
   const playhead = useView((v) => v.session?.playhead ?? 0);
   const project = useView((v) => v.project);

@@ -315,8 +315,8 @@ export type AppRPC = {
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
-      /** The Record dialog (the Record button), as File › Record… opens it. */
-      openRecord: { params: {}; response: void };
+      /** The Record dialog (the Record button), as File › Record… opens it; `narration`, with only the microphone, as Tools › Voice Narration… does. */
+      openRecord: { params: { mode?: RecordMode }; response: void };
       /** Voice narration: records the microphone while the timeline plays from the playhead (or through the range). */
       startNarration: { params: { microphone: { id?: string }; hear: boolean }; response: RunReply };
       /** Ends the narration and places it, or throws it away (`discard`). */

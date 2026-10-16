@@ -640,6 +640,14 @@ test.skipIf(skip)("The Record button at the top left opens the Record dialog, as
   await page.until("!document.querySelector('[data-record-button]') && !!document.querySelector('[data-narrating]')");
   ui.send("narrating", null);
   await page.until("!!document.querySelector('[data-record-button]') && !document.querySelector('[data-narrating]')");
+  // The Narration panel opens it with only the microphone, as Tools › Voice Narration… does.
+  await run("panel.show", { tool: "narration" });
+  await page.until("document.querySelector('[data-narration-panel]')?.textContent.includes('Plays from the playhead') ?? false");
+  const at = ui.menus.length;
+  await page.evaluate("document.querySelector('[data-narration-start]').click()");
+  await arrived(() => ui.menus.slice(at).includes("openRecord:narration"));
+  expect(ui.menus.slice(at)).toEqual(["openRecord:narration"]);
+  await run("panel.show", { tool: null });
 });
 
 test.skipIf(skip)("The microphone alone is voice narration: it plays the timeline from the playhead or through the range, its sound off by default; Stop and Discard end it", async () => {

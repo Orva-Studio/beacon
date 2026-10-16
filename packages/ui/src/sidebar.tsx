@@ -4,10 +4,11 @@ import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
 import type { Init } from "./rpc";
-import { Icon, ItemTile, RailButton, type IconName } from "./controls";
+import { Button, Icon, ItemTile, RailButton, type IconName } from "./controls";
+import { clock, useNarrationSpan } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
-import { replica } from "./store";
+import { replica, useView } from "./store";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -71,6 +72,7 @@ export const ToolPanel = memo(function ToolPanel({
   const label = TOOLS.find((t) => t.id === tool)?.label ?? tool;
   if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
   if (tool === "ai") return <AiPanel host={host} />;
+  if (tool === "narration") return <NarrationPanel host={host} />;
   // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
   const items: Record<string, Item[]> = {
     audioEffects: [
@@ -103,6 +105,29 @@ export const ToolPanel = memo(function ToolPanel({
     </Panel>
   );
 });
+
+/** Voice narration's way in, as Camtasia's tab is: what it does and plays, and the Record dialog with only the microphone. */
+function NarrationPanel({ host }: { host: Host }) {
+  const span = useNarrationSpan();
+  const narrating = useView((v) => !!v.narrating);
+  return (
+    <Panel title="Narration">
+      <div className="flex flex-col gap-3 text-body text-text-muted" data-narration-panel>
+        <p>Record your voice while the timeline plays, talking over it. It goes on a new track where you began, in step with what played, and is transcribed.</p>
+        <p className="text-text-faint">
+          {span.still
+            ? `Nothing plays after the playhead: it records at ${clock(span.from)} until you stop.`
+            : span.ranged
+              ? `Plays the range ${clock(span.from)}–${clock(span.until)}.`
+              : `Plays from the playhead (${clock(span.from)}) until you stop or the timeline ends. Set an in/out range to narrate over part of it.`}
+        </p>
+        <Button look="primary" disabled={narrating} onClick={() => host.openRecord("narration")} data-narration-start>
+          Record Narration…
+        </Button>
+      </div>
+    </Panel>
+  );
+}
 
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
 function AiPanel({ host }: { host: Host }) {
