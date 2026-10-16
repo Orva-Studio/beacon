@@ -6,6 +6,8 @@ import { pressItem, type PanelItem } from "./drop";
 import type { Init } from "./rpc";
 import { Icon, ItemTile, RailButton, type IconName } from "./controls";
 import { MediaBin } from "./media-bin";
+import { CaptionsWaiting } from "./captions";
+import { replica } from "./store";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -118,15 +120,13 @@ function AiPanel({ host }: { host: Host }) {
         <ItemTile
           art="captions"
           title="Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it"
-          onClick={() => {
-            host.run("captions.add", {});
-            host.run("panel.show", { properties: true });
-          }}
+          onClick={() => replica.pendCaptions(true)}
           data-ai="captions"
         >
           Captions
         </ItemTile>
       </div>
+      <CaptionsWaiting />
     </Panel>
   );
 }

@@ -17,6 +17,7 @@ import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { RecordUi, type RecordHost } from "./record";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
@@ -62,6 +63,7 @@ export function App({ host }: { host: Host }) {
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
+  useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);

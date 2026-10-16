@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
@@ -1397,3 +1397,35 @@ test.skipIf(skip)("Border is a property of video and images on the Visual tab, n
   await select([]);
   await run("panel.show", { tool: null });
 });
+
+const MIC = join(FIXTURES, "take.brec/microphone.wav");
+const MODEL = join(homedir(), "Library/Caches/Beacon/models/ggml-large-v3-turbo-q5_0.bin");
+
+test.skipIf(skip || !existsSync(MIC) || !existsSync(MODEL))("Captions asked for before the transcript exists start it, say so with its progress, and are made when it is done", async () => {
+  // Imported where the speech model isn't, so no transcript is made; then opened where it is.
+  const path = join(dir, "untranscribed.beproj");
+  const bare = new LocalCore({ cacheDir: join(dir, "bare-cache") });
+  const h = await bare.create({ path });
+  expect((await bare.import(h, [MIC])).needs).toEqual(["whisper-model"]);
+  await bare.close(h);
+  const cacheDir = join(dir, "model-cache");
+  mkdirSync(join(cacheDir, "models"), { recursive: true });
+  symlinkSync(MODEL, join(cacheDir, "models", "ggml-large-v3-turbo-q5_0.bin"));
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    await p.until("document.querySelectorAll('[data-asset]').length >= 1", 15000);
+    await other.core.run(other.handle, "panel.show", { tool: "ai" });
+    await p.until("!!document.querySelector('[data-ai=captions]')");
+    await p.evaluate("document.querySelector('[data-ai=captions]').click()");
+    await p.until("/Transcribing/.test(document.querySelector('[data-captions-waiting]')?.textContent ?? '')", 5000);
+    const captions = () => other.core.doc(other.handle).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption");
+    await arrived(() => captions().length > 0, 60_000);
+    expect(captions().length).toBeGreaterThan(0);
+    await p.until("!document.querySelector('[data-captions-waiting]')");
+    expect((await other.core.session(other.handle)).selection).toEqual([captions()[0]!.id]);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 90_000);

@@ -27,6 +27,10 @@ export interface ViewState {
   saved?: boolean;
   /** Assets whose proxy is being made, and its progress 0-1. */
   preparing: Record<string, number>;
+  /** Assets whose transcript is being made, and its progress 0-1. */
+  transcribing: Record<string, number>;
+  /** Captions asked for before the transcript was there: made when it is. */
+  captionsPending?: boolean;
   /** Proxies finished since the current run of them began (the top bar's "N of M"). */
   prepared: number;
   /** Whether each asset has a proxy (a quick-to-seek copy). */
@@ -72,7 +76,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -87,7 +91,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, waveforms: {}, thumbs: {}, preparing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -110,12 +114,13 @@ export const replica = {
   session(changes: Partial<Session>) {
     if (state.session) set({ session: { ...state.session, ...changes } });
   },
-  media({ waveforms, thumbs, highlight, preparing, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
+  media({ waveforms, thumbs, highlight, preparing, transcribing, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
       waveforms: { ...state.waveforms, ...waveforms },
       thumbs: { ...state.thumbs, ...thumbs },
       ...(highlight ? { binSelected: [highlight] } : {}),
       ...(preparing ? { preparing, prepared: Object.keys(preparing).length ? state.prepared + Object.keys(state.preparing).filter((id) => !(id in preparing)).length : 0 } : {}),
+      ...(transcribing ? { transcribing } : {}),
       ...(proxies ? { proxies: { ...state.proxies, ...proxies } } : {}),
       ...(missing ? { missing } : {}),
     });
@@ -191,6 +196,9 @@ export const replica = {
   },
   pick(picking: ViewState["picking"]) {
     set({ picking });
+  },
+  pendCaptions(captionsPending: boolean) {
+    set({ captionsPending });
   },
   editText(editingText: string | undefined) {
     set({ editingText });

@@ -43,6 +43,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   /** Set by a test: the next patches message is lost, as a dropped message would be. */
   const faults = { dropNext: false };
   /** Proxies being made, as the app tracks them. */
+  const transcribing: Record<string, number> = {};
   const making: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
   /** Every asset's waveform peaks, as the app sends them. */
   const waveforms = () => {
@@ -89,6 +90,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             if (e.job.state === "running") making.jobs[e.job.asset] = e.job.progress;
             else delete making.jobs[e.job.asset];
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
+          } else if (e.kind === "job" && e.job.kind === "transcript" && e.job.asset) {
+            if (e.job.state === "running") transcribing[e.job.asset] = e.job.progress;
+            else delete transcribing[e.job.asset];
+            ws.send(JSON.stringify({ type: "media", data: { transcribing: { ...transcribing } } }));
           } else if (e.kind === "derived" && e.key === "proxy") ws.send(JSON.stringify({ type: "media", data: { proxies: { [e.asset]: e.present } } }));
           else if (e.kind === "job" && e.job.kind === "waveform" && e.job.state === "done") ws.send(JSON.stringify({ type: "media", data: { waveforms: waveforms() } }));
         });

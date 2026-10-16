@@ -182,6 +182,11 @@ async function switchTo(path: string) {
       status(e.message);
     } else if (e.kind === "job" && e.job.kind !== "export") {
       if (e.job.state === "failed" && e.job.error !== "cancelled") status(`${e.job.label}: ${e.job.error}`);
+      if (e.job.kind === "transcript" && e.job.asset) {
+        if (e.job.state === "running") transcribing[e.job.asset] = e.job.progress;
+        else delete transcribing[e.job.asset];
+        send().media({ transcribing: { ...transcribing } });
+      }
       if (e.job.kind === "proxy" && e.job.asset) {
         if (e.job.state === "running") proxyProgress.jobs[e.job.asset] = e.job.progress;
         else delete proxyProgress.jobs[e.job.asset];
@@ -196,6 +201,7 @@ async function switchTo(path: string) {
   win.setTitle(`${basename(h)} — Beacon`);
   thumbs.clear();
   proxyProgress = { queued: {}, jobs: {} };
+  transcribing = {};
   send().opened(await openedPayload(h));
   if (canvas) await canvasView(canvas.id, canvas.rect, canvas.scale);
   sendWaveforms();
@@ -830,6 +836,8 @@ function previewView(id: number, rect: { x: number; y: number; width: number; he
 
 const THUMB_HEIGHT = 64;
 /** Proxies being made: from the app's own queue, and those asked for in the Media Bin. */
+/** Transcripts being made, by asset, and their progress: Remove Silences and Captions show it while they wait. */
+let transcribing: Record<string, number> = {};
 let proxyProgress: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
 
 const thumbs = new Map<string, string>();

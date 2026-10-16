@@ -590,7 +590,11 @@ export class LocalCore implements BeaconCore {
     });
     p.view = view;
     view.show(p.session.state.playhead);
-    if (opts.proxies ?? "layer" in target) this.#previewJobs(p);
+    if (opts.proxies ?? "layer" in target) {
+      this.#previewJobs(p);
+      // Transcripts an import started but a quit cancelled: made now, not when Remove Silences or Captions needs one.
+      this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
+    }
     return view;
   }
 

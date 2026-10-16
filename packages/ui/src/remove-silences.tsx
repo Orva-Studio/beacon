@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
-import { Button, Slider } from "./controls";
+import { Button, Progress, Slider } from "./controls";
+import { useTranscribing } from "./captions";
 import { useQuery } from "./query";
 import type { Host } from "./app";
 
@@ -65,10 +66,11 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
   const cut = found?.silences.filter((s) => s.cut).length ?? 0;
   const kept = (found?.silences.length ?? 0) - cut;
   const ready = !!found && !found.waiting.length && cut > 0;
+  const progress = useTranscribing();
   const summary = !found
     ? "Finding silences…"
     : found.waiting.length
-      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`} on this Mac: silences are found from the transcript.`
+      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`} on this Mac${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}: silences are found from the transcript.`
       : !found.silences.length
         ? `No silences longer than ${review.min} s.`
         : `${found.silences.length} silences: ${cut} to cut, ${kept} kept. ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
@@ -84,6 +86,7 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
       <div className="mb-4 text-label text-text-faint">Where the recording's cursor moves or clicks. Typing alone isn't seen.</div>
       <div className="mb-2 rounded-md bg-groove px-3 py-2 text-text" data-silences-summary>
         {summary}
+        {!!found?.waiting.length && <Progress value={progress ?? 0} className="mt-2" />}
       </div>
       <div className="mb-4 flex flex-col gap-1 text-label text-text-muted">
         <span className="flex items-center gap-2">
