@@ -35,6 +35,7 @@ feature lands and when it is checked.
 | The dragged caption's outline follows the pointer | 2026-10-16 | `bb1fc9f` | Frame by frame: 0.1 px behind (was 5) |
 | A caption placed on its own: ⌥-drag, ⌥⇧ for it and those after, Use shared | 2026-10-16 | `bb1fc9f` | UI flow |
 | Delete acts on what was selected last (a range made after a clip) | 2026-10-16 | `ad42de9` | UI flow |
+| One at a time in both reviews: ‹ ›, ⌥-click a mark, Skip, Cut This One (one undo step, review stays on the next) | 2026-10-16 | `495e005` | UI flows; both cut one item on Test_yeti headless |
 
 ### Not checked yet
 
