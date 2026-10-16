@@ -17,6 +17,8 @@ feature lands and when it is checked.
 | Captions from the transcript, the Caption tab's style | 2026-10-16 | `f46d1c5` | Used on Test_yeti; style changes were slow (fixed since, see below) |
 | Moving every caption by dragging one | 2026-10-16 | `8a163ba` | Found the outline lagging (fixed since) |
 | Caption speed after the style moved onto the track | 2026-10-16 | `55d9400` | "Much much better" |
+| Remove Silences and Remove Filler Words reviews on Test_yeti | 2026-10-16 | `a0b1f86` | "They both work great" |
+| Export of a range with captions burned in, `.srt` beside it (Whisper on this Mac) | 2026-10-16 | `a0b1f86` | "Works perfectly"; frames checked: captions, Round Corners and Border, no CRT (none in the project) |
 
 ### Checked headless only (still to see by hand)
 
@@ -33,8 +35,6 @@ feature lands and when it is checked.
 | The dragged caption's outline follows the pointer | 2026-10-16 | `bb1fc9f` | Frame by frame: 0.1 px behind (was 5) |
 | A caption placed on its own: ⌥-drag, ⌥⇧ for it and those after, Use shared | 2026-10-16 | `bb1fc9f` | UI flow |
 | Delete acts on what was selected last (a range made after a clip) | 2026-10-16 | `ad42de9` | UI flow |
-| Remove Filler Words: AI tile, review marks, click keeps one, Apply one undo step, Cancel, one review at a time | 2026-10-16 | `a0b1f86` | UI flow (transcript with fillers written in); on a real take headless: 15 fillers, joins checked (PLAN, Phase 7) |
-| Captions burned into the export, `.srt` beside it | 2026-10-15 | `f46d1c5` | Export of a range, frame compared with the preview |
 
 ### Not checked yet
 

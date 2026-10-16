@@ -1362,6 +1362,13 @@ word boundary (a cut can only fall on a frame) and 1 at a word Whisper
 squeezed to 50 ms. Later: fillers a transcriber leaves out (about half here)
 could come from a second, prompted Whisper pass used only to find them,
 leaving the transcript alone.
+**Release:** v0.4.0 was cut from `phase-7` on 2026-10-15, partway through;
+the phase closes as v0.5.0, merged into `main` before Phase 8 starts (the
+user, 2026-10-16).
+**Asked after trying both reviews** (the user, 2026-10-16: "they both work
+great"): going through silences or fillers one at a time, a click making
+that one the only one marked, and applying them one by one to check each.
+Later, maybe: dragging a silence's edges to change how much is cut.
 **Gate:** on a real take, Remove Filler Words cuts the fillers cleanly and
 captions export burned in with a matching `.srt`, with each transcriber; a
 camera clip with a rounded border looks the same in preview and export; and
