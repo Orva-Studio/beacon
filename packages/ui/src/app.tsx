@@ -235,8 +235,8 @@ function TopBar({ name, session, host, status, saved, preparing }: { name?: stri
   return (
     <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20 electrobun-webkit-app-region-drag" data-titlebar>
       <ProjectName name={name} host={host} />
-      {/* Every change is written as it is made, so there is no Save; say so, and say when it fails. */}
-      {name && (saved === false ? <span className="text-xs text-danger" title={status}>Not saved</span> : <span className={`text-xs transition-colors ${confirm ? "text-accent" : "text-text-faint"}`} data-saved title="Every change is saved as you make it">{confirm ? "✓ " : ""}Saved automatically</span>)}
+      {/* Every change is written as it is made, so there is no Save: ⌘S says so for a moment, and a failed save stays. */}
+      {name && (saved === false ? <span className="text-xs text-danger" title={status}>Not saved</span> : confirm && <span className="text-xs text-accent" data-saved title="Every change is saved as you make it">✓ Saved automatically</span>)}
       <Button onClick={() => host.openDialog()}>Open…</Button>
       <div className="flex-1" />
       {preparing && (
