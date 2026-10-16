@@ -644,6 +644,7 @@ impl Take {
             "version": 1,
             "complete": duration.is_some(),
             "startedAt": self.started_at,
+            "hostStart": self.t0,
             "duration": duration,
             "streams": self.streams(),
             "cursor": self.cursor_summary,

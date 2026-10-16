@@ -8,6 +8,8 @@ export const isBrec = (path: string) => path.toLowerCase().replace(/\/+$/, "").e
 interface RecordingJson {
   version: number;
   complete: boolean;
+  /** Host-clock seconds when the take began (mach time, as the audio output's); takes before narration have none. */
+  hostStart?: number;
   duration: number | null;
   streams: Record<string, { file: string; start: number | null; offset?: number }>;
 }
@@ -38,6 +40,20 @@ export async function probeBrec(path: string): Promise<MediaInfo> {
   if (!streams.length) throw new Error(`${path}: the take recorded nothing`);
   const duration = rec.duration ?? Math.max(...streams.map((s) => (s.start ?? 0) + s.duration));
   return { duration, streams };
+}
+
+/**
+ * Where a narration's microphone file starts on the timeline, given when playback's first sound was heard
+ * (`heard`: host-clock seconds and the timeline second then). Both clocks are the host's: the microphone's samples
+ * are stamped when they were captured, the output's when they reach the listener (its latency included), so the
+ * voice lands under what the narrator heard as they spoke.
+ */
+export function narrationStart(path: string, heard: { host: number; time: number }): number {
+  const rec = recording(path);
+  const mic = rec.streams.microphone;
+  if (rec.hostStart === undefined) throw new Error(`${path}: the take has no host-clock start to line a narration up with`);
+  if (!mic || mic.start === null) throw new Error(`${path}: the take recorded no microphone`);
+  return heard.time - (heard.host - (rec.hostStart + mic.start + (mic.offset ?? 0)));
 }
 
 /** The cursor of a take, as `loadCursorData` returns a `.trec`'s, in the screen file's own time. */

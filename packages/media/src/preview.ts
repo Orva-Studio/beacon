@@ -111,6 +111,18 @@ export class NativePreview {
 }
 
 /** The default audio output, playing an ffmpeg mix; its position is the playback clock. */
+/**
+ * When playback's first sample was heard: `host`, host-clock seconds (mach time, as `recording.json`'s `hostStart`),
+ * and `time`, the timeline second heard then. `last`: the same for the latest buffer, to see the device's clock drift;
+ * `stalled`: seconds the timeline waited for its decoder since.
+ */
+export interface PlaybackHeard {
+  host: number;
+  time: number;
+  last: { host: number; time: number };
+  stalled: number;
+}
+
 export class AudioOutput {
   #handle: Pointer | null;
   readonly rate: number;
@@ -132,6 +144,14 @@ export class AudioOutput {
   time(): number | undefined {
     const t = loadEngine().beacon_audio_time(this.#live());
     return t < 0 ? undefined : t;
+  }
+
+  /** When this play's first sample was heard, on the host clock capture stamps buffers with; undefined until it is. */
+  heard(): PlaybackHeard | undefined {
+    const out = new Float64Array(5);
+    if (loadEngine().beacon_audio_heard(this.#live(), out) !== 0) return undefined;
+    const [host, time, lastHost, lastTime, stalled] = [...out] as [number, number, number, number, number];
+    return { host, time, last: { host: lastHost, time: lastTime }, stalled };
   }
 
   /** Stops, returning the timeline second up to which sound had gone to the device (some not heard yet), or undefined when it wasn't playing. */
