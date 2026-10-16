@@ -1210,7 +1210,7 @@ and notarization are added once the user has a Developer ID.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 
-### Phases 7–10 (split 2026-10-15)
+### Phases 7–11 (split 2026-10-15)
 Phase 7 was one list of everything next ("Growth"); the user split it by
 theme, each with a gate, as the earlier phases had. Each feature is a folder
 in `packages/features` where it can be (§6: the checklist passes with no core
@@ -1437,6 +1437,34 @@ Seeing more at once.
   needs LUTs.
 **Gate:** the look matches between preview and export, and a `.hlook`
 imports with a report of what didn't map.
+
+### Phase 11 — Security audit (the user, 2026-10-16)
+A review of what an attacker could reach, before Beacon is shared more widely,
+with each finding fixed or written down as an accepted risk in
+`docs/security.md`. What to look at:
+- **The automation socket.** Any local process that can open the unix socket
+  can drive the app (open, export, record the screen, camera and microphone).
+  Who may connect (file permissions, a per-launch token for MCP clients), and
+  whether recording over MCP needs the user's confirmation in the app.
+- **Untrusted files.** `.trec`, `.cmproj`, `.beproj` and media are parsed by
+  Beacon and its own FFmpeg: fuzz the `.trec` and project readers, keep
+  FFmpeg's demuxers and protocols to what Beacon needs (`file` only, as
+  today), and check paths read from projects (`..`, symlinks) never write
+  outside where they should (`checkOutput`).
+- **The webview.** What the window's RPC lets page script do (it runs
+  commands, opens files and dialogs); no remote content or inline HTML from
+  documents; the CSP.
+- **Secrets and uploads.** The OpenAI key stays in the Keychain and never in
+  logs, crash reports or project files; what is uploaded to OpenAI is only
+  the audio chunks, and the UI says so.
+- **Updates and the build.** In-app updates are signed and checked before
+  they run; the app is signed (hardened runtime) and notarized; pinned
+  dependencies with `bun run audit` (bun audit + cargo deny) in CI;
+  third-party binaries built from pinned, hashed sources.
+- **Permissions.** Screen recording, camera and microphone are asked for only
+  when used, and the recorder can't run without the window knowing.
+**Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
+and a fuzzing run of the file readers finds no crash.
 
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
