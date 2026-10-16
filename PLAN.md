@@ -1383,6 +1383,26 @@ Beacon opened without a project offers New Project and its recent projects.
 
 ### Phase 8 — Faster editing
 Getting to everything quicker, by hand or by agent.
+- **Voice narration** (the user, 2026-10-16: as Camtasia has it; first in
+  this phase): record the microphone while the timeline plays, talking over
+  it. From the Record dialog (a Narration choice beside the screen and
+  camera takes, which the Record button below opens too) or Tools ›
+  Voice Narration: pick the microphone, choose whether the timeline's own
+  audio is heard (off by default, so speakers don't bleed into the take;
+  headphones make it safe), then Start. A countdown, the timeline plays
+  from the playhead (or the in/out range) and the take records; Stop, or
+  reaching the end of the range, ends it. The take lands on a new audio
+  track at the time recording began, shifted by the microphone's measured
+  latency (the recorder already logs it per take) so it lines up with what
+  was playing, and is transcribed like any import, so Remove Silences,
+  Remove Filler Words and Captions work on it straight away. A take is one
+  undo step; cancelled, nothing is added. The recorder (Phase 6) already
+  records a microphone alone with its timing: what is new is playing the
+  timeline while it records, placing the take at the playhead, and the
+  alignment. For agents, `recorder.start` with only a microphone and
+  `narrate`. Plus a UI-harness flow (the recorder faked, as the Record
+  dialog's flows do) and a check on a real take that a clap recorded over
+  a click in the timeline lands within a frame of it.
 - **Record button** (the user, 2026-10-15, after trying v0.2.1): a red-dot
   Record button at the top left of the window, as Camtasia has, opening the
   Record dialog; today only File › Record… (⌘R) does. Plus a UI-harness flow.
@@ -1429,8 +1449,9 @@ Getting to everything quicker, by hand or by agent.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
-**Gate:** an edit from record to export using only keys and the palette;
-an agent changes settings and opens each dialog.
+**Gate:** an edit from record to export using only keys and the palette,
+with narration recorded over the timeline and in step with it; an agent
+changes settings and opens each dialog.
 
 ### Phase 9 — Workspace
 Seeing more at once.
