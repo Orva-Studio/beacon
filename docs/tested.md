@@ -36,6 +36,10 @@ feature lands and when it is checked.
 | A caption placed on its own: ⌥-drag, ⌥⇧ for it and those after, Use shared | 2026-10-16 | `bb1fc9f` | UI flow |
 | Delete acts on what was selected last (a range made after a clip) | 2026-10-16 | `ad42de9` | UI flow |
 | One at a time in both reviews: ‹ ›, ⌥-click a mark, Skip, Cut This One (one undo step, review stays on the next) | 2026-10-16 | `495e005` | UI flows; both cut one item on Test_yeti headless |
+| Caption style kept when a caption is pasted into another project, grouped, ungrouped or moved to another track (PR #15 review) | 2026-10-16 | `282580f` | Core commands on a copy of Test_yeti: size 90 kept (was lost on paste, group and move) |
+| A drag's last value sent before Undo (PR #15 review) | 2026-10-16 | `c34b353` | Deferred replies: drag 1 → drag 3 → Undo → drag 4; UI flows |
+| Cancelling an OpenAI transcription stops its uploads (PR #15 review) | 2026-10-16 | `f7e2cbc` | Mocked fetch, no audio uploaded: 1 request then cancelled (was 8 and stored) |
+| Caption highlight in capitals with words that grow ("Straße") (PR #15 review) | 2026-10-16 | `cb99ec4` | Built only; not rendered |
 
 ### Not checked yet
 
