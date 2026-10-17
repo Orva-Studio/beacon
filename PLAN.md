@@ -1443,7 +1443,10 @@ Getting to everything quicker, by hand or by agent.
   click-to-apply). In the Favorites panel a tile dropped on another takes
   its place. Plain items first; presets with settings later.
 - **App settings as commands, then dialogs an agent can open** (the user,
-  2026-10-12; found driving the app over MCP to check Phase 5.5). §7 says
+  2026-10-12; found driving the app over MCP to check Phase 5.5; built
+  2026-10-17 as core's `settings`/`setSettings` with MCP `settings_get` /
+  `settings_set`, and `uiOpen` / MCP `ui_open`, which the app's window
+  registers for as it does for `ui_snapshot`). §7 says
   preferences are commands, but they aren't yet:
   1. **App settings through core.** Settings > General (export colour space,
      Make Proxies For, Build Proxies) lives only in the desktop process
@@ -1462,7 +1465,7 @@ Getting to everything quicker, by hand or by agent.
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
 - **From the user's editing, 2026-10-17:**
-  - **Snapping while resizing on the canvas.** Dragging a corner or side
+  - **Snapping while resizing on the canvas** (built 2026-10-17). Dragging a corner or side
     handle doesn't snap today (only moving does, `snapMove` in
     `ui/src/canvas.tsx`): a clip enlarged to fill the screen should snap
     its edges to the canvas, to other clips' edges, and to the edges of a
@@ -1481,7 +1484,9 @@ Getting to everything quicker, by hand or by agent.
     the clip's top edge (the kind's colour stays the body), a pattern over
     the body (stripes, dots, zigzag), or Camtasia's whole-clip colour. A
     clip property (`label`), so agents set and read it.
-  - **AI features that need the internet** say so: offline, they are greyed
+  - **AI features that need the internet** (built 2026-10-17: a preference
+    option's `online`; the AI tools grey out only when media still needs a
+    transcript from an online transcriber) say so: offline, they are greyed
     with why (today only the OpenAI transcriber needs it; Whisper on this
     Mac and Apple's work offline, and Remove Silences, Remove Filler Words
     and Captions follow the transcriber). The same for later cloud features
@@ -1515,9 +1520,10 @@ a narration (Beacon stays open and plays the timeline); Tools › Voice
 Narration… opens the dialog that way. With nothing after the playhead (an
 empty timeline), it records there until Stop. Left: the clap-over-click
 check on a real take.
-**Gate:** an edit from record to export using only keys and the palette,
-with narration recorded over the timeline and in step with it; an agent
-changes settings and opens each dialog.
+**Gate:** an edit from record to export using only keys and the palette
+(the palette for annotations, effects and the AI tools; keys for Record ⌘R,
+Export ⌘E and the editing), with narration recorded over the timeline and
+in step with it; an agent changes settings and opens each dialog.
 
 ### Phase 9 — Workspace
 Seeing more at once.
