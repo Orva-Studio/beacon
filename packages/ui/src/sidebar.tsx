@@ -1,8 +1,8 @@
-import { effectName } from "./effect-names";
 import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
-import { pressItem, type PanelItem } from "./drop";
+import { pressItem } from "./drop";
+import { AI_TOOLS, ANNOTATIONS, AUDIO_EFFECTS, visualEffects, type Item } from "./panel-items";
 import type { AudioLevel, Init, RecordPreview, RecordSheet } from "./rpc";
 import { Button, Icon, ItemTile, LevelMeter, RailButton, Select, type IconName } from "./controls";
 import { previewListeners } from "./record-preview";
@@ -37,25 +37,6 @@ export function ToolRail({ session, host }: { session?: Session; host: Host }) {
   );
 }
 
-/** A panel item with its tooltip, its tile's picture (`art/<art>.webp`) and what favourites call it (`LocalCore.favorites`). */
-type Item = PanelItem & { title: string; art?: string; favorite: string };
-
-/** The Annotations panel: presets of `edit.addAnnotation`, so agents add the same ones. */
-const ANNOTATIONS: Item[] = (
-  [
-    ["Text", "text", "White text with a drop shadow"],
-    ["Rectangle", "rectangle", "A black rounded rectangle"],
-    ["Spotlight", "spotlight", "Darken everything outside the box"],
-    ["Blur", "blur", "Blur what is inside the box"],
-    ["Pixelate", "pixelate", "Pixelate what is inside the box"],
-  ] as const
-).map(([label, preset, title]) => ({ label, title, art: preset, favorite: `annotation:${preset}`, command: "edit.addAnnotation", args: { preset }, traits: [], media: { seconds: 5 } }));
-
-const AUDIO_EFFECTS: Item[] = [
-  { label: "Fade In", title: "Fade the audio in from silence over its first second", art: "fade-in", favorite: "audio:fade-in", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
-  { label: "Fade Out", title: "Fade the audio out to silence over its last second", art: "fade-out", favorite: "audio:fade-out", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
-];
-
 /** Memoised: it doesn't show the session, so playback ticks don't re-render it. */
 export const ToolPanel = memo(function ToolPanel({
   tool,
@@ -76,9 +57,7 @@ export const ToolPanel = memo(function ToolPanel({
   if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
   if (tool === "ai") return <AiPanel host={host} />;
   if (tool === "narration") return <NarrationPanel host={host} />;
-  const effects = (init?.effects ?? [])
-    .filter((e) => !e.traits.every((t) => t === "cursor"))
-    .map((e): Item => ({ label: effectName(e.id), title: e.description, art: e.id, favorite: `effect:${e.id}`, command: "edit.addEffect", args: { type: e.id }, traits: e.traits }));
+  const effects = visualEffects(init);
   const items: Record<string, Item[]> = { annotations: ANNOTATIONS, visualEffects: effects, audioEffects: AUDIO_EFFECTS };
   if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={[...ANNOTATIONS, ...effects, ...AUDIO_EFFECTS]} host={host} ordered />;
   if (items[tool]) return <ItemsPanel key={tool} title={label} items={items[tool]} host={host} />;
@@ -232,28 +211,15 @@ function NarrationPanel({ host }: { host: Host }) {
 
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
 function AiPanel({ host }: { host: Host }) {
-  const review = (command: string) => {
-    host.run(command, {});
-    host.run("panel.show", { properties: true });
-  };
   return (
     <Panel title="AI">
       <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
       <div className="grid grid-cols-2 gap-2">
-        <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={() => review("silences.review")} data-ai="silences">
-          Remove Silences
-        </ItemTile>
-        <ItemTile art="remove-fillers" title={'Cut "um", "uh" and the like where the transcript has them'} onClick={() => review("fillers.review")} data-ai="fillers">
-          Remove Filler Words
-        </ItemTile>
-        <ItemTile
-          art="captions"
-          title="Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it"
-          onClick={() => replica.pendCaptions(true)}
-          data-ai="captions"
-        >
-          Captions
-        </ItemTile>
+        {AI_TOOLS.map((t) => (
+          <ItemTile key={t.id} art={t.art} title={t.title} onClick={() => t.start(host)} data-ai={t.id}>
+            {t.label}
+          </ItemTile>
+        ))}
       </div>
       <CaptionsWaiting />
     </Panel>

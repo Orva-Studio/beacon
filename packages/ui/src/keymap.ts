@@ -1,6 +1,6 @@
 import { chordId, chordOf, keysLabel, sameArgs, type Keys, type ShortcutInfo } from "@beacon/model";
 import type { Binding } from "./rpc";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 
 /** Each action's keys as the window matches them. */
 export const bindingsOf = (shortcuts: ShortcutInfo[]): Binding[] =>
@@ -38,3 +38,22 @@ export function match(map: Map<string, Binding>, e: KeyboardEvent): Binding | un
 
 /** Whether a shortcut can be a native menu's key equivalent: one with ⌘ or ⌃ never types into a text field. */
 export const menuKey = (keys: Keys) => !!chordOf(keys) && (keys.modifiers.includes("command") || keys.modifiers.includes("control"));
+
+export interface ActionHost {
+  run(command: string, args?: unknown): void;
+  undo(): void;
+  redo(): void;
+  openDialog(): void;
+  /** One of the app's own actions (`app.export`…), as its menu item runs it. */
+  app(id: string): void;
+}
+
+/** Runs an action as its key or menu item would: the app's own through the main process, the rest as commands. */
+export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "args">) {
+  if (a.command === "app.palette") replica.palette(true);
+  else if (a.command === "app.open") host.openDialog();
+  else if (a.command.startsWith("app.")) host.app(a.command);
+  else if (a.command === "project.undo") host.undo();
+  else if (a.command === "project.redo") host.redo();
+  else host.run(a.command, a.args ?? {});
+}

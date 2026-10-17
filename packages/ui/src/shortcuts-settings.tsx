@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { chordId, keysLabel, keysOfEvent, type Keys, type ShortcutInfo } from "@beacon/model";
 import { Button, Icon, TextInput } from "./controls";
-import { search } from "./palette";
 import { useView } from "./store";
 
 export interface ShortcutsHost {
@@ -14,6 +13,19 @@ interface Clash {
   action: string;
   keys: Keys;
   owner: ShortcutInfo;
+}
+
+/** Every word of the search is in the name, the description or the keys; names that start with it come first. */
+export function search(shortcuts: ShortcutInfo[], query: string): ShortcutInfo[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return shortcuts;
+  const text = (s: ShortcutInfo) => `${s.name} ${s.description} ${s.keys.map(keysLabel).join(" ")}`.toLowerCase();
+  const rank = (s: ShortcutInfo) => (s.name.toLowerCase().startsWith(words[0]!) ? 0 : s.name.toLowerCase().includes(words[0]!) ? 1 : 2);
+  return shortcuts
+    .filter((s) => words.every((w) => text(s).includes(w)))
+    .map((s, i) => [s, rank(s), i] as const)
+    .sort((a, b) => a[1] - b[1] || a[2] - b[2])
+    .map(([s]) => s);
 }
 
 /**

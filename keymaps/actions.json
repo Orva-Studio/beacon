@@ -3,7 +3,7 @@
     {
       "id": "app.palette",
       "name": "Command Palette…",
-      "description": "Search every action by name and run it"
+      "description": "Add an annotation, an effect or an AI tool by its name: to the selected clips, or at the playhead"
     },
     {
       "id": "app.settings",

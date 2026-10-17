@@ -1013,40 +1013,57 @@ test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressi
   await select([]);
 }, 30000);
 
-test.skipIf(skip)("the command palette opens on ⌘K, finds actions by name or description with their keys, and runs one with Enter; its key can be changed", async () => {
+test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
-  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-action]')].map((e) => e.dataset.action)");
+  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
+  const clear = () => page.evaluate("(() => { const i = document.querySelector('[data-palette-search]'); i.select(); document.execCommand('delete'); })()");
   await page.key("k", "KeyK", ["meta"]);
   await open();
-  expect((await shown()).length).toBeGreaterThan(50);
-  await type("fit the timeline");
-  await page.until("document.querySelector('[data-action]')?.dataset.action === 'timeline.zoom:fit'");
-  expect(await page.evaluate<string>("document.querySelector('[data-action] kbd').textContent")).toBe("⇧⌘0");
+  // Favourites first, in their order; then every annotation, effect and AI tool, and nothing else.
+  const favorites = await ui.core.favorites();
+  const all = await shown();
+  expect(all.slice(0, favorites.length)).toEqual(favorites);
+  expect(all).toContain("annotation:blur");
+  expect(all).toContain("audio:fade-out");
+  expect(all.slice(-3)).toEqual(["ai:silences", "ai:fillers", "ai:captions"]);
+  expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
-  await run("timeline.view", { start: 0, end: 5 });
+
+  // An annotation goes in at the playhead.
+  await type("rectangle");
+  await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'annotation:rectangle'");
+  await run("playhead.set", { time: 2 });
+  const before = clips().length;
   await page.key("Enter", "Enter");
   await page.until("!document.querySelector('[data-palette]')");
-  await Bun.sleep(300);
-  expect((await session()).timeline.end).toBeGreaterThan(20);
+  await arrived(() => clips().length > before);
+  const added = clips().find((c) => c.type === "callout" && !c.props.caption && ticksToSeconds(c.start) === 2);
+  expect(added).toBeDefined();
+  await ui.core.undo(ui.handle);
 
-  // By what it does, not only its name; arrows choose; the app's own run in the main process.
+  // An effect found by what it does goes on the selected clip; arrows choose.
+  await select([screen.id]);
   await page.key("k", "KeyK", ["meta"]);
   await open();
-  await type("silence the selected clips");
-  await page.until("(document.querySelector('[data-action]')?.dataset.action) === 'edit.silenceAudio'");
-  await page.evaluate("(() => { const i = document.querySelector('[data-palette-search]'); i.select(); document.execCommand('delete'); })()");
-  await type("export");
-  await page.until("document.querySelectorAll('[data-action]').length >= 2");
-  const found = await shown();
-  expect(found.slice(0, 2)).toEqual(["app.export", "app.exportSelection"]);
-  await page.key("ArrowDown", "ArrowDown");
+  await type("shadow");
+  await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'effect:drop-shadow'");
   await page.key("Enter", "Enter");
-  await arrived(() => ui.menus.includes("app:app.exportSelection"));
-  expect(ui.menus).toContain("app:app.exportSelection");
+  await arrived(() => clip(screen.id).effects.some((e) => e.type === "drop-shadow"));
+  expect(clip(screen.id).effects.some((e) => e.type === "drop-shadow")).toBe(true);
+  await ui.core.undo(ui.handle);
+  await page.key("k", "KeyK", ["meta"]);
+  await open();
+  await type("um");
+  await page.until("[...document.querySelectorAll('[data-entry]')].some((e) => e.dataset.entry === 'ai:fillers')");
+  await clear();
+  await type("pauses");
+  await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'ai:silences'");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-palette]')");
+  await select([]);
 
   // Rebound, the new key opens it and ⌘K no longer does.
   await ui.core.shortcutSet("app.palette", [{ key: "p", modifiers: ["shift", "command"] }]);
-  await page.until("document.querySelector('[data-palette]') === null");
   await Bun.sleep(300);
   await page.key("k", "KeyK", ["meta"]);
   await Bun.sleep(300);

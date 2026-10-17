@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { bindingsOf, compileKeymap, match, menuKey, useShortcutTip } from "./keymap";
-import { Palette, runAction, type ActionHost } from "./palette";
+import { bindingsOf, compileKeymap, match, menuKey, runAction, useShortcutTip, type ActionHost } from "./keymap";
+import { Palette } from "./palette";
 import { droppedFiles } from "./drop";
 import type { DroppedFile, Init, Narrating } from "./rpc";
 import { useView } from "./store";
