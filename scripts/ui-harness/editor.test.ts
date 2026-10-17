@@ -1268,6 +1268,41 @@ test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, a
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("resizing on the canvas snaps the side dragged to a recording's edge with a guide, keeping the other side; ⌃ turns it off", async () => {
+  await run("playhead.set", { time: 1 });
+  const handle = (clip: string, h: string) => `[data-handle="${h}"][data-clip="${clip}"]`;
+  // The screen recording's right edge, where its own handle is.
+  await select([screen.id]);
+  await page.until(`!!document.querySelector('${handle(screen.id, "e")}')`);
+  const [edge] = await centre(handle(screen.id, "e"));
+  await select([callout.id]);
+  await page.until(`!!document.querySelector('${handle(callout.id, "e")}')`);
+  const [x0, y] = await centre(handle(callout.id, "e"));
+  const [left] = await centre(handle(callout.id, "w"));
+  const resize = async (from: [number, number], to: [number, number], mods?: ("ctrl")[]) => {
+    await page.down(...from, mods);
+    for (let i = 1; i <= 8; i++) {
+      await page.move(from[0] + ((to[0] - from[0]) * i) / 8, from[1] + ((to[1] - from[1]) * i) / 8, mods);
+      await Bun.sleep(16);
+    }
+    const guide = await page.evaluate<boolean>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].length > 0");
+    await page.up(...to, mods);
+    await Bun.sleep(300);
+    return guide;
+  };
+  // Three points short of the recording's edge, it lands on it; the left side stays.
+  expect(await resize([x0, y], [edge - 3, y])).toBe(true);
+  expect((await centre(handle(callout.id, "e")))[0]).toBeCloseTo(edge, 0);
+  expect((await centre(handle(callout.id, "w")))[0]).toBeCloseTo(left, 0);
+  await ui.core.undo(ui.handle);
+  await page.until(`Math.abs(document.querySelector('${handle(callout.id, "e")}').getBoundingClientRect().x + document.querySelector('${handle(callout.id, "e")}').getBoundingClientRect().width / 2 - ${x0}) < 1`);
+  // With ⌃ it goes where the pointer does.
+  await resize([x0, y], [edge - 3, y], ["ctrl"]);
+  expect((await centre(handle(callout.id, "e")))[0]).toBeCloseTo(edge - 3, 0);
+  await ui.core.undo(ui.handle);
+  await select([]);
+});
+
 test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a P badge; deleting the proxy removes the badge and its files", async () => {
   // A fresh copy has no cached proxy, so making it is real work.
   const copy = join(dir, `like-${Date.now()}.mp4`);
