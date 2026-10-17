@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Socket } from "bun";
 import { lockOwner } from "./persist";
+import type { Keys, ShortcutInfo } from "@beacon/model";
 import type {
   CommandInfo,
   CommandResult,
@@ -196,6 +197,9 @@ export class RemoteCore implements BeaconCore {
   favoriteAdd = (item: string, index?: number) => this.#call<string[]>("favoriteAdd", item, index);
   favoriteRemove = (item: string) => this.#call<string[]>("favoriteRemove", item);
   favoriteMove = (item: string, index: number) => this.#call<string[]>("favoriteMove", item, index);
+  shortcuts = () => this.#call<ShortcutInfo[]>("shortcuts");
+  shortcutSet = (action: string, keys: Keys[], replace?: boolean) => this.#call<ShortcutInfo[]>("shortcutSet", action, keys, replace);
+  shortcutReset = (action?: string) => this.#call<ShortcutInfo[]>("shortcutReset", action);
   // A download belongs to no project, so no project's events say when it ends: ask.
   fetchResource = async (id: string): Promise<Job> => {
     const job = (await this.#call<{ id: string }>("fetchResource", id)).id;

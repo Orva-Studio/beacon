@@ -41,6 +41,8 @@ import {
   scopedProject,
   walkClips,
   assetName,
+  type Keys,
+  type ShortcutInfo,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -74,6 +76,7 @@ import { download } from "./download";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
+import { setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -1490,6 +1493,43 @@ export class LocalCore implements BeaconCore {
     items.splice(from, 1);
     items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
     return this.#saveFavorites(items);
+  }
+
+  #keymapOverrides(): KeymapOverrides {
+    try {
+      const o = (JSON.parse(readFileSync(join(this.#configDir, "keymap.json"), "utf8")) as { overrides?: unknown }).overrides;
+      if (o && typeof o === "object") return o as KeymapOverrides;
+    } catch {}
+    return {};
+  }
+
+  #shortcutList(overrides: KeymapOverrides): ShortcutInfo[] {
+    const described = new Map(this.commands().map((c) => [c.id, c.description]));
+    return shortcutList(overrides, (command) => described.get(command));
+  }
+
+  #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {
+    mkdirSync(this.#configDir, { recursive: true });
+    const file = join(this.#configDir, "keymap.json");
+    writeFileSync(`${file}.tmp`, JSON.stringify({ overrides }, null, 2));
+    renameSync(`${file}.tmp`, file);
+    const shortcuts = this.#shortcutList(overrides);
+    for (const p of this.#projects.values()) this.#emit(p, { kind: "shortcuts", shortcuts });
+    return shortcuts;
+  }
+
+  async shortcuts(): Promise<ShortcutInfo[]> {
+    return this.#shortcutList(this.#keymapOverrides());
+  }
+
+  async shortcutSet(action: string, keys: Keys[], replace = false): Promise<ShortcutInfo[]> {
+    return this.#saveKeymap(setShortcut(this.#keymapOverrides(), action, keys, replace));
+  }
+
+  async shortcutReset(action?: string): Promise<ShortcutInfo[]> {
+    if (action === undefined) return this.#saveKeymap({});
+    const { [action]: _, ...rest } = this.#keymapOverrides();
+    return this.#saveKeymap(rest);
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */

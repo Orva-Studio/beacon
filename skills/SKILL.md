@@ -44,6 +44,10 @@ The Favorites panel is the user's, app-wide: `favorites_list` reads it
 (`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);
 `favorites_add`, `favorites_remove` and `favorites_move` change it, only when
 the user asks.
+Keyboard shortcuts are the user's too, app-wide: `shortcuts_list` lists every
+action of the menus, keys and command palette with its keys; `shortcuts_set`
+gives one new keys (refused when another action has them, unless `replace`)
+and `shortcuts_reset` puts them back, only when the user asks.
 
 ## Recording
 `recorder_start` records a take into the project's `recordings` folder: the

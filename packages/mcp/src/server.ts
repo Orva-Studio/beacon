@@ -385,6 +385,24 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ item: z.string(), index: z.int().nonnegative() }),
     run: async ({ item, index }) => core.favoriteMove(item, index),
   });
+  const Keys = z.strictObject({ key: z.string().describe('one character ("t", ",", "<") or ⏎ ↩ ⇥ ⌫ ⌦ ⎋ ← → ↑ ↓ Space'), modifiers: z.array(z.enum(["control", "option", "shift", "command"])) });
+  add("shortcuts_list", {
+    description:
+      "Every action of the editor's menus, keys and command palette, with its keyboard shortcuts (the user's, app-wide): id, name, description, the command it runs and its keys. `standard`: still the default keys",
+    schema: z.strictObject({}),
+    run: async () => core.shortcuts(),
+  });
+  add("shortcuts_set", {
+    description:
+      "Give an action (its id from shortcuts_list) these keys, replacing its own; [] removes its shortcut. A key another action has is refused, naming it, unless `replace` moves it here. Only when the user asks: the keys are theirs",
+    schema: z.strictObject({ action: z.string(), keys: z.array(Keys), replace: z.boolean().default(false) }),
+    run: async ({ action, keys, replace }) => (await core.shortcutSet(action, keys, replace)).filter((s) => s.id === action || !s.standard),
+  });
+  add("shortcuts_reset", {
+    description: "Put an action's shortcut back to the default, or every action's (no `action`)",
+    schema: z.strictObject({ action: z.string().optional() }),
+    run: async ({ action }) => (await core.shortcutReset(action)).filter((s) => !s.standard),
+  });
   add("job_status", {
     description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",
     schema: z.strictObject({ id: z.string().optional(), wait: z.number().min(0).max(55).default(0) }),

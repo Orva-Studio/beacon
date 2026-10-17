@@ -1,4 +1,4 @@
-import type { CommandResult, Patch, Session, Settings } from "@beacon/model";
+import type { CommandResult, Keys, Patch, Session, Settings, ShortcutInfo } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
@@ -212,6 +212,8 @@ export type CoreEvent =
   | { kind: "needs"; resource: ResourceInfo }
   /** The favourites changed (app-wide): the Favorites panel's items, in order. */
   | { kind: "favorites"; items: string[] }
+  /** Keyboard shortcuts changed (app-wide): every action with its keys. */
+  | { kind: "shortcuts"; shortcuts: ShortcutInfo[] }
   /** A preference changed (the transcriber); analyses it decides start again where they have no result for it. */
   | { kind: "preference"; id: string; value: string }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
@@ -292,6 +294,15 @@ export interface BeaconCore {
   favoriteRemove(item: string): Promise<string[]>;
   /** Moves a favourite to `index` (0 first). Returns the list. */
   favoriteMove(item: string, index: number): Promise<string[]>;
+  /**
+   * Every action of the editor's menus, keys and command palette (`keymaps/actions.json`) with its keys: the
+   * defaults (`keymaps/default.json`) with the user's changes merged over them, app-wide.
+   */
+  shortcuts(): Promise<ShortcutInfo[]>;
+  /** Gives an action these keys (none: no shortcut). A key another action has is refused unless `replace` moves it here. Returns the list. */
+  shortcutSet(action: string, keys: Keys[], replace?: boolean): Promise<ShortcutInfo[]>;
+  /** Puts an action's keys back to the defaults, or every action's. Returns the list. */
+  shortcutReset(action?: string): Promise<ShortcutInfo[]>;
   /**
    * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
    * start when it is done. Returns the running download if there is one.
