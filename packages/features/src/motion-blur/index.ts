@@ -8,6 +8,7 @@ import { SHUTTER } from "../cursor";
  */
 export const motionBlur = defineFeature({
   id: "motion-blur",
+  panelItems: [{ id: "effect:motion-blur", favorite: true }],
   version: 1,
   effects: [
     {

@@ -392,12 +392,12 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     run: async () => core.settings(),
   });
   add("settings_set", {
-    description: "Change some of the app's settings (see settings_get); the rest keep theirs. snapshotFolder must exist. Only when the user asks: the settings are theirs",
+    description: "Change some of the app's settings (see settings_get); the rest keep theirs. snapshotFolder must exist; null goes back to the project's media folder. Only when the user asks: the settings are theirs",
     schema: z.strictObject({
       exportColorSpace: z.enum(["bt709", "srgb"]).optional(),
       autoProxy: z.strictObject({ recording: z.boolean(), video: z.boolean() }).optional(),
       proxyMode: z.enum(["quiet", "fast"]).optional(),
-      snapshotFolder: z.string().optional(),
+      snapshotFolder: z.string().nullable().optional(),
     }),
     run: async (patch) => core.setSettings(Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))),
   });
@@ -407,7 +407,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ dialog: z.enum(["settings", "export", "exportSelection", "newProject", "record"]).nullable(), tab: z.enum(["general", "recording", "shortcuts", "project"]).optional() }),
     run: async ({ dialog, tab }) => (await core.uiOpen(project(), dialog, tab), dialog ? `${dialog} is open` : "closed"),
   });
-  const Keys = z.strictObject({ key: z.string().describe('one character ("t", ",", "<") or ⏎ ↩ ⇥ ⌫ ⌦ ⎋ ← → ↑ ↓ Space'), modifiers: z.array(z.enum(["control", "option", "shift", "command"])) });
+  const Keys = z.strictObject({ key: z.string().describe('one character ("t", ",", "<") or ↩ ⇥ ⌫ ⌦ ⎋ ← → ↑ ↓ Space'), modifiers: z.array(z.enum(["control", "option", "shift", "command"])) });
   add("shortcuts_list", {
     description:
       "Every action of the editor's menus, keys and command palette, with its keyboard shortcuts (the user's, app-wide): id, name, description, the command it runs and its keys. `standard`: still the default keys",

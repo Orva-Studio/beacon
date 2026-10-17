@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
@@ -30,8 +30,8 @@ type RecordSources = import("@beacon/ui").RecordSources;
 type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey } = await import("@beacon/ui");
-const { AppSettingsSchema, chordOf, keysLabel } = await import("@beacon/model");
+const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey, withPatch } = await import("@beacon/ui");
+const { chordOf, keysLabel } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
 
@@ -392,20 +392,45 @@ function exportPrefs(): ExportPrefs {
 
 /** Beacon › Settings… › General and Recording: core keeps them (agents change them too); this copy is for reading them here. */
 let appSettings: AppSettings = await core.settings();
-/** From the Settings window (which shows it already) or Check Sync. */
-function setAppSettings(next: AppSettings) {
-  appSettings = next;
+/** What changed, from the Settings window (which shows it already) or Check Sync; core keeps it. */
+function setAppSettings(patch: import("@beacon/ui").SettingsPatch) {
+  appSettings = withPatch(appSettings, patch);
   applyAutoProxy();
-  core.setSettings(next).catch((e: unknown) => status(`could not save settings: ${e instanceof Error ? e.message : e}`));
+  core.setSettings(patch).catch((e: unknown) => status(`could not save settings: ${e instanceof Error ? e.message : e}`));
 }
 
-/** Core's settings event: an agent's change (the window's own come back unchanged) is applied and shown in an open Settings window. */
+/** Core's settings, after any change: one made elsewhere (an agent) is applied and shown in an open Settings window. */
 function settingsChanged(next: AppSettings) {
-  if (JSON.stringify(next) === JSON.stringify(AppSettingsSchema.parse(appSettings))) return;
+  if (Bun.deepEquals(next, appSettings)) return;
   appSettings = next;
   applyAutoProxy();
   send().appSettings(next);
 }
+
+/**
+ * An agent's MCP server, with the project not open here, runs its own core and writes the same app-wide files:
+ * follow them, so the menus, keys, favourites and settings here don't stay stale (and aren't saved back over it).
+ */
+function followConfig() {
+  const reload: Record<string, () => void> = {
+    "settings.json": () => void core.settings().then(settingsChanged),
+    "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
+    "favorites.json": () => void core.favorites().then((items) => send().favorites({ items })),
+  };
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  try {
+    mkdirSync(core.configDir, { recursive: true });
+    watch(core.configDir, (_, name) => {
+      const file = String(name ?? "").replace(/\.tmp$/, "");
+      if (!reload[file]) return;
+      clearTimeout(timers.get(file));
+      timers.set(file, setTimeout(reload[file]!, 100));
+    });
+  } catch (e) {
+    status(`won't see agents' changes to settings: ${e instanceof Error ? e.message : e}`);
+  }
+}
+followConfig();
 
 /** Proxies start on their own only for the kinds of media the settings name. */
 function applyAutoProxy() {
@@ -583,7 +608,7 @@ async function checkSync({ camera, microphone, display: wanted, output }: { came
       await Bun.sleep(400);
     }));
     const key = syncKey(camera, microphone);
-    setAppSettings({ ...appSettings, cameraSync: { ...appSettings.cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
+    setAppSettings({ cameraSync: { ...appSettings.cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
     return result;
   } finally {
     flash.close();
@@ -624,10 +649,15 @@ async function startNarration({ microphone, hear }: { microphone: { id?: string 
   } catch {}
   // The take's levels go to the window, for the Narration panel's meter.
   await core.recordStart(current.path, { sources: { microphone }, narrate: { hear }, monitor: (e) => !("devicesChanged" in e) && previewEvent(e, send().recordPreview) });
-  const span = (await core.recordStatus()).narration;
-  narrating = { started: Date.now(), from: span?.from ?? 0, until: span?.until ?? 0 };
+  // Set before anything else is awaited: a narration that ends at once (`narrated`) must find it to end it.
+  const now: import("@beacon/ui").Narrating = { started: Date.now(), from: 0, until: 0 };
+  narrating = now;
   GlobalShortcut.register(STOP_SHORTCUT, () => void stopNarration({}));
-  send().narrating(narrating);
+  const span = (await core.recordStatus()).narration;
+  if (narrating !== now) return;
+  const shown = { ...now, from: span?.from ?? 0, until: span?.until ?? 0 };
+  narrating = shown;
+  send().narrating(shown);
 }
 
 /** Stop or Discard: core then reports the narration ended (`narrated`), as it does when the range runs out. */
@@ -1069,7 +1099,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       },
       setPreference: ({ id, value }) => replyWith(async () => (await core.setPreference(id, value), core.preferences())),
       setSecret: ({ id, value }) => replyWith(async () => (await core.setSecret(id, value), core.preferences())),
-      declineResource: ({ id }) => setAppSettings({ ...appSettings, declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
+      declineResource: ({ id }) => setAppSettings({ declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
       cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
       favoriteAdd: ({ item, index }) => replyWith(() => core.favoriteAdd(item, index)),
       favoriteRemove: ({ item }) => replyWith(() => core.favoriteRemove(item)),
@@ -1214,9 +1244,10 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         reply(async () => {
           if (!current) return;
           // A folder chosen in Settings that has since gone: the project's own media folder instead.
-          const folder = appSettings.snapshotFolder && existsSync(appSettings.snapshotFolder) ? appSettings.snapshotFolder : undefined;
-          if (appSettings.snapshotFolder && !folder) status(`${appSettings.snapshotFolder} is missing: saved in the project's media folder`);
-          const r = await core.captureFrame(current.path, undefined, folder ? { folder } : {});
+          // Core saves in Settings' folder, or the project's media folder when it's gone: say which.
+          const chosen = appSettings.snapshotFolder;
+          if (chosen && !existsSync(chosen)) status(`${chosen} is missing: saved in the project's media folder`);
+          const r = await core.captureFrame(current.path);
           send().snapshotSaved({ path: r.path });
           send().media({ highlight: r.asset });
           void sendThumbs();

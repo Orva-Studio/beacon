@@ -1153,6 +1153,13 @@ test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it 
   await page.evaluate(`(() => { const el = document.querySelector('[data-proxy-mode]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'quiet'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   for (let i = 0; i < 50 && (await ui.core.settings()).proxyMode !== "quiet"; i++) await Bun.sleep(20);
   expect(await ui.core.settings()).toMatchObject({ proxyMode: "quiet", exportColorSpace: "srgb" });
+  // Back to the project's media folder: unset in core too (it was kept when the window sent its whole settings).
+  await ui.core.setSettings({ snapshotFolder: dir });
+  await page.until("!!document.querySelector('[data-snapshot-folder] button[title*=\"media folder again\"]')");
+  await page.evaluate("document.querySelector('[data-snapshot-folder] button[title*=\"media folder again\"]').click()");
+  for (let i = 0; i < 50 && (await ui.core.settings()).snapshotFolder !== undefined; i++) await Bun.sleep(20);
+  expect((await ui.core.settings()).snapshotFolder).toBeUndefined();
+  expect(await page.evaluate<string>("document.querySelector('[data-snapshot-folder]').textContent")).toContain("The project's media folder");
   await open(null);
   await open("settings", "shortcuts");
   await page.until("!!document.querySelector('[data-shortcuts]')");
@@ -1171,7 +1178,7 @@ test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it 
   await open("record");
   expect(await title()).toBe("Record");
   await open(null);
-  expect(ui.core.uiOpen(ui.handle, "export", "general")).rejects.toThrow("`tab` is Settings'");
+  await expect(ui.core.uiOpen(ui.handle, "export", "general")).rejects.toThrow("`tab` is Settings'");
   await ui.core.setSettings({ exportColorSpace: "bt709" });
 });
 
@@ -1399,11 +1406,11 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
   await page.until(`!!document.querySelector('[data-auto-proxy]')`);
   await page.evaluate(`[...document.querySelectorAll('[data-auto-proxy] button')].find((b) => b.textContent.includes('Video files')).click()`);
-  await arrived(() => ui.menus.at(-1) === `setAppSettings:${JSON.stringify({ exportColorSpace: "bt709", autoProxy: { recording: true, video: false }, proxyMode: "quiet" })}`);
-  expect(ui.menus.at(-1)).toBe(`setAppSettings:${JSON.stringify({ exportColorSpace: "bt709", autoProxy: { recording: true, video: false }, proxyMode: "quiet" })}`);
+  await arrived(() => ui.menus.at(-1) === `setAppSettings:${JSON.stringify({ autoProxy: { recording: true, video: false } })}`);
+  expect(ui.menus.at(-1)).toBe(`setAppSettings:${JSON.stringify({ autoProxy: { recording: true, video: false } })}`);
   await page.evaluate(`(() => { const el = document.querySelector('[data-proxy-mode]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'fast'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-  await arrived(() => ui.menus.at(-1) === `setAppSettings:${JSON.stringify({ exportColorSpace: "bt709", autoProxy: { recording: true, video: false }, proxyMode: "fast" })}`);
-  expect(ui.menus.at(-1)).toBe(`setAppSettings:${JSON.stringify({ exportColorSpace: "bt709", autoProxy: { recording: true, video: false }, proxyMode: "fast" })}`);
+  await arrived(() => ui.menus.at(-1) === `setAppSettings:${JSON.stringify({ proxyMode: "fast" })}`);
+  expect(ui.menus.at(-1)).toBe(`setAppSettings:${JSON.stringify({ proxyMode: "fast" })}`);
   await page.key("Escape", "Escape");
   // What the app does with it: no proxy is started for a video file.
   ui.core.setAutomatic((analyzer, asset) => analyzer !== "proxy" || asset.kind === "recording");
@@ -1530,7 +1537,7 @@ test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top
   await ui.core.undo(ui.handle);
   expect(clip(screen.id).props.label).toBeUndefined();
   await select([]);
-  expect(run("edit.label", { color: "blue" })).rejects.toThrow("select clips first");
+  await expect(run("edit.label", { color: "blue" })).rejects.toThrow("select clips first");
 });
 
 test.skipIf(skip)("a clip dropped after a drag stays where it was dropped while the move is applied, never back where it was for a frame", async () => {

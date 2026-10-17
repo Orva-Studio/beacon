@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chordId, sameArgs } from "@beacon/model";
+import { chordId, keysLabel, sameArgs } from "@beacon/model";
 import actions from "../../../keymaps/actions.json";
 import keymap from "../../../keymaps/default.json";
 import { LocalCore } from "../src";
@@ -27,13 +27,21 @@ test("every action runs a real command, and every shortcut is one action's", () 
   expect(clashes.map((b) => b.keys)).toEqual([]);
 });
 
+test("an action's keys are one per chord, labelled as pressed: capital I is ⇧I, < is itself", async () => {
+  const list = await new LocalCore().shortcuts();
+  const labels = (id: string) => list.find((s) => s.id === id)!.keys.map(keysLabel);
+  expect(labels("playhead.jump:previousAnimation")).toEqual(["⇧I"]);
+  expect(labels("playhead.jump:nextAnimation").sort()).toEqual(["⌥I", "⌥⇧I"].sort());
+  expect(labels("range.extend:left")).toEqual(["<"]);
+});
+
 test("a shortcut changed is saved over the defaults; a key taken is refused unless moved; reset puts them back", async () => {
   const configDir = mkdtempSync(join(tmpdir(), "beacon-keymap-"));
   try {
     const core = new LocalCore({ configDir });
     const keys = async (id: string) => (await core.shortcuts()).find((s) => s.id === id)!.keys;
     const cmdD = { key: "d", modifiers: ["command"] };
-    expect(core.shortcutSet("edit.split", [cmdD])).rejects.toThrow("⌘D is Duplicate's shortcut");
+    await expect(core.shortcutSet("edit.split", [cmdD])).rejects.toThrow("⌘D is Duplicate's shortcut");
     await core.shortcutSet("edit.split", [cmdD], true);
     // Read again by a new core, as the next launch would.
     const again = new LocalCore({ configDir });
@@ -41,7 +49,7 @@ test("a shortcut changed is saved over the defaults; a key taken is refused unle
     expect(list.find((s) => s.id === "edit.split")!.keys).toEqual([cmdD]);
     expect(list.find((s) => s.id === "edit.duplicate")!.keys).toEqual([]);
     expect(list.filter((s) => !s.standard).map((s) => s.id).sort()).toEqual(["edit.duplicate", "edit.split"]);
-    expect(core.shortcutSet("edit.copy", [{ key: "y", modifiers: ["command"] }])).rejects.toThrow("can't be changed");
+    await expect(core.shortcutSet("edit.copy", [{ key: "y", modifiers: ["command"] }])).rejects.toThrow("can't be changed");
     await core.shortcutReset("edit.split");
     expect(await keys("edit.split")).toEqual([{ key: "t", modifiers: ["command"] }]);
     await core.shortcutReset();

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
-import { annotationPresets, createRegistry } from "@beacon/features";
+import { createRegistry } from "@beacon/features";
 import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
@@ -74,13 +74,14 @@ import type {
   SheetOptions,
   Snapshot,
   TransactionStep,
+  SettingsPatch,
   UiDialog,
 } from "./api";
 import { download } from "./download";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
-import { setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
+import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -220,7 +221,8 @@ export class LocalCore implements BeaconCore {
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
-    this.#configDir = opts.configDir ?? DEFAULT_CONFIG_DIR;
+    // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
+    this.#configDir = opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
     this.#secrets = opts.secrets ?? keychain;
     try {
       this.#prefs = JSON.parse(readFileSync(join(this.#configDir, "preferences.json"), "utf8")) as Record<string, string>;
@@ -380,8 +382,10 @@ export class LocalCore implements BeaconCore {
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
   async close(h: ProjectHandle): Promise<void> {
-    // A take being recorded for it is stopped and imported first, rather than left in its folder.
-    if (this.#recording?.h === h) await this.recordStop();
+    // A take being recorded for it is stopped and imported first, rather than left in its folder; one that can't be
+    // (a narration stopped before it played) mustn't keep the project open and locked.
+    let stopped: unknown;
+    if (this.#recording?.h === h) await this.recordStop().catch((e: unknown) => void (stopped = e));
     const p = this.#get(h);
     clearTimeout(p.saveTimer);
     // Exports render a copy of the document taken when they started: they finish after the project closes.
@@ -400,6 +404,7 @@ export class LocalCore implements BeaconCore {
       this.#projects.delete(h);
     }
     if (failed) throw new Error(`closed ${p.path}, but its latest changes could not be saved: ${failed instanceof Error ? failed.message : failed}`);
+    if (stopped) throw new Error(`closed ${p.path}, but the take being recorded couldn't be placed: ${stopped instanceof Error ? stopped.message : stopped}`);
   }
 
   /**
@@ -1464,31 +1469,47 @@ export class LocalCore implements BeaconCore {
     }
   }
 
-  /** What a new user's Favorites panel holds. */
-  static readonly DEFAULT_FAVORITES = ["annotation:text", "annotation:rectangle", "annotation:spotlight", "effect:round-corners", "effect:crt-monitor", "effect:drop-shadow", "effect:motion-blur"];
-
-  #favorites(): string[] {
-    try {
-      const items = JSON.parse(readFileSync(join(this.#configDir, "favorites.json"), "utf8")) as unknown;
-      if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
-    } catch {}
-    return LocalCore.DEFAULT_FAVORITES.filter((i) => this.#favoriteKnown(i));
+  /** Where the app-wide files (preferences, favourites, settings, keys) are kept. */
+  get configDir(): string {
+    return this.#configDir;
   }
 
-  /** An item the panels have: an annotation preset, an effect (not a cursor-only one), or an audio fade. */
+  /** A JSON file of the app's own (favourites, settings, keys) beside the preferences; undefined when missing or unreadable. */
+  #readConfig(name: string): unknown {
+    try {
+      return JSON.parse(readFileSync(join(this.#configDir, name), "utf8"));
+    } catch {
+      return undefined;
+    }
+  }
+
+  #writeConfig(name: string, value: unknown) {
+    mkdirSync(this.#configDir, { recursive: true });
+    const file = join(this.#configDir, name);
+    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
+    renameSync(`${file}.tmp`, file);
+  }
+
+  #broadcast(e: CoreEvent) {
+    for (const p of this.#projects.values()) this.#emit(p, e);
+  }
+
+  #favorites(): string[] {
+    const items = this.#readConfig("favorites.json");
+    if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
+    return this.registry.panelItems.filter((i) => i.favorite).map((i) => i.id).filter((i) => this.#favoriteKnown(i));
+  }
+
+  /** An item the panels have: one a feature lists, or an effect not only for the cursor. */
   #favoriteKnown(item: string): boolean {
-    const [kind, id = ""] = item.split(":", 2);
-    if (kind === "annotation") return annotationPresets().includes(id);
-    if (kind === "effect") return this.registry.effects.has(id);
-    return kind === "audio" && (id === "fade-in" || id === "fade-out");
+    if (this.registry.panelItems.some((i) => i.id === item)) return true;
+    const effect = item.startsWith("effect:") ? this.registry.effects.get(item.slice(7)) : undefined;
+    return !!effect && !effect.traits.every((t) => t === "cursor");
   }
 
   #saveFavorites(items: string[]): string[] {
-    mkdirSync(this.#configDir, { recursive: true });
-    const file = join(this.#configDir, "favorites.json");
-    writeFileSync(`${file}.tmp`, JSON.stringify(items, null, 2));
-    renameSync(`${file}.tmp`, file);
-    for (const p of this.#projects.values()) this.#emit(p, { kind: "favorites", items });
+    this.#writeConfig("favorites.json", items);
+    this.#broadcast({ kind: "favorites", items });
     return items;
   }
 
@@ -1497,7 +1518,7 @@ export class LocalCore implements BeaconCore {
   }
 
   async favoriteAdd(item: string, index?: number): Promise<string[]> {
-    if (!this.#favoriteKnown(item)) throw new Error(`"${item}" isn't an item of the panels: annotation:<preset> (${annotationPresets().join(", ")}), effect:<id> or audio:fade-in / audio:fade-out`);
+    if (!this.#favoriteKnown(item)) throw new Error(`"${item}" isn't an item of the panels: ${this.registry.panelItems.map((i) => i.id).join(", ")}, or effect:<id> as effect_add takes`);
     const items = this.#favorites();
     if (items.includes(item)) return items;
     items.splice(index === undefined ? items.length : Math.max(0, Math.min(index, items.length)), 0, item);
@@ -1520,36 +1541,29 @@ export class LocalCore implements BeaconCore {
   }
 
   #settings(): AppSettings {
-    try {
-      const saved = AppSettingsSchema.partial().safeParse(JSON.parse(readFileSync(join(this.#configDir, "settings.json"), "utf8")));
-      if (saved.success) return { ...DEFAULT_APP_SETTINGS, ...saved.data };
-    } catch {}
-    return DEFAULT_APP_SETTINGS;
+    const saved = AppSettingsSchema.partial().safeParse(this.#readConfig("settings.json"));
+    return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
   }
 
   async settings(): Promise<AppSettings> {
     return this.#settings();
   }
 
-  async setSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
-    const next = AppSettingsSchema.safeParse({ ...this.#settings(), ...patch });
+  async setSettings(patch: SettingsPatch): Promise<AppSettings> {
+    // Only a folder being chosen must exist: one gone since (an unplugged drive) mustn't stop other changes being saved.
+    if (typeof patch.snapshotFolder === "string" && !existsSync(patch.snapshotFolder)) throw new Error(`${patch.snapshotFolder} doesn't exist`);
+    const merged: Record<string, unknown> = { ...this.#settings(), ...patch };
+    if (patch.snapshotFolder === null) delete merged.snapshotFolder;
+    const next = AppSettingsSchema.safeParse(merged);
     if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
-    const settings = next.data;
-    if (settings.snapshotFolder !== undefined && !existsSync(settings.snapshotFolder)) throw new Error(`${settings.snapshotFolder} doesn't exist`);
-    mkdirSync(this.#configDir, { recursive: true });
-    const file = join(this.#configDir, "settings.json");
-    writeFileSync(`${file}.tmp`, JSON.stringify(settings, null, 2));
-    renameSync(`${file}.tmp`, file);
-    for (const p of this.#projects.values()) this.#emit(p, { kind: "settings", settings });
-    return settings;
+    this.#writeConfig("settings.json", next.data);
+    this.#broadcast({ kind: "settings", settings: next.data });
+    return next.data;
   }
 
   #keymapOverrides(): KeymapOverrides {
-    try {
-      const o = (JSON.parse(readFileSync(join(this.#configDir, "keymap.json"), "utf8")) as { overrides?: unknown }).overrides;
-      if (o && typeof o === "object") return o as KeymapOverrides;
-    } catch {}
-    return {};
+    const saved = KeymapFileSchema.safeParse(this.#readConfig("keymap.json"));
+    return saved.success ? saved.data.overrides : {};
   }
 
   #shortcutList(overrides: KeymapOverrides): ShortcutInfo[] {
@@ -1558,12 +1572,9 @@ export class LocalCore implements BeaconCore {
   }
 
   #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {
-    mkdirSync(this.#configDir, { recursive: true });
-    const file = join(this.#configDir, "keymap.json");
-    writeFileSync(`${file}.tmp`, JSON.stringify({ overrides }, null, 2));
-    renameSync(`${file}.tmp`, file);
+    this.#writeConfig("keymap.json", { overrides });
     const shortcuts = this.#shortcutList(overrides);
-    for (const p of this.#projects.values()) this.#emit(p, { kind: "shortcuts", shortcuts });
+    this.#broadcast({ kind: "shortcuts", shortcuts });
     return shortcuts;
   }
 

@@ -46,8 +46,15 @@ const rpc = Electroview.defineRPC<AppRPC>({
       closeDialogs: () => replica.closeDialogs(),
       key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;
+        const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+        // The menu took these from a text field (Select All, Undo, Redo): a replayed key can't edit, so do it here.
+        if (field && meta && !alt && !ctrl && (code === "KeyA" || code === "KeyZ")) {
+          if (code === "KeyA") el.select();
+          else document.execCommand(shift ? "redo" : "undo");
+          return;
+        }
         // In a text field ⌘⌫ keeps its meaning: delete back to the start of the line.
-        if (code === "Backspace" && meta && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+        if (code === "Backspace" && meta && field) {
           const end = el.selectionEnd ?? 0;
           const start = el.selectionStart === end ? 0 : (el.selectionStart ?? 0);
           el.setRangeText("", start, end, "end");

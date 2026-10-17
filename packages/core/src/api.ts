@@ -164,6 +164,9 @@ export interface Job {
   done: Promise<unknown>;
 }
 
+/** Settings to change; `snapshotFolder: null` goes back to the project's media folder. */
+export type SettingsPatch = Partial<Omit<AppSettings, "snapshotFolder">> & { snapshotFolder?: string | null };
+
 /** The dialogs `uiOpen` shows. */
 export type UiDialog = "settings" | "export" | "exportSelection" | "newProject" | "record";
 
@@ -306,8 +309,8 @@ export interface BeaconCore {
    * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
    */
   settings(): Promise<AppSettings>;
-  /** Changes some of the app's settings (the others keep theirs); returns them all. */
-  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /** Changes some of the app's settings (the others keep theirs; `snapshotFolder: null` unsets it); returns them all. */
+  setSettings(patch: SettingsPatch): Promise<AppSettings>;
   /**
    * Shows a dialog in the app's window, as its menus do (Settings on a tab, Export, Export Selection, New Project,
    * Record), or closes the open one (null): for an agent to see what a person would. Only with the app open.

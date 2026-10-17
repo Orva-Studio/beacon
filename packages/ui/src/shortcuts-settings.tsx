@@ -117,7 +117,7 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
                 onClick={() => (setClash(undefined), setRecording(s.id))}
                 data-shortcut-keys
               >
-                {s.keys.length ? s.keys.map((k) => <kbd key={keysLabel(k)} className="rounded-sm bg-chip px-1.5 font-sans text-label text-text-muted">{keysLabel(k)}</kbd>) : <span className="text-label text-text-disabled">None</span>}
+                {s.keys.length ? s.keys.map((k) => <kbd key={chordId(k)} className="rounded-sm bg-chip px-1.5 font-sans text-label text-text-muted">{keysLabel(k)}</kbd>) : <span className="text-label text-text-disabled">None</span>}
               </button>
             )}
           </div>

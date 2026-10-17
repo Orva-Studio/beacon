@@ -101,7 +101,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, palette: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -153,8 +153,9 @@ export const replica = {
   shortcuts(shortcuts: ViewState["shortcuts"]) {
     set({ shortcuts });
   },
+  /** Opened only with a project: it lists what can be added to one. */
   palette(palette: boolean) {
-    set({ palette });
+    set({ palette: palette && !!state.opened });
   },
   /** Settings changed elsewhere: an open Settings window takes them. */
   appSettings(next: import("./rpc").AppSettings) {

@@ -31,6 +31,7 @@ import type {
   SheetOptions,
   Snapshot,
   TransactionStep,
+  SettingsPatch,
   UiDialog,
 } from "./api";
 import { appSockets, decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
@@ -200,7 +201,7 @@ export class RemoteCore implements BeaconCore {
   favoriteMove = (item: string, index: number) => this.#call<string[]>("favoriteMove", item, index);
   shortcuts = () => this.#call<ShortcutInfo[]>("shortcuts");
   settings = () => this.#call<AppSettings>("settings");
-  setSettings = (patch: Partial<AppSettings>) => this.#call<AppSettings>("setSettings", patch);
+  setSettings = (patch: SettingsPatch) => this.#call<AppSettings>("setSettings", patch);
   uiOpen = (h: ProjectHandle, dialog: UiDialog | null, tab?: string) => this.#call<void>("uiOpen", h, dialog, tab);
   shortcutSet = (action: string, keys: Keys[], replace?: boolean) => this.#call<ShortcutInfo[]>("shortcutSet", action, keys, replace);
   shortcutReset = (action?: string) => this.#call<ShortcutInfo[]>("shortcutReset", action);

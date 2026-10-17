@@ -2,6 +2,16 @@ import type { CanvasValues } from "./canvas-settings";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, ShortcutInfo } from "@beacon/model";
 
 export type { AppSettings, CameraSync } from "@beacon/model";
+
+/** Settings to change; `snapshotFolder: null` unsets it (core's `SettingsPatch`). */
+export type SettingsPatch = Partial<Omit<AppSettings, "snapshotFolder">> & { snapshotFolder?: string | null };
+
+export function withPatch(settings: AppSettings, { snapshotFolder, ...rest }: SettingsPatch): AppSettings {
+  const next: AppSettings = { ...settings, ...rest };
+  if (snapshotFolder === null) delete next.snapshotFolder;
+  else if (snapshotFolder !== undefined) next.snapshotFolder = snapshotFolder;
+  return next;
+}
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
@@ -322,7 +332,8 @@ export type AppRPC = {
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
-      setAppSettings: { params: AppSettings; response: void };
+      /** What changed (the rest keep theirs); `snapshotFolder: null` goes back to the project's media folder. */
+      setAppSettings: { params: SettingsPatch; response: void };
       /** Bytes every proxy video uses, in every project. */
       proxySpace: { params: {}; response: number };
       /** Settings > General > Delete All Proxy Videos; replies with the bytes still used. */

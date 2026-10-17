@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { chordId, chordOf, keysLabel, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
 import actionList from "../../../keymaps/actions.json";
 import defaultKeymap from "../../../keymaps/default.json";
@@ -5,13 +6,18 @@ import defaultKeymap from "../../../keymaps/default.json";
 export const ACTIONS = actionList.actions as ActionListing[];
 const DEFAULTS = defaultKeymap.bindings as { keys: Keys; command: string; args?: Record<string, unknown> }[];
 
-/** The user's keys by action id, replacing that action's defaults (an empty list: no keys). */
+/** `keymap.json`: the user's keys by action id, replacing that action's defaults (an empty list: no keys). */
+export const KeymapFileSchema = z.object({ overrides: z.record(z.string(), z.array(z.object({ key: z.string(), modifiers: z.array(z.string()) }))) });
 export type KeymapOverrides = Record<string, Keys[]>;
 
 /** Key hints in command descriptions ("(⇧⌘T)", "(⌃⇧← / ⌃⇧→)") go stale once keys change: the list shows the real ones. */
 const keyHints = /\s*\((?:[⌃⌥⇧⌘]*[^\s()⌃⌥⇧⌘]{1,2}(?:\s*(?:\/|,|or)\s*)?)+\)/g;
 
-const defaultKeys = (a: ActionListing) => DEFAULTS.filter((b) => b.command === (a.command ?? a.id) && sameArgs(b.args, a.args)).map((b) => b.keys);
+/** An action's default keys, one per physical chord (the keymap writes ⇧I both as "I" and as shift "i"). */
+const defaultKeys = (a: ActionListing) =>
+  DEFAULTS.filter((b) => b.command === (a.command ?? a.id) && sameArgs(b.args, a.args))
+    .map((b) => b.keys)
+    .filter((k, i, all) => all.findIndex((o) => chordId(o) === chordId(k)) === i);
 
 /** Every action with its keys: the defaults, with the user's overrides merged over them. */
 export function shortcutList(overrides: KeymapOverrides, describe: (command: string) => string | undefined): ShortcutInfo[] {

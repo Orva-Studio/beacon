@@ -101,10 +101,15 @@ export function keysOfEvent(e: { code: string; ctrlKey: boolean; altKey: boolean
   return { key, modifiers };
 }
 
-/** "⇧⌘=" style label for menus, tooltips and Settings. */
+/**
+ * "⇧⌘=" style label for menus, tooltips and Settings, from the chord pressed: "I" is ⇧I; a shifted symbol ("<")
+ * shows as itself, its ⇧ implied.
+ */
 export function keysLabel(keys: Keys): string {
   const sym: Record<string, string> = { control: "⌃", option: "⌥", shift: "⇧", command: "⌘" };
-  return ORDER.filter((m) => keys.modifiers.includes(m)).map((m) => sym[m]).join("") + (keys.key.length === 1 ? keys.key.toUpperCase() : keys.key);
+  const mods = new Set(chordOf(keys)?.mods.split("+").filter(Boolean) ?? keys.modifiers);
+  if (SHIFTED[keys.key]) mods.delete("shift");
+  return ORDER.filter((m) => mods.has(m)).map((m) => sym[m]).join("") + (keys.key.length === 1 ? keys.key.toUpperCase() : keys.key);
 }
 
 /** Whether `args` are the same as an action's (key order aside). */

@@ -204,6 +204,7 @@ function calloutFromCamtasia(media: CamtasiaObject, report: (m: string) => void)
 /** Text, rectangle and sketch callouts (and sketch motion callouts). */
 export const callouts = defineFeature({
   id: "callouts",
+  panelItems: [{ id: "annotation:text", favorite: true }, { id: "annotation:rectangle", favorite: true }],
   version: 1,
   clipTypes: [{ id: "callout", description: "A text or rectangle annotation", traits: ["visual", "callout"] }],
   queries: [

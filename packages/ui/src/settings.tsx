@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_SETTINGS, type Project } from "@beacon/model";
 import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
-import { syncKey, type AppSettings, type CameraSync, type RecordDevices, type SettingsSheet, type SettingsTab } from "./rpc";
+import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
@@ -10,7 +10,7 @@ import { ShortcutsSettings, type ShortcutsHost } from "./shortcuts-settings";
 
 export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost {
   run(command: string, args?: unknown, label?: string): void;
-  setAppSettings(settings: AppSettings): void;
+  setAppSettings(patch: SettingsPatch): void;
   proxySpace(): Promise<number>;
   deleteAllProxies(): Promise<number>;
   chooseFolder(start: string): Promise<string | null>;
@@ -38,10 +38,10 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
   }, [sheet]);
   const [proxySpace, setProxySpace] = useState<number | "deleting">();
   useEffect(() => void host.proxySpace().then(setProxySpace), [host]);
-  const update = (patch: Partial<AppSettings>) => {
-    const next = { ...settings, ...patch };
-    setSettings(next);
-    host.setAppSettings(next);
+  // Only what changed is sent, so a change made elsewhere meanwhile (an agent) isn't written back over.
+  const update = (patch: SettingsPatch) => {
+    setSettings((mine) => withPatch(mine, patch));
+    host.setAppSettings(patch);
   };
   const close = () => replica.settings(undefined);
   const transcriber = preferences?.find((p) => p.id === "transcriber");
@@ -75,7 +75,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
                 Choose…
               </Button>
               {settings.snapshotFolder && (
-                <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: undefined })}>
+                <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: null })}>
                   Use Project
                 </Button>
               )}
@@ -159,7 +159,7 @@ export function SettingsUi({ host }: { host: SettingsHost }) {
  * Settings › Recording: a camera and microphone pair's delay, typed or measured by Check Sync, saved for the pair.
  * It replaces delaying the microphone live: moving the camera earlier keeps the voice in step with the screen too.
  */
-function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: Partial<AppSettings>) => void; host: SyncCheckHost }) {
+function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: SettingsPatch) => void; host: SyncCheckHost }) {
   const [camera, setCamera] = useState(devices?.camera ?? devices?.cameras[0]?.id);
   const [microphone, setMicrophone] = useState(devices?.microphone ?? devices?.microphones[0]?.id);
   if (!devices?.cameras.length || !devices.microphones.length) return <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>;

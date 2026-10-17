@@ -27,7 +27,6 @@ const Seconds = z.number().nonnegative();
 const Id = z.string().min(1);
 
 export { findClip, onTrack, rippleDeleteRanges } from "./clips";
-export { annotationPresets } from "./actions";
 
 const commands = [
   defineCommand({
