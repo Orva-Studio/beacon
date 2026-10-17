@@ -1471,7 +1471,9 @@ Getting to everything quicker, by hand or by agent.
   - **The playhead's time readable** (done 2026-10-17): white and bolder, on
     the ruler's colour so the ruler's labels don't run into it, as
     Camtasia's.
-  - **Telling clips apart** (open, the user's idea): Camtasia's Add Color
+  - **Telling clips apart** (built 2026-10-17 as a stripe along the clip's
+    top, the user's choice of the options below; `edit.label`, the `label`
+    prop group, the clip menu's Add Color Label): Camtasia's Add Color
     Label (Red, Purple, Blue, Green, Yellow, Orange, Default) marks a clip
     that differs from its neighbours of the same kind (formatting, place).
     Beacon colours clips by kind, so a label must not read as a kind.
@@ -1486,7 +1488,10 @@ Getting to everything quicker, by hand or by agent.
     (generated B-roll, Replicate's background removal).
 **Progress (2026-10-17).** Favourites, Settings › Shortcuts and the
 command palette are built, checked headless. The palette opens on ⌘K (the
-user's choice). One list names every action (`keymaps/actions.json`:
+user's choice) and lists what the panels have, to add or apply by name
+(annotations, visual and audio effects, the AI tools; favourites first), not
+every action (the user, 2026-10-17); every action with its keys is in
+Settings › Shortcuts. One list names every action (`keymaps/actions.json`:
 commands with their args, and the app's own, `app.export`…), its default
 keys in `keymaps/default.json`; core merges the user's keys from
 `keymap.json` in the config folder (`shortcuts`, `shortcutSet`,
