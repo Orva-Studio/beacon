@@ -13,6 +13,9 @@ feature lands and when it is checked.
 |---|---|---|---|
 | A dropped clip stays where it was dropped while the move applies; trims too | 2026-10-17 | `96521e4` | "Both fixes work" |
 | Tab in the command palette moves through the list and never selects a clip behind it | 2026-10-17 | `07ac778` | "Both fixes work" |
+| Favourites: starring, double-click to apply, reordering in the Favorites panel | 2026-10-17 | `6936f6e` | "Favourites work, so do shortcuts, colour labels" |
+| Settings › Shortcuts: rebinding, clashes, reset | 2026-10-17 | `56ac44d` | "Favourites work, so do shortcuts, colour labels" |
+| Colour labels from the clip menu: a stripe along the top | 2026-10-17 | `024f82e` | "Favourites work, so do shortcuts, colour labels" |
 
 ### Checked headless only (still to see by hand)
 
@@ -22,11 +25,8 @@ feature lands and when it is checked.
 | Narration in core: plays the range muted on the audio device, ends by itself at the range's end, lands on a new Narration track at its start lined up by the host clock, one undo step; Discard adds nothing and deletes the take; with nothing after the playhead it records there without playing | 2026-10-16 | `9b26e7b` | Core test with a stand-in recorder (no microphone) and the real audio output |
 | Record button (red dot) at the top left opens the Record dialog; hidden while narrating | 2026-10-16 | `f2d6996` | UI flow; screenshot |
 | The Narration panel (tool rail), as Camtasia's: microphone and its level, timeline sound off by default, Start Voice Recording with a countdown, Stop | 2026-10-16 | `4175f89` | UI flow; screenshot |
-| Favourites: a click selects a panel tile (yellow outline) with a white star that adds it; gold stars un-star; a double-click applies to the selection; Favorites panel in the saved order, a tile dropped on another takes its place; an agent's change shows at once | 2026-10-17 | `6936f6e` | UI flow; screenshot |
 | The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
-| Settings › Shortcuts: every action listed, search, rebinding by pressing keys, a taken key asks before moving it, Escape stops, Reset and Reset All; the window's keys and toolbar tips follow at once; an agent's change shows | 2026-10-17 | `56ac44d` | UI flow; screenshots; core test of saving, clashes and reset |
 | Command palette: ⌘K lists the panels' items (favourites first) and the AI tools, searched by name or description; Enter adds an annotation at the playhead, an effect on the selected clips, or opens an AI review; its key can be rebound | 2026-10-17 | `6d25603` | UI flow; screenshot |
-| Colour labels: a stripe along the top of the selected clips, the kind's colour kept below; Default removes it; one undo step | 2026-10-17 | `024f82e` | UI flow (pixels of the timeline); screenshots |
 
 ### Not checked yet
 
@@ -37,11 +37,9 @@ feature lands and when it is checked.
 - **Menus showing shortcuts** (only built, never seen): ⌘/⌃ keys beside items (File, Edit, View, Tools), others after
   the name; a rebound key showing in the menu at once; ⌘ keys from the menu running once (not twice), and not acting
   while typing in a text field (e.g. ⌘D in the project name); ⌘, ⌘N ⌘E working with a dialog open.
-- Add Color Label in the clip's right-click menu (the native menu: colours, the current one checked, Default).
 - Settings › Shortcuts and the palette in the app: rebinding to a ⌘ key the menu also has (Export ⌘E), ⌘K over a
   dialog.
-- Favourites in the app: starring, the double-click, reordering by dragging, and `favorites_add` over MCP showing in the
-  open window.
+- `favorites_add` over MCP showing in the open window.
 
 ## Phase 7 (`phase-7`)
 
