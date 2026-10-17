@@ -1117,9 +1117,13 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         // The clip menu, acting on the selection (the clicked clip is selected first). Items for later phases are shown disabled.
         const item = (label: string, action?: string) => ({ label, ...(action ? { action: `${action}:${clip}` } : { enabled: false }) });
         const sep = { type: "separator" as const };
-        const colors = ["Red", "Purple", "Blue", "Green", "Yellow", "Orange", "Default"].map((c) => item(c));
         // Inside an opened group the clicked clip is one of its own.
         const target = [...walkClips(core.doc(current.path).tracks, core.registry)].find((l) => l.clip.id === clip)?.clip;
+        const labelled = (target?.props.label as { color?: string | null } | undefined)?.color ?? null;
+        const colors = ["Red", "Purple", "Blue", "Green", "Yellow", "Orange", "Default"].map((c) => {
+          const color = c === "Default" ? null : c.toLowerCase();
+          return { ...item(c, `label=${color ?? "none"}`), checked: labelled === color };
+        });
         const linked = !!target?.linkId;
         const many = (await core.session(current.path)).selection.length > 1;
         ContextMenu.showContextMenu([
@@ -1418,6 +1422,7 @@ ContextMenu.on("context-menu-clicked", (e) => {
   const h = current.path;
   const run = (command: string, args: unknown = {}) => core.run(h, command, args).catch((err: Error) => status(err.message));
   if (op!.startsWith("edit.")) void run(op!);
+  else if (op!.startsWith("label=")) void run("edit.label", { color: op === "label=none" ? null : op!.slice(6) });
   else if (op === "unlink") void run("clip.unlink", { clip });
   else if (op === "openGroup") void run("group.open", { clip });
   // The clip's properties gain a Speed tab.

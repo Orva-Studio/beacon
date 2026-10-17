@@ -100,6 +100,13 @@
   --color-fx-badge-text: #2a220c;
   /* A tool panel's selected item, and a favourite's star */
   --color-tile-selected: #f2c94c;
+  /* Colour labels (Add Color Label): a stripe along the top of a clip, its kind's colour kept below */
+  --color-label-red: #f2555a;
+  --color-label-purple: #a77bff;
+  --color-label-blue: #4c9bff;
+  --color-label-green: #5fd47a;
+  --color-label-yellow: #f2c94c;
+  --color-label-orange: #ff9d3a;
   --color-favorite: #f2c94c;
   --color-effect-text-selected: var(--color-fx-badge-text);
   --color-group-lane: rgba(150, 176, 164, 0.4);

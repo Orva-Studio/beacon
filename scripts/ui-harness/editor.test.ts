@@ -1371,6 +1371,33 @@ test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock to
   await run("timeline.trackHeight", { height });
 });
 
+test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top of the selected clips, keeping their kind's colour; Default removes it; one undo step", async () => {
+  await select([screen.id]);
+  await run("timeline.view", { start: 0, end: 20 });
+  await Bun.sleep(200);
+  const doc = () => ui.core.doc(ui.handle);
+  const s = await session();
+  const row = doc().tracks.length - 1 - doc().tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
+  const box = clipBox(row, s.timeline.trackHeight);
+  const x = headerWidth(doc().tracks) + 200;
+  const pixel = (dy: number) =>
+    page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${box.y + dy} * k), 1, 1).data].slice(0, 3); })()`);
+  const body = await pixel(box.h - 4);
+  await run("edit.label", { color: "red" });
+  expect((clip(screen.id).props.label as { color: string }).color).toBe("red");
+  await page.until(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const [r, g, b] = c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${box.y + 3} * k), 1, 1).data; return r > 200 && g < 120 && b < 120; })()`);
+  // Below the stripe, the clip is still its kind's colour.
+  expect(await pixel(box.h - 4)).toEqual(body);
+  await page.screenshot(join(dir, "label.png"));
+  await run("edit.label", { color: null });
+  expect((clip(screen.id).props.label as { color: string | null }).color).toBe(null);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  expect(clip(screen.id).props.label).toBeUndefined();
+  await select([]);
+  expect(run("edit.label", { color: "blue" })).rejects.toThrow("select clips first");
+});
+
 test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being dragged, not where the end was", async () => {
   await select([]);
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });

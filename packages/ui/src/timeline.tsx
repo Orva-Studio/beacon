@@ -113,6 +113,8 @@ function kindColor(clip: Clip, nested: Record<string, string>, project: Project)
 const AUDIO_SELECTED = { fill: () => color("audio-selected"), top: () => color("audio-selected-top"), wave: () => color("audio-selected-wave") };
 const SELECTED = () => color("accent");
 const CLIP_RADIUS = 8;
+/** A colour label's stripe along the top of a clip, in points. */
+const LABEL_H = 6;
 const STITCH = () => color("stitch");
 
 interface Props {
@@ -317,8 +319,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fill();
         ctx.clip();
         let textX = x0 + 10;
+        const tag = (clip.props.label as { color?: string | null } | undefined)?.color;
         if (audio) {
-          if (teal) {
+          if (teal && !tag) {
             ctx.fillStyle = AUDIO_SELECTED.top();
             ctx.fillRect(x0, y, cw, 2);
           }
@@ -348,6 +351,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             ctx.drawImage(img, x0 + 6, y + 5, tw, th);
             textX = x0 + 6 + tw + 10;
           }
+        }
+        if (tag) {
+          ctx.fillStyle = color(`label-${tag}`);
+          ctx.fillRect(x0, y, cw, LABEL_H);
         }
         // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
         // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.

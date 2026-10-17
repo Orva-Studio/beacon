@@ -4,6 +4,7 @@ import { callouts } from "./callouts";
 import { captions } from "./captions";
 import { cursor } from "./cursor";
 import { groups } from "./groups";
+import { labels } from "./labels";
 import { regions } from "./regions";
 import { crtMonitor } from "./crt-monitor";
 import { dropShadow } from "./drop-shadow";
@@ -28,13 +29,14 @@ export * from "./volume";
 export * from "./groups";
 export * from "./stitching";
 export * from "./captions";
+export * from "./labels";
 
 /**
  * Every feature, in evaluation order: clip content and cursor are drawn in
  * content space, `transform` maps them to the canvas, then effects.
  * Editing-only features come last.
  */
-export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, transform, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, zoom, transcript];
+export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, transform, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, zoom, transcript, labels];
 
 export function createRegistry(): FeatureRegistry {
   return new FeatureRegistry(FEATURES);
