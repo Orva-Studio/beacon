@@ -56,6 +56,8 @@ export interface Init {
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */
   nested: Record<string, string>;
   socket: string;
+  /** App-wide choices (the transcriber), as Settings shows them; `preferences` messages follow changes. */
+  preferences: PreferenceInfo[];
   /** The Favorites panel's items in order (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`. */
   favorites: string[];
   /** BEACON_KEYLOG=1: the window reports every key event it sees (`keyLog`), to debug shortcuts in the app. */
@@ -410,6 +412,8 @@ export type AppRPC = {
       appSettings: AppSettings;
       /** An agent closed the open dialog (`ui_open` with none). */
       closeDialogs: {};
+      /** A preference changed (the transcriber), here or by an agent. */
+      preferences: PreferenceInfo[];
       /** Tools › Command Palette…: open it. */
       palette: {};
       /** Keyboard shortcuts changed (in Settings or by an agent). */

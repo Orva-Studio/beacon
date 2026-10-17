@@ -104,6 +104,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           else if (e.kind === "favorites") ws.send(JSON.stringify({ type: "favorites", data: { items: e.items } }));
           else if (e.kind === "shortcuts") ws.send(JSON.stringify({ type: "shortcuts", data: { shortcuts: e.shortcuts } }));
           else if (e.kind === "settings") ws.send(JSON.stringify({ type: "appSettings", data: e.settings }));
+          else if (e.kind === "preference") void core.preferences().then((p) => ws.send(JSON.stringify({ type: "preferences", data: p })));
           else if (e.kind === "preparing") {
             making.queued = e.assets;
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
@@ -148,6 +149,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
             socket: "",
             favorites: await core.favorites(),
+            preferences: await core.preferences(),
           };
         } else if (msg.type === "run") {
           if (faults.runDelay) await Bun.sleep(faults.runDelay);

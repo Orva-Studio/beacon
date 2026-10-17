@@ -42,6 +42,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
       palette: () => replica.palette(true),
       appSettings: (a) => replica.appSettings(a),
+      preferences: (p) => replica.preferences(p),
       closeDialogs: () => replica.closeDialogs(),
       key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;

@@ -167,6 +167,8 @@ export interface PreferenceDef {
     description: string;
     /** A secret it can't work without (an API key): until it is set, the option can't be chosen. */
     secret?: string;
+    /** It needs the internet (an online service): offline, the editor says so and offers the others. */
+    online?: boolean;
   }[];
   default: string;
 }

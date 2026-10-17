@@ -137,6 +137,8 @@ export interface PreferenceInfo {
     description: string;
     /** A secret it needs (an API key) and whether it is set: the user sets it in Settings, never an agent. */
     secret?: { id: string; title: string; set: boolean };
+    /** It needs the internet. */
+    online?: boolean;
   }[];
 }
 

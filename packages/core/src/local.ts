@@ -1435,6 +1435,7 @@ export class LocalCore implements BeaconCore {
             title: o.title,
             description: o.description,
             ...(o.secret ? { secret: { id: o.secret, title: this.registry.secrets.get(o.secret)!.title, set: (await this.#secrets.get(o.secret)) !== undefined } } : {}),
+            ...(o.online ? { online: true } : {}),
           })),
         ),
       })),

@@ -183,6 +183,8 @@ async function switchTo(path: string) {
       shortcutsChanged(e.shortcuts);
     } else if (e.kind === "settings") {
       settingsChanged(e.settings);
+    } else if (e.kind === "preference") {
+      void core.preferences().then((p) => send().preferences(p));
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -1010,6 +1012,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           keyLog: !!keyLog,
           socket,
           favorites: await core.favorites(),
+          preferences: await core.preferences(),
         };
       },
       run: ({ command, args, label, coalesce }) =>

@@ -39,6 +39,8 @@ export interface ViewState {
   missing: string[];
   /** The Favorites panel's items, in order (`Init.favorites`). */
   favorites: string[];
+  /** App-wide choices (the transcriber), `Init.preferences`. */
+  preferences: import("./transcripts-settings").PreferenceInfo[];
   /** Every action with its keys (`Init.shortcuts`). */
   shortcuts: import("@beacon/model").ShortcutInfo[];
   /** The command palette, while open. */
@@ -84,7 +86,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -95,7 +97,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init, favorites: init.favorites, shortcuts: init.shortcuts });
+    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, preferences: init.preferences });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -144,6 +146,9 @@ export const replica = {
   },
   favorites(favorites: string[]) {
     set({ favorites });
+  },
+  preferences(preferences: ViewState["preferences"]) {
+    set({ preferences });
   },
   shortcuts(shortcuts: ViewState["shortcuts"]) {
     set({ shortcuts });

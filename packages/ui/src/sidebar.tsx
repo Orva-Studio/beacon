@@ -10,6 +10,7 @@ import { clock, useNarrationSpan } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
 import { replica, useView } from "./store";
+import { useOnline } from "./online";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -209,14 +210,48 @@ function NarrationPanel({ host }: { host: Host }) {
   );
 }
 
+/**
+ * The AI tools read transcripts: offline, with a transcriber that needs the internet and media that has none yet,
+ * they can't work. Returns that transcriber's name then.
+ */
+function useOffline(host: Host): string | undefined {
+  const online = useOnline();
+  const project = useView((v) => v.project);
+  const transcriber = useView((v) => v.preferences.find((p) => p.id === "transcriber"));
+  const chosen = transcriber?.options.find((o) => o.id === transcriber.value);
+  const needs = !online && !!chosen?.online;
+  const [waiting, setWaiting] = useState(false);
+  useEffect(() => {
+    if (!needs) {
+      setWaiting(false);
+      return;
+    }
+    let live = true;
+    host.query("transcript.silences", {}).then(
+      (r) => live && setWaiting((r as { waiting: string[] }).waiting.length > 0),
+      () => live && setWaiting(false),
+    );
+    return () => {
+      live = false;
+    };
+  }, [needs, project]);
+  return needs && waiting ? chosen!.title : undefined;
+}
+
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
 function AiPanel({ host }: { host: Host }) {
+  const offline = useOffline(host);
   return (
     <Panel title="AI">
       <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
+      {offline && (
+        <div className="mb-3 rounded-md bg-chip px-3 py-2 text-caption text-warning" data-ai-offline>
+          You're offline, and {offline} transcribes over the internet: media here has no transcript yet, so these can't work until you're back online. Apple's transcriber works offline (Settings › General).
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
         {AI_TOOLS.map((t) => (
-          <ItemTile key={t.id} art={t.art} title={t.title} onClick={() => t.start(host)} data-ai={t.id}>
+          <ItemTile key={t.id} art={t.art} title={offline ? `Needs a transcript ${offline} can't make offline` : t.title} disabled={!!offline} onClick={() => t.start(host)} data-ai={t.id}>
             {t.label}
           </ItemTile>
         ))}

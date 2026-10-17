@@ -372,6 +372,53 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   ui.core.setAutomatic(() => true);
 }, 20000);
 
+test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey out while OpenAI's transcriber has media to transcribe, Settings marks it and the speech model's download", async () => {
+  const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "", bytes: 574_041_195, present: false };
+  const offline = (off: boolean) => page.evaluate(`(() => { Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => ${!off} }); window.dispatchEvent(new Event('${off ? "offline" : "online"}')); })()`);
+  const greyed = () => page.evaluate<boolean[]>("[...document.querySelectorAll('[data-ai]')].map((b) => b.disabled)");
+  // Nothing is sent to OpenAI: no transcript starts on its own here.
+  ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
+  try {
+    await ui.core.setSecret("openai-api-key", "sk-test");
+    await ui.core.setPreference("transcriber", "openai");
+    await run("panel.show", { tool: "ai" });
+    await page.until("document.querySelectorAll('[data-ai]').length === 3");
+    expect(await greyed()).toEqual([false, false, false]);
+    await offline(true);
+    await page.until("!!document.querySelector('[data-ai-offline]')");
+    expect(await greyed()).toEqual([true, true, true]);
+    expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
+    await page.screenshot(join(dir, "ai-offline.png"));
+    // A transcriber on this Mac works offline.
+    await ui.core.setPreference("transcriber", "apple");
+    await page.until("!document.querySelector('[data-ai-offline]')");
+    expect(await greyed()).toEqual([false, false, false]);
+    await ui.core.setPreference("transcriber", "openai");
+    await page.until("!!document.querySelector('[data-ai-offline]')");
+    // Settings says so, and offers the others; the speech model can't be downloaded.
+    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+    await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
+    expect(await page.evaluate<string>("document.querySelector('[data-offline]').textContent")).toContain("can't transcribe until you're back online");
+    await page.evaluate("(() => { const s = document.querySelector('[data-transcriber]'); s.value = 'whisper'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await page.until("!!document.querySelector('[data-resource-row]')");
+    expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-resource-row] button')][0].disabled")).toBe(true);
+    expect(await page.evaluate<string>("[...document.querySelectorAll('[data-transcriber] option')].find((o) => o.value === 'openai').textContent")).toContain("(needs the internet)");
+    expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-transcriber] option')].find((o) => o.value === 'openai').disabled")).toBe(true);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-transcriber]')");
+    // Back online, nothing is greyed.
+    await ui.core.setPreference("transcriber", "openai");
+    await offline(false);
+    await page.until("!document.querySelector('[data-ai-offline]')");
+    expect(await greyed()).toEqual([false, false, false]);
+  } finally {
+    await offline(false);
+    await ui.core.setSecret("openai-api-key", null);
+    await ui.core.setPreference("transcriber", "whisper");
+    ui.core.setAutomatic(() => true);
+  }
+}, 30000);
+
 test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async () => {
   await run("timeline.zoom", { to: "max" });
   const s = await session();

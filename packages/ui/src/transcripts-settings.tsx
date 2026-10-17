@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, PLAIN_TEXT, Select, SettingsRow as Row } from "./controls";
 import type { ResourceInfo } from "./resource";
 import { replica } from "./store";
+import { useOnline } from "./online";
 
 /** An app-wide choice (the transcriber), as the main process sends it (core's `PreferenceInfo`). */
 export interface PreferenceInfo {
@@ -9,7 +10,7 @@ export interface PreferenceInfo {
   title: string;
   description: string;
   value: string;
-  options: { id: string; title: string; description: string; secret?: { id: string; title: string; set: boolean } }[];
+  options: { id: string; title: string; description: string; secret?: { id: string; title: string; set: boolean }; online?: boolean }[];
 }
 
 type Reply = { ok: boolean; error?: string; result?: PreferenceInfo[] };
@@ -31,6 +32,7 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
   const [key, setKey] = useState("");
   const [error, setError] = useState<string>();
   const option = pref.options.find((o) => o.id === choice)!;
+  const online = useOnline();
   const apply = async (value: string) => {
     const r = await host.setPreference(pref.id, value);
     if (r.ok && r.result) setPref(r.result.find((p) => p.id === pref.id)!);
@@ -60,13 +62,21 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
         <div className="w-56">
           <Select data-transcriber value={choice} onChange={(e) => choose(e.target.value)}>
             {pref.options.map((o) => (
-              <option key={o.id} value={o.id}>
+              <option key={o.id} value={o.id} disabled={!online && !!o.online && o.id !== choice}>
                 {o.title}
+                {!online && o.online ? " (needs the internet)" : ""}
               </option>
             ))}
           </Select>
         </div>
       </Row>
+      {!online && option.online && (
+        <Row label="" hint="">
+          <span className="text-caption text-warning" data-offline>
+            You're offline: {option.title} can't transcribe until you're back online. Apple's transcriber works offline, and Whisper on this Mac once its speech model is downloaded.
+          </span>
+        </Row>
+      )}
       {option.secret && (
         <Row
           label="API Key"
@@ -111,7 +121,9 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
             {model.present ? (
               <span className="text-text-muted">Speech model downloaded</span>
             ) : (
-              <Button onClick={() => (close(), replica.resource(model))}>Download Speech Model…</Button>
+              <Button disabled={!online} title={online ? undefined : "Needs the internet: you're offline"} onClick={() => (close(), replica.resource(model))}>
+                Download Speech Model…
+              </Button>
             )}
           </div>
         </Row>

@@ -79,7 +79,7 @@ export function ItemTile({ art, children, selected, star, onStar, ...props }: Bu
   return (
     <button
       {...props}
-      className={`relative flex cursor-grab flex-col gap-1.5 rounded-lg bg-tile p-1.5 text-left text-label text-text-strong hover:bg-tile-hover ${selected ? "ring-2 ring-tile-selected" : "hover:ring-1 hover:ring-accent/40"}`}
+      className={`relative flex cursor-grab flex-col gap-1.5 rounded-lg bg-tile p-1.5 text-left text-label text-text-strong hover:bg-tile-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-tile disabled:hover:ring-0 ${selected ? "ring-2 ring-tile-selected" : "hover:ring-1 hover:ring-accent/40"}`}
     >
       {art && <span className={`aspect-[3/2] w-full rounded-md bg-groove bg-cover bg-center art-${art}`} data-art={art} />}
       <span className="px-0.5">{children}</span>

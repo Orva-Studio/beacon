@@ -72,6 +72,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "favorites") replica.favorites(msg.data.items);
   else if (msg.type === "shortcuts") replica.shortcuts(msg.data.shortcuts);
   else if (msg.type === "appSettings") replica.appSettings(msg.data);
+  else if (msg.type === "preferences") replica.preferences(msg.data);
   else if (msg.type === "closeDialogs") replica.closeDialogs();
 };
 
