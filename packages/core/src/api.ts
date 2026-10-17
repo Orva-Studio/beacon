@@ -1,4 +1,4 @@
-import type { CommandResult, Keys, Patch, Session, Settings, ShortcutInfo } from "@beacon/model";
+import type { AppSettings, CommandResult, Keys, Patch, Session, Settings, ShortcutInfo } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
@@ -162,6 +162,9 @@ export interface Job {
   done: Promise<unknown>;
 }
 
+/** The dialogs `uiOpen` shows. */
+export type UiDialog = "settings" | "export" | "exportSelection" | "newProject" | "record";
+
 export interface CommandInfo {
   id: string;
   description: string;
@@ -212,6 +215,8 @@ export type CoreEvent =
   | { kind: "needs"; resource: ResourceInfo }
   /** The favourites changed (app-wide): the Favorites panel's items, in order. */
   | { kind: "favorites"; items: string[] }
+  /** The app's settings changed (app-wide), from Settings or an agent. */
+  | { kind: "settings"; settings: AppSettings }
   /** Keyboard shortcuts changed (app-wide): every action with its keys. */
   | { kind: "shortcuts"; shortcuts: ShortcutInfo[] }
   /** A preference changed (the transcriber); analyses it decides start again where they have no result for it. */
@@ -294,6 +299,18 @@ export interface BeaconCore {
   favoriteRemove(item: string): Promise<string[]>;
   /** Moves a favourite to `index` (0 first). Returns the list. */
   favoriteMove(item: string, index: number): Promise<string[]>;
+  /**
+   * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
+   * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
+   */
+  settings(): Promise<AppSettings>;
+  /** Changes some of the app's settings (the others keep theirs); returns them all. */
+  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /**
+   * Shows a dialog in the app's window, as its menus do (Settings on a tab, Export, Export Selection, New Project,
+   * Record), or closes the open one (null): for an agent to see what a person would. Only with the app open.
+   */
+  uiOpen(h: ProjectHandle, dialog: UiDialog | null, tab?: string): Promise<void>;
   /**
    * Every action of the editor's menus, keys and command palette (`keymaps/actions.json`) with its keys: the
    * defaults (`keymaps/default.json`) with the user's changes merged over them, app-wide.

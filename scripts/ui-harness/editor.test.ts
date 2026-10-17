@@ -1089,6 +1089,45 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await ui.core.shortcutReset();
 }, 30000);
 
+test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it changes the app's settings, which an open Settings window shows, and the window's changes reach core", async () => {
+  const title = () => page.evaluate<string | null>("document.querySelector('.text-title')?.textContent ?? null");
+  const open = async (dialog: Parameters<typeof ui.core.uiOpen>[1], tab?: string) => {
+    await ui.core.uiOpen(ui.handle, dialog, tab);
+    await page.until(dialog === null ? "!document.querySelector('.text-title')" : "!!document.querySelector('.text-title')");
+  };
+  await open("settings", "general");
+  expect(await title()).toBe("Settings");
+  expect(await page.evaluate<string>("document.querySelector('[data-proxy-mode]').value")).toBe("quiet");
+  // An agent's change shows in the open window.
+  await ui.core.setSettings({ proxyMode: "fast", exportColorSpace: "srgb" });
+  await page.until("document.querySelector('[data-proxy-mode]').value === 'fast'");
+  await page.screenshot(join(dir, "ui-open-settings.png"));
+  // The window's change reaches core.
+  await page.evaluate(`(() => { const el = document.querySelector('[data-proxy-mode]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'quiet'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  for (let i = 0; i < 50 && (await ui.core.settings()).proxyMode !== "quiet"; i++) await Bun.sleep(20);
+  expect(await ui.core.settings()).toMatchObject({ proxyMode: "quiet", exportColorSpace: "srgb" });
+  await open(null);
+  await open("settings", "shortcuts");
+  await page.until("!!document.querySelector('[data-shortcuts]')");
+  await open(null);
+  await open("export");
+  expect(await title()).toBe("Export");
+  await open(null);
+  await run("range.set", { in: 1, out: 3 });
+  await open("exportSelection");
+  expect(await title()).toBe("Export Selection");
+  await open(null);
+  await run("range.clear");
+  await open("newProject");
+  expect(await title()).toBe("New Project");
+  await open(null);
+  await open("record");
+  expect(await title()).toBe("Record");
+  await open(null);
+  expect(ui.core.uiOpen(ui.handle, "export", "general")).rejects.toThrow("`tab` is Settings'");
+  await ui.core.setSettings({ exportColorSpace: "bt709" });
+});
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");

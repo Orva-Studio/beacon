@@ -43,6 +43,9 @@ import {
   assetName,
   type Keys,
   type ShortcutInfo,
+  type AppSettings,
+  AppSettingsSchema,
+  DEFAULT_APP_SETTINGS,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -71,6 +74,7 @@ import type {
   SheetOptions,
   Snapshot,
   TransactionStep,
+  UiDialog,
 } from "./api";
 import { download } from "./download";
 import { keychain, type Secrets } from "./keychain";
@@ -554,6 +558,21 @@ export class LocalCore implements BeaconCore {
     this.#snapshotter = fn;
   }
 
+  #uiOpener?: (h: ProjectHandle, dialog: UiDialog | null, tab?: string) => void;
+
+  /** The app's window, which shows the dialogs `uiOpen` asks for. */
+  setUiOpener(fn: ((h: ProjectHandle, dialog: UiDialog | null, tab?: string) => void) | undefined) {
+    this.#uiOpener = fn;
+  }
+
+  async uiOpen(h: ProjectHandle, dialog: UiDialog | null, tab?: string): Promise<void> {
+    this.#get(h);
+    if (!this.#uiOpener) throw new Error("no window shows this project: dialogs open only with the project open in the Beacon app");
+    if (tab !== undefined && dialog !== "settings") throw new Error("`tab` is Settings' (general, recording, shortcuts, project)");
+    if (tab !== undefined && !["general", "recording", "shortcuts", "project"].includes(tab)) throw new Error(`Settings has no "${tab}" tab: general, recording, shortcuts or project`);
+    this.#uiOpener(h, dialog, tab);
+  }
+
   async snapshot(h: ProjectHandle): Promise<Snapshot> {
     const p = this.#get(h);
     const shot = this.#snapshotter && p.view ? await this.#snapshotter(h) : undefined;
@@ -880,6 +899,9 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     const doc = p.store.doc;
     if (opts.folder !== undefined && !existsSync(opts.folder)) throw new Error(`${opts.folder} doesn't exist`);
+    // Settings' folder unless one is given; gone, the project's media folder.
+    const chosen = this.#settings().snapshotFolder;
+    if (opts.folder === undefined && chosen && existsSync(chosen)) opts = { ...opts, folder: chosen };
     const t = snapSeconds(time ?? p.session.state.playhead, doc.settings.fps);
     const img = await this.frame(h, ticksToSeconds(t));
     const dir = opts.folder ?? join(p.path, "media");
@@ -931,6 +953,7 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
+    const colorSpace = this.#settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
     // Beside a video, files features write from the same range (captions as .srt), named after it.
@@ -946,7 +969,7 @@ export class LocalCore implements BeaconCore {
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {
-        output: opts.output.endsWith("/") ? { kind: "png", dir: output } : { kind: "video", ...encoding(opts), path: output },
+        output: opts.output.endsWith("/") ? { kind: "png", dir: output } : { kind: "video", ...encoding({ ...opts, colorSpace: opts.colorSpace ?? colorSpace }), path: output },
         from,
         to,
         cacheDir: this.cacheDir,
@@ -1493,6 +1516,31 @@ export class LocalCore implements BeaconCore {
     items.splice(from, 1);
     items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
     return this.#saveFavorites(items);
+  }
+
+  #settings(): AppSettings {
+    try {
+      const saved = AppSettingsSchema.partial().safeParse(JSON.parse(readFileSync(join(this.#configDir, "settings.json"), "utf8")));
+      if (saved.success) return { ...DEFAULT_APP_SETTINGS, ...saved.data };
+    } catch {}
+    return DEFAULT_APP_SETTINGS;
+  }
+
+  async settings(): Promise<AppSettings> {
+    return this.#settings();
+  }
+
+  async setSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+    const next = AppSettingsSchema.safeParse({ ...this.#settings(), ...patch });
+    if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
+    const settings = next.data;
+    if (settings.snapshotFolder !== undefined && !existsSync(settings.snapshotFolder)) throw new Error(`${settings.snapshotFolder} doesn't exist`);
+    mkdirSync(this.#configDir, { recursive: true });
+    const file = join(this.#configDir, "settings.json");
+    writeFileSync(`${file}.tmp`, JSON.stringify(settings, null, 2));
+    renameSync(`${file}.tmp`, file);
+    for (const p of this.#projects.values()) this.#emit(p, { kind: "settings", settings });
+    return settings;
   }
 
   #keymapOverrides(): KeymapOverrides {

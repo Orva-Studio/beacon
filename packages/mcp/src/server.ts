@@ -385,6 +385,28 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ item: z.string(), index: z.int().nonnegative() }),
     run: async ({ item, index }) => core.favoriteMove(item, index),
   });
+  add("settings_get", {
+    description:
+      "The app's settings (the user's, app-wide; Settings › General and Recording): exportColorSpace (bt709 or srgb, what export_start uses unless told), autoProxy (which media get proxies made on their own: recording, video), proxyMode (quiet: one at a time at background priority; fast: two at once), snapshotFolder (where frame_capture saves; unset, the project's media folder), cameraSync (each camera and microphone's measured delay)",
+    schema: z.strictObject({}),
+    run: async () => core.settings(),
+  });
+  add("settings_set", {
+    description: "Change some of the app's settings (see settings_get); the rest keep theirs. snapshotFolder must exist. Only when the user asks: the settings are theirs",
+    schema: z.strictObject({
+      exportColorSpace: z.enum(["bt709", "srgb"]).optional(),
+      autoProxy: z.strictObject({ recording: z.boolean(), video: z.boolean() }).optional(),
+      proxyMode: z.enum(["quiet", "fast"]).optional(),
+      snapshotFolder: z.string().optional(),
+    }),
+    run: async (patch) => core.setSettings(Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))),
+  });
+  add("ui_open", {
+    description:
+      "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, shortcuts or project), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
+    schema: z.strictObject({ dialog: z.enum(["settings", "export", "exportSelection", "newProject", "record"]).nullable(), tab: z.enum(["general", "recording", "shortcuts", "project"]).optional() }),
+    run: async ({ dialog, tab }) => (await core.uiOpen(project(), dialog, tab), dialog ? `${dialog} is open` : "closed"),
+  });
   const Keys = z.strictObject({ key: z.string().describe('one character ("t", ",", "<") or ⏎ ↩ ⇥ ⌫ ⌦ ⎋ ← → ↑ ↓ Space'), modifiers: z.array(z.enum(["control", "option", "shift", "command"])) });
   add("shortcuts_list", {
     description:

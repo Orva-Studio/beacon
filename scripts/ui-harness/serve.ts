@@ -3,6 +3,7 @@ import { importDropped, LocalCore } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
+import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 import type { RecentProject } from "../../packages/ui/src/rpc";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
@@ -63,6 +64,23 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   };
   let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
   const opened = async () => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev });
+  const sendAll = (type: string, data: unknown) => {
+    for (const ws of sockets) ws.send(JSON.stringify({ type, data }));
+  };
+  // The window agents open dialogs in (`ui_open`), as the app's does: what its menus would send.
+  core.setUiOpener(async (_, dialog, tab) => {
+    const doc = core.doc(h);
+    if (dialog === null) return sendAll("closeDialogs", {});
+    if (dialog === "settings") return sendAll("settingsSheet", { ...(await core.settings()), ...(tab ? { tab } : {}), resources: await core.resources(), preferences: await core.preferences() });
+    if (dialog === "export" || dialog === "exportSelection") {
+      const range = (await core.session(h)).range;
+      if (dialog === "exportSelection" && !range) return;
+      const fps = doc.settings.fps.num / doc.settings.fps.den;
+      return sendAll("exportSheet", { name: "project", folder: tmpdir(), settings: DEFAULT_EXPORT, canvas: { width: doc.settings.width, height: doc.settings.height, fps }, ...(dialog === "exportSelection" && range ? { range } : {}) });
+    }
+    if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project" });
+    if (dialog === "record") return sendAll("recordSheet", { ...(narrationDevices as object), mode: "take", sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } } });
+  });
 
   const server = Bun.serve({
     port: 0,
@@ -85,6 +103,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           else if (e.kind === "session") ws.send(JSON.stringify({ type: "session", data: { changes: e.changes } }));
           else if (e.kind === "favorites") ws.send(JSON.stringify({ type: "favorites", data: { items: e.items } }));
           else if (e.kind === "shortcuts") ws.send(JSON.stringify({ type: "shortcuts", data: { shortcuts: e.shortcuts } }));
+          else if (e.kind === "settings") ws.send(JSON.stringify({ type: "appSettings", data: e.settings }));
           else if (e.kind === "preparing") {
             making.queued = e.assets;
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
@@ -181,7 +200,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           if (msg.op !== "close") ws.send(JSON.stringify({ type: "previewClock", data: { time: msg.time ?? 0, playing: msg.op === "play" } }));
         }
         // The harness keeps its one project: these are recorded, as menus are.
-        else if (msg.type === "setAppSettings") menus.push(`setAppSettings:${JSON.stringify(msg.settings)}`);
+        else if (msg.type === "setAppSettings") {
+          menus.push(`setAppSettings:${JSON.stringify(msg.settings)}`);
+          await core.setSettings(msg.settings).catch(() => {});
+        }
         // Never records: the sources it was asked for are what a test checks.
         else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
         else if (msg.type === "startNarration") (menus.push(`startNarration:${JSON.stringify({ microphone: msg.microphone, hear: msg.hear })}`), (result = { ok: true }));

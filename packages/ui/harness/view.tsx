@@ -71,6 +71,8 @@ ws.onmessage = (m) => {
   else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
   else if (msg.type === "favorites") replica.favorites(msg.data.items);
   else if (msg.type === "shortcuts") replica.shortcuts(msg.data.shortcuts);
+  else if (msg.type === "appSettings") replica.appSettings(msg.data);
+  else if (msg.type === "closeDialogs") replica.closeDialogs();
 };
 
 const report = async (p: Promise<{ ok: boolean; error?: string }>) => {

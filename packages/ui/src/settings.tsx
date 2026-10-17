@@ -21,6 +21,9 @@ const space = (bytes: number) =>
 
 const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
 
+/** The app settings in a Settings sheet, without what it opened with (tab, devices…). */
+const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }: SettingsSheet): AppSettings => app;
+
 /**
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
@@ -28,6 +31,11 @@ const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
 export function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
+  // Changed elsewhere while open (an agent, Check Sync): shown here.
+  const sheet = useView((v) => v.settings);
+  useEffect(() => {
+    if (sheet) setSettings(({ ...mine }) => ({ ...mine, ...pick(sheet) }));
+  }, [sheet]);
   const [proxySpace, setProxySpace] = useState<number | "deleting">();
   useEffect(() => void host.proxySpace().then(setProxySpace), [host]);
   const update = (patch: Partial<AppSettings>) => {

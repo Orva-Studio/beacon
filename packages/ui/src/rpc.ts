@@ -1,5 +1,7 @@
 import type { CanvasValues } from "./canvas-settings";
-import type { Keys, Patch, Project, Session, ShortcutInfo } from "@beacon/model";
+import type { AppSettings, CameraSync, Keys, Patch, Project, Session, ShortcutInfo } from "@beacon/model";
+
+export type { AppSettings, CameraSync } from "@beacon/model";
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
@@ -122,13 +124,6 @@ export interface RecordDevices {
   microphone?: string;
 }
 
-/** How late a camera's picture is behind a microphone's sound, typed or measured by Check Sync. */
-export interface CameraSync {
-  cameraLateMs: number;
-  /** When it was measured (Unix ms), from how many flashes, and how far they spread (ms). */
-  checked?: { at: number; flashes: number; spreadMs: number };
-}
-
 /** A sync check's result. */
 export interface SyncCheck {
   cameraLateMs: number;
@@ -138,20 +133,6 @@ export interface SyncCheck {
 
 /** `AppSettings.cameraSync`'s key: a camera and microphone pair. */
 export const syncKey = (camera: string | undefined, microphone: string | undefined) => `${camera ?? ""}|${microphone ?? ""}`;
-
-export interface AppSettings {
-  exportColorSpace: "bt709" | "srgb";
-  /** Which media get proxies made on their own when a project is shown (Create Proxy Video makes any). */
-  autoProxy: { recording: boolean; video: boolean };
-  /** quiet: one proxy at a time at background priority, so the fans stay off; fast: two at once. */
-  proxyMode: "quiet" | "fast";
-  /** Where Snapshot saves its PNGs; unset, the project's own media folder. */
-  snapshotFolder?: string;
-  /** By camera and microphone (`syncKey`): how late the camera is; each take's camera clip moves earlier by it. */
-  cameraSync?: Record<string, CameraSync>;
-  /** Resources the user said Not Now to: not offered again on their own. */
-  declinedResources?: string[];
-}
 
 /** The Export dialog's settings. */
 export interface ExportSettings {
@@ -425,6 +406,10 @@ export type AppRPC = {
       exportJob: ExportJob;
       /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
       favorites: { items: string[] };
+      /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */
+      appSettings: AppSettings;
+      /** An agent closed the open dialog (`ui_open` with none). */
+      closeDialogs: {};
       /** Tools › Command Palette…: open it. */
       palette: {};
       /** Keyboard shortcuts changed (in Settings or by an agent). */

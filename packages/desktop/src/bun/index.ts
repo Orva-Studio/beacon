@@ -31,7 +31,7 @@ type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
 const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey } = await import("@beacon/ui");
-const { chordOf, keysLabel } = await import("@beacon/model");
+const { AppSettingsSchema, chordOf, keysLabel } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
 
@@ -181,6 +181,8 @@ async function switchTo(path: string) {
       send().favorites({ items: e.items });
     } else if (e.kind === "shortcuts") {
       shortcutsChanged(e.shortcuts);
+    } else if (e.kind === "settings") {
+      settingsChanged(e.settings);
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -386,26 +388,21 @@ function exportPrefs(): ExportPrefs {
   }
 }
 
-/** Beacon > Settings… > General (`~/Library/Application Support/Beacon/settings.json`). */
-const SETTINGS_FILE = join(homedir(), "Library/Application Support/Beacon/settings.json");
-let appSettings: AppSettings = (() => {
-  // Proxies are off until turned on: the preview reads originals in process, and a proxy is one more copy to build.
-  const defaults: AppSettings = { exportColorSpace: "bt709", autoProxy: { recording: false, video: false }, proxyMode: "quiet" };
-  try {
-    return { ...defaults, ...(JSON.parse(readFileSync(SETTINGS_FILE, "utf8")) as Partial<AppSettings>) };
-  } catch {
-    return defaults;
-  }
-})();
+/** Beacon › Settings… › General and Recording: core keeps them (agents change them too); this copy is for reading them here. */
+let appSettings: AppSettings = await core.settings();
+/** From the Settings window (which shows it already) or Check Sync. */
 function setAppSettings(next: AppSettings) {
   appSettings = next;
   applyAutoProxy();
-  try {
-    mkdirSync(dirname(SETTINGS_FILE), { recursive: true });
-    writeFileSync(SETTINGS_FILE, JSON.stringify(appSettings));
-  } catch (e) {
-    status(`could not save settings: ${e instanceof Error ? e.message : e}`);
-  }
+  core.setSettings(next).catch((e: unknown) => status(`could not save settings: ${e instanceof Error ? e.message : e}`));
+}
+
+/** Core's settings event: an agent's change (the window's own come back unchanged) is applied and shown in an open Settings window. */
+function settingsChanged(next: AppSettings) {
+  if (JSON.stringify(next) === JSON.stringify(AppSettingsSchema.parse(appSettings))) return;
+  appSettings = next;
+  applyAutoProxy();
+  send().appSettings(next);
 }
 
 /** Proxies start on their own only for the kinds of media the settings name. */
@@ -1550,6 +1547,15 @@ const win = new BrowserWindow({
 });
 
 const server = serveCore(core, { path: socket, canOpen: (p) => current?.path === resolve(p), projects: () => (current ? [current.path] : []) });
+core.setUiOpener((_, dialog, tab) => {
+  const report = (err: unknown) => status(err instanceof Error ? err.message : String(err));
+  if (dialog === null) send().closeDialogs({});
+  else if (dialog === "settings") void openSettings(tab as import("@beacon/ui").SettingsTab | undefined);
+  else if (dialog === "export") void exportDialog().catch(report);
+  else if (dialog === "exportSelection") void exportDialog(true).catch(report);
+  else if (dialog === "newProject") newProject();
+  else if (dialog === "record") void recordDialog().catch(report);
+});
 core.setSnapshotter(async () => {
   const png = await captureWindow(windowNumber(win.ptr as Pointer));
   const v = current?.view;

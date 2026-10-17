@@ -41,6 +41,8 @@ const rpc = Electroview.defineRPC<AppRPC>({
       favorites: ({ items }) => replica.favorites(items),
       shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
       palette: () => replica.palette(true),
+      appSettings: (a) => replica.appSettings(a),
+      closeDialogs: () => replica.closeDialogs(),
       key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;
         // In a text field ⌘⌫ keeps its meaning: delete back to the start of the line.

@@ -44,6 +44,13 @@ The Favorites panel is the user's, app-wide: `favorites_list` reads it
 (`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);
 `favorites_add`, `favorites_remove` and `favorites_move` change it, only when
 the user asks.
+The app's settings are the user's, app-wide: `settings_get` reads them (the
+export colour space `export_start` uses, which media get proxies, where
+`frame_capture` saves); `settings_set` changes them, only when the user asks.
+With the app open, `ui_open` shows a dialog as its menus do (Settings on a
+tab, Export, New Project, Record) so `ui_snapshot` can see it; it changes
+nothing by itself.
+
 Keyboard shortcuts are the user's too, app-wide: `shortcuts_list` lists every
 action of the menus, keys and command palette with its keys; `shortcuts_set`
 gives one new keys (refused when another action has them, unless `replace`)

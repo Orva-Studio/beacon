@@ -151,6 +151,14 @@ export const replica = {
   palette(palette: boolean) {
     set({ palette });
   },
+  /** Settings changed elsewhere: an open Settings window takes them. */
+  appSettings(next: import("./rpc").AppSettings) {
+    if (state.settings) set({ settings: { ...state.settings, ...next } });
+  },
+  /** The dialogs an agent can open (`ui_open`), closed. */
+  closeDialogs() {
+    set({ settings: undefined, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
+  },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });
   },
