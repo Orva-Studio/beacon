@@ -1484,6 +1484,17 @@ Getting to everything quicker, by hand or by agent.
     Mac and Apple's work offline, and Remove Silences, Remove Filler Words
     and Captions follow the transcriber). The same for later cloud features
     (generated B-roll, Replicate's background removal).
+**Progress (2026-10-17).** Favourites, Settings › Shortcuts and the
+command palette are built, checked headless. The palette opens on ⌘K (the
+user's choice). One list names every action (`keymaps/actions.json`:
+commands with their args, and the app's own, `app.export`…), its default
+keys in `keymaps/default.json`; core merges the user's keys from
+`keymap.json` in the config folder (`shortcuts`, `shortcutSet`,
+`shortcutReset`, MCP `shortcuts_*`). Menu items show their keys: those with
+⌘ or ⌃ as key equivalents, handed back to the window's keymap for commands
+so text fields keep typing; others after the name, as "Delete  (⌫)", since a
+plain key equivalent would take keys from text fields. Context menus don't
+show keys yet.
 **Progress (2026-10-16).** Voice narration and the Record button are built,
 checked headless (`docs/tested.md`). Alignment is by the host clock, not by
 the recorder's logged `latencyMs` (that is how late buffers *arrive*, not when

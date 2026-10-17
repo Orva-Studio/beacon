@@ -22,6 +22,8 @@ feature lands and when it is checked.
 | The Narration panel (tool rail), as Camtasia's: microphone and its level, timeline sound off by default, Start Voice Recording with a countdown, Stop | 2026-10-16 | `4175f89` | UI flow; screenshot |
 | Favourites: a click selects a panel tile (yellow outline) with a white star that adds it; gold stars un-star; a double-click applies to the selection; Favorites panel in the saved order, a tile dropped on another takes its place; an agent's change shows at once | 2026-10-17 | `6936f6e` | UI flow; screenshot |
 | The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
+| Settings › Shortcuts: every action listed, search, rebinding by pressing keys, a taken key asks before moving it, Escape stops, Reset and Reset All; the window's keys and toolbar tips follow at once; an agent's change shows | 2026-10-17 | `56ac44d` | UI flow; screenshots; core test of saving, clashes and reset |
+| Command palette: ⌘K, search by name or description with each action's keys, arrows and Enter run it (commands, and the app's own through the main process), rebinding its key | 2026-10-17 | `56ac44d` | UI flow; screenshot |
 
 ### Not checked yet
 
@@ -29,6 +31,11 @@ feature lands and when it is checked.
 - Narrating in the app: the countdown, the timeline playing with and without its sound, ⌘⇧2, Space or a click on
   the timeline ending it, the take transcribed afterwards.
 - `recorder_start` with `narrate` over MCP with the app open.
+- **Menus showing shortcuts** (only built, never seen): ⌘/⌃ keys beside items (File, Edit, View, Tools), others after
+  the name; a rebound key showing in the menu at once; ⌘ keys from the menu running once (not twice), and not acting
+  while typing in a text field (e.g. ⌘D in the project name); ⌘, ⌘N ⌘E working with a dialog open.
+- Settings › Shortcuts and the palette in the app: rebinding to a ⌘ key the menu also has (Export ⌘E), ⌘K over a
+  dialog.
 - Favourites in the app: starring, the double-click, reordering by dragging, and `favorites_add` over MCP showing in the
   open window.
 
