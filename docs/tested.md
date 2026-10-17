@@ -16,6 +16,7 @@ feature lands and when it is checked.
 | Favourites: starring, double-click to apply, reordering in the Favorites panel | 2026-10-17 | `6936f6e` | "Favourites work, so do shortcuts, colour labels" |
 | Settings › Shortcuts: rebinding, clashes, reset | 2026-10-17 | `56ac44d` | "Favourites work, so do shortcuts, colour labels" |
 | Colour labels from the clip menu: a stripe along the top | 2026-10-17 | `024f82e` | "Favourites work, so do shortcuts, colour labels" |
+| Resizing on the canvas snaps (sides and corners, to the recording and the canvas) | 2026-10-17 | `2a0c805` | "Snapping works great" |
 
 ### Checked headless only (still to see by hand)
 
@@ -27,7 +28,6 @@ feature lands and when it is checked.
 | The Narration panel (tool rail), as Camtasia's: microphone and its level, timeline sound off by default, Start Voice Recording with a countdown, Stop | 2026-10-16 | `4175f89` | UI flow; screenshot |
 | The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
 | App settings through core: an agent's change shows in an open Settings window, the window's reaches core; ui_open shows Settings (on a tab), Export, Export Selection, New Project and Record, and closes them | 2026-10-17 | `0741288` | UI flow; screenshot |
-| Resizing on the canvas snaps the side dragged to a recording's edge, with a guide, keeping the other side; ⌃ turns it off | 2026-10-17 | `2a0c805` | UI flow (an annotation's side); screenshot. Not covered: a video's corner (kept in proportion), the canvas's own edges |
 | Offline: the AI tools greyed with why while OpenAI's transcriber has media to transcribe (not with Apple's); Settings marks it and offers the others; the speech model's download waits | 2026-10-17 | `a2d055a` | UI flow with the page told it's offline; screenshot |
 | Command palette: ⌘K lists the panels' items (favourites first) and the AI tools, searched by name or description; Enter adds an annotation at the playhead, an effect on the selected clips, or opens an AI review; its key can be rebound | 2026-10-17 | `6d25603` | UI flow; screenshot |
 
