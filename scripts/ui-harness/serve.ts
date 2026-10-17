@@ -39,8 +39,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   const unwatch = new Map<unknown, () => void>();
   const sockets = new Set<{ send(data: string): unknown }>();
   let rev = 0;
-  /** Set by a test: the next patches message is lost, as a dropped message would be. */
-  const faults = { dropNext: false };
+  /** Set by a test: the next patches message is lost, as a dropped message would be; `runDelay` ms before each command runs, as the app's round trip takes. */
+  const faults = { dropNext: false, runDelay: 0 };
   /** Proxies being made, as the app tracks them. */
   const transcribing: Record<string, number> = {};
   const making: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
@@ -130,7 +130,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             socket: "",
             favorites: await core.favorites(),
           };
-        } else if (msg.type === "run") result = await reply(() => core.run(h, msg.command, msg.args ?? {}, { ...(msg.label ? { label: msg.label } : {}), ...(msg.coalesce ? { coalesce: msg.coalesce } : {}) }));
+        } else if (msg.type === "run") {
+          if (faults.runDelay) await Bun.sleep(faults.runDelay);
+          result = await reply(() => core.run(h, msg.command, msg.args ?? {}, { ...(msg.label ? { label: msg.label } : {}), ...(msg.coalesce ? { coalesce: msg.coalesce } : {}) }));
+        }
         else if (msg.type === "resync") result = await opened();
         else if (msg.type === "query") result = await reply(() => core.query(h, msg.name, msg.args ?? {}));
         else if (msg.type === "undo") result = await reply(() => core.undo(h));

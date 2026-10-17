@@ -1398,6 +1398,47 @@ test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top
   expect(run("edit.label", { color: "blue" })).rejects.toThrow("select clips first");
 });
 
+test.skipIf(skip)("a clip dropped after a drag stays where it was dropped while the move is applied, never back where it was for a frame", async () => {
+  await select([]);
+  await run("timeline.view", { start: 0, end: 20 });
+  await Bun.sleep(200);
+  const doc = () => ui.core.doc(ui.handle);
+  const c = clip(callout.id);
+  const s = await session();
+  const row = doc().tracks.length - 1 - doc().tracks.findIndex((t) => t.clips.some((k) => k.id === callout.id));
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const header = headerWidth(doc().tracks);
+  const xAt = (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const { y, h } = clipBox(row, s.timeline.trackHeight);
+  const start = ticksToSeconds(c.start);
+  const end = ticksToSeconds(c.start + c.duration);
+  // A point of the clip's body clear of its name and badges, and where it is dragged to (past its end).
+  const [ox, oy] = [xAt(end - 0.6), y + h - 6];
+  const by = end - start + 2;
+  // Every frame from the release on: whether that point is the clip's colour (it fades while dragged).
+  const sample = `(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${ox} * k), Math.round(${oy} * k), 1, 1).data].slice(0, 3).join(); })()`;
+  const body = await page.evaluate<string>(sample);
+  ui.faults.runDelay = 60;
+  try {
+    await page.down(box.x + ox, box.y + oy);
+    for (let i = 1; i <= 10; i++) {
+      await page.move(box.x + xAt(end - 0.6 + (by * i) / 10), box.y + oy);
+      await Bun.sleep(16);
+    }
+    await page.evaluate(`window.__frames = []; (function tick() { window.__frames.push(${sample}); if (window.__frames.length < 40) requestAnimationFrame(tick); })()`);
+    await page.up(box.x + xAt(end - 0.6 + by), box.y + oy);
+    await arrived(() => ticksToSeconds(clip(callout.id).start) > start + 1);
+    await page.until("window.__frames.length >= 40");
+  } finally {
+    ui.faults.runDelay = 0;
+  }
+  const frames = await page.evaluate<string[]>("window.__frames");
+  expect(ticksToSeconds(clip(callout.id).start)).toBeCloseTo(start + by, 1);
+  // Before: faded while dragged. After the release it must never be drawn there in full again.
+  expect(frames.filter((f) => f === body).length).toBe(0);
+  await ui.core.undo(ui.handle);
+});
+
 test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being dragged, not where the end was", async () => {
   await select([]);
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });
