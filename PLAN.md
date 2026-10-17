@@ -1435,6 +1435,13 @@ Getting to everything quicker, by hand or by agent.
   above). Open: whether a configured item can be a favourite too (a drop
   shadow with your colour and blur, a text style), saved as a preset with
   its params, which is the larger and probably more useful half.
+  Decided with the user (2026-10-16), Camtasia's way: a click on a tile in
+  Annotations, Visual Effects or Audio Effects selects it (yellow outline)
+  and shows a white star; clicking the star turns it gold and adds it;
+  favourites always show the gold star, and clicking it un-stars. Dragging
+  applies to media; a double-click applies to the selected clips (replacing
+  click-to-apply). In the Favorites panel a tile dropped on another takes
+  its place. Plain items first; presets with settings later.
 - **App settings as commands, then dialogs an agent can open** (the user,
   2026-10-12; found driving the app over MCP to check Phase 5.5). §7 says
   preferences are commands, but they aren't yet:
@@ -1454,6 +1461,29 @@ Getting to everything quicker, by hand or by agent.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
+- **From the user's editing, 2026-10-17:**
+  - **Snapping while resizing on the canvas.** Dragging a corner or side
+    handle doesn't snap today (only moving does, `snapMove` in
+    `ui/src/canvas.tsx`): a clip enlarged to fill the screen should snap
+    its edges to the canvas, to other clips' edges, and to the edges of a
+    recording's picture (where it meets the black around it), drawing the
+    same green guides; Ctrl turns it off, as for moving.
+  - **The playhead's time readable** (done 2026-10-17): white and bolder, on
+    the ruler's colour so the ruler's labels don't run into it, as
+    Camtasia's.
+  - **Telling clips apart** (open, the user's idea): Camtasia's Add Color
+    Label (Red, Purple, Blue, Green, Yellow, Orange, Default) marks a clip
+    that differs from its neighbours of the same kind (formatting, place).
+    Beacon colours clips by kind, so a label must not read as a kind.
+    Options to choose from before building: a coloured stripe or tab along
+    the clip's top edge (the kind's colour stays the body), a pattern over
+    the body (stripes, dots, zigzag), or Camtasia's whole-clip colour. A
+    clip property (`label`), so agents set and read it.
+  - **AI features that need the internet** say so: offline, they are greyed
+    with why (today only the OpenAI transcriber needs it; Whisper on this
+    Mac and Apple's work offline, and Remove Silences, Remove Filler Words
+    and Captions follow the transcriber). The same for later cloud features
+    (generated B-roll, Replicate's background removal).
 **Progress (2026-10-16).** Voice narration and the Record button are built,
 checked headless (`docs/tested.md`). Alignment is by the host clock, not by
 the recorder's logged `latencyMs` (that is how late buffers *arrive*, not when
@@ -1536,6 +1566,9 @@ Seeing more at once.
   Preview and export read the same matte. Open: which is the default, and
   whether Replicate's models are good enough on a talking head to be worth
   the upload.
+- **Device frame** (the user, 2026-10-17; details to come): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
 **Gate:** the look matches between preview and export, and a `.hlook`
 imports with a report of what didn't map; a camera take's background removed
 by each provider, with the same matte in preview and export.
@@ -1650,6 +1683,12 @@ assets reviewed before they are placed (as Remove Silences is). Researched
   original's motion, then lip-sync to the original audio (sync.so sync-3).
   No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
   lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
+- **Where it goes, drawn on the canvas** (the user, 2026-10-17): drag a
+  rectangle over the canvas for the area the generated video fills (a
+  vertical video: the face in the bottom half, B-roll generated for the top
+  half), so it is generated at that shape and placed there. Seedance 2.5 or
+  whatever model is best then. Later, to be fleshed out by the user: motion
+  graphics made with HyperFrames, and the user's own skills as presets.
 - Shape: a generation job per provider (fal and Runway cover many models with
   one key), results as candidates with their prompt, model and cost, a cost
   estimate before running, then one undoable command to place a take; the

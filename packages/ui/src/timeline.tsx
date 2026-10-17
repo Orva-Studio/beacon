@@ -757,9 +757,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.lineTo(cx + PIN_W / 2 - 1, PIN_H - 5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = color("text-muted");
-      ctx.font = font(11);
-      ctx.fillText(timecode(session.playhead, fps), cx + PIN_W / 2 + 6, 14);
+      // White on the ruler's own colour, as Camtasia's: the ruler's labels underneath don't run into it.
+      const text = timecode(session.playhead, fps);
+      ctx.font = font(12, 600);
+      const tw = ctx.measureText(text).width;
+      ctx.fillStyle = color("ruler");
+      ctx.fillRect(cx + PIN_W / 2 + 2, 2, tw + 8, 17);
+      ctx.fillStyle = color("text-bright");
+      ctx.fillText(text, cx + PIN_W / 2 + 6, 15);
     }
     ctx.restore();
     }
