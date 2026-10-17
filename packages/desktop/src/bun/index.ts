@@ -173,6 +173,8 @@ async function switchTo(path: string) {
       saveProjectThumbSoon(h);
     } else if (e.kind === "needs") {
       offerResource(e.resource);
+    } else if (e.kind === "favorites") {
+      send().favorites({ items: e.items });
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -1004,6 +1006,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
           keyLog: !!keyLog,
           socket,
+          favorites: await core.favorites(),
         };
       },
       run: ({ command, args, label, coalesce }) =>
@@ -1062,6 +1065,9 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       setSecret: ({ id, value }) => replyWith(async () => (await core.setSecret(id, value), core.preferences())),
       declineResource: ({ id }) => setAppSettings({ ...appSettings, declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
       cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
+      favoriteAdd: ({ item, index }) => replyWith(() => core.favoriteAdd(item, index)),
+      favoriteRemove: ({ item }) => replyWith(() => core.favoriteRemove(item)),
+      favoriteMove: ({ item, index }) => replyWith(() => core.favoriteMove(item, index)),
       previewOpen: ({ asset }) => {
         closePreview();
         if (!current) return null;

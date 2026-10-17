@@ -38,6 +38,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       exportJob: (j) => replica.exportJob(j),
       snapshotSaved: ({ path }) => replica.snapshot(path),
       settingsSheet: (s) => replica.settings(s),
+      favorites: ({ items }) => replica.favorites(items),
       key: ({ code, meta }) => {
         const el = document.activeElement;
         // In a text field ⌘⌫ keeps its meaning: delete back to the start of the line.
@@ -76,6 +77,12 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 
 const commands = commandQueue(report);
 
+const favorites = async (p: Promise<{ ok: boolean; error?: string; result?: string[] }>) => {
+  const r = await p.catch((e: unknown) => ({ ok: false, error: String(e), result: undefined }));
+  if (r.result) replica.favorites(r.result);
+  else if (r.error) replica.status(r.error);
+};
+
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request.run({ command, args, label, coalesce }), coalesce),
   query: async (name, args) => {
@@ -99,6 +106,9 @@ const host: Host = {
   frameImage: () => request.frameImage({}),
   binFrame: (asset, time) => request.binFrame({ asset, time }),
   analyze: (key, asset) => void request.analyze({ key, asset }),
+  favoriteAdd: (item, index) => void favorites(request.favoriteAdd({ item, ...(index !== undefined ? { index } : {}) })),
+  favoriteRemove: (item) => void favorites(request.favoriteRemove({ item })),
+  favoriteMove: (item, index) => void favorites(request.favoriteMove({ item, index })),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),

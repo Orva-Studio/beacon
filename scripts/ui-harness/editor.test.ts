@@ -899,6 +899,60 @@ test.skipIf(skip)("every tile in the effect and annotation panels shows its pict
   }
 });
 
+test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favorites; a double-click applies it to the selection; Favorites reorder by dropping one tile on another", async () => {
+  const tile = (item: string) => `[data-item="${item}"]`;
+  const star = (item: string) => page.evaluate<string | null>(`document.querySelector('${tile(item)} [data-star]')?.dataset.star ?? null`);
+  const outlined = (item: string) => page.evaluate<boolean>(`document.querySelector('${tile(item)}').className.includes('ring-tile-selected')`);
+  await run("panel.show", { tool: "annotations" });
+  await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
+  expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
+  // A favourite shows its gold star; another tile shows none until selected.
+  expect(await star("annotation:text")).toBe("on");
+  expect(await star("annotation:blur")).toBe(null);
+  const before = clips().length;
+  await page.click(...(await centre(tile("annotation:blur"))));
+  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="off"]')`);
+  expect(await outlined("annotation:blur")).toBe(true);
+  expect(clips().length).toBe(before);
+  await page.click(...(await centre(`${tile("annotation:blur")} [data-star]`)));
+  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="on"]')`);
+  expect((await ui.core.favorites()).at(-1)).toBe("annotation:blur");
+  await page.screenshot(join(dir, "favorite-starred.png"));
+  await page.click(...(await centre(`${tile("annotation:blur")} [data-star]`)));
+  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="off"]')`);
+  expect(await ui.core.favorites()).not.toContain("annotation:blur");
+
+  // A double-click applies it to the selected clip, one undo step.
+  await select([screen.id]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('${tile("effect:drop-shadow")}')`);
+  await page.dblclick(...(await centre(tile("effect:drop-shadow"))));
+  await arrived(() => clip(screen.id).effects.some((e) => e.type === "drop-shadow"));
+  expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(clip(screen.id).effects.some((e) => e.type === "drop-shadow")).toBe(false);
+
+  // The Favorites panel in the list's order; a change from elsewhere (an agent) shows.
+  await run("panel.show", { tool: "favorites" });
+  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-favorites] [data-item]')].map((e) => e.dataset.item)");
+  await page.until("document.querySelectorAll('[data-favorites] [data-item]').length > 2");
+  expect(await shown()).toEqual(await ui.core.favorites());
+  await ui.core.favoriteAdd("audio:fade-in", 0);
+  await page.until(`document.querySelector('[data-favorites] [data-item]').dataset.item === "audio:fade-in"`);
+  // Dropped on the third tile, the first takes its place.
+  const [first, , third] = await shown();
+  await page.drag(await centre(tile(first!)), await centre(tile(third!)));
+  await page.until(`document.querySelectorAll('[data-favorites] [data-item]')[2].dataset.item === ${JSON.stringify(first)}`);
+  expect((await ui.core.favorites())[2]).toBe(first!);
+  expect(clips().length).toBe(before);
+  await page.screenshot(join(dir, "favorites-panel.png"));
+  // Un-starred in the panel, it leaves it.
+  await page.click(...(await centre(`${tile("audio:fade-in")} [data-star]`)));
+  await page.until(`!document.querySelector('[data-favorites] ${tile("audio:fade-in")}')`);
+  expect(await ui.core.favorites()).not.toContain("audio:fade-in");
+  await select([]);
+});
+
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-media-bin] [data-asset]').length >= 2");

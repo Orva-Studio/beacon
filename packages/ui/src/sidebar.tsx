@@ -37,8 +37,8 @@ export function ToolRail({ session, host }: { session?: Session; host: Host }) {
   );
 }
 
-/** A panel item with its tooltip and its tile's picture (`art/<art>.webp`). */
-type Item = PanelItem & { title: string; art?: string };
+/** A panel item with its tooltip, its tile's picture (`art/<art>.webp`) and what favourites call it (`LocalCore.favorites`). */
+type Item = PanelItem & { title: string; art?: string; favorite: string };
 
 /** The Annotations panel: presets of `edit.addAnnotation`, so agents add the same ones. */
 const ANNOTATIONS: Item[] = (
@@ -49,10 +49,12 @@ const ANNOTATIONS: Item[] = (
     ["Blur", "blur", "Blur what is inside the box"],
     ["Pixelate", "pixelate", "Pixelate what is inside the box"],
   ] as const
-).map(([label, preset, title]) => ({ label, title, art: preset, command: "edit.addAnnotation", args: { preset }, traits: [], media: { seconds: 5 } }));
+).map(([label, preset, title]) => ({ label, title, art: preset, favorite: `annotation:${preset}`, command: "edit.addAnnotation", args: { preset }, traits: [], media: { seconds: 5 } }));
 
-/** The default favourites. */
-const FAVORITES = ["Text", "Rectangle", "Spotlight", "round-corners", "crt-monitor", "drop-shadow", "motion-blur"];
+const AUDIO_EFFECTS: Item[] = [
+  { label: "Fade In", title: "Fade the audio in from silence over its first second", art: "fade-in", favorite: "audio:fade-in", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
+  { label: "Fade Out", title: "Fade the audio out to silence over its last second", art: "fade-out", favorite: "audio:fade-out", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
+];
 
 /** Memoised: it doesn't show the session, so playback ticks don't re-render it. */
 export const ToolPanel = memo(function ToolPanel({
@@ -74,38 +76,68 @@ export const ToolPanel = memo(function ToolPanel({
   if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
   if (tool === "ai") return <AiPanel host={host} />;
   if (tool === "narration") return <NarrationPanel host={host} />;
-  // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
-  const items: Record<string, Item[]> = {
-    audioEffects: [
-      { label: "Fade In", title: "Fade the audio in from silence over its first second", art: "fade-in", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
-      { label: "Fade Out", title: "Fade the audio out to silence over its last second", art: "fade-out", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
-    ],
-  };
-  const effects = (init?.effects ?? []).filter((e) => !e.traits.every((t) => t === "cursor"));
-  const effect = (e: (typeof effects)[number]): Item => ({ label: effectName(e.id), title: e.description, art: e.id, command: "edit.addEffect", args: { type: e.id }, traits: e.traits });
-  if (tool === "visualEffects") items.visualEffects = effects.map(effect);
-  if (tool === "annotations") items.annotations = ANNOTATIONS;
-  if (tool === "favorites") items.favorites = [...ANNOTATIONS.filter((a) => FAVORITES.includes(a.label)), ...effects.filter((e) => FAVORITES.includes(e.id)).map(effect)];
-  if (items[tool]) {
-    return (
-      <Panel title={label}>
-        <div className="mb-3 text-center text-label text-text-faint">Drag onto media, or click to apply to the selection</div>
-        <div className="grid grid-cols-2 gap-2">
-          {items[tool]!.map((it) => (
-            <ItemTile key={it.label} art={it.art} title={`${it.title}. Drag it onto media, or click to apply it to the selection`} onPointerDown={(e) => pressItem(e, it, (command, args) => host.run(command, args))}>
-              {it.label}
-            </ItemTile>
-          ))}
-        </div>
-      </Panel>
-    );
-  }
+  const effects = (init?.effects ?? [])
+    .filter((e) => !e.traits.every((t) => t === "cursor"))
+    .map((e): Item => ({ label: effectName(e.id), title: e.description, art: e.id, favorite: `effect:${e.id}`, command: "edit.addEffect", args: { type: e.id }, traits: e.traits }));
+  const items: Record<string, Item[]> = { annotations: ANNOTATIONS, visualEffects: effects, audioEffects: AUDIO_EFFECTS };
+  if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={[...ANNOTATIONS, ...effects, ...AUDIO_EFFECTS]} host={host} ordered />;
+  if (items[tool]) return <ItemsPanel key={tool} title={label} items={items[tool]} host={host} />;
   return (
     <Panel title={label}>
       <div className="mt-6 text-center text-body text-text-faint">Not in Beacon yet</div>
     </Panel>
   );
 });
+
+/** The favourite under a point in the Favorites panel (a tile dragged over another is moved to its place). */
+const favoriteAt = (x: number, y: number) => (document.elementFromPoint(x, y)?.closest("[data-favorites] [data-item]") as HTMLElement | null)?.dataset.item;
+
+/**
+ * Annotations, effects or favourites, as Camtasia's panels have them: dragged onto media (on the timeline or the
+ * canvas); a click selects one, showing a star that adds it to Favorites; a double-click applies it to the selected
+ * clips. `ordered`: the Favorites panel, holding the favourites in their order, which a drop on another tile changes.
+ */
+function ItemsPanel({ title, items, host, ordered }: { title: string; items: Item[]; host: Host; ordered?: boolean }) {
+  const favorites = useView((v) => v.favorites);
+  const [selected, setSelected] = useState<string>();
+  const over = useView((v) => (ordered && v.dragging ? favoriteAt(v.dragging.x, v.dragging.y) : undefined));
+  const shown = ordered ? favorites.flatMap((f) => items.find((it) => it.favorite === f) ?? []) : items;
+  const hint = ordered ? "Drag onto media, or onto another tile to reorder; double-click to apply to the selection" : "Drag onto media, or double-click to apply to the selection";
+  return (
+    <Panel title={title}>
+      <div className="mb-3 text-center text-label text-text-faint">{hint}</div>
+      <div className="grid grid-cols-2 gap-2" {...(ordered ? { "data-favorites": "" } : {})}>
+        {shown.map((it) => {
+          const favorite = favorites.includes(it.favorite);
+          return (
+            <ItemTile
+              key={it.favorite}
+              art={it.art}
+              title={`${it.title}. Drag it onto media, or double-click to apply it to the selection`}
+              data-item={it.favorite}
+              selected={selected === it.favorite || over === it.favorite}
+              star={favorite ? "on" : selected === it.favorite ? "off" : undefined}
+              onStar={() => (favorite ? host.favoriteRemove(it.favorite) : host.favoriteAdd(it.favorite))}
+              onPointerDown={(e) =>
+                pressItem(e, it, (command, args) => host.run(command, args), {
+                  click: () => setSelected(it.favorite),
+                  ...(ordered ? { missed: (x, y) => moveFavorite(host, favorites, it.favorite, favoriteAt(x, y)) } : {}),
+                })
+              }
+              onDoubleClick={() => host.run(it.command, it.args)}
+            >
+              {it.label}
+            </ItemTile>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function moveFavorite(host: Host, favorites: string[], item: string, onto: string | undefined) {
+  if (onto && onto !== item) host.favoriteMove(item, favorites.indexOf(onto));
+}
 
 /**
  * Voice narration, as Camtasia's Narration tab has it: pick the microphone (its level shown), whether the timeline

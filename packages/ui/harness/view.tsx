@@ -69,6 +69,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "resourceSheet") replica.resource(msg.data);
   else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
   else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
+  else if (msg.type === "favorites") replica.favorites(msg.data.items);
 };
 
 const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -77,6 +78,12 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 };
 
 const commands = commandQueue(report);
+
+const favorites = async (p: Promise<unknown>) => {
+  const r = (await p) as { ok: boolean; error?: string; result?: string[] };
+  if (r.result) replica.favorites(r.result);
+  else if (r.error) replica.status(r.error);
+};
 
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>, coalesce),
@@ -100,6 +107,9 @@ const host: Host = {
   frameImage: () => request("frameImage") as Promise<string | null>,
   binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
   analyze: (key, asset) => void request("analyze", { key, asset }),
+  favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, index })),
+  favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
+  favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
   chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,

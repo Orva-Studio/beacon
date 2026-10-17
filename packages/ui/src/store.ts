@@ -37,6 +37,8 @@ export interface ViewState {
   proxies: Record<string, boolean>;
   /** Media whose file was moved or deleted. */
   missing: string[];
+  /** The Favorites panel's items, in order (`Init.favorites`). */
+  favorites: string[];
   /** A panel item being dragged onto media, and where the pointer is (client points). */
   dragging?: { item: PanelItem; x: number; y: number };
   /** The Export dialog, while open. */
@@ -78,7 +80,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -89,7 +91,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init });
+    set({ init, favorites: init.favorites });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -135,6 +137,9 @@ export const replica = {
   },
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
+  },
+  favorites(favorites: string[]) {
+    set({ favorites });
   },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });

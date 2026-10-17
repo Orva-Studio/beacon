@@ -84,6 +84,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             void core.missing(h).then((missing) => ws.send(JSON.stringify({ type: "media", data: { missing } })));
           }
           else if (e.kind === "session") ws.send(JSON.stringify({ type: "session", data: { changes: e.changes } }));
+          else if (e.kind === "favorites") ws.send(JSON.stringify({ type: "favorites", data: { items: e.items } }));
           else if (e.kind === "preparing") {
             making.queued = e.assets;
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
@@ -127,6 +128,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
             nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
             socket: "",
+            favorites: await core.favorites(),
           };
         } else if (msg.type === "run") result = await reply(() => core.run(h, msg.command, msg.args ?? {}, { ...(msg.label ? { label: msg.label } : {}), ...(msg.coalesce ? { coalesce: msg.coalesce } : {}) }));
         else if (msg.type === "resync") result = await opened();
@@ -232,6 +234,9 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           menus.push(msg.type === "setPreference" ? `setPreference:${msg.pref}=${msg.value}` : `setSecret:${msg.secret}=${msg.value === null ? "removed" : "set"}`);
           result = await reply(async () => (msg.type === "setPreference" ? await core.setPreference(msg.pref, msg.value) : await core.setSecret(msg.secret, msg.value), core.preferences()));
         }
+        else if (msg.type === "favoriteAdd") result = await reply(() => core.favoriteAdd(msg.item, msg.index));
+        else if (msg.type === "favoriteRemove") result = await reply(() => core.favoriteRemove(msg.item));
+        else if (msg.type === "favoriteMove") result = await reply(() => core.favoriteMove(msg.item, msg.index));
         else if (msg.type === "declineResource" || msg.type === "cancelJob") {
           menus.push(`${msg.type}:${msg.id}`);
           result = { ok: true };

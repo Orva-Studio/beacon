@@ -372,7 +372,7 @@ function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Ass
           .query("asset.clips", { asset: a.id })
           .then((clips) => (item.media!.layers = (clips as { track: string; seconds: number }[]).map((c) => ({ label: `${assetName(a)} · ${c.track}`, seconds: c.seconds }))))
           .catch(() => {});
-        pressItem(e, item, (command, args) => host.run(command, args), false);
+        pressItem(e, item, (command, args) => host.run(command, args));
       }}
       // A plain click on one of several selected items leaves just it selected (after any drag of it).
       onClick={(e) => !e.shiftKey && !e.metaKey && selection.length > 1 && replica.selectBin([a.id])}

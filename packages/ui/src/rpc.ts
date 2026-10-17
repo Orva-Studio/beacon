@@ -51,6 +51,8 @@ export interface Init {
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */
   nested: Record<string, string>;
   socket: string;
+  /** The Favorites panel's items in order (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`. */
+  favorites: string[];
   /** BEACON_KEYLOG=1: the window reports every key event it sees (`keyLog`), to debug shortcuts in the app. */
   keyLog?: boolean;
 }
@@ -350,6 +352,10 @@ export type AppRPC = {
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
+      /** Stars an item (at `index`, else at the end), un-stars it, or moves a favourite: replies with the list as it now is. */
+      favoriteAdd: { params: { item: string; index?: number }; response: RunReply & { result?: string[] } };
+      favoriteRemove: { params: { item: string }; response: RunReply & { result?: string[] } };
+      favoriteMove: { params: { item: string; index: number }; response: RunReply & { result?: string[] } };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
       /** play (from `time`), pause, seek (to `time`), close. */
@@ -409,6 +415,8 @@ export type AppRPC = {
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;
       exportJob: ExportJob;
+      /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
+      favorites: { items: string[] };
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };
       /** Beacon > Settings… (⌘,). */
