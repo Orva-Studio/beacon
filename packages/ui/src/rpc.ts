@@ -1,5 +1,17 @@
 import type { CanvasValues } from "./canvas-settings";
-import type { Patch, Project, Session } from "@beacon/model";
+import type { AppSettings, CameraSync, Keys, Patch, Project, Session, ShortcutInfo } from "@beacon/model";
+
+export type { AppSettings, CameraSync } from "@beacon/model";
+
+/** Settings to change; `snapshotFolder: null` unsets it (core's `SettingsPatch`). */
+export type SettingsPatch = Partial<Omit<AppSettings, "snapshotFolder">> & { snapshotFolder?: string | null };
+
+export function withPatch(settings: AppSettings, { snapshotFolder, ...rest }: SettingsPatch): AppSettings {
+  const next: AppSettings = { ...settings, ...rest };
+  if (snapshotFolder === null) delete next.snapshotFolder;
+  else if (snapshotFolder !== undefined) next.snapshotFolder = snapshotFolder;
+  return next;
+}
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
@@ -11,9 +23,11 @@ export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */
 export interface Binding {
-  keys: { key: string; modifiers: string[] };
+  keys: Keys;
   command: string;
   args?: Record<string, unknown>;
+  /** The action it belongs to (`ShortcutInfo.id`). */
+  action?: string;
 }
 
 export interface PropGroupInfo {
@@ -42,7 +56,8 @@ export interface RecentProject {
 export interface Init {
   opened?: Opened;
   recent: RecentProject[];
-  keymap: Binding[];
+  /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
+  shortcuts: ShortcutInfo[];
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
   effects: { id: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
@@ -51,6 +66,10 @@ export interface Init {
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */
   nested: Record<string, string>;
   socket: string;
+  /** App-wide choices (the transcriber), as Settings shows them; `preferences` messages follow changes. */
+  preferences: PreferenceInfo[];
+  /** The Favorites panel's items in order (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`. */
+  favorites: string[];
   /** BEACON_KEYLOG=1: the window reports every key event it sees (`keyLog`), to debug shortcuts in the app. */
   keyLog?: boolean;
 }
@@ -92,7 +111,7 @@ export interface Notice {
 }
 
 /** App-wide settings (Settings > General), kept by the main process. */
-export type SettingsTab = "general" | "recording" | "project";
+export type SettingsTab = "general" | "recording" | "shortcuts" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
@@ -117,13 +136,6 @@ export interface RecordDevices {
   microphone?: string;
 }
 
-/** How late a camera's picture is behind a microphone's sound, typed or measured by Check Sync. */
-export interface CameraSync {
-  cameraLateMs: number;
-  /** When it was measured (Unix ms), from how many flashes, and how far they spread (ms). */
-  checked?: { at: number; flashes: number; spreadMs: number };
-}
-
 /** A sync check's result. */
 export interface SyncCheck {
   cameraLateMs: number;
@@ -133,20 +145,6 @@ export interface SyncCheck {
 
 /** `AppSettings.cameraSync`'s key: a camera and microphone pair. */
 export const syncKey = (camera: string | undefined, microphone: string | undefined) => `${camera ?? ""}|${microphone ?? ""}`;
-
-export interface AppSettings {
-  exportColorSpace: "bt709" | "srgb";
-  /** Which media get proxies made on their own when a project is shown (Create Proxy Video makes any). */
-  autoProxy: { recording: boolean; video: boolean };
-  /** quiet: one proxy at a time at background priority, so the fans stay off; fast: two at once. */
-  proxyMode: "quiet" | "fast";
-  /** Where Snapshot saves its PNGs; unset, the project's own media folder. */
-  snapshotFolder?: string;
-  /** By camera and microphone (`syncKey`): how late the camera is; each take's camera clip moves earlier by it. */
-  cameraSync?: Record<string, CameraSync>;
-  /** Resources the user said Not Now to: not offered again on their own. */
-  declinedResources?: string[];
-}
 
 /** The Export dialog's settings. */
 export interface ExportSettings {
@@ -203,7 +201,14 @@ export interface RecordedSheet {
 }
 
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
+/** What the Record dialog records: a take of the screen, camera and audio, or voice narration over the timeline. */
+export type RecordMode = "take" | "narration";
+
 export interface RecordSheet {
+  /** Which choice it opens on (Tools › Voice Narration opens on narration); a take by default. */
+  mode?: RecordMode;
+  /** Narration's last choice: whether the timeline's own sound is heard while recording. */
+  hear?: boolean;
   permissions: { screen: string; camera: string; microphone: string };
   displays: { id: number; width: number; height: number; pixelWidth?: number; pixelHeight?: number; x?: number; y?: number }[];
   cameras: { id: string; name: string; width?: number; height?: number; fps?: number }[];
@@ -211,6 +216,13 @@ export interface RecordSheet {
   outputs: SoundOutput[];
   sources: RecordSources;
   cameraSync?: Record<string, CameraSync>;
+}
+
+/** A narration being recorded: when it began (ms, wall clock), and the timeline span it plays (seconds). */
+export interface Narrating {
+  started: number;
+  from: number;
+  until: number;
 }
 
 /** An export running or finished, for the window's progress panel. */
@@ -301,6 +313,14 @@ export type AppRPC = {
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
+      /** The Record dialog (the Record button), as File › Record… opens it; `narration`, with only the microphone, as Tools › Voice Narration… does. */
+      openRecord: { params: { mode?: RecordMode }; response: void };
+      /** What the Narration panel picks from: the microphones and permissions, and the last choices (`sources.microphone`, `hear`). */
+      narrationDevices: { params: {}; response: RecordSheet };
+      /** Voice narration: records the microphone while the timeline plays from the playhead (or through the range). */
+      startNarration: { params: { microphone: { id?: string }; hear: boolean }; response: RunReply };
+      /** Ends the narration and places it, or throws it away (`discard`). */
+      stopNarration: { params: { discard?: boolean }; response: RunReply };
       /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
       /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */
@@ -312,7 +332,8 @@ export type AppRPC = {
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
-      setAppSettings: { params: AppSettings; response: void };
+      /** What changed (the rest keep theirs); `snapshotFolder: null` goes back to the project's media folder. */
+      setAppSettings: { params: SettingsPatch; response: void };
       /** Bytes every proxy video uses, in every project. */
       proxySpace: { params: {}; response: number };
       /** Settings > General > Delete All Proxy Videos; replies with the bytes still used. */
@@ -328,6 +349,15 @@ export type AppRPC = {
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
+      /** Stars an item (at `index`, else at the end), un-stars it, or moves a favourite: replies with the list as it now is. */
+      favoriteAdd: { params: { item: string; index?: number }; response: RunReply & { result?: string[] } };
+      favoriteRemove: { params: { item: string }; response: RunReply & { result?: string[] } };
+      favoriteMove: { params: { item: string; index: number }; response: RunReply & { result?: string[] } };
+      /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
+      shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
+      shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
+      /** One of the app's own actions (`app.export`, `app.new`…), as its menu item runs it: the command palette and rebound keys. */
+      appAction: { params: { id: string }; response: void };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
       /** play (from `time`), pause, seek (to `time`), close. */
@@ -374,9 +404,11 @@ export type AppRPC = {
       /** Add Clip Speed: show the clip's Clip Speed section. */
       showClipSpeed: { clip: string };
       /** A shortcut the native menu took before the page could see it, replayed as a keydown. */
-      key: { code: string; meta: boolean };
+      key: { code: string; meta: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
       exportSheet: ExportSheet;
+      /** A narration started, or ended (null). */
+      narrating: Narrating | null;
       /** File > Record… (⌘R): open the Record dialog. */
       recordSheet: RecordSheet;
       /** A display, camera or microphone was connected or removed: the open Record dialog's lists again. */
@@ -385,6 +417,18 @@ export type AppRPC = {
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;
       exportJob: ExportJob;
+      /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
+      favorites: { items: string[] };
+      /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */
+      appSettings: AppSettings;
+      /** An agent closed the open dialog (`ui_open` with none). */
+      closeDialogs: {};
+      /** A preference changed (the transcriber), here or by an agent. */
+      preferences: PreferenceInfo[];
+      /** Tools › Command Palette…: open it. */
+      palette: {};
+      /** Keyboard shortcuts changed (in Settings or by an agent). */
+      shortcuts: { shortcuts: ShortcutInfo[] };
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };
       /** Beacon > Settings… (⌘,). */

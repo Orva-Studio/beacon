@@ -70,6 +70,7 @@ each stream starts, so its files import.
   "version": 1,
   "complete": true,
   "startedAt": 1791922870.87,
+  "hostStart": 412873.553921,
   "duration": 6.0065,
   "streams": {
     "screen": { "file": "screen.mp4", "start": 0.0162, "display": 1, "width": 3600, "height": 2338, "fps": 60, "buffers": 196, "dropped": 0, "latencyMs": { "p50": -0.9, "p95": 7.9, "max": 16.3 }, "error": null },
@@ -87,6 +88,12 @@ each stream starts, so its files import.
 - **Times** are seconds from the take's start, on the host clock that both
   ScreenCaptureKit and AVFoundation stamp buffers with. `startedAt` is Unix
   seconds; `duration` is the take's length.
+- **`hostStart`**: the take's start on the host clock (mach time in seconds, as
+  `CMClockGetHostTimeClock` and CoreAudio's timestamps read it). A voice narration
+  is placed by it: the app's audio output notes the host time its first sample was
+  heard (the output's latency included), and the microphone file starts
+  `hostStart + start` on the same clock, so the take lands under what was playing.
+  Takes recorded before 2026-10-16 have none.
 - **`start`**: when the stream's first sample falls in the take. Each file
   begins there, so a stream is placed at `start` on the timeline; streams line
   up by it.

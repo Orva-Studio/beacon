@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { compileKeymap, label, match } from "./keymap";
+import { bindingsOf, compileKeymap, match, menuKey, runAction, useShortcutTip, type ActionHost } from "./keymap";
+import { Palette } from "./palette";
 import { droppedFiles } from "./drop";
-import type { DroppedFile, Init } from "./rpc";
+import type { DroppedFile, Init, Narrating } from "./rpc";
 import { useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
@@ -23,7 +24,7 @@ import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
+export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
@@ -47,6 +48,10 @@ export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost,
   binFrame(asset: string, time: number): Promise<string | null>;
   /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
   analyze(key: string, asset: string): void;
+  /** Stars an item for the Favorites panel (at `index`, else at the end), un-stars it, or moves a favourite to `index`. */
+  favoriteAdd(item: string, index?: number): void;
+  favoriteRemove(item: string): void;
+  favoriteMove(item: string, index: number): void;
 }
 
 /** Points around the canvas preview, where handles on its edges can still be grabbed. */
@@ -92,7 +97,8 @@ export function App({ host }: { host: Host }) {
       window.removeEventListener("drop", drop);
     };
   }, [host]);
-  const keymap = useMemo(() => compileKeymap(init?.keymap ?? []), [init]);
+  const shortcuts = useView((s) => s.shortcuts);
+  const keymap = useMemo(() => compileKeymap(bindingsOf(shortcuts)), [shortcuts]);
 
   // A click anywhere but a text field ends typing in one, so the shortcuts (arrows nudge, , and . step) work again.
   useEffect(() => {
@@ -107,17 +113,13 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
-      if (e.metaKey && e.code === "KeyO") {
-        e.preventDefault();
-        return host.openDialog();
-      }
+      const field = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
       const b = match(keymap, e);
       if (!b?.command || CLIPBOARD[b.command]) return;
+      // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
+      if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;
       e.preventDefault();
-      if (b.command === "project.undo") host.undo();
-      else if (b.command === "project.redo") host.redo();
-      else host.run(b.command, b.args ?? {});
+      runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
     const onClipboard = (e: ClipboardEvent) => {
@@ -192,6 +194,7 @@ export function App({ host }: { host: Host }) {
       <ResourceUi host={host} />
       <MediaPreviewUi host={host} />
       <NoticeUi />
+      <Palette host={host} />
       {/* The dragged panel item; a mask so it shows over the native canvas too. */}
       {dragging && (
         <div
@@ -228,8 +231,42 @@ function useWindowGuards() {
   }, []);
 }
 
+/** The red dot at the window's top left, as Camtasia has: the Record dialog, as File › Record… (⌘R) opens it. */
+function RecordButton({ host }: { host: Host }) {
+  return (
+    <button type="button" title="Record (⌘R)" onClick={() => host.openRecord()} className="flex items-center gap-1.5 rounded-md bg-control px-2.5 py-1 text-text-strong hover:bg-tile-hover" data-record-button>
+      <i className="block h-2.5 w-2.5 rounded-full bg-danger" />
+      Record
+    </button>
+  );
+}
+
+const elapsed = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
+
+/** While a narration records over the playing timeline: its time, Stop (it goes on the timeline) and Discard. */
+function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-danger/15 py-0.5 pl-2.5 pr-1 text-xs" data-narrating>
+      <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
+      <span className="tabular-nums text-text-strong">Narrating {elapsed(Math.max(0, now - narrating.started))}</span>
+      <Button look="danger" onClick={() => host.stopNarration()} title="Stop and put the narration on the timeline (⌘⇧2)" data-narration-stop>
+        Stop
+      </Button>
+      <Button look="quiet" onClick={() => host.stopNarration(true)} title="Stop and throw the narration away" data-narration-discard>
+        Discard
+      </Button>
+    </div>
+  );
+}
+
 function TopBar({ name, session, host, status, saved, preparing }: { name?: string; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
   const zoom = session?.canvas.zoom ?? "fit";
+  const narrating = useView((v) => v.narrating);
   // ⌘S out of habit: no dialog, the label confirms the project is already saved.
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
@@ -246,11 +283,12 @@ function TopBar({ name, session, host, status, saved, preparing }: { name?: stri
   }, []);
   return (
     <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20 electrobun-webkit-app-region-drag" data-titlebar>
+      {name && !narrating && <RecordButton host={host} />}
       <ProjectName name={name} host={host} />
       {/* Every change is written as it is made, so there is no Save: ⌘S says so for a moment, and a failed save stays. */}
       {name && (saved === false ? <span className="text-xs text-danger" title={status}>Not saved</span> : confirm && <span className="text-xs text-accent" data-saved title="Every change is saved as you make it">✓ Saved automatically</span>)}
       <Button onClick={() => host.openDialog()}>Open…</Button>
-      <div className="flex-1" />
+      <div className="flex flex-1 justify-center">{narrating && <NarrationBar narrating={narrating} host={host} />}</div>
       {preparing && (
         <span className="text-xs text-text-faint" data-preparing title="Making proxies: copies of the media that seek quickly; each item's progress is on its Media Bin tile">
           Preparing media for scrubbing {preparing.done + 1} of {preparing.total}
@@ -336,10 +374,7 @@ const TOOL_ICONS: Record<string, IconName> = {
 
 /** The toolbar above the timeline: undo, redo, cut, copy, paste, split, snapshot, then the timeline zoom. */
 function Toolbar({ session, host, init }: { session: Session; host: Host; init?: Init }) {
-  const tip = (command: string, args?: object) => {
-    const b = init?.keymap.find((k) => k.command === command && JSON.stringify(k.args ?? {}) === JSON.stringify(args ?? {}));
-    return b ? ` (${label(b.keys)})` : "";
-  };
+  const tip = useShortcutTip();
   const some = session.selection.length > 0 || !!session.range;
   const tool = (name: string, title: string, onClick: () => void, enabled = true) => (
     <Button look="icon" title={title} disabled={!enabled} onClick={onClick}>
@@ -382,10 +417,7 @@ function Toolbar({ session, host, init }: { session: Session; host: Host; init?:
 function Transport({ project, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   const fps = rationalToNumber(project.settings.fps);
   const end = Math.max(0, ...project.tracks.flatMap((t) => t.clips.map((c) => ticksToSeconds(c.start + c.duration))));
-  const tip = (command: string, args?: object) => {
-    const b = init?.keymap.find((k) => k.command === command && JSON.stringify(k.args ?? {}) === JSON.stringify(args ?? {}));
-    return b ? ` (${label(b.keys)})` : "";
-  };
+  const tip = useShortcutTip();
   return (
     <div className="flex h-9 shrink-0 items-center justify-center gap-1 border-b border-divider bg-bar px-3">
       <Button look="icon" title={`Previous media${tip("playhead.jump", { to: "previousEdit" })}`} onClick={() => host.run("playhead.jump", { to: "previousEdit" })}>

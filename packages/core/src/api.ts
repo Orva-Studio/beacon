@@ -1,4 +1,4 @@
-import type { CommandResult, Patch, Session, Settings } from "@beacon/model";
+import type { AppSettings, CommandResult, Keys, Patch, Session, Settings, ShortcutInfo } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
@@ -73,7 +73,22 @@ export interface RecordOptions {
   name?: string;
   /** Gets the take's camera frames and audio levels while it records, for the app's recording panel. */
   monitor?: (e: RecorderPreviewEvent) => void;
+  /**
+   * Voice narration: the timeline plays in the app from the playhead (or through the in/out range) while only the
+   * microphone records; stopping, or the end of the range, places the take on a new track under what was playing.
+   * With nothing after the playhead to play, it records there until stopped.
+   * `hear`: play the timeline's sound too (off by default, so speakers don't bleed into the take).
+   */
+  narrate?: { hear?: boolean };
 }
+
+export interface RecordStopOptions extends ImportOptions {
+  /** Throw the take away: nothing is imported and its folder is deleted. */
+  discard?: boolean;
+}
+
+/** What stopping a take imported (nothing, when discarded); a narration's clip is on a track of its own. */
+export type RecordResult = ImportResult & { take: string; duration: number; discarded?: boolean };
 
 export interface RecordStatus {
   recording: boolean;
@@ -81,6 +96,10 @@ export interface RecordStatus {
   take?: string;
   project?: ProjectHandle;
   elapsed?: number;
+  /** Whether the take is a narration, and the timeline span it plays (seconds). */
+  narration?: { from: number; until: number; hear: boolean };
+  /** The last narration that ended by itself (its range or the timeline ran out, or playback was paused): what it imported. */
+  last?: RecordResult;
 }
 
 export type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult };
@@ -118,6 +137,8 @@ export interface PreferenceInfo {
     description: string;
     /** A secret it needs (an API key) and whether it is set: the user sets it in Settings, never an agent. */
     secret?: { id: string; title: string; set: boolean };
+    /** It needs the internet. */
+    online?: boolean;
   }[];
 }
 
@@ -142,6 +163,12 @@ export interface Job {
   id: string;
   done: Promise<unknown>;
 }
+
+/** Settings to change; `snapshotFolder: null` goes back to the project's media folder. */
+export type SettingsPatch = Partial<Omit<AppSettings, "snapshotFolder">> & { snapshotFolder?: string | null };
+
+/** The dialogs `uiOpen` shows. */
+export type UiDialog = "settings" | "export" | "exportSelection" | "newProject" | "record";
 
 export interface CommandInfo {
   id: string;
@@ -191,12 +218,20 @@ export type CoreEvent =
   | { kind: "saved"; path: string }
   /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
   | { kind: "needs"; resource: ResourceInfo }
+  /** The favourites changed (app-wide): the Favorites panel's items, in order. */
+  | { kind: "favorites"; items: string[] }
+  /** The app's settings changed (app-wide), from Settings or an agent. */
+  | { kind: "settings"; settings: AppSettings }
+  /** Keyboard shortcuts changed (app-wide): every action with its keys. */
+  | { kind: "shortcuts"; shortcuts: ShortcutInfo[] }
   /** A preference changed (the transcriber); analyses it decides start again where they have no result for it. */
   | { kind: "preference"; id: string; value: string }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
   | { kind: "preparing"; assets: Record<string, number> }
   /** An asset's background analysis was stored or deleted. */
   | { kind: "derived"; asset: string; key: string; present: boolean }
+  /** A narration ended (stopped, or it reached the end of its range) and was placed, or was discarded. */
+  | { kind: "narrated"; result: RecordResult }
   /** Something went wrong outside any call, e.g. the save after a drag: show it, the caller has already returned. */
   | { kind: "error"; message: string }
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
@@ -259,6 +294,38 @@ export interface BeaconCore {
    */
   setPreference(id: string, value: string): Promise<void>;
   /**
+   * The Favorites panel's items, in order, app-wide: `annotation:<preset>` (text, rectangle…), `effect:<id>`
+   * (drop-shadow…) or `audio:fade-in` / `audio:fade-out`. New users start with a few.
+   */
+  favorites(): Promise<string[]>;
+  /** Stars an item (at `index`, else at the end); one already there stays where it is. Returns the list. */
+  favoriteAdd(item: string, index?: number): Promise<string[]>;
+  /** Un-stars an item. Returns the list. */
+  favoriteRemove(item: string): Promise<string[]>;
+  /** Moves a favourite to `index` (0 first). Returns the list. */
+  favoriteMove(item: string, index: number): Promise<string[]>;
+  /**
+   * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
+   * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
+   */
+  settings(): Promise<AppSettings>;
+  /** Changes some of the app's settings (the others keep theirs; `snapshotFolder: null` unsets it); returns them all. */
+  setSettings(patch: SettingsPatch): Promise<AppSettings>;
+  /**
+   * Shows a dialog in the app's window, as its menus do (Settings on a tab, Export, Export Selection, New Project,
+   * Record), or closes the open one (null): for an agent to see what a person would. Only with the app open.
+   */
+  uiOpen(h: ProjectHandle, dialog: UiDialog | null, tab?: string): Promise<void>;
+  /**
+   * Every action of the editor's menus, keys and command palette (`keymaps/actions.json`) with its keys: the
+   * defaults (`keymaps/default.json`) with the user's changes merged over them, app-wide.
+   */
+  shortcuts(): Promise<ShortcutInfo[]>;
+  /** Gives an action these keys (none: no shortcut). A key another action has is refused unless `replace` moves it here. Returns the list. */
+  shortcutSet(action: string, keys: Keys[], replace?: boolean): Promise<ShortcutInfo[]>;
+  /** Puts an action's keys back to the defaults, or every action's. Returns the list. */
+  shortcutReset(action?: string): Promise<ShortcutInfo[]>;
+  /**
    * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
    * start when it is done. Returns the running download if there is one.
    */
@@ -298,7 +365,10 @@ export interface BeaconCore {
    * Only in the app, which does the flashing.
    */
   recordSyncCheck(sources: RecorderSources, show: () => Promise<void>): Promise<SyncResult>;
-  /** Stops the take and imports it into the project it was started for (at the end, or as `opts` says). */
-  recordStop(opts?: ImportOptions): Promise<ImportResult & { take: string; duration: number }>;
+  /**
+   * Stops the take and imports it into the project it was started for (at the end, or as `opts` says); a narration
+   * goes on a new track where it began, lined up with what was heard. One undo step.
+   */
+  recordStop(opts?: RecordStopOptions): Promise<RecordResult>;
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
 }

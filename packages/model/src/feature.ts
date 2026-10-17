@@ -167,6 +167,8 @@ export interface PreferenceDef {
     description: string;
     /** A secret it can't work without (an API key): until it is set, the option can't be chosen. */
     secret?: string;
+    /** It needs the internet (an online service): offline, the editor says so and offers the others. */
+    online?: boolean;
   }[];
   default: string;
 }
@@ -417,6 +419,12 @@ export interface Feature {
   queries?: QueryDef[];
   actions?: ActionDef[];
   exportFiles?: ExportFileDef[];
+  /**
+   * The feature's items in the editor's panels that can be favourites (`annotation:text`, `audio:fade-in`,
+   * `effect:drop-shadow`); `favorite`: in a new user's Favorites panel, in registration order. Effects not only for
+   * the cursor are items without being listed.
+   */
+  panelItems?: { id: string; favorite?: boolean }[];
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
   keymap?: KeyBinding[];

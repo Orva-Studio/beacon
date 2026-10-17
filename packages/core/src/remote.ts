@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Socket } from "bun";
 import { lockOwner } from "./persist";
+import type { AppSettings, Keys, ShortcutInfo } from "@beacon/model";
 import type {
   CommandInfo,
   CommandResult,
@@ -11,6 +12,8 @@ import type {
   Image,
   ImportOptions,
   ImportResult,
+  RecordResult,
+  RecordStopOptions,
   RecorderDevices,
   RecordOptions,
   RecordStatus,
@@ -28,6 +31,8 @@ import type {
   SheetOptions,
   Snapshot,
   TransactionStep,
+  SettingsPatch,
+  UiDialog,
 } from "./api";
 import { appSockets, decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
 
@@ -174,7 +179,7 @@ export class RemoteCore implements BeaconCore {
   recorderAccess = (kind: "camera" | "microphone") => this.#call<string>("recorderAccess", kind);
   recordStart = (h: ProjectHandle, opts?: RecordOptions) => this.#call<{ take: string }>("recordStart", h, opts);
   recordStatus = () => this.#call<RecordStatus>("recordStatus");
-  recordStop = (opts?: ImportOptions) => this.#call<ImportResult & { take: string; duration: number }>("recordStop", opts);
+  recordStop = (opts?: RecordStopOptions) => this.#call<RecordResult>("recordStop", opts);
   import = (h: ProjectHandle, files: string[], opts?: ImportOptions) => this.#call<ImportResult>("import", h, files, opts);
   forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);
   missing = (h: ProjectHandle) => this.#call<string[]>("missing", h);
@@ -190,6 +195,16 @@ export class RemoteCore implements BeaconCore {
   resources = () => this.#call<ResourceInfo[]>("resources");
   preferences = () => this.#call<PreferenceInfo[]>("preferences");
   setPreference = (id: string, value: string) => this.#call<void>("setPreference", id, value);
+  favorites = () => this.#call<string[]>("favorites");
+  favoriteAdd = (item: string, index?: number) => this.#call<string[]>("favoriteAdd", item, index);
+  favoriteRemove = (item: string) => this.#call<string[]>("favoriteRemove", item);
+  favoriteMove = (item: string, index: number) => this.#call<string[]>("favoriteMove", item, index);
+  shortcuts = () => this.#call<ShortcutInfo[]>("shortcuts");
+  settings = () => this.#call<AppSettings>("settings");
+  setSettings = (patch: SettingsPatch) => this.#call<AppSettings>("setSettings", patch);
+  uiOpen = (h: ProjectHandle, dialog: UiDialog | null, tab?: string) => this.#call<void>("uiOpen", h, dialog, tab);
+  shortcutSet = (action: string, keys: Keys[], replace?: boolean) => this.#call<ShortcutInfo[]>("shortcutSet", action, keys, replace);
+  shortcutReset = (action?: string) => this.#call<ShortcutInfo[]>("shortcutReset", action);
   // A download belongs to no project, so no project's events say when it ends: ask.
   fetchResource = async (id: string): Promise<Job> => {
     const job = (await this.#call<{ id: string }>("fetchResource", id)).id;

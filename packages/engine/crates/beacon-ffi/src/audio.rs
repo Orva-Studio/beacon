@@ -29,6 +29,13 @@ struct Play {
     played: u64,
     latency: f64,
     error: Option<String>,
+    /// When this play's first sample was heard: host-clock seconds (the clock capture stamps buffers with) and the
+    /// timeline second it was, so a take recorded meanwhile can be placed against it.
+    heard: Option<(f64, f64)>,
+    /// The latest buffer's (host seconds, timeline second): with `heard`, how far the device's clock drifted.
+    last: Option<(f64, f64)>,
+    /// Device frames that waited for the decoder after the first was heard: the timeline fell that far behind.
+    stalled: u64,
 }
 
 pub struct FfiAudio {
@@ -68,6 +75,14 @@ pub extern "C" fn beacon_audio_new() -> *mut FfiAudio {
                     }
                     let ts = info.timestamp();
                     p.latency = ts.playback.duration_since(ts.callback).as_secs_f64();
+                    // The first buffer with sound in it (or any, on silence): its first sample is heard at `playback`.
+                    let at = (ts.playback.as_nanos() as f64 / 1e9, p.start + p.played as f64 / rate as f64);
+                    if p.heard.is_none() && (!p.buf.is_empty() || p.eof) {
+                        p.heard = Some(at);
+                    }
+                    if p.heard.is_some() {
+                        p.last = Some(at);
+                    }
                     for frame in out.chunks_mut(channels) {
                         let (l, r) = if p.buf.len() >= 2 {
                             p.played += 1;
@@ -76,6 +91,8 @@ pub extern "C" fn beacon_audio_new() -> *mut FfiAudio {
                             // Waiting for the decoder holds the clock; after the end it runs on.
                             if p.eof {
                                 p.played += 1;
+                            } else if p.heard.is_some() {
+                                p.stalled += 1;
                             }
                             (0.0, 0.0)
                         };
@@ -208,6 +225,23 @@ pub unsafe extern "C" fn beacon_audio_time(h: *mut FfiAudio) -> f64 {
             return Ok(-1.0);
         }
         Ok(p.start + (p.played as f64 / a.rate as f64 - p.latency).max(0.0))
+    })
+}
+
+/// When the play's first sample was heard: `out` gets host-clock seconds and the timeline second then, the latest
+/// buffer's two, and the seconds the timeline waited for its decoder since. 0, or -1 when nothing was heard yet.
+///
+/// # Safety
+/// `h` must be a live handle; `out` must have room for 5 doubles.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn beacon_audio_heard(h: *mut FfiAudio, out: *mut f64) -> i32 {
+    guard(-1, || {
+        let a = handle(h)?;
+        let p = a.state.lock().map_err(|_| "audio state poisoned")?;
+        let (Some(heard), Some(last)) = (p.heard, p.last) else { return Ok(-1) };
+        let v = [heard.0, heard.1, last.0, last.1, p.stalled as f64 / a.rate as f64];
+        unsafe { ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
+        Ok(0)
     })
 }
 

@@ -57,6 +57,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "recordDevices") replica.recordDevices(msg.data);
   else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
   else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
+  else if (msg.type === "narrating") replica.narrating(msg.data);
   else if (msg.type === "exportJob") replica.exportJob(msg.data);
   else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
   else if (msg.type === "settingsSheet") replica.settings(msg.data);
@@ -68,6 +69,11 @@ ws.onmessage = (m) => {
   else if (msg.type === "resourceSheet") replica.resource(msg.data);
   else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
   else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
+  else if (msg.type === "favorites") replica.favorites(msg.data.items);
+  else if (msg.type === "shortcuts") replica.shortcuts(msg.data.shortcuts);
+  else if (msg.type === "appSettings") replica.appSettings(msg.data);
+  else if (msg.type === "preferences") replica.preferences(msg.data);
+  else if (msg.type === "closeDialogs") replica.closeDialogs();
 };
 
 const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -76,6 +82,18 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 };
 
 const commands = commandQueue(report);
+
+const shortcuts = async (p: Promise<unknown>) => {
+  const r = (await p) as { ok: boolean; error?: string; result?: import("@beacon/model").ShortcutInfo[] };
+  if (r.result) replica.shortcuts(r.result);
+  else if (r.error) replica.status(r.error);
+};
+
+const favorites = async (p: Promise<unknown>) => {
+  const r = (await p) as { ok: boolean; error?: string; result?: string[] };
+  if (r.result) replica.favorites(r.result);
+  else if (r.error) replica.status(r.error);
+};
 
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>, coalesce),
@@ -99,9 +117,19 @@ const host: Host = {
   frameImage: () => request("frameImage") as Promise<string | null>,
   binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
   analyze: (key, asset) => void request("analyze", { key, asset }),
+  favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, index })),
+  favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
+  favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
+  shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, replace })),
+  shortcutReset: (action) => void shortcuts(request("shortcutReset", { action })),
+  app: (action) => void request("appAction", { action }),
   chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
+  narrationDevices: () => request("narrationDevices") as Promise<never>,
+  openRecord: (mode) => void request("openRecord", mode ? { mode } : {}),
+  startNarration: (microphone, hear) => request("startNarration", { microphone, hear }) as Promise<{ ok: boolean; error?: string }>,
+  stopNarration: (discard) => void request("stopNarration", { discard: !!discard }),
   recordPreview: (devices) => void request("recordPreview", devices),
   recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
   checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, display, output }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,

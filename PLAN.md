@@ -8,7 +8,7 @@ then the recorder too (Phase 6).
 This document is architecture-first. The goal is that adding a feature later is
 "add one folder", not "touch ten layers".
 
-**Status (2026-10-15):** Phases 1–6 are done (Phase 3: headless Claude Code
+**Status (2026-10-16):** Phases 1–6 are done (Phase 3: headless Claude Code
 rough-cut a recording from its transcript, laid it out, zoomed and exported
 it; Phase 5 closed after the user's runs in the app, cut as v0.1.0; Phase 5.5,
 the new look, closed 2026-10-13 with more to add later; Phase 6, the
@@ -17,8 +17,11 @@ Yeti and system audio, edited (Remove Silences) and exported in Beacon
 alone). Video is decoded in process (`beacon-decode` over FFmpeg's
 libraries), with frames kept for steps back (`docs/performance.md`). Phase
 6.5 made Beacon one self-contained app with fast export, released as v0.2.1
-and v0.3.0 (its gate run is left). Next: **Phase 7** (transcript tools), then
-8 (faster editing), 9 (workspace) and 10 (looks).
+and v0.3.0 (its gate run is left). Phase 7, transcript tools, is built and
+merged, released as v0.5.0 (2026-10-16; v0.4.0 was cut partway through it),
+with two of its gate checks left (below). Next: **Phase 8** (faster editing,
+voice narration first), then 9 (workspace), 10 (looks), 11 (security audit)
+and 12 (Camtasia export).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -1363,8 +1366,10 @@ squeezed to 50 ms. Later: fillers a transcriber leaves out (about half here)
 could come from a second, prompted Whisper pass used only to find them,
 leaving the transcript alone.
 **Release:** v0.4.0 was cut from `phase-7` on 2026-10-15, partway through;
-the phase closes as v0.5.0, merged into `main` before Phase 8 starts (the
-user, 2026-10-16).
+the phase was merged into `main` (PR #15, after a review whose five findings
+were fixed) and released as v0.5.0 on 2026-10-16, before two gate checks:
+Remove Filler Words and captions with Apple's transcriber, and a rounded
+border compared between preview and export (`docs/tested.md`).
 **Asked after trying both reviews** (the user, 2026-10-16: "they both work
 great"): going through silences or fillers one at a time, a click making
 that one the only one marked, and applying them one by one to check each.
@@ -1430,8 +1435,18 @@ Getting to everything quicker, by hand or by agent.
   above). Open: whether a configured item can be a favourite too (a drop
   shadow with your colour and blur, a text style), saved as a preset with
   its params, which is the larger and probably more useful half.
+  Decided with the user (2026-10-16), Camtasia's way: a click on a tile in
+  Annotations, Visual Effects or Audio Effects selects it (yellow outline)
+  and shows a white star; clicking the star turns it gold and adds it;
+  favourites always show the gold star, and clicking it un-stars. Dragging
+  applies to media; a double-click applies to the selected clips (replacing
+  click-to-apply). In the Favorites panel a tile dropped on another takes
+  its place. Plain items first; presets with settings later.
 - **App settings as commands, then dialogs an agent can open** (the user,
-  2026-10-12; found driving the app over MCP to check Phase 5.5). §7 says
+  2026-10-12; found driving the app over MCP to check Phase 5.5; built
+  2026-10-17 as core's `settings`/`setSettings` with MCP `settings_get` /
+  `settings_set`, and `uiOpen` / MCP `ui_open`, which the app's window
+  registers for as it does for `ui_snapshot`). §7 says
   preferences are commands, but they aren't yet:
   1. **App settings through core.** Settings > General (export colour space,
      Make Proxies For, Build Proxies) lives only in the desktop process
@@ -1449,9 +1464,66 @@ Getting to everything quicker, by hand or by agent.
      (the UI harness sends them today). Then
      `packages/desktop/__tests__/app.test.ts` can open each dialog over the
      native canvas and check it through `ui_snapshot`.
-**Gate:** an edit from record to export using only keys and the palette,
-with narration recorded over the timeline and in step with it; an agent
-changes settings and opens each dialog.
+- **From the user's editing, 2026-10-17:**
+  - **Snapping while resizing on the canvas** (built 2026-10-17). Dragging a corner or side
+    handle doesn't snap today (only moving does, `snapMove` in
+    `ui/src/canvas.tsx`): a clip enlarged to fill the screen should snap
+    its edges to the canvas, to other clips' edges, and to the edges of a
+    recording's picture (where it meets the black around it), drawing the
+    same green guides; Ctrl turns it off, as for moving.
+  - **The playhead's time readable** (done 2026-10-17): white and bolder, on
+    the ruler's colour so the ruler's labels don't run into it, as
+    Camtasia's.
+  - **Telling clips apart** (built 2026-10-17 as a stripe along the clip's
+    top, the user's choice of the options below; `edit.label`, the `label`
+    prop group, the clip menu's Add Color Label): Camtasia's Add Color
+    Label (Red, Purple, Blue, Green, Yellow, Orange, Default) marks a clip
+    that differs from its neighbours of the same kind (formatting, place).
+    Beacon colours clips by kind, so a label must not read as a kind.
+    Options to choose from before building: a coloured stripe or tab along
+    the clip's top edge (the kind's colour stays the body), a pattern over
+    the body (stripes, dots, zigzag), or Camtasia's whole-clip colour. A
+    clip property (`label`), so agents set and read it.
+  - **AI features that need the internet** (built 2026-10-17: a preference
+    option's `online`; the AI tools grey out only when media still needs a
+    transcript from an online transcriber) say so: offline, they are greyed
+    with why (today only the OpenAI transcriber needs it; Whisper on this
+    Mac and Apple's work offline, and Remove Silences, Remove Filler Words
+    and Captions follow the transcriber). The same for later cloud features
+    (generated B-roll, Replicate's background removal).
+**Progress (2026-10-17).** Favourites, Settings › Shortcuts and the
+command palette are built, checked headless. The palette opens on ⌘K (the
+user's choice) and lists what the panels have, to add or apply by name
+(annotations, visual and audio effects, the AI tools; favourites first), not
+every action (the user, 2026-10-17); every action with its keys is in
+Settings › Shortcuts. One list names every action (`keymaps/actions.json`:
+commands with their args, and the app's own, `app.export`…), its default
+keys in `keymaps/default.json`; core merges the user's keys from
+`keymap.json` in the config folder (`shortcuts`, `shortcutSet`,
+`shortcutReset`, MCP `shortcuts_*`). Menu items show their keys: those with
+⌘ or ⌃ as key equivalents, handed back to the window's keymap for commands
+so text fields keep typing; others after the name, as "Delete  (⌫)", since a
+plain key equivalent would take keys from text fields. Context menus don't
+show keys yet.
+**Progress (2026-10-16).** Voice narration and the Record button are built,
+checked headless (`docs/tested.md`). Alignment is by the host clock, not by
+the recorder's logged `latencyMs` (that is how late buffers *arrive*, not when
+their sound happened): the audio output notes the host time its first sample
+is heard (cpal's playback instant, the output latency included), the take
+writes its own host start (`hostStart` in `recording.json`), and the
+microphone's samples are stamped at capture, so the take's file is placed at
+`heard.time - (heard.host - (hostStart + start))`. A pause, a seek or the end
+of the range ends a narration; its sound off, silence still plays to the
+device as the clock. There is no separate Narration choice (the user,
+2026-10-16): ticking only the microphone in the Record dialog makes the take
+a narration (Beacon stays open and plays the timeline); Tools › Voice
+Narration… opens the dialog that way. With nothing after the playhead (an
+empty timeline), it records there until Stop. Left: the clap-over-click
+check on a real take.
+**Gate:** an edit from record to export using only keys and the palette
+(the palette for annotations, effects and the AI tools; keys for Record ⌘R,
+Export ⌘E and the editing), with narration recorded over the timeline and
+in step with it; an agent changes settings and opens each dialog.
 
 ### Phase 9 — Workspace
 Seeing more at once.
@@ -1499,8 +1571,29 @@ Seeing more at once.
   fixes reach both; preview/export parity as for every pass. Open: what a
   `.hlook` holds (values, a LUT, or both) decides whether the renderer
   needs LUTs.
+- **Remove background** (the user, 2026-10-16): a camera or video clip's
+  background removed, as Camtasia's Remove Color does for green screens
+  but with no green screen. It is person segmentation (a matte per frame),
+  not an LLM. Who makes the matte is the user's choice, as the transcriber
+  is (Settings, a preference agents can read): Apple's Vision on this Mac
+  (`VNGeneratePersonSegmentationRequest`: free, no download, fast; edges
+  around hair are rougher), a local matting model (e.g. Robust Video
+  Matting through Core ML, finer edges, a download like Whisper's model),
+  or Replicate in the cloud with the user's own API key (BYOK, kept in the
+  Keychain as the OpenAI key is; the video is uploaded, so the setting says
+  so). The matte is a background job analyzer per asset (cached like
+  proxies, so a take is segmented once), and a "Remove Background" effect
+  on visual clips draws it in a pass: transparent (the clips below show
+  through), blurred, a colour or an image, with a feather for the edge.
+  Preview and export read the same matte. Open: which is the default, and
+  whether Replicate's models are good enough on a talking head to be worth
+  the upload.
+- **Device frame** (the user, 2026-10-17; details to come): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
 **Gate:** the look matches between preview and export, and a `.hlook`
-imports with a report of what didn't map.
+imports with a report of what didn't map; a camera take's background removed
+by each provider, with the same matte in preview and export.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -1612,6 +1705,12 @@ assets reviewed before they are placed (as Remove Silences is). Researched
   original's motion, then lip-sync to the original audio (sync.so sync-3).
   No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
   lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
+- **Where it goes, drawn on the canvas** (the user, 2026-10-17): drag a
+  rectangle over the canvas for the area the generated video fills (a
+  vertical video: the face in the bottom half, B-roll generated for the top
+  half), so it is generated at that shape and placed there. Seedance 2.5 or
+  whatever model is best then. Later, to be fleshed out by the user: motion
+  graphics made with HyperFrames, and the user's own skills as presets.
 - Shape: a generation job per provider (fal and Runway cover many models with
   one key), results as candidates with their prompt, model and cost, a cost
   estimate before running, then one undoable command to place a take; the

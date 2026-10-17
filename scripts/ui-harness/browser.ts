@@ -55,8 +55,8 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
     return r.result.value as T;
   };
-  const mouse = (type: "mousePressed" | "mouseMoved" | "mouseReleased", x: number, y: number, mods?: Mods, button: "left" | "right" = "left") =>
-    send("Input.dispatchMouseEvent", { type, x, y, button, buttons: type === "mouseReleased" ? 0 : button === "left" ? 1 : 2, clickCount: 1, modifiers: bits(mods) });
+  const mouse = (type: "mousePressed" | "mouseMoved" | "mouseReleased", x: number, y: number, mods?: Mods, button: "left" | "right" = "left", clickCount = 1) =>
+    send("Input.dispatchMouseEvent", { type, x, y, button, buttons: type === "mouseReleased" ? 0 : button === "left" ? 1 : 2, clickCount, modifiers: bits(mods) });
 
   return {
     evaluate,
@@ -78,6 +78,14 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
       await mouse("mouseMoved", x, y, mods);
       await mouse("mousePressed", x, y, mods);
       await mouse("mouseReleased", x, y, mods);
+    },
+    /** Two clicks, the second counted as the second of a pair, so the page sees a dblclick as well. */
+    async dblclick(x: number, y: number) {
+      await mouse("mouseMoved", x, y);
+      for (const n of [1, 2]) {
+        await mouse("mousePressed", x, y, undefined, "left", n);
+        await mouse("mouseReleased", x, y, undefined, "left", n);
+      }
     },
     /** Files dragged in from outside the page (Finder) and dropped at a point. */
     async dropFiles(x: number, y: number, files: string[]) {

@@ -26,6 +26,7 @@ function num(v: unknown, fallback: number): number {
  */
 export const regions = defineFeature({
   id: "regions",
+  panelItems: [{ id: "annotation:spotlight", favorite: true }, { id: "annotation:blur" }, { id: "annotation:pixelate" }],
   version: 1,
   clipTypes: [{ id: "region", description: "A blur, pixelate or spotlight region", traits: ["visual", "region"] }],
   props: [

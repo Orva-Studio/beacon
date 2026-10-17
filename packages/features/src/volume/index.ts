@@ -66,6 +66,7 @@ function replaceSpan(c: Clip, a: number, b: number, put: (keep: (t: number) => n
  */
 export const volume = defineFeature({
   id: "volume",
+  panelItems: [{ id: "audio:fade-in" }, { id: "audio:fade-out" }],
   version: 1,
   commands: [
     defineCommand({

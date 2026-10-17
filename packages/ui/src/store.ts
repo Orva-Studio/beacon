@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, Init, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
 
 enablePatches();
 
@@ -37,12 +37,22 @@ export interface ViewState {
   proxies: Record<string, boolean>;
   /** Media whose file was moved or deleted. */
   missing: string[];
+  /** The Favorites panel's items, in order (`Init.favorites`). */
+  favorites: string[];
+  /** App-wide choices (the transcriber), `Init.preferences`. */
+  preferences: import("./transcripts-settings").PreferenceInfo[];
+  /** Every action with its keys (`Init.shortcuts`). */
+  shortcuts: import("@beacon/model").ShortcutInfo[];
+  /** The command palette, while open. */
+  palette?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
   dragging?: { item: PanelItem; x: number; y: number };
   /** The Export dialog, while open. */
   exportSheet?: ExportSheet;
   recordSheet?: RecordSheet;
   recordedSheet?: RecordedSheet;
+  /** The narration being recorded, while it is. */
+  narrating?: Narrating;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
   /** The Settings window, while open, with the app settings it opened with. */
@@ -76,7 +86,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -87,11 +97,11 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init });
+    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, preferences: init.preferences });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, palette: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -134,6 +144,27 @@ export const replica = {
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
   },
+  favorites(favorites: string[]) {
+    set({ favorites });
+  },
+  preferences(preferences: ViewState["preferences"]) {
+    set({ preferences });
+  },
+  shortcuts(shortcuts: ViewState["shortcuts"]) {
+    set({ shortcuts });
+  },
+  /** Opened only with a project: it lists what can be added to one. */
+  palette(palette: boolean) {
+    set({ palette: palette && !!state.opened });
+  },
+  /** Settings changed elsewhere: an open Settings window takes them. */
+  appSettings(next: import("./rpc").AppSettings) {
+    if (state.settings) set({ settings: { ...state.settings, ...next } });
+  },
+  /** The dialogs an agent can open (`ui_open`), closed. */
+  closeDialogs() {
+    set({ settings: undefined, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
+  },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });
   },
@@ -149,6 +180,9 @@ export const replica = {
   },
   recordedSheet(recordedSheet: RecordedSheet | undefined) {
     set({ recordedSheet });
+  },
+  narrating(narrating: Narrating | null) {
+    set({ narrating: narrating ?? undefined });
   },
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });
