@@ -24,6 +24,8 @@ feature lands and when it is checked.
 | The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
 | Settings › Shortcuts: every action listed, search, rebinding by pressing keys, a taken key asks before moving it, Escape stops, Reset and Reset All; the window's keys and toolbar tips follow at once; an agent's change shows | 2026-10-17 | `56ac44d` | UI flow; screenshots; core test of saving, clashes and reset |
 | Command palette: ⌘K lists the panels' items (favourites first) and the AI tools, searched by name or description; Enter adds an annotation at the playhead, an effect on the selected clips, or opens an AI review; its key can be rebound | 2026-10-17 | `6d25603` | UI flow; screenshot |
+| A dropped clip stays where it was dropped while the move applies (was drawn back at its start for 8 frames with a 60 ms round trip); trims kept the same way | 2026-10-17 | `96521e4` | UI flow sampling the timeline every frame across the release (moves only) |
+| Tab in the command palette moves through the list (⇧Tab back) and never selects a clip behind it; Tab stays inside every dialog | 2026-10-17 | `07ac778` | UI flow |
 | Colour labels: a stripe along the top of the selected clips, the kind's colour kept below; Default removes it; one undo step | 2026-10-17 | `024f82e` | UI flow (pixels of the timeline); screenshots |
 
 ### Not checked yet
