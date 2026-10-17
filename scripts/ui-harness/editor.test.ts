@@ -1062,6 +1062,20 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await page.until("!document.querySelector('[data-palette]')");
   await select([]);
 
+  // Tab and ⇧Tab move through the list; focus stays in the palette, so the editor's Tab (select the next clip) doesn't act behind it.
+  await page.key("k", "KeyK", ["meta"]);
+  await open();
+  const chosen = () => page.evaluate<string>("document.querySelector('[aria-selected=true]').dataset.entry");
+  const first = await chosen();
+  for (let i = 0; i < 3; i++) await page.key("Tab", "Tab");
+  await page.key("Tab", "Tab", ["shift"]);
+  expect(await chosen()).toBe((await shown())[2]!);
+  expect(first).not.toBe(await chosen());
+  expect(await page.evaluate<boolean>("!!document.activeElement?.hasAttribute('data-palette-search')")).toBe(true);
+  expect((await session()).selection).toEqual([]);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-palette]')");
+
   // Rebound, the new key opens it and ⌘K no longer does.
   await ui.core.shortcutSet("app.palette", [{ key: "p", modifiers: ["shift", "command"] }]);
   await Bun.sleep(300);

@@ -36,6 +36,20 @@ function useDialogOpen(panel: RefObject<HTMLElement | null>) {
   }, [panel]);
 }
 
+const FOCUSABLE = "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+
+/** Tab cycles through the dialog's own controls: out of it, the editor's keys would act behind it (Tab selects a clip). */
+function keepFocusIn(e: React.KeyboardEvent, panel: HTMLElement | null) {
+  const all = [...(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((el) => el.offsetParent !== null);
+  if (!all.length) return e.preventDefault();
+  const i = all.indexOf(document.activeElement as HTMLElement);
+  const last = all.length - 1;
+  if (e.shiftKey ? i <= 0 : i === last || i < 0) {
+    e.preventDefault();
+    all[e.shiftKey ? last : 0]!.focus();
+  }
+}
+
 /** Whether any dialog is open: the backdrop can't dim the native canvas, which draws over the page, so it draws its own dimming. */
 export const useDialogsOpen = () => useSyncExternalStore((l) => (listeners.add(l), () => listeners.delete(l)), () => dialogs > 0);
 
@@ -92,6 +106,7 @@ export function Modal({
         ref={panel}
         onKeyDown={(e) => {
           e.stopPropagation();
+          if (e.key === "Tab") keepFocusIn(e, panel.current);
           if (e.key === "Escape") onClose();
           if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)) onEnter();
           else if (onKey && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) onKey(e);

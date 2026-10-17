@@ -82,9 +82,11 @@ function PaletteUi({ host }: { host: PaletteHost }) {
           data-palette-search
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            // Tab moves through the list as the arrows do, rather than focus out of it.
+            const step = e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey) ? 1 : e.key === "ArrowUp" || e.key === "Tab" ? -1 : 0;
+            if (step) {
               e.preventDefault();
-              setAt((i) => Math.max(0, Math.min(found.length - 1, i + (e.key === "ArrowDown" ? 1 : -1))));
+              setAt((i) => Math.max(0, Math.min(found.length - 1, i + step)));
             }
           }}
         />
