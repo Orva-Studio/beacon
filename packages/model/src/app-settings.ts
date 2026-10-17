@@ -25,5 +25,25 @@ export const AppSettingsSchema = z.object({
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export type CameraSync = z.infer<typeof CameraSyncSchema>;
 
+/** Settings to change; `snapshotFolder: null` goes back to the project's media folder. */
+export const SettingsPatchSchema = AppSettingsSchema.partial().extend({ snapshotFolder: z.string().nullable().optional() });
+export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
+
+/** `settings` with `patch` applied, the others keeping theirs. */
+export function withPatch(settings: AppSettings, { snapshotFolder, ...rest }: SettingsPatch): AppSettings {
+  const next: AppSettings = { ...settings, ...rest };
+  if (snapshotFolder === null) delete next.snapshotFolder;
+  else if (snapshotFolder !== undefined) next.snapshotFolder = snapshotFolder;
+  return next;
+}
+
+/** Settings' tabs, in order. */
+export const SETTINGS_TABS = ["general", "recording", "shortcuts", "project"] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+/** The dialogs an agent can open in the app's window (`uiOpen`). */
+export const UI_DIALOGS = ["settings", "export", "exportSelection", "newProject", "record"] as const;
+export type UiDialog = (typeof UI_DIALOGS)[number];
+
 /** Proxies are off until turned on: the preview reads originals in process, and a proxy is one more copy to build. */
 export const DEFAULT_APP_SETTINGS: AppSettings = { exportColorSpace: "bt709", autoProxy: { recording: false, video: false }, proxyMode: "quiet" };

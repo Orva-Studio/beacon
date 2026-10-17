@@ -30,8 +30,8 @@ type RecordSources = import("@beacon/ui").RecordSources;
 type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey, withPatch } = await import("@beacon/ui");
-const { chordOf, keysLabel } = await import("@beacon/model");
+const { appWideMessage, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
+const { chordOf, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
 
@@ -177,14 +177,12 @@ async function switchTo(path: string) {
       saveProjectThumbSoon(h);
     } else if (e.kind === "needs") {
       offerResource(e.resource);
-    } else if (e.kind === "favorites") {
-      send().favorites({ items: e.items });
+    } else if (e.kind === "favorites" || e.kind === "preference") {
+      void appWideMessage(core, e).then((m) => m && (m.type === "favorites" ? send().favorites(m.data) : send().preferences(m.data)));
     } else if (e.kind === "shortcuts") {
       shortcutsChanged(e.shortcuts);
     } else if (e.kind === "settings") {
       settingsChanged(e.settings);
-    } else if (e.kind === "preference") {
-      void core.preferences().then((p) => send().preferences(p));
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -473,8 +471,7 @@ async function exportDialog(selection = false) {
   const range = (await core.session(current.path)).range ?? undefined;
   if (selection && !range) return status("Set an in/out range first: ⌘-drag from the playhead");
   const name = basename(current.path, ".beproj");
-  const { width, height, fps } = core.doc(current.path).settings;
-  send().exportSheet({ name: selection ? `${name} selection` : name, ...exportPrefs(), ...(range ? { range } : {}), canvas: { width, height, fps: Math.round((fps.num / fps.den) * 100) / 100 } });
+  send().exportSheet({ name: selection ? `${name} selection` : name, ...exportPrefs(), ...(range ? { range } : {}), canvas: exportCanvas(core.doc(current.path).settings) });
 }
 
 async function startExport({ name, folder, settings, range, overwrite }: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }) {
@@ -507,7 +504,7 @@ async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recordPrefs();
   const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
-  send().settingsSheet({ ...appSettings, ...(tab ? { tab } : {}), ...(devices ? { devices } : {}), resources: await core.resources(), preferences: await core.preferences() });
+  send().settingsSheet(await settingsSheet(core, { ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) }));
 }
 
 /** A 1 kHz beep, 150 ms, for Check Sync to play through the speakers as the screen flashes. */
@@ -1030,19 +1027,12 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           sendWaveforms();
           void sendThumbs();
         }, 50);
-        const schema = core.schema();
         return {
+          ...(await initPayload(core)),
           opened: current ? await openedPayload(current.path) : undefined,
           recent: recentProjects(),
-          shortcuts,
-          propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
-          effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
-          clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
-          nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
           keyLog: !!keyLog,
           socket,
-          favorites: await core.favorites(),
-          preferences: await core.preferences(),
         };
       },
       run: ({ command, args, label, coalesce }) =>
@@ -1106,7 +1096,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       favoriteMove: ({ item, index }) => replyWith(() => core.favoriteMove(item, index)),
       shortcutSet: ({ action, keys, replace }) => replyWith(async () => shortcutsChanged(await core.shortcutSet(action, keys, replace))),
       shortcutReset: ({ action }) => replyWith(async () => shortcutsChanged(await core.shortcutReset(action))),
-      appAction: ({ id }) => appAction(id),
+      appAction: ({ action }) => appAction(action),
       previewOpen: ({ asset }) => {
         closePreview();
         if (!current) return null;
@@ -1295,11 +1285,13 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
 function accelerator(keys: Keys): string | undefined {
   const chord = chordOf(keys);
   if (!chord) return undefined;
-  const KEYS: Record<string, string> = { Backspace: "backspace", Delete: "delete", Enter: "enter", Escape: "escape", Space: "space", ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Comma: ",", Period: ".", Equal: "=", Minus: "-", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Slash: "/", Semicolon: ";", Quote: "'", Backquote: "`" };
-  const key = /^Key[A-Z]$/.test(chord.code) ? chord.code.slice(3).toLowerCase() : /^Digit\d$/.test(chord.code) ? chord.code.slice(5) : KEYS[chord.code];
+  // Electrobun's names for keys that aren't a character; ⇥ has none.
+  const NAMES: Record<string, string> = { Backspace: "backspace", Delete: "delete", Enter: "enter", Escape: "escape", Space: "space", ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+  const typed = keyOfCode(chord.code);
+  const key = NAMES[chord.code] ?? (typed?.length === 1 ? typed : undefined);
   if (!key) return undefined;
-  const mods = chord.mods.split("+").filter(Boolean);
-  return [...["control", "option", "shift", "command"].filter((m) => mods.includes(m)), key].join("+");
+  const mods = chord.mods.split("+");
+  return [...MODIFIERS.filter((m) => mods.includes(m)), key].join("+");
 }
 
 /**
@@ -1311,7 +1303,7 @@ function item(id: string, opts: { label?: string; enabled?: boolean } = {}) {
   const s = shortcuts.find((x) => x.id === id);
   const label = opts.label ?? s?.name ?? id;
   const keys = s?.keys[0];
-  const accel = keys && (keys.modifiers.includes("command") || keys.modifiers.includes("control")) ? accelerator(keys) : undefined;
+  const accel = keys && menuKey(keys) ? accelerator(keys) : undefined;
   const chord = keys && chordOf(keys);
   const enabled = opts.enabled === undefined ? {} : { enabled: opts.enabled };
   if (accel && chord) return { label, accelerator: accel, action: id.startsWith("app.") ? `act:${id}` : `key:${chord.mods}|${chord.code}`, ...enabled };
@@ -1584,7 +1576,7 @@ const server = serveCore(core, { path: socket, canOpen: (p) => current?.path ===
 core.setUiOpener((_, dialog, tab) => {
   const report = (err: unknown) => status(err instanceof Error ? err.message : String(err));
   if (dialog === null) send().closeDialogs({});
-  else if (dialog === "settings") void openSettings(tab as import("@beacon/ui").SettingsTab | undefined);
+  else if (dialog === "settings") void openSettings(tab);
   else if (dialog === "export") void exportDialog().catch(report);
   else if (dialog === "exportSelection") void exportDialog(true).catch(report);
   else if (dialog === "newProject") newProject();

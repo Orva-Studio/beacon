@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
 import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
+import { appWideMessage, exportCanvas, initPayload, settingsSheet } from "../../packages/ui/src/payloads";
 import type { RecentProject } from "../../packages/ui/src/rpc";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
@@ -71,12 +72,11 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   core.setUiOpener(async (_, dialog, tab) => {
     const doc = core.doc(h);
     if (dialog === null) return sendAll("closeDialogs", {});
-    if (dialog === "settings") return sendAll("settingsSheet", { ...(await core.settings()), ...(tab ? { tab } : {}), resources: await core.resources(), preferences: await core.preferences() });
+    if (dialog === "settings") return sendAll("settingsSheet", await settingsSheet(core, tab ? { tab } : {}));
     if (dialog === "export" || dialog === "exportSelection") {
       const range = (await core.session(h)).range;
       if (dialog === "exportSelection" && !range) return;
-      const fps = doc.settings.fps.num / doc.settings.fps.den;
-      return sendAll("exportSheet", { name: "project", folder: tmpdir(), settings: DEFAULT_EXPORT, canvas: { width: doc.settings.width, height: doc.settings.height, fps }, ...(dialog === "exportSelection" && range ? { range } : {}) });
+      return sendAll("exportSheet", { name: "project", folder: tmpdir(), settings: DEFAULT_EXPORT, canvas: exportCanvas(doc.settings), ...(dialog === "exportSelection" && range ? { range } : {}) });
     }
     if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project" });
     if (dialog === "record") return sendAll("recordSheet", { ...(narrationDevices as object), mode: "take", sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } } });
@@ -101,10 +101,9 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             void core.missing(h).then((missing) => ws.send(JSON.stringify({ type: "media", data: { missing } })));
           }
           else if (e.kind === "session") ws.send(JSON.stringify({ type: "session", data: { changes: e.changes } }));
-          else if (e.kind === "favorites") ws.send(JSON.stringify({ type: "favorites", data: { items: e.items } }));
+          else if (e.kind === "favorites" || e.kind === "preference") void appWideMessage(core, e).then((m) => m && ws.send(JSON.stringify(m)));
           else if (e.kind === "shortcuts") ws.send(JSON.stringify({ type: "shortcuts", data: { shortcuts: e.shortcuts } }));
           else if (e.kind === "settings") ws.send(JSON.stringify({ type: "appSettings", data: e.settings }));
-          else if (e.kind === "preference") void core.preferences().then((p) => ws.send(JSON.stringify({ type: "preferences", data: p })));
           else if (e.kind === "preparing") {
             making.queued = e.assets;
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
@@ -138,19 +137,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         };
         let result: unknown;
         if (msg.type === "init") {
-          const schema = core.schema();
-          result = {
-            opened: shown ? await opened() : undefined,
-            recent: opts.recent ?? [],
-            shortcuts: await core.shortcuts(),
-            propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
-            effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
-            clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
-            nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
-            socket: "",
-            favorites: await core.favorites(),
-            preferences: await core.preferences(),
-          };
+          result = { ...(await initPayload(core)), opened: shown ? await opened() : undefined, recent: opts.recent ?? [], socket: "" };
         } else if (msg.type === "run") {
           if (faults.runDelay) await Bun.sleep(faults.runDelay);
           result = await reply(() => core.run(h, msg.command, msg.args ?? {}, { ...(msg.label ? { label: msg.label } : {}), ...(msg.coalesce ? { coalesce: msg.coalesce } : {}) }));

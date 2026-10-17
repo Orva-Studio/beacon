@@ -15,6 +15,9 @@ function zodIssues(path: string, error: z.ZodError): string[] {
   return error.issues.map((i) => `${[path, ...i.path].filter((p) => p !== "").join(".")}: ${i.message}`);
 }
 
+/** An effect the Visual Effects panel shows (and favourites can name): any not only for the cursor. */
+export const isPanelEffect = (traits: string[]) => !traits.every((t) => t === "cursor");
+
 export class FeatureRegistry {
   readonly features = new Map<string, Feature>();
   readonly clipTypes = new Map<string, ClipTypeDef>();

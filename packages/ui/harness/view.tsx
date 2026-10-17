@@ -1,9 +1,9 @@
 import { createRoot } from "react-dom/client";
 import { App, type Host } from "../src/app";
-import { recordPreviewEvent } from "../src/record-preview";
 import { RecordPanel } from "../src/record-panel";
 import type { Init, RecordFrames, SyncCheck } from "../src/rpc";
 import { replica } from "../src/store";
+import { applyReply, messageHandlers } from "../src/messages";
 import { commandQueue } from "../src/latest";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
@@ -47,33 +47,9 @@ ws.onmessage = (m) => {
     waiting.delete(msg.id);
     return;
   }
-  if (msg.type === "opened") replica.opened(msg.data);
-  else if (msg.type === "patches" && !replica.patches(msg.data.patches, msg.data.rev)) void request<Parameters<typeof replica.resynced>[0]>("resync").then((o) => o && replica.resynced(o));
-  else if (msg.type === "session") replica.session(msg.data.changes);
-  else if (msg.type === "status") replica.status(msg.data.text);
-  else if (msg.type === "media") replica.media(msg.data);
-  else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
-  else if (msg.type === "recordSheet") replica.recordSheet(msg.data);
-  else if (msg.type === "recordDevices") replica.recordDevices(msg.data);
-  else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
-  else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
-  else if (msg.type === "narrating") replica.narrating(msg.data);
-  else if (msg.type === "exportJob") replica.exportJob(msg.data);
-  else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
-  else if (msg.type === "settingsSheet") replica.settings(msg.data);
-  else if (msg.type === "notice") replica.notice(msg.data);
-  else if (msg.type === "previewClock") replica.previewClock(msg.data);
-  else if (msg.type === "newProjectSheet") replica.newProject(msg.data);
-  else if (msg.type === "recent") replica.recent(msg.data);
-  else if (msg.type === "saveAsSheet") replica.saveAs(msg.data);
-  else if (msg.type === "resourceSheet") replica.resource(msg.data);
-  else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
-  else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
-  else if (msg.type === "favorites") replica.favorites(msg.data.items);
-  else if (msg.type === "shortcuts") replica.shortcuts(msg.data.shortcuts);
-  else if (msg.type === "appSettings") replica.appSettings(msg.data);
-  else if (msg.type === "preferences") replica.preferences(msg.data);
-  else if (msg.type === "closeDialogs") replica.closeDialogs();
+  if (msg.type === "patches") {
+    if (!replica.patches(msg.data.patches, msg.data.rev)) void request<Parameters<typeof replica.resynced>[0]>("resync").then((o) => o && replica.resynced(o));
+  } else (messageHandlers as Record<string, (data: unknown) => void>)[msg.type]?.(msg.data);
 };
 
 const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -83,17 +59,8 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 
 const commands = commandQueue(report);
 
-const shortcuts = async (p: Promise<unknown>) => {
-  const r = (await p) as { ok: boolean; error?: string; result?: import("@beacon/model").ShortcutInfo[] };
-  if (r.result) replica.shortcuts(r.result);
-  else if (r.error) replica.status(r.error);
-};
-
-const favorites = async (p: Promise<unknown>) => {
-  const r = (await p) as { ok: boolean; error?: string; result?: string[] };
-  if (r.result) replica.favorites(r.result);
-  else if (r.error) replica.status(r.error);
-};
+const shortcuts = applyReply(replica.shortcuts);
+const favorites = applyReply(replica.favorites);
 
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>, coalesce),

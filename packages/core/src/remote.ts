@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Socket } from "bun";
 import { lockOwner } from "./persist";
-import type { AppSettings, Keys, ShortcutInfo } from "@beacon/model";
+import type { AppSettings, Keys, SettingsPatch, ShortcutInfo } from "@beacon/model";
 import type {
   CommandInfo,
   CommandResult,
@@ -31,7 +31,6 @@ import type {
   SheetOptions,
   Snapshot,
   TransactionStep,
-  SettingsPatch,
   UiDialog,
 } from "./api";
 import { appSockets, decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";

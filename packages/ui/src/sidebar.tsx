@@ -2,15 +2,15 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem } from "./drop";
-import { AI_TOOLS, ANNOTATIONS, AUDIO_EFFECTS, visualEffects, type Item } from "./panel-items";
-import type { AudioLevel, Init, RecordPreview, RecordSheet } from "./rpc";
+import { AI_TOOLS, allItems, ANNOTATIONS, AUDIO_EFFECTS, inFavoriteOrder, visualEffects, type Item } from "./panel-items";
+import type { Init, RecordSheet } from "./rpc";
 import { Button, Icon, ItemTile, LevelMeter, RailButton, Select, type IconName } from "./controls";
-import { previewListeners } from "./record-preview";
-import { clock, useNarrationSpan } from "./record";
+import { clock, HEADPHONES, useCountdown, useNarrationSpan, useRecordLevels } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
 import { replica, useView } from "./store";
 import { useOnline } from "./online";
+import { useQuery } from "./query";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -60,7 +60,7 @@ export const ToolPanel = memo(function ToolPanel({
   if (tool === "narration") return <NarrationPanel host={host} />;
   const effects = visualEffects(init);
   const items: Record<string, Item[]> = { annotations: ANNOTATIONS, visualEffects: effects, audioEffects: AUDIO_EFFECTS };
-  if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={[...ANNOTATIONS, ...effects, ...AUDIO_EFFECTS]} host={host} ordered />;
+  if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={allItems(init)} host={host} ordered />;
   if (items[tool]) return <ItemsPanel key={tool} title={label} items={items[tool]} host={host} />;
   return (
     <Panel title={label}>
@@ -81,7 +81,7 @@ function ItemsPanel({ title, items, host, ordered }: { title: string; items: Ite
   const favorites = useView((v) => v.favorites);
   const [selected, setSelected] = useState<string>();
   const over = useView((v) => (ordered && v.dragging ? favoriteAt(v.dragging.x, v.dragging.y) : undefined));
-  const shown = ordered ? favorites.flatMap((f) => items.find((it) => it.favorite === f) ?? []) : items;
+  const shown = ordered ? inFavoriteOrder(items, favorites) : items;
   const hint = ordered ? "Drag onto media, or onto another tile to reorder; double-click to apply to the selection" : "Drag onto media, or double-click to apply to the selection";
   return (
     <Panel title={title}>
@@ -130,8 +130,6 @@ function NarrationPanel({ host }: { host: Host }) {
   const [devices, setDevices] = useState<RecordSheet>();
   const [microphone, setMicrophone] = useState<string>();
   const [hear, setHear] = useState(false);
-  const [level, setLevel] = useState<AudioLevel>();
-  const [counting, setCounting] = useState<number>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     void host.narrationDevices().then((d) => {
@@ -142,31 +140,18 @@ function NarrationPanel({ host }: { host: Host }) {
   }, []);
   // Its level: previewed while idle; while it records, the take sends it. The Record dialog has the microphone while open.
   const granted = devices?.permissions.microphone === "granted";
-  useEffect(() => {
-    const listen = (e: RecordPreview) => "microphone" in e && e.microphone && setLevel(e.microphone);
-    previewListeners.add(listen);
-    const preview = granted && !!microphone && !narrating && !dialog;
-    if (preview) host.recordPreview({ microphone: { id: microphone } });
-    return () => {
-      previewListeners.delete(listen);
-      setLevel(undefined);
-      if (preview) host.recordPreview({});
-    };
-  }, [granted, microphone, narrating, dialog]);
-  useEffect(() => {
-    if (counting === undefined) return;
-    if (counting > 0) {
-      const t = setTimeout(() => setCounting(counting - 1), 1000);
-      return () => clearTimeout(t);
-    }
+  const preview = granted && !!microphone && !narrating && !dialog;
+  const level = useRecordLevels(host, preview ? { microphone: { id: microphone } } : undefined, [granted, microphone, narrating, dialog]).microphone;
+  const countdown = useCountdown(() => {
     void host.startNarration({ id: microphone }, hear && !span.still).then((r) => {
-      setCounting(undefined);
+      countdown.cancel();
       setError(r.ok ? undefined : r.error);
     });
-  }, [counting]);
+  });
+  const counting = countdown.counting;
   const start = () => {
     setError(undefined);
-    setCounting(3);
+    countdown.start();
   };
   return (
     <Panel title="Narration">
@@ -190,13 +175,13 @@ function NarrationPanel({ host }: { host: Host }) {
             Hear the timeline while recording
           </label>
         )}
-        {hear && !span.still && <span className="text-caption text-warning">Use headphones: from speakers, the timeline records into the narration</span>}
+        {hear && !span.still && <span className="text-caption text-warning">{HEADPHONES}</span>}
         {narrating ? (
           <Button look="danger" onClick={() => host.stopNarration()} data-narration-stop-panel>
             Stop Recording
           </Button>
         ) : counting !== undefined ? (
-          <Button onClick={() => setCounting(undefined)} data-narration-countdown>
+          <Button onClick={countdown.cancel} data-narration-countdown>
             Starting in {Math.max(counting, 1)}… (Cancel)
           </Button>
         ) : (
@@ -220,22 +205,9 @@ function useOffline(host: Host): string | undefined {
   const transcriber = useView((v) => v.preferences.find((p) => p.id === "transcriber"));
   const chosen = transcriber?.options.find((o) => o.id === transcriber.value);
   const needs = !online && !!chosen?.online;
-  const [waiting, setWaiting] = useState(false);
-  useEffect(() => {
-    if (!needs) {
-      setWaiting(false);
-      return;
-    }
-    let live = true;
-    host.query("transcript.silences", {}).then(
-      (r) => live && setWaiting((r as { waiting: string[] }).waiting.length > 0),
-      () => live && setWaiting(false),
-    );
-    return () => {
-      live = false;
-    };
-  }, [needs, project]);
-  return needs && waiting ? chosen!.title : undefined;
+  // Asked only then: it works out the whole silence plan just to say which media has no transcript.
+  const silences = useQuery<{ waiting: string[] }>(host, needs ? "transcript.silences" : "", {}, project);
+  return needs && silences?.waiting.length ? chosen!.title : undefined;
 }
 
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */

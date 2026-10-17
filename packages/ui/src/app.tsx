@@ -16,7 +16,7 @@ import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
-import { RecordUi, type RecordHost } from "./record";
+import { clock, RecordUi, type RecordHost } from "./record";
 import { goTo, reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { useCaptionsPending } from "./captions";
@@ -241,7 +241,6 @@ function RecordButton({ host }: { host: Host }) {
   );
 }
 
-const elapsed = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
 
 /** While a narration records over the playing timeline: its time, Stop (it goes on the timeline) and Discard. */
 function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host }) {
@@ -253,7 +252,7 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
   return (
     <div className="flex items-center gap-2 rounded-md bg-danger/15 py-0.5 pl-2.5 pr-1 text-xs" data-narrating>
       <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
-      <span className="tabular-nums text-text-strong">Narrating {elapsed(Math.max(0, now - narrating.started))}</span>
+      <span className="tabular-nums text-text-strong">Narrating {clock(Math.max(0, now - narrating.started) / 1000)}</span>
       <Button look="danger" onClick={() => host.stopNarration()} title="Stop and put the narration on the timeline (⌘⇧2)" data-narration-stop>
         Stop
       </Button>

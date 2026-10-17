@@ -13,7 +13,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { formatIssues, jsonSchemaOf, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
+import { formatIssues, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
 import { DOCS, INSTRUCTIONS, WORKFLOWS, type Workflow } from "./docs";
 
 type Content = CallToolResult["content"];
@@ -393,21 +393,16 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("settings_set", {
     description: "Change some of the app's settings (see settings_get); the rest keep theirs. snapshotFolder must exist; null goes back to the project's media folder. Only when the user asks: the settings are theirs",
-    schema: z.strictObject({
-      exportColorSpace: z.enum(["bt709", "srgb"]).optional(),
-      autoProxy: z.strictObject({ recording: z.boolean(), video: z.boolean() }).optional(),
-      proxyMode: z.enum(["quiet", "fast"]).optional(),
-      snapshotFolder: z.string().nullable().optional(),
-    }),
+    // Camera delays come from Check Sync and declined downloads from the user: not an agent's to set.
+    schema: SettingsPatchSchema.pick({ exportColorSpace: true, autoProxy: true, proxyMode: true, snapshotFolder: true }).strict(),
     run: async (patch) => core.setSettings(Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))),
   });
   add("ui_open", {
     description:
       "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, shortcuts or project), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
-    schema: z.strictObject({ dialog: z.enum(["settings", "export", "exportSelection", "newProject", "record"]).nullable(), tab: z.enum(["general", "recording", "shortcuts", "project"]).optional() }),
+    schema: z.strictObject({ dialog: z.enum(UI_DIALOGS).nullable(), tab: z.enum(SETTINGS_TABS).optional() }),
     run: async ({ dialog, tab }) => (await core.uiOpen(project(), dialog, tab), dialog ? `${dialog} is open` : "closed"),
   });
-  const Keys = z.strictObject({ key: z.string().describe('one character ("t", ",", "<") or ↩ ⇥ ⌫ ⌦ ⎋ ← → ↑ ↓ Space'), modifiers: z.array(z.enum(["control", "option", "shift", "command"])) });
   add("shortcuts_list", {
     description:
       "Every action of the editor's menus, keys and command palette, with its keyboard shortcuts (the user's, app-wide): id, name, description, the command it runs and its keys. `standard`: still the default keys",
@@ -417,7 +412,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   add("shortcuts_set", {
     description:
       "Give an action (its id from shortcuts_list) these keys, replacing its own; [] removes its shortcut. A key another action has is refused, naming it, unless `replace` moves it here. Only when the user asks: the keys are theirs",
-    schema: z.strictObject({ action: z.string(), keys: z.array(Keys), replace: z.boolean().default(false) }),
+    schema: z.strictObject({ action: z.string(), keys: z.array(KeysSchema), replace: z.boolean().default(false) }),
     run: async ({ action, keys, replace }) => (await core.shortcutSet(action, keys, replace)).filter((s) => s.id === action || !s.standard),
   });
   add("shortcuts_reset", {

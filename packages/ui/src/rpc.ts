@@ -1,17 +1,9 @@
 import type { CanvasValues } from "./canvas-settings";
-import type { AppSettings, CameraSync, Keys, Patch, Project, Session, ShortcutInfo } from "@beacon/model";
+import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo } from "@beacon/model";
 
-export type { AppSettings, CameraSync } from "@beacon/model";
+export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
+export { withPatch } from "@beacon/model";
 
-/** Settings to change; `snapshotFolder: null` unsets it (core's `SettingsPatch`). */
-export type SettingsPatch = Partial<Omit<AppSettings, "snapshotFolder">> & { snapshotFolder?: string | null };
-
-export function withPatch(settings: AppSettings, { snapshotFolder, ...rest }: SettingsPatch): AppSettings {
-  const next: AppSettings = { ...settings, ...rest };
-  if (snapshotFolder === null) delete next.snapshotFolder;
-  else if (snapshotFolder !== undefined) next.snapshotFolder = snapshotFolder;
-  return next;
-}
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
@@ -101,6 +93,7 @@ export interface DroppedFile {
 }
 
 export { exportOptions } from "./export-options";
+export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight } from "./record-panel-size";
 
@@ -111,7 +104,7 @@ export interface Notice {
 }
 
 /** App-wide settings (Settings > General), kept by the main process. */
-export type SettingsTab = "general" | "recording" | "shortcuts" | "project";
+export type { SettingsTab } from "@beacon/model";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
@@ -357,7 +350,7 @@ export type AppRPC = {
       shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
       shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
       /** One of the app's own actions (`app.export`, `app.new`…), as its menu item runs it: the command palette and rebound keys. */
-      appAction: { params: { id: string }; response: void };
+      appAction: { params: { action: string }; response: void };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
       /** play (from `time`), pause, seek (to `time`), close. */

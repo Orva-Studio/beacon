@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Modal, TextInput } from "./controls";
-import { AI_TOOLS, ANNOTATIONS, AUDIO_EFFECTS, visualEffects } from "./panel-items";
+import { AI_TOOLS, allItems, inFavoriteOrder } from "./panel-items";
+import { searchByName } from "./search";
 import { replica, useView } from "./store";
 
 interface PaletteHost {
@@ -14,22 +15,11 @@ interface Entry {
   description: string;
   group: string;
   art?: string;
-  favorite: boolean;
+  starred: boolean;
   start: (host: PaletteHost) => void;
 }
 
-/** Every word of the search is in the name, the description or the panel; names that start with it come first. */
-function search(entries: Entry[], query: string): Entry[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return entries;
-  const text = (e: Entry) => `${e.name} ${e.description} ${e.group}`.toLowerCase();
-  const rank = (e: Entry) => (e.name.toLowerCase().startsWith(words[0]!) ? 0 : e.name.toLowerCase().includes(words[0]!) ? 1 : 2);
-  return entries
-    .filter((e) => words.every((w) => text(e).includes(w)))
-    .map((e, i) => [e, rank(e), i] as const)
-    .sort((a, b) => a[1] - b[1] || a[2] - b[2])
-    .map(([e]) => e);
-}
+const search = (entries: Entry[], query: string) => searchByName(entries, query, (e) => e.name, (e) => `${e.name} ${e.description} ${e.group}`);
 
 /**
  * The command palette (⌘K by default): what can be done to clips or added to the timeline, by name or what it
@@ -48,14 +38,9 @@ function PaletteUi({ host }: { host: PaletteHost }) {
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const entries = useMemo(() => {
-    const items = [
-      ...ANNOTATIONS.map((it) => ({ it, group: "Annotation" })),
-      ...visualEffects(init).map((it) => ({ it, group: "Visual Effect" })),
-      ...AUDIO_EFFECTS.map((it) => ({ it, group: "Audio Effect" })),
-    ].map(({ it, group }): Entry => ({ id: it.favorite, name: it.label, description: it.title, group, art: it.art, favorite: favorites.includes(it.favorite), start: (h) => h.run(it.command, it.args) }));
-    const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, favorite: false, start: t.start }));
-    const starred = favorites.flatMap((f) => items.find((e) => e.id === f) ?? []);
-    return [...starred, ...items.filter((e) => !e.favorite), ...tools];
+    const items = allItems(init).map((it): Entry & { favorite: string } => ({ id: it.favorite, favorite: it.favorite, name: it.label, description: it.title, group: it.group, art: it.art, starred: favorites.includes(it.favorite), start: (h) => h.run(it.command, it.args) }));
+    const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
+    return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...tools];
   }, [init, favorites]);
   const found = useMemo(() => search(entries, query), [entries, query]);
   useEffect(() => {
@@ -108,7 +93,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
             <div className="min-w-0 flex-1">
               <div className={`flex items-center gap-1.5 truncate ${i === at ? "text-text-strong" : "text-text"}`}>
                 {e.name}
-                {e.favorite && <Icon name="star" size={12} filled className="text-favorite" />}
+                {e.starred && <Icon name="star" size={12} filled className="text-favorite" />}
               </div>
               <div className="truncate text-caption text-text-faint">{e.description}</div>
             </div>

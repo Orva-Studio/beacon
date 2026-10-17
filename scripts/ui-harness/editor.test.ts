@@ -35,6 +35,19 @@ const select = async (ids: string[]) => {
   await run("selection.set", { clips: ids, linked: false });
   await Bun.sleep(300);
 };
+/** The timeline canvas on the page. */
+const timelineBox = () => page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+/** Where a clip's row is on the timeline canvas (its top and height), and where a time is across it, in canvas points. */
+const timelinePlaces = async (clipId: string) => {
+  const s = await session();
+  const tracks = ui.core.doc(ui.handle).tracks;
+  const row = tracks.length - 1 - tracks.findIndex((t) => t.clips.some((k) => k.id === clipId));
+  const [box, header] = [await timelineBox(), headerWidth(tracks)];
+  return { ...clipBox(row, s.timeline.trackHeight), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
+};
+/** Page code reading a timeline canvas pixel's RGB (canvas points) as "r,g,b". */
+const timelinePixel = (x: number, y: number) =>
+  `(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${y} * k), 1, 1).data].slice(0, 3).join(); })()`;
 /** Waits until what the page sends back (a menu, settings) has arrived, rather than for a fixed time. */
 const arrived = async (ok: () => boolean, ms = 5000) => {
   for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await Bun.sleep(20);
@@ -1517,17 +1530,13 @@ test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top
   await select([screen.id]);
   await run("timeline.view", { start: 0, end: 20 });
   await Bun.sleep(200);
-  const doc = () => ui.core.doc(ui.handle);
-  const s = await session();
-  const row = doc().tracks.length - 1 - doc().tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
-  const box = clipBox(row, s.timeline.trackHeight);
-  const x = headerWidth(doc().tracks) + 200;
-  const pixel = (dy: number) =>
-    page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${box.y + dy} * k), 1, 1).data].slice(0, 3); })()`);
+  const box = await timelinePlaces(screen.id);
+  const x = box.xAt(10);
+  const pixel = (dy: number) => page.evaluate<string>(timelinePixel(x, box.y + dy));
   const body = await pixel(box.h - 4);
   await run("edit.label", { color: "red" });
   expect((clip(screen.id).props.label as { color: string }).color).toBe("red");
-  await page.until(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const [r, g, b] = c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${box.y + 3} * k), 1, 1).data; return r > 200 && g < 120 && b < 120; })()`);
+  await page.until(`(([r, g, b]) => r > 200 && g < 120 && b < 120)(${timelinePixel(x, box.y + 3)}.split(',').map(Number))`);
   // Below the stripe, the clip is still its kind's colour.
   expect(await pixel(box.h - 4)).toEqual(body);
   await page.screenshot(join(dir, "label.png"));
@@ -1544,21 +1553,15 @@ test.skipIf(skip)("a clip dropped after a drag stays where it was dropped while 
   await select([]);
   await run("timeline.view", { start: 0, end: 20 });
   await Bun.sleep(200);
-  const doc = () => ui.core.doc(ui.handle);
   const c = clip(callout.id);
-  const s = await session();
-  const row = doc().tracks.length - 1 - doc().tracks.findIndex((t) => t.clips.some((k) => k.id === callout.id));
-  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
-  const header = headerWidth(doc().tracks);
-  const xAt = (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const { y, h } = clipBox(row, s.timeline.trackHeight);
+  const { y, h, xAt, box } = await timelinePlaces(callout.id);
   const start = ticksToSeconds(c.start);
   const end = ticksToSeconds(c.start + c.duration);
   // A point of the clip's body clear of its name and badges, and where it is dragged to (past its end).
   const [ox, oy] = [xAt(end - 0.6), y + h - 6];
   const by = end - start + 2;
   // Every frame from the release on: whether that point is the clip's colour (it fades while dragged).
-  const sample = `(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${ox} * k), Math.round(${oy} * k), 1, 1).data].slice(0, 3).join(); })()`;
+  const sample = timelinePixel(ox, oy);
   const body = await page.evaluate<string>(sample);
   ui.faults.runDelay = 60;
   try {

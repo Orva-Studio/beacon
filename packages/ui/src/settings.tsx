@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_SETTINGS, type Project } from "@beacon/model";
+import { DEFAULT_SETTINGS, SETTINGS_TABS, type Project } from "@beacon/model";
 import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
@@ -46,7 +46,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
   const close = () => replica.settings(undefined);
   const transcriber = preferences?.find((p) => p.id === "transcriber");
   const s = project?.settings;
-  const tabs = (["general", "recording", "shortcuts", "project"] as const).map((t) => (
+  const tabs = SETTINGS_TABS.map((t) => (
     <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
       {t}
     </button>

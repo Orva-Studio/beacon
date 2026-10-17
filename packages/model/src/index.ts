@@ -14,5 +14,6 @@ export * from "./canvas";
 export * from "./perspective";
 export * from "./shortcuts";
 export * from "./app-settings";
+export * from "./narration";
 /** A draft's state before the command began: read it to find things without drafting every object on the way. */
 export { original } from "immer";

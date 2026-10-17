@@ -1,4 +1,4 @@
-import { chordId, chordOf, keysLabel, sameArgs, type Keys, type ShortcutInfo } from "@beacon/model";
+import { chordId, eventChordId, keysLabel, sameArgs, type ShortcutInfo } from "@beacon/model";
 import type { Binding } from "./rpc";
 import { replica, useView } from "./store";
 
@@ -25,19 +25,13 @@ export function compileKeymap(bindings: Binding[]): Map<string, Binding> {
   return map;
 }
 
-function eventChord(e: KeyboardEvent): string {
-  const mods = [e.ctrlKey && "control", e.altKey && "option", e.shiftKey && "shift", e.metaKey && "command"].filter(Boolean) as string[];
-  return `${mods.sort().join("+")}|${e.code}`;
-}
-
 export function match(map: Map<string, Binding>, e: KeyboardEvent): Binding | undefined {
-  const c = eventChord(e);
+  const c = eventChordId(e);
   // Forward delete does what delete does unless bound itself (⌘⌦ Ripple Deletes, as ⌘⌫), for keyboards and remaps that send it.
   return map.get(c) ?? (e.code === "Delete" ? map.get(c.replace(/\|Delete$/, "|Backspace")) : undefined);
 }
 
-/** Whether a shortcut can be a native menu's key equivalent: one with ⌘ or ⌃ never types into a text field. */
-export const menuKey = (keys: Keys) => !!chordOf(keys) && (keys.modifiers.includes("command") || keys.modifiers.includes("control"));
+export { menuKey } from "@beacon/model";
 
 export interface ActionHost {
   run(command: string, args?: unknown): void;

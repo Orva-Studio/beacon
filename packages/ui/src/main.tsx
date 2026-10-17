@@ -1,49 +1,20 @@
 import { createRoot } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
-import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { commandQueue } from "./latest";
 import { replica } from "./store";
+import { applyReply, messageHandlers } from "./messages";
 
 const rpc = Electroview.defineRPC<AppRPC>({
   maxRequestTime: 120_000,
   handlers: {
     requests: {},
     messages: {
-      opened: (o) => replica.opened(o),
+      ...messageHandlers,
       patches: ({ patches, rev }) => {
         if (!replica.patches(patches, rev)) void resync();
       },
-      session: ({ changes }) => replica.session(changes),
-      status: ({ text }) => replica.status(text),
-      rename: ({ track }) => replica.rename(track),
-      renameMedia: ({ asset }) => replica.renameMedia(asset),
-      showClipSpeed: ({ clip }) => replica.showClipSpeed(clip, true),
-      newProjectSheet: ({ name }) => replica.newProject({ name }),
-      recent: (r) => replica.recent(r),
-      saveAsSheet: (s) => replica.saveAs(s),
-      resourceSheet: (r) => replica.resource(r),
-      resourceJob: (j) => replica.resourceJob(j),
-      previewClock: (c) => replica.previewClock(c),
-      notice: (n) => replica.notice(n),
-      saved: ({ ok }) => replica.saved(ok),
-      media: (m) => replica.media(m),
-      exportSheet: (s) => replica.exportSheet(s),
-      recordSheet: (s) => replica.recordSheet(s),
-      recordDevices: (d) => replica.recordDevices(d),
-      recordPreview: (e) => recordPreviewEvent(e),
-      recordedSheet: (s) => replica.recordedSheet(s),
-      narrating: (n) => replica.narrating(n),
-      exportJob: (j) => replica.exportJob(j),
-      snapshotSaved: ({ path }) => replica.snapshot(path),
-      settingsSheet: (s) => replica.settings(s),
-      favorites: ({ items }) => replica.favorites(items),
-      shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
-      palette: () => replica.palette(true),
-      appSettings: (a) => replica.appSettings(a),
-      preferences: (p) => replica.preferences(p),
-      closeDialogs: () => replica.closeDialogs(),
       key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;
         const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
@@ -89,17 +60,8 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 
 const commands = commandQueue(report);
 
-const shortcuts = async (p: Promise<{ ok: boolean; error?: string; result?: import("@beacon/model").ShortcutInfo[] }>) => {
-  const r = await p.catch((e: unknown) => ({ ok: false, error: String(e), result: undefined }));
-  if (r.result) replica.shortcuts(r.result);
-  else if (r.error) replica.status(r.error);
-};
-
-const favorites = async (p: Promise<{ ok: boolean; error?: string; result?: string[] }>) => {
-  const r = await p.catch((e: unknown) => ({ ok: false, error: String(e), result: undefined }));
-  if (r.result) replica.favorites(r.result);
-  else if (r.error) replica.status(r.error);
-};
+const shortcuts = applyReply(replica.shortcuts);
+const favorites = applyReply(replica.favorites);
 
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request.run({ command, args, label, coalesce }), coalesce),
@@ -129,7 +91,7 @@ const host: Host = {
   favoriteMove: (item, index) => void favorites(request.favoriteMove({ item, index })),
   shortcutSet: (action, keys, replace) => void shortcuts(request.shortcutSet({ action, keys, ...(replace ? { replace } : {}) })),
   shortcutReset: (action) => void shortcuts(request.shortcutReset(action ? { action } : {})),
-  app: (id) => void request.appAction({ id }),
+  app: (action) => void request.appAction({ action }),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),

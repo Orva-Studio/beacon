@@ -1,23 +1,28 @@
 import { z } from "zod";
-import { chordId, chordOf, keysLabel, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
+import { chordId, chordOf, KeysSchema, keysLabel, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
 import actionList from "../../../keymaps/actions.json";
 import defaultKeymap from "../../../keymaps/default.json";
 
 export const ACTIONS = actionList.actions as ActionListing[];
+const ACTION_BY_ID = new Map(ACTIONS.map((a) => [a.id, a]));
 const DEFAULTS = defaultKeymap.bindings as { keys: Keys; command: string; args?: Record<string, unknown> }[];
 
 /** `keymap.json`: the user's keys by action id, replacing that action's defaults (an empty list: no keys). */
-export const KeymapFileSchema = z.object({ overrides: z.record(z.string(), z.array(z.object({ key: z.string(), modifiers: z.array(z.string()) }))) });
+export const KeymapFileSchema = z.object({ overrides: z.record(z.string(), z.array(KeysSchema)) });
 export type KeymapOverrides = Record<string, Keys[]>;
 
 /** Key hints in command descriptions ("(⇧⌘T)", "(⌃⇧← / ⌃⇧→)") go stale once keys change: the list shows the real ones. */
 const keyHints = /\s*\((?:[⌃⌥⇧⌘]*[^\s()⌃⌥⇧⌘]{1,2}(?:\s*(?:\/|,|or)\s*)?)+\)/g;
 
-/** An action's default keys, one per physical chord (the keymap writes ⇧I both as "I" and as shift "i"). */
-const defaultKeys = (a: ActionListing) =>
-  DEFAULTS.filter((b) => b.command === (a.command ?? a.id) && sameArgs(b.args, a.args))
-    .map((b) => b.keys)
-    .filter((k, i, all) => all.findIndex((o) => chordId(o) === chordId(k)) === i);
+/** Each action's default keys, one per physical chord (the keymap writes ⇧I both as "I" and as shift "i"). */
+const DEFAULT_KEYS = new Map(
+  ACTIONS.map((a) => {
+    const keys = new Map<string, Keys>();
+    for (const b of DEFAULTS) if (b.command === (a.command ?? a.id) && sameArgs(b.args, a.args) && !keys.has(chordId(b.keys)!)) keys.set(chordId(b.keys)!, b.keys);
+    return [a.id, [...keys.values()]];
+  }),
+);
+const defaultKeys = (id: string) => DEFAULT_KEYS.get(id) ?? [];
 
 /** Every action with its keys: the defaults, with the user's overrides merged over them. */
 export function shortcutList(overrides: KeymapOverrides, describe: (command: string) => string | undefined): ShortcutInfo[] {
@@ -29,7 +34,7 @@ export function shortcutList(overrides: KeymapOverrides, describe: (command: str
       description: (a.description ?? describe(a.command ?? a.id) ?? "").replace(keyHints, ""),
       command: a.command ?? a.id,
       ...(a.args ? { args: a.args } : {}),
-      keys: own && !a.fixed ? own : defaultKeys(a),
+      keys: own && !a.fixed ? own : defaultKeys(a.id),
       standard: !own || !!a.fixed,
       ...(a.fixed ? { fixed: a.fixed } : {}),
     };
@@ -41,7 +46,7 @@ export function shortcutList(overrides: KeymapOverrides, describe: (command: str
  * then it moves here. Keys equal to the defaults drop the override.
  */
 export function setShortcut(overrides: KeymapOverrides, id: string, keys: Keys[], replace: boolean): KeymapOverrides {
-  const action = ACTIONS.find((a) => a.id === id);
+  const action = ACTION_BY_ID.get(id);
   if (!action) throw new Error(`no action "${id}"; shortcuts_list lists them`);
   if (action.fixed) throw new Error(`${action.name}'s keys can't be changed: ${action.fixed}`);
   for (const k of keys) if (!chordOf(k)) throw new Error(`"${keysLabel(k)}" isn't a key Beacon can bind`);
@@ -54,11 +59,10 @@ export function setShortcut(overrides: KeymapOverrides, id: string, keys: Keys[]
     if (!replace) throw new Error(`${keysLabel(taken[0]!)} is ${other.name}'s shortcut`);
     if (other.fixed) throw new Error(`${keysLabel(taken[0]!)} is ${other.name}'s, which can't change (${other.fixed})`);
     const rest = other.keys.filter((k) => !chords.has(chordId(k)!));
-    const standard = defaultKeys(ACTIONS.find((a) => a.id === other.id)!);
-    if (sameKeys(rest, standard)) delete next[other.id];
+    if (sameKeys(rest, defaultKeys(other.id))) delete next[other.id];
     else next[other.id] = rest;
   }
-  if (sameKeys(keys, defaultKeys(action))) delete next[id];
+  if (sameKeys(keys, defaultKeys(id))) delete next[id];
   else next[id] = keys;
   return next;
 }

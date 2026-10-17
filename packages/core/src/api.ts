@@ -1,4 +1,4 @@
-import type { AppSettings, CommandResult, Keys, Patch, Session, Settings, ShortcutInfo } from "@beacon/model";
+import type { AppSettings, CommandResult, Keys, Patch, Session, Settings, SettingsPatch, ShortcutInfo, UiDialog } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { VideoEncoding } from "@beacon/render";
 
@@ -164,11 +164,7 @@ export interface Job {
   done: Promise<unknown>;
 }
 
-/** Settings to change; `snapshotFolder: null` goes back to the project's media folder. */
-export type SettingsPatch = Partial<Omit<AppSettings, "snapshotFolder">> & { snapshotFolder?: string | null };
-
-/** The dialogs `uiOpen` shows. */
-export type UiDialog = "settings" | "export" | "exportSelection" | "newProject" | "record";
+export type { UiDialog } from "@beacon/model";
 
 export interface CommandInfo {
   id: string;
