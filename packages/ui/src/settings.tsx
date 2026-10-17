@@ -6,8 +6,9 @@ import { syncKey, type AppSettings, type CameraSync, type RecordDevices, type Se
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
+import { ShortcutsSettings, type ShortcutsHost } from "./shortcuts-settings";
 
-export interface SettingsHost extends SyncCheckHost, TranscriptsHost {
+export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost {
   run(command: string, args?: unknown, label?: string): void;
   setAppSettings(settings: AppSettings): void;
   proxySpace(): Promise<number>;
@@ -37,7 +38,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
   const close = () => replica.settings(undefined);
   const transcriber = preferences?.find((p) => p.id === "transcriber");
   const s = project?.settings;
-  const tabs = (["general", "recording", "project"] as const).map((t) => (
+  const tabs = (["general", "recording", "shortcuts", "project"] as const).map((t) => (
     <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
       {t}
     </button>
@@ -110,6 +111,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
         </div>
       )}
       {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
+      {tab === "shortcuts" && <ShortcutsSettings host={host} />}
       {tab === "project" &&
         (s ? (
           <CanvasSettings

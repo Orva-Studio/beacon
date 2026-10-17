@@ -31,11 +31,15 @@ type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
 const { DEFAULT_EXPORT, exportOptions, panelHeight, syncKey } = await import("@beacon/ui");
-const keymap = (await import("../../../../keymaps/default.json")).default.bindings as import("@beacon/ui").Init["keymap"];
+const { chordOf, keysLabel } = await import("@beacon/model");
+type Keys = import("@beacon/model").Keys;
+type ShortcutInfo = import("@beacon/model").ShortcutInfo;
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
 const core = new LocalCore({ socket, reveal: (path) => Utils.showItemInFolder(path) });
+/** Every action with its keys, the user's over the defaults: the menus show them. */
+let shortcuts = await core.shortcuts();
 
 interface Current {
   path: string;
@@ -175,6 +179,8 @@ async function switchTo(path: string) {
       offerResource(e.resource);
     } else if (e.kind === "favorites") {
       send().favorites({ items: e.items });
+    } else if (e.kind === "shortcuts") {
+      shortcutsChanged(e.shortcuts);
     } else if (e.kind === "preparing") {
       proxyProgress.queued = e.assets;
       sendPreparing();
@@ -999,7 +1005,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         return {
           opened: current ? await openedPayload(current.path) : undefined,
           recent: recentProjects(),
-          keymap,
+          shortcuts,
           propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
           effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
           clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
@@ -1068,6 +1074,9 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       favoriteAdd: ({ item, index }) => replyWith(() => core.favoriteAdd(item, index)),
       favoriteRemove: ({ item }) => replyWith(() => core.favoriteRemove(item)),
       favoriteMove: ({ item, index }) => replyWith(() => core.favoriteMove(item, index)),
+      shortcutSet: ({ action, keys, replace }) => replyWith(async () => shortcutsChanged(await core.shortcutSet(action, keys, replace))),
+      shortcutReset: ({ action }) => replyWith(async () => shortcutsChanged(await core.shortcutReset(action))),
+      appAction: ({ id }) => appAction(id),
       previewOpen: ({ asset }) => {
         closePreview();
         if (!current) return null;
@@ -1239,37 +1248,82 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
   },
 });
 
-// Cut, copy and paste stay roles: they reach the webview as clipboard events, which run the edit actions
-// there and keep text fields working. The rest run commands here, without key equivalents: the webview's keymap has them.
-const run = (action: string) => ({ label: MENU[action]!, action: `run:${action}` });
-const MENU: Record<string, string> = {
-  "edit.delete": "Delete",
-  "edit.rippleCut": "Ripple Cut",
-  "edit.rippleDelete": "Ripple Delete",
-  "edit.duplicate": "Duplicate",
-  "edit.silenceAudio": "Silence Audio",
-  "edit.restoreAudio": "Restore Audio",
-  "edit.addAudioPoint": "Add Audio Point",
-  "edit.split": "Split",
-  "edit.splitAll": "Split All",
-  "edit.trimToPlayhead:start": "Trim Start to Playhead",
-  "edit.trimToPlayhead:end": "Trim End to Playhead",
-  "selection.all": "Select All",
-  "selection.side:left": "All Timeline to Left",
-  "selection.side:right": "All Timeline to Right",
-  "selection.clear": "Deselect All",
-  "edit.addMarker": "Add Timeline Marker",
-  "timeline.snapping": "Enable Timeline Snapping",
-};
+/** The menus show the keys as they are now; with no project open, the change doesn't arrive as a project event. */
+function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
+  shortcuts = next;
+  setMenu();
+  send().shortcuts({ shortcuts: next });
+  return next;
+}
+
+/** A shortcut as a menu key equivalent ("shift+command+t"), for keys Electrobun's menus understand. */
+function accelerator(keys: Keys): string | undefined {
+  const chord = chordOf(keys);
+  if (!chord) return undefined;
+  const KEYS: Record<string, string> = { Backspace: "backspace", Delete: "delete", Enter: "enter", Escape: "escape", Space: "space", ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Comma: ",", Period: ".", Equal: "=", Minus: "-", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Slash: "/", Semicolon: ";", Quote: "'", Backquote: "`" };
+  const key = /^Key[A-Z]$/.test(chord.code) ? chord.code.slice(3).toLowerCase() : /^Digit\d$/.test(chord.code) ? chord.code.slice(5) : KEYS[chord.code];
+  if (!key) return undefined;
+  const mods = chord.mods.split("+").filter(Boolean);
+  return [...["control", "option", "shift", "command"].filter((m) => mods.includes(m)), key].join("+");
+}
+
+/**
+ * A menu item for an action, showing its first key. With ⌘ or ⌃ the key is the item's key equivalent: the app's
+ * own actions run here; commands hand the key back to the window, whose keymap runs them (so a text field that
+ * has focus keeps its keys). Other keys would type into text fields, so they are written after the name instead.
+ */
+function item(id: string, opts: { label?: string; enabled?: boolean } = {}) {
+  const s = shortcuts.find((x) => x.id === id);
+  const label = opts.label ?? s?.name ?? id;
+  const keys = s?.keys[0];
+  const accel = keys && (keys.modifiers.includes("command") || keys.modifiers.includes("control")) ? accelerator(keys) : undefined;
+  const chord = keys && chordOf(keys);
+  const enabled = opts.enabled === undefined ? {} : { enabled: opts.enabled };
+  if (accel && chord) return { label, accelerator: accel, action: id.startsWith("app.") ? `act:${id}` : `key:${chord.mods}|${chord.code}`, ...enabled };
+  return { label: keys ? `${label}  (${keysLabel(keys)})` : label, action: `act:${id}`, ...enabled };
+}
+
+/** The app's own actions, from their menu items, the command palette or keys the window matched. */
+function appAction(id: string): void {
+  const report = (err: unknown) => status(err instanceof Error ? err.message : String(err));
+  if (id === "app.open") return void openDialog().catch(report);
+  if (id === "app.new") return void newProject();
+  if (id === "app.import") return void importMedia().catch(report);
+  if (id === "app.record") return void recordDialog().catch(report);
+  if (id === "app.narration") return void recordDialog("narration").catch(report);
+  if (id === "app.export") return void exportDialog().catch(report);
+  if (id === "app.exportSelection") return void exportDialog(true).catch(report);
+  if (id === "app.saveAs") return void saveAsDialog();
+  if (id === "app.reveal") return void (current && core.reveal(current.path).catch(report));
+  if (id === "app.settings") return void openSettings();
+  if (id === "app.shortcuts") return void openSettings("shortcuts");
+  if (id === "app.projectSettings") return void openSettings("project");
+  if (id === "app.checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
+  if (id === "app.palette") return void send().palette({});
+}
+
 function setMenu() {
+  const open = !!current;
   ApplicationMenu.setApplicationMenu([
-    { submenu: [{ role: "about" }, { label: "Check for Updates…", action: "checkUpdates" }, { type: "separator" }, { label: "Settings…", action: "settings", accelerator: "command+," }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { label: "Quit Beacon", action: "quit", accelerator: "command+q" }] },
+    {
+      submenu: [
+        { role: "about" },
+        item("app.checkUpdates"),
+        { type: "separator" },
+        item("app.settings"),
+        item("app.shortcuts"),
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { type: "separator" },
+        { label: "Quit Beacon", action: "quit", accelerator: "command+q" },
+      ],
+    },
     {
       label: "File",
       submenu: [
-        { label: "New Project", action: "new", accelerator: "command+n" },
-        // ⌘O is handled by the window's own keys.
-        { label: "Open Project…  (⌘O)", action: "open" },
+        item("app.new"),
+        item("app.open"),
         {
           label: "Open Recent",
           submenu: [
@@ -1279,47 +1333,58 @@ function setMenu() {
           ],
         },
         { type: "separator" },
-        { label: "Save As…", action: "saveAs", accelerator: "shift+command+s", enabled: !!current },
-        { label: "Show in Finder", action: "reveal", enabled: !!current },
+        item("app.saveAs", { enabled: open }),
+        item("app.reveal", { enabled: open }),
         { type: "separator" },
-        { label: "Import Media…", action: "import", accelerator: "command+i" },
-        { label: "Record…", action: "record", accelerator: "command+r" },
+        item("app.import"),
+        item("app.record"),
         { type: "separator" },
-        { label: "Export…", action: "export", accelerator: "command+e" },
-        { label: "Export Selection…", action: "exportSelection" },
+        item("app.export"),
+        item("app.exportSelection"),
       ],
     },
     {
       label: "Edit",
       submenu: [
-        { label: "Undo", action: "undo" },
-        { label: "Redo", action: "redo" },
+        item("project.undo"),
+        item("project.redo"),
         { type: "separator" },
+        // Cut, copy and paste stay roles: they reach the webview as clipboard events, which run the edit actions there and keep text fields working.
         { role: "cut" },
         { role: "copy" },
         { role: "paste" },
-        run("edit.delete"),
-        run("edit.rippleCut"),
-        // WKWebView swallows ⌘⌫ before the page sees it, so the menu owns the key and hands it back to the window's keymap.
-        { label: "Ripple Delete", action: "key:command+Backspace", accelerator: "command+backspace" },
-        run("edit.duplicate"),
+        item("edit.delete"),
+        item("edit.rippleCut"),
+        // WKWebView swallows ⌘⌫ before the page sees it: the menu owns the key and hands it back to the window's keymap, as for every command.
+        item("edit.rippleDelete"),
+        item("edit.duplicate"),
         { type: "separator" },
-        run("edit.silenceAudio"),
-        run("edit.restoreAudio"),
-        run("edit.addAudioPoint"),
+        item("edit.silenceAudio"),
+        item("edit.restoreAudio"),
+        item("edit.addAudioPoint"),
         { type: "separator" },
-        run("edit.split"),
-        run("edit.splitAll"),
+        item("edit.split"),
+        item("edit.splitAll"),
         { type: "separator" },
-        { label: "Select", submenu: [run("selection.all"), run("selection.side:left"), run("selection.side:right")] },
-        run("selection.clear"),
-        { label: "Playhead", submenu: [run("edit.trimToPlayhead:start"), run("edit.trimToPlayhead:end")] },
+        { label: "Select", submenu: [item("selection.all"), item("selection.side:left", { label: "All Timeline to Left" }), item("selection.side:right", { label: "All Timeline to Right" })] },
+        item("selection.clear"),
+        { label: "Playhead", submenu: [item("edit.trimToPlayhead:start"), item("edit.trimToPlayhead:end")] },
         { type: "separator" },
-        run("edit.addMarker"),
+        item("edit.addMarker"),
       ],
     },
-    { label: "View", submenu: [run("timeline.snapping")] },
-    { label: "Tools", submenu: [{ label: "Voice Narration…", action: "narration", enabled: !!current }] },
+    {
+      label: "View",
+      submenu: [
+        item("timeline.snapping", { label: "Enable Timeline Snapping" }),
+        item("canvas.snapping", { label: "Enable Canvas Snapping" }),
+        { type: "separator" },
+        item("timeline.zoom:in"),
+        item("timeline.zoom:out"),
+        item("timeline.zoom:fit"),
+      ],
+    },
+    { label: "Tools", submenu: [item("app.palette"), { type: "separator" }, item("app.narration", { enabled: open })] },
     {
       label: "Window",
       submenu: [
@@ -1347,7 +1412,7 @@ ContextMenu.on("context-menu-clicked", (e) => {
   if (current && action.startsWith("run:")) return void core.run(current.path, ...menuCommand(action.slice(4))).catch((err: Error) => status(err.message));
   if (current && action.startsWith("track:")) return trackAction(current.path, action.split(":")[1]!, action.split(":")[2]!);
   if (current && action.startsWith("media:")) return mediaAction(current.path, action.split(":")[1]!, action.split(":")[2]!);
-  if (action === "app:projectSettings") return void openSettings("project");
+  if (action === "app:projectSettings") return void appAction("app.projectSettings");
   const [op, clip] = action.split(":");
   if (!current || !clip) return;
   const h = current.path;
@@ -1444,19 +1509,7 @@ function trackAction(h: string, op: string, track: string) {
 
 ApplicationMenu.on("application-menu-clicked", (e) => {
   const action = (e as { data?: { action?: string } }).data?.action;
-  const report = (err: unknown) => status(err instanceof Error ? err.message : String(err));
-  if (action === "open") return void openDialog().catch(report);
-  if (action === "new") return newProject();
-  if (action === "import") return void importMedia().catch(report);
-  if (action === "record") return void recordDialog().catch(report);
-  if (action === "narration") return void recordDialog("narration").catch(report);
-  if (action === "export") return void exportDialog().catch(report);
-  if (action === "exportSelection") return void exportDialog(true).catch(report);
   if (action === "recentClear") return setRecent([]);
-  if (action === "saveAs") return saveAsDialog();
-  if (action === "reveal") return void (current && core.reveal(current.path).catch(report));
-  if (action === "settings") return void openSettings();
-  if (action === "checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
   // Its own item rather than the Quit role, which ⌘Q did not reach (2026-10-12): close everything, then let Electrobun exit.
   if (action === "quit") {
     quitLog("⌘Q");
@@ -1464,16 +1517,21 @@ ApplicationMenu.on("application-menu-clicked", (e) => {
     return void Utils.quit();
   }
   if (action?.startsWith("key:")) {
-    const [mods, code] = action.slice(4).split("+") as [string, string];
-    return send().key({ code, meta: mods === "command" });
+    const [mods, code] = action.slice(4).split("|") as [string, string];
+    const has = (m: string) => mods.split("+").includes(m);
+    return send().key({ code, meta: has("command"), shift: has("shift"), alt: has("option"), ctrl: has("control") });
   }
   if (action?.startsWith("recent:")) return openRecent(action.slice(7));
+  if (!action?.startsWith("act:")) return;
+  const id = action.slice(4);
+  if (id.startsWith("app.")) return appAction(id);
   if (!current) return;
   const h = current.path;
   const fail = (err: Error) => status(err.message);
-  if (action === "undo") core.undo(h).catch(fail);
-  else if (action === "redo") core.redo(h).catch(fail);
-  else if (action?.startsWith("run:")) core.run(h, ...menuCommand(action.slice(4))).catch(fail);
+  const s = shortcuts.find((x) => x.id === id);
+  if (id === "project.undo") core.undo(h).catch(fail);
+  else if (id === "project.redo") core.redo(h).catch(fail);
+  else if (s) core.run(h, s.command, s.args ?? {}).catch(fail);
 });
 
 const win = new BrowserWindow({

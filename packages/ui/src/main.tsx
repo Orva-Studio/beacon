@@ -39,7 +39,9 @@ const rpc = Electroview.defineRPC<AppRPC>({
       snapshotSaved: ({ path }) => replica.snapshot(path),
       settingsSheet: (s) => replica.settings(s),
       favorites: ({ items }) => replica.favorites(items),
-      key: ({ code, meta }) => {
+      shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
+      palette: () => replica.palette(true),
+      key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;
         // In a text field ⌘⌫ keeps its meaning: delete back to the start of the line.
         if (code === "Backspace" && meta && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
@@ -49,7 +51,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
           el.dispatchEvent(new Event("input", { bubbles: true }));
           return;
         }
-        (el ?? window).dispatchEvent(new KeyboardEvent("keydown", { code, key: code, metaKey: meta, bubbles: true, cancelable: true }));
+        (el ?? window).dispatchEvent(new KeyboardEvent("keydown", { code, key: code, metaKey: meta, shiftKey: shift, altKey: alt, ctrlKey: ctrl, bubbles: true, cancelable: true }));
       },
     },
   },
@@ -76,6 +78,12 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 };
 
 const commands = commandQueue(report);
+
+const shortcuts = async (p: Promise<{ ok: boolean; error?: string; result?: import("@beacon/model").ShortcutInfo[] }>) => {
+  const r = await p.catch((e: unknown) => ({ ok: false, error: String(e), result: undefined }));
+  if (r.result) replica.shortcuts(r.result);
+  else if (r.error) replica.status(r.error);
+};
 
 const favorites = async (p: Promise<{ ok: boolean; error?: string; result?: string[] }>) => {
   const r = await p.catch((e: unknown) => ({ ok: false, error: String(e), result: undefined }));
@@ -109,6 +117,9 @@ const host: Host = {
   favoriteAdd: (item, index) => void favorites(request.favoriteAdd({ item, ...(index !== undefined ? { index } : {}) })),
   favoriteRemove: (item) => void favorites(request.favoriteRemove({ item })),
   favoriteMove: (item, index) => void favorites(request.favoriteMove({ item, index })),
+  shortcutSet: (action, keys, replace) => void shortcuts(request.shortcutSet({ action, keys, ...(replace ? { replace } : {}) })),
+  shortcutReset: (action) => void shortcuts(request.shortcutReset(action ? { action } : {})),
+  app: (id) => void request.appAction({ id }),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),

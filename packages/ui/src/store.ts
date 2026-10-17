@@ -39,6 +39,10 @@ export interface ViewState {
   missing: string[];
   /** The Favorites panel's items, in order (`Init.favorites`). */
   favorites: string[];
+  /** Every action with its keys (`Init.shortcuts`). */
+  shortcuts: import("@beacon/model").ShortcutInfo[];
+  /** The command palette, while open. */
+  palette?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
   dragging?: { item: PanelItem; x: number; y: number };
   /** The Export dialog, while open. */
@@ -80,7 +84,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -91,7 +95,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init, favorites: init.favorites });
+    set({ init, favorites: init.favorites, shortcuts: init.shortcuts });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -140,6 +144,12 @@ export const replica = {
   },
   favorites(favorites: string[]) {
     set({ favorites });
+  },
+  shortcuts(shortcuts: ViewState["shortcuts"]) {
+    set({ shortcuts });
+  },
+  palette(palette: boolean) {
+    set({ palette });
   },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });

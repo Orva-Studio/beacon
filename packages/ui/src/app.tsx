@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { compileKeymap, label, match } from "./keymap";
+import { bindingsOf, compileKeymap, match, menuKey, useShortcutTip } from "./keymap";
+import { Palette, runAction, type ActionHost } from "./palette";
 import { droppedFiles } from "./drop";
 import type { DroppedFile, Init, Narrating } from "./rpc";
 import { useView } from "./store";
@@ -23,7 +24,7 @@ import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
 import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
-export interface Host extends ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
+export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
   run(command: string, args?: unknown, label?: string, coalesce?: string): void;
   /** A read-only query of the open project (`callout.textLayout`, `callout.fonts`…), as agents run them. */
@@ -96,7 +97,8 @@ export function App({ host }: { host: Host }) {
       window.removeEventListener("drop", drop);
     };
   }, [host]);
-  const keymap = useMemo(() => compileKeymap(init?.keymap ?? []), [init]);
+  const shortcuts = useView((s) => s.shortcuts);
+  const keymap = useMemo(() => compileKeymap(bindingsOf(shortcuts)), [shortcuts]);
 
   // A click anywhere but a text field ends typing in one, so the shortcuts (arrows nudge, , and . step) work again.
   useEffect(() => {
@@ -111,17 +113,13 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
-      if (e.metaKey && e.code === "KeyO") {
-        e.preventDefault();
-        return host.openDialog();
-      }
+      const field = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
       const b = match(keymap, e);
       if (!b?.command || CLIPBOARD[b.command]) return;
+      // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
+      if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;
       e.preventDefault();
-      if (b.command === "project.undo") host.undo();
-      else if (b.command === "project.redo") host.redo();
-      else host.run(b.command, b.args ?? {});
+      runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
     const onClipboard = (e: ClipboardEvent) => {
@@ -196,6 +194,7 @@ export function App({ host }: { host: Host }) {
       <ResourceUi host={host} />
       <MediaPreviewUi host={host} />
       <NoticeUi />
+      <Palette host={host} />
       {/* The dragged panel item; a mask so it shows over the native canvas too. */}
       {dragging && (
         <div
@@ -375,10 +374,7 @@ const TOOL_ICONS: Record<string, IconName> = {
 
 /** The toolbar above the timeline: undo, redo, cut, copy, paste, split, snapshot, then the timeline zoom. */
 function Toolbar({ session, host, init }: { session: Session; host: Host; init?: Init }) {
-  const tip = (command: string, args?: object) => {
-    const b = init?.keymap.find((k) => k.command === command && JSON.stringify(k.args ?? {}) === JSON.stringify(args ?? {}));
-    return b ? ` (${label(b.keys)})` : "";
-  };
+  const tip = useShortcutTip();
   const some = session.selection.length > 0 || !!session.range;
   const tool = (name: string, title: string, onClick: () => void, enabled = true) => (
     <Button look="icon" title={title} disabled={!enabled} onClick={onClick}>
@@ -421,10 +417,7 @@ function Toolbar({ session, host, init }: { session: Session; host: Host; init?:
 function Transport({ project, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   const fps = rationalToNumber(project.settings.fps);
   const end = Math.max(0, ...project.tracks.flatMap((t) => t.clips.map((c) => ticksToSeconds(c.start + c.duration))));
-  const tip = (command: string, args?: object) => {
-    const b = init?.keymap.find((k) => k.command === command && JSON.stringify(k.args ?? {}) === JSON.stringify(args ?? {}));
-    return b ? ` (${label(b.keys)})` : "";
-  };
+  const tip = useShortcutTip();
   return (
     <div className="flex h-9 shrink-0 items-center justify-center gap-1 border-b border-divider bg-bar px-3">
       <Button look="icon" title={`Previous media${tip("playhead.jump", { to: "previousEdit" })}`} onClick={() => host.run("playhead.jump", { to: "previousEdit" })}>

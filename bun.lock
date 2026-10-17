@@ -45,6 +45,7 @@
       "version": "0.5.0",
       "dependencies": {
         "@beacon/core": "workspace:*",
+        "@beacon/model": "workspace:*",
         "@beacon/ui": "workspace:*",
       },
       "devDependencies": {

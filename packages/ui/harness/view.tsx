@@ -70,6 +70,7 @@ ws.onmessage = (m) => {
   else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
   else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
   else if (msg.type === "favorites") replica.favorites(msg.data.items);
+  else if (msg.type === "shortcuts") replica.shortcuts(msg.data.shortcuts);
 };
 
 const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -78,6 +79,12 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 };
 
 const commands = commandQueue(report);
+
+const shortcuts = async (p: Promise<unknown>) => {
+  const r = (await p) as { ok: boolean; error?: string; result?: import("@beacon/model").ShortcutInfo[] };
+  if (r.result) replica.shortcuts(r.result);
+  else if (r.error) replica.status(r.error);
+};
 
 const favorites = async (p: Promise<unknown>) => {
   const r = (await p) as { ok: boolean; error?: string; result?: string[] };
@@ -110,6 +117,9 @@ const host: Host = {
   favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, index })),
   favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
   favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
+  shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, replace })),
+  shortcutReset: (action) => void shortcuts(request("shortcutReset", { action })),
+  app: (action) => void request("appAction", { action }),
   chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,

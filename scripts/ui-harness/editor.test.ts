@@ -236,7 +236,7 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
     { path, name: "start", opened: now - 5 * 60_000 },
     { path: "/Users/someone/Movies/Beacon/Launch.beproj", name: "Launch", opened: now - 3 * 3_600_000, thumb: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" },
     { path: "/Users/someone/Movies/Beacon/Tutorial.beproj", name: "Tutorial", opened: now - 26 * 3_600_000 },
-    { path: "/Users/someone/Movies/Beacon/Old.beproj", name: "Old", opened: new Date(2025, 2, 3).getTime() },
+    { path: "/Users/someone/Movies/Beacon/Old.beproj", name: "Old", opened: new Date(2025, 2, 3, 12).getTime() },
     { path: "/Users/someone/Movies/Beacon/Fifth.beproj", name: "Fifth", opened: new Date(2025, 1, 1).getTime() },
   ];
   const start = await serveUi(path, { closed: true, recent });
@@ -952,6 +952,111 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   expect(await ui.core.favorites()).not.toContain("audio:fade-in");
   await select([]);
 });
+
+test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressing keys rebinds one, a key taken asks first and moves it; the keys work at once; Reset All puts them back", async () => {
+  const keysOf = async (id: string) => (await ui.core.shortcuts()).find((s) => s.id === id)!.keys;
+  const row = (id: string) => `[data-shortcut="${id}"]`;
+  const rowKeys = (id: string) => page.evaluate<string>(`document.querySelector('${row(id)} [data-shortcut-keys]')?.textContent ?? ''`);
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
+  await page.until("!!document.querySelector('[data-shortcuts]')");
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-shortcut]').length")).toBe((await ui.core.shortcuts()).length);
+  await page.click(...(await centre("[data-shortcuts-search]")));
+  await type("split");
+  await page.until(`!!document.querySelector('${row("edit.split")}') && !document.querySelector('${row("edit.duplicate")}')`);
+  expect(await rowKeys("edit.split")).toBe("⌘T");
+  // A key Duplicate has: asked first; Cancel changes nothing.
+  await page.click(...(await centre(`${row("edit.split")} [data-shortcut-keys]`)));
+  await page.until("document.activeElement?.hasAttribute('data-recording')");
+  await page.key("d", "KeyD", ["meta"]);
+  await page.until("!!document.querySelector('[data-shortcut-clash]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-shortcut-clash]').textContent")).toContain("⌘D is Duplicate's shortcut");
+  await page.screenshot(join(dir, "shortcuts-clash.png"));
+  await page.click(...(await centre("[data-clash-replace]")));
+  await page.until(`document.querySelector('${row("edit.split")} [data-shortcut-keys]').textContent === "⌘D"`);
+  expect(await keysOf("edit.split")).toEqual([{ key: "d", modifiers: ["command"] }]);
+  expect(await keysOf("edit.duplicate")).toEqual([]);
+  expect(await page.evaluate<boolean>(`!!document.querySelector('${row("edit.split")} [data-shortcut-reset]')`)).toBe(true);
+  // Escape while recording stops without changing anything.
+  await page.click(...(await centre(`${row("edit.split")} [data-shortcut-keys]`)));
+  await page.until("document.activeElement?.hasAttribute('data-recording')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-recording]') && !!document.activeElement?.hasAttribute('data-shortcut-keys')");
+  expect(await keysOf("edit.split")).toEqual([{ key: "d", modifiers: ["command"] }]);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-shortcuts]')");
+
+  // The window's keys follow: ⌘D splits, ⌘T no longer does.
+  await select([screen.id]);
+  await run("playhead.set", { time: 3 });
+  await Bun.sleep(200);
+  const count = clips().length;
+  await page.key("t", "KeyT", ["meta"]);
+  await Bun.sleep(300);
+  expect(clips().length).toBe(count);
+  await page.key("d", "KeyD", ["meta"]);
+  await arrived(() => clips().length > count);
+  expect(clips().length).toBeGreaterThan(count);
+  await ui.core.undo(ui.handle);
+  expect(await page.evaluate<string>("[...document.querySelectorAll('button')].find((b) => b.title.startsWith('Split'))?.title ?? ''")).toBe("Split (⌘D)");
+
+  // An agent's change shows in the open list; Reset All puts every key back.
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
+  await page.until("!!document.querySelector('[data-shortcuts]')");
+  await ui.core.shortcutSet("edit.addMarker", [{ key: "m", modifiers: ["option"] }]);
+  await page.until(`document.querySelector('${row("edit.addMarker")} [data-shortcut-keys]')?.textContent === "⌥M"`);
+  await page.screenshot(join(dir, "shortcuts.png"));
+  await page.click(...(await centre("[data-shortcuts-reset-all]")));
+  await page.until(`document.querySelector('${row("edit.split")} [data-shortcut-keys]').textContent === "⌘T"`);
+  expect((await ui.core.shortcuts()).filter((s) => !s.standard)).toEqual([]);
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  await page.until("!document.querySelector('[data-shortcuts]')");
+  await select([]);
+}, 30000);
+
+test.skipIf(skip)("the command palette opens on ⌘K, finds actions by name or description with their keys, and runs one with Enter; its key can be changed", async () => {
+  const open = () => page.until("!!document.querySelector('[data-palette]')");
+  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-action]')].map((e) => e.dataset.action)");
+  await page.key("k", "KeyK", ["meta"]);
+  await open();
+  expect((await shown()).length).toBeGreaterThan(50);
+  await type("fit the timeline");
+  await page.until("document.querySelector('[data-action]')?.dataset.action === 'timeline.zoom:fit'");
+  expect(await page.evaluate<string>("document.querySelector('[data-action] kbd').textContent")).toBe("⇧⌘0");
+  await page.screenshot(join(dir, "palette.png"));
+  await run("timeline.view", { start: 0, end: 5 });
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-palette]')");
+  await Bun.sleep(300);
+  expect((await session()).timeline.end).toBeGreaterThan(20);
+
+  // By what it does, not only its name; arrows choose; the app's own run in the main process.
+  await page.key("k", "KeyK", ["meta"]);
+  await open();
+  await type("silence the selected clips");
+  await page.until("(document.querySelector('[data-action]')?.dataset.action) === 'edit.silenceAudio'");
+  await page.evaluate("(() => { const i = document.querySelector('[data-palette-search]'); i.select(); document.execCommand('delete'); })()");
+  await type("export");
+  await page.until("document.querySelectorAll('[data-action]').length >= 2");
+  const found = await shown();
+  expect(found.slice(0, 2)).toEqual(["app.export", "app.exportSelection"]);
+  await page.key("ArrowDown", "ArrowDown");
+  await page.key("Enter", "Enter");
+  await arrived(() => ui.menus.includes("app:app.exportSelection"));
+  expect(ui.menus).toContain("app:app.exportSelection");
+
+  // Rebound, the new key opens it and ⌘K no longer does.
+  await ui.core.shortcutSet("app.palette", [{ key: "p", modifiers: ["shift", "command"] }]);
+  await page.until("document.querySelector('[data-palette]') === null");
+  await Bun.sleep(300);
+  await page.key("k", "KeyK", ["meta"]);
+  await Bun.sleep(300);
+  expect(await has("[data-palette]")).toBe(false);
+  await page.key("P", "KeyP", ["meta", "shift"]);
+  await open();
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-palette]')");
+  await ui.core.shortcutReset();
+}, 30000);
 
 test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, the empty space clears it and a dragged box selects what it touches", async () => {
   await run("panel.show", { tool: "media" });

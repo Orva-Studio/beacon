@@ -4,7 +4,6 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
 import type { RecentProject } from "../../packages/ui/src/rpc";
-import keymap from "../../keymaps/default.json";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
@@ -85,6 +84,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           }
           else if (e.kind === "session") ws.send(JSON.stringify({ type: "session", data: { changes: e.changes } }));
           else if (e.kind === "favorites") ws.send(JSON.stringify({ type: "favorites", data: { items: e.items } }));
+          else if (e.kind === "shortcuts") ws.send(JSON.stringify({ type: "shortcuts", data: { shortcuts: e.shortcuts } }));
           else if (e.kind === "preparing") {
             making.queued = e.assets;
             ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
@@ -122,7 +122,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           result = {
             opened: shown ? await opened() : undefined,
             recent: opts.recent ?? [],
-            keymap: keymap.bindings,
+            shortcuts: await core.shortcuts(),
             propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
             effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
             clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
@@ -234,6 +234,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           menus.push(msg.type === "setPreference" ? `setPreference:${msg.pref}=${msg.value}` : `setSecret:${msg.secret}=${msg.value === null ? "removed" : "set"}`);
           result = await reply(async () => (msg.type === "setPreference" ? await core.setPreference(msg.pref, msg.value) : await core.setSecret(msg.secret, msg.value), core.preferences()));
         }
+        else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(msg.action, msg.keys, msg.replace));
+        else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(msg.action));
+        // The app's own actions open dialogs the main process owns: recorded, as menus are.
+        else if (msg.type === "appAction") menus.push(`app:${msg.action}`);
         else if (msg.type === "favoriteAdd") result = await reply(() => core.favoriteAdd(msg.item, msg.index));
         else if (msg.type === "favoriteRemove") result = await reply(() => core.favoriteRemove(msg.item));
         else if (msg.type === "favoriteMove") result = await reply(() => core.favoriteMove(msg.item, msg.index));

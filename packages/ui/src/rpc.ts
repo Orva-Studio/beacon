@@ -1,5 +1,5 @@
 import type { CanvasValues } from "./canvas-settings";
-import type { Patch, Project, Session } from "@beacon/model";
+import type { Keys, Patch, Project, Session, ShortcutInfo } from "@beacon/model";
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
@@ -11,9 +11,11 @@ export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */
 export interface Binding {
-  keys: { key: string; modifiers: string[] };
+  keys: Keys;
   command: string;
   args?: Record<string, unknown>;
+  /** The action it belongs to (`ShortcutInfo.id`). */
+  action?: string;
 }
 
 export interface PropGroupInfo {
@@ -42,7 +44,8 @@ export interface RecentProject {
 export interface Init {
   opened?: Opened;
   recent: RecentProject[];
-  keymap: Binding[];
+  /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
+  shortcuts: ShortcutInfo[];
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
   effects: { id: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
@@ -94,7 +97,7 @@ export interface Notice {
 }
 
 /** App-wide settings (Settings > General), kept by the main process. */
-export type SettingsTab = "general" | "recording" | "project";
+export type SettingsTab = "general" | "recording" | "shortcuts" | "project";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
@@ -356,6 +359,11 @@ export type AppRPC = {
       favoriteAdd: { params: { item: string; index?: number }; response: RunReply & { result?: string[] } };
       favoriteRemove: { params: { item: string }; response: RunReply & { result?: string[] } };
       favoriteMove: { params: { item: string; index: number }; response: RunReply & { result?: string[] } };
+      /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
+      shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
+      shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
+      /** One of the app's own actions (`app.export`, `app.new`…), as its menu item runs it: the command palette and rebound keys. */
+      appAction: { params: { id: string }; response: void };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
       previewView: { params: { id: number; x: number; y: number; width: number; height: number; scale: number }; response: void };
       /** play (from `time`), pause, seek (to `time`), close. */
@@ -402,7 +410,7 @@ export type AppRPC = {
       /** Add Clip Speed: show the clip's Clip Speed section. */
       showClipSpeed: { clip: string };
       /** A shortcut the native menu took before the page could see it, replayed as a keydown. */
-      key: { code: string; meta: boolean };
+      key: { code: string; meta: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
       exportSheet: ExportSheet;
       /** A narration started, or ended (null). */
@@ -417,6 +425,10 @@ export type AppRPC = {
       exportJob: ExportJob;
       /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
       favorites: { items: string[] };
+      /** Tools › Command Palette…: open it. */
+      palette: {};
+      /** Keyboard shortcuts changed (in Settings or by an agent). */
+      shortcuts: { shortcuts: ShortcutInfo[] };
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };
       /** Beacon > Settings… (⌘,). */
