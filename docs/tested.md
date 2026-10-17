@@ -20,6 +20,8 @@ feature lands and when it is checked.
 | Narration in core: plays the range muted on the audio device, ends by itself at the range's end, lands on a new Narration track at its start lined up by the host clock, one undo step; Discard adds nothing and deletes the take; with nothing after the playhead it records there without playing | 2026-10-16 | `9b26e7b` | Core test with a stand-in recorder (no microphone) and the real audio output |
 | Record button (red dot) at the top left opens the Record dialog; hidden while narrating | 2026-10-16 | `f2d6996` | UI flow; screenshot |
 | The Narration panel (tool rail), as Camtasia's: microphone and its level, timeline sound off by default, Start Voice Recording with a countdown, Stop | 2026-10-16 | `4175f89` | UI flow; screenshot |
+| Favourites: a click selects a panel tile (yellow outline) with a white star that adds it; gold stars un-star; a double-click applies to the selection; Favorites panel in the saved order, a tile dropped on another takes its place; an agent's change shows at once | 2026-10-17 | `6936f6e` | UI flow; screenshot |
+| The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
 
 ### Not checked yet
 
@@ -27,6 +29,8 @@ feature lands and when it is checked.
 - Narrating in the app: the countdown, the timeline playing with and without its sound, ⌘⇧2, Space or a click on
   the timeline ending it, the take transcribed afterwards.
 - `recorder_start` with `narrate` over MCP with the app open.
+- Favourites in the app: starring, the double-click, reordering by dragging, and `favorites_add` over MCP showing in the
+  open window.
 
 ## Phase 7 (`phase-7`)
 
