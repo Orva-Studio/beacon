@@ -6,6 +6,8 @@ import {
   clipEnd,
   clipSpeed,
   defineCommand,
+  mergeSpans,
+  subtractSpans,
   isDraft,
   original,
   isFree,
@@ -120,14 +122,8 @@ function splitAt(track: Track, clip: Clip, at: Ticks, ctx: CommandContext, links
 
 /** Merged, frame-snapped, latest first, so earlier ranges are unaffected by later deletions. */
 function normalizeRanges(doc: Project, ranges: { start: number; end: number }[]): [Ticks, Ticks][] {
-  const sorted = ranges.map((r) => [snapSeconds(r.start, doc.settings.fps), snapSeconds(r.end, doc.settings.fps)] as [Ticks, Ticks]).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
-  const merged: [Ticks, Ticks][] = [];
-  for (const r of sorted) {
-    const last = merged.at(-1);
-    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
-    else merged.push(r);
-  }
-  return merged.reverse();
+  const snapped = ranges.map((r) => [snapSeconds(r.start, doc.settings.fps), snapSeconds(r.end, doc.settings.fps)] as [Ticks, Ticks]).filter(([a, b]) => b > a);
+  return mergeSpans(snapped).reverse() as [Ticks, Ticks][];
 }
 
 /** Removes `[a, b)` from each unlocked, enabled track; with `ripple`, later media moves left to close the gap. */
@@ -184,23 +180,13 @@ export const clipCommands = [
       const locs = locate(doc, ctx.registry, clips ?? [clip!], linked);
       for (const l of locs) unlocked(l.track);
       // The removed time: the union of the clips' spans, across tracks.
-      const spans = locs.map((l) => [l.clip.start, clipEnd(l.clip)] as [Ticks, Ticks]).sort((x, y) => x[0] - y[0]);
-      const union: [Ticks, Ticks][] = [];
-      for (const s of spans) {
-        const last = union.at(-1);
-        if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]);
-        else union.push([...s]);
-      }
+      const union = mergeSpans(locs.map((l) => [l.clip.start, clipEnd(l.clip)]));
       const affected = new Set(locs.map((l) => l.track));
       for (const { clip: c, track } of locs) track.clips.splice(track.clips.indexOf(c), 1);
       if (!ripple) return;
       for (const track of affected) {
         // Time a clip left behind still covers isn't removed from its track, so nothing overlaps.
-        const gaps = union.flatMap(([a, b]) => {
-          let pieces: [Ticks, Ticks][] = [[a, b]];
-          for (const c of track.clips) pieces = pieces.flatMap(([x, y]) => [[x, Math.min(y, c.start)], [Math.max(x, clipEnd(c)), y]] as [Ticks, Ticks][]).filter(([x, y]) => y > x);
-          return pieces;
-        });
+        const gaps = union.flatMap((span) => subtractSpans(span, track.clips.map((c) => [c.start, clipEnd(c)])));
         const removedBefore = (t: Ticks) => gaps.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, t) - a), 0);
         for (const c of track.clips) c.start -= removedBefore(c.start);
       }

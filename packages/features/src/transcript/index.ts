@@ -16,6 +16,8 @@ import {
   type Project,
   type Session,
   type SessionCommandDef,
+  mergeSpans,
+  subtractSpans,
 } from "@beacon/model";
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
@@ -131,15 +133,10 @@ const SLIVER_FRAMES = 2;
 function withoutSlivers(doc: Project, ranges: [number, number][]): [number, number][] {
   const sliver = SLIVER_FRAMES * ticksPerFrame(doc.settings.fps);
   const clips = doc.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
-  let out = ranges.map((r) => [...r] as [number, number]).sort((a, b) => a[0] - b[0]);
+  let out: [number, number][] = ranges.map((r) => [...r]);
   for (let changed = true; changed; ) {
     changed = false;
-    const merged: [number, number][] = [];
-    for (const r of out) {
-      const last = merged.at(-1);
-      if (last && r[0] - last[1] <= sliver) last[1] = Math.max(last[1], r[1]);
-      else merged.push(r);
-    }
+    const merged = mergeSpans(out, sliver);
     for (const r of merged) {
       for (const c of clips) {
         const end = c.start + c.duration;
@@ -168,15 +165,6 @@ function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: nu
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
 
-/** `r` minus every range in `holes`. */
-function subtract(r: { start: number; end: number }, holes: { start: number; end: number }[]): { start: number; end: number }[] {
-  let parts = [r];
-  for (const h of holes) {
-    parts = parts.flatMap((p) => (h.end <= p.start || h.start >= p.end ? [p] : [{ start: p.start, end: h.start }, { start: h.end, end: p.end }].filter((x) => x.end > x.start)));
-  }
-  return parts;
-}
-
 /** What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it before the first word, none after the last), outside `except`. */
 function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
   const words = timelineWords(doc, registry, data);
@@ -184,13 +172,10 @@ function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min
   return pauses(doc, registry, data, words)
     .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
     .flatMap((p) =>
-      subtract(
-        {
-          start: p.after === undefined ? 0 : p.start + o.keep / 2,
-          end: p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2,
-        },
-        o.except,
-      ),
+      subtractSpans(
+        [p.after === undefined ? 0 : p.start + o.keep / 2, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2],
+        o.except.map((x) => [x.start, x.end]),
+      ).map(([start, end]) => ({ start, end })),
     );
 }
 
