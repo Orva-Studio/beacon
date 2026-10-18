@@ -196,6 +196,8 @@ struct Start {
 /// seeks (no process per jump). Dropping the receiver of a run stops it.
 struct Worker {
     starts: Sender<Start>,
+    /// RGBA buffers the decoder is done with, back to the thread to fill again: a frame can be 33 MB.
+    spare: Sender<Vec<u8>>,
 }
 
 /// Decoded frames a decoding thread keeps behind its position, so a step
@@ -207,6 +209,7 @@ const KEEP_BEFORE: f64 = 0.5;
 impl Worker {
     fn spawn(path: String, stream: u32, hardware: bool, native: bool, surfaces: bool) -> Self {
         let (starts, rx) = channel::<Start>();
+        let (spare, spares) = channel::<Vec<u8>>();
         std::thread::Builder::new()
             .name("beacon-decode".into())
             .spawn(move || {
@@ -241,7 +244,9 @@ impl Worker {
                         } {
                             return Ok(Frame::Surface(surface, d.matrix()));
                         }
-                        let mut frame = vec![0u8; start.width as usize * start.height as usize * 4];
+                        let len = start.width as usize * start.height as usize * 4;
+                        // Every byte is written by the conversion, so a spare of the size needs no clearing.
+                        let mut frame = std::iter::from_fn(|| spares.try_recv().ok()).find(|b| b.len() == len).unwrap_or_else(|| vec![0u8; len]);
                         match k {
                             Some(k) => d.rgba_of(k, &mut frame, start.width, start.height),
                             None => d.rgba(&mut frame, start.width, start.height),
@@ -313,7 +318,7 @@ impl Worker {
                 }
             })
             .expect("decoding thread");
-        Self { starts }
+        Self { starts, spare }
     }
 }
 
@@ -392,7 +397,11 @@ impl VideoDecoder {
         while self.next <= i {
             let frame = self.pipe.as_ref().unwrap().frames.recv();
             match frame {
-                Ok(Ok(frame)) => self.frame = frame,
+                Ok(Ok(frame)) => {
+                    if let (Frame::Rgba(old), Some(w)) = (std::mem::replace(&mut self.frame, frame), &self.worker) {
+                        let _ = w.spare.send(old);
+                    }
+                }
                 Ok(Err(e)) => {
                     self.broken_at = Some(self.next);
                     self.pipe = None;
