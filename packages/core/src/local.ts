@@ -1,15 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { z } from "zod";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobSignal, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
 import {
   createProject,
   describeSession,
-  jsonSchemaOf,
   formatIssues,
   type ActionDef,
   type SharedSession,
@@ -17,38 +14,29 @@ import {
   nestedOf,
   projectDuration,
   ProjectStore,
-  randomId,
   roundSeconds,
   secondsToTicks,
-  SESSION_COMMANDS,
   SessionStore,
   snapSeconds,
   ticksPerFrame,
   ticksToSeconds,
   type CommandResult,
   type Asset,
-  type Clip,
-  type Ticks,
   type FeatureRegistry,
-  type JobAnalyzerDef,
   type MediaImporterDef,
   type Project,
-  type ResourceDef,
   type Session,
   type SessionChange,
   placeCanvas,
   rationalToNumber,
   scopedProject,
-  walkClips,
   assetName,
   type Keys,
   type ShortcutInfo,
   type AppSettings,
-  narrationSpan,
   SETTINGS_TABS,
   type SettingsTab,
   type SettingsPatch,
-  syncKey,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -80,12 +68,16 @@ import type {
   TransactionStep,
   UiDialog,
 } from "./api";
-import { download } from "./download";
+import { Analyses } from "./analyses";
 import { AppConfig } from "./config";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
+import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
+import { Recording } from "./recording";
+import { registryInfo, UI_STATE } from "./registry-info";
+import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -105,19 +97,6 @@ export interface LocalCoreOptions {
 
 const DEFAULT_CONFIG_DIR = join(homedir(), "Library/Application Support/Beacon");
 
-interface OpenProject {
-  path: string;
-  store: ProjectStore;
-  session: SessionStore;
-  data: DerivedData;
-  frames: FrameRenderer;
-  view?: LiveView;
-  /** Set while playback itself moves the playhead, so it isn't taken as a seek. */
-  ticking: boolean;
-  listeners: Set<(e: CoreEvent) => void>;
-  saveTimer?: ReturnType<typeof setTimeout>;
-}
-
 /**
  * Screenshot of the app window showing a project, provided by the app, with
  * where the canvas view sits in it (image pixels) and pixels per point.
@@ -130,64 +109,14 @@ export type Snapshotter = (h: ProjectHandle) => Promise<{
   shown?: string;
 }>;
 
-/** A narration being recorded: the span it plays, and when its sound was first heard (kept as playback ticks). */
-interface Narration {
-  from: number;
-  until: number;
-  hear: boolean;
-  /** Nothing after the playhead to play: it records there, without playback, until stopped. */
-  still: boolean;
-  heard?: PlaybackHeard;
-}
-
 const PLAYBACK = new Set(["playback.play", "playback.toggle", "playback.shuttle"]);
 
-/** Preview jobs (proxies) built at once: Quietly keeps the fans off, Fast builds two. */
-const PREVIEW_JOBS_AT_ONCE = { quiet: 1, fast: 2 } as const;
-
-/** Finished jobs kept for `job()`/`jobs()`; older ones are forgotten. */
-
 const MAX_SHEET = 100;
-
-const UI_STATE: { id: string; description: string; args: z.ZodType; resource: QueryInfo["resource"]; summary?: boolean } = {
-  id: "ui.state",
-  description: "The editor's state: playhead, playing, selection, in/out range, visible timeline span, open panels, inspector tab, canvas zoom",
-  args: z.strictObject({}),
-  resource: { uri: "beacon://ui/state", name: "Editor state", mimeType: "application/json" },
-};
-
-/** Short enough for agents to read back; unique enough within one project. */
-const shortId = (prefix: string) => randomId(prefix, 8);
-/** Bytes in a file, or in a folder and everything under it; 0 if missing. */
-async function diskSize(path: string): Promise<number> {
-  try {
-    const s = await stat(path);
-    if (!s.isDirectory()) return s.size;
-    const sizes = await Promise.all((await readdir(path)).map((f) => diskSize(join(path, f))));
-    return sizes.reduce((n, b) => n + b, 0);
-  } catch {
-    return 0;
-  }
-}
 
 /** The encoding options of an export call, without its other fields. */
 const encoding = ({ output: _, overwrite: _o, from: _f, to: _t, ...rest }: ExportOptions) => rest;
 
-/** A project's queue of preview jobs, and the media it has prepared or is preparing. */
-interface PreviewQueue {
-  todo: { asset: Asset; def: { id: string } }[];
-  running: Map<string, number>;
-  /** Running job id → its asset. */
-  jobs: Map<string, string>;
-}
-
 /** In-process core: owns the documents, runs the engine, reads and writes `.beproj` folders (PLAN §7.1). */
-/** A take's default name: when it began, sortable ("2026-10-13 21.43.05"). */
-function takeName(d: Date): string {
-  const two = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`;
-}
-
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
@@ -205,6 +134,9 @@ export class LocalCore implements BeaconCore {
   /** Preferences, favourites, settings and keys, and the secrets. */
   readonly #config: AppConfig;
   readonly #pref: (id: string) => string;
+  readonly #parts: CoreParts;
+  readonly #analyses: Analyses;
+  readonly #recording: Recording;
 
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
@@ -217,6 +149,19 @@ export class LocalCore implements BeaconCore {
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
+    this.#parts = {
+      registry: this.registry,
+      cacheDir: this.cacheDir,
+      get: (h) => this.#get(h),
+      find: (h) => this.#projects.get(h),
+      projects: () => this.#projects.values(),
+      emit: (p, e) => this.#emit(p, e),
+      saved: (p, change) => this.#saved(p, change),
+      startJob: (p, kind, label, fn, subject, asset) =>
+        this.#jobs.start(kind, label, fn, { ...(p ? { project: p.path, report: (e) => this.#emit(p, e) } : {}), ...(subject ? { subject } : {}), ...(asset ? { asset } : {}) }),
+    };
+    this.#analyses = new Analyses(this.#parts, this.#jobs, this.#config, (fn) => this.watchApp(fn));
+    this.#recording = new Recording(this.#parts, this.#config, this.#analyses, (h, files, o) => this.import(h, files, o));
   }
 
   #get(h: ProjectHandle): OpenProject {
@@ -370,7 +315,7 @@ export class LocalCore implements BeaconCore {
     // A take being recorded for it is stopped and imported first, rather than left in its folder; one that can't be
     // (a narration stopped before it played) mustn't keep the project open and locked.
     let stopped: unknown;
-    if (this.#recording?.h === h) await this.recordStop().catch((e: unknown) => void (stopped = e));
+    if (this.#recording.recordingFor(h)) await this.recordStop().catch((e: unknown) => void (stopped = e));
     const p = this.#get(h);
     clearTimeout(p.saveTimer);
     // Exports render a copy of the document taken when they started: they finish after the project closes.
@@ -526,10 +471,7 @@ export class LocalCore implements BeaconCore {
       for (const other of this.#projects.values()) if (other !== p) other.session.share(this.#shared);
     }
     this.#emit(p, { kind: "session", changes: Object.fromEntries(changed.map((k) => [k, session[k]])) as Partial<Session>, changed });
-    // A narration lasts while the timeline plays on from where it began: a pause or a seek ends it there.
-    if (this.#recording?.narration && !this.#recording.narration.still && this.#recording.h === p.path && ((changed.includes("playing") && !session.playing) || (changed.includes("playhead") && !p.ticking))) {
-      void this.recordStop().catch((e: unknown) => this.#emit(p, { kind: "error", message: `narration: ${e instanceof Error ? e.message : e}` }));
-    }
+    this.#recording.sessionChanged(p, session, changed);
     const view = p.view;
     if (!view || p.ticking) return;
     if (changed.includes("playing") && !session.playing) view.pause();
@@ -612,10 +554,7 @@ export class LocalCore implements BeaconCore {
         } finally {
           p.ticking = false;
         }
-        const n = this.#recording?.h === p.path ? this.#recording.narration : undefined;
-        if (!n) return;
-        n.heard = view.heard() ?? n.heard;
-        if (t >= n.until - ticksToSeconds(ticksPerFrame(p.store.doc.settings.fps)) / 2) p.session.run("playback.pause", {}, p.store.doc);
+        this.#recording.ticked(p, view, t);
       },
       onEnd: () => p.session.run("playback.pause", {}, p.store.doc),
       silent: opts.silent,
@@ -623,9 +562,9 @@ export class LocalCore implements BeaconCore {
     p.view = view;
     view.show(p.session.state.playhead);
     if (opts.proxies ?? "layer" in target) {
-      this.#previewJobs(p);
+      this.#analyses.previewJobs(p);
       // Transcripts an import started but a quit cancelled: made now, not when Remove Silences or Captions needs one.
-      this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
+      this.#analyses.importAnalyses(p, Object.keys(p.store.doc.assets));
     }
     return view;
   }
@@ -662,111 +601,18 @@ export class LocalCore implements BeaconCore {
     return view;
   }
 
-  /** Starts the analyzers the app needs (proxies) for assets that lack them; the view redraws as each finishes. */
-  /**
-   * Proxies and the like, a few at a time (each ffmpeg uses every core; a project of 28 media started them
-   * all at once and the fans ran), media near the playhead first. Later ones start only while the project
-   * is still shown.
-   */
-  #previewJobs(p: OpenProject) {
-    const doc = p.store.doc;
-    const at = secondsToTicks(p.session.state.playhead);
-    const distance = new Map<string, number>();
-    for (const { clip, offset } of walkClips(doc.tracks, this.registry)) {
-      if (!clip.assetId) continue;
-      const [a, b] = [offset + clip.start, offset + clip.start + clip.duration];
-      const d = at < a ? a - at : at > b ? at - b : 0;
-      distance.set(clip.assetId, Math.min(d, distance.get(clip.assetId) ?? Infinity));
-    }
-    const wanted = Object.values(doc.assets)
-      .flatMap((asset) =>
-        [...this.registry.jobAnalyzers.values()].filter((def) => def.when === "preview" && def.applies(asset) && !p.data.has(asset, def.id) && this.#automatic(def.id, asset) && existsSync(asset.path)).map((def) => ({ asset, def })),
-      )
-      .sort((x, y) => (distance.get(x.asset.id) ?? Infinity) - (distance.get(y.asset.id) ?? Infinity));
-    // One queue per project: asked again (media imported), it is refilled rather than doubled.
-    const queue = this.#previewQueues.get(p);
-    if (queue) {
-      queue.todo.splice(0, queue.todo.length, ...wanted);
-      return void this.#preparing(p, queue);
-    }
-    if (!wanted.length) return;
-    const state: PreviewQueue = { todo: wanted, running: new Map(), jobs: new Map() };
-    const todo = state.todo;
-    this.#previewQueues.set(p, state);
-    const unwatch = this.watchApp((e) => {
-      if (e.kind === "job" && e.job.state === "running" && state.jobs.has(e.job.id)) this.#preparing(p, state);
-    });
-    let workers = 0;
-    const next = (): Promise<void> | undefined => {
-      const item = todo.shift();
-      if (!item || this.#projects.get(p.path) !== p || !p.view) {
-        if (--workers === 0) {
-          this.#previewQueues.delete(p);
-          unwatch();
-          this.#emit(p, { kind: "preparing", assets: {} });
-        }
-        return;
-      }
-      let job: Job;
-      try {
-        job = this.#analyze(p.path, item.def.id, item.asset.id);
-      } catch {
-        return next();
-      }
-      const id = item.asset.id;
-      state.running.set(id, (state.running.get(id) ?? 0) + 1);
-      state.jobs.set(job.id, id);
-      this.#preparing(p, state);
-      const finished = () => {
-        state.running.set(id, state.running.get(id)! - 1);
-        state.jobs.delete(job.id);
-        this.#preparing(p, state);
-        return next();
-      };
-      return job.done.then(() => {
-        if (p.view && !p.view.playing) p.view.show(p.session.state.playhead);
-        return finished();
-      }, finished);
-    };
-    // Counted before each starts: a worker that finds nothing left stops at once, and must not be restarted here.
-    const started = Math.min(PREVIEW_JOBS_AT_ONCE[this.#jobMode], todo.length);
-    workers = started;
-    for (let i = 0; i < started; i++) void next();
-  }
-
-  readonly #previewQueues = new WeakMap<OpenProject, PreviewQueue>();
-
-  #jobMode: "quiet" | "fast" = "quiet";
-
   /**
    * How background analyses run (the app's setting): "quiet" (default), one preview job at a time at
    * macOS background priority, slower but the fans stay off; "fast", two at once at normal priority.
    * Jobs already running keep their mode.
    */
   setJobMode(mode: "quiet" | "fast") {
-    this.#jobMode = mode;
+    this.#analyses.jobMode = mode;
   }
 
-  /** Which analyses start on their own (the app's settings: proxies), on import, when shown or when a preference changes; the rest run only when asked. */
-  #automatic: (analyzer: string, asset: Asset) => boolean = () => true;
-
-  /** Sets which analyses (e.g. proxies) start on their own; projects shown now follow at once. */
+  /** Sets which analyses (e.g. proxies) start on their own, on import, when shown or when a preference changes; projects shown now follow at once. */
   setAutomatic(fn: (analyzer: string, asset: Asset) => boolean) {
-    this.#automatic = fn;
-    for (const p of this.#projects.values()) if (p.view) this.#previewJobs(p);
-  }
-
-  /** Tells the window each medium's progress, for those with a job queued or running. */
-  #preparing(p: OpenProject, q: PreviewQueue) {
-    const left = new Set([...q.todo.map((i) => i.asset.id), ...[...q.running].filter(([, n]) => n > 0).map(([id]) => id)]);
-    // A medium's progress is its jobs' average, a queued one counting as none.
-    const assets: Record<string, number> = {};
-    for (const id of left) {
-      const jobs = [...q.jobs].filter(([, a]) => a === id).map(([j]) => this.#jobs.info(j).progress);
-      const queued = q.todo.filter((i) => i.asset.id === id).length;
-      assets[id] = jobs.reduce((a, b) => a + b, 0) / Math.max(1, jobs.length + queued);
-    }
-    this.#emit(p, { kind: "preparing", assets });
+    this.#analyses.setAutomatic(fn);
   }
 
   detachView(h: ProjectHandle) {
@@ -783,62 +629,12 @@ export class LocalCore implements BeaconCore {
 
   /** PNG of a video clip's first frame, `height` pixels tall, read from its proxy when there is one; undefined for other clips. */
   async thumbnail(h: ProjectHandle, clipId: string, height: number): Promise<Uint8Array | undefined> {
-    const p = this.#get(h);
-    const doc = p.store.doc;
-    const top = doc.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
-    // A group or stitched clip shows what its first frame shows.
-    const shown = top && this.#mediaShown(top, top.mediaStart ?? 0);
-    if (!shown) return undefined;
-    const { clip, at } = shown;
-    const asset = doc.assets[clip.assetId!]!;
-    const stream = Number((clip.props.media as { stream?: number } | undefined)?.stream ?? 0);
-    const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[stream];
-    const time = asset.kind === "image" ? 0 : ticksToSeconds(at);
-    const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", stream);
-    return this.#cachedThumb(asset, stream, time, height, () => (asset.kind === "image" ? thumbnailPng(asset.path, 0, 0, height) : thumbnailPng(src.path, src.stream, time, height)));
-  }
-
-  /** The visual media clip showing at `at` (media time) in `clip`, looking inside groups and stitched clips, top track first; and its media time there. */
-  #mediaShown(clip: Clip, at: Ticks): { clip: Clip; at: Ticks } | undefined {
-    if (clip.assetId && this.registry.hasTrait(clip.type, "visual") && this.registry.hasTrait(clip.type, "media")) return { clip, at };
-    for (const g of this.registry.groupsFor(clip.type)) {
-      if (!g.nested || !clip.props[g.id]) continue;
-      for (const track of [...g.nested(clip.props[g.id])].reverse()) {
-        if (track.hidden) continue;
-        const inner = track.clips.find((c) => c.start <= at && at < c.start + c.duration);
-        const found = inner && this.#mediaShown(inner, (inner.mediaStart ?? 0) + at - inner.start);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Thumbnails are kept on disk by media file, stream, time and height: a project's are made once, not on
-   * every open (the benchmark project's 304 clips cost ~50 s of ffmpeg each time).
-   */
-  async #cachedThumb(asset: Asset, stream: number, time: number, height: number, make: () => Promise<Uint8Array>): Promise<Uint8Array> {
-    const key = Bun.hash(`${asset.path}\0${asset.fingerprint}\0${stream}\0${time.toFixed(3)}\0${height}`).toString(16);
-    const file = join(this.cacheDir, "thumbs", `${key}.png`);
-    if (existsSync(file)) return new Uint8Array(await Bun.file(file).arrayBuffer());
-    const png = await make();
-    if (png.length) {
-      mkdirSync(dirname(file), { recursive: true });
-      await Bun.write(`${file}.${process.pid}.tmp`, png);
-      renameSync(`${file}.${process.pid}.tmp`, file);
-    }
-    return png;
+    return clipThumbnail(this.registry, this.cacheDir, this.#get(h), clipId, height);
   }
 
   /** PNG of an asset for the media bin: its first video stream `at` seconds in (a second by default; the screen, for a recording). */
   async assetThumbnail(h: ProjectHandle, assetId: string, height: number, at?: number): Promise<Uint8Array | undefined> {
-    const p = this.#get(h);
-    const asset = p.store.doc.assets[assetId];
-    if (!asset || asset.kind === "audio") return undefined;
-    const proxy = p.data.get<{ streams: Record<number, { path: string }> }>(asset.id, "proxy")?.streams[0];
-    const time = asset.kind === "image" ? 0 : (at ?? 1);
-    const src = proxy ? { path: proxy.path, stream: 0 } : streamSource(asset.path, asset.derived.media as MediaInfo, "video", 0);
-    return this.#cachedThumb(asset, -1, time, height, () => thumbnailPng(src.path, src.stream, time, height));
+    return assetThumbnail(this.cacheDir, this.#get(h), assetId, height, at);
   }
 
   /** Reported by the app so "canvas.zoom in" can step from the fitted size. */
@@ -955,7 +751,7 @@ export class LocalCore implements BeaconCore {
           return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
         });
     for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
-    return this.#startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
+    return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {
@@ -987,7 +783,7 @@ export class LocalCore implements BeaconCore {
       for (let i = next++; i < todo.length; i = next++) {
         const { file, importer } = todo[i]!;
         try {
-          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) } };
+          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await probeAsset(file) } };
         } catch (e) {
           // The import fails: the others stop rather than decode the rest for nothing.
           next = todo.length;
@@ -1013,239 +809,55 @@ export class LocalCore implements BeaconCore {
       for (const c of copies) rmSync(c.path, { recursive: true, force: true });
       throw e;
     }
-    return this.#imported(h, result);
-  }
-
-  /** What an asset knows of its file once probed: its streams, and its audio's loudness. */
-  async #probe(file: string): Promise<Asset["derived"]> {
-    const media = await probeMedia(file);
-    const loudness = await measureLoudness(file, media);
-    return { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
-  }
-
-  /** After media is added: the app's view makes its proxies and waveforms, and its analyses (transcripts) start. */
-  #imported(h: ProjectHandle, result: ImportResult): ImportResult {
-    const p = this.#get(h);
-    if (p.view) this.#previewJobs(p);
-    const { jobs, needs } = this.#importAnalyses(h, result.assets);
-    result.jobs.push(...jobs);
-    return needs ? { ...result, needs } : result;
-  }
-
-  /**
-   * Starts the analyses new media gets (transcripts), except those waiting for a resource that isn't downloaded:
-   * those are reported, to the caller and as a `needs` event, and start when it arrives.
-   */
-  #importAnalyses(h: ProjectHandle, assets: string[]): { jobs: string[]; needs?: string[] } {
-    const p = this.#get(h);
-    const jobs: string[] = [];
-    const needs = new Set<string>();
-    for (const id of assets) {
-      for (const def of this.registry.jobAnalyzers.values()) {
-        const a = p.store.doc.assets[id]!;
-        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id) || !this.#automatic(def.id, a)) continue;
-        const need = this.#needsOf(def);
-        if (need && !this.#resourceReady(need)) needs.add(need);
-        else if (existsSync(a.path)) jobs.push(this.#analyze(h, def.id, id).id);
-      }
-    }
-    for (const id of needs) this.#emit(p, { kind: "needs", resource: this.#resourceInfo(this.registry.resources.get(id)!) });
-    return needs.size ? { jobs, needs: [...needs] } : { jobs };
+    return this.#analyses.imported(p, result);
   }
 
   async analyze(h: ProjectHandle, key: string, assetId: string): Promise<Job> {
-    return this.#analyze(h, key, assetId);
+    return this.#analyses.analyze(this.#get(h), key, assetId);
   }
 
   async forget(h: ProjectHandle, key: string, assetId: string): Promise<boolean> {
-    const p = this.#get(h);
-    const def = this.#jobAnalyzer(key);
-    const asset = p.store.doc.assets[assetId];
-    if (!asset) throw new Error(`no asset "${assetId}"`);
-    const running = this.#jobs.running(this.#subject(def, asset));
-    if (running) await this.cancelJob(running.info.id).then(() => running.done).catch(() => {});
-    const had = p.data.drop(asset, def);
-    this.#emit(p, { kind: "derived", asset: assetId, key, present: false });
-    if (p.view && !p.view.playing) p.view.show(p.session.state.playhead);
-    return had;
+    return this.#analyses.forget(this.#get(h), key, assetId);
   }
 
-  /** What a job is for, so a second request joins the running one: the analysis, the asset as it is, and the variant (the transcriber). */
-  #subject(def: JobAnalyzerDef, asset: Asset, variant = def.variant?.(this.#pref)): string {
-    return `${def.id}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
+  async analysisSize(key: string): Promise<number> {
+    return this.#analyses.analysisSize(key);
   }
 
-  #jobAnalyzer(key: string) {
-    const def = this.registry.jobAnalyzers.get(key);
-    if (!def) throw new Error(`no background analyzer "${key}"; there are: ${[...this.registry.jobAnalyzers.keys()].join(", ")}`);
-    return def;
+  async forgetAll(key: string): Promise<number> {
+    return this.#analyses.forgetAll(key);
   }
-
-  /** The analyzer's cached results of every version, and its folder. */
-  #analysisFiles(key: string): string[] {
-    const def = this.#jobAnalyzer(key);
-    const derived = join(this.cacheDir, "derived");
-    const results = existsSync(derived) ? readdirSync(derived).filter((f) => f.startsWith(`${key}-v`) && /^\d+(-[a-z0-9]+)?-[0-9a-f]{16}\.json$/.test(f.slice(key.length + 2))).map((f) => join(derived, f)) : [];
-    return def.folder ? [...results, join(this.cacheDir, def.folder)] : results;
-  }
-
-  #recorder = new Recorder();
-  #recording?: { h: ProjectHandle; dir: string; narration?: Narration };
-  #lastNarration?: RecordResult;
 
   async recorderDevices() {
-    return this.#recorder.devices();
+    return this.#recording.devices();
   }
 
   async recorderAccess(kind: "camera" | "microphone") {
-    return this.#recorder.access(kind);
+    return this.#recording.access(kind);
   }
 
   async recorderSetOutput(output: string) {
-    return this.#recorder.setOutput(output);
+    return this.#recording.setOutput(output);
   }
 
   async recorderPreview(sources: RecorderSources, fn?: (e: RecorderPreviewEvent) => void) {
-    return this.#recorder.preview(sources, fn);
+    return this.#recording.preview(sources, fn);
   }
 
   async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
-    const p = this.#get(h);
-    if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
-    if (opts.narrate) return this.#narrate(p, opts);
-    const sources: RecorderSources = { ...(opts.sources ?? { screen: {}, microphone: {}, systemAudio: true }) };
-    // The pair's measured delay goes into the take, so its camera clip lines up on import.
-    const sync = sources.camera?.id && sources.microphone?.id ? this.#config.settings().cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
-    if (!sources.offsets && sync?.cameraLateMs) sources.offsets = { camera: -sync.cameraLateMs / 1000 };
-    const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
-    mkdirSync(dirname(dir), { recursive: true });
-    await this.#recorder.start(dir, sources, opts.monitor);
-    this.#recording = { h, dir };
-    return { take: dir };
-  }
-
-  /** Records the microphone while the app's view plays the timeline from the playhead, or through the range. */
-  async #narrate(p: OpenProject, opts: RecordOptions): Promise<{ take: string }> {
-    const view = p.view;
-    if (!view) throw new Error("a narration plays the timeline in the Beacon app: open the project there");
-    const { screen, camera, systemAudio, microphone, ...rest } = opts.sources ?? { microphone: {} };
-    if (screen || camera || systemAudio) throw new Error("a narration records only a microphone");
-    const doc = p.store.doc;
-    const { from, until, still } = narrationSpan(doc, p.session.state);
-    if (p.session.state.playing) p.session.run("playback.pause", {}, doc);
-    const dir = join(p.path, "recordings", `${opts.name ?? `Narration ${takeName(new Date())}`}.brec`);
-    mkdirSync(dirname(dir), { recursive: true });
-    await this.#recorder.start(dir, { ...rest, microphone: microphone ?? {} }, opts.monitor);
-    const hear = !still && !!opts.narrate?.hear;
-    if (still) {
-      this.#recording = { h: p.path, dir, narration: { from, until: from, hear, still } };
-      return { take: dir };
-    }
-    try {
-      if (p.session.state.playhead !== from) p.session.run("playhead.set", { time: from }, p.store.doc);
-      view.muted = !hear;
-      p.session.run("playback.play", {}, p.store.doc);
-    } catch (e) {
-      view.muted = false;
-      await this.#recorder.stop().catch(() => {});
-      rmSync(dir, { recursive: true, force: true });
-      throw e;
-    }
-    this.#recording = { h: p.path, dir, narration: { from, until, hear, still } };
-    return { take: dir };
+    return this.#recording.start(this.#get(h), opts);
   }
 
   async recordSyncCheck(sources: RecorderSources, show: () => Promise<void>) {
-    if (this.#recording) throw new Error(`recording ${basename(this.#recording.dir)}: stop it first`);
-    const dir = join(this.cacheDir, "sync-check", `${takeName(new Date())}.brec`);
-    mkdirSync(dirname(dir), { recursive: true });
-    await this.#recorder.start(dir, sources);
-    try {
-      await show();
-    } finally {
-      await this.#recorder.stop();
-    }
-    try {
-      return await measureSync(dir);
-    } finally {
-      // The take is only for measuring; recording.json stays, to look at a check that went wrong.
-      for (const f of readdirSync(dir)) if (f !== "recording.json") rmSync(join(dir, f), { force: true });
-    }
+    return this.#recording.syncCheck(sources, show);
   }
 
   async recordStatus(): Promise<RecordStatus> {
-    const rec = this.#recording;
-    if (!rec) return { recording: false, ...(this.#lastNarration ? { last: this.#lastNarration } : {}) };
-    const s = await this.#recorder.status();
-    const n = rec.narration;
-    return {
-      recording: s.recording,
-      take: rec.dir,
-      project: rec.h,
-      ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}),
-      ...(n ? { narration: { from: n.from, until: n.until, hear: n.hear } } : {}),
-    };
+    return this.#recording.status();
   }
 
   async recordStop(opts: RecordStopOptions = {}): Promise<RecordResult> {
-    const rec = this.#recording;
-    if (!rec) throw new Error("not recording");
-    this.#recording = undefined;
-    const p = this.#projects.get(rec.h);
-    const n = rec.narration;
-    // Read before playback stops: pausing lets go of the audio clock.
-    const heard = n && (p?.view?.heard() ?? n.heard);
-    if (n && p) {
-      if (p.session.state.playing) p.session.run("playback.pause", {}, p.store.doc);
-      if (p.view) p.view.muted = false;
-    }
-    const take = await this.#recorder.stop();
-    if (take.errors.length) console.warn(`recording ${basename(rec.dir)}: ${take.errors.join("; ")}`);
-    let result: RecordResult;
-    if (opts.discard) {
-      rmSync(rec.dir, { recursive: true, force: true });
-      result = { assets: [], clips: [], jobs: [], take: rec.dir, duration: take.duration, discarded: true };
-    } else if (n) {
-      if (!n.still && !heard) throw new Error(`the timeline never played, so the narration can't be lined up: ${basename(rec.dir)} is kept in the project's recordings`);
-      if (heard) {
-        const drift = heard.last.time - heard.time - (heard.last.host - heard.host);
-        if (Math.abs(drift) > 0.005 || heard.stalled > 0) console.warn(`narration ${basename(rec.dir)}: the timeline ran ${(drift * 1000).toFixed(1)} ms off the host clock and waited ${(heard.stalled * 1000).toFixed(0)} ms for its decoder`);
-      }
-      // The timeline second the file's first sample is under: where it was heard, or (nothing played) the playhead.
-      const at = heard ? narrationStart(rec.dir, heard) : n.from;
-      result = { ...(await this.#placeNarration(rec.h, rec.dir, at, n.from)), take: rec.dir, duration: take.duration };
-    } else return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
-    if (n && p) {
-      this.#lastNarration = result;
-      this.#emit(p, { kind: "narrated", result });
-    }
-    return result;
-  }
-
-  /**
-   * A narration on a new track at `from`, starting as far into its file as the timeline was heard after the
-   * microphone began, so each word sits under what was playing as it was spoken. One undo step.
-   */
-  async #placeNarration(h: ProjectHandle, dir: string, at: number, from: number): Promise<ImportResult> {
-    const p = this.#get(h);
-    const file = resolve(dir);
-    const importer = this.registry.importerFor(".brec")!;
-    const asset: Omit<Asset, "id"> = { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) };
-    const fps = p.store.doc.settings.fps;
-    // The clip begins at `from`, or later if the take began after it.
-    const start = Math.max(ticksToSeconds(snapSeconds(from, fps)), ticksToSeconds(snapSeconds(at, fps, "ceil")));
-    const result: ImportResult = { assets: [], clips: [], jobs: [] };
-    this.#saved(p, p.store.transaction("Record Narration", (tx) => {
-      const id = tx.run<string>("asset.add", asset);
-      const [spec] = importer.clips({ id, ...asset }, p.store.doc);
-      if (!spec) throw new Error(`${basename(dir)} has no audio`);
-      const track = tx.run<string>("track.add", { name: "Narration" });
-      const mediaStart = start - at + ticksToSeconds(spec.mediaStart ?? 0);
-      const duration = ticksToSeconds(spec.duration) - (start - at);
-      result.assets.push(id);
-      result.clips.push(tx.run<string>("clip.add", { track, type: spec.type, start, duration, mediaStart, assetId: id, props: spec.props }));
-    }));
-    return this.#imported(h, result);
+    return this.#recording.stop(opts);
   }
 
   async missing(h: ProjectHandle): Promise<string[]> {
@@ -1266,7 +878,7 @@ export class LocalCore implements BeaconCore {
       throw new Error(`${basename(file)} isn't the same media as ${basename(asset.path)}: its streams or length differ`);
     }
     this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file) }, { label: `Locate ${basename(file)}` }));
-    if (p.view) this.#previewJobs(p);
+    if (p.view) this.#analyses.previewJobs(p);
   }
 
   async replace(h: ProjectHandle, assetId: string, path: string): Promise<{ jobs: string[]; needs?: string[] }> {
@@ -1279,105 +891,10 @@ export class LocalCore implements BeaconCore {
     if (asset.kind === "recording") throw new Error(`${assetName(asset)} is a recording: it can't be replaced`);
     const like = { video: "video", image: "image", audio: "audio file" }[asset.kind];
     if (kind !== asset.kind) throw new Error(`${assetName(asset)} can only be replaced with another ${like}`);
-    const derived = await this.#probe(file);
+    const derived = await probeAsset(file);
     this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
-    if (p.view) this.#previewJobs(p);
-    return this.#importAnalyses(h, [assetId]);
-  }
-
-  async analysisSize(key: string): Promise<number> {
-    const sizes = await Promise.all(this.#analysisFiles(key).map(diskSize));
-    return sizes.reduce((n, b) => n + b, 0);
-  }
-
-  async forgetAll(key: string): Promise<number> {
-    const def = this.#jobAnalyzer(key);
-    for (const p of this.#projects.values()) {
-      const q = this.#previewQueues.get(p);
-      q?.todo.splice(0, q.todo.length, ...q.todo.filter((i) => i.def.id !== key));
-    }
-    const running = this.#jobs.runningOf(undefined, (j) => j.info.kind === key);
-    for (const j of running) Jobs.stop(j);
-    await Promise.all(running.map((j) => j.done.catch(() => {})));
-    const before = await this.analysisSize(key);
-    for (const file of this.#analysisFiles(key)) {
-      if (!file.endsWith(".json")) continue;
-      // Without a folder, the result names the files it made.
-      if (!def.folder) {
-        try {
-          def.discard?.(JSON.parse(readFileSync(file, "utf8")));
-        } catch {}
-      }
-      rmSync(file, { force: true });
-    }
-    if (def.folder) rmSync(join(this.cacheDir, def.folder), { recursive: true, force: true });
-    for (const p of this.#projects.values()) {
-      p.data.dropAll(def);
-      for (const asset of Object.values(p.store.doc.assets)) if (def.applies(asset)) this.#emit(p, { kind: "derived", asset: asset.id, key, present: false });
-      if (p.view && !p.view.playing) p.view.show(p.session.state.playhead);
-    }
-    return before - (await this.analysisSize(key));
-  }
-
-  #analyze(h: ProjectHandle, key: string, assetId: string): Job {
-    const p = this.#get(h);
-    const def = this.#jobAnalyzer(key);
-    const asset = p.store.doc.assets[assetId];
-    if (!asset) throw new Error(`no asset "${assetId}"`);
-    if (!existsSync(asset.path)) throw new Error(`${basename(asset.path)} is missing: it was moved, renamed or deleted (Locate… in the Media Bin's menu finds it)`);
-    const variant = def.variant?.(this.#pref);
-    const subject = this.#subject(def, asset, variant);
-    const running = this.#jobs.running(subject);
-    if (running) return { id: running.info.id, done: running.done };
-    const need = this.#needsOf(def);
-    if (need && !this.#resourceReady(need)) {
-      const r = this.registry.resources.get(need)!;
-      throw new Error(`${key} needs the ${r.title} (${Math.round(r.bytes / 1e6)} MB), which isn't downloaded; download it (fetchResource "${r.id}") once the user agrees`);
-    }
-    return this.#startJob(
-      p,
-      key,
-      `${key} ${asset.path}`,
-      async (progress) => {
-        const value = await def.analyze(asset, progress, {
-          cacheDir: this.cacheDir,
-          quiet: this.#jobMode === "quiet",
-          resource: (id) => this.#resourcePath(this.registry.resources.get(id)!),
-          pref: this.#pref,
-          secret: (id) => this.#config.secrets.get(id),
-        });
-        // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
-        if (def.variant?.(this.#pref) !== variant) throw new Error(`${key} was for a setting since changed`);
-        jobSignal()?.throwIfAborted();
-        p.data.store(asset, def, value);
-        this.#emit(p, { kind: "derived", asset: assetId, key, present: true });
-        return { asset: assetId };
-      },
-      subject,
-      assetId,
-    );
-  }
-
-  #startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
-    return this.#jobs.start(kind, label, fn, { ...(p ? { project: p.path, report: (e) => this.#emit(p, e) } : {}), ...(subject ? { subject } : {}), ...(asset ? { asset } : {}) });
-  }
-
-  #resourcePath(def: ResourceDef): string {
-    return join(this.cacheDir, def.folder, def.file);
-  }
-
-  /** Its hash was checked when it was downloaded; after that, being there is enough. */
-  #resourceReady(id: string): boolean {
-    return existsSync(this.#resourcePath(this.registry.resources.get(id)!));
-  }
-
-  #resourceInfo(def: ResourceDef): ResourceInfo {
-    const job = this.#jobs.running(`resource:${def.id}`);
-    return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
-  }
-
-  #needsOf(def: JobAnalyzerDef): string | undefined {
-    return typeof def.needs === "function" ? def.needs(this.#pref) : def.needs;
+    if (p.view) this.#analyses.previewJobs(p);
+    return this.#analyses.importAnalyses(p, [assetId]);
   }
 
   preferences(): Promise<PreferenceInfo[]> {
@@ -1385,11 +902,7 @@ export class LocalCore implements BeaconCore {
   }
 
   async setPreference(id: string, value: string): Promise<void> {
-    if (!(await this.#config.setPreference(id, value))) return;
-    // What the old choice was making (another transcriber's transcripts) stops, and the new one's start.
-    const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
-    this.#jobs.cancelOf(undefined, (j) => decided.has(j.info.kind));
-    for (const p of this.#projects.values()) this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
+    if (await this.#config.setPreference(id, value)) this.#analyses.preferenceChanged();
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */
@@ -1449,31 +962,11 @@ export class LocalCore implements BeaconCore {
   }
 
   async resources(): Promise<ResourceInfo[]> {
-    return [...this.registry.resources.values()].map((def) => this.#resourceInfo(def));
+    return this.#analyses.resources();
   }
 
   async fetchResource(id: string): Promise<Job> {
-    const def = this.registry.resources.get(id);
-    if (!def) throw new Error(`no resource "${id}"; there are: ${[...this.registry.resources.keys()].join(", ")}`);
-    const subject = `resource:${id}`;
-    const running = this.#jobs.running(subject);
-    if (running) return { id: running.info.id, done: running.done };
-    const path = this.#resourcePath(def);
-    return this.#startJob(undefined, "resource", `Download ${def.title}`, async (progress) => {
-      if (!this.#resourceReady(id)) await download(def, path, progress);
-      this.#resumeWaiting(id);
-      return { path };
-    }, subject);
-  }
-
-  /** A resource arrived: the analyses that were waiting for it start, in every open project. */
-  #resumeWaiting(resource: string) {
-    for (const p of this.#projects.values()) {
-      for (const def of this.registry.jobAnalyzers.values()) {
-        if (this.#needsOf(def) !== resource || (def.when ?? "import") !== "import") continue;
-        for (const a of Object.values(p.store.doc.assets)) if (def.applies(a) && !p.data.has(a, def.id) && existsSync(a.path)) this.#analyze(p.path, def.id, a.id);
-      }
-    }
+    return this.#analyses.fetchResource(id);
   }
 
   async job(id: string): Promise<JobInfo> {
@@ -1489,30 +982,11 @@ export class LocalCore implements BeaconCore {
   }
 
   commands(): CommandInfo[] {
-    const owner = this.#owners();
-    return [
-      ...[...this.registry.commands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "core" })),
-      ...SESSION_COMMANDS.map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: "session" })),
-      ...[...this.registry.sessionCommands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "session" })),
-      ...[...this.registry.actions.values()].map((a) => ({ id: a.id, description: a.description, args: jsonSchemaOf(a.args), feature: owner.get(a.id) ?? "core" })),
-    ];
+    return registryInfo(this.registry).commands;
   }
 
   queries(): QueryInfo[] {
-    const owner = this.#owners();
-    return [UI_STATE, ...this.registry.queries.values()].map((q) => ({
-      id: q.id,
-      description: q.description,
-      args: jsonSchemaOf(q.args),
-      feature: q === UI_STATE ? "session" : (owner.get(q.id) ?? "core"),
-      ...(q.resource ? { resource: q.resource } : {}),
-      ...(q.summary ? { summary: true } : {}),
-    }));
-  }
-
-  /** Command and query id → the feature that registered it; core's own are absent. */
-  #owners(): Map<string, string> {
-    return new Map([...this.registry.features.values()].flatMap((f) => [...(f.commands ?? []), ...(f.queries ?? []), ...(f.actions ?? []), ...(f.sessionCommands ?? [])].map((x) => [x.id, f.id] as const)));
+    return registryInfo(this.registry).queries;
   }
 
   /** The registered summary query's text, if any. */
@@ -1522,19 +996,7 @@ export class LocalCore implements BeaconCore {
   }
 
   schema(): SchemaInfo {
-    const r = this.registry;
-    return {
-      clipTypes: [...r.clipTypes.values()].map((t) => ({
-        id: t.id,
-        description: t.description,
-        traits: t.traits,
-        props: r.groupsFor(t.id).map((g) => g.id),
-        effects: [...r.effects.values()].filter((e) => e.traits.some((x) => t.traits.includes(x))).map((e) => e.id),
-        ...((g) => (g ? { nested: g.id } : {}))(r.groupsFor(t.id).find((g) => g.nested)),
-      })),
-      props: [...r.propGroups.values()].map((g) => ({ id: g.id, description: g.description, animatable: g.animatable ?? [], schema: jsonSchemaOf(g.schema) })),
-      effects: [...r.effects.values()].map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: jsonSchemaOf(e.params) })),
-    };
+    return registryInfo(this.registry).schema;
   }
 
   readonly #appListeners = new Set<(e: AppEvent) => void>();
