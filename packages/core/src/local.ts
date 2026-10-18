@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobSignal, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -82,6 +82,7 @@ import type {
 } from "./api";
 import { download } from "./download";
 import { AppConfig } from "./config";
+import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
@@ -145,19 +146,6 @@ const PLAYBACK = new Set(["playback.play", "playback.toggle", "playback.shuttle"
 const PREVIEW_JOBS_AT_ONCE = { quiet: 1, fast: 2 } as const;
 
 /** Finished jobs kept for `job()`/`jobs()`; older ones are forgotten. */
-const KEEP_FINISHED_JOBS = 50;
-
-interface JobEntry {
-  info: Omit<JobInfo, "elapsed">;
-  /** The project it belongs to: closing the project cancels it. None for a download. */
-  project?: string;
-  /** Processes it has running (ffmpeg, whisper, beacon-worker), killed when it is cancelled. */
-  processes: JobProcesses;
-  /** What the job works on, for finding a running job again. */
-  subject?: string;
-  started: number;
-  done: Promise<unknown>;
-}
 
 const MAX_SHEET = 100;
 
@@ -207,7 +195,10 @@ export class LocalCore implements BeaconCore {
   readonly #socket?: string;
   readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
-  readonly #jobs = new Map<string, JobEntry>();
+  /** Every background job: exports, analyses, downloads. */
+  readonly #jobs = new Jobs((e) => {
+    for (const l of this.#appListeners) l(e);
+  });
   /** The last copies in any project, so they paste into the next one opened. */
   #shared: SharedSession = { clipboard: null, properties: null };
 
@@ -383,7 +374,7 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     clearTimeout(p.saveTimer);
     // Exports render a copy of the document taken when they started: they finish after the project closes.
-    this.#cancelJobsOf(p.path, (j) => j.info.kind !== "export");
+    this.#jobs.cancelOf(p.path, (j) => j.info.kind !== "export");
     let failed: unknown;
     try {
       writeProject(p.path, p.store.doc);
@@ -421,7 +412,7 @@ export class LocalCore implements BeaconCore {
 
   /** Releases every lock; call on exit. */
   closeAll() {
-    this.#cancelJobsOf(undefined);
+    this.#jobs.cancelOf(undefined);
     for (const p of this.#projects.values()) {
       // A drag's last change is saved after a pause; quitting must not lose it.
       if (p.saveTimer !== undefined) {
@@ -771,7 +762,7 @@ export class LocalCore implements BeaconCore {
     // A medium's progress is its jobs' average, a queued one counting as none.
     const assets: Record<string, number> = {};
     for (const id of left) {
-      const jobs = [...q.jobs].filter(([, a]) => a === id).map(([j]) => this.#job(j).progress);
+      const jobs = [...q.jobs].filter(([, a]) => a === id).map(([j]) => this.#jobs.info(j).progress);
       const queued = q.todo.filter((i) => i.asset.id === id).length;
       assets[id] = jobs.reduce((a, b) => a + b, 0) / Math.max(1, jobs.length + queued);
     }
@@ -1071,7 +1062,7 @@ export class LocalCore implements BeaconCore {
     const def = this.#jobAnalyzer(key);
     const asset = p.store.doc.assets[assetId];
     if (!asset) throw new Error(`no asset "${assetId}"`);
-    const running = this.#running(this.#subject(def, asset));
+    const running = this.#jobs.running(this.#subject(def, asset));
     if (running) await this.cancelJob(running.info.id).then(() => running.done).catch(() => {});
     const had = p.data.drop(asset, def);
     this.#emit(p, { kind: "derived", asset: assetId, key, present: false });
@@ -1082,10 +1073,6 @@ export class LocalCore implements BeaconCore {
   /** What a job is for, so a second request joins the running one: the analysis, the asset as it is, and the variant (the transcriber). */
   #subject(def: JobAnalyzerDef, asset: Asset, variant = def.variant?.(this.#pref)): string {
     return `${def.id}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
-  }
-
-  #running(subject: string): JobEntry | undefined {
-    for (const j of this.#jobs.values()) if (j.subject === subject && j.info.state === "running") return j;
   }
 
   #jobAnalyzer(key: string) {
@@ -1309,8 +1296,8 @@ export class LocalCore implements BeaconCore {
       const q = this.#previewQueues.get(p);
       q?.todo.splice(0, q.todo.length, ...q.todo.filter((i) => i.def.id !== key));
     }
-    const running = [...this.#jobs.values()].filter((j) => j.info.kind === key && j.info.state === "running");
-    for (const j of running) this.#cancelJob(j);
+    const running = this.#jobs.runningOf(undefined, (j) => j.info.kind === key);
+    for (const j of running) Jobs.stop(j);
     await Promise.all(running.map((j) => j.done.catch(() => {})));
     const before = await this.analysisSize(key);
     for (const file of this.#analysisFiles(key)) {
@@ -1340,7 +1327,7 @@ export class LocalCore implements BeaconCore {
     if (!existsSync(asset.path)) throw new Error(`${basename(asset.path)} is missing: it was moved, renamed or deleted (Locate… in the Media Bin's menu finds it)`);
     const variant = def.variant?.(this.#pref);
     const subject = this.#subject(def, asset, variant);
-    const running = this.#running(subject);
+    const running = this.#jobs.running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const need = this.#needsOf(def);
     if (need && !this.#resourceReady(need)) {
@@ -1372,60 +1359,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job {
-    const id = shortId("job");
-    const entry: JobEntry = { info: { id, kind, label, state: "running", progress: 0, ...(asset ? { asset } : {}) }, ...(p ? { project: p.path } : {}), processes: { procs: new Set(), cancelled: false, abort: new AbortController() }, subject, started: performance.now(), done: Promise.resolve() };
-    const report = () => {
-      const e = { kind: "job" as const, job: this.#job(id) };
-      if (p) this.#emit(p, e);
-      for (const l of this.#appListeners) l(e);
-    };
-    // Progress is reported each whole percent, so a window can show it without a flood of events.
-    let shown = 0;
-    this.#forgetFinishedJobs();
-    entry.done = jobProcesses
-      .run(entry.processes, () =>
-        fn((f) => {
-          entry.info.progress = Math.min(1, Math.max(0, f));
-          if (Math.floor(entry.info.progress * 100) > shown) {
-            shown = Math.floor(entry.info.progress * 100);
-            report();
-          }
-        }),
-      )
-      .then(
-      (result) => {
-        Object.assign(entry.info, { state: "done", progress: 1, result });
-        report();
-        return result;
-      },
-      (err: unknown) => {
-        Object.assign(entry.info, { state: "failed", error: entry.processes.cancelled ? "cancelled" : err instanceof Error ? err.message : String(err) });
-        report();
-        throw entry.processes.cancelled ? new Error(`${label}: cancelled`) : err;
-      },
-    );
-    // Failures are read through job(); an unawaited rejection must not crash the process.
-    entry.done.catch(() => {});
-    this.#jobs.set(id, entry);
-    report();
-    return { id, done: entry.done };
-  }
-
-  /** Stops a running job: kills its processes, so it fails as "cancelled". */
-  #cancelJob(entry: JobEntry) {
-    if (entry.info.state !== "running") return;
-    entry.processes.cancelled = true;
-    entry.processes.abort?.abort();
-    for (const proc of entry.processes.procs) proc.kill();
-  }
-
-  #cancelJobsOf(path: string | undefined, which: (j: JobEntry) => boolean = () => true) {
-    for (const j of this.#jobs.values()) if ((path === undefined || j.project === path) && which(j)) this.#cancelJob(j);
-  }
-
-  #forgetFinishedJobs() {
-    const finished = [...this.#jobs.entries()].filter(([, j]) => j.info.state !== "running");
-    for (const [id] of finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED_JOBS))) this.#jobs.delete(id);
+    return this.#jobs.start(kind, label, fn, { ...(p ? { project: p.path, report: (e) => this.#emit(p, e) } : {}), ...(subject ? { subject } : {}), ...(asset ? { asset } : {}) });
   }
 
   #resourcePath(def: ResourceDef): string {
@@ -1438,7 +1372,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #resourceInfo(def: ResourceDef): ResourceInfo {
-    const job = this.#running(`resource:${def.id}`);
+    const job = this.#jobs.running(`resource:${def.id}`);
     return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
   }
 
@@ -1454,7 +1388,7 @@ export class LocalCore implements BeaconCore {
     if (!(await this.#config.setPreference(id, value))) return;
     // What the old choice was making (another transcriber's transcripts) stops, and the new one's start.
     const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
-    this.#cancelJobsOf(undefined, (j) => decided.has(j.info.kind));
+    this.#jobs.cancelOf(undefined, (j) => decided.has(j.info.kind));
     for (const p of this.#projects.values()) this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
   }
 
@@ -1522,7 +1456,7 @@ export class LocalCore implements BeaconCore {
     const def = this.registry.resources.get(id);
     if (!def) throw new Error(`no resource "${id}"; there are: ${[...this.registry.resources.keys()].join(", ")}`);
     const subject = `resource:${id}`;
-    const running = this.#running(subject);
+    const running = this.#jobs.running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const path = this.#resourcePath(def);
     return this.#startJob(undefined, "resource", `Download ${def.title}`, async (progress) => {
@@ -1543,23 +1477,15 @@ export class LocalCore implements BeaconCore {
   }
 
   async job(id: string): Promise<JobInfo> {
-    return this.#job(id);
-  }
-
-  #job(id: string): JobInfo {
-    const j = this.#jobs.get(id);
-    if (!j) throw new Error(`no job "${id}"`);
-    return { ...j.info, elapsed: Number(((performance.now() - j.started) / 1000).toFixed(1)) };
+    return this.#jobs.info(id);
   }
 
   async cancelJob(id: string): Promise<void> {
-    const j = this.#jobs.get(id);
-    if (!j) throw new Error(`no job "${id}"`);
-    this.#cancelJob(j);
+    this.#jobs.cancel(id);
   }
 
   async jobs(): Promise<JobInfo[]> {
-    return [...this.#jobs.keys()].map((id) => this.#job(id));
+    return this.#jobs.list();
   }
 
   commands(): CommandInfo[] {
