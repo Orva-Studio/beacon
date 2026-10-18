@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { apply, type Affine } from "@beacon/model";
 import type { CanvasMark } from "./canvas";
 import { rgba } from "./theme";
+import { PLAIN_TEXT } from "./controls";
 
 /** A line of text as the renderer lays it out (box units, y down): the `callout.textLayout` and `captions.layout` queries. */
 export interface TextLine {
@@ -136,6 +137,7 @@ export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | 
 
   const element = target ? (
     <textarea
+      {...PLAIN_TEXT}
       ref={field}
       aria-label="Text"
       // Unseen: the renderer draws the text; this only takes the keys.
