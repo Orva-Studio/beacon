@@ -46,6 +46,18 @@ struct SourceTex {
 /// Frames a source texture (and its decoder) is kept after its last use, so
 /// brief gaps between clips of one recording don't restart its decoder.
 const KEEP_FRAMES: u64 = 30;
+/// What a still source draws, as the still cache's key.
+fn still_key(source: &Source) -> String {
+    match source {
+        Source::Image { path } => path.clone(),
+        Source::Cursor { path, index } => format!("cursor\0{path}\0{index}"),
+        Source::Rgba { path, .. } => format!("rgba\0{path}"),
+        Source::Text(spec) => format!("text\0{spec:?}"),
+        Source::Strokes(spec) => format!("strokes\0{spec:?}"),
+        Source::Video { .. } => unreachable!("video isn't a still"),
+    }
+}
+
 /// Render targets unused for this many frames are freed: a zoom on a tilted layer asks for a new size every frame.
 const POOL_KEEP_FRAMES: u64 = 2;
 
@@ -406,15 +418,18 @@ impl Renderer {
                     };
                     (Arc::new(sources::Pixels { width: d.width, height: d.height, data: Vec::new() }), Some(d))
                 }
-                Source::Image { path } => match self.stills.get(path) {
-                    Some(px) => (px, None),
-                    None => {
-                        let px = Arc::new(sources::load_still(&def, &mut self.trecs)?);
-                        self.stills.put(path, px.clone());
-                        (px, None)
+                // Every still is kept by what it draws: a cursor shape or a caption that comes back isn't rendered again.
+                still => {
+                    let key = still_key(still);
+                    match self.stills.get(&key) {
+                        Some(px) => (px, None),
+                        None => {
+                            let px = Arc::new(sources::load_still(still, &mut self.trecs)?);
+                            self.stills.put(&key, px.clone());
+                            (px, None)
+                        }
                     }
-                },
-                still => (Arc::new(sources::load_still(still, &mut self.trecs)?), None),
+                }
             };
             let tex = self.device.create_texture(&tex_desc(pixels.width, pixels.height, mip_count(pixels.width, pixels.height), rt_usage()));
             let st = SourceTex { tex, width: pixels.width, height: pixels.height, decoder, spare, last_used: self.frame };

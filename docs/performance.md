@@ -439,4 +439,5 @@ Measured before changing anything (`docs/review-2026-10-17.md` §2), on a copy o
 | Waveforms sent to the window when one finishes (P11) | every asset's | the one that finished |
 | Missing-media check on every edit and every 3 s (P10) | one `existsSync` per asset, sent only on a change | not changed |
 | Preview from the originals on the same project, 1280×720 (`perf.ts --no-proxies`), decode buffers reused (P19) | jump p50 95 ms, settle 4.2, scrub forward 3.5 / backward 6.9 | jump 91-98, settle 3.7 (both runs), forward 3.5-3.6 / backward 6.5-7.2: within a run's noise, but no 33 MB allocation per CPU-decoded frame |
+| Stills drawn again when they come back (P20): only images were cached; a cursor shape costs 9 ms (27 worst) | 13 cursor loads in a `perf.ts` run | 8 (one per shape), 5 served from the cache |
 
