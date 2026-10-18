@@ -25,6 +25,9 @@ export const AppSettingsSchema = z.object({
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export type CameraSync = z.infer<typeof CameraSyncSchema>;
 
+/** `AppSettings.cameraSync`'s key: a camera and microphone pair. */
+export const syncKey = (camera: string | undefined, microphone: string | undefined) => `${camera ?? ""}|${microphone ?? ""}`;
+
 /** Settings to change; `snapshotFolder: null` goes back to the project's media folder. */
 export const SettingsPatchSchema = AppSettingsSchema.partial().extend({ snapshotFolder: z.string().nullable().optional() });
 export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;

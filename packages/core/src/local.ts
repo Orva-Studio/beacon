@@ -52,6 +52,7 @@ import {
   type SettingsTab,
   type SettingsPatch,
   withPatch,
+  syncKey,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -1064,12 +1065,22 @@ export class LocalCore implements BeaconCore {
     const def = this.#jobAnalyzer(key);
     const asset = p.store.doc.assets[assetId];
     if (!asset) throw new Error(`no asset "${assetId}"`);
-    const subject = `${key}:${asset.path}\0${asset.fingerprint}`;
-    for (const j of this.#jobs.values()) if (j.subject === subject && j.info.state === "running") await this.cancelJob(j.info.id).then(() => j.done).catch(() => {});
+    const running = this.#running(this.#subject(def, asset));
+    if (running) await this.cancelJob(running.info.id).then(() => running.done).catch(() => {});
     const had = p.data.drop(asset, def);
     this.#emit(p, { kind: "derived", asset: assetId, key, present: false });
     if (p.view && !p.view.playing) p.view.show(p.session.state.playhead);
     return had;
+  }
+
+  /** What a job is for, so a second request joins the running one: the analysis, the asset as it is, and the variant (the transcriber). */
+  #subject(def: JobAnalyzerDef, asset: Asset): string {
+    const variant = def.variant?.(this.#pref);
+    return `${def.id}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
+  }
+
+  #running(subject: string): JobEntry | undefined {
+    for (const j of this.#jobs.values()) if (j.subject === subject && j.info.state === "running") return j;
   }
 
   #jobAnalyzer(key: string) {
@@ -1110,7 +1121,10 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
     if (opts.narrate) return this.#narrate(p, opts);
-    const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
+    const sources: RecorderSources = { ...(opts.sources ?? { screen: {}, microphone: {}, systemAudio: true }) };
+    // The pair's measured delay goes into the take, so its camera clip lines up on import.
+    const sync = sources.camera?.id && sources.microphone?.id ? this.#settings().cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
+    if (!sources.offsets && sync?.cameraLateMs) sources.offsets = { camera: -sync.cameraLateMs / 1000 };
     const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, sources, opts.monitor);
@@ -1320,8 +1334,8 @@ export class LocalCore implements BeaconCore {
     if (!asset) throw new Error(`no asset "${assetId}"`);
     if (!existsSync(asset.path)) throw new Error(`${basename(asset.path)} is missing: it was moved, renamed or deleted (Locate… in the Media Bin's menu finds it)`);
     const variant = def.variant?.(this.#pref);
-    const subject = `${key}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
-    const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
+    const subject = this.#subject(def, asset);
+    const running = this.#running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const need = this.#needsOf(def);
     if (need && !this.#resourceReady(need)) {
@@ -1419,7 +1433,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #resourceInfo(def: ResourceDef): ResourceInfo {
-    const job = [...this.#jobs.values()].find((j) => j.subject === `resource:${def.id}` && j.info.state === "running");
+    const job = this.#running(`resource:${def.id}`);
     return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
   }
 
@@ -1609,7 +1623,7 @@ export class LocalCore implements BeaconCore {
     const def = this.registry.resources.get(id);
     if (!def) throw new Error(`no resource "${id}"; there are: ${[...this.registry.resources.keys()].join(", ")}`);
     const subject = `resource:${id}`;
-    const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
+    const running = this.#running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const path = this.#resourcePath(def);
     return this.#startJob(undefined, "resource", `Download ${def.title}`, async (progress) => {

@@ -2,7 +2,7 @@ import type { CanvasValues } from "./canvas-settings";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo } from "@beacon/model";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
-export { withPatch } from "@beacon/model";
+export { syncKey, withPatch } from "@beacon/model";
 
 import type { CanvasMark } from "./canvas";
 import type { AssetPreviewInfo } from "./media-preview";
@@ -135,9 +135,6 @@ export interface SyncCheck {
   flashes: number;
   spreadMs: number;
 }
-
-/** `AppSettings.cameraSync`'s key: a camera and microphone pair. */
-export const syncKey = (camera: string | undefined, microphone: string | undefined) => `${camera ?? ""}|${microphone ?? ""}`;
 
 /** The Export dialog's settings. */
 export interface ExportSettings {

@@ -779,13 +779,8 @@ async function startRecording({ sources }: { sources: RecordSources }) {
   clearFrames();
   const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
   try {
-    // The pair's measured delay goes into the take, so its camera clip lines up on import.
-    const sync = sources.camera?.id && sources.microphone?.id ? appSettings.cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
     await core.recordStart(current.path, {
-      sources: {
-        ...(sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources),
-        ...(sync?.cameraLateMs ? { offsets: { camera: -sync.cameraLateMs / 1000 } } : {}),
-      },
+      sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
       monitor: (e) => !("devicesChanged" in e) && previewEvent(e, panelSend),
     });
   } catch (e) {
