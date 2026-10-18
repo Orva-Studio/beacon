@@ -19,3 +19,4 @@ export * from "./narration";
 export { isDraft, original } from "immer";
 export * from "./export";
 export * from "./spans";
+export * from "./actions";

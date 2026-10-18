@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { defineCommand, defineFeature, EasingSchema, mediaTimeAt, resolveProps, snapSeconds, ticksToSeconds, type Clip, type Project } from "@beacon/model";
+import { defineCommand, defineFeature, EasingSchema, mediaTimeAt, resolveProps, snapSeconds, ticksToSeconds, type Clip, type Project, findClip } from "@beacon/model";
 import { visualSize } from "../media";
-import { findClip } from "../timeline";
 
 interface Transform {
   x: number;

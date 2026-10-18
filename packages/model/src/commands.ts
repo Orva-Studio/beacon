@@ -83,6 +83,28 @@ export function findTrack(doc: Project, id: string, registry?: FeatureRegistry):
   return locateTrack(doc, id, registry).track;
 }
 
+/** A main-timeline time (seconds, snapped to its frames) on the clip's own track. */
+export const onTrack = (doc: Project, loc: ClipLocation, seconds: number): Ticks => snapSeconds(seconds, doc.settings.fps) - loc.offset;
+
+/** A clip anywhere in the document (inside groups too), with where it is. */
+export function findClip(doc: Project, registry: FeatureRegistry, id: string): ClipLocation {
+  for (const loc of walkClips(doc.tracks, registry)) if (loc.clip.id === id) return loc;
+  throw new Error(`no clip "${id}"`);
+}
+
+/** The clip and every clip linked to it in the same track list. */
+export function withLinked(loc: ClipLocation, linked: boolean): ClipLocation[] {
+  if (!linked || !loc.clip.linkId) return [loc];
+  return loc.tracks.flatMap((track) => track.clips.filter((c) => c.linkId === loc.clip.linkId).map((clip) => ({ clip, track, tracks: loc.tracks, offset: loc.offset })));
+}
+
+/** Each clip once, with its linked clips when `linked`. */
+export function locate(doc: Project, registry: FeatureRegistry, ids: string[], linked: boolean): ClipLocation[] {
+  const out = new Map<string, ClipLocation>();
+  for (const id of ids) for (const l of withLinked(findClip(doc, registry, id), linked)) out.set(l.clip.id, l);
+  return [...out.values()];
+}
+
 /** A track and the list it is in: the timeline's, or with `registry`, a group's or stitched clip's. */
 export function locateTrack(doc: Project, id: string, registry?: FeatureRegistry): { track: Track; list: Track[] } {
   const lists = [doc.tracks];

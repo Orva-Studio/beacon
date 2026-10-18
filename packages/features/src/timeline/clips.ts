@@ -21,7 +21,6 @@ import {
   ticksPerFrame,
   walkClips,
   type Clip,
-  type ClipLocation,
   type CommandContext,
   type FeatureRegistry,
   type Project,
@@ -29,6 +28,10 @@ import {
   type Track,
   clone,
   freshEffect,
+  findClip,
+  locate,
+  onTrack,
+  withLinked,
 } from "@beacon/model";
 import { clipStream, mediaInfo, streamOf } from "../media";
 
@@ -36,26 +39,6 @@ const Seconds = z.number().nonnegative();
 const Id = z.string().min(1);
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
 
-/** A main-timeline time (seconds, snapped to its frames) on the clip's own track. */
-export const onTrack = (doc: Project, loc: ClipLocation, seconds: number): Ticks => snapSeconds(seconds, doc.settings.fps) - loc.offset;
-
-export function findClip(doc: Project, registry: FeatureRegistry, id: string): ClipLocation {
-  for (const loc of walkClips(doc.tracks, registry)) if (loc.clip.id === id) return loc;
-  throw new Error(`no clip "${id}"`);
-}
-
-/** The clip and every clip linked to it in the same track list. */
-function withLinked(loc: ClipLocation, linked: boolean): ClipLocation[] {
-  if (!linked || !loc.clip.linkId) return [loc];
-  return loc.tracks.flatMap((track) => track.clips.filter((c) => c.linkId === loc.clip.linkId).map((clip) => ({ clip, track, tracks: loc.tracks, offset: loc.offset })));
-}
-
-/** Each clip once, with its linked clips when `linked`. */
-function locate(doc: Project, registry: FeatureRegistry, ids: string[], linked: boolean): ClipLocation[] {
-  const out = new Map<string, ClipLocation>();
-  for (const id of ids) for (const l of withLinked(findClip(doc, registry, id), linked)) out.set(l.clip.id, l);
-  return [...out.values()];
-}
 
 /** A speed as a fraction in thousandths, reduced (1.5 → 3/2). */
 function rational(x: number): { num: number; den: number } {

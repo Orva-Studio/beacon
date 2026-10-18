@@ -13,9 +13,10 @@ import {
   clone,
   cutToWindow,
   freshEffect,
+  drawNested,
+  nestedAudio,
 } from "@beacon/model";
 import { cursor } from "../cursor";
-import { drawNested, nestedAudio } from "../groups";
 import { visualSize } from "../media";
 
 const stitchSchema = z.strictObject({

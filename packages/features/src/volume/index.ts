@@ -17,9 +17,11 @@ import {
   type EnvelopePoint,
   type Ticks,
   timelineTimeAt,
+  findClip,
+  dropTargets,
+  selectedClips,
+  selectDropped,
 } from "@beacon/model";
-import { findClip } from "../timeline";
-import { dropTargets, selectDropped } from "../timeline/actions";
 
 const TARGET = "audio.volume";
 /** Fades are about a second. */
@@ -45,7 +47,7 @@ const setPoints = (c: Clip, points: { time: number; value: number }[]): ActionSt
 /** Selected clips with audio, else those under the playhead (or in the range) on unlocked tracks. */
 function audioClips(ctx: ActionContext): Clip[] {
   const has = (c: Clip) => ctx.registry.hasTrait(c.type, "audio");
-  const picked = ctx.scope.tracks.flatMap((t) => t.clips.filter((c) => ctx.session.selection.includes(c.id) && has(c)));
+  const picked = selectedClips(ctx).filter(has);
   if (picked.length) return picked;
   const [a, b] = ctx.session.range ? [ctx.session.range.in, ctx.session.range.out] : [ctx.session.playhead, ctx.session.playhead];
   return ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips.filter((c) => has(c) && ticksToSeconds(c.start) <= b && ticksToSeconds(clipEnd(c)) >= a));

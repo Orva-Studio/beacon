@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { defineFeature, secondsToTicks } from "@beacon/model";
-import { SHUTTER } from "../cursor";
+import { defineFeature, secondsToTicks, SHUTTER } from "@beacon/model";
 
 /**
  * Blurs a clip along its animated motion by averaging its transform over the

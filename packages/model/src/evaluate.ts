@@ -1,6 +1,7 @@
 import type { AudioContext, AudioSegment, ClipEval, EvalContext } from "./feature";
+import type { Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import type { Layer, RGBA, Scene, SourceDef } from "./scene";
+import { IDENTITY, type Layer, type RGBA, type Scene, type SourceDef, type VisualLayer } from "./scene";
 import type { Animation, Clip, Easing, Project } from "./schema";
 import { rationalToNumber, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
 
@@ -180,3 +181,27 @@ export function parseColor(hex: string): RGBA {
   return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, m[2] ? parseInt(m[2], 16) / 255 : 1];
 }
 
+/** Frames of shutter at motion blur intensity 1 (the clip's and the cursor's). */
+export const SHUTTER = 0.75;
+
+/** The audio of nested tracks heard through a clip's window (groups, stitched media). */
+export function nestedAudio(clip: Clip, tracks: Track[] | undefined, ctx: AudioContext): AudioSegment[] {
+  if (!tracks) return [];
+  const speed = clipSpeed(clip);
+  const [inStart, inEnd] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
+  const start = ticksToSeconds(clip.start);
+  return ctx.tracks(tracks).flatMap((s) => {
+    const from = Math.max(s.start, inStart);
+    const to = Math.min(s.start + s.duration, inEnd);
+    if (to <= from) return [];
+    return [{ ...s, start: start + (from - inStart) / speed, duration: (to - from) / speed, mediaStart: s.mediaStart + (from - s.start) * s.speed, speed: s.speed * speed }];
+  });
+}
+
+/** Draws nested tracks on their own canvas as the clip's content, so its transform and effects apply to them as one. */
+export function drawNested(e: ClipEval, g: { width: number; height: number; tracks: Track[] }, ctx: EvalContext) {
+  const layers = ctx.evalTracks(g.tracks, e.mediaTime, { width: g.width, height: g.height }, { sample: e.sample });
+  const main: VisualLayer = { kind: "visual", content: { type: "group", background: [0, 0, 0, 0], layers }, size: [g.width, g.height], transform: IDENTITY };
+  e.layers.push(main);
+  e.main = main;
+}

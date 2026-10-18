@@ -5,7 +5,6 @@ import type { FeatureRegistry } from "./registry";
 import type { Layer, SourceDef } from "./scene";
 import type { Ticks } from "./ticks";
 import type { Session, SessionCommandDef } from "./session";
-import type { EditScope } from "./edit";
 
 export interface ClipTypeDef {
   /** e.g. "screen", "callout"; stored in `Clip.type`. */

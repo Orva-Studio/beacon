@@ -21,15 +21,17 @@ import {
   type FeatureRegistry,
   clone,
   freshEffect,
+  findClip,
+  onTrack,
 } from "@beacon/model";
 import { visualSize } from "../media";
 import { actions, animationActions } from "./actions";
-import { clipCommands, findClip, onTrack, packMagnetic } from "./clips";
+import { clipCommands, packMagnetic } from "./clips";
 
 const Seconds = z.number().nonnegative();
 const Id = z.string().min(1);
 
-export { findClip, onTrack, rippleDeleteRanges } from "./clips";
+export { rippleDeleteRanges } from "./clips";
 
 const commands = [
   defineCommand({

@@ -3,24 +3,17 @@ import {
   adoptTrackProps,
   animatedValue,
   clipEnd,
-  clipSpeed,
   defineAction,
   defineCommand,
   defineFeature,
-  IDENTITY,
   isFree,
-  ticksToSeconds,
   TrackSchema,
-  type AudioContext,
-  type AudioSegment,
   type Clip,
-  type ClipEval,
-  type EvalContext,
   type Track,
-  type VisualLayer,
-  mediaWindow,
   clone,
   cutToWindow,
+  drawNested,
+  nestedAudio,
 } from "@beacon/model";
 
 const groupSchema = z.strictObject({
@@ -30,28 +23,6 @@ const groupSchema = z.strictObject({
   /** Bottom → top; clip times are on the group's inner timeline. */
   tracks: z.array(TrackSchema),
 });
-
-/** The audio of nested tracks heard through a clip's window (groups, stitched media). */
-export function nestedAudio(clip: Clip, tracks: Track[] | undefined, ctx: AudioContext): AudioSegment[] {
-  if (!tracks) return [];
-  const speed = clipSpeed(clip);
-  const [inStart, inEnd] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
-  const start = ticksToSeconds(clip.start);
-  return ctx.tracks(tracks).flatMap((s) => {
-    const from = Math.max(s.start, inStart);
-    const to = Math.min(s.start + s.duration, inEnd);
-    if (to <= from) return [];
-    return [{ ...s, start: start + (from - inStart) / speed, duration: (to - from) / speed, mediaStart: s.mediaStart + (from - s.start) * s.speed, speed: s.speed * speed }];
-  });
-}
-
-/** Draws nested tracks on their own canvas as the clip's content, so its transform and effects apply to them as one. */
-export function drawNested(e: ClipEval, g: { width: number; height: number; tracks: Track[] }, ctx: EvalContext) {
-  const layers = ctx.evalTracks(g.tracks, e.mediaTime, { width: g.width, height: g.height }, { sample: e.sample });
-  const main: VisualLayer = { kind: "visual", content: { type: "group", background: [0, 0, 0, 0], layers }, size: [g.width, g.height], transform: IDENTITY };
-  e.layers.push(main);
-  e.main = main;
-}
 
 type Look = { x: number; y: number; scaleX: number; scaleY: number; rotation: number; rotationX: number; rotationY: number; opacity: number };
 const IDENTITY_LOOK: Look = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 };

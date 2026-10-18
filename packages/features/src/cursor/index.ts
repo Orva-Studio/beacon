@@ -16,6 +16,7 @@ import {
   type EvalContext,
   type Track,
   type VisualLayer,
+  SHUTTER,
 } from "@beacon/model";
 import { loadCursorData } from "@beacon/media";
 import { streamOf } from "../media";
@@ -48,8 +49,6 @@ const cursorGroup = z.strictObject({
   frozen: z.strictObject({ image: z.int().nonnegative(), x: z.number(), y: z.number() }).optional(),
 });
 
-/** Frames of shutter at intensity 1. */
-export const SHUTTER = 0.75;
 
 const intensity = z.strictObject({ intensity: z.number().nonnegative() });
 

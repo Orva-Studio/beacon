@@ -14,32 +14,14 @@ import {
   type ActionStep,
   type Clip,
   walkClips,
+  dropTargets,
+  selectDropped,
+  selectedClips,
 } from "@beacon/model";
 import { visualSize } from "../media";
 
 const none = z.strictObject({});
 
-/** The selected clips that still exist, on the timeline or in the opened group. */
-function selected({ scope, session }: ActionContext): Clip[] {
-  return scope.tracks.flatMap((t) => t.clips.filter((c) => session.selection.includes(c.id)));
-}
-
-/**
- * The clips a panel item dropped on `clip` applies to (a drag onto
- * media): every selected clip when it is one of them, else that clip alone;
- * without `clip`, the selection.
- */
-export function dropTargets(ctx: ActionContext, clip?: string): Clip[] {
-  if (!clip) return selected(ctx);
-  if (ctx.session.selection.includes(clip)) return selected(ctx);
-  const c = ctx.scope.tracks.flatMap((t) => t.clips).find((x) => x.id === clip);
-  if (!c) throw new Error(`no clip "${clip}"${ctx.scope.group ? " in the open group" : " on the timeline"}`);
-  return [c];
-}
-
-/** After a drop on an unselected clip, it becomes the selection, so its properties show what was added. */
-export const selectDropped = (ctx: ActionContext, clip?: string): ActionStep[] =>
-  clip && !ctx.session.selection.includes(clip) ? [{ command: "selection.set", args: { clips: [clip], linked: false } }] : [];
 
 const playhead = (ctx: ActionContext) => ctx.session.playhead;
 
@@ -69,7 +51,7 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
     const { clip, id } = ctx.session.animation;
     return { label: "Delete Animation", steps: [{ command: "animation.remove", args: { clip, animation: id } }] };
   }
-  const clips = selected(ctx);
+  const clips = selectedClips(ctx);
   const range = ctx.session.range;
   // Removing an empty range still closes it; there is just nothing to copy.
   const what = clips.length ? { clips: clips.map((c) => c.id) } : range ? { range: [secondsToTicks(range.in), secondsToTicks(range.out)] as [number, number] } : {};
@@ -167,7 +149,7 @@ export const actions = [
       const copied = session.properties;
       // A copied arrow goes onto each selected clip: from the playhead when it is over the clip, else where it sat in its own.
       if (!session.clipboard && copied?.animations?.length) {
-        const clips = selected(ctx);
+        const clips = selectedClips(ctx);
         if (!clips.length) throw new Error("select the clips to paste the animation onto");
         const steps = clips.flatMap((c) =>
           copied.animations!.map((a) => {
@@ -180,7 +162,7 @@ export const actions = [
         return { label: "Paste Animation", steps };
       }
       if (!session.clipboard && copied && !Object.keys(copied.props).length && copied.effects.length) {
-        const clips = selected(ctx);
+        const clips = selectedClips(ctx);
         if (!clips.length) throw new Error("select the clips to paste the effects onto");
         return { label: copied.effects.length > 1 ? "Paste Effects" : "Paste Effect", steps: [{ command: "clip.pasteProperties", args: { clips: clips.map((c) => c.id), props: {}, effects: copied.effects } }] };
       }
@@ -188,7 +170,7 @@ export const actions = [
       if (session.clipboard) {
         // Neither the copied clips nor pasted copies of them (selected after ⌘V, so ⌘V ⌘V pastes twice).
         const same = (a: Clip, b: Clip) => a.id === b.id || (a.type === b.type && a.assetId === b.assetId && a.mediaStart === b.mediaStart && a.duration === b.duration);
-        const onto = selected(ctx).filter((c) => !session.clipboard!.items.some((i) => same(i.clip, c)));
+        const onto = selectedClips(ctx).filter((c) => !session.clipboard!.items.some((i) => same(i.clip, c)));
         if (onto.length) {
           const effects = session.clipboard.items.flatMap((i) => i.clip.effects);
           if (!effects.length) throw new Error("the copied clip has no effects to paste onto the selection; press Escape and ⌘V to paste the clip itself");
@@ -206,7 +188,7 @@ export const actions = [
     args: none,
     resolve: (_, ctx) => {
       mainTimelineOnly(ctx, "duplicate");
-      const clips = selected(ctx);
+      const clips = selectedClips(ctx);
       if (!clips.length) throw new Error("select media first");
       const board = copyClips(ctx.project, { clips: clips.map((c) => c.id) }, ctx.registry)!;
       const at = seconds(Math.max(...clips.map(clipEnd)));
@@ -218,7 +200,7 @@ export const actions = [
     description: "Split the selected clips at the playhead, or every clip under it when nothing is selected (⌘T)",
     args: none,
     resolve: (_, ctx) => {
-      const clips = selected(ctx);
+      const clips = selectedClips(ctx);
       const at = playhead(ctx);
       // Inside a group, "every clip" means the group's.
       const all = ctx.scope.group ? ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips) : undefined;
@@ -241,7 +223,7 @@ export const actions = [
     args: z.strictObject({ edge: z.enum(["start", "end"]) }),
     resolve: ({ edge }, ctx) => {
       const at = secondsToTicks(playhead(ctx));
-      const pool = selected(ctx).length ? selected(ctx) : ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
+      const pool = selectedClips(ctx).length ? selectedClips(ctx) : ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
       const under = pool.filter((c) => c.start < at && clipEnd(c) > at);
       if (!under.length) throw new Error("no media under the playhead");
       return {
@@ -348,7 +330,7 @@ export const actions = [
     resolve: (_, ctx) => {
       const copied = ctx.session.properties;
       if (!copied) throw new Error("no properties have been copied");
-      const clips = selected(ctx);
+      const clips = selectedClips(ctx);
       if (!clips.length) throw new Error("select media first");
       return { label: "Paste Properties", steps: [{ command: "clip.pasteProperties", args: { clips: clips.map((c) => c.id), ...copied } }] };
     },
@@ -370,7 +352,7 @@ export const actions = [
     description: "Move the selected visual clips on the canvas by canvas pixels, at the playhead (arrow keys: 1 pixel, with Shift 10); `y` is up",
     args: z.strictObject({ x: z.number().default(0), y: z.number().default(0) }),
     resolve: ({ x, y }, ctx) => {
-      const clips = selected(ctx).filter((c) => ctx.registry.hasTrait(c.type, "visual"));
+      const clips = selectedClips(ctx).filter((c) => ctx.registry.hasTrait(c.type, "visual"));
       if (!clips.length) throw new Error("select visual media first");
       return {
         label: "Nudge",
@@ -389,7 +371,7 @@ export const actions = [
     resolve: ({ to }, ctx) => {
       const { width: W, height: H } = ctx.project.settings;
       const steps: ActionStep[] = [];
-      for (const c of selected(ctx)) {
+      for (const c of selectedClips(ctx)) {
         if (!ctx.registry.hasTrait(c.type, "visual")) continue;
         if (typeof to === "number") {
           steps.push({ command: "clip.set", args: { clip: c.id, at: playhead(ctx), props: { transform: { scaleX: to / 100, scaleY: to / 100 } } } });
