@@ -514,7 +514,7 @@ function Effect({ clip, effect, host, schema, selected }: { clip: Clip; effect: 
                 </Row>
               );
             }
-            if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) {
+            if (typeof v === "string" && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v)) {
               return (
                 <Row key={k} label={label}>
                   <ColorSwatch color={fromHex(v)!} title={label} onChange={(c, key) => set({ [k]: toHex(c) }, key)} />

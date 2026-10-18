@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
+import { parseColor, type RGBA } from "@beacon/model";
 import { PLAIN_TEXT } from "./buttons";
 import { MASK, syncNativeView } from "../native-view";
 import { replica } from "../store";
 import { clamp, NumberBox, Row, Slider } from "./fields";
 import { Icon } from "./icons";
 
-/** 0-1 RGB and alpha, as the document stores colours. */
-export type RGBA = [number, number, number, number];
+export type { RGBA };
 
 export const toHex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, "0")).join("")}`;
-export const fromHex = (h: string, alpha = 1): RGBA | undefined => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(h.trim());
-  return m ? ([0, 2, 4].map((i) => parseInt(m[1]!.slice(i, i + 2), 16) / 255).concat(alpha) as RGBA) : undefined;
+/** `#rrggbb` or `#rrggbbaa` (Camtasia's colours keep their alpha), the `#` optional. */
+export const fromHex = (h: string): RGBA | undefined => {
+  try {
+    return parseColor(h.trim().replace(/^#?/, "#"));
+  } catch {
+    return undefined;
+  }
 };
 
 /** Hue 0-360, saturation and value 0-1. */
