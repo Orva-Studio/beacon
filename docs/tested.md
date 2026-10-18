@@ -5,6 +5,28 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Review fixes (`fix/review-bugs`, `docs/review-2026-10-17.md` §1)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| A take started through core (as `recorder_start` does) gets the camera's measured delay from Settings | 2026-10-18 | `ebd8286` | Core with a stand-in recorder: `offsets: { camera: -0.12 }` sent for a 120 ms delay |
+| Canvas Color shows a background with alpha (`#rrggbbaa`, as a Camtasia import keeps it) | 2026-10-18 | `cdfbd96` | UI flow: red, where it was black before the fix |
+| Zoom To on stitched media works; `timeline_clips` gives it a size | 2026-10-18 | `4818dca` | Core on `video.mp4` split then stitched (it threw "no content size" before) |
+| Clippy clean with warnings as errors, and part of `bun run typecheck` | 2026-10-18 | `284ee96` | Run |
+
+### Not checked yet
+
+- A real camera take recorded by an agent over MCP lines up as one from the Record dialog does.
+- GPU memory steady while zooming a tilted clip with a drop shadow (render targets now freed; not measured).
+- Open Recent, the Export and Record dialogs' last choices still there after the update (their files moved
+  into the config folder through core, same folder for the app).
+- A Quiet proxy build with Beacon's MCP server started with a short PATH; Reveal in Finder and the narration
+  countdown beeps still work (tools now run by their full paths).
+- Forgetting a transcript while Apple's or OpenAI's transcriber runs cancels it (built only).
+- A 12.5 fps `.cmproj` imports at 25/2 (built only; export's 12.5 fps test passes).
+
 ## Phase 8 (`phase-8`)
 
 ### Checked by hand
