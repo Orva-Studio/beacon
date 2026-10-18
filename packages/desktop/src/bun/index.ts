@@ -204,7 +204,7 @@ async function switchTo(path: string) {
         else delete proxyProgress.jobs[e.job.asset];
         sendPreparing();
       }
-      if (e.job.state === "done" && e.job.kind === "waveform") sendWaveforms();
+      if (e.job.state === "done" && e.job.kind === "waveform") sendWaveforms(e.job.asset);
       if (e.job.state === "done" && e.job.kind === "proxy") void sendThumbs();
     }
   });
@@ -943,10 +943,11 @@ async function sendThumbs() {
   if (thumbAgain) await sendThumbs();
 }
 
-function sendWaveforms() {
+/** Every asset's waveform, or only `asset`'s (the window merges them): one finishing needn't resend the others. */
+function sendWaveforms(asset?: string) {
   if (!current) return;
   const waveforms: Record<string, Record<number, number[]>> = {};
-  for (const id of Object.keys(core.doc(current.path).assets)) {
+  for (const id of asset ? [asset] : Object.keys(core.doc(current.path).assets)) {
     const w = core.derived<{ streams: Record<number, number[]> }>(current.path, id, "waveform");
     if (w) waveforms[id] = w.streams;
   }
