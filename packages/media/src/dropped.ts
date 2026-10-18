@@ -37,6 +37,6 @@ export async function findDroppedFile(f: DroppedFile): Promise<string | undefine
     const path = join(homedir(), dir, f.name);
     if (same(path, f)) return path;
   }
-  const found = await runTool(["mdfind", "-name", f.name]).catch(() => "");
+  const found = await runTool(["/usr/bin/mdfind", "-name", f.name]).catch(() => "");
   return found.split("\n").find((p) => p.endsWith(`/${f.name}`) && same(p, f));
 }

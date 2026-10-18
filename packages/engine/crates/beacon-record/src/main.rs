@@ -39,7 +39,7 @@ fn record(args: &[String]) -> Result<(), String> {
         if tones && next.peek().is_some_and(|&at| begun.elapsed().as_secs_f64() >= at) {
             next.next();
             take.mark();
-            let _ = std::process::Command::new("afplay").arg("/System/Library/Sounds/Ping.aiff").spawn();
+            let _ = std::process::Command::new("/usr/bin/afplay").arg("/System/Library/Sounds/Ping.aiff").spawn();
         }
         take.poll_cursor();
         take.checkpoint();
