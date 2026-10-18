@@ -15,6 +15,7 @@ feature lands and when it is checked.
 | Canvas Color shows a background with alpha (`#rrggbbaa`, as a Camtasia import keeps it) | 2026-10-18 | `cdfbd96` | UI flow: red, where it was black before the fix |
 | Zoom To on stitched media works; `timeline_clips` gives it a size | 2026-10-18 | `4818dca` | Core on `video.mp4` split then stitched (it threw "no content size" before) |
 | Clippy clean with warnings as errors, and part of `bun run typecheck` | 2026-10-18 | `284ee96` | Run |
+| Export's data rate Automatic by default, from the dialog and for agents: 10 Mbps at 1080p30, by size and rate, never below 8; a typed rate kept | 2026-10-18 | (this branch) | UI flow (10000, then 40000 fitted within 4K); a 20 s export of `recording.trec` at 10.15 Mbps, a typed 3000 at 3.08 |
 
 ### Not checked yet
 
@@ -26,6 +27,8 @@ feature lands and when it is checked.
   countdown beeps still work (tools now run by their full paths).
 - Forgetting a transcript while Apple's or OpenAI's transcriber runs cancels it (built only).
 - A 12.5 fps `.cmproj` imports at 25/2 (built only; export's 12.5 fps test passes).
+- The Export dialog in the app: it remembers its last settings, so choose Automatic once (yours were the old
+  6000 default); then an export's size about 75 MB a minute at 1080p30.
 
 ## Phase 8 (`phase-8`)
 

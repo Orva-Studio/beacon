@@ -594,6 +594,19 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
+test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
+  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } });
+  await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
+  const rate = `document.querySelector('input[data-rate]')`;
+  await page.until(`!!${rate}`);
+  expect(await page.evaluate<[string, boolean]>(`[${rate}.value, ${rate}.disabled]`)).toEqual(["10000", true]);
+  // Fitted within 4K, the rate follows the size.
+  await page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === '3840x2160')); s.value = '3840x2160'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await page.until(`${rate}.value === '40000'`);
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("Record lists the sources with their devices, counts down, and asks for what was chosen", async () => {
   const sheet = {
     permissions: { screen: "granted", camera: "denied", microphone: "granted" },

@@ -299,7 +299,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       from: Seconds.optional(),
       to: Seconds.optional(),
       overwrite: z.boolean().default(false).describe("Replace an existing file"),
-      bitrate: z.int().min(64).max(100_000).optional().describe("Video data rate in kbit/s; omitted: automatic"),
+      bitrate: z.int().min(64).max(100_000).optional().describe("Video data rate in kbit/s; omitted: automatic, by the output's size and frame rate (10 Mbps at 1080p30, never below 8 Mbps); not used by ProRes"),
       keyframe: z.int().positive().optional().describe("A keyframe every this many frames (default 30)"),
       profile: z.enum(["baseline", "main", "high"]).optional().describe("H.264 profile"),
       fps: z.number().positive().max(120).optional().describe("Output frame rate; omitted: the project's"),

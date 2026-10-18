@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { autoBitrate, fittedSize } from "@beacon/model";
 import { Button, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
@@ -49,6 +50,7 @@ function DataRate({ value, min, max, auto, onChange }: { value: number | null; m
         max={max}
         value={shown}
         disabled={value === null}
+        data-rate
         onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || min)))}
       />
       <span className="text-text-dim">kbits/sec</span>
@@ -76,6 +78,8 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
   };
   const video = s.format === "mp4" || s.format === "mov";
   const sizeKey = s.size ? `${s.size.width}x${s.size.height}` : "";
+  const fitted = fittedSize(sheet.canvas, s.size);
+  const autoRate = autoBitrate(fitted.width, fitted.height, s.fps ?? sheet.canvas.fps);
   return (
     <Modal title={sheet.range && selectionOnly ? "Export Selection" : "Export"} width={680} onClose={close} onEnter={() => void start()}>
       <div className="flex flex-col gap-3">
@@ -153,7 +157,7 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
           </Row>
           {s.format !== "gif" && (
             <Row label="Data rate">
-              <DataRate value={s.bitrate} min={64} max={30000} auto={16000} onChange={(bitrate) => set({ bitrate })} />
+              <DataRate value={s.bitrate} min={64} max={100000} auto={autoRate} onChange={(bitrate) => set({ bitrate })} />
             </Row>
           )}
           {video && (
