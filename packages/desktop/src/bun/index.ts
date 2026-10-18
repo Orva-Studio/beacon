@@ -30,7 +30,7 @@ type RecordSources = import("@beacon/ui").RecordSources;
 type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { appWideMessage, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
+const { DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, projectBridge, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
 const { chordOf, fpsRational, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
@@ -45,7 +45,8 @@ interface Current {
   path: string;
   /** `rect`: the canvas view in the window, in points. */
   view?: { id: number; live: LiveView; scale: number; rect: { x: number; y: number; width: number; height: number } };
-  unwatch: () => void;
+  /** Its events told to the window. */
+  bridge: import("@beacon/ui").ProjectBridge;
   /** Already released by core (renamed): switching away must not close it again. */
   closed?: boolean;
 }
@@ -59,15 +60,14 @@ let lastSurround: [number, number, number] | undefined;
 function scaledMarks(marks: import("@beacon/ui").CanvasMark[], scale: number) {
   return marks.map((m) => (m.kind === "line" ? { ...m, width: m.width * scale } : { ...m, radius: m.radius * scale, width: m.width * scale }));
 }
-/** The revision of the document the window was last sent: one per patches message, so it can tell if it missed one. */
-let rev = 0;
-
 async function openedPayload(h: string): Promise<import("@beacon/ui").Opened> {
-  return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev };
+  return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: current?.path === h ? current.bridge.rev() : 0 };
 }
 let shown: import("@beacon/ui").Shown | undefined;
 
 const send = () => win.webview.rpc!.send;
+/** `send()` by message name, for the bridge shared with the UI harness. */
+const message: import("@beacon/ui").Send = (type, data) => (send()[type] as (d: typeof data) => void)(data);
 
 const status = (text: string) => send().status({ text });
 
@@ -155,70 +155,45 @@ async function switchTo(path: string) {
   if (current) {
     clearTimeout(thumbTimer);
     if (!current.closed) await saveProjectThumb(current.path);
-    current.unwatch();
+    current.bridge.unwatch();
     narrationEnded();
     // A failed final save still releases the old project; say so and finish switching.
     if (!current.closed) await core.close(current.path).catch((e: unknown) => status(e instanceof Error ? e.message : String(e)));
   }
-  const unwatch = core.watch(h, (e) => {
-    tally(`event ${e.kind}`);
-    if (e.kind === "apply" || e.kind === "undo" || e.kind === "redo") {
-      send().patches({ patches: e.patches, label: e.label, kind: e.kind, rev: ++rev });
+  const bridge = projectBridge(core, h, message, {
+    every: (e) => tally(`event ${e.kind}`),
+    changed: () => {
       void sendThumbs();
       void sendMissing();
-      // Media added, replaced or relinked may have its waveform cached already, with no job to say so.
-      if (e.patches.some((p) => p.path[0] === "assets")) sendWaveforms();
-    }
-    else if (e.kind === "session") {
-      send().session({ changes: e.changes });
-      if (e.changes.canvas && current?.view) current.view.live.place(...placement(e.changes.canvas, current.view));
-    } else if (e.kind === "saved") {
-      send().saved({ ok: true });
-      saveProjectThumbSoon(h);
-    } else if (e.kind === "needs") {
-      offerResource(e.resource);
-    } else if (e.kind === "favorites" || e.kind === "preference") {
-      void appWideMessage(core, e).then((m) => m && (m.type === "favorites" ? send().favorites(m.data) : send().preferences(m.data)));
-    } else if (e.kind === "shortcuts") {
-      shortcutsChanged(e.shortcuts);
-    } else if (e.kind === "settings") {
-      settingsChanged(e.settings);
-    } else if (e.kind === "preparing") {
-      proxyProgress.queued = e.assets;
-      sendPreparing();
-    } else if (e.kind === "derived" && e.key === "proxy") {
-      send().media({ proxies: { [e.asset]: e.present } });
-    } else if (e.kind === "narrated") {
-      narrationEnded(e.result);
-    } else if (e.kind === "error") {
-      if (e.message.startsWith("could not save")) send().saved({ ok: false });
-      if (e.message.startsWith("narration:")) narrationEnded();
-      status(e.message);
-    } else if (e.kind === "job" && e.job.kind !== "export") {
-      if (e.job.state === "failed" && e.job.error !== "cancelled") status(`${e.job.label}: ${e.job.error}`);
-      if (e.job.kind === "transcript" && e.job.asset) {
-        if (e.job.state === "running") transcribing[e.job.asset] = e.job.progress;
-        else delete transcribing[e.job.asset];
-        send().media({ transcribing: { ...transcribing } });
+    },
+    session: (changes) => {
+      if (changes.canvas && current?.view) current.view.live.place(...placement(changes.canvas, current.view));
+    },
+    shortcuts: (list) => void shortcutsChanged(list),
+    settings: settingsChanged,
+    other: (e) => {
+      if (e.kind === "saved") {
+        send().saved({ ok: true });
+        saveProjectThumbSoon(h);
+      } else if (e.kind === "needs") offerResource(e.resource);
+      else if (e.kind === "narrated") narrationEnded(e.result);
+      else if (e.kind === "error") {
+        if (e.message.startsWith("could not save")) send().saved({ ok: false });
+        if (e.message.startsWith("narration:")) narrationEnded();
+        status(e.message);
+      } else if (e.kind === "job" && e.job.kind !== "export") {
+        if (e.job.state === "failed" && e.job.error !== "cancelled") status(`${e.job.label}: ${e.job.error}`);
+        if (e.job.state === "done" && e.job.kind === "proxy") void sendThumbs();
       }
-      if (e.job.kind === "proxy" && e.job.asset) {
-        if (e.job.state === "running") proxyProgress.jobs[e.job.asset] = e.job.progress;
-        else delete proxyProgress.jobs[e.job.asset];
-        sendPreparing();
-      }
-      if (e.job.state === "done" && e.job.kind === "waveform") sendWaveforms();
-      if (e.job.state === "done" && e.job.kind === "proxy") void sendThumbs();
-    }
+    },
   });
-  current = { path: h, unwatch };
+  current = { path: h, bridge };
   setRecent([{ path: h, opened: Date.now() }, ...recent.filter((r) => r.path !== h)]);
   win.setTitle(`${basename(h)} — Beacon`);
   thumbs.clear();
-  proxyProgress = { queued: {}, jobs: {} };
-  transcribing = {};
   send().opened(await openedPayload(h));
   if (canvas) await canvasView(canvas.id, canvas.rect, canvas.scale);
-  sendWaveforms(true);
+  bridge.sendWaveforms(true);
   sendProxies();
   lastMissing = undefined;
   void sendMissing();
@@ -254,10 +229,6 @@ function sendMissing(): Promise<void> {
   return checkingMissing;
 }
 setInterval(() => void sendMissing(), 3000);
-
-function sendPreparing() {
-  send().media({ preparing: { ...proxyProgress.queued, ...proxyProgress.jobs } });
-}
 
 function sendProxies() {
   if (!current) return;
@@ -907,10 +878,6 @@ function previewView(id: number, rect: { x: number; y: number; width: number; he
 }
 
 const THUMB_HEIGHT = 64;
-/** Proxies being made: from the app's own queue, and those asked for in the Media Bin. */
-/** Transcripts being made, by asset, and their progress: Remove Silences and Captions show it while they wait. */
-let transcribing: Record<string, number> = {};
-let proxyProgress: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
 
 const thumbs = new Map<string, string>();
 let thumbing = false;
@@ -943,25 +910,6 @@ async function sendThumbs() {
     thumbing = false;
   }
   if (thumbAgain) await sendThumbs();
-}
-
-/** The file each asset's waveform in the window is of (it merges them), so only new or replaced media is sent. */
-const waveformsSent = new Map<string, string>();
-/**
- * The waveforms the window doesn't have yet: after a job, and after an edit to the media, since a file already
- * analysed (imported again, or relinked to) has its waveform from the cache with no job. `all`: the window starts afresh.
- */
-function sendWaveforms(all = false) {
-  if (!current) return;
-  if (all) waveformsSent.clear();
-  const waveforms: Record<string, Record<number, number[]>> = {};
-  for (const [id, asset] of Object.entries(core.doc(current.path).assets)) {
-    const file = `${asset.path}\0${asset.fingerprint}`;
-    if (waveformsSent.get(id) === file) continue;
-    const w = core.derived<{ streams: Record<number, number[]> }>(current.path, id, "waveform");
-    if (w) (waveforms[id] = w.streams), waveformsSent.set(id, file);
-  }
-  if (Object.keys(waveforms).length) send().media({ waveforms });
 }
 
 /** As `reply`, with what `fn` returned. */
@@ -1013,7 +961,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         // The webview may load after the project opened: send its pictures again once it asks.
         setTimeout(() => {
           thumbs.clear();
-          sendWaveforms(true);
+          current?.bridge.sendWaveforms(true);
           void sendThumbs();
         }, 50);
         return {
@@ -1172,7 +1120,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         const a = core.doc(current.path).assets[asset];
         const proxyable = !!a && !!core.registry.jobAnalyzers.get("proxy")?.applies(a);
         const hasProxy = core.derived(current.path, asset, "proxy") !== undefined;
-        const making = asset in proxyProgress.queued || asset in proxyProgress.jobs;
+        const making = asset in current.bridge.proxies.queued || asset in current.bridge.proxies.jobs;
         const missing = !!a && !existsSync(a.path);
         ContextMenu.showContextMenu([
           ...(missing ? [item("Locate Media…", "locate"), sep] : []),

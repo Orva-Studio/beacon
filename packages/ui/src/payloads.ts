@@ -24,7 +24,7 @@ export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "re
 }
 
 /** The app-wide changes the window follows as they are: favourites and preferences. (Settings and keys are applied by the main process first.) */
-export async function appWideMessage(core: Core, e: CoreEvent): Promise<{ type: "favorites"; data: { items: string[] } } | { type: "preferences"; data: Init["preferences"] } | undefined> {
+export async function appWideMessage(core: Pick<Core, "preferences">, e: CoreEvent): Promise<{ type: "favorites"; data: { items: string[] } } | { type: "preferences"; data: Init["preferences"] } | undefined> {
   if (e.kind === "favorites") return { type: "favorites", data: { items: e.items } };
   if (e.kind === "preference") return { type: "preferences", data: await core.preferences() };
   return undefined;
