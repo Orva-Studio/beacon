@@ -44,14 +44,10 @@ import {
   type Keys,
   type ShortcutInfo,
   type AppSettings,
-  AppSettingsSchema,
-  DEFAULT_APP_SETTINGS,
   narrationSpan,
-  isPanelEffect,
   SETTINGS_TABS,
   type SettingsTab,
   type SettingsPatch,
-  withPatch,
   syncKey,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
@@ -85,10 +81,10 @@ import type {
   UiDialog,
 } from "./api";
 import { download } from "./download";
+import { AppConfig } from "./config";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
-import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -215,24 +211,18 @@ export class LocalCore implements BeaconCore {
   /** The last copies in any project, so they paste into the next one opened. */
   #shared: SharedSession = { clipboard: null, properties: null };
 
-  readonly #configDir: string;
-  readonly #secrets: Secrets;
-  #prefs: Record<string, string>;
-  readonly #pref = (id: string): string => {
-    const def = this.registry.preferences.get(id);
-    if (!def) throw new Error(`no preference "${id}"`);
-    const v = this.#prefs[id];
-    return v !== undefined && def.options.some((o) => o.id === v) ? v : def.default;
-  };
+  /** Preferences, favourites, settings and keys, and the secrets. */
+  readonly #config: AppConfig;
+  readonly #pref: (id: string) => string;
 
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
     // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
-    this.#configDir = opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
-    this.#secrets = opts.secrets ?? keychain;
-    const prefs = this.readConfig("preferences.json");
-    this.#prefs = prefs && typeof prefs === "object" ? (prefs as Record<string, string>) : {};
+    this.#config = new AppConfig(opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR, this.registry, opts.secrets ?? keychain, (e) => {
+      for (const l of this.#appListeners) l(e);
+    });
+    this.#pref = this.#config.pref;
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
@@ -909,7 +899,7 @@ export class LocalCore implements BeaconCore {
     const doc = p.store.doc;
     if (opts.folder !== undefined && !existsSync(opts.folder)) throw new Error(`${opts.folder} doesn't exist`);
     // Settings' folder unless one is given; gone, the project's media folder.
-    const chosen = this.#settings().snapshotFolder;
+    const chosen = this.#config.settings().snapshotFolder;
     if (opts.folder === undefined && chosen && existsSync(chosen)) opts = { ...opts, folder: chosen };
     const t = snapSeconds(time ?? p.session.state.playhead, doc.settings.fps);
     const img = await this.frame(h, ticksToSeconds(t));
@@ -962,7 +952,7 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
-    const colorSpace = this.#settings().exportColorSpace;
+    const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
     // Beside a video, files features write from the same range (captions as .srt), named after it.
@@ -1138,7 +1128,7 @@ export class LocalCore implements BeaconCore {
     if (opts.narrate) return this.#narrate(p, opts);
     const sources: RecorderSources = { ...(opts.sources ?? { screen: {}, microphone: {}, systemAudio: true }) };
     // The pair's measured delay goes into the take, so its camera clip lines up on import.
-    const sync = sources.camera?.id && sources.microphone?.id ? this.#settings().cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
+    const sync = sources.camera?.id && sources.microphone?.id ? this.#config.settings().cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
     if (!sources.offsets && sync?.cameraLateMs) sources.offsets = { camera: -sync.cameraLateMs / 1000 };
     const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
@@ -1367,7 +1357,7 @@ export class LocalCore implements BeaconCore {
           quiet: this.#jobMode === "quiet",
           resource: (id) => this.#resourcePath(this.registry.resources.get(id)!),
           pref: this.#pref,
-          secret: (id) => this.#secrets.get(id),
+          secret: (id) => this.#config.secrets.get(id),
         });
         // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
         if (def.variant?.(this.#pref) !== variant) throw new Error(`${key} was for a setting since changed`);
@@ -1456,179 +1446,72 @@ export class LocalCore implements BeaconCore {
     return typeof def.needs === "function" ? def.needs(this.#pref) : def.needs;
   }
 
-  async preferences(): Promise<PreferenceInfo[]> {
-    return Promise.all(
-      [...this.registry.preferences.values()].map(async (def) => ({
-        id: def.id,
-        title: def.title,
-        description: def.description,
-        value: this.#pref(def.id),
-        options: await Promise.all(
-          def.options.map(async (o) => ({
-            id: o.id,
-            title: o.title,
-            description: o.description,
-            ...(o.secret ? { secret: { id: o.secret, title: this.registry.secrets.get(o.secret)!.title, set: (await this.#secrets.get(o.secret)) !== undefined } } : {}),
-            ...(o.online ? { online: true } : {}),
-          })),
-        ),
-      })),
-    );
+  preferences(): Promise<PreferenceInfo[]> {
+    return this.#config.preferences();
   }
 
   async setPreference(id: string, value: string): Promise<void> {
-    const def = this.registry.preferences.get(id);
-    if (!def) throw new Error(`no preference "${id}"; there are: ${[...this.registry.preferences.keys()].join(", ")}`);
-    const option = def.options.find((o) => o.id === value);
-    if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);
-    if (option.secret && (await this.#secrets.get(option.secret)) === undefined) {
-      throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add (Settings › General)`);
-    }
-    if (this.#pref(id) === value) return;
-    this.#prefs = { ...this.#prefs, [id]: value };
-    this.writeConfig("preferences.json", this.#prefs);
+    if (!(await this.#config.setPreference(id, value))) return;
+    // What the old choice was making (another transcriber's transcripts) stops, and the new one's start.
     const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
     this.#cancelJobsOf(undefined, (j) => decided.has(j.info.kind));
-    this.#broadcast({ kind: "preference", id, value });
     for (const p of this.#projects.values()) this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
-  }
-
-  /** Where the app-wide files (preferences, favourites, settings, keys) are kept. */
-  get configDir(): string {
-    return this.#configDir;
-  }
-
-  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects) beside the preferences; undefined when missing or unreadable. */
-  readConfig(name: string): unknown {
-    try {
-      return JSON.parse(readFileSync(join(this.#configDir, name), "utf8"));
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** Writes one atomically, so a crash never leaves it half written. */
-  writeConfig(name: string, value: unknown) {
-    mkdirSync(this.#configDir, { recursive: true });
-    const file = join(this.#configDir, name);
-    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
-    renameSync(`${file}.tmp`, file);
-  }
-
-  #broadcast(e: AppEvent) {
-    for (const l of this.#appListeners) l(e);
-  }
-
-  #favorites(): string[] {
-    const items = this.readConfig("favorites.json");
-    if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
-    return this.registry.panelItems.filter((i) => i.favorite).map((i) => i.id).filter((i) => this.#favoriteKnown(i));
-  }
-
-  /** An item the panels have: one a feature lists, or an effect not only for the cursor. */
-  #favoriteKnown(item: string): boolean {
-    if (this.registry.panelItems.some((i) => i.id === item)) return true;
-    const effect = item.startsWith("effect:") ? this.registry.effects.get(item.slice(7)) : undefined;
-    return !!effect && isPanelEffect(effect.traits);
-  }
-
-  #saveFavorites(items: string[]): string[] {
-    this.writeConfig("favorites.json", items);
-    this.#broadcast({ kind: "favorites", items });
-    return items;
-  }
-
-  async favorites(): Promise<string[]> {
-    return this.#favorites();
-  }
-
-  async favoriteAdd(item: string, index?: number): Promise<string[]> {
-    if (!this.#favoriteKnown(item)) throw new Error(`"${item}" isn't an item of the panels: ${this.registry.panelItems.map((i) => i.id).join(", ")}, or effect:<id> as effect_add takes`);
-    const items = this.#favorites();
-    if (items.includes(item)) return items;
-    items.splice(index === undefined ? items.length : Math.max(0, Math.min(index, items.length)), 0, item);
-    return this.#saveFavorites(items);
-  }
-
-  async favoriteRemove(item: string): Promise<string[]> {
-    const items = this.#favorites();
-    if (!items.includes(item)) return items;
-    return this.#saveFavorites(items.filter((i) => i !== item));
-  }
-
-  async favoriteMove(item: string, index: number): Promise<string[]> {
-    const items = this.#favorites();
-    const from = items.indexOf(item);
-    if (from < 0) throw new Error(`"${item}" isn't a favourite; there are: ${items.join(", ")}`);
-    items.splice(from, 1);
-    items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
-    return this.#saveFavorites(items);
-  }
-
-  #settings(): AppSettings {
-    const saved = AppSettingsSchema.partial().safeParse(this.readConfig("settings.json"));
-    return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
-  }
-
-  async settings(): Promise<AppSettings> {
-    return this.#settings();
-  }
-
-  async setSettings(patch: SettingsPatch): Promise<AppSettings> {
-    // Only a folder being chosen must exist: one gone since (an unplugged drive) mustn't stop other changes being saved.
-    if (typeof patch.snapshotFolder === "string" && !existsSync(patch.snapshotFolder)) throw new Error(`${patch.snapshotFolder} doesn't exist`);
-    const next = AppSettingsSchema.safeParse(withPatch(this.#settings(), patch));
-    if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
-    this.writeConfig("settings.json", next.data);
-    this.#broadcast({ kind: "settings", settings: next.data });
-    return next.data;
-  }
-
-  #keymapOverrides(): KeymapOverrides {
-    const saved = KeymapFileSchema.safeParse(this.readConfig("keymap.json"));
-    return saved.success ? saved.data.overrides : {};
-  }
-
-  /** Commands' descriptions by id, for the shortcuts list; the registry doesn't change, so read once. */
-  #descriptions?: Map<string, string>;
-
-  #shortcutList(overrides: KeymapOverrides): ShortcutInfo[] {
-    this.#descriptions ??= new Map(
-      [...this.registry.commands.values(), ...SESSION_COMMANDS, ...this.registry.sessionCommands.values(), ...this.registry.actions.values()].map((c) => [c.id, c.description]),
-    );
-    const described = this.#descriptions;
-    return shortcutList(overrides, (command) => described.get(command));
-  }
-
-  #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {
-    this.writeConfig("keymap.json", { overrides });
-    const shortcuts = this.#shortcutList(overrides);
-    this.#broadcast({ kind: "shortcuts", shortcuts });
-    return shortcuts;
-  }
-
-  async shortcuts(): Promise<ShortcutInfo[]> {
-    return this.#shortcutList(this.#keymapOverrides());
-  }
-
-  async shortcutSet(action: string, keys: Keys[], replace = false): Promise<ShortcutInfo[]> {
-    return this.#saveKeymap(setShortcut(this.#keymapOverrides(), action, keys, replace));
-  }
-
-  async shortcutReset(action?: string): Promise<ShortcutInfo[]> {
-    if (action === undefined) return this.#saveKeymap({});
-    const { [action]: _, ...rest } = this.#keymapOverrides();
-    return this.#saveKeymap(rest);
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */
   async setSecret(id: string, value: string | null): Promise<void> {
-    if (!this.registry.secrets.has(id)) throw new Error(`no secret "${id}"`);
-    await this.#secrets.set(id, value);
-    if (value !== null) return;
-    for (const def of this.registry.preferences.values()) {
-      if (def.options.find((o) => o.id === this.#pref(def.id))?.secret === id) await this.setPreference(def.id, def.default);
-    }
+    for (const pref of await this.#config.setSecret(id, value)) await this.setPreference(pref, this.registry.preferences.get(pref)!.default);
+  }
+
+  /** Where the app-wide files (preferences, favourites, settings, keys) are kept. */
+  get configDir(): string {
+    return this.#config.dir;
+  }
+
+  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
+  readConfig(name: string): unknown {
+    return this.#config.read(name);
+  }
+
+  /** Writes one atomically, so a crash never leaves it half written. */
+  writeConfig(name: string, value: unknown) {
+    this.#config.write(name, value);
+  }
+
+  async favorites(): Promise<string[]> {
+    return this.#config.favorites();
+  }
+
+  async favoriteAdd(item: string, index?: number): Promise<string[]> {
+    return this.#config.favoriteAdd(item, index);
+  }
+
+  async favoriteRemove(item: string): Promise<string[]> {
+    return this.#config.favoriteRemove(item);
+  }
+
+  async favoriteMove(item: string, index: number): Promise<string[]> {
+    return this.#config.favoriteMove(item, index);
+  }
+
+  async settings(): Promise<AppSettings> {
+    return this.#config.settings();
+  }
+
+  async setSettings(patch: SettingsPatch): Promise<AppSettings> {
+    return this.#config.setSettings(patch);
+  }
+
+  async shortcuts(): Promise<ShortcutInfo[]> {
+    return this.#config.shortcuts();
+  }
+
+  async shortcutSet(action: string, keys: Keys[], replace = false): Promise<ShortcutInfo[]> {
+    return this.#config.shortcutSet(action, keys, replace);
+  }
+
+  async shortcutReset(action?: string): Promise<ShortcutInfo[]> {
+    return this.#config.shortcutReset(action);
   }
 
   async resources(): Promise<ResourceInfo[]> {
