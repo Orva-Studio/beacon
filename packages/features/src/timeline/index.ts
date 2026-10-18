@@ -43,7 +43,7 @@ const commands = [
         const c = loc.clip;
         const media = at === undefined ? undefined : mediaTimeAt(c, onTrack(doc, loc, at));
         for (const [group, values] of Object.entries(props)) {
-          const def = ctx.registry.groupsFor(c.type).find((g) => g.id === group);
+          const def = ctx.registry.group(c.type, group);
           if (!def) throw new Error(`clip type "${c.type}" has no prop group "${group}"`);
           const base: Record<string, unknown> = {};
           for (const [field, value] of Object.entries(values)) {
@@ -68,10 +68,9 @@ const commands = [
     apply(doc, { clips, props, effects }, ctx) {
       for (const id of clips) {
         const { clip: c } = findClip(doc, ctx.registry, id);
-        const traits = ctx.registry.clipType(c.type).traits;
         const groups = new Set(ctx.registry.groupsFor(c.type).map((g) => g.id));
         for (const [group, values] of Object.entries(props)) if (groups.has(group)) c.props[group] = JSON.parse(JSON.stringify(values));
-        const fits = effects.filter((e) => ctx.registry.effect(e.type).traits.some((t) => traits.includes(t)));
+        const fits = effects.filter((e) => ctx.registry.effectFits(e.type, c.type));
         const types = new Set(fits.map((e) => e.type));
         c.effects = [...c.effects.filter((e) => !types.has(e.type)), ...fits.map((e) => ({ ...JSON.parse(JSON.stringify(e)), id: ctx.newId("fx") }))];
       }

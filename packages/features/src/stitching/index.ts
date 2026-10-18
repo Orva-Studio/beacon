@@ -36,10 +36,9 @@ const toSource = (seg: Clip, inner: number) => (seg.mediaStart ?? 0) + (inner - 
 
 /** Which effects and animation targets the stitched clip itself can carry; the rest belong to its pieces. */
 function outerFits(ctx: CommandContext) {
-  const traits = ctx.registry.clipType("stitched").traits;
   const groups = new Map(ctx.registry.groupsFor("stitched").map((g) => [g.id, g]));
   return {
-    effect: (type: string) => ctx.registry.effect(type).traits.some((t) => traits.includes(t)),
+    effect: (type: string) => ctx.registry.effectFits(type, "stitched"),
     target: (key: string) => {
       const [group, field] = key.split(".", 2);
       return !!groups.get(group!)?.animatable?.includes(field ?? "");

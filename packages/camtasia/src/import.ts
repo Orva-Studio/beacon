@@ -168,7 +168,7 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
       read.add(name);
       if (raw === undefined || !clip) return;
       const [groupId, field] = target.split(".") as [string, string];
-      const group = registry.groupsFor(clip.type).find((g) => g.id === groupId);
+      const group = registry.group(clip.type, groupId);
       if (!group) return;
       const values = (clip.props[groupId] ??= group.defaults()) as Record<string, unknown>;
       const base = ctx.value(obj, name);
@@ -199,7 +199,7 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
       if (obj === media) read.add(name);
       if (raw === undefined || !clip) return;
       const [groupId, field] = target.split(".") as [string, string];
-      const group = registry.groupsFor(clip.type).find((g) => g.id === groupId);
+      const group = registry.group(clip.type, groupId);
       if (!group) return;
       const values = (clip.props[groupId] ??= group.defaults()) as Record<string, unknown>;
       const keys: CamtasiaObject[] = (typeof raw === "object" && raw?.keyframes) || [];

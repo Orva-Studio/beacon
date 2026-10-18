@@ -378,7 +378,6 @@ export const clipCommands = [
       if (ripple) shiftLater(track, end, d, c);
       else if (!track.magnetic && !isFree(track, end, end + d)) throw new Error("there is media right after the clip; extend it with `ripple`");
       const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
-      const traits = ctx.registry.clipType("still").traits;
       const id = ctx.newId("clip");
       const still: Clip = {
         id,
@@ -388,7 +387,7 @@ export const clipCommands = [
         mediaStart: mediaTimeAt(c, end - ticksPerFrame(doc.settings.fps)),
         assetId: c.assetId,
         props: clone(Object.fromEntries(Object.entries(c.props).filter(([k]) => groups.has(k)))),
-        effects: c.effects.filter((fx) => ctx.registry.effect(fx.type).traits.some((t) => traits.includes(t))).map((fx) => ({ ...clone(fx), id: ctx.newId("fx") })),
+        effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => ({ ...clone(fx), id: ctx.newId("fx") })),
         animations: [],
       };
       track.clips.splice(track.clips.indexOf(c) + 1, 0, still);
@@ -483,7 +482,7 @@ export const clipCommands = [
 ];
 
 function hasNested(tracks: Track[], ctx: CommandContext): boolean {
-  return tracks.some((t) => t.clips.some((c) => ctx.registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id])));
+  return tracks.some((t) => t.clips.some((c) => ctx.registry.nestedTracks(c).length));
 }
 
 /**
@@ -498,7 +497,7 @@ export function packMagnetic(doc: Project, ctx: CommandContext) {
   if (!doc.tracks.some((t) => t.magnetic) && !hasNested((isDraft(doc) ? original(doc)! : doc).tracks, ctx)) return;
   const lists = [doc.tracks];
   for (const { clip } of walkClips(doc.tracks, ctx.registry)) {
-    for (const g of ctx.registry.groupsFor(clip.type)) if (g.nested && clip.props[g.id]) lists.push(g.nested(clip.props[g.id]));
+    lists.push(ctx.registry.nestedTracks(clip));
   }
   for (const track of lists.flat()) {
     if (!track.magnetic) continue;

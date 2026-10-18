@@ -46,6 +46,7 @@ export class FeatureRegistry {
   }
 
   register(feature: Feature): this {
+    this.#groups.clear();
     if (this.features.has(feature.id)) throw new Error(`feature "${feature.id}" registered twice`);
     if (!Number.isInteger(feature.version) || feature.version < 1) {
       throw new Error(`feature "${feature.id}" version must be a positive integer`);
@@ -117,8 +118,31 @@ export class FeatureRegistry {
 
   /** Prop groups that apply to a clip type, in registration order; those kept on its track are left out. */
   groupsFor(clipType: string): PropGroupDef[] {
+    // Asked per clip per frame: worked out once per type, again only when a feature registers.
+    let groups = this.#groups.get(clipType);
+    if (!groups) {
+      const traits = this.clipTypes.get(clipType)?.traits ?? [];
+      groups = [...this.propGroups.values()].filter((g) => !g.track && g.traits.some((t) => traits.includes(t)));
+      this.#groups.set(clipType, groups);
+    }
+    return groups;
+  }
+  readonly #groups = new Map<string, PropGroupDef[]>();
+
+  /** A clip type's prop group `id`, if it has that group. */
+  group(clipType: string, id: string): PropGroupDef | undefined {
+    return this.groupsFor(clipType).find((g) => g.id === id);
+  }
+
+  /** Whether effect `effectType` applies to clips of `clipType` (they share a trait). */
+  effectFits(effectType: string, clipType: string): boolean {
     const traits = this.clipTypes.get(clipType)?.traits ?? [];
-    return [...this.propGroups.values()].filter((g) => !g.track && g.traits.some((t) => traits.includes(t)));
+    return this.effect(effectType).traits.some((t) => traits.includes(t));
+  }
+
+  /** The tracks nested in a clip (a group's, stitched media's pieces), to read: a new list, so to add or remove one use `walkClips`' `tracks`. */
+  nestedTracks(clip: Clip): Track[] {
+    return this.groupsFor(clip.type).flatMap((g) => (g.nested && clip.props[g.id] ? g.nested(clip.props[g.id]) : []));
   }
 
   hasTrait(clipType: string, trait: string): boolean {

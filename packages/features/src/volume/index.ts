@@ -84,7 +84,7 @@ export const volume = defineFeature({
         const unique = [...new Map(media.map((p) => [p.time, p])).values()];
         const { base, blocks } = envelopeBlocks(unique, TARGET, ctx.newId);
         c.animations = [...c.animations.filter((a) => !(TARGET in a.to)), ...blocks].sort((x, y) => x.end - y.end);
-        const def = ctx.registry.groupsFor(c.type).find((g) => g.id === "audio")!;
+        const def = ctx.registry.group(c.type, "audio")!;
         c.props.audio = { ...def.defaults(), ...(c.props.audio as object | undefined), ...(base === undefined ? {} : { volume: base }) };
       },
     }),
