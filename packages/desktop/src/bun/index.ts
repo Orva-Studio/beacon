@@ -166,7 +166,8 @@ async function switchTo(path: string) {
       send().patches({ patches: e.patches, label: e.label, kind: e.kind, rev: ++rev });
       void sendThumbs();
       void sendMissing();
-      sendWaveforms();
+      // Media added, replaced or relinked may have its waveform cached already, with no job to say so.
+      if (e.patches.some((p) => p.path[0] === "assets")) sendWaveforms();
     }
     else if (e.kind === "session") {
       send().session({ changes: e.changes });
@@ -205,11 +206,7 @@ async function switchTo(path: string) {
         else delete proxyProgress.jobs[e.job.asset];
         sendPreparing();
       }
-      if (e.job.state === "done" && e.job.kind === "waveform") {
-        // Made again (relinked media): the window's copy is stale.
-        if (e.job.asset) waveformsSent.delete(e.job.asset);
-        sendWaveforms();
-      }
+      if (e.job.state === "done" && e.job.kind === "waveform") sendWaveforms();
       if (e.job.state === "done" && e.job.kind === "proxy") void sendThumbs();
     }
   });
@@ -948,20 +945,21 @@ async function sendThumbs() {
   if (thumbAgain) await sendThumbs();
 }
 
-/** Assets whose waveform the window has (it merges them), so only the others are sent. */
-const waveformsSent = new Set<string>();
+/** The file each asset's waveform in the window is of (it merges them), so only new or replaced media is sent. */
+const waveformsSent = new Map<string, string>();
 /**
- * The waveforms the window doesn't have yet: after a job, and after an edit, since media already analysed (the
- * same file imported again) has its waveform from the cache with no job. `all`: the window starts afresh.
+ * The waveforms the window doesn't have yet: after a job, and after an edit to the media, since a file already
+ * analysed (imported again, or relinked to) has its waveform from the cache with no job. `all`: the window starts afresh.
  */
 function sendWaveforms(all = false) {
   if (!current) return;
   if (all) waveformsSent.clear();
   const waveforms: Record<string, Record<number, number[]>> = {};
-  for (const id of Object.keys(core.doc(current.path).assets)) {
-    if (waveformsSent.has(id)) continue;
+  for (const [id, asset] of Object.entries(core.doc(current.path).assets)) {
+    const file = `${asset.path}\0${asset.fingerprint}`;
+    if (waveformsSent.get(id) === file) continue;
     const w = core.derived<{ streams: Record<number, number[]> }>(current.path, id, "waveform");
-    if (w) (waveforms[id] = w.streams), waveformsSent.add(id);
+    if (w) (waveforms[id] = w.streams), waveformsSent.set(id, file);
   }
   if (Object.keys(waveforms).length) send().media({ waveforms });
 }
