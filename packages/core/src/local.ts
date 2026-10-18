@@ -230,11 +230,11 @@ export class LocalCore implements BeaconCore {
     // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
     this.#configDir = opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
     this.#secrets = opts.secrets ?? keychain;
-    const prefs = this.#readConfig("preferences.json");
+    const prefs = this.readConfig("preferences.json");
     this.#prefs = prefs && typeof prefs === "object" ? (prefs as Record<string, string>) : {};
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
-    this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["open", "-R", path]));
+    this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
   }
 
   #get(h: ProjectHandle): OpenProject {
@@ -1471,7 +1471,7 @@ export class LocalCore implements BeaconCore {
     }
     if (this.#pref(id) === value) return;
     this.#prefs = { ...this.#prefs, [id]: value };
-    this.#writeConfig("preferences.json", this.#prefs);
+    this.writeConfig("preferences.json", this.#prefs);
     const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
     this.#cancelJobsOf(undefined, (j) => decided.has(j.info.kind));
     this.#broadcast({ kind: "preference", id, value });
@@ -1483,8 +1483,8 @@ export class LocalCore implements BeaconCore {
     return this.#configDir;
   }
 
-  /** A JSON file of the app's own (favourites, settings, keys) beside the preferences; undefined when missing or unreadable. */
-  #readConfig(name: string): unknown {
+  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects) beside the preferences; undefined when missing or unreadable. */
+  readConfig(name: string): unknown {
     try {
       return JSON.parse(readFileSync(join(this.#configDir, name), "utf8"));
     } catch {
@@ -1492,7 +1492,8 @@ export class LocalCore implements BeaconCore {
     }
   }
 
-  #writeConfig(name: string, value: unknown) {
+  /** Writes one atomically, so a crash never leaves it half written. */
+  writeConfig(name: string, value: unknown) {
     mkdirSync(this.#configDir, { recursive: true });
     const file = join(this.#configDir, name);
     writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
@@ -1504,7 +1505,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #favorites(): string[] {
-    const items = this.#readConfig("favorites.json");
+    const items = this.readConfig("favorites.json");
     if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
     return this.registry.panelItems.filter((i) => i.favorite).map((i) => i.id).filter((i) => this.#favoriteKnown(i));
   }
@@ -1517,7 +1518,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #saveFavorites(items: string[]): string[] {
-    this.#writeConfig("favorites.json", items);
+    this.writeConfig("favorites.json", items);
     this.#broadcast({ kind: "favorites", items });
     return items;
   }
@@ -1550,7 +1551,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #settings(): AppSettings {
-    const saved = AppSettingsSchema.partial().safeParse(this.#readConfig("settings.json"));
+    const saved = AppSettingsSchema.partial().safeParse(this.readConfig("settings.json"));
     return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
   }
 
@@ -1563,13 +1564,13 @@ export class LocalCore implements BeaconCore {
     if (typeof patch.snapshotFolder === "string" && !existsSync(patch.snapshotFolder)) throw new Error(`${patch.snapshotFolder} doesn't exist`);
     const next = AppSettingsSchema.safeParse(withPatch(this.#settings(), patch));
     if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
-    this.#writeConfig("settings.json", next.data);
+    this.writeConfig("settings.json", next.data);
     this.#broadcast({ kind: "settings", settings: next.data });
     return next.data;
   }
 
   #keymapOverrides(): KeymapOverrides {
-    const saved = KeymapFileSchema.safeParse(this.#readConfig("keymap.json"));
+    const saved = KeymapFileSchema.safeParse(this.readConfig("keymap.json"));
     return saved.success ? saved.data.overrides : {};
   }
 
@@ -1585,7 +1586,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {
-    this.#writeConfig("keymap.json", { overrides });
+    this.writeConfig("keymap.json", { overrides });
     const shortcuts = this.#shortcutList(overrides);
     this.#broadcast({ kind: "shortcuts", shortcuts });
     return shortcuts;
