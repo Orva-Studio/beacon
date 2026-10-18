@@ -97,7 +97,7 @@ export const zoom = defineFeature({
         const pieces = piecesOf(loc.track, loc.clip);
         const at = snapSeconds(args.at, doc.settings.fps);
         const clip = pieces.find((c) => at >= c.start && at < c.start + c.duration) ?? loc.clip;
-        const size = visualSize(doc, clip);
+        const size = visualSize(doc, ctx.registry, clip);
         if (!size) throw new Error(`clip "${clip.id}" has no content size to zoom into`);
         const base = resolveProps(ctx.registry, clip, mediaTimeAt(clip, snapSeconds(args.at, doc.settings.fps))).transform as Transform | undefined;
         if (!base) throw new Error(`clip "${clip.id}" has no transform`);

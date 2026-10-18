@@ -395,7 +395,7 @@ export const actions = [
           steps.push({ command: "clip.set", args: { clip: c.id, at: playhead(ctx), props: { transform: { scaleX: to / 100, scaleY: to / 100 } } } });
           continue;
         }
-        const size = visualSize(ctx.project, c);
+        const size = visualSize(ctx.project, ctx.registry, c);
         if (!size) continue;
         const crop = (f: string) => Number(at(ctx, c, "crop", f, 0));
         const w = size[0] - crop("left") - crop("right");

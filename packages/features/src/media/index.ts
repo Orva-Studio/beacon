@@ -16,6 +16,7 @@ import {
   type ImportClipSpec,
   type Project,
   type VisualLayer,
+  type FeatureRegistry,
 } from "@beacon/model";
 import { basename, join } from "node:path";
 import { makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
@@ -94,10 +95,9 @@ export function clipStream(clip: Clip): number {
   return (clip.props.media as { stream?: number } | undefined)?.stream ?? 0;
 }
 
-/** Pixel size of what a visual clip shows: a group's canvas or its video stream; undefined for audio or missing info. */
-export function visualSize(project: Project, clip: Clip): [number, number] | undefined {
-  const group = clip.props.group as { width: number; height: number } | undefined;
-  if (group) return [group.width, group.height];
+/** Pixel size of what a visual clip shows: its own canvas (a group, stitched media) or its video stream; undefined for audio or missing info. */
+export function visualSize(project: Project, registry: FeatureRegistry, clip: Clip): [number, number] | undefined {
+  for (const g of registry.groupsFor(clip.type)) if (g.size && clip.props[g.id]) return g.size(clip.props[g.id]);
   const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
   if (!asset?.derived.media || clip.type === "audio") return undefined;
   const s = mediaInfo(asset).streams.filter((x) => x.kind === "video")[clipStream(clip)];
