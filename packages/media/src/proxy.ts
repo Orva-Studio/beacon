@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
+import { isScreenCodec } from "./probe";
 import { runTool, spawn, tool } from "./tool";
 
 /** Keyframe every this many frames: a seek decodes at most this many. */
@@ -51,13 +52,13 @@ export async function makeProxies(path: string, sources: ProxySource[], duration
         "-map", `0:v:${s.stream}`, "-an", ...scale,
         // The proxy's frames must keep the source's times: the preview finds frames by time in either.
         "-fps_mode", "passthrough", "-enc_time_base", "demux",
-        "-c:v", "hevc_videotoolbox", "-tag:v", "hvc1", "-b:v", s.codec === "tsc2" ? "8M" : "5M", "-g", String(GOP), ...(gpu ? [] : ["-pix_fmt", "yuv420p"]),
+        "-c:v", "hevc_videotoolbox", "-tag:v", "hvc1", "-b:v", isScreenCodec(s.codec) ? "8M" : "5M", "-g", String(GOP), ...(gpu ? [] : ["-pix_fmt", "yuv420p"]),
         s.tmp,
       );
     }
     return runTool(
       // One scaling thread: the encoder sets the pace, and more threads only add CPU (a 626 s screen: 23 → 16 s).
-      [...(opts.quiet ? ["taskpolicy", "-b"] : []), tool("ffmpeg"), "-nostdin", "-v", "error", "-stats", "-y", "-protocol_whitelist", "file", "-filter_threads", "1", ...input, "-i", path, ...outputs],
+      [...(opts.quiet ? ["/usr/sbin/taskpolicy", "-b"] : []), tool("ffmpeg"), "-nostdin", "-v", "error", "-stats", "-y", "-protocol_whitelist", "file", "-filter_threads", "1", ...input, "-i", path, ...outputs],
       {
         onStderr: (chunk) => {
           const m = /time=(\d+):(\d+):([\d.]+)/.exec(chunk);

@@ -19,7 +19,7 @@ import {
   type FeatureRegistry,
 } from "@beacon/model";
 import { basename, join } from "node:path";
-import { makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
+import { isScreenCodec, makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
 
 /** `waveform` job data: peak level per 10 ms, 0–255, by audio stream index. */
 export interface WaveformData {
@@ -78,11 +78,6 @@ export function streamOf(asset: Asset, kind: "video" | "audio", n: number): Stre
 
 function videoStreams(asset: Asset) {
   return mediaInfo(asset).streams.filter((s) => s.kind === "video");
-}
-
-/** The `.trec` screen codec, as ffmpeg names it. */
-export function isScreenCodec(codec: string): boolean {
-  return codec === "tsc2" || codec === "tscc2";
 }
 
 /** A recording's screen: a `.trec`'s by its codec, a `.brec`'s by its role. */

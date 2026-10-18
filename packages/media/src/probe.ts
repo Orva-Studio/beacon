@@ -31,6 +31,11 @@ export function streamSource(path: string, info: MediaInfo, kind: "video" | "aud
   return s?.file ? { path: join(path, s.file), stream: 0 } : { path, stream: n };
 }
 
+/** TechSmith's screen codec: `tsc2` as a `.trec` names it, `tscc2` as ffprobe does (projects store either). */
+export function isScreenCodec(codec: string): boolean {
+  return codec === "tsc2" || codec === "tscc2";
+}
+
 /** Streams of any media: `.trec` through the native reader, a `.brec` from its streams' files, everything else through ffprobe. */
 export async function probeMedia(path: string): Promise<MediaInfo> {
   if (isBrec(path)) return probeBrec(path);
