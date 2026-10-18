@@ -100,8 +100,8 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
               <input
                 {...PLAIN_TEXT}
                 type="password"
+                autoComplete="new-password"
                 placeholder="sk-…"
-                spellCheck={false}
                 className="min-w-0 flex-1 rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent"
                 value={key}
                 onChange={(e) => (setKey(e.target.value), setError(undefined))}
