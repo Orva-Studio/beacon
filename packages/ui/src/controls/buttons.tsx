@@ -39,16 +39,19 @@ export function Select({ look = "field", onChange, ...props }: SelectHTMLAttribu
 
 const FIELD = "rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent disabled:opacity-50";
 
-/** A text or number field in a dialog or panel; `className` only sizes and aligns it. */
-/** For names and values: macOS's text settings would capitalise the first letter and swap in corrections. */
-export const PLAIN_TEXT = { autoCapitalize: "off", autoCorrect: "off" } as const;
+/**
+ * For names, values and on-screen text: macOS's text settings would capitalise the first letter, swap in
+ * corrections and show a bar of spelling suggestions over the field (captions and callouts are names and jargon).
+ */
+export const PLAIN_TEXT = { autoCapitalize: "off", autoCorrect: "off", autoComplete: "off", spellCheck: false } as const;
 
+/** A text or number field in a dialog or panel; `className` only sizes and aligns it. */
 export function TextInput({ className = "", ...props }: ComponentProps<"input">) {
   return <input {...PLAIN_TEXT} {...props} className={`${FIELD} ${className}`} />;
 }
 
 export function TextArea({ className = "", ...props }: ComponentProps<"textarea">) {
-  return <textarea {...props} className={`${FIELD} resize-none ${className}`} />;
+  return <textarea {...PLAIN_TEXT} {...props} className={`${FIELD} resize-none ${className}`} />;
 }
 
 /** A tab of icons over a panel (the properties panel's Visual, Cursor, Audio). */

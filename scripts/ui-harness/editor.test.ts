@@ -175,6 +175,11 @@ test.skipIf(skip)("a double-click on a text callout types into it on the canvas,
   const [x, y] = await page.evaluate<[number, number]>(`(() => { const g = [...document.querySelectorAll('[data-clip]')].map(e => e.getBoundingClientRect()); const xs = g.map(r => r.x + r.width / 2), ys = g.map(r => r.y + r.height / 2); return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]; })()`);
   await page.evaluate(`(() => { const el = document.elementFromPoint(${x}, ${y}); for (const t of ['pointerdown','mousedown']) el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: ${x}, clientY: ${y}, button: 0, detail: 2, pointerId: 1 })); })()`);
   await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
+  // No spelling suggestions or corrections over on-screen text, here or in the properties panel.
+  // The canvas's typing field and the Annotation tab's text box.
+  await page.until("document.querySelectorAll('textarea').length === 2");
+  const plain = "[...document.querySelectorAll('textarea')].map((t) => [t.spellcheck, t.getAttribute('autocorrect'), t.getAttribute('autocomplete'), t.getAttribute('autocapitalize')].join())";
+  expect(await page.evaluate<string[]>(plain)).toEqual(["false,off,off,off", "false,off,off,off"]);
   // All of it selected first: a selection band (a square-ended line).
   await page.until(`[...document.querySelectorAll('svg line')].some(l => Number(l.getAttribute('stroke-width')) > 10)`, 3000);
   await page.evaluate("document.execCommand('insertText', false, 'Hello')");
