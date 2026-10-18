@@ -5,7 +5,7 @@ import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas";
 import type { Init } from "./rpc";
 import { timelineView } from "./timeline";
-import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, toHex, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { effectName } from "./effect-names";
 import { useQuery } from "./query";
