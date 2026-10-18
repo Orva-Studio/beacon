@@ -40,6 +40,22 @@ it is downloaded, imports report it in `needs` and no transcript starts.
 575 MB, once) as a job. Ask the user before fetching; transcripts of media
 already imported start when it is done.
 
+The Favorites panel is the user's, app-wide: `favorites_list` reads it
+(`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);
+`favorites_add`, `favorites_remove` and `favorites_move` change it, only when
+the user asks.
+The app's settings are the user's, app-wide: `settings_get` reads them (the
+export colour space `export_start` uses, which media get proxies, where
+`frame_capture` saves); `settings_set` changes them, only when the user asks.
+With the app open, `ui_open` shows a dialog as its menus do (Settings on a
+tab, Export, New Project, Record) so `ui_snapshot` can see it; it changes
+nothing by itself.
+
+Keyboard shortcuts are the user's too, app-wide: `shortcuts_list` lists every
+action of the menus, keys and command palette with its keys; `shortcuts_set`
+gives one new keys (refused when another action has them, unless `replace`)
+and `shortcuts_reset` puts them back, only when the user asks.
+
 ## Recording
 `recorder_start` records a take into the project's `recordings` folder: the
 screen (without its cursor; Beacon draws its own), the system audio, a camera
@@ -48,6 +64,14 @@ and permissions; `recorder_access` asks the user's permission for the camera or
 microphone). `recorder_stop` ends it and imports it as a `.trec` is imported, at
 the end of the timeline or at `at`. Only record when the user asks: it captures
 their screen, camera and microphone.
+
+Voice narration: `recorder_start` with only a `microphone` and `narrate` (the
+project open in the app). The app plays the timeline from the playhead, or
+through the in/out range, silently unless `hear` (only with headphones), while
+the user speaks over it; with nothing after the playhead, it records there. `recorder_stop`, a pause or the end of the range ends
+it; the take goes on a new Narration track where it began, lined up with what
+played, and is transcribed. `recorder_status`'s `last` says what a narration
+that ended by itself imported; `recorder_stop` with `discard` throws a take away.
 
 ## Editing
 - `timeline_rippleDelete` removes time ranges from every track at once and

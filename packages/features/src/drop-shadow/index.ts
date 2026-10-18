@@ -47,6 +47,7 @@ export const shadowSchema = z.strictObject({
 /** A blurred, offset copy of the clip's alpha drawn under it. */
 export const dropShadow = defineFeature({
   id: "drop-shadow",
+  panelItems: [{ id: "effect:drop-shadow", favorite: true }],
   version: 1,
   effects: [
     {

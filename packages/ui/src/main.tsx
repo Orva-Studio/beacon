@@ -1,53 +1,38 @@
 import { createRoot } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
 import { App, type Host } from "./app";
-import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { commandQueue } from "./latest";
 import { replica } from "./store";
+import { applyReply, messageHandlers } from "./messages";
 
 const rpc = Electroview.defineRPC<AppRPC>({
   maxRequestTime: 120_000,
   handlers: {
     requests: {},
     messages: {
-      opened: (o) => replica.opened(o),
+      ...messageHandlers,
       patches: ({ patches, rev }) => {
         if (!replica.patches(patches, rev)) void resync();
       },
-      session: ({ changes }) => replica.session(changes),
-      status: ({ text }) => replica.status(text),
-      rename: ({ track }) => replica.rename(track),
-      renameMedia: ({ asset }) => replica.renameMedia(asset),
-      showClipSpeed: ({ clip }) => replica.showClipSpeed(clip, true),
-      newProjectSheet: ({ name }) => replica.newProject({ name }),
-      recent: (r) => replica.recent(r),
-      saveAsSheet: (s) => replica.saveAs(s),
-      resourceSheet: (r) => replica.resource(r),
-      resourceJob: (j) => replica.resourceJob(j),
-      previewClock: (c) => replica.previewClock(c),
-      notice: (n) => replica.notice(n),
-      saved: ({ ok }) => replica.saved(ok),
-      media: (m) => replica.media(m),
-      exportSheet: (s) => replica.exportSheet(s),
-      recordSheet: (s) => replica.recordSheet(s),
-      recordDevices: (d) => replica.recordDevices(d),
-      recordPreview: (e) => recordPreviewEvent(e),
-      recordedSheet: (s) => replica.recordedSheet(s),
-      exportJob: (j) => replica.exportJob(j),
-      snapshotSaved: ({ path }) => replica.snapshot(path),
-      settingsSheet: (s) => replica.settings(s),
-      key: ({ code, meta }) => {
+      key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;
+        const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+        // The menu took these from a text field (Select All, Undo, Redo): a replayed key can't edit, so do it here.
+        if (field && meta && !alt && !ctrl && (code === "KeyA" || code === "KeyZ")) {
+          if (code === "KeyA") el.select();
+          else document.execCommand(shift ? "redo" : "undo");
+          return;
+        }
         // In a text field ⌘⌫ keeps its meaning: delete back to the start of the line.
-        if (code === "Backspace" && meta && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+        if (code === "Backspace" && meta && field) {
           const end = el.selectionEnd ?? 0;
           const start = el.selectionStart === end ? 0 : (el.selectionStart ?? 0);
           el.setRangeText("", start, end, "end");
           el.dispatchEvent(new Event("input", { bubbles: true }));
           return;
         }
-        (el ?? window).dispatchEvent(new KeyboardEvent("keydown", { code, key: code, metaKey: meta, bubbles: true, cancelable: true }));
+        (el ?? window).dispatchEvent(new KeyboardEvent("keydown", { code, key: code, metaKey: meta, shiftKey: shift, altKey: alt, ctrlKey: ctrl, bubbles: true, cancelable: true }));
       },
     },
   },
@@ -75,6 +60,9 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 
 const commands = commandQueue(report);
 
+const shortcuts = applyReply(replica.shortcuts);
+const favorites = applyReply(replica.favorites);
+
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request.run({ command, args, label, coalesce }), coalesce),
   query: async (name, args) => {
@@ -98,9 +86,19 @@ const host: Host = {
   frameImage: () => request.frameImage({}),
   binFrame: (asset, time) => request.binFrame({ asset, time }),
   analyze: (key, asset) => void request.analyze({ key, asset }),
+  favoriteAdd: (item, index) => void favorites(request.favoriteAdd({ item, ...(index !== undefined ? { index } : {}) })),
+  favoriteRemove: (item) => void favorites(request.favoriteRemove({ item })),
+  favoriteMove: (item, index) => void favorites(request.favoriteMove({ item, index })),
+  shortcutSet: (action, keys, replace) => void shortcuts(request.shortcutSet({ action, keys, ...(replace ? { replace } : {}) })),
+  shortcutReset: (action) => void shortcuts(request.shortcutReset(action ? { action } : {})),
+  app: (action) => void request.appAction({ action }),
   chooseFolder: (start) => request.chooseFolder({ start }),
   startExport: (params) => request.startExport(params),
   startRecording: (sources) => request.startRecording({ sources }),
+  narrationDevices: () => request.narrationDevices({}),
+  openRecord: (mode) => void request.openRecord(mode ? { mode } : {}),
+  startNarration: (microphone, hear) => request.startNarration({ microphone, hear }),
+  stopNarration: (discard) => void report(request.stopNarration(discard ? { discard } : {})),
   recordPreview: (devices) => void request.recordPreview(devices),
   recordFrames: (after) => request.recordFrames({ after }),
   checkSync: (camera, microphone, display, output) => request.checkSync({ camera, microphone, ...(display !== undefined ? { display } : {}), ...(output ? { output } : {}) }),

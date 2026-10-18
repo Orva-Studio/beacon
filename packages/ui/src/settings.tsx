@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_SETTINGS, type Project } from "@beacon/model";
+import { DEFAULT_SETTINGS, SETTINGS_TABS, type Project } from "@beacon/model";
 import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
-import { syncKey, type AppSettings, type CameraSync, type RecordDevices, type SettingsSheet, type SettingsTab } from "./rpc";
+import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
+import { ShortcutsSettings, type ShortcutsHost } from "./shortcuts-settings";
 
-export interface SettingsHost extends SyncCheckHost, TranscriptsHost {
+export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost {
   run(command: string, args?: unknown, label?: string): void;
-  setAppSettings(settings: AppSettings): void;
+  setAppSettings(patch: SettingsPatch): void;
   proxySpace(): Promise<number>;
   deleteAllProxies(): Promise<number>;
   chooseFolder(start: string): Promise<string | null>;
@@ -20,6 +21,9 @@ const space = (bytes: number) =>
 
 const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
 
+/** The app settings in a Settings sheet, without what it opened with (tab, devices…). */
+const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }: SettingsSheet): AppSettings => app;
+
 /**
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
@@ -27,17 +31,22 @@ const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
 export function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
+  // Changed elsewhere while open (an agent, Check Sync): shown here.
+  const sheet = useView((v) => v.settings);
+  useEffect(() => {
+    if (sheet) setSettings(({ ...mine }) => ({ ...mine, ...pick(sheet) }));
+  }, [sheet]);
   const [proxySpace, setProxySpace] = useState<number | "deleting">();
   useEffect(() => void host.proxySpace().then(setProxySpace), [host]);
-  const update = (patch: Partial<AppSettings>) => {
-    const next = { ...settings, ...patch };
-    setSettings(next);
-    host.setAppSettings(next);
+  // Only what changed is sent, so a change made elsewhere meanwhile (an agent) isn't written back over.
+  const update = (patch: SettingsPatch) => {
+    setSettings((mine) => withPatch(mine, patch));
+    host.setAppSettings(patch);
   };
   const close = () => replica.settings(undefined);
   const transcriber = preferences?.find((p) => p.id === "transcriber");
   const s = project?.settings;
-  const tabs = (["general", "recording", "project"] as const).map((t) => (
+  const tabs = SETTINGS_TABS.map((t) => (
     <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
       {t}
     </button>
@@ -66,7 +75,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
                 Choose…
               </Button>
               {settings.snapshotFolder && (
-                <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: undefined })}>
+                <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: null })}>
                   Use Project
                 </Button>
               )}
@@ -110,6 +119,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
         </div>
       )}
       {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
+      {tab === "shortcuts" && <ShortcutsSettings host={host} />}
       {tab === "project" &&
         (s ? (
           <CanvasSettings
@@ -149,7 +159,7 @@ export function SettingsUi({ host }: { host: SettingsHost }) {
  * Settings › Recording: a camera and microphone pair's delay, typed or measured by Check Sync, saved for the pair.
  * It replaces delaying the microphone live: moving the camera earlier keeps the voice in step with the screen too.
  */
-function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: Partial<AppSettings>) => void; host: SyncCheckHost }) {
+function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: SettingsPatch) => void; host: SyncCheckHost }) {
   const [camera, setCamera] = useState(devices?.camera ?? devices?.cameras[0]?.id);
   const [microphone, setMicrophone] = useState(devices?.microphone ?? devices?.microphones[0]?.id);
   if (!devices?.cameras.length || !devices.microphones.length) return <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>;

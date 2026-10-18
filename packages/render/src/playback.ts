@@ -1,6 +1,6 @@
 import type { Pointer } from "bun:ffi";
 import { existsSync } from "node:fs";
-import { AudioOutput, NativePreview, type PreviewMark, type PreviewStats } from "@beacon/media";
+import { AudioOutput, NativePreview, type PlaybackHeard, type PreviewMark, type PreviewStats } from "@beacon/media";
 import { evaluate, evaluateAudio, projectDuration, roundSeconds, snapSeconds, ticksPerFrame, ticksToSeconds, type FeatureRegistry, type Project, type SourceDef } from "@beacon/model";
 import { audioPlaybackArgs, renderJob, type AudioSource } from "./render";
 
@@ -91,6 +91,8 @@ export class LiveView {
   #settle?: ReturnType<typeof setTimeout>;
   #last?: string;
   readonly #prerolled = new Set<number>();
+  /** Plays without the timeline's sound (voice narration over speakers): silence still goes to the device, its clock. */
+  muted = false;
 
   constructor(
     readonly target: ViewTarget,
@@ -226,8 +228,8 @@ export class LiveView {
     const clock = rate > 0 ? (this.#audio ??= this.opts.silent ? new SilentClock() : new AudioOutput()) : (this.#wall ??= new SilentClock());
     this.#clock = clock;
     if (rate > 0) {
-      this.#mix = JSON.stringify(evaluateAudio(project, this.opts.registry));
-      clock.play(audioPlaybackArgs(project, this.opts.registry, from, Math.max(0, end - from), this.#audioProxy(project), rate), from);
+      this.#mix = this.muted ? "" : JSON.stringify(evaluateAudio(project, this.opts.registry));
+      clock.play(this.muted ? [] : audioPlaybackArgs(project, this.opts.registry, from, Math.max(0, end - from), this.#audioProxy(project), rate), from);
     } else clock.play([], from);
     this.#lastFrame = -1;
     this.#prerolled.clear();
@@ -282,6 +284,11 @@ export class LiveView {
     };
   }
 
+  /** When the current play's first sound was heard, on the host clock (the audio device's clock only). */
+  heard(): PlaybackHeard | undefined {
+    return this.#clock instanceof AudioOutput ? this.#clock.heard() : undefined;
+  }
+
   pause() {
     const was = this.playing;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
@@ -298,6 +305,7 @@ export class LiveView {
    */
   refresh() {
     if (!this.playing) return void this.show(this.#shown);
+    if (this.muted) return;
     const project = this.opts.project();
     if (JSON.stringify(evaluateAudio(project, this.opts.registry)) !== this.#mix) this.play(this.#shown, this.#rate);
   }

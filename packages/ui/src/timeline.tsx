@@ -113,6 +113,8 @@ function kindColor(clip: Clip, nested: Record<string, string>, project: Project)
 const AUDIO_SELECTED = { fill: () => color("audio-selected"), top: () => color("audio-selected-top"), wave: () => color("audio-selected-wave") };
 const SELECTED = () => color("accent");
 const CLIP_RADIUS = 8;
+/** A colour label's stripe along the top of a clip, in points. */
+const LABEL_H = 6;
 const STITCH = () => color("stitch");
 
 interface Props {
@@ -212,6 +214,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const box = useRef<HTMLDivElement>(null);
   const size = useRef({ w: 0, h: 0 });
   const dragState = useRef<Drag | null>(null);
+  /**
+   * A move or trim just released, drawn as it was dropped until the edit's patch arrives: drawing the document as
+   * it still is showed the clip back where it started for a few frames.
+   */
+  const settling = useRef<{ drag: Drag; timer: ReturnType<typeof setTimeout> } | null>(null);
   /** Where the dragged edge last snapped (seconds), drawn as a line while the drag lasts. */
   const snapLine = useRef<number | undefined>(undefined);
   /** The animation diamond last clicked (drawn red while its animation is selected). */
@@ -252,7 +259,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -286,7 +293,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.stroke();
     });
 
-    const d = dragState.current;
+    const d = dragState.current ?? settling.current?.drag;
     ctx.save();
     ctx.beginPath();
     ctx.rect(HEADER, RULER, width, h - RULER);
@@ -317,8 +324,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ctx.fill();
         ctx.clip();
         let textX = x0 + 10;
+        const tag = (clip.props.label as { color?: string | null } | undefined)?.color;
         if (audio) {
-          if (teal) {
+          if (teal && !tag) {
             ctx.fillStyle = AUDIO_SELECTED.top();
             ctx.fillRect(x0, y, cw, 2);
           }
@@ -348,6 +356,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             ctx.drawImage(img, x0 + 6, y + 5, tw, th);
             textX = x0 + 6 + tw + 10;
           }
+        }
+        if (tag) {
+          ctx.fillStyle = color(`label-${tag}`);
+          ctx.fillRect(x0, y, cw, LABEL_H);
         }
         // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
         // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.
@@ -757,9 +769,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       ctx.lineTo(cx + PIN_W / 2 - 1, PIN_H - 5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = color("text-muted");
-      ctx.font = font(11);
-      ctx.fillText(timecode(session.playhead, fps), cx + PIN_W / 2 + 6, 14);
+      // White on the ruler's own colour, as Camtasia's: the ruler's labels underneath don't run into it.
+      const text = timecode(session.playhead, fps);
+      ctx.font = font(12, 600);
+      const tw = ctx.measureText(text).width;
+      ctx.fillStyle = color("ruler");
+      ctx.fillRect(cx + PIN_W / 2 + 2, 2, tw + 8, 17);
+      ctx.fillStyle = color("text-bright");
+      ctx.fillText(text, cx + PIN_W / 2 + 6, 15);
     }
     ctx.restore();
     }
@@ -782,6 +799,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     return () => ro.disconnect();
   }, []);
 
+  // Before the draw below: the document now has the released edit (or another change), so its preview goes.
+  useEffect(() => {
+    if (!settling.current) return;
+    clearTimeout(settling.current.timer);
+    settling.current = null;
+  }, [project]);
   useEffect(draw);
   // Callbacks registered once (the resize observer, thumbnail loads) must draw with the latest render's data.
   const drawRef = useRef(draw);
@@ -1044,6 +1067,17 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     draw();
   };
 
+  /** Keeps a released edit drawn until its patch arrives; a refused one (no patch) is dropped after a second. */
+  const settle = (drag: Drag) => {
+    if (settling.current) clearTimeout(settling.current.timer);
+    const timer = setTimeout(() => {
+      if (settling.current?.drag !== drag) return;
+      settling.current = null;
+      drawRef.current();
+    }, 1000);
+    settling.current = { drag, timer };
+  };
+
   const finish = (e: React.PointerEvent) => {
     const d = dragState.current;
     dragState.current = null;
@@ -1058,13 +1092,20 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
     } else if (d.kind === "move") {
       if (d.error) return void (draw(), status(`Can't move there: ${d.error}`));
-      if (Math.abs(d.by) > 1e-9 || d.rows) run("clip.move", { clips: d.ids, by: d.by, tracks: d.rows, linked: true, ripple: d.ripple }, "Move Media");
+      if (Math.abs(d.by) > 1e-9 || d.rows) {
+        settle(d);
+        run("clip.move", { clips: d.ids, by: d.by, tracks: d.rows, linked: true, ripple: d.ripple }, "Move Media");
+      }
     } else if (d.kind === "trim") {
       const clip = latest.current.project.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clip)!;
       const end = ticksToSeconds(clip.start + clip.duration);
       if (d.extend) {
-        if (d.t > end) run("clip.extendFrame", { clip: d.clip, duration: d.t - end, ripple: d.ripple }, "Extend Frame");
+        if (d.t > end) {
+          settle(d);
+          run("clip.extendFrame", { clip: d.clip, duration: d.t - end, ripple: d.ripple }, "Extend Frame");
+        }
       } else if (Math.abs(d.t - (d.edge === "start" ? ticksToSeconds(clip.start) : end)) > 1e-9) {
+        settle(d);
         run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: true, ripple: d.ripple }, "Trim Media");
       }
     } else if (d.kind === "space") {

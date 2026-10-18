@@ -5,6 +5,48 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 8 (`phase-8`)
+
+### Checked by hand
+
+| What | Date | Commit | Notes |
+|---|---|---|---|
+| A dropped clip stays where it was dropped while the move applies; trims too | 2026-10-17 | `96521e4` | "Both fixes work" |
+| Tab in the command palette moves through the list and never selects a clip behind it | 2026-10-17 | `07ac778` | "Both fixes work" |
+| Favourites: starring, double-click to apply, reordering in the Favorites panel | 2026-10-17 | `6936f6e` | "Favourites work, so do shortcuts, colour labels" |
+| Settings › Shortcuts: rebinding, clashes, reset | 2026-10-17 | `56ac44d` | "Favourites work, so do shortcuts, colour labels" |
+| Colour labels from the clip menu: a stripe along the top | 2026-10-17 | `024f82e` | "Favourites work, so do shortcuts, colour labels" |
+| Resizing on the canvas snaps (sides and corners, to the recording and the canvas) | 2026-10-17 | `2a0c805` | "Snapping works great" |
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Voice narration: the microphone alone in the Record dialog (or Tools › Voice Narration…) turns it into narration (no previews, timeline sound off by default with a headphones warning, the span it plays: playhead, range, or nothing after the playhead so it records there), countdown, Stop and Discard in the title bar | 2026-10-16 | `9b26e7b` | UI flow; screenshots of the dialog and the title bar |
+| Narration in core: plays the range muted on the audio device, ends by itself at the range's end, lands on a new Narration track at its start lined up by the host clock, one undo step; Discard adds nothing and deletes the take; with nothing after the playhead it records there without playing | 2026-10-16 | `9b26e7b` | Core test with a stand-in recorder (no microphone) and the real audio output |
+| Record button (red dot) at the top left opens the Record dialog; hidden while narrating | 2026-10-16 | `f2d6996` | UI flow; screenshot |
+| The Narration panel (tool rail), as Camtasia's: microphone and its level, timeline sound off by default, Start Voice Recording with a countdown, Stop | 2026-10-16 | `4175f89` | UI flow; screenshot |
+| The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
+| App settings through core: an agent's change shows in an open Settings window, the window's reaches core; ui_open shows Settings (on a tab), Export, Export Selection, New Project and Record, and closes them | 2026-10-17 | `0741288` | UI flow; screenshot |
+| Offline: the AI tools greyed with why while OpenAI's transcriber has media to transcribe (not with Apple's); Settings marks it and offers the others; the speech model's download waits | 2026-10-17 | `a2d055a` | UI flow with the page told it's offline; screenshot |
+| Command palette: ⌘K lists the panels' items (favourites first) and the AI tools, searched by name or description; Enter adds an annotation at the playhead, an effect on the selected clips, or opens an AI review; its key can be rebound | 2026-10-17 | `6d25603` | UI flow; screenshot |
+
+### Not checked yet
+
+- **A real narration take's alignment**: a clap recorded over a click in the timeline lands within a frame of it.
+- Narrating in the app: the countdown, the timeline playing with and without its sound, ⌘⇧2, Space or a click on
+  the timeline ending it, the take transcribed afterwards.
+- `recorder_start` with `narrate` over MCP with the app open.
+- `settings_set` and `ui_open` over MCP with the app open, checked with `ui_snapshot` (the gate's agent half).
+- Settings now saved by core: your existing Settings › General choices still there after updating.
+- Offline in the app: turning Wi-Fi off greys the AI tools (with OpenAI's transcriber chosen and new media).
+- **Menus showing shortcuts** (only built, never seen): ⌘/⌃ keys beside items (File, Edit, View, Tools), others after
+  the name; a rebound key showing in the menu at once; ⌘ keys from the menu running once (not twice), and not acting
+  while typing in a text field (e.g. ⌘D in the project name); ⌘, ⌘N ⌘E working with a dialog open.
+- Settings › Shortcuts and the palette in the app: rebinding to a ⌘ key the menu also has (Export ⌘E), ⌘K over a
+  dialog.
+- `favorites_add` over MCP showing in the open window.
+
 ## Phase 7 (`phase-7`)
 
 ### Checked by hand

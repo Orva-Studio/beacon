@@ -1,9 +1,9 @@
 import { createRoot } from "react-dom/client";
 import { App, type Host } from "../src/app";
-import { recordPreviewEvent } from "../src/record-preview";
 import { RecordPanel } from "../src/record-panel";
 import type { Init, RecordFrames, SyncCheck } from "../src/rpc";
 import { replica } from "../src/store";
+import { applyReply, messageHandlers } from "../src/messages";
 import { commandQueue } from "../src/latest";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
@@ -47,27 +47,9 @@ ws.onmessage = (m) => {
     waiting.delete(msg.id);
     return;
   }
-  if (msg.type === "opened") replica.opened(msg.data);
-  else if (msg.type === "patches" && !replica.patches(msg.data.patches, msg.data.rev)) void request<Parameters<typeof replica.resynced>[0]>("resync").then((o) => o && replica.resynced(o));
-  else if (msg.type === "session") replica.session(msg.data.changes);
-  else if (msg.type === "status") replica.status(msg.data.text);
-  else if (msg.type === "media") replica.media(msg.data);
-  else if (msg.type === "exportSheet") replica.exportSheet(msg.data);
-  else if (msg.type === "recordSheet") replica.recordSheet(msg.data);
-  else if (msg.type === "recordDevices") replica.recordDevices(msg.data);
-  else if (msg.type === "recordPreview") recordPreviewEvent(msg.data);
-  else if (msg.type === "recordedSheet") replica.recordedSheet(msg.data);
-  else if (msg.type === "exportJob") replica.exportJob(msg.data);
-  else if (msg.type === "snapshotSaved") replica.snapshot(msg.data.path);
-  else if (msg.type === "settingsSheet") replica.settings(msg.data);
-  else if (msg.type === "notice") replica.notice(msg.data);
-  else if (msg.type === "previewClock") replica.previewClock(msg.data);
-  else if (msg.type === "newProjectSheet") replica.newProject(msg.data);
-  else if (msg.type === "recent") replica.recent(msg.data);
-  else if (msg.type === "saveAsSheet") replica.saveAs(msg.data);
-  else if (msg.type === "resourceSheet") replica.resource(msg.data);
-  else if (msg.type === "resourceJob") replica.resourceJob(msg.data);
-  else if (msg.type === "showClipSpeed") replica.showClipSpeed(msg.data.clip, true);
+  if (msg.type === "patches") {
+    if (!replica.patches(msg.data.patches, msg.data.rev)) void request<Parameters<typeof replica.resynced>[0]>("resync").then((o) => o && replica.resynced(o));
+  } else (messageHandlers as Record<string, (data: unknown) => void>)[msg.type]?.(msg.data);
 };
 
 const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -76,6 +58,9 @@ const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
 };
 
 const commands = commandQueue(report);
+
+const shortcuts = applyReply(replica.shortcuts);
+const favorites = applyReply(replica.favorites);
 
 const host: Host = {
   run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>, coalesce),
@@ -99,9 +84,19 @@ const host: Host = {
   frameImage: () => request("frameImage") as Promise<string | null>,
   binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
   analyze: (key, asset) => void request("analyze", { key, asset }),
+  favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, index })),
+  favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
+  favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
+  shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, replace })),
+  shortcutReset: (action) => void shortcuts(request("shortcutReset", { action })),
+  app: (action) => void request("appAction", { action }),
   chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
   startExport: (params) => request("startExport", params),
   startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
+  narrationDevices: () => request("narrationDevices") as Promise<never>,
+  openRecord: (mode) => void request("openRecord", mode ? { mode } : {}),
+  startNarration: (microphone, hear) => request("startNarration", { microphone, hear }) as Promise<{ ok: boolean; error?: string }>,
+  stopNarration: (discard) => void request("stopNarration", { discard: !!discard }),
   recordPreview: (devices) => void request("recordPreview", devices),
   recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
   checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, display, output }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,

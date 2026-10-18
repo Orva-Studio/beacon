@@ -1,13 +1,16 @@
-import { effectName } from "./effect-names";
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
-import { pressItem, type PanelItem } from "./drop";
-import type { Init } from "./rpc";
-import { Icon, ItemTile, RailButton, type IconName } from "./controls";
+import { pressItem } from "./drop";
+import { AI_TOOLS, allItems, ANNOTATIONS, AUDIO_EFFECTS, inFavoriteOrder, visualEffects, type Item } from "./panel-items";
+import type { Init, RecordSheet } from "./rpc";
+import { Button, Icon, ItemTile, LevelMeter, RailButton, Select, type IconName } from "./controls";
+import { clock, HEADPHONES, useCountdown, useNarrationSpan, useRecordLevels } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
-import { replica } from "./store";
+import { replica, useView } from "./store";
+import { useOnline } from "./online";
+import { useQuery } from "./query";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
@@ -35,23 +38,6 @@ export function ToolRail({ session, host }: { session?: Session; host: Host }) {
   );
 }
 
-/** A panel item with its tooltip and its tile's picture (`art/<art>.webp`). */
-type Item = PanelItem & { title: string; art?: string };
-
-/** The Annotations panel: presets of `edit.addAnnotation`, so agents add the same ones. */
-const ANNOTATIONS: Item[] = (
-  [
-    ["Text", "text", "White text with a drop shadow"],
-    ["Rectangle", "rectangle", "A black rounded rectangle"],
-    ["Spotlight", "spotlight", "Darken everything outside the box"],
-    ["Blur", "blur", "Blur what is inside the box"],
-    ["Pixelate", "pixelate", "Pixelate what is inside the box"],
-  ] as const
-).map(([label, preset, title]) => ({ label, title, art: preset, command: "edit.addAnnotation", args: { preset }, traits: [], media: { seconds: 5 } }));
-
-/** The default favourites. */
-const FAVORITES = ["Text", "Rectangle", "Spotlight", "round-corners", "crt-monitor", "drop-shadow", "motion-blur"];
-
 /** Memoised: it doesn't show the session, so playback ticks don't re-render it. */
 export const ToolPanel = memo(function ToolPanel({
   tool,
@@ -71,32 +57,11 @@ export const ToolPanel = memo(function ToolPanel({
   const label = TOOLS.find((t) => t.id === tool)?.label ?? tool;
   if (tool === "media") return <MediaBin project={project} thumbs={thumbs} waveforms={waveforms} host={host} />;
   if (tool === "ai") return <AiPanel host={host} />;
-  // Items are dragged onto media (on the timeline or the canvas); a click applies them to the selection.
-  const items: Record<string, Item[]> = {
-    audioEffects: [
-      { label: "Fade In", title: "Fade the audio in from silence over its first second", art: "fade-in", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
-      { label: "Fade Out", title: "Fade the audio out to silence over its last second", art: "fade-out", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
-    ],
-  };
-  const effects = (init?.effects ?? []).filter((e) => !e.traits.every((t) => t === "cursor"));
-  const effect = (e: (typeof effects)[number]): Item => ({ label: effectName(e.id), title: e.description, art: e.id, command: "edit.addEffect", args: { type: e.id }, traits: e.traits });
-  if (tool === "visualEffects") items.visualEffects = effects.map(effect);
-  if (tool === "annotations") items.annotations = ANNOTATIONS;
-  if (tool === "favorites") items.favorites = [...ANNOTATIONS.filter((a) => FAVORITES.includes(a.label)), ...effects.filter((e) => FAVORITES.includes(e.id)).map(effect)];
-  if (items[tool]) {
-    return (
-      <Panel title={label}>
-        <div className="mb-3 text-center text-label text-text-faint">Drag onto media, or click to apply to the selection</div>
-        <div className="grid grid-cols-2 gap-2">
-          {items[tool]!.map((it) => (
-            <ItemTile key={it.label} art={it.art} title={`${it.title}. Drag it onto media, or click to apply it to the selection`} onPointerDown={(e) => pressItem(e, it, (command, args) => host.run(command, args))}>
-              {it.label}
-            </ItemTile>
-          ))}
-        </div>
-      </Panel>
-    );
-  }
+  if (tool === "narration") return <NarrationPanel host={host} />;
+  const effects = visualEffects(init);
+  const items: Record<string, Item[]> = { annotations: ANNOTATIONS, visualEffects: effects, audioEffects: AUDIO_EFFECTS };
+  if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={allItems(init)} host={host} ordered />;
+  if (items[tool]) return <ItemsPanel key={tool} title={label} items={items[tool]} host={host} />;
   return (
     <Panel title={label}>
       <div className="mt-6 text-center text-body text-text-faint">Not in Beacon yet</div>
@@ -104,30 +69,164 @@ export const ToolPanel = memo(function ToolPanel({
   );
 });
 
+/** The favourite under a point in the Favorites panel (a tile dragged over another is moved to its place). */
+const favoriteAt = (x: number, y: number) => (document.elementFromPoint(x, y)?.closest("[data-favorites] [data-item]") as HTMLElement | null)?.dataset.item;
+
+/**
+ * Annotations, effects or favourites, as Camtasia's panels have them: dragged onto media (on the timeline or the
+ * canvas); a click selects one, showing a star that adds it to Favorites; a double-click applies it to the selected
+ * clips. `ordered`: the Favorites panel, holding the favourites in their order, which a drop on another tile changes.
+ */
+function ItemsPanel({ title, items, host, ordered }: { title: string; items: Item[]; host: Host; ordered?: boolean }) {
+  const favorites = useView((v) => v.favorites);
+  const [selected, setSelected] = useState<string>();
+  const over = useView((v) => (ordered && v.dragging ? favoriteAt(v.dragging.x, v.dragging.y) : undefined));
+  const shown = ordered ? inFavoriteOrder(items, favorites) : items;
+  const hint = ordered ? "Drag onto media, or onto another tile to reorder; double-click to apply to the selection" : "Drag onto media, or double-click to apply to the selection";
+  return (
+    <Panel title={title}>
+      <div className="mb-3 text-center text-label text-text-faint">{hint}</div>
+      <div className="grid grid-cols-2 gap-2" {...(ordered ? { "data-favorites": "" } : {})}>
+        {shown.map((it) => {
+          const favorite = favorites.includes(it.favorite);
+          return (
+            <ItemTile
+              key={it.favorite}
+              art={it.art}
+              title={`${it.title}. Drag it onto media, or double-click to apply it to the selection`}
+              data-item={it.favorite}
+              selected={selected === it.favorite || over === it.favorite}
+              star={favorite ? "on" : selected === it.favorite ? "off" : undefined}
+              onStar={() => (favorite ? host.favoriteRemove(it.favorite) : host.favoriteAdd(it.favorite))}
+              onPointerDown={(e) =>
+                pressItem(e, it, (command, args) => host.run(command, args), {
+                  click: () => setSelected(it.favorite),
+                  ...(ordered ? { missed: (x, y) => moveFavorite(host, favorites, it.favorite, favoriteAt(x, y)) } : {}),
+                })
+              }
+              onDoubleClick={() => host.run(it.command, it.args)}
+            >
+              {it.label}
+            </ItemTile>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function moveFavorite(host: Host, favorites: string[], item: string, onto: string | undefined) {
+  if (onto && onto !== item) host.favoriteMove(item, favorites.indexOf(onto));
+}
+
+/**
+ * Voice narration, as Camtasia's Narration tab has it: pick the microphone (its level shown), whether the timeline
+ * is heard, then Start: a countdown, and the timeline plays while it records. The Record dialog does the same.
+ */
+function NarrationPanel({ host }: { host: Host }) {
+  const span = useNarrationSpan();
+  const narrating = useView((v) => !!v.narrating);
+  const dialog = useView((v) => !!v.recordSheet);
+  const [devices, setDevices] = useState<RecordSheet>();
+  const [microphone, setMicrophone] = useState<string>();
+  const [hear, setHear] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    void host.narrationDevices().then((d) => {
+      setDevices(d);
+      setMicrophone(d.microphones.some((m) => m.id === d.sources.microphone?.id) ? d.sources.microphone!.id : d.microphones[0]?.id);
+      setHear(!!d.hear);
+    });
+  }, []);
+  // Its level: previewed while idle; while it records, the take sends it. The Record dialog has the microphone while open.
+  const granted = devices?.permissions.microphone === "granted";
+  const preview = granted && !!microphone && !narrating && !dialog;
+  const level = useRecordLevels(host, preview ? { microphone: { id: microphone } } : undefined, [granted, microphone, narrating, dialog]).microphone;
+  const countdown = useCountdown(() => {
+    void host.startNarration({ id: microphone }, hear && !span.still).then((r) => {
+      countdown.cancel();
+      setError(r.ok ? undefined : r.error);
+    });
+  });
+  const counting = countdown.counting;
+  const start = () => {
+    setError(undefined);
+    countdown.start();
+  };
+  return (
+    <Panel title="Narration">
+      <div className="flex flex-col gap-3 text-body" data-narration-panel>
+        <Select value={microphone ?? ""} disabled={narrating || counting !== undefined} onChange={(e) => setMicrophone(e.target.value)} aria-label="Microphone">
+          {devices?.microphones.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </Select>
+        <div className="flex">
+          <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />
+        </div>
+        {devices && !granted && devices.permissions.microphone !== "not asked" && (
+          <span className="text-caption text-warning">Allow Beacon in System Settings › Privacy & Security › Microphone</span>
+        )}
+        {!span.still && (
+          <label className="flex items-center gap-2 text-text">
+            <input type="checkbox" checked={hear} disabled={narrating} onChange={(e) => setHear(e.target.checked)} data-narration-hear />
+            Hear the timeline while recording
+          </label>
+        )}
+        {hear && !span.still && <span className="text-caption text-warning">{HEADPHONES}</span>}
+        {narrating ? (
+          <Button look="danger" onClick={() => host.stopNarration()} data-narration-stop-panel>
+            Stop Recording
+          </Button>
+        ) : counting !== undefined ? (
+          <Button onClick={countdown.cancel} data-narration-countdown>
+            Starting in {Math.max(counting, 1)}… (Cancel)
+          </Button>
+        ) : (
+          <Button look="primary" disabled={!microphone} onClick={start} data-narration-start>
+            Start Voice Recording
+          </Button>
+        )}
+        {error && <span className="text-caption text-danger">{error}</span>}
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The AI tools read transcripts: offline, with a transcriber that needs the internet and media that has none yet,
+ * they can't work. Returns that transcriber's name then.
+ */
+function useOffline(host: Host): string | undefined {
+  const online = useOnline();
+  const project = useView((v) => v.project);
+  const transcriber = useView((v) => v.preferences.find((p) => p.id === "transcriber"));
+  const chosen = transcriber?.options.find((o) => o.id === transcriber.value);
+  const needs = !online && !!chosen?.online;
+  // Asked only then: it works out the whole silence plan just to say which media has no transcript.
+  const silences = useQuery<{ waiting: string[] }>(host, needs ? "transcript.silences" : "", {}, project);
+  return needs && silences?.waiting.length ? chosen!.title : undefined;
+}
+
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
 function AiPanel({ host }: { host: Host }) {
-  const review = (command: string) => {
-    host.run(command, {});
-    host.run("panel.show", { properties: true });
-  };
+  const offline = useOffline(host);
   return (
     <Panel title="AI">
       <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
+      {offline && (
+        <div className="mb-3 rounded-md bg-chip px-3 py-2 text-caption text-warning" data-ai-offline>
+          You're offline, and {offline} transcribes over the internet: media here has no transcript yet, so these can't work until you're back online. Apple's transcriber works offline (Settings › General).
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
-        <ItemTile art="remove-silences" title="Shorten the pauses in speech, from its transcript (made on this Mac)" onClick={() => review("silences.review")} data-ai="silences">
-          Remove Silences
-        </ItemTile>
-        <ItemTile art="remove-fillers" title={'Cut "um", "uh" and the like where the transcript has them'} onClick={() => review("fillers.review")} data-ai="fillers">
-          Remove Filler Words
-        </ItemTile>
-        <ItemTile
-          art="captions"
-          title="Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it"
-          onClick={() => replica.pendCaptions(true)}
-          data-ai="captions"
-        >
-          Captions
-        </ItemTile>
+        {AI_TOOLS.map((t) => (
+          <ItemTile key={t.id} art={t.art} title={offline ? `Needs a transcript ${offline} can't make offline` : t.title} disabled={!!offline} onClick={() => t.start(host)} data-ai={t.id}>
+            {t.label}
+          </ItemTile>
+        ))}
       </div>
       <CaptionsWaiting />
     </Panel>

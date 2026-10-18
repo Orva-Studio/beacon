@@ -45,6 +45,7 @@
       "version": "0.5.0",
       "dependencies": {
         "@beacon/core": "workspace:*",
+        "@beacon/model": "workspace:*",
         "@beacon/ui": "workspace:*",
       },
       "devDependencies": {
@@ -103,6 +104,7 @@
         "react-dom": "19.3.0",
       },
       "devDependencies": {
+        "@beacon/core": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "@types/react": "19.3.0",
         "@types/react-dom": "19.3.0",

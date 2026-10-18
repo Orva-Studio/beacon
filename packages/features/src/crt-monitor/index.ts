@@ -17,6 +17,7 @@ const params = z.strictObject({
 /** Old-monitor look: barrel warp, scanlines, colour fringing, vignette. */
 export const crtMonitor = defineFeature({
   id: "crt-monitor",
+  panelItems: [{ id: "effect:crt-monitor", favorite: true }],
   version: 1,
   effects: [
     {

@@ -3,3 +3,4 @@ exact = true
 
 [test]
 root = "packages"
+preload = ["./scripts/test-env.ts"]

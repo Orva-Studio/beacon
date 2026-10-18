@@ -1,6 +1,7 @@
 import { Button, Modal } from "./controls";
 import { Progress } from "./controls/progress";
 import { replica, useView } from "./store";
+import { useOnline } from "./online";
 
 /** A file an analysis needs that isn't part of Beacon (the speech model), as core describes it. */
 export interface ResourceInfo {
@@ -39,8 +40,9 @@ function ResourceDialog({ resource, job, host }: { resource: ResourceInfo; job?:
     else replica.resourceJob({ id: "", state: "failed", progress: 0, error: r.error ?? "the download didn't start" });
   };
   const running = job?.state === "running";
+  const online = useOnline();
   return (
-    <Modal title={running ? `Downloading the ${resource.title}` : `Download the ${resource.title}?`} width={480} onClose={close} onEnter={running ? undefined : () => void download()}>
+    <Modal title={running ? `Downloading the ${resource.title}` : `Download the ${resource.title}?`} width={480} onClose={close} onEnter={running || !online ? undefined : () => void download()}>
       <div className="flex flex-col gap-3 text-text" data-resource={resource.id}>
         <p>{resource.description}</p>
         <p className="text-text-muted">
@@ -53,6 +55,11 @@ function ResourceDialog({ resource, job, host }: { resource: ResourceInfo; job?:
           </div>
         )}
         {job?.state === "failed" && job.error !== "cancelled" && <p className="text-danger">{job.error}</p>}
+        {!online && !running && (
+          <p className="text-warning" data-offline>
+            You're offline: it can be downloaded once you're back online.
+          </p>
+        )}
       </div>
       <div className="mt-5 flex justify-end gap-2">
         {running ? (
@@ -65,7 +72,7 @@ function ResourceDialog({ resource, job, host }: { resource: ResourceInfo; job?:
         ) : (
           <>
             <Button onClick={() => (host.declineResource(resource.id), close())}>Not Now</Button>
-            <Button look="primary" onClick={() => void download()}>
+            <Button look="primary" disabled={!online} onClick={() => void download()}>
               {job?.state === "failed" && job.error !== "cancelled" ? "Try Again" : "Download"}
             </Button>
           </>

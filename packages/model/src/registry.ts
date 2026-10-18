@@ -15,6 +15,9 @@ function zodIssues(path: string, error: z.ZodError): string[] {
   return error.issues.map((i) => `${[path, ...i.path].filter((p) => p !== "").join(".")}: ${i.message}`);
 }
 
+/** An effect the Visual Effects panel shows (and favourites can name): any not only for the cursor. */
+export const isPanelEffect = (traits: string[]) => !traits.every((t) => t === "cursor");
+
 export class FeatureRegistry {
   readonly features = new Map<string, Feature>();
   readonly clipTypes = new Map<string, ClipTypeDef>();
@@ -33,6 +36,8 @@ export class FeatureRegistry {
   readonly exportFiles = new Map<string, ExportFileDef>();
   /** Features' editor commands (session state, not undoable), beside core's `SESSION_COMMANDS`. */
   readonly sessionCommands = new Map<string, SessionCommandDef>();
+  /** Every feature's panel items (`Feature.panelItems`), in registration order. */
+  readonly panelItems: { id: string; favorite?: boolean }[] = [];
 
   constructor(features: Feature[] = []) {
     claim(this.commands, CORE_COMMANDS, "command", "core");
@@ -69,6 +74,10 @@ export class FeatureRegistry {
     claim(this.actions, feature.actions ?? [], "action", feature.id);
     claim(this.sessionCommands, feature.sessionCommands ?? [], "session command", feature.id);
     claim(this.exportFiles, feature.exportFiles ?? [], "export file", feature.id);
+    for (const item of feature.panelItems ?? []) {
+      if (this.panelItems.some((i) => i.id === item.id)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" is already registered`);
+      this.panelItems.push(item);
+    }
     this.features.set(feature.id, feature);
     return this;
   }

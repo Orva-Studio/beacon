@@ -13,7 +13,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { formatIssues, jsonSchemaOf, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
+import { formatIssues, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
 import { DOCS, INSTRUCTIONS, WORKFLOWS, type Workflow } from "./docs";
 
 type Content = CallToolResult["content"];
@@ -214,15 +214,19 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("recorder_start", {
     description:
-      "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it",
+      "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it. " +
+      "`narrate`: voice narration, with only a `microphone`: the app plays the timeline from the playhead (or through the in/out range) while it records, silently unless `hear`; it ends at recorder_stop, the end of the range or a pause (with nothing after the playhead, nothing plays and it records there until recorder_stop), and goes on a new Narration track where it began, lined up with what played, transcribed like an import (recorder_status's `last` says what an ending by itself imported). Needs the project open in the app",
     schema: z.strictObject({
       screen: z.strictObject({ display: z.int().optional().describe("A display id; omitted: the main display"), fps: z.int().min(1).max(60).optional() }).optional(),
       systemAudio: z.boolean().optional(),
       camera: device.optional(),
       microphone: device.optional(),
       name: z.string().min(1).optional().describe("The take's name; omitted: the date and time"),
+      narrate: z.boolean().optional().describe("Voice narration over the timeline: record only the microphone while the app plays it"),
+      hear: z.boolean().optional().describe("With `narrate`: play the timeline's sound too (only with headphones, or it bleeds into the take)"),
     }),
-    run: async ({ name, ...sources }) => core.recordStart(project(), { ...(Object.keys(sources).length ? { sources } : {}), ...(name ? { name } : {}) }),
+    run: async ({ name, narrate, hear, ...sources }) =>
+      core.recordStart(project(), { ...(Object.keys(sources).length ? { sources } : {}), ...(name ? { name } : {}), ...(narrate ? { narrate: { hear: !!hear } } : {}) }),
   });
   add("recorder_status", {
     description: "Whether a take is being recorded, its folder and the seconds recorded",
@@ -230,9 +234,10 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     run: async () => core.recordStatus(),
   });
   add("recorder_stop", {
-    description: "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at the end of the timeline (or at `at`), the cursor drawn from its log",
-    schema: z.strictObject({ at: Seconds.optional() }),
-    run: async ({ at }) => core.recordStop(at === undefined ? {} : { at }),
+    description:
+      "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at the end of the timeline (or at `at`), the cursor drawn from its log; a narration on its own track where it began. `discard`: throw the take away instead. One undo step",
+    schema: z.strictObject({ at: Seconds.optional(), discard: z.boolean().optional() }),
+    run: async ({ at, discard }) => core.recordStop({ ...(at === undefined ? {} : { at }), ...(discard ? { discard } : {}) }),
   });
   add("transaction", {
     description:
@@ -358,6 +363,62 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       "Change an app-wide choice, e.g. id \"transcriber\", value \"apple\". Transcripts are kept per transcriber: media without one by the new choice is transcribed again (job_status), or waits for Whisper's model as an import does. An option needing an API key is refused until the user adds it in Settings. Choosing OpenAI uploads the user's audio to OpenAI and costs them: only when they ask",
     schema: z.strictObject({ id: z.string(), value: z.string() }),
     run: async ({ id, value }) => (await core.setPreference(id, value), core.preferences()),
+  });
+  add("favorites_list", {
+    description:
+      "The Favorites panel's items, in order (app-wide, the user's): annotation:<preset> (text, rectangle, spotlight, blur, pixelate), effect:<id> (as effect_add takes) or audio:fade-in / audio:fade-out",
+    schema: z.strictObject({}),
+    run: async () => core.favorites(),
+  });
+  add("favorites_add", {
+    description: "Star an item: add it to the Favorites panel (at `index`, else at the end). Only when the user asks: the list is theirs",
+    schema: z.strictObject({ item: z.string(), index: z.int().nonnegative().optional() }),
+    run: async ({ item, index }) => core.favoriteAdd(item, index),
+  });
+  add("favorites_remove", {
+    description: "Un-star an item: remove it from the Favorites panel",
+    schema: z.strictObject({ item: z.string() }),
+    run: async ({ item }) => core.favoriteRemove(item),
+  });
+  add("favorites_move", {
+    description: "Move a favourite to `index` in the Favorites panel (0 first)",
+    schema: z.strictObject({ item: z.string(), index: z.int().nonnegative() }),
+    run: async ({ item, index }) => core.favoriteMove(item, index),
+  });
+  add("settings_get", {
+    description:
+      "The app's settings (the user's, app-wide; Settings › General and Recording): exportColorSpace (bt709 or srgb, what export_start uses unless told), autoProxy (which media get proxies made on their own: recording, video), proxyMode (quiet: one at a time at background priority; fast: two at once), snapshotFolder (where frame_capture saves; unset, the project's media folder), cameraSync (each camera and microphone's measured delay)",
+    schema: z.strictObject({}),
+    run: async () => core.settings(),
+  });
+  add("settings_set", {
+    description: "Change some of the app's settings (see settings_get); the rest keep theirs. snapshotFolder must exist; null goes back to the project's media folder. Only when the user asks: the settings are theirs",
+    // Camera delays come from Check Sync and declined downloads from the user: not an agent's to set.
+    schema: SettingsPatchSchema.pick({ exportColorSpace: true, autoProxy: true, proxyMode: true, snapshotFolder: true }).strict(),
+    run: async (patch) => core.setSettings(Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))),
+  });
+  add("ui_open", {
+    description:
+      "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, shortcuts or project), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
+    schema: z.strictObject({ dialog: z.enum(UI_DIALOGS).nullable(), tab: z.enum(SETTINGS_TABS).optional() }),
+    run: async ({ dialog, tab }) => (await core.uiOpen(project(), dialog, tab), dialog ? `${dialog} is open` : "closed"),
+  });
+  add("shortcuts_list", {
+    description:
+      "Every action of the editor's menus, keys and command palette, with its keyboard shortcuts (the user's, app-wide): id, name, description, the command it runs and its keys. `standard`: still the default keys",
+    schema: z.strictObject({}),
+    run: async () => core.shortcuts(),
+  });
+  add("shortcuts_set", {
+    description:
+      "Give an action (its id from shortcuts_list) these keys, replacing its own; [] removes its shortcut. A key another action has is refused, naming it, unless `replace` moves it here. Only when the user asks: the keys are theirs",
+    schema: z.strictObject({ action: z.string(), keys: z.array(KeysSchema), replace: z.boolean().default(false) }),
+    run: async ({ action, keys, replace }) => (await core.shortcutSet(action, keys, replace)).filter((s) => s.id === action || !s.standard),
+  });
+  add("shortcuts_reset", {
+    description: "Put an action's shortcut back to the default, or every action's (no `action`)",
+    schema: z.strictObject({ action: z.string().optional() }),
+    run: async ({ action }) => (await core.shortcutReset(action)).filter((s) => !s.standard),
   });
   add("job_status", {
     description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",

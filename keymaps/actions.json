@@ -1,0 +1,834 @@
+{
+  "actions": [
+    {
+      "id": "app.palette",
+      "name": "Command Palette…",
+      "description": "Add an annotation, an effect or an AI tool by its name: to the selected clips, or at the playhead"
+    },
+    {
+      "id": "app.settings",
+      "name": "Settings…",
+      "description": "Beacon's settings: General, Recording, Shortcuts and the open project's"
+    },
+    {
+      "id": "app.shortcuts",
+      "name": "Keyboard Shortcuts…",
+      "description": "Settings › Shortcuts: every action's keys, to change them"
+    },
+    {
+      "id": "app.projectSettings",
+      "name": "Project Settings…",
+      "description": "The open project's canvas size, frame rate, background and loudness"
+    },
+    {
+      "id": "app.checkUpdates",
+      "name": "Check for Updates…",
+      "description": "Look for a newer Beacon"
+    },
+    {
+      "id": "app.new",
+      "name": "New Project",
+      "description": "Start a new project"
+    },
+    {
+      "id": "app.open",
+      "name": "Open Project…",
+      "description": "Open a Beacon project or a Camtasia .cmproj"
+    },
+    {
+      "id": "app.saveAs",
+      "name": "Save As…",
+      "description": "Save a copy of the project under another name or folder and open it"
+    },
+    {
+      "id": "app.reveal",
+      "name": "Show in Finder",
+      "description": "Show the project's folder in the Finder"
+    },
+    {
+      "id": "app.import",
+      "name": "Import Media…",
+      "description": "Add video, audio, images or recordings to the project"
+    },
+    {
+      "id": "app.record",
+      "name": "Record…",
+      "description": "Record the screen, a camera and audio into the project"
+    },
+    {
+      "id": "app.narration",
+      "name": "Voice Narration…",
+      "description": "Record the microphone while the timeline plays"
+    },
+    {
+      "id": "app.export",
+      "name": "Export…",
+      "description": "Export the project to a video file"
+    },
+    {
+      "id": "app.exportSelection",
+      "name": "Export Selection…",
+      "description": "Export the in/out range to a video file"
+    },
+    {
+      "id": "project.undo",
+      "name": "Undo",
+      "description": "Undo the last change"
+    },
+    {
+      "id": "project.redo",
+      "name": "Redo",
+      "description": "Redo the change undone last"
+    },
+    {
+      "id": "edit.cut",
+      "name": "Cut",
+      "command": "edit.cut",
+      "fixed": "macOS's own key"
+    },
+    {
+      "id": "edit.copy",
+      "name": "Copy",
+      "command": "edit.copy",
+      "fixed": "macOS's own key"
+    },
+    {
+      "id": "edit.paste",
+      "name": "Paste",
+      "command": "edit.paste",
+      "fixed": "macOS's own key"
+    },
+    {
+      "id": "edit.copyProperties",
+      "name": "Copy Properties",
+      "command": "edit.copyProperties"
+    },
+    {
+      "id": "edit.pasteProperties",
+      "name": "Paste Properties",
+      "command": "edit.pasteProperties"
+    },
+    {
+      "id": "edit.delete",
+      "name": "Delete",
+      "command": "edit.delete"
+    },
+    {
+      "id": "edit.rippleCut",
+      "name": "Ripple Cut",
+      "command": "edit.rippleCut"
+    },
+    {
+      "id": "edit.rippleDelete",
+      "name": "Ripple Delete",
+      "command": "edit.rippleDelete"
+    },
+    {
+      "id": "edit.duplicate",
+      "name": "Duplicate",
+      "command": "edit.duplicate"
+    },
+    {
+      "id": "edit.silenceAudio",
+      "name": "Silence Audio",
+      "command": "edit.silenceAudio"
+    },
+    {
+      "id": "edit.restoreAudio",
+      "name": "Restore Audio",
+      "command": "edit.restoreAudio"
+    },
+    {
+      "id": "edit.addAudioPoint",
+      "name": "Add Audio Point",
+      "command": "edit.addAudioPoint"
+    },
+    {
+      "id": "edit.split",
+      "name": "Split",
+      "command": "edit.split"
+    },
+    {
+      "id": "edit.splitAll",
+      "name": "Split All",
+      "command": "edit.splitAll"
+    },
+    {
+      "id": "edit.trimToPlayhead:start",
+      "name": "Trim Start to Playhead",
+      "command": "edit.trimToPlayhead",
+      "args": {
+        "edge": "start"
+      },
+      "description": "Trim the start of the selected clips under the playhead to it"
+    },
+    {
+      "id": "edit.trimToPlayhead:end",
+      "name": "Trim End to Playhead",
+      "command": "edit.trimToPlayhead",
+      "args": {
+        "edge": "end"
+      },
+      "description": "Trim the end of the selected clips under the playhead to it"
+    },
+    {
+      "id": "edit.group",
+      "name": "Group",
+      "command": "edit.group"
+    },
+    {
+      "id": "edit.ungroup",
+      "name": "Ungroup",
+      "command": "edit.ungroup"
+    },
+    {
+      "id": "group.open",
+      "name": "Open Group",
+      "command": "group.open"
+    },
+    {
+      "id": "group.close",
+      "name": "Close Group",
+      "command": "group.close"
+    },
+    {
+      "id": "edit.stitch",
+      "name": "Stitch Selected Media",
+      "command": "edit.stitch"
+    },
+    {
+      "id": "edit.unstitch",
+      "name": "Remove All Stitches",
+      "command": "edit.unstitch"
+    },
+    {
+      "id": "edit.addMarker",
+      "name": "Add Timeline Marker",
+      "command": "edit.addMarker"
+    },
+    {
+      "id": "edit.addAnimation",
+      "name": "Add Animation",
+      "command": "edit.addAnimation"
+    },
+    {
+      "id": "selection.all",
+      "name": "Select All",
+      "command": "selection.all"
+    },
+    {
+      "id": "selection.clear",
+      "name": "Deselect All",
+      "command": "selection.clear"
+    },
+    {
+      "id": "selection.clear:range",
+      "name": "Deselect All and Clear the Range",
+      "command": "selection.clear",
+      "args": {
+        "range": true
+      },
+      "description": "Deselect everything and remove the in/out range"
+    },
+    {
+      "id": "selection.side:left",
+      "name": "Select All Timeline to Left",
+      "command": "selection.side",
+      "args": {
+        "side": "left"
+      },
+      "description": "Select every clip left of the playhead, and those under it"
+    },
+    {
+      "id": "selection.side:right",
+      "name": "Select All Timeline to Right",
+      "command": "selection.side",
+      "args": {
+        "side": "right"
+      },
+      "description": "Select every clip right of the playhead, and those under it"
+    },
+    {
+      "id": "selection.step:next",
+      "name": "Select Next Clip at the Playhead",
+      "command": "selection.step",
+      "args": {
+        "direction": "next",
+        "scope": "playhead"
+      },
+      "description": "Select the next visual clip under the playhead"
+    },
+    {
+      "id": "selection.step:previous",
+      "name": "Select Previous Clip at the Playhead",
+      "command": "selection.step",
+      "args": {
+        "direction": "previous",
+        "scope": "playhead"
+      },
+      "description": "Select the previous visual clip under the playhead"
+    },
+    {
+      "id": "selection.step:nextOnTrack",
+      "name": "Select Next Clip on the Track",
+      "command": "selection.step",
+      "args": {
+        "direction": "next",
+        "scope": "track"
+      },
+      "description": "Select the clip after the selected one on its track"
+    },
+    {
+      "id": "selection.step:previousOnTrack",
+      "name": "Select Previous Clip on the Track",
+      "command": "selection.step",
+      "args": {
+        "direction": "previous",
+        "scope": "track"
+      },
+      "description": "Select the clip before the selected one on its track"
+    },
+    {
+      "id": "edit.nudge:left",
+      "name": "Nudge Left",
+      "command": "edit.nudge",
+      "args": {
+        "x": -1
+      },
+      "description": "Move the selected media on the canvas one pixel left"
+    },
+    {
+      "id": "edit.nudge:right",
+      "name": "Nudge Right",
+      "command": "edit.nudge",
+      "args": {
+        "x": 1
+      },
+      "description": "Move the selected media on the canvas one pixel right"
+    },
+    {
+      "id": "edit.nudge:up",
+      "name": "Nudge Up",
+      "command": "edit.nudge",
+      "args": {
+        "y": 1
+      },
+      "description": "Move the selected media on the canvas one pixel up"
+    },
+    {
+      "id": "edit.nudge:down",
+      "name": "Nudge Down",
+      "command": "edit.nudge",
+      "args": {
+        "y": -1
+      },
+      "description": "Move the selected media on the canvas one pixel down"
+    },
+    {
+      "id": "edit.nudge:left10",
+      "name": "Nudge Left 10 Pixels",
+      "command": "edit.nudge",
+      "args": {
+        "x": -10
+      },
+      "description": "Move the selected media on the canvas ten pixels left"
+    },
+    {
+      "id": "edit.nudge:right10",
+      "name": "Nudge Right 10 Pixels",
+      "command": "edit.nudge",
+      "args": {
+        "x": 10
+      },
+      "description": "Move the selected media on the canvas ten pixels right"
+    },
+    {
+      "id": "edit.nudge:up10",
+      "name": "Nudge Up 10 Pixels",
+      "command": "edit.nudge",
+      "args": {
+        "y": 10
+      },
+      "description": "Move the selected media on the canvas ten pixels up"
+    },
+    {
+      "id": "edit.nudge:down10",
+      "name": "Nudge Down 10 Pixels",
+      "command": "edit.nudge",
+      "args": {
+        "y": -10
+      },
+      "description": "Move the selected media on the canvas ten pixels down"
+    },
+    {
+      "id": "edit.scale:25",
+      "name": "Scale to 25%",
+      "command": "edit.scale",
+      "args": {
+        "to": 25
+      },
+      "description": "Scale the selected media to 25%, centred"
+    },
+    {
+      "id": "edit.scale:50",
+      "name": "Scale to 50%",
+      "command": "edit.scale",
+      "args": {
+        "to": 50
+      },
+      "description": "Scale the selected media to 50%, centred"
+    },
+    {
+      "id": "edit.scale:100",
+      "name": "Scale to 100%",
+      "command": "edit.scale",
+      "args": {
+        "to": 100
+      },
+      "description": "Scale the selected media to 100%, centred"
+    },
+    {
+      "id": "edit.scale:200",
+      "name": "Scale to 200%",
+      "command": "edit.scale",
+      "args": {
+        "to": 200
+      },
+      "description": "Scale the selected media to 200%, centred"
+    },
+    {
+      "id": "edit.scale:fill",
+      "name": "Scale to Fill",
+      "command": "edit.scale",
+      "args": {
+        "to": "fill"
+      },
+      "description": "Scale the selected media to fill the canvas, centred"
+    },
+    {
+      "id": "edit.scale:fit",
+      "name": "Scale to Fit",
+      "command": "edit.scale",
+      "args": {
+        "to": "fit"
+      },
+      "description": "Scale the selected media to fit the canvas, centred"
+    },
+    {
+      "id": "canvas.zoom:in",
+      "name": "Zoom In on the Canvas",
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": "in"
+      },
+      "description": "Zoom the canvas preview in"
+    },
+    {
+      "id": "canvas.zoom:out",
+      "name": "Zoom Out on the Canvas",
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": "out"
+      },
+      "description": "Zoom the canvas preview out"
+    },
+    {
+      "id": "canvas.zoom:100",
+      "name": "Canvas at Actual Size",
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": 100
+      },
+      "description": "Show the canvas at its actual size"
+    },
+    {
+      "id": "canvas.zoom:fit",
+      "name": "Fit the Canvas",
+      "command": "canvas.zoom",
+      "args": {
+        "zoom": "fit"
+      },
+      "description": "Fit the canvas preview to its area, centred"
+    },
+    {
+      "id": "canvas.snapping",
+      "name": "Canvas Snapping",
+      "command": "canvas.snapping"
+    },
+    {
+      "id": "timeline.zoom:in",
+      "name": "Zoom In on the Timeline",
+      "command": "timeline.zoom",
+      "args": {
+        "to": "in"
+      },
+      "description": "Zoom the timeline in around the playhead"
+    },
+    {
+      "id": "timeline.zoom:out",
+      "name": "Zoom Out on the Timeline",
+      "command": "timeline.zoom",
+      "args": {
+        "to": "out"
+      },
+      "description": "Zoom the timeline out around the playhead"
+    },
+    {
+      "id": "timeline.zoom:fit",
+      "name": "Fit the Timeline",
+      "command": "timeline.zoom",
+      "args": {
+        "to": "fit"
+      },
+      "description": "Show the whole project on the timeline"
+    },
+    {
+      "id": "timeline.zoom:max",
+      "name": "Zoom the Timeline All the Way In",
+      "command": "timeline.zoom",
+      "args": {
+        "to": "max"
+      },
+      "description": "Zoom the timeline in as far as it goes (ten frames)"
+    },
+    {
+      "id": "timeline.zoom:selection",
+      "name": "Zoom the Timeline to the Selection",
+      "command": "timeline.zoom",
+      "args": {
+        "to": "selection"
+      },
+      "description": "Fit the selected clips on the timeline"
+    },
+    {
+      "id": "timeline.trackHeight:taller",
+      "name": "Taller Tracks",
+      "command": "timeline.trackHeight",
+      "args": {
+        "by": 10
+      },
+      "description": "Make every track taller"
+    },
+    {
+      "id": "timeline.trackHeight:shorter",
+      "name": "Shorter Tracks",
+      "command": "timeline.trackHeight",
+      "args": {
+        "by": -10
+      },
+      "description": "Make every track shorter"
+    },
+    {
+      "id": "timeline.snapping",
+      "name": "Timeline Snapping",
+      "command": "timeline.snapping"
+    },
+    {
+      "id": "track.removeEmpty",
+      "name": "Remove Empty Tracks",
+      "command": "track.removeEmpty"
+    },
+    {
+      "id": "playback.toggle",
+      "name": "Play or Pause",
+      "command": "playback.toggle"
+    },
+    {
+      "id": "playback.play",
+      "name": "Play",
+      "command": "playback.play"
+    },
+    {
+      "id": "playback.pause",
+      "name": "Pause",
+      "command": "playback.pause"
+    },
+    {
+      "id": "playback.shuttle:forward",
+      "name": "Play Forward (Faster Each Press)",
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "forward"
+      },
+      "description": "Play forward; pressed again, faster (2x, 4x…)"
+    },
+    {
+      "id": "playback.shuttle:reverse",
+      "name": "Play in Reverse (Faster Each Press)",
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "reverse"
+      },
+      "description": "Play in reverse; pressed again, faster"
+    },
+    {
+      "id": "playback.shuttle:slowForward",
+      "name": "Play Forward Slowly",
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "forward",
+        "slow": true
+      },
+      "description": "Play forward at half speed"
+    },
+    {
+      "id": "playback.shuttle:slowReverse",
+      "name": "Play in Reverse Slowly",
+      "command": "playback.shuttle",
+      "args": {
+        "direction": "reverse",
+        "slow": true
+      },
+      "description": "Play in reverse at half speed"
+    },
+    {
+      "id": "playhead.step:next",
+      "name": "Next Frame",
+      "command": "playhead.step",
+      "args": {
+        "frames": 1
+      },
+      "description": "Move the playhead one frame forward"
+    },
+    {
+      "id": "playhead.step:previous",
+      "name": "Previous Frame",
+      "command": "playhead.step",
+      "args": {
+        "frames": -1
+      },
+      "description": "Move the playhead one frame back"
+    },
+    {
+      "id": "playhead.step:next15",
+      "name": "Forward 15 Frames",
+      "command": "playhead.step",
+      "args": {
+        "frames": 15
+      },
+      "description": "Move the playhead fifteen frames forward"
+    },
+    {
+      "id": "playhead.step:previous15",
+      "name": "Back 15 Frames",
+      "command": "playhead.step",
+      "args": {
+        "frames": -15
+      },
+      "description": "Move the playhead fifteen frames back"
+    },
+    {
+      "id": "playhead.jump:start",
+      "name": "Go to Start",
+      "command": "playhead.jump",
+      "args": {
+        "to": "start"
+      },
+      "description": "Move the playhead to the start of the timeline"
+    },
+    {
+      "id": "playhead.jump:end",
+      "name": "Go to End",
+      "command": "playhead.jump",
+      "args": {
+        "to": "end"
+      },
+      "description": "Move the playhead to the end of the timeline"
+    },
+    {
+      "id": "playhead.jump:nextEdit",
+      "name": "Go to Next Edit",
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextEdit"
+      },
+      "description": "Move the playhead to the next clip start or end"
+    },
+    {
+      "id": "playhead.jump:previousEdit",
+      "name": "Go to Previous Edit",
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousEdit"
+      },
+      "description": "Move the playhead to the previous clip start or end"
+    },
+    {
+      "id": "playhead.jump:nextMarker",
+      "name": "Go to Next Marker",
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextMarker"
+      },
+      "description": "Move the playhead to the next timeline marker"
+    },
+    {
+      "id": "playhead.jump:previousMarker",
+      "name": "Go to Previous Marker",
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousMarker"
+      },
+      "description": "Move the playhead to the previous timeline marker"
+    },
+    {
+      "id": "playhead.jump:nextAnimation",
+      "name": "Go to Next Animation",
+      "command": "playhead.jump",
+      "args": {
+        "to": "nextAnimation"
+      },
+      "description": "Move the playhead to the next animation on the selected clips"
+    },
+    {
+      "id": "playhead.jump:previousAnimation",
+      "name": "Go to Previous Animation",
+      "command": "playhead.jump",
+      "args": {
+        "to": "previousAnimation"
+      },
+      "description": "Move the playhead to the previous animation on the selected clips"
+    },
+    {
+      "id": "range.extend:left",
+      "name": "Extend the Range Left",
+      "command": "range.extend",
+      "args": {
+        "side": "left"
+      },
+      "description": "Move the in/out range's start a frame earlier (one from the playhead if there is none)"
+    },
+    {
+      "id": "range.extend:right",
+      "name": "Extend the Range Right",
+      "command": "range.extend",
+      "args": {
+        "side": "right"
+      },
+      "description": "Move the in/out range's end a frame later (one from the playhead if there is none)"
+    },
+    {
+      "id": "range.extend:leftMarker",
+      "name": "Extend the Range Left to a Marker",
+      "command": "range.extend",
+      "args": {
+        "side": "left",
+        "to": "marker"
+      },
+      "description": "Move the in/out range's start to the previous marker"
+    },
+    {
+      "id": "range.extend:rightMarker",
+      "name": "Extend the Range Right to a Marker",
+      "command": "range.extend",
+      "args": {
+        "side": "right",
+        "to": "marker"
+      },
+      "description": "Move the in/out range's end to the next marker"
+    },
+    {
+      "id": "range.extend:leftEdit",
+      "name": "Extend the Range Left to an Edit",
+      "command": "range.extend",
+      "args": {
+        "side": "left",
+        "to": "edit"
+      },
+      "description": "Move the in/out range's start to the previous edit"
+    },
+    {
+      "id": "range.extend:rightEdit",
+      "name": "Extend the Range Right to an Edit",
+      "command": "range.extend",
+      "args": {
+        "side": "right",
+        "to": "edit"
+      },
+      "description": "Move the in/out range's end to the next edit"
+    },
+    {
+      "id": "range.clear",
+      "name": "Clear the Range",
+      "command": "range.clear"
+    },
+    {
+      "id": "panel.show:favorites",
+      "name": "Show Favorites",
+      "command": "panel.show",
+      "args": {
+        "tool": "favorites"
+      },
+      "description": "Open the Favorites panel on the left"
+    },
+    {
+      "id": "panel.show:media",
+      "name": "Show Media Bin",
+      "command": "panel.show",
+      "args": {
+        "tool": "media"
+      },
+      "description": "Open the Media Bin panel on the left"
+    },
+    {
+      "id": "panel.show:annotations",
+      "name": "Show Annotations",
+      "command": "panel.show",
+      "args": {
+        "tool": "annotations"
+      },
+      "description": "Open the Annotations panel on the left"
+    },
+    {
+      "id": "panel.show:visualEffects",
+      "name": "Show Visual Effects",
+      "command": "panel.show",
+      "args": {
+        "tool": "visualEffects"
+      },
+      "description": "Open the Visual Effects panel on the left"
+    },
+    {
+      "id": "panel.show:audioEffects",
+      "name": "Show Audio Effects",
+      "command": "panel.show",
+      "args": {
+        "tool": "audioEffects"
+      },
+      "description": "Open the Audio Effects panel on the left"
+    },
+    {
+      "id": "panel.show:narration",
+      "name": "Show Narration",
+      "command": "panel.show",
+      "args": {
+        "tool": "narration"
+      },
+      "description": "Open the Narration panel on the left"
+    },
+    {
+      "id": "panel.show:ai",
+      "name": "Show AI",
+      "command": "panel.show",
+      "args": {
+        "tool": "ai"
+      },
+      "description": "Open the AI panel on the left"
+    },
+    {
+      "id": "silences.review",
+      "name": "Remove Silences…",
+      "command": "silences.review"
+    },
+    {
+      "id": "fillers.review",
+      "name": "Remove Filler Words…",
+      "command": "fillers.review"
+    },
+    {
+      "id": "captions.add",
+      "name": "Captions",
+      "command": "captions.add"
+    }
+  ]
+}

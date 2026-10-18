@@ -964,6 +964,79 @@
         ]
       },
       "command": "canvas.snapping"
+    },
+    {
+      "keys": {
+        "key": ",",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.settings"
+    },
+    {
+      "keys": {
+        "key": "n",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.new"
+    },
+    {
+      "keys": {
+        "key": "o",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.open"
+    },
+    {
+      "keys": {
+        "key": "s",
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "command": "app.saveAs"
+    },
+    {
+      "keys": {
+        "key": "i",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.import"
+    },
+    {
+      "keys": {
+        "key": "r",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.record"
+    },
+    {
+      "keys": {
+        "key": "e",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.export"
+    },
+    {
+      "keys": {
+        "key": "k",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "app.palette"
     }
   ]
 }

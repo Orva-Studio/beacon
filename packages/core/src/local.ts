@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, pastePng, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
+import { fileFingerprint, jobProcesses, jobSignal, type JobProcesses, type MediaInfo, measureLoudness, measureSync, narrationStart, pastePng, type PlaybackHeard, probeMedia, Recorder, type RecorderPreviewEvent, type RecorderSources, streamSource, thumbnailPng } from "@beacon/media";
 import {
   createProject,
   describeSession,
@@ -41,6 +41,17 @@ import {
   scopedProject,
   walkClips,
   assetName,
+  type Keys,
+  type ShortcutInfo,
+  type AppSettings,
+  AppSettingsSchema,
+  DEFAULT_APP_SETTINGS,
+  narrationSpan,
+  isPanelEffect,
+  SETTINGS_TABS,
+  type SettingsTab,
+  type SettingsPatch,
+  withPatch,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -59,6 +70,8 @@ import type {
   ProjectHandle,
   QueryInfo,
   RecordOptions,
+  RecordResult,
+  RecordStopOptions,
   ResourceInfo,
   PreferenceInfo,
   RecordStatus,
@@ -67,11 +80,13 @@ import type {
   SheetOptions,
   Snapshot,
   TransactionStep,
+  UiDialog,
 } from "./api";
 import { download } from "./download";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, readProject, unlock, writeProject } from "./persist";
+import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -115,6 +130,16 @@ export type Snapshotter = (h: ProjectHandle) => Promise<{
   /** What the window reports it has drawn, as text. */
   shown?: string;
 }>;
+
+/** A narration being recorded: the span it plays, and when its sound was first heard (kept as playback ticks). */
+interface Narration {
+  from: number;
+  until: number;
+  hear: boolean;
+  /** Nothing after the playhead to play: it records there, without playback, until stopped. */
+  still: boolean;
+  heard?: PlaybackHeard;
+}
 
 const PLAYBACK = new Set(["playback.play", "playback.toggle", "playback.shuttle"]);
 
@@ -201,13 +226,11 @@ export class LocalCore implements BeaconCore {
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
-    this.#configDir = opts.configDir ?? DEFAULT_CONFIG_DIR;
+    // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
+    this.#configDir = opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
     this.#secrets = opts.secrets ?? keychain;
-    try {
-      this.#prefs = JSON.parse(readFileSync(join(this.#configDir, "preferences.json"), "utf8")) as Record<string, string>;
-    } catch {
-      this.#prefs = {};
-    }
+    const prefs = this.#readConfig("preferences.json");
+    this.#prefs = prefs && typeof prefs === "object" ? (prefs as Record<string, string>) : {};
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["open", "-R", path]));
@@ -361,8 +384,10 @@ export class LocalCore implements BeaconCore {
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
   async close(h: ProjectHandle): Promise<void> {
-    // A take being recorded for it is stopped and imported first, rather than left in its folder.
-    if (this.#recording?.h === h) await this.recordStop();
+    // A take being recorded for it is stopped and imported first, rather than left in its folder; one that can't be
+    // (a narration stopped before it played) mustn't keep the project open and locked.
+    let stopped: unknown;
+    if (this.#recording?.h === h) await this.recordStop().catch((e: unknown) => void (stopped = e));
     const p = this.#get(h);
     clearTimeout(p.saveTimer);
     // Exports render a copy of the document taken when they started: they finish after the project closes.
@@ -381,6 +406,7 @@ export class LocalCore implements BeaconCore {
       this.#projects.delete(h);
     }
     if (failed) throw new Error(`closed ${p.path}, but its latest changes could not be saved: ${failed instanceof Error ? failed.message : failed}`);
+    if (stopped) throw new Error(`closed ${p.path}, but the take being recorded couldn't be placed: ${stopped instanceof Error ? stopped.message : stopped}`);
   }
 
   /**
@@ -517,6 +543,10 @@ export class LocalCore implements BeaconCore {
       for (const other of this.#projects.values()) if (other !== p) other.session.share(this.#shared);
     }
     this.#emit(p, { kind: "session", changes: Object.fromEntries(changed.map((k) => [k, session[k]])) as Partial<Session>, changed });
+    // A narration lasts while the timeline plays on from where it began: a pause or a seek ends it there.
+    if (this.#recording?.narration && !this.#recording.narration.still && this.#recording.h === p.path && ((changed.includes("playing") && !session.playing) || (changed.includes("playhead") && !p.ticking))) {
+      void this.recordStop().catch((e: unknown) => this.#emit(p, { kind: "error", message: `narration: ${e instanceof Error ? e.message : e}` }));
+    }
     const view = p.view;
     if (!view || p.ticking) return;
     if (changed.includes("playing") && !session.playing) view.pause();
@@ -533,6 +563,21 @@ export class LocalCore implements BeaconCore {
   /** The app provides window screenshots for `snapshot`. */
   setSnapshotter(fn: Snapshotter | undefined) {
     this.#snapshotter = fn;
+  }
+
+  #uiOpener?: (h: ProjectHandle, dialog: UiDialog | null, tab?: SettingsTab) => void;
+
+  /** The app's window, which shows the dialogs `uiOpen` asks for. */
+  setUiOpener(fn: ((h: ProjectHandle, dialog: UiDialog | null, tab?: SettingsTab) => void) | undefined) {
+    this.#uiOpener = fn;
+  }
+
+  async uiOpen(h: ProjectHandle, dialog: UiDialog | null, tab?: string): Promise<void> {
+    this.#get(h);
+    if (!this.#uiOpener) throw new Error("no window shows this project: dialogs open only with the project open in the Beacon app");
+    if (tab !== undefined && dialog !== "settings") throw new Error(`\`tab\` is Settings' (${SETTINGS_TABS.join(", ")})`);
+    if (tab !== undefined && !(SETTINGS_TABS as readonly string[]).includes(tab)) throw new Error(`Settings has no "${tab}" tab: ${SETTINGS_TABS.join(", ")}`);
+    this.#uiOpener(h, dialog, tab as SettingsTab | undefined);
   }
 
   async snapshot(h: ProjectHandle): Promise<Snapshot> {
@@ -584,6 +629,10 @@ export class LocalCore implements BeaconCore {
         } finally {
           p.ticking = false;
         }
+        const n = this.#recording?.h === p.path ? this.#recording.narration : undefined;
+        if (!n) return;
+        n.heard = view.heard() ?? n.heard;
+        if (t >= n.until - ticksToSeconds(ticksPerFrame(p.store.doc.settings.fps)) / 2) p.session.run("playback.pause", {}, p.store.doc);
       },
       onEnd: () => p.session.run("playback.pause", {}, p.store.doc),
       silent: opts.silent,
@@ -857,6 +906,9 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     const doc = p.store.doc;
     if (opts.folder !== undefined && !existsSync(opts.folder)) throw new Error(`${opts.folder} doesn't exist`);
+    // Settings' folder unless one is given; gone, the project's media folder.
+    const chosen = this.#settings().snapshotFolder;
+    if (opts.folder === undefined && chosen && existsSync(chosen)) opts = { ...opts, folder: chosen };
     const t = snapSeconds(time ?? p.session.state.playhead, doc.settings.fps);
     const img = await this.frame(h, ticksToSeconds(t));
     const dir = opts.folder ?? join(p.path, "media");
@@ -908,6 +960,7 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
+    const colorSpace = this.#settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
     // Beside a video, files features write from the same range (captions as .srt), named after it.
@@ -923,7 +976,7 @@ export class LocalCore implements BeaconCore {
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {
-        output: opts.output.endsWith("/") ? { kind: "png", dir: output } : { kind: "video", ...encoding(opts), path: output },
+        output: opts.output.endsWith("/") ? { kind: "png", dir: output } : { kind: "video", ...encoding({ ...opts, colorSpace: opts.colorSpace ?? colorSpace }), path: output },
         from,
         to,
         cacheDir: this.cacheDir,
@@ -943,9 +996,7 @@ export class LocalCore implements BeaconCore {
     for (const file of files.map((f) => resolve(f))) {
       const importer = this.registry.importerFor(extname(file));
       if (!importer) throw new Error(`no feature imports ${extname(file) || "files without an extension"} (${file})`);
-      const media = await probeMedia(file);
-      const loudness = await measureLoudness(file, media);
-      probed.push({ file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: { media, ...(Object.keys(loudness).length ? { loudness } : {}) } } });
+      probed.push({ file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) } });
     }
     let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
     const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
@@ -964,7 +1015,19 @@ export class LocalCore implements BeaconCore {
       for (const c of copies) rmSync(c.path, { recursive: true, force: true });
       throw e;
     }
-    // The app's view needs proxies and waveforms of new media as well.
+    return this.#imported(h, result);
+  }
+
+  /** What an asset knows of its file once probed: its streams, and its audio's loudness. */
+  async #probe(file: string): Promise<Asset["derived"]> {
+    const media = await probeMedia(file);
+    const loudness = await measureLoudness(file, media);
+    return { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
+  }
+
+  /** After media is added: the app's view makes its proxies and waveforms, and its analyses (transcripts) start. */
+  #imported(h: ProjectHandle, result: ImportResult): ImportResult {
+    const p = this.#get(h);
     if (p.view) this.#previewJobs(p);
     const { jobs, needs } = this.#importAnalyses(h, result.assets);
     result.jobs.push(...jobs);
@@ -1024,7 +1087,8 @@ export class LocalCore implements BeaconCore {
   }
 
   #recorder = new Recorder();
-  #recording?: { h: ProjectHandle; dir: string };
+  #recording?: { h: ProjectHandle; dir: string; narration?: Narration };
+  #lastNarration?: RecordResult;
 
   async recorderDevices() {
     return this.#recorder.devices();
@@ -1045,11 +1109,43 @@ export class LocalCore implements BeaconCore {
   async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
     const p = this.#get(h);
     if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
+    if (opts.narrate) return this.#narrate(p, opts);
     const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
     const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, sources, opts.monitor);
     this.#recording = { h, dir };
+    return { take: dir };
+  }
+
+  /** Records the microphone while the app's view plays the timeline from the playhead, or through the range. */
+  async #narrate(p: OpenProject, opts: RecordOptions): Promise<{ take: string }> {
+    const view = p.view;
+    if (!view) throw new Error("a narration plays the timeline in the Beacon app: open the project there");
+    const { screen, camera, systemAudio, microphone, ...rest } = opts.sources ?? { microphone: {} };
+    if (screen || camera || systemAudio) throw new Error("a narration records only a microphone");
+    const doc = p.store.doc;
+    const { from, until, still } = narrationSpan(doc, p.session.state);
+    if (p.session.state.playing) p.session.run("playback.pause", {}, doc);
+    const dir = join(p.path, "recordings", `${opts.name ?? `Narration ${takeName(new Date())}`}.brec`);
+    mkdirSync(dirname(dir), { recursive: true });
+    await this.#recorder.start(dir, { ...rest, microphone: microphone ?? {} }, opts.monitor);
+    const hear = !still && !!opts.narrate?.hear;
+    if (still) {
+      this.#recording = { h: p.path, dir, narration: { from, until: from, hear, still } };
+      return { take: dir };
+    }
+    try {
+      if (p.session.state.playhead !== from) p.session.run("playhead.set", { time: from }, p.store.doc);
+      view.muted = !hear;
+      p.session.run("playback.play", {}, p.store.doc);
+    } catch (e) {
+      view.muted = false;
+      await this.#recorder.stop().catch(() => {});
+      rmSync(dir, { recursive: true, force: true });
+      throw e;
+    }
+    this.#recording = { h: p.path, dir, narration: { from, until, hear, still } };
     return { take: dir };
   }
 
@@ -1073,18 +1169,77 @@ export class LocalCore implements BeaconCore {
 
   async recordStatus(): Promise<RecordStatus> {
     const rec = this.#recording;
-    if (!rec) return { recording: false };
+    if (!rec) return { recording: false, ...(this.#lastNarration ? { last: this.#lastNarration } : {}) };
     const s = await this.#recorder.status();
-    return { recording: s.recording, take: rec.dir, project: rec.h, ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}) };
+    const n = rec.narration;
+    return {
+      recording: s.recording,
+      take: rec.dir,
+      project: rec.h,
+      ...(s.elapsed !== undefined ? { elapsed: s.elapsed } : {}),
+      ...(n ? { narration: { from: n.from, until: n.until, hear: n.hear } } : {}),
+    };
   }
 
-  async recordStop(opts: ImportOptions = {}): Promise<ImportResult & { take: string; duration: number }> {
+  async recordStop(opts: RecordStopOptions = {}): Promise<RecordResult> {
     const rec = this.#recording;
     if (!rec) throw new Error("not recording");
     this.#recording = undefined;
+    const p = this.#projects.get(rec.h);
+    const n = rec.narration;
+    // Read before playback stops: pausing lets go of the audio clock.
+    const heard = n && (p?.view?.heard() ?? n.heard);
+    if (n && p) {
+      if (p.session.state.playing) p.session.run("playback.pause", {}, p.store.doc);
+      if (p.view) p.view.muted = false;
+    }
     const take = await this.#recorder.stop();
     if (take.errors.length) console.warn(`recording ${basename(rec.dir)}: ${take.errors.join("; ")}`);
-    return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
+    let result: RecordResult;
+    if (opts.discard) {
+      rmSync(rec.dir, { recursive: true, force: true });
+      result = { assets: [], clips: [], jobs: [], take: rec.dir, duration: take.duration, discarded: true };
+    } else if (n) {
+      if (!n.still && !heard) throw new Error(`the timeline never played, so the narration can't be lined up: ${basename(rec.dir)} is kept in the project's recordings`);
+      if (heard) {
+        const drift = heard.last.time - heard.time - (heard.last.host - heard.host);
+        if (Math.abs(drift) > 0.005 || heard.stalled > 0) console.warn(`narration ${basename(rec.dir)}: the timeline ran ${(drift * 1000).toFixed(1)} ms off the host clock and waited ${(heard.stalled * 1000).toFixed(0)} ms for its decoder`);
+      }
+      // The timeline second the file's first sample is under: where it was heard, or (nothing played) the playhead.
+      const at = heard ? narrationStart(rec.dir, heard) : n.from;
+      result = { ...(await this.#placeNarration(rec.h, rec.dir, at, n.from)), take: rec.dir, duration: take.duration };
+    } else return { ...(await this.import(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
+    if (n && p) {
+      this.#lastNarration = result;
+      this.#emit(p, { kind: "narrated", result });
+    }
+    return result;
+  }
+
+  /**
+   * A narration on a new track at `from`, starting as far into its file as the timeline was heard after the
+   * microphone began, so each word sits under what was playing as it was spoken. One undo step.
+   */
+  async #placeNarration(h: ProjectHandle, dir: string, at: number, from: number): Promise<ImportResult> {
+    const p = this.#get(h);
+    const file = resolve(dir);
+    const importer = this.registry.importerFor(".brec")!;
+    const asset: Omit<Asset, "id"> = { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) };
+    const fps = p.store.doc.settings.fps;
+    // The clip begins at `from`, or later if the take began after it.
+    const start = Math.max(ticksToSeconds(snapSeconds(from, fps)), ticksToSeconds(snapSeconds(at, fps, "ceil")));
+    const result: ImportResult = { assets: [], clips: [], jobs: [] };
+    this.#saved(p, p.store.transaction("Record Narration", (tx) => {
+      const id = tx.run<string>("asset.add", asset);
+      const [spec] = importer.clips({ id, ...asset }, p.store.doc);
+      if (!spec) throw new Error(`${basename(dir)} has no audio`);
+      const track = tx.run<string>("track.add", { name: "Narration" });
+      const mediaStart = start - at + ticksToSeconds(spec.mediaStart ?? 0);
+      const duration = ticksToSeconds(spec.duration) - (start - at);
+      result.assets.push(id);
+      result.clips.push(tx.run<string>("clip.add", { track, type: spec.type, start, duration, mediaStart, assetId: id, props: spec.props }));
+    }));
+    return this.#imported(h, result);
   }
 
   async missing(h: ProjectHandle): Promise<string[]> {
@@ -1118,9 +1273,7 @@ export class LocalCore implements BeaconCore {
     if (asset.kind === "recording") throw new Error(`${assetName(asset)} is a recording: it can't be replaced`);
     const like = { video: "video", image: "image", audio: "audio file" }[asset.kind];
     if (kind !== asset.kind) throw new Error(`${assetName(asset)} can only be replaced with another ${like}`);
-    const media = await probeMedia(file);
-    const loudness = await measureLoudness(file, media);
-    const derived = { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
+    const derived = await this.#probe(file);
     this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
     if (p.view) this.#previewJobs(p);
     return this.#importAnalyses(h, [assetId]);
@@ -1287,6 +1440,7 @@ export class LocalCore implements BeaconCore {
             title: o.title,
             description: o.description,
             ...(o.secret ? { secret: { id: o.secret, title: this.registry.secrets.get(o.secret)!.title, set: (await this.#secrets.get(o.secret)) !== undefined } } : {}),
+            ...(o.online ? { online: true } : {}),
           })),
         ),
       })),
@@ -1303,16 +1457,138 @@ export class LocalCore implements BeaconCore {
     }
     if (this.#pref(id) === value) return;
     this.#prefs = { ...this.#prefs, [id]: value };
-    mkdirSync(this.#configDir, { recursive: true });
-    const file = join(this.#configDir, "preferences.json");
-    writeFileSync(`${file}.tmp`, JSON.stringify(this.#prefs, null, 2));
-    renameSync(`${file}.tmp`, file);
+    this.#writeConfig("preferences.json", this.#prefs);
     const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
     this.#cancelJobsOf(undefined, (j) => decided.has(j.info.kind));
-    for (const p of this.#projects.values()) {
-      this.#emit(p, { kind: "preference", id, value });
-      this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
+    this.#broadcast({ kind: "preference", id, value });
+    for (const p of this.#projects.values()) this.#importAnalyses(p.path, Object.keys(p.store.doc.assets));
+  }
+
+  /** Where the app-wide files (preferences, favourites, settings, keys) are kept. */
+  get configDir(): string {
+    return this.#configDir;
+  }
+
+  /** A JSON file of the app's own (favourites, settings, keys) beside the preferences; undefined when missing or unreadable. */
+  #readConfig(name: string): unknown {
+    try {
+      return JSON.parse(readFileSync(join(this.#configDir, name), "utf8"));
+    } catch {
+      return undefined;
     }
+  }
+
+  #writeConfig(name: string, value: unknown) {
+    mkdirSync(this.#configDir, { recursive: true });
+    const file = join(this.#configDir, name);
+    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
+    renameSync(`${file}.tmp`, file);
+  }
+
+  #broadcast(e: CoreEvent) {
+    for (const p of this.#projects.values()) this.#emit(p, e);
+  }
+
+  #favorites(): string[] {
+    const items = this.#readConfig("favorites.json");
+    if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
+    return this.registry.panelItems.filter((i) => i.favorite).map((i) => i.id).filter((i) => this.#favoriteKnown(i));
+  }
+
+  /** An item the panels have: one a feature lists, or an effect not only for the cursor. */
+  #favoriteKnown(item: string): boolean {
+    if (this.registry.panelItems.some((i) => i.id === item)) return true;
+    const effect = item.startsWith("effect:") ? this.registry.effects.get(item.slice(7)) : undefined;
+    return !!effect && isPanelEffect(effect.traits);
+  }
+
+  #saveFavorites(items: string[]): string[] {
+    this.#writeConfig("favorites.json", items);
+    this.#broadcast({ kind: "favorites", items });
+    return items;
+  }
+
+  async favorites(): Promise<string[]> {
+    return this.#favorites();
+  }
+
+  async favoriteAdd(item: string, index?: number): Promise<string[]> {
+    if (!this.#favoriteKnown(item)) throw new Error(`"${item}" isn't an item of the panels: ${this.registry.panelItems.map((i) => i.id).join(", ")}, or effect:<id> as effect_add takes`);
+    const items = this.#favorites();
+    if (items.includes(item)) return items;
+    items.splice(index === undefined ? items.length : Math.max(0, Math.min(index, items.length)), 0, item);
+    return this.#saveFavorites(items);
+  }
+
+  async favoriteRemove(item: string): Promise<string[]> {
+    const items = this.#favorites();
+    if (!items.includes(item)) return items;
+    return this.#saveFavorites(items.filter((i) => i !== item));
+  }
+
+  async favoriteMove(item: string, index: number): Promise<string[]> {
+    const items = this.#favorites();
+    const from = items.indexOf(item);
+    if (from < 0) throw new Error(`"${item}" isn't a favourite; there are: ${items.join(", ")}`);
+    items.splice(from, 1);
+    items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
+    return this.#saveFavorites(items);
+  }
+
+  #settings(): AppSettings {
+    const saved = AppSettingsSchema.partial().safeParse(this.#readConfig("settings.json"));
+    return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
+  }
+
+  async settings(): Promise<AppSettings> {
+    return this.#settings();
+  }
+
+  async setSettings(patch: SettingsPatch): Promise<AppSettings> {
+    // Only a folder being chosen must exist: one gone since (an unplugged drive) mustn't stop other changes being saved.
+    if (typeof patch.snapshotFolder === "string" && !existsSync(patch.snapshotFolder)) throw new Error(`${patch.snapshotFolder} doesn't exist`);
+    const next = AppSettingsSchema.safeParse(withPatch(this.#settings(), patch));
+    if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
+    this.#writeConfig("settings.json", next.data);
+    this.#broadcast({ kind: "settings", settings: next.data });
+    return next.data;
+  }
+
+  #keymapOverrides(): KeymapOverrides {
+    const saved = KeymapFileSchema.safeParse(this.#readConfig("keymap.json"));
+    return saved.success ? saved.data.overrides : {};
+  }
+
+  /** Commands' descriptions by id, for the shortcuts list; the registry doesn't change, so read once. */
+  #descriptions?: Map<string, string>;
+
+  #shortcutList(overrides: KeymapOverrides): ShortcutInfo[] {
+    this.#descriptions ??= new Map(
+      [...this.registry.commands.values(), ...SESSION_COMMANDS, ...this.registry.sessionCommands.values(), ...this.registry.actions.values()].map((c) => [c.id, c.description]),
+    );
+    const described = this.#descriptions;
+    return shortcutList(overrides, (command) => described.get(command));
+  }
+
+  #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {
+    this.#writeConfig("keymap.json", { overrides });
+    const shortcuts = this.#shortcutList(overrides);
+    this.#broadcast({ kind: "shortcuts", shortcuts });
+    return shortcuts;
+  }
+
+  async shortcuts(): Promise<ShortcutInfo[]> {
+    return this.#shortcutList(this.#keymapOverrides());
+  }
+
+  async shortcutSet(action: string, keys: Keys[], replace = false): Promise<ShortcutInfo[]> {
+    return this.#saveKeymap(setShortcut(this.#keymapOverrides(), action, keys, replace));
+  }
+
+  async shortcutReset(action?: string): Promise<ShortcutInfo[]> {
+    if (action === undefined) return this.#saveKeymap({});
+    const { [action]: _, ...rest } = this.#keymapOverrides();
+    return this.#saveKeymap(rest);
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */

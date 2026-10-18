@@ -424,6 +424,84 @@ export function CanvasOverlay({
     });
   };
 
+  /** Lines a box can align on along axis `i`: its two edges (spanning its extent on the other axis) and its centre (a point). */
+  const lines = (a: number, b: number, c0: number, c1: number): Line[] => [
+    { at: a, span: [c0, c1] },
+    { at: (a + b) / 2, span: [(c0 + c1) / 2, (c0 + c1) / 2], centre: true },
+    { at: b, span: [c0, c1] },
+  ];
+
+  /** A clip's corners in canvas pixels, and the box around them. */
+  const canvasBox = (p: Placed) => {
+    const c = p.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as const);
+    const lo = [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1]))] as const;
+    const hi = [Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))] as const;
+    return { c, lo, hi };
+  };
+
+  /** What a box snaps to along axis `i` (canvas pixels): the canvas's edges and centre, and other clips' edges. */
+  const snapTargets = (i: 0 | 1, skip: Set<string>): Line[] => {
+    const out = i === 0 ? lines(0, CW, 0, CH) : lines(0, CH, 0, CW);
+    for (const p of placed) {
+      if (skip.has(p.clip.id)) continue;
+      const { lo, hi } = canvasBox(p);
+      const j = (1 - i) as 0 | 1;
+      out.push(...lines(lo[i], hi[i], lo[j], hi[j]).filter((l) => !l.centre));
+    }
+    return out;
+  };
+
+  /** The nearest target within snapping distance of any of `own` (centres only to centres), and how far to move to it. */
+  const nearest = (own: Line[], targets: Line[]) => {
+    let best: { by: number; own: Line; target: Line } | undefined;
+    for (const o of own) for (const t of targets) if (!!o.centre === !!t.centre && Math.abs(t.at - o.at) * k <= SNAP && (!best || Math.abs(t.at - o.at) < Math.abs(best.by))) best = { by: t.at - o.at, own: o, target: t };
+    return best;
+  };
+
+  /** The guide drawn for a snap: a line through what aligned, with an × at each end. */
+  const guideOf = (i: 0 | 1, s: { own: Line; target: Line }): Guide => {
+    const ends = [...s.own.span, ...s.target.span];
+    return { axis: i === 0 ? "x" : "y", at: s.target.at, from: Math.min(...ends), to: Math.max(...ends), marks: [...new Set(ends)] };
+  };
+
+  /**
+   * Snaps a resized box: the side or corner dragged, by `rel` (its size over the size when the drag started) on
+   * each axis, to the lines moving snaps to, keeping the opposite side where it is. `uniform`: one factor for
+   * both (a video's corner), snapped on the closer axis. A box turned on the canvas doesn't snap.
+   */
+  const snapResize = (p: Placed, handle: Handle, rel: [number, number], uniform: boolean, off: boolean): { rel: [number, number]; guides: Guide[] } => {
+    if (off || !session.canvas.snapping) return { rel, guides: [] };
+    const { c, lo, hi } = canvasBox(p);
+    if (!c.every((q) => [0, 1].every((i) => Math.abs(q[i]! - lo[i]!) < 0.5 || Math.abs(q[i]! - hi[i]!) < 0.5))) return { rel, guides: [] };
+    const sides = [handle.sx, handle.sy];
+    const skip = new Set([p.clip.id]);
+    /** The box's extent on axis `i` as resized by `r`. */
+    const extent = (i: 0 | 1, r: number): [number, number] => {
+      const side = sides[i]!;
+      const size = (hi[i] - lo[i]) * r;
+      return side > 0 ? [lo[i], lo[i] + size] : side < 0 ? [hi[i] - size, hi[i]] : [(lo[i] + hi[i] - size) / 2, (lo[i] + hi[i] + size) / 2];
+    };
+    const snap = (i: 0 | 1) => {
+      const side = sides[i]!;
+      if (!side) return undefined;
+      const [a, b] = extent(i, rel[i]);
+      const [fixed, edge] = side > 0 ? [a, b] : [b, a];
+      const j = (1 - i) as 0 | 1;
+      // Only the dragged edge moves; the canvas's centre is the one centre it aligns on.
+      const targets = snapTargets(i, skip).filter((t) => !t.centre);
+      const found = nearest([{ at: edge, span: extent(j, rel[j]) }], [...targets, { at: i === 0 ? CW / 2 : CH / 2, span: i === 0 ? [0, CH] : [0, CW] }]);
+      const r = found && ((found.target.at - fixed) / (edge - fixed || 1)) * rel[i];
+      return found && r! > 0.02 ? { r: r!, d: Math.abs(found.by), guide: guideOf(i, found) } : undefined;
+    };
+    const sx = snap(0);
+    const sy = snap(1);
+    if (uniform) {
+      const b = sx && sy ? (sx.d <= sy.d ? sx : sy) : (sx ?? sy);
+      return b ? { rel: [b.r, b.r], guides: [b.guide] } : { rel, guides: [] };
+    }
+    return { rel: [sx?.r ?? rel[0], sy?.r ?? rel[1]], guides: [...(sx ? [sx.guide] : []), ...(sy ? [sy.guide] : [])] };
+  };
+
   /**
    * Snaps a moved box (canvas pixels) to the canvas's edges and centre and
    * other clips' edges: returns the shift and, per axis, the
@@ -435,36 +513,13 @@ export function CanvasOverlay({
     const all = boxes.flat();
     const lo = (i: 0 | 1) => Math.min(...all.map((q) => q[i]));
     const hi = (i: 0 | 1) => Math.max(...all.map((q) => q[i]));
-    /** Lines a box can align on along axis `i`: its two edges (spanning its extent on the other axis) and its centre (a point). */
-    const lines = (i: 0 | 1, a: number, b: number, c0: number, c1: number): Line[] => [
-      { at: a, span: [c0, c1] },
-      { at: (a + b) / 2, span: [(c0 + c1) / 2, (c0 + c1) / 2], centre: true },
-      { at: b, span: [c0, c1] },
-    ];
-    const targets = (i: 0 | 1): Line[] => {
-      const out = i === 0 ? lines(0, 0, CW, 0, CH) : lines(1, 0, CH, 0, CW);
-      for (const p of placed) {
-        if (moving.has(p.clip.id)) continue;
-        const c = p.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as const);
-        const [a, b] = [Math.min(...c.map((q) => q[i])), Math.max(...c.map((q) => q[i]))];
-        const [c0, c1] = [Math.min(...c.map((q) => q[1 - i]!)), Math.max(...c.map((q) => q[1 - i]!))];
-        out.push(...lines(i, a, b, c0, c1).filter((l) => !l.centre));
-      }
-      return out;
-    };
     const snapAxis = (i: 0 | 1, d: number, other: number) => {
-      const own = lines(i, lo(i) + d, hi(i) + d, lo((1 - i) as 0 | 1) + other, hi((1 - i) as 0 | 1) + other);
-      let best: { by: number; own: Line; target: Line } | undefined;
-      for (const o of own) for (const t of targets(i)) if (!!o.centre === !!t.centre && Math.abs(t.at - o.at) * k <= SNAP && (!best || Math.abs(t.at - o.at) < Math.abs(best.by))) best = { by: t.at - o.at, own: o, target: t };
-      return best;
+      const j = (1 - i) as 0 | 1;
+      return nearest(lines(lo(i) + d, hi(i) + d, lo(j) + other, hi(j) + other), snapTargets(i, moving));
     };
     const sx = snapAxis(0, dx, dy);
     const sy = snapAxis(1, dy, dx + (sx?.by ?? 0));
-    const guide = (axis: "x" | "y", b: NonNullable<typeof sx>): Guide => {
-      const ends = [...b.own.span, ...b.target.span];
-      return { axis, at: b.target.at, from: Math.min(...ends), to: Math.max(...ends), marks: [...new Set(ends)] };
-    };
-    return { dx: dx + (sx?.by ?? 0), dy: dy + (sy?.by ?? 0), guides: [...(sx ? [guide("x", sx)] : []), ...(sy ? [guide("y", sy)] : [])] };
+    return { dx: dx + (sx?.by ?? 0), dy: dy + (sy?.by ?? 0), guides: [...(sx ? [guideOf(0, sx)] : []), ...(sy ? [guideOf(1, sy)] : [])] };
   };
 
   return (
@@ -648,8 +703,10 @@ export function CanvasOverlay({
         const box = boxGroup(p.clip);
         if (box) {
           // An annotation's handles size its box (text rewraps, outlines keep their width); its scale is the Visual tab's.
-          const width = Math.max(8, Math.round(p.size[0] + sx * (u1 - u0)));
-          const height = Math.max(8, Math.round(p.size[1] + sy * (v1 - v0)));
+          const snapped = snapResize(p, d.handle, [(p.size[0] + sx * (u1 - u0)) / p.size[0], (p.size[1] + sy * (v1 - v0)) / p.size[1]], false, e.ctrlKey);
+          setGuides(snapped.guides);
+          const width = Math.max(8, Math.round(p.size[0] * snapped.rel[0]));
+          const height = Math.max(8, Math.round(p.size[1] * snapped.rel[1]));
           const size: [number, number] = [sx ? width : p.size[0], sy ? height : p.size[1]];
           const fixed = (s: [number, number]): [number, number] => [sx > 0 ? 0 : sx < 0 ? s[0] : s[0] / 2, sy > 0 ? 0 : sy < 0 ? s[1] : s[1] / 2];
           const before = apply(contentToCanvas(project, p.size, p.t), ...fixed(p.size));
@@ -665,8 +722,9 @@ export function CanvasOverlay({
         const fy = sy ? Math.max(0.02, (h + sy * (v1 - v0)) / h) : 1;
         const corner = sx && sy;
         const f = corner ? Math.max(fx, fy) : 1;
-        const kx = corner ? f : fx;
-        const ky = corner ? f : fy;
+        const snapped = snapResize(p, d.handle, [corner ? f : fx, corner ? f : fy], !!corner, e.ctrlKey);
+        setGuides(snapped.guides);
+        const [kx, ky] = snapped.rel;
         const anchor: [number, number] = [sx > 0 ? p.crop.left : sx < 0 ? p.size[0] - p.crop.right : p.size[0] / 2, sy > 0 ? p.crop.top : sy < 0 ? p.size[1] - p.crop.bottom : p.size[1] / 2];
         const before = apply(contentToCanvas(project, p.size, p.t), ...anchor);
         const t = { ...p.t, scaleX: p.t.scaleX * kx, scaleY: p.t.scaleY * ky };
