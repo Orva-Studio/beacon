@@ -19,6 +19,8 @@ import {
   type Project,
   type Ticks,
   type FeatureRegistry,
+  clone,
+  freshEffect,
 } from "@beacon/model";
 import { visualSize } from "../media";
 import { actions, animationActions } from "./actions";
@@ -69,10 +71,10 @@ const commands = [
       for (const id of clips) {
         const { clip: c } = findClip(doc, ctx.registry, id);
         const groups = new Set(ctx.registry.groupsFor(c.type).map((g) => g.id));
-        for (const [group, values] of Object.entries(props)) if (groups.has(group)) c.props[group] = JSON.parse(JSON.stringify(values));
+        for (const [group, values] of Object.entries(props)) if (groups.has(group)) c.props[group] = clone(values);
         const fits = effects.filter((e) => ctx.registry.effectFits(e.type, c.type));
         const types = new Set(fits.map((e) => e.type));
-        c.effects = [...c.effects.filter((e) => !types.has(e.type)), ...fits.map((e) => ({ ...JSON.parse(JSON.stringify(e)), id: ctx.newId("fx") }))];
+        c.effects = [...c.effects.filter((e) => !types.has(e.type)), ...fits.map((e) => freshEffect(e, ctx.newId))];
       }
     },
   }),

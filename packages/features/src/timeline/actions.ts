@@ -75,7 +75,7 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
   const what = clips.length ? { clips: clips.map((c) => c.id) } : range ? { range: [secondsToTicks(range.in), secondsToTicks(range.out)] as [number, number] } : {};
   // `clipboard.copy` reads an opened group's clips at main-timeline times; check against the same.
   const shown = { ...ctx.project, tracks: ctx.scope.tracks };
-  const before: ActionStep[] = copy && copyClips(shown, what, (c) => ctx.registry.hasTrait(c.type, "hold")) ? [{ command: "clipboard.copy" }] : [];
+  const before: ActionStep[] = copy && copyClips(shown, what, ctx.registry) ? [{ command: "clipboard.copy" }] : [];
   if (clips.length) {
     const from = seconds(Math.min(...clips.map((c) => c.start)));
     return {
@@ -208,7 +208,7 @@ export const actions = [
       mainTimelineOnly(ctx, "duplicate");
       const clips = selected(ctx);
       if (!clips.length) throw new Error("select media first");
-      const board = copyClips(ctx.project, { clips: clips.map((c) => c.id) }, (c) => ctx.registry.hasTrait(c.type, "hold"))!;
+      const board = copyClips(ctx.project, { clips: clips.map((c) => c.id) }, ctx.registry)!;
       const at = seconds(Math.max(...clips.map(clipEnd)));
       return { label: "Duplicate", steps: [{ command: "clip.paste", args: { clipboard: board, at } }], after: selectPasted };
     },

@@ -55,7 +55,7 @@ test.skipIf(!existsSync(AI_SLOP))("timeline edits from the editor keep tracks in
   const length = ticksToSeconds(projectDuration(store.doc));
   const screen = store.doc.tracks.flatMap((t) => t.clips).find((c) => c.type === "screen" && ticksToSeconds(c.duration) > 4)!;
   const mid = ticksToSeconds(screen.start + screen.duration / 2);
-  const board = copyClips(store.doc, { clips: [screen.id] }, () => false)!;
+  const board = copyClips(store.doc, { clips: [screen.id] }, registry)!;
 
   store.transaction("Edit", (tx) => {
     tx.run("timeline.insertSpace", { at: mid, duration: 2 });
@@ -129,7 +129,7 @@ test.skipIf(!existsSync(AI_SLOP))("groups and stitched media come apart as they 
   store.undo();
   store.run("timeline.rippleDelete", { ranges: [{ start: gm - 0.5, end: gm + 0.5 }] });
   store.undo();
-  const board = copyClips(store.doc, { clips: [group] }, () => false)!;
+  const board = copyClips(store.doc, { clips: [group] }, registry)!;
   const other = new ProjectStore(registry, createProject(registry, {}));
   const [pasted] = other.run<string[]>("clip.paste", { clipboard: board, at: 0 }).result;
   expect(other.doc.tracks.flatMap((t) => t.clips).find((c) => c.id === pasted)?.type).toBe("group");

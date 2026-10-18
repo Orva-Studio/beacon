@@ -27,6 +27,8 @@ import {
   type Project,
   type Ticks,
   type Track,
+  clone,
+  freshEffect,
 } from "@beacon/model";
 import { clipStream, mediaInfo, streamOf } from "../media";
 
@@ -67,8 +69,6 @@ function unlocked(track: Track) {
   if (track.locked) throw new Error(`track "${track.name}" is locked`);
 }
 
-/** A plain copy; also of Immer drafts, which `structuredClone` can't copy. */
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 const holds = (registry: FeatureRegistry, clip: Clip) => registry.hasTrait(clip.type, "hold");
 
@@ -102,9 +102,15 @@ function earliestStart(clip: Clip, registry: FeatureRegistry): Ticks {
 
 /** A deep copy under a new id; clips nested in it (a group's, a stitched clip's pieces) get new ids too, as ids are unique across the document. */
 function copyClip(clip: Clip, ctx: CommandContext): Clip {
-  const copy: Clip = { ...(JSON.parse(JSON.stringify(clip)) as Clip), id: ctx.newId("clip") };
+  const copy: Clip = { ...(clone(clip) as Clip), id: ctx.newId("clip") };
   for (const inner of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) if (inner.clip !== copy) inner.clip.id = ctx.newId("clip");
   return copy;
+}
+
+/** The copies' link for an original's `linkId`: one new link per original link, so copies link to each other. */
+function copiedLink(links: Map<string, string>, linkId: string, ctx: CommandContext): string {
+  if (!links.has(linkId)) links.set(linkId, ctx.newId("link"));
+  return links.get(linkId)!;
 }
 
 /** Splits `clip` at timeline time `at` (strictly inside it); returns the right-hand piece, already in the track. */
@@ -112,10 +118,7 @@ function splitAt(track: Track, clip: Clip, at: Ticks, ctx: CommandContext, links
   const right = copyClip(clip, ctx);
   shiftIn(right, at - clip.start, ctx.registry);
   clip.duration = at - clip.start;
-  if (clip.linkId) {
-    if (!links.has(clip.linkId)) links.set(clip.linkId, ctx.newId("link"));
-    right.linkId = links.get(clip.linkId);
-  }
+  if (clip.linkId) right.linkId = copiedLink(links, clip.linkId, ctx);
   track.clips.splice(track.clips.indexOf(clip) + 1, 0, right);
   return right;
 }
@@ -387,7 +390,7 @@ export const clipCommands = [
         mediaStart: mediaTimeAt(c, end - ticksPerFrame(doc.settings.fps)),
         assetId: c.assetId,
         props: clone(Object.fromEntries(Object.entries(c.props).filter(([k]) => groups.has(k)))),
-        effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => ({ ...clone(fx), id: ctx.newId("fx") })),
+        effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };
       track.clips.splice(track.clips.indexOf(c) + 1, 0, still);
@@ -425,17 +428,10 @@ export const clipCommands = [
         unlocked(to);
         if (to.hidden) throw new Error(`track "${to.name}" is disabled`);
         adoptTrackProps(to, clipboard.trackProps?.[row]);
-        const copy: Clip = { ...clone(clip), id: ctx.newId("clip"), start: t0 + clip.start };
-        if (copy.assetId) copy.assetId = assets.get(copy.assetId) ?? copy.assetId;
-        if (copy.linkId) {
-          if (!links.has(copy.linkId)) links.set(copy.linkId, ctx.newId("link"));
-          copy.linkId = links.get(copy.linkId);
-        }
-        for (const inner of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) {
-          if (inner.clip === copy) continue;
-          inner.clip.id = ctx.newId("clip");
-          if (inner.clip.assetId) inner.clip.assetId = assets.get(inner.clip.assetId) ?? inner.clip.assetId;
-        }
+        const copy = copyClip(clip, ctx);
+        copy.start = t0 + clip.start;
+        if (copy.linkId) copy.linkId = copiedLink(links, copy.linkId, ctx);
+        for (const { clip: c } of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) if (c.assetId) c.assetId = assets.get(c.assetId) ?? c.assetId;
         to.clips.push(copy);
         to.clips.sort((x, y) => x.start - y.start);
         out.push(copy.id);

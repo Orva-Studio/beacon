@@ -9,7 +9,6 @@ import {
   defineFeature,
   IDENTITY,
   isFree,
-  shiftIn,
   ticksToSeconds,
   TrackSchema,
   type AudioContext,
@@ -20,6 +19,8 @@ import {
   type Track,
   type VisualLayer,
   mediaWindow,
+  clone,
+  cutToWindow,
 } from "@beacon/model";
 
 const groupSchema = z.strictObject({
@@ -117,8 +118,8 @@ export const groups = defineFeature({
           name: doc.tracks[ti]!.name,
           ...(doc.tracks[ti]!.hidden ? { hidden: true } : {}),
           ...(doc.tracks[ti]!.muted ? { muted: true } : {}),
-          ...(doc.tracks[ti]!.props ? { props: JSON.parse(JSON.stringify(doc.tracks[ti]!.props)) } : {}),
-          clips: doc.tracks[ti]!.clips.filter((c) => ids.has(c.id)).map((c) => ({ ...JSON.parse(JSON.stringify(c)), start: c.start - start })),
+          ...(doc.tracks[ti]!.props ? { props: clone(doc.tracks[ti]!.props) } : {}),
+          clips: doc.tracks[ti]!.clips.filter((c) => ids.has(c.id)).map((c) => ({ ...clone(c), start: c.start - start })),
         }));
         // On the topmost of their tracks, else just above it, so nothing that covered them comes on top.
         const top = used.at(-1)!;
@@ -165,11 +166,8 @@ export const groups = defineFeature({
         let above = ti + 1;
         tracks.forEach((inner, i) => {
           const clips = inner.clips.flatMap((c) => {
-            if (clipEnd(c) <= a || c.start >= b) return [];
-            const copy = JSON.parse(JSON.stringify(c)) as Clip;
-            const hold = ctx.registry.hasTrait(c.type, "hold");
-            if (copy.start < a) shiftIn(copy, a - copy.start, hold);
-            if (clipEnd(copy) > b) copy.duration = b - copy.start;
+            const copy = cutToWindow(c, a, b, ctx.registry);
+            if (!copy) return [];
             copy.start += offset;
             if (ctx.registry.groupsFor(copy.type).some((x) => x.id === "transform")) {
               const own = { ...IDENTITY_LOOK, ...(copy.props.transform as Partial<Look> | undefined) };

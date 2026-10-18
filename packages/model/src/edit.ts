@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { clipSpeed } from "./evaluate";
 import { AssetSchema, ClipSchema, IdSchema, type Asset, type Clip, type Project, type Track } from "./schema";
+import type { FeatureRegistry } from "./registry";
 import type { Ticks } from "./ticks";
 import type { Animation } from "./schema";
 
@@ -10,7 +11,10 @@ import type { Animation } from "./schema";
  */
 
 /** A plain copy; also of Immer drafts, which `structuredClone` can't copy. */
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+export const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+/** A copy of an effect under a new id (ids are unique across the document). */
+export const freshEffect = <E extends { id: string }>(fx: E, newId: (prefix: string) => string): E => ({ ...clone(fx), id: newId("fx") });
 
 export const clipEnd = (c: Clip): Ticks => c.start + c.duration;
 
@@ -127,9 +131,18 @@ function assetIds(value: unknown, out = new Set<string>()): Set<string> {
 /**
  * A copy of top-level clips, or with `range`, of what every track holds in
  * that time (clips cut to it). Locked and
- * disabled tracks are left out. `hold(clip)`: whether it shows one frame throughout.
+ * disabled tracks are left out.
  */
-export function copyClips(project: Project, opts: { clips?: string[]; range?: [Ticks, Ticks] }, hold: (c: Clip) => boolean): Clipboard | undefined {
+/** A copy of `c` cut to `[a, b)` of its track's time; undefined when it's outside. A clip that holds a frame keeps it. */
+export function cutToWindow(c: Clip, a: Ticks, b: Ticks, registry: Pick<FeatureRegistry, "hasTrait">): Clip | undefined {
+  if (clipEnd(c) <= a || c.start >= b) return undefined;
+  const copy = clone(c);
+  if (copy.start < a) shiftIn(copy, a - copy.start, registry.hasTrait(c.type, "hold"));
+  if (clipEnd(copy) > b) copy.duration = b - copy.start;
+  return copy;
+}
+
+export function copyClips(project: Project, opts: { clips?: string[]; range?: [Ticks, Ticks] }, registry: Pick<FeatureRegistry, "hasTrait">): Clipboard | undefined {
   const picked: { clip: Clip; track: number }[] = [];
   for (const [i, track] of project.tracks.entries()) {
     if (track.locked || track.hidden) continue;
@@ -137,12 +150,8 @@ export function copyClips(project: Project, opts: { clips?: string[]; range?: [T
       if (opts.clips) {
         if (opts.clips.includes(c.id)) picked.push({ clip: clone(c), track: i });
       } else if (opts.range) {
-        const [a, b] = opts.range;
-        if (clipEnd(c) <= a || c.start >= b) continue;
-        const copy = clone(c);
-        if (copy.start < a) shiftIn(copy, a - copy.start, hold(copy));
-        if (clipEnd(copy) > b) copy.duration = b - copy.start;
-        picked.push({ clip: copy, track: i });
+        const copy = cutToWindow(c, ...opts.range, registry);
+        if (copy) picked.push({ clip: copy, track: i });
       }
     }
   }
