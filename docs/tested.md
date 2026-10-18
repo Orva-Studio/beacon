@@ -5,6 +5,24 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Hot paths (`perf/hot-paths`, `docs/review-2026-10-17.md` §2, numbers in `docs/performance.md`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Progress messages and playback with a group open don't redraw the timeline | 2026-10-18 | `ce98793` | Redraws counted in the UI harness on a copy of a 304-clip project: 20 → 0, 30 → 0 |
+| Imports probe four files at a time; a finished waveform is sent alone | 2026-10-18 | `917f8fa` | 7 fixtures imported in 0.26 s (was 0.67); UI flows |
+| The decode thread reuses frame buffers; cursors, text and strokes cached | 2026-10-18 | `7189a08`, `fb1612b` | `perf.ts --no-proxies` on the 304-clip project; still loads counted (13 → 8) |
+| A drag step validates only what it changed | 2026-10-18 | `a4771b4` | 2.2 → 0.16 ms on the 304-clip project; bad values still rejected; undo-exactness tests |
+| The timeline lets go of thumbnails no clip shows | 2026-10-18 | `0c0581b` | UI flows |
+
+### Not checked yet
+
+- Dragging on the canvas and sliders on a long timeline in the app: smooth, and Undo puts it back in one step.
+- Scrubbing and jumping around a `.trec` project from its originals in the app: cursors and captions draw
+  right after they come back on screen.
+
 ## Review fixes (`fix/review-bugs`, `docs/review-2026-10-17.md` §1)
 
 ### Checked headless only (still to see by hand)
