@@ -432,7 +432,7 @@ Measured before changing anything (`docs/review-2026-10-17.md` §2), on a copy o
 | The same layer over 30 playhead moves with a group open (P2) | 30 redraws (every tick) | 0 |
 | The shell (App, top bar, toolbar, transport, Properties, timeline) over 60 playhead moves (P3) | 60 renders each, 1.4 ms a tick | not changed: under a millisecond to win in a production build |
 | Saving the whole project after an edit (P5): stringify, write, fsync | 0.6 ms (0.9 worst) | not changed |
-| One drag step (`clip.set`, coalesced) on the 304-clip project (P6, P7) | 2.2 ms p50, 5.4 worst; whole-document validation 1.3 of it | |
+| One drag step (`clip.set`, coalesced) on the 304-clip project (P6, P7): validation 1.6 ms of it, `packMagnetic` 0.3, the diff 0.02 | 2.2 ms p50, 5.4 worst | 0.16 ms p50, 1.8 worst: only the clips a props/effects/animations change touched are validated; `packMagnetic` skips a timeline with no magnetic or nested tracks |
 | Export's audio mix (P15), 578 s from 27 segments of 2 files | 9.6 s, of which the AAC encode is 9.5 and opening 27 inputs about 0.2 | not changed: it runs beside the video render, so no export waits for it |
 | First audio at play start (P15), 27 / 18 / 11 inputs | 56 / 50 / 41 ms | not changed |
 | Importing 7 fixture files (P16): probe and loudness, one file at a time | 0.67 s | 0.26 s, four at a time |

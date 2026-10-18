@@ -107,7 +107,7 @@ export class ProjectStore {
       // Drafts are revoked when the producer returns.
       for (const [i, r] of results.entries()) if (isDraft(r)) results[i] = current(r);
     });
-    if (patches.length) this.registry.validate(next);
+    if (patches.length) this.registry.validateChanged(next, patches);
     const dryRun = opts.dryRun ?? false;
     const result: CommandResult = { label, patches, inverse, results, diff: describePatches(this.#doc, patches), dryRun };
     if (dryRun || !patches.length) return result;

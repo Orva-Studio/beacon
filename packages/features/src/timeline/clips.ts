@@ -6,6 +6,8 @@ import {
   clipEnd,
   clipSpeed,
   defineCommand,
+  isDraft,
+  original,
   isFree,
   mediaTimeAt,
   pasteBase,
@@ -499,7 +501,14 @@ export const clipCommands = [
  * of their middles, so a clip dropped between two makes room. Tracks inside
  * groups too.
  */
+function hasNested(tracks: Track[], ctx: CommandContext): boolean {
+  return tracks.some((t) => t.clips.some((c) => ctx.registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id])));
+}
+
 export function packMagnetic(doc: Project, ctx: CommandContext) {
+  // Walking the draft makes a draft of every clip, on every transaction: only when a track is magnetic (read on
+  // the draft, so one made magnetic in this transaction counts) or there are nested tracks that could be.
+  if (!doc.tracks.some((t) => t.magnetic) && !hasNested((isDraft(doc) ? original(doc)! : doc).tracks, ctx)) return;
   const lists = [doc.tracks];
   for (const { clip } of walkClips(doc.tracks, ctx.registry)) {
     for (const g of ctx.registry.groupsFor(clip.type)) if (g.nested && clip.props[g.id]) lists.push(g.nested(clip.props[g.id]));
