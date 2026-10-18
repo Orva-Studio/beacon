@@ -17,6 +17,7 @@ import {
   type Scene,
   type SourceDef,
   type Ticks,
+  fpsRational,
 } from "@beacon/model";
 
 /** Export options; the format is the path's extension: .mp4, .mov, .gif or .webm. */
@@ -83,8 +84,8 @@ const colorTags = (space: VideoEncoding["colorSpace"]) => ["-colorspace", "bt709
 // setparams: VideoToolbox writes the primaries and transfer from each frame, which the scale leaves unset.
 const toYuv = (space: VideoEncoding["colorSpace"]) => `scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=${trc(space)}:colorspace=bt709:range=tv`;
 
-/** Automatic data rate: what export used before the options existed. */
-const AUTO_BITRATE = "16M";
+/** Automatic data rate in kbit/s: what export used before the options existed. */
+const AUTO_BITRATE = 16_000;
 /** A keyframe every 30 frames. */
 const KEYFRAME = 30;
 
@@ -109,18 +110,9 @@ function encoderArgs(o: Extract<RenderOutput, { kind: "video" }>): string[] {
   }
   const codec = o.codec ?? "h264";
   if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
-  const quality = codec === "prores" ? [] : ["-b:v", o.bitrate ? `${o.bitrate}k` : AUTO_BITRATE, ...keyframe];
+  const quality = codec === "prores" ? [] : ["-b:v", `${o.bitrate ?? AUTO_BITRATE}k`, ...keyframe];
   const profile = codec === "h264" && o.profile ? ["-profile:v", o.profile] : [];
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
-}
-
-/** A frame rate as a fraction: NTSC's 29.97 is 30000/1001, 12.5 is 25/2. */
-export function rational(fps: number): { num: number; den: number } {
-  if (Number.isInteger(fps)) return { num: fps, den: 1 };
-  const ntsc = Math.round(fps * 1001);
-  if (ntsc % 1000 === 0 && Math.abs(fps - ntsc / 1001) < 0.01) return { num: ntsc, den: 1001 };
-  for (let den = 2; den < 1000; den++) if (Math.abs(fps * den - Math.round(fps * den)) < 1e-6) return { num: Math.round(fps * den), den };
-  return { num: Math.round(fps * 1000), den: 1000 };
 }
 
 /** The video's size: the canvas fitted within `size` (as ffmpeg's force_original_aspect_ratio=decrease), even. */
@@ -143,8 +135,8 @@ function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video"
     path,
     codec,
     ...fittedSize(project.settings, o.size),
-    fps: o.fps ? rational(o.fps) : project.settings.fps,
-    bitrate: (o.bitrate ?? 16_000) * 1000,
+    fps: o.fps ? fpsRational(o.fps) : project.settings.fps,
+    bitrate: (o.bitrate ?? AUTO_BITRATE) * 1000,
     keyframe: o.keyframe ?? KEYFRAME,
     ...(codec === "h264" && o.profile ? { profile: o.profile } : {}),
     srgb: o.colorSpace === "srgb",

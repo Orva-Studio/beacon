@@ -12,6 +12,7 @@ import {
   type FeatureRegistry,
   type Project,
   type Track,
+  fpsRational,
 } from "@beacon/model";
 import { fileFingerprint, probeMedia } from "@beacon/media";
 
@@ -129,7 +130,7 @@ export async function importCmproj(cmproj: string, registry: FeatureRegistry): P
     settings: {
       width: Math.round(doc.width ?? 1920),
       height: Math.round(doc.height ?? 1080),
-      fps: Number.isInteger(fps) ? { num: fps, den: 1 } : { num: Math.round(fps * 1001), den: 1001 },
+      fps: fpsRational(fps),
       sampleRate: Number(doc.audioFormatSampleRate ?? 48000),
       background: hex(doc.timeline?.backgroundColor),
       ...(doc.shouldApplyLoudnessNormalization && typeof doc.targetLoudness === "number" ? { loudnessTarget: doc.targetLoudness } : {}),
