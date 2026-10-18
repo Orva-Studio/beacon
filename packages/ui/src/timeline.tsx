@@ -155,6 +155,12 @@ export interface TimelineMark {
 
 const images = new Map<string, HTMLImageElement>();
 
+/** Lets go of decoded thumbnails no clip shows any more (replaced, deleted, or another project's). */
+function keepImages(thumbs: Record<string, string>) {
+  const shown = new Set(Object.values(thumbs));
+  for (const url of images.keys()) if (!shown.has(url)) images.delete(url);
+}
+
 /** A decoded thumbnail, or undefined until it has loaded (then `onLoad` redraws). */
 function image(url: string, onLoad: () => void): HTMLImageElement | undefined {
   let img = images.get(url);
@@ -236,6 +242,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
   const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
+  useEffect(() => keepImages(thumbs), [thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
   const loaded = useRef(0);
