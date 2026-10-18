@@ -80,7 +80,7 @@ const FALLBACK: &str = "Helvetica Neue";
 
 /// The family member closest to the wanted weight and slant.
 fn find_font(spec: &TextSpec, size: f64) -> Result<CTFont> {
-    let faces = |name: &str| font_collection::create_for_family(name).and_then(|c| c.get_descriptors()).filter(|d| d.len() > 0);
+    let faces = |name: &str| font_collection::create_for_family(name).and_then(|c| c.get_descriptors()).filter(|d| !d.is_empty());
     let family = faces(&spec.font).or_else(|| faces(FALLBACK)).ok_or_else(|| Error::Source(format!("font \"{}\" is not installed", spec.font)))?;
     let want = ct_weight(spec.weight);
     let best = family
@@ -127,7 +127,7 @@ fn lay_out(spec: &TextSpec) -> Result<Laid> {
     let tall = 1.0e6;
     let path = CGPath::from_rect(CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(w as f64, tall)), None);
     let frame = framesetter.create_frame(CFRange::init(0, 0), &path);
-    let lines: Vec<_> = frame.get_lines().iter().map(|l| l.clone()).collect();
+    let lines: Vec<_> = frame.get_lines().to_vec();
     let origins = frame.get_line_origins(CFRange::init(0, 0));
     let mut at = Vec::with_capacity(lines.len());
     if let (Some(first), Some(last)) = (lines.first(), lines.last()) {

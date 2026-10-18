@@ -440,11 +440,8 @@ pub fn load_still(source: &Source, trecs: &mut HashMap<PathBuf, beacon_media::Tr
             // In process: the same pixels as the ffmpeg command line's, without two processes (~40-70 ms) per image.
             let err = |e: beacon_decode::Error| Error::Source(e.0);
             let mut d = beacon_decode::Decoder::open(path, 0, false, 0).map_err(err)?;
-            loop {
-                match d.next().map_err(err)? {
-                    beacon_decode::Next::Frame(_) => break,
-                    beacon_decode::Next::End => return Err(Error::Source(format!("{path}: no image"))),
-                }
+            if let beacon_decode::Next::End = d.next().map_err(err)? {
+                return Err(Error::Source(format!("{path}: no image")));
             }
             let (width, height) = d.size();
             let mut data = vec![0u8; width as usize * height as usize * 4];

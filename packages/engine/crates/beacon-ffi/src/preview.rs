@@ -110,7 +110,10 @@ fn run(mut preview: Preview, rx: Receiver<Msg>) {
                 },
                 Msg::Proxies(on) => preview.renderer().use_proxies = on,
                 Msg::Resize(w, h) => {
-                    if let Err(e) = caught(|| Ok(preview.resize(w, h))) {
+                    if let Err(e) = caught(|| {
+                        preview.resize(w, h);
+                        Ok(())
+                    }) {
                         stats.error = Some(e);
                     }
                     dirty = true;
@@ -137,7 +140,7 @@ fn run(mut preview: Preview, rx: Receiver<Msg>) {
             let t = Instant::now();
             waiting = false;
             let full = redraw || !drawn;
-            let before = preview.renderer().profile.clone();
+            let before = preview.renderer().profile;
             match caught(|| if full { preview.show(s, at) } else { preview.recomposite(at) }.map_err(|e| e.to_string())) {
                 Ok(true) => {
                     drawn = true;

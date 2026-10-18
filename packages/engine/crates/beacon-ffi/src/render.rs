@@ -147,7 +147,7 @@ pub unsafe extern "C" fn beacon_renderer_sheet(h: *mut FfiRenderer, scenes_json:
         let (sw, sh) = span(cols, cw).zip(span(rows, ch)).ok_or("sheet is too large")?;
         let bytes = (sw as usize).checked_mul(sh as usize).and_then(|v| v.checked_mul(4)).ok_or("sheet is too large")?;
         let mut sheet = vec![0u8; bytes];
-        for px in sheet.chunks_exact_mut(4) {
+        for px in sheet.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
         for (i, scene) in scenes.iter().enumerate() {

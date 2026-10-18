@@ -159,6 +159,8 @@ impl Decoder {
         }
     }
 
+    // Not an Iterator: a decode can fail, and the end is a value (`Next::End`) rather than `None`.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Next, Error> {
         let mut pts = 0.0;
         match unsafe { otd_next(self.raw, &mut pts) } {

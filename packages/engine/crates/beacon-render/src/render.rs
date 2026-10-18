@@ -46,6 +46,8 @@ struct SourceTex {
 /// Frames a source texture (and its decoder) is kept after its last use, so
 /// brief gaps between clips of one recording don't restart its decoder.
 const KEEP_FRAMES: u64 = 30;
+/// Render targets unused for this many frames are freed: a zoom on a tilted layer asks for a new size every frame.
+const POOL_KEEP_FRAMES: u64 = 2;
 
 /// Decoders started ahead of a cut (`preroll`) kept at most.
 const MAX_WARM: usize = 6;
@@ -80,7 +82,8 @@ pub struct Renderer {
     textures: HashMap<(String, usize), SourceTex>,
     frame: u64,
     white: wgpu::Texture,
-    pool: Vec<(u32, u32, wgpu::Texture)>,
+    /// Free render targets: width, height, the frame each was last used, the texture.
+    pool: Vec<(u32, u32, u64, wgpu::Texture)>,
     trecs: HashMap<PathBuf, beacon_media::Trec>,
     /// A GPU validation error since the last draw: wgpu's default handler
     /// panics, which would kill the preview thread; it fails the next draw instead.
@@ -317,6 +320,7 @@ impl Renderer {
         self.profile.draw_and_readback += t.elapsed().as_secs_f64();
         let frame = self.frame;
         self.textures.retain(|_, st| frame - st.last_used <= KEEP_FRAMES);
+        self.pool.retain(|(_, _, used, _)| frame - used <= POOL_KEEP_FRAMES);
         self.frame += 1;
         Ok(enc)
     }
@@ -901,14 +905,14 @@ impl Renderer {
     }
 
     fn take(&mut self, w: u32, h: u32) -> wgpu::Texture {
-        match self.pool.iter().position(|(pw, ph, _)| (*pw, *ph) == (w, h)) {
-            Some(i) => self.pool.swap_remove(i).2,
+        match self.pool.iter().position(|(pw, ph, _, _)| (*pw, *ph) == (w, h)) {
+            Some(i) => self.pool.swap_remove(i).3,
             None => self.device.create_texture(&tex_desc(w, h, 1, rt_usage())),
         }
     }
 
     fn give(&mut self, t: wgpu::Texture) {
-        self.pool.push((t.width(), t.height(), t));
+        self.pool.push((t.width(), t.height(), self.frame, t));
     }
 
     fn uniform(&self, data: &[u8]) -> wgpu::Buffer {

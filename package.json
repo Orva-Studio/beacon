@@ -20,7 +20,7 @@
     "build:engine": "cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo build --release",
     "test": "bun test && bun run test:ui && cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo test --release",
     "test:ui": "bun test ./scripts/ui-harness",
-    "typecheck": "bun run --cwd packages/desktop devkit >/dev/null && tsc --noEmit -p .",
+    "typecheck": "bun run --cwd packages/desktop devkit >/dev/null && tsc --noEmit -p . && cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo clippy --workspace --all-targets --quiet -- -D warnings",
     "audit": "bun audit && cd packages/engine && env -u RUSTUP_TOOLCHAIN ~/.cargo/bin/cargo deny check",
     "dump-trec": "bun run scripts/dump-trec.ts",
     "render-cmproj": "bun run scripts/render-cmproj.ts",
