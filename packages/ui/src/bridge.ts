@@ -98,3 +98,70 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
   });
   return { unwatch, rev: () => rev, sendWaveforms, proxies };
 }
+
+type Requests = AppRPC["bun"]["requests"];
+type Handlers = { [K in keyof Requests]: (params: Requests[K]["params"]) => Promise<Requests[K]["response"]> };
+type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage";
+type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session">;
+
+const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
+const done = async (fn: () => Promise<unknown>) => {
+  try {
+    await fn();
+    return { ok: true };
+  } catch (e) {
+    return failed(e);
+  }
+};
+const answer = async <T>(fn: () => Promise<T>) => {
+  try {
+    return { ok: true, result: await fn() };
+  } catch (e) {
+    return failed(e);
+  }
+};
+const png = (bytes: Uint8Array | undefined) => (bytes?.length ? `data:image/png;base64,${Buffer.from(bytes).toString("base64")}` : null);
+
+/**
+ * The window's requests that are core's alone, for the app and the UI harness; each adds the ones that need its
+ * process (dialogs, menus, native views, recording). `project`: the open one. `status`: a background failure to show.
+ */
+export function coreRequests(core: RequestCore, project: () => string | undefined, status: (message: string) => void = () => {}): Pick<Handlers, Shared> {
+  const open = () => {
+    const h = project();
+    if (!h) throw new Error("no project is open");
+    return h;
+  };
+  // Edits with no project open (⌘Z on the start screen) do nothing, quietly.
+  const edit = (fn: (h: string) => Promise<unknown>) => done(async () => {
+    const h = project();
+    if (h) await fn(h);
+  });
+  return {
+    run: ({ command, args, label, coalesce }) => edit((h) => core.run(h, command, args ?? {}, { ...(label ? { label } : {}), ...(coalesce ? { coalesce } : {}) })),
+    query: ({ name, args }) => answer(() => core.query(open(), name, args ?? {})),
+    undo: () => edit((h) => core.undo(h)),
+    redo: () => edit((h) => core.redo(h)),
+    cancelExport: ({ id }) => done(() => core.cancelJob(id)),
+    cancelJob: ({ id }) => done(() => core.cancelJob(id)),
+    proxySpace: () => core.analysisSize("proxy"),
+    deleteAllProxies: async () => (await core.forgetAll("proxy"), core.analysisSize("proxy")),
+    setPreference: ({ id, value }) => answer(async () => (await core.setPreference(id, value), core.preferences())),
+    setSecret: ({ id, value }) => answer(async () => (await core.setSecret(id, value), core.preferences())),
+    favoriteAdd: ({ item, index }) => answer(() => core.favoriteAdd(item, index)),
+    favoriteRemove: ({ item }) => answer(() => core.favoriteRemove(item)),
+    favoriteMove: ({ item, index }) => answer(() => core.favoriteMove(item, index)),
+    analyze: async ({ key, asset }) => {
+      const h = project();
+      if (h) await core.analyze(h, key, asset).catch((e: Error) => status(e.message));
+    },
+    binFrame: async ({ asset, time }) => {
+      const h = project();
+      return png(h ? await core.assetThumbnail(h, asset, 128, time).catch(() => undefined) : undefined);
+    },
+    frameImage: async () => {
+      const h = project();
+      return h ? png((await core.frame(h, (await core.session(h)).playhead)).png) : null;
+    },
+  };
+}

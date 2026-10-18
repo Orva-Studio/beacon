@@ -30,7 +30,7 @@ type RecordSources = import("@beacon/ui").RecordSources;
 type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, projectBridge, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
+const { DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, coreRequests, projectBridge, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
 const { chordOf, fpsRational, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
@@ -956,6 +956,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
   maxRequestTime: 120_000,
   handlers: {
     requests: counted({
+      ...coreRequests(core, () => current?.path, status),
       resync: async () => (current ? openedPayload(current.path) : undefined),
       init: async () => {
         // The webview may load after the project opened: send its pictures again once it asks.
@@ -972,18 +973,6 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           socket,
         };
       },
-      run: ({ command, args, label, coalesce }) =>
-        reply(async () => current && (await core.run(current.path, command, args ?? {}, { ...(label ? { label } : {}), ...(coalesce ? { coalesce } : {}) }))),
-      query: async ({ name, args }) => {
-        try {
-          if (!current) throw new Error("no project is open");
-          return { ok: true, result: await core.query(current.path, name, args ?? {}) };
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) };
-        }
-      },
-      undo: () => reply(async () => current && (await core.undo(current.path))),
-      redo: () => reply(async () => current && (await core.redo(current.path))),
       openDialog: () => reply(openDialog),
       openRecent: ({ path }) => openRecent(path),
       chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
@@ -1011,10 +1000,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       },
-      cancelExport: ({ id }) => reply(() => core.cancelJob(id)),
       setAppSettings: (next) => setAppSettings(next),
-      proxySpace: () => core.analysisSize("proxy"),
-      deleteAllProxies: async () => (await core.forgetAll("proxy"), core.analysisSize("proxy")),
       newProject: ({ name, settings, standalone }) => reply(() => createProject(name, settings, standalone)),
       saveAs: (params) => reply(() => saveAs(params)),
       fetchResource: async ({ id }) => {
@@ -1024,13 +1010,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       },
-      setPreference: ({ id, value }) => replyWith(async () => (await core.setPreference(id, value), core.preferences())),
-      setSecret: ({ id, value }) => replyWith(async () => (await core.setSecret(id, value), core.preferences())),
       declineResource: ({ id }) => setAppSettings({ declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
-      cancelJob: ({ id }) => reply(() => core.cancelJob(id)),
-      favoriteAdd: ({ item, index }) => replyWith(() => core.favoriteAdd(item, index)),
-      favoriteRemove: ({ item }) => replyWith(() => core.favoriteRemove(item)),
-      favoriteMove: ({ item, index }) => replyWith(() => core.favoriteMove(item, index)),
       shortcutSet: ({ action, keys, replace }) => replyWith(async () => shortcutsChanged(await core.shortcutSet(action, keys, replace))),
       shortcutReset: ({ action }) => replyWith(async () => shortcutsChanged(await core.shortcutReset(action))),
       appAction: ({ action }) => appAction(action),
@@ -1179,18 +1159,6 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
           send().media({ highlight: r.asset });
           void sendThumbs();
         }),
-      analyze: async ({ key, asset }) => {
-        if (current) await core.analyze(current.path, key, asset).catch((e: Error) => status(e.message));
-      },
-      binFrame: async ({ asset, time }) => {
-        const png = current && (await core.assetThumbnail(current.path, asset, THUMB_HEIGHT * 2, time).catch(() => undefined));
-        return png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;
-      },
-      frameImage: async () => {
-        if (!current) return null;
-        const img = await core.frame(current.path, (await core.session(current.path)).playhead);
-        return `data:image/png;base64,${Buffer.from(img.png).toString("base64")}`;
-      },
       canvasView: async ({ id, x, y, width, height, scale, surround }) => {
         lastSurround = surround;
         return { fitPercent: await canvasView(id, { x, y, width, height }, scale) };

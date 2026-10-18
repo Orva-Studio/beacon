@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
 import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 import { exportCanvas, initPayload, settingsSheet } from "../../packages/ui/src/payloads";
-import { projectBridge, type ProjectBridge, type Send } from "../../packages/ui/src/bridge";
+import { coreRequests, projectBridge, type ProjectBridge, type Send } from "../../packages/ui/src/bridge";
 import type { RecentProject } from "../../packages/ui/src/rpc";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
@@ -52,6 +52,9 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     for (const wake of frameWaiters.splice(0)) wake();
   };
   let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
+  /** The app's own handlers for what is core's alone. */
+  // Not cancelJob: the harness's downloads are stand-ins, so it only records it.
+  const { cancelJob: _, ...shared }: Record<string, (params: never) => Promise<unknown>> = coreRequests(core, () => h);
   const opened = async (ws: unknown) => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev: bridges.get(ws)?.rev() ?? 0 });
   const sendAll = (type: string, data: unknown) => {
     for (const ws of sockets) ws.send(JSON.stringify({ type, data }));
@@ -109,16 +112,13 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           }
         };
         let result: unknown;
-        if (msg.type === "init") {
+        if (msg.type === "run" && faults.runDelay) await Bun.sleep(faults.runDelay);
+        if (msg.type === "setPreference" || msg.type === "setSecret") menus.push(msg.type === "setPreference" ? `setPreference:${p.id}=${p.value}` : `setSecret:${p.id}=${p.value === null ? "removed" : "set"}`);
+        if (shared[msg.type]) result = await shared[msg.type]!(p as never);
+        else if (msg.type === "init") {
           result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], socket: "" };
-        } else if (msg.type === "run") {
-          if (faults.runDelay) await Bun.sleep(faults.runDelay);
-          result = await reply(() => core.run(h, p.command, p.args ?? {}, { ...(p.label ? { label: p.label } : {}), ...(p.coalesce ? { coalesce: p.coalesce } : {}) }));
         }
         else if (msg.type === "resync") result = await opened(ws);
-        else if (msg.type === "query") result = await reply(() => core.query(h, p.name, p.args ?? {}));
-        else if (msg.type === "undo") result = await reply(() => core.undo(h));
-        else if (msg.type === "redo") result = await reply(() => core.redo(h));
         else if (msg.type === "openRecent" || msg.type === "openDialog") {
           menus.push(msg.type === "openRecent" ? `openRecent:${p.path}` : "openDialog");
           shown = true;
@@ -130,14 +130,13 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
         else if (msg.type === "binMenu") menus.push(`asset:${p.asset}`);
         else if (msg.type === "importMedia") menus.push("import");
-        else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, p.files, msg));
+        else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, p.files, p));
         else if (msg.type === "captureFrame")
           result = await reply(async () => {
             const r = await core.captureFrame(h);
             ws.send(JSON.stringify({ type: "snapshotSaved", data: { path: r.path } }));
             return r;
           });
-        else if (msg.type === "frameImage") result = `data:image/png;base64,${Buffer.from((await core.frame(h, (await core.session(h)).playhead)).png).toString("base64")}`;
         else if (msg.type === "startExport")
           result = await reply(async () => {
             const output = join(p.folder, `${p.name}.${p.settings.format}`);
@@ -150,11 +149,6 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             });
             ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: "running", progress: 0 } }));
           });
-        else if (msg.type === "analyze") await core.analyze(h, p.key, p.asset);
-        else if (msg.type === "binFrame") {
-          const png = await core.assetThumbnail(h, p.asset, 128, p.time).catch(() => undefined);
-          result = png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;
-        }
         else if (msg.type === "previewOpen") result = core.assetPreviewInfo(h, p.asset);
         // No native view here: the preview's controls are recorded, and play/seek move its clock as the app's would.
         else if (msg.type === "previewControl") {
@@ -197,8 +191,6 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));
           result = { seq: frames.seq, ...(["camera", "screen"] as const).reduce((o, k) => (frames.at[k]! > after && frames[k] ? { ...o, [k]: frames[k] } : o), {}) };
         }
-        else if (msg.type === "proxySpace") result = await core.analysisSize("proxy");
-        else if (msg.type === "deleteAllProxies") result = await core.forgetAll("proxy").then(() => core.analysisSize("proxy"));
         else if (msg.type === "newProject" || msg.type === "renameProject") {
           menus.push(`${msg.type}:${p.name}`);
           if (p.settings) menus.push(`newProjectSettings:${JSON.stringify(p.settings)}`);
@@ -210,23 +202,15 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           result = p.name === "Taken" ? { ok: false, error: "Taken.beproj already exists" } : { ok: true };
         }
         else if (msg.type === "chooseFolder") result = "/Users/someone/Shared";
-        else if (msg.type === "cancelExport") result = await reply(() => core.cancelJob(p.id));
         // A stand-in download: the test sends its progress as the app forwards a real one's.
         else if (msg.type === "fetchResource") {
           menus.push(`fetchResource:${p.id}`);
           result = { ok: true, result: "job-download" };
         }
-        else if (msg.type === "setPreference" || msg.type === "setSecret") {
-          menus.push(msg.type === "setPreference" ? `setPreference:${p.id}=${p.value}` : `setSecret:${p.id}=${p.value === null ? "removed" : "set"}`);
-          result = await reply(async () => (msg.type === "setPreference" ? await core.setPreference(p.id, p.value) : await core.setSecret(p.id, p.value), core.preferences()));
-        }
         else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(p.action, p.keys, p.replace));
         else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(p.action));
         // The app's own actions open dialogs the main process owns: recorded, as menus are.
         else if (msg.type === "appAction") menus.push(`app:${p.action}`);
-        else if (msg.type === "favoriteAdd") result = await reply(() => core.favoriteAdd(p.item, p.index));
-        else if (msg.type === "favoriteRemove") result = await reply(() => core.favoriteRemove(p.item));
-        else if (msg.type === "favoriteMove") result = await reply(() => core.favoriteMove(p.item, p.index));
         else if (msg.type === "declineResource" || msg.type === "cancelJob") {
           menus.push(`${msg.type}:${p.id}`);
           result = { ok: true };
