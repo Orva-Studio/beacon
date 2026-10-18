@@ -1690,6 +1690,17 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
   await run("selection.clear");
 });
 
+test.skipIf(skip)("Canvas Color shows a background with alpha, as a Camtasia import keeps it", async () => {
+  const before = ui.core.doc(ui.handle).settings.background;
+  await run("project.settings.set", { background: "#ff336680" });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "project" });
+  const swatch = `document.querySelector('[data-canvas-settings] button[title="The canvas colour behind the media"] span')`;
+  await page.until(`!!${swatch}`);
+  expect(await page.evaluate<string>(`getComputedStyle(${swatch}).backgroundColor`)).toBe("rgb(255, 51, 102)");
+  await page.key("Escape", "Escape");
+  await run("project.settings.set", { background: before });
+});
+
 test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); after a click on the timeline it goes to the timeline instead", async () => {
   const copy = join(dir, `del-${Date.now()}.mp4`);
   copyFileSync(join(FIXTURES, "video.mp4"), copy);
