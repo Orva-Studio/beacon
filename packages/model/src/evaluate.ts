@@ -58,6 +58,17 @@ export function mediaTimeAt(clip: Clip, t: Ticks): Ticks {
   return (clip.mediaStart ?? 0) + Math.round((t - clip.start) * clipSpeed(clip));
 }
 
+/** When on the timeline (ticks, not rounded) `clip` shows its media's time `media`: `mediaTimeAt` the other way. */
+export function timelineTimeAt(clip: Clip, media: Ticks): number {
+  return clip.start + (media - (clip.mediaStart ?? 0)) / clipSpeed(clip);
+}
+
+/** The stretch of its media a clip shows, in ticks: from its in point for its duration at its speed. */
+export function mediaWindow(clip: Clip): [Ticks, Ticks] {
+  const from = clip.mediaStart ?? 0;
+  return [from, from + clip.duration * clipSpeed(clip)];
+}
+
 export function resolveProps(registry: FeatureRegistry, clip: Clip, mediaTime: Ticks): Record<string, Record<string, any>> {
   const out: Record<string, Record<string, any>> = {};
   for (const group of registry.groupsFor(clip.type)) {

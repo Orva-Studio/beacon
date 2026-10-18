@@ -18,6 +18,7 @@ import {
   type SessionCommandDef,
   mergeSpans,
   subtractSpans,
+  mediaWindow,
 } from "@beacon/model";
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
@@ -50,8 +51,7 @@ function* audioClips(project: Project, registry: FeatureRegistry, data: Data) {
       const t = data<TranscriptData>(clip.assetId, "transcript")?.streams[stream];
       if (!t) continue;
       const speed = clipSpeed(clip);
-      const from = ticksToSeconds(clip.mediaStart ?? 0);
-      const to = from + ticksToSeconds(clip.duration) * speed;
+      const [from, to] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
       const at = ticksToSeconds(clip.start);
       yield { clip, t, from, to, map: (m: number) => roundSeconds(at + (Math.min(Math.max(m, from), to) - from) / speed) };
     }

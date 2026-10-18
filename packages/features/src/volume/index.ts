@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   animatedValue,
   clipEnd,
-  clipSpeed,
   defineAction,
   defineCommand,
   defineFeature,
@@ -17,6 +16,7 @@ import {
   type Clip,
   type EnvelopePoint,
   type Ticks,
+  timelineTimeAt,
 } from "@beacon/model";
 import { findClip } from "../timeline";
 import { dropTargets, selectDropped } from "../timeline/actions";
@@ -28,7 +28,7 @@ const FADE = 1;
 const RAMP = 0.05;
 
 const volumeOf = (c: Clip) => Number((c.props.audio as { volume?: number } | undefined)?.volume ?? 1);
-const toTimeline = (c: Clip, media: Ticks) => ticksToSeconds(c.start + (media - (c.mediaStart ?? 0)) / clipSpeed(c));
+const toTimeline = (c: Clip, media: Ticks) => ticksToSeconds(timelineTimeAt(c, media));
 
 /** The clip's audio points with times on the timeline (seconds). */
 export function audioPoints(c: Clip): { time: number; value: number }[] {

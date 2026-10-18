@@ -19,6 +19,7 @@ import {
   type EvalContext,
   type Track,
   type VisualLayer,
+  mediaWindow,
 } from "@beacon/model";
 
 const groupSchema = z.strictObject({
@@ -33,8 +34,7 @@ const groupSchema = z.strictObject({
 export function nestedAudio(clip: Clip, tracks: Track[] | undefined, ctx: AudioContext): AudioSegment[] {
   if (!tracks) return [];
   const speed = clipSpeed(clip);
-  const inStart = ticksToSeconds(clip.mediaStart ?? 0);
-  const inEnd = inStart + ticksToSeconds(clip.duration) * speed;
+  const [inStart, inEnd] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
   const start = ticksToSeconds(clip.start);
   return ctx.tracks(tracks).flatMap((s) => {
     const from = Math.max(s.start, inStart);

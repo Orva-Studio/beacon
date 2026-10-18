@@ -1,6 +1,6 @@
 import { produce } from "immer";
 import { z } from "zod";
-import { clipSpeed } from "./evaluate";
+import { clipSpeed, timelineTimeAt } from "./evaluate";
 import type { FeatureRegistry } from "./registry";
 import type { Animation, Clip, EffectInstance, Project, Track } from "./schema";
 import { projectDuration } from "./project";
@@ -145,7 +145,7 @@ function stops(project: Project, kind: "edit" | "marker" | "animation"): number[
     if (kind === "animation") {
       for (const a of clip.animations) {
         for (const media of [a.end - a.duration, a.end]) {
-          const t = clip.start + (media - (clip.mediaStart ?? 0)) / clipSpeed(clip);
+          const t = timelineTimeAt(clip, media);
           if (t >= clip.start && t <= end(clip)) out.push(t);
         }
       }

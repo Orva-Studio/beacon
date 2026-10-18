@@ -19,6 +19,7 @@ import {
   type RGBA,
   type TextSpec,
   type VisualLayer,
+  mediaWindow,
 } from "@beacon/model";
 import { textLayout, type TextLine } from "@beacon/media";
 import { timelineWords, type TimelineWord } from "../transcript";
@@ -91,8 +92,7 @@ export function clipStyle(clip: Clip, track: Track | undefined, height: number):
 /** The words a caption clip shows: those whose middle is inside its window on its media. */
 export function shownWords(clip: Clip): CaptionWord[] {
   const words = (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? [];
-  const from = ticksToSeconds(clip.mediaStart ?? 0);
-  const to = from + ticksToSeconds(clip.duration);
+  const [from, to] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
   return words.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
 }
 
