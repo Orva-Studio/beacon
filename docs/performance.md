@@ -420,3 +420,16 @@ Steps 2-3 are the big ones and need no change outside `beacon-render`/`beacon-ff
 (`Pixels` becomes a texture source) except deleting the ffmpeg spawn path for
 preview. Export keeps its own decode path until in-process decoding matches
 it frame for frame.
+
+## Hot paths from the 2026-10-17 review (branch `perf/hot-paths`, 2026-10-18)
+
+Measured before changing anything (`docs/review-2026-10-17.md` §2), on a copy of the user's largest project
+(304 clips, 1080p30), in the UI harness (headless Chromium, React's development build) or by script:
+
+| What | Before | After |
+|---|---|---|
+| Timeline's cached layer redrawn by 20 proxy/transcript progress messages (P1) | 20 redraws, 25 ms | 0 |
+| The same layer over 30 playhead moves with a group open (P2) | 30 redraws (every tick) | 0 |
+| The shell (App, top bar, toolbar, transport, Properties, timeline) over 60 playhead moves (P3) | 60 renders each, 1.4 ms a tick | not changed: under a millisecond to win in a production build |
+| Saving the whole project after an edit (P5): stringify, write, fsync | 0.6 ms (0.9 worst) | not changed |
+| One drag step (`clip.set`, coalesced) on the 304-clip project (P6, P7) | 2.2 ms p50, 5.4 worst; whole-document validation 1.3 of it | |

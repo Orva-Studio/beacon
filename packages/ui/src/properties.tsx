@@ -15,9 +15,11 @@ import { useQuery } from "./query";
  * controls, showing values at the playhead. Edits apply to every selected
  * clip at the playhead (`clip.set` with `at`); a slider drag is one undo step.
  */
+const NO_NESTED: Record<string, string> = {};
+
 export function Properties({ project: full, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   // With a group open, its clips are the ones being edited, shown at main-timeline times.
-  const { project } = timelineView(full, session, init?.nested ?? {});
+  const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);
   const all = project.tracks.flatMap((t) => t.clips);
   const selected = session.selection.map((id) => all.find((c) => c.id === id)).filter((c): c is Clip => !!c);
   const clip = selected[0];

@@ -56,9 +56,15 @@ const status = (text: string) => replica.status(text);
  * group tab) its tracks at main-timeline times, the times commands take.
  */
 export function timelineView(project: Project, session: Session, nested: Record<string, string>): { project: Project; group?: Clip } {
+  // The same object while the project and the open group are: a new one each render would redraw the timeline every tick.
+  const last = lastView;
+  if (last && last.project === project && last.group === session.group && last.nested === nested) return last.view;
   const scope = editScope(project, session.group, (c) => innerTracks(c, nested));
-  return { project: scopedProject(project, scope), group: scope.group };
+  const view = { project: scopedProject(project, scope), group: scope.group };
+  lastView = { project, group: session.group, nested, view };
+  return view;
 }
+let lastView: { project: Project; group: Session["group"]; nested: Record<string, string>; view: { project: Project; group?: Clip } } | undefined;
 
 /** Timeline seconds of a media time in a clip. */
 const onTimeline = (c: Clip, media: number) => ticksToSeconds(c.start + (media - (c.mediaStart ?? 0)) / clipSpeed(c));
