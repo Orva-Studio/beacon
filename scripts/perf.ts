@@ -70,7 +70,7 @@ try {
 
   // The proxies the app would build (cached across runs); the bench waits for them.
   const running = new Set<string>();
-  core.watchJobs((j) => (j.state === "running" ? running.add(j.id) : running.delete(j.id)));
+  core.watchApp((e) => e.kind === "job" && (e.job.state === "running" ? running.add(e.job.id) : running.delete(e.job.id)));
   const view = core.attachView(h, { offscreen: { width, height } }, { silent: true, proxies: !values["no-proxies"] });
   const waitStart = performance.now();
   for (let idle = 0; idle < 6; idle = running.size ? 0 : idle + 1) await Bun.sleep(250);

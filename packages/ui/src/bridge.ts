@@ -1,4 +1,4 @@
-import type { CoreEvent, LocalCore } from "@beacon/core";
+import type { CoreEvent, JobInfo, LocalCore } from "@beacon/core";
 import type { AppSettings, Session, ShortcutInfo } from "@beacon/model";
 import { appWideMessage } from "./payloads";
 import type { AppRPC } from "./rpc";
@@ -12,7 +12,7 @@ type Messages = AppRPC["webview"]["messages"];
 /** A message to the window: the app's RPC, or the harness's socket. */
 export type Send = <K extends keyof Messages>(type: K, data: Messages[K]) => void;
 
-type Core = Pick<LocalCore, "watch" | "doc" | "derived" | "preferences">;
+type Core = Pick<LocalCore, "watch" | "doc" | "derived">;
 
 /** What the app does besides telling the window; the harness leaves most of it out. */
 export interface BridgeHooks {
@@ -21,12 +21,33 @@ export interface BridgeHooks {
   /** The document changed (an edit, undo or redo), after the window was sent its patches. */
   changed?(e: Extract<CoreEvent, { kind: "apply" | "undo" | "redo" }>): void;
   session?(changes: Partial<Session>): void;
+  /** Every other event (saved, needs, narrated, error), and every job event after its progress was sent. */
+  other?(e: CoreEvent): void;
+}
+
+/** What the app does with app-wide changes besides telling the window. */
+export interface AppBridgeHooks {
   /** Keys rebound: the app's menus show them first. Without it the window is told. */
   shortcuts?(shortcuts: ShortcutInfo[]): void;
   /** Settings changed: the app applies them first. Without it the window is told. */
   settings?(settings: AppSettings): void;
-  /** Every other event (saved, needs, narrated, error), and every job event after its progress was sent. */
-  other?(e: CoreEvent): void;
+  /** Every job's progress, whichever project it is for (exports, downloads). */
+  job?(job: JobInfo): void;
+}
+
+/** App-wide changes told to one window, with or without a project open: favourites, preferences, keys, settings. */
+export function appBridge(core: Pick<LocalCore, "watchApp" | "preferences">, send: Send, hooks: AppBridgeHooks = {}): () => void {
+  return core.watchApp((e) => {
+    if (e.kind === "favorites" || e.kind === "preference") {
+      void appWideMessage(core, e).then((m) => m && (m.type === "favorites" ? send("favorites", m.data) : send("preferences", m.data)));
+    } else if (e.kind === "shortcuts") {
+      if (hooks.shortcuts) hooks.shortcuts(e.shortcuts);
+      else send("shortcuts", { shortcuts: e.shortcuts });
+    } else if (e.kind === "settings") {
+      if (hooks.settings) hooks.settings(e.settings);
+      else send("appSettings", e.settings);
+    } else if (e.kind === "job") hooks.job?.(e.job);
+  });
 }
 
 export interface ProjectBridge {
@@ -67,14 +88,6 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
     } else if (e.kind === "session") {
       send("session", { changes: e.changes });
       hooks.session?.(e.changes);
-    } else if (e.kind === "favorites" || e.kind === "preference") {
-      void appWideMessage(core, e).then((m) => m && (m.type === "favorites" ? send("favorites", m.data) : send("preferences", m.data)));
-    } else if (e.kind === "shortcuts") {
-      if (hooks.shortcuts) hooks.shortcuts(e.shortcuts);
-      else send("shortcuts", { shortcuts: e.shortcuts });
-    } else if (e.kind === "settings") {
-      if (hooks.settings) hooks.settings(e.settings);
-      else send("appSettings", e.settings);
     } else if (e.kind === "preparing") {
       proxies.queued = e.assets;
       sendPreparing();

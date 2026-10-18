@@ -2,13 +2,14 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Socket } from "bun";
-import type { CoreEvent, BeaconCore, ProjectHandle } from "./api";
+import type { AppEvent, CoreEvent, BeaconCore, ProjectHandle } from "./api";
 
 /**
  * The app's automation socket (PLAN §7.1): newline-delimited JSON-RPC 2.0.
  * Requests name an `BeaconCore` method with positional params; the
  * server pushes `event` notifications (`{ project, event }`) for projects a
- * client has opened. Bytes (PNG stills) travel as `{ "$bytes": base64 }`.
+ * client has opened, and `appEvent` notifications (`{ event }`) to every
+ * client. Bytes (PNG stills) travel as `{ "$bytes": base64 }`.
  */
 export const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
 
@@ -49,62 +50,20 @@ export function appSockets(): string[] {
 
 export const PROTOCOL_VERSION = 1;
 
-/** Methods a client may call; `close` only detaches the client, the project stays open in the app. */
-export const METHODS = [
-  "hello",
-  "open",
-  "close",
-  "save",
-  "saveAs",
-  "reveal",
-  "run",
-  "transaction",
-  "undo",
-  "redo",
-  "history",
-  "query",
-  "frame",
-  "captureFrame",
-  "sheet",
-  "export",
-  "import",
-  "analyze",
-  "forget",
-  "missing",
-  "relink",
-  "replace",
-  "analysisSize",
-  "forgetAll",
-  "job",
-  "jobs",
-  "cancelJob",
-  "resources",
-  "fetchResource",
-  "preferences",
-  "setPreference",
-  "favorites",
-  "favoriteAdd",
-  "favoriteRemove",
-  "favoriteMove",
-  "shortcuts",
-  "shortcutSet",
-  "shortcutReset",
-  "settings",
-  "setSettings",
-  "uiOpen",
-  "commands",
-  "queries",
-  "schema",
-  "summary",
-  "checkOutput",
-  "recorderDevices",
-  "recorderAccess",
-  "recordStart",
-  "recordStatus",
-  "recordStop",
-  "session",
-  "snapshot",
-] as const;
+/**
+ * Core methods that go over the socket as they are: called with their arguments, answered with their result.
+ * `RemoteCore` is built from this list, so a method added to `BeaconCore` needs only its name here.
+ */
+export const FORWARDED = [
+  "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "redo", "history", "query", "frame", "captureFrame", "sheet",
+  "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences",
+  "setPreference", "favorites", "favoriteAdd", "favoriteRemove", "favoriteMove", "shortcuts", "shortcutSet", "shortcutReset", "settings",
+  "setSettings", "uiOpen", "summary", "checkOutput", "recorderDevices", "recorderAccess", "recordStart", "recordStatus", "recordStop",
+  "session", "snapshot",
+] as const satisfies readonly (keyof BeaconCore)[];
+
+/** Methods a client may call: the forwarded ones, those that start a job (answered with its id), the registry's, and `hello`. */
+export const METHODS = ["hello", ...FORWARDED, "export", "analyze", "fetchResource", "commands", "queries", "schema"] as const;
 
 export type Method = (typeof METHODS)[number];
 
@@ -135,6 +94,8 @@ export class LineReader {
 interface Client {
   reader: LineReader;
   watching: Map<ProjectHandle, () => void>;
+  /** Stops the app-wide events this client is sent. */
+  unwatchApp: () => void;
   /** Bun's socket write may take part of the data; the rest waits for drain. */
   pending: Uint8Array[];
 }
@@ -169,7 +130,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
       if (!(METHODS as readonly string[]).includes(req.method)) throw new Error(`unknown method "${req.method}"`);
       const method = req.method as Method;
       let result: unknown;
-      if (method === "hello") result = { protocol: PROTOCOL_VERSION, pid: process.pid, projects: opts.projects?.() ?? [] };
+      if (method === "hello") result = { protocol: PROTOCOL_VERSION, projects: opts.projects?.() ?? [] };
       else if (method === "open") {
         const p = String(params[0]);
         if (opts.canOpen && !opts.canOpen(p)) throw new Error(`${p} is not open in the app`);
@@ -205,7 +166,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
             return send(s, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
           }
           void handle(s, req);
-        }), watching: new Map(), pending: [] };
+        }), watching: new Map(), pending: [], unwatchApp: core.watchApp((event: AppEvent) => send(s, { jsonrpc: "2.0", method: "appEvent", params: { event } })) };
       },
       data(s, chunk) {
         s.data.reader.push(chunk);
@@ -222,6 +183,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
         }
       },
       close(s) {
+        s.data?.unwatchApp();
         for (const off of s.data?.watching.values() ?? []) off();
       },
     },

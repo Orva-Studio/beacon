@@ -2,38 +2,20 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Socket } from "bun";
 import { lockOwner } from "./persist";
-import type { AppSettings, Keys, SettingsPatch, ShortcutInfo } from "@beacon/model";
 import type {
+  AppEvent,
   CommandInfo,
-  CommandResult,
   CoreEvent,
   ExportOptions,
-  FrameOptions,
-  Image,
-  ImportOptions,
-  ImportResult,
-  RecordResult,
-  RecordStopOptions,
-  RecorderDevices,
-  RecordOptions,
-  RecordStatus,
   Job,
   JobInfo,
-  ResourceInfo,
-  PreferenceInfo,
   NewProjectOptions,
   BeaconCore,
   ProjectHandle,
   QueryInfo,
-  RunOptions,
   SchemaInfo,
-  Session,
-  SheetOptions,
-  Snapshot,
-  TransactionStep,
-  UiDialog,
 } from "./api";
-import { appSockets, decode, encode, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
+import { appSockets, decode, encode, FORWARDED, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
 
 interface Pending {
   resolve: (v: any) => void;
@@ -44,6 +26,9 @@ function settle(p: Pending, job: JobInfo) {
   if (job.state === "done") p.resolve(job.result);
   else p.reject(new Error(job.error ?? "job failed"));
 }
+
+/** The methods `FORWARDED` names, made in the constructor. */
+export interface RemoteCore extends Pick<BeaconCore, (typeof FORWARDED)[number]> {}
 
 /**
  * The core of a running app, over its unix socket (PLAN §7.1): edits land
@@ -56,6 +41,7 @@ export class RemoteCore implements BeaconCore {
   #next = 1;
   readonly #pending = new Map<number, Pending>();
   readonly #listeners = new Map<ProjectHandle, Set<(e: CoreEvent) => void>>();
+  readonly #appListeners = new Set<(e: AppEvent) => void>();
   /** Jobs this client started, finished when their job event says so. */
   readonly #jobs = new Map<string, Pending>();
   /** Jobs that ended before their start call returned. */
@@ -67,7 +53,9 @@ export class RemoteCore implements BeaconCore {
   #queries: QueryInfo[] = [];
   #schema!: SchemaInfo;
 
-  private constructor(readonly path: string) {}
+  private constructor(readonly path: string) {
+    for (const method of FORWARDED) Object.assign(this, { [method]: (...params: unknown[]) => this.#call(method, ...params) });
+  }
 
   static async connect(path: string): Promise<RemoteCore> {
     const r = new RemoteCore(path);
@@ -88,8 +76,7 @@ export class RemoteCore implements BeaconCore {
         error: (_, e) => r.#fail(e),
       },
     });
-    const hello = await r.#call<{ protocol: number; projects?: string[] }>("hello");
-    r.projects = hello.projects ?? [];
+    const hello = await r.#call<{ protocol: number }>("hello");
     if (hello.protocol !== PROTOCOL_VERSION) {
       r.disconnect();
       throw new Error(`the Beacon app speaks protocol ${hello.protocol}, this client ${PROTOCOL_VERSION}; update one of them`);
@@ -97,9 +84,6 @@ export class RemoteCore implements BeaconCore {
     [r.#commands, r.#queries, r.#schema] = await Promise.all([r.#call<CommandInfo[]>("commands"), r.#call<QueryInfo[]>("queries"), r.#call<SchemaInfo>("schema")]);
     return r;
   }
-
-  /** The projects the app has open, as it said when this client connected. */
-  projects: string[] = [];
 
   disconnect() {
     this.#socket.end();
@@ -112,9 +96,10 @@ export class RemoteCore implements BeaconCore {
     this.#jobs.clear();
   }
 
-  #receive(msg: { id?: number; result?: unknown; error?: { message: string }; method?: string; params?: { project: ProjectHandle; event: CoreEvent } }) {
-    if (msg.method === "event" && msg.params) {
-      const { project, event } = msg.params;
+  #receive(msg: { id?: number; result?: unknown; error?: { message: string }; method?: string; params?: { project?: ProjectHandle; event: CoreEvent } }) {
+    if (msg.method === "appEvent" && msg.params) {
+      const event = msg.params.event as AppEvent;
+      // Every job's end comes here, a download's (which has no project) too.
       if (event.kind === "job" && event.job.state !== "running") {
         const j = this.#jobs.get(event.job.id);
         if (j) {
@@ -122,7 +107,11 @@ export class RemoteCore implements BeaconCore {
           settle(j, event.job);
         } else if (this.#starting) this.#ended.set(event.job.id, event.job);
       }
-      for (const l of this.#listeners.get(project) ?? []) l(event);
+      for (const l of this.#appListeners) l(event);
+      return;
+    }
+    if (msg.method === "event" && msg.params?.project) {
+      for (const l of this.#listeners.get(msg.params.project) ?? []) l(msg.params.event);
       return;
     }
     if (typeof msg.id !== "number") return;
@@ -156,72 +145,15 @@ export class RemoteCore implements BeaconCore {
     return { id, done };
   }
 
-  open = (path: string) => this.#call<ProjectHandle>("open", path);
   async create(_: NewProjectOptions): Promise<ProjectHandle> {
     throw new Error("create projects headlessly or in the app; the app's socket only attaches to open projects");
   }
-  save = (h: ProjectHandle) => this.#call<void>("save", h);
-  close = (h: ProjectHandle) => this.#call<void>("close", h);
-  run = (h: ProjectHandle, command: string, args: unknown, opts?: RunOptions) => this.#call<CommandResult>("run", h, command, args, opts);
-  transaction = (h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }) => this.#call<CommandResult>("transaction", h, label, steps, opts);
-  undo = (h: ProjectHandle) => this.#call<string | undefined>("undo", h);
-  redo = (h: ProjectHandle) => this.#call<string | undefined>("redo", h);
-  history = (h: ProjectHandle) => this.#call<{ undo: string[]; redo: string[] }>("history", h);
-  query = (h: ProjectHandle, name: string, args?: unknown) => this.#call("query", h, name, args);
-  frame = (h: ProjectHandle, time: number, opts?: FrameOptions) => this.#call<Image>("frame", h, time, opts);
-  captureFrame = (h: ProjectHandle, time?: number, opts?: { folder?: string }) => this.#call<{ asset: string; path: string }>("captureFrame", h, time, opts);
-  sheet = (h: ProjectHandle, opts: SheetOptions) => this.#call<Image & { times: number[] }>("sheet", h, opts);
-  recorderDevices = () => this.#call<RecorderDevices>("recorderDevices");
   recorderPreview = (): Promise<void> => Promise.reject(new Error("the recorder's preview is only shown in the app"));
   recorderSetOutput = (): Promise<never> => Promise.reject(new Error("the sound output is set in the app"));
   recordSyncCheck = (): Promise<never> => Promise.reject(new Error("the sync check runs in the app"));
-  recorderAccess = (kind: "camera" | "microphone") => this.#call<string>("recorderAccess", kind);
-  recordStart = (h: ProjectHandle, opts?: RecordOptions) => this.#call<{ take: string }>("recordStart", h, opts);
-  recordStatus = () => this.#call<RecordStatus>("recordStatus");
-  recordStop = (opts?: RecordStopOptions) => this.#call<RecordResult>("recordStop", opts);
-  import = (h: ProjectHandle, files: string[], opts?: ImportOptions) => this.#call<ImportResult>("import", h, files, opts);
-  forget = (h: ProjectHandle, key: string, assetId: string) => this.#call<boolean>("forget", h, key, assetId);
-  missing = (h: ProjectHandle) => this.#call<string[]>("missing", h);
-  relink = (h: ProjectHandle, assetId: string, path: string) => this.#call<void>("relink", h, assetId, path);
-  saveAs = (h: ProjectHandle, path: string, opts?: { standalone?: boolean }) => this.#call<string>("saveAs", h, path, opts);
-  reveal = (h: ProjectHandle) => this.#call<void>("reveal", h);
-  replace = (h: ProjectHandle, assetId: string, path: string) => this.#call<{ jobs: string[]; needs?: string[] }>("replace", h, assetId, path);
-  analysisSize = (key: string) => this.#call<number>("analysisSize", key);
-  forgetAll = (key: string) => this.#call<number>("forgetAll", key);
-  job = (id: string) => this.#call<JobInfo>("job", id);
-  jobs = () => this.#call<JobInfo[]>("jobs");
-  cancelJob = (id: string) => this.#call<void>("cancelJob", id);
-  resources = () => this.#call<ResourceInfo[]>("resources");
-  preferences = () => this.#call<PreferenceInfo[]>("preferences");
-  setPreference = (id: string, value: string) => this.#call<void>("setPreference", id, value);
-  favorites = () => this.#call<string[]>("favorites");
-  favoriteAdd = (item: string, index?: number) => this.#call<string[]>("favoriteAdd", item, index);
-  favoriteRemove = (item: string) => this.#call<string[]>("favoriteRemove", item);
-  favoriteMove = (item: string, index: number) => this.#call<string[]>("favoriteMove", item, index);
-  shortcuts = () => this.#call<ShortcutInfo[]>("shortcuts");
-  settings = () => this.#call<AppSettings>("settings");
-  setSettings = (patch: SettingsPatch) => this.#call<AppSettings>("setSettings", patch);
-  uiOpen = (h: ProjectHandle, dialog: UiDialog | null, tab?: string) => this.#call<void>("uiOpen", h, dialog, tab);
-  shortcutSet = (action: string, keys: Keys[], replace?: boolean) => this.#call<ShortcutInfo[]>("shortcutSet", action, keys, replace);
-  shortcutReset = (action?: string) => this.#call<ShortcutInfo[]>("shortcutReset", action);
-  // A download belongs to no project, so no project's events say when it ends: ask.
-  fetchResource = async (id: string): Promise<Job> => {
-    const job = (await this.#call<{ id: string }>("fetchResource", id)).id;
-    const done = (async () => {
-      for (;;) {
-        const j = await this.job(job);
-        if (j.state === "done") return j.result;
-        if (j.state === "failed") throw new Error(j.error);
-        await Bun.sleep(500);
-      }
-    })();
-    done.catch(() => {});
-    return { id: job, done };
-  };
-  summary = (h: ProjectHandle) => this.#call<string>("summary", h);
-  checkOutput = (h: ProjectHandle, path: string, opts?: { overwrite?: boolean }) => this.#call<void>("checkOutput", h, path, opts);
-  session = (h: ProjectHandle) => this.#call<Session>("session", h);
-  snapshot = (h: ProjectHandle) => this.#call<Snapshot>("snapshot", h);
+  async fetchResource(id: string): Promise<Job> {
+    return this.#start("fetchResource", id);
+  }
 
   async export(h: ProjectHandle, opts: ExportOptions): Promise<Job> {
     return this.#start("export", h, opts);
@@ -231,7 +163,7 @@ export class RemoteCore implements BeaconCore {
     return this.#start("analyze", h, key, assetId);
   }
 
-  async #start(method: "export" | "analyze", ...params: unknown[]): Promise<Job> {
+  async #start(method: "export" | "analyze" | "fetchResource", ...params: unknown[]): Promise<Job> {
     this.#starting++;
     try {
       return this.#job((await this.#call<{ id: string }>(method, ...params)).id);
@@ -243,6 +175,11 @@ export class RemoteCore implements BeaconCore {
   commands = () => this.#commands;
   queries = () => this.#queries;
   schema = () => this.#schema;
+
+  watchApp(fn: (e: AppEvent) => void): () => void {
+    this.#appListeners.add(fn);
+    return () => this.#appListeners.delete(fn);
+  }
 
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void {
     let set = this.#listeners.get(h);

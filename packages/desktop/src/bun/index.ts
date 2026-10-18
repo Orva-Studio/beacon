@@ -28,7 +28,7 @@ type Session = import("@beacon/core").Session;
 type ExportSettings = import("@beacon/ui").ExportSettings;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
-const { DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, coreRequests, projectBridge, settingsSheet, withPatch } = await import("@beacon/ui");
+const { DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, appBridge, coreRequests, projectBridge, settingsSheet, withPatch } = await import("@beacon/ui");
 const { createRecording } = await import("./recording");
 const { chordOf, fpsRational, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
@@ -168,8 +168,6 @@ async function switchTo(path: string) {
     session: (changes) => {
       if (changes.canvas && current?.view) current.view.live.place(...placement(changes.canvas, current.view));
     },
-    shortcuts: (list) => void shortcutsChanged(list),
-    settings: settingsChanged,
     other: (e) => {
       if (e.kind === "saved") {
         send().saved({ ok: true });
@@ -418,24 +416,23 @@ function offerResource(r: import("@beacon/core").ResourceInfo) {
   if (appSettings.declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › General)`);
   send().resourceSheet(r);
 }
-core.watchJobs((job) => {
-  if (job.kind !== "resource") return;
+/** A download's progress, for the resource dialog and the status line. */
+function resourceJob(job: import("@beacon/core").JobInfo) {
   send().resourceJob({ id: job.id, state: job.state, progress: job.progress, ...(job.error ? { error: job.error } : {}) });
   if (job.state === "done") status(`${job.label.replace(/^Download /, "")} downloaded: transcripts are being made`);
   else if (job.state === "failed" && job.error !== "cancelled") status(`${job.label}: ${job.error}`);
-});
+}
 
 /** Exports started from the window, by job id: their output files. */
 const exports = new Map<string, string>();
 // Exports report here rather than through the open project: one keeps going when another project is opened.
 // Agents' exports too: until it is done, an export started elsewhere is known by its label.
-core.watchJobs((job) => {
-  if (job.kind !== "export") return;
+function exportJob(job: import("@beacon/core").JobInfo) {
   const { id, state, progress, error, result, label } = job;
   const output = exports.get(id) ?? (result as { output?: string } | undefined)?.output ?? label.replace(/^Export /, "");
   send().exportJob({ id, output, state, progress, ...(error ? { error } : {}) });
   if (state !== "running") exports.delete(id);
-});
+}
 
 /** File > Export… opens the window's Export dialog, offering the in/out range when there is one; Export Selection… requires it. */
 async function exportDialog(selection = false) {
@@ -669,8 +666,8 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         }
       },
       declineResource: ({ id }) => setAppSettings({ declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
-      shortcutSet: ({ action, keys, replace }) => replyWith(async () => shortcutsChanged(await core.shortcutSet(action, keys, replace))),
-      shortcutReset: ({ action }) => replyWith(async () => shortcutsChanged(await core.shortcutReset(action))),
+      shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
+      shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
       appAction: ({ action }) => appAction(action),
       previewOpen: ({ asset }) => {
         closePreview();
@@ -836,7 +833,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
   },
 });
 
-/** The menus show the keys as they are now; with no project open, the change doesn't arrive as a project event. */
+/** Keys rebound (here, by an agent, or in another process's keymap.json): the menus and the window show them. */
 function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
   shortcuts = next;
   setMenu();
@@ -1133,6 +1130,12 @@ const win = new BrowserWindow({
   titleBarStyle: "hiddenInset",
   // Agents and tests can start the app without taking focus from the user.
   activate: process.env.BEACON_BACKGROUND !== "1",
+});
+// App-wide changes reach the window and the menus whether or not a project is open.
+appBridge(core, message, {
+  shortcuts: (list) => void shortcutsChanged(list),
+  settings: settingsChanged,
+  job: (job) => (job.kind === "export" ? exportJob(job) : job.kind === "resource" ? resourceJob(job) : undefined),
 });
 const recorder = createRecording({
   core,

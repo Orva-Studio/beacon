@@ -233,6 +233,9 @@ export type CoreEvent =
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
   | { kind: "session"; changes: Partial<Session>; changed: (keyof Session)[] };
 
+/** What concerns the whole app, from any project or none: favourites, settings, keys, a preference, and every job. */
+export type AppEvent = Extract<CoreEvent, { kind: "favorites" | "settings" | "shortcuts" | "preference" | "job" }>;
+
 /** Everything an agent or the app can do (PLAN §7.1). */
 export interface BeaconCore {
   open(path: string): Promise<ProjectHandle>;
@@ -366,5 +369,8 @@ export interface BeaconCore {
    * goes on a new track where it began, lined up with what was heard. One undo step.
    */
   recordStop(opts?: RecordStopOptions): Promise<RecordResult>;
+  /** A project's changes; app-wide ones (favourites, settings, keys, preferences, jobs) come through `watchApp`. */
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
+  /** App-wide changes and every job's progress, whichever project started it, or none (a download), and after it is closed. */
+  watchApp(fn: (e: AppEvent) => void): () => void;
 }

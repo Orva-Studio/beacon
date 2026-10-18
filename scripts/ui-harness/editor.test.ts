@@ -454,7 +454,7 @@ test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, a
   await Bun.sleep(50);
   view.close();
   const states: string[] = [];
-  core.watchJobs((j) => j.kind === "export" && j.state !== "running" && states.push(j.state));
+  core.watchApp((e) => e.kind === "job" && e.job.kind === "export" && e.job.state !== "running" && states.push(e.job.state));
   const job = await core.export(h, { output: join(dir, "out.mp4"), from: 0, to: 1 });
   await core.close(h);
   await job.done;

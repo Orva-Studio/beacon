@@ -425,8 +425,17 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ id: z.string().optional(), wait: z.number().min(0).max(55).default(0) }),
     async run({ id, wait }) {
       if (!id) return core.jobs();
-      const deadline = performance.now() + wait * 1000;
-      while ((await core.job(id)).state === "running" && performance.now() < deadline) await Bun.sleep(250);
+      if (wait > 0) {
+        // Watched before asking, so an end in between isn't missed.
+        let stop = () => {};
+        const ended = new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, wait * 1000);
+          const unwatch = core.watchApp((e) => e.kind === "job" && e.job.id === id && e.job.state !== "running" && resolve());
+          stop = () => (clearTimeout(timer), unwatch());
+        });
+        if ((await core.job(id)).state === "running") await ended;
+        stop();
+      }
       return core.job(id);
     },
   });

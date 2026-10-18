@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { exportOptions } from "../../packages/ui/src/export-options";
 import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
 import { exportCanvas, initPayload, settingsSheet } from "../../packages/ui/src/payloads";
-import { coreRequests, projectBridge, type ProjectBridge, type Send } from "../../packages/ui/src/bridge";
+import { appBridge, coreRequests, projectBridge, type ProjectBridge, type Send } from "../../packages/ui/src/bridge";
 import type { RecentProject } from "../../packages/ui/src/rpc";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
@@ -40,6 +40,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   const html = (await Bun.file(join(root, "packages/ui/src/index.html")).text()).replace("index.js", "view.js");
   const menus: string[] = [];
   const bridges = new Map<unknown, ProjectBridge>();
+  const appWatches = new Map<unknown, () => void>();
   const sockets = new Set<{ send(data: string): unknown }>();
   /** Set by a test: the next patches message is lost, as a dropped message would be; `runDelay` ms before each command runs, as the app's round trip takes. */
   const faults = { dropNext: false, runDelay: 0 };
@@ -92,13 +93,16 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         const bridge = projectBridge(core, h, send, {
           changed: () => void core.missing(h).then((missing) => send("media", { missing })),
         });
+        appWatches.set(ws, appBridge(core, send));
         bridges.set(ws, bridge);
         sockets.add(ws);
       },
       close(ws) {
         bridges.get(ws)?.unwatch();
+        appWatches.get(ws)?.();
         sockets.delete(ws);
         bridges.delete(ws);
+        appWatches.delete(ws);
       },
       async message(ws, raw) {
         const msg = JSON.parse(String(raw));

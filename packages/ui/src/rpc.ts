@@ -90,7 +90,7 @@ export type { DroppedFile };
 
 export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
-export { coreRequests, projectBridge, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
+export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight } from "./record-panel-size";
 

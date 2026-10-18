@@ -58,6 +58,7 @@ import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject,
 import type {
   AssetPreview,
   CommandInfo,
+  AppEvent,
   CoreEvent,
   ExportOptions,
   FrameOptions,
@@ -711,8 +712,8 @@ export class LocalCore implements BeaconCore {
     const state: PreviewQueue = { todo: wanted, running: new Map(), jobs: new Map() };
     const todo = state.todo;
     this.#previewQueues.set(p, state);
-    const unwatch = this.watchJobs((j) => {
-      if (j.state === "running" && state.jobs.has(j.id)) this.#preparing(p, state);
+    const unwatch = this.watchApp((e) => {
+      if (e.kind === "job" && e.job.state === "running" && state.jobs.has(e.job.id)) this.#preparing(p, state);
     });
     let workers = 0;
     const next = (): Promise<void> | undefined => {
@@ -1386,7 +1387,7 @@ export class LocalCore implements BeaconCore {
     const report = () => {
       const e = { kind: "job" as const, job: this.#job(id) };
       if (p) this.#emit(p, e);
-      for (const l of this.#jobListeners) l(e.job);
+      for (const l of this.#appListeners) l(e);
     };
     // Progress is reported each whole percent, so a window can show it without a flood of events.
     let shown = 0;
@@ -1514,8 +1515,8 @@ export class LocalCore implements BeaconCore {
     renameSync(`${file}.tmp`, file);
   }
 
-  #broadcast(e: CoreEvent) {
-    for (const p of this.#projects.values()) this.#emit(p, e);
+  #broadcast(e: AppEvent) {
+    for (const l of this.#appListeners) l(e);
   }
 
   #favorites(): string[] {
@@ -1727,12 +1728,11 @@ export class LocalCore implements BeaconCore {
     };
   }
 
-  readonly #jobListeners = new Set<(job: JobInfo) => void>();
+  readonly #appListeners = new Set<(e: AppEvent) => void>();
 
-  /** Every job's changes, whichever project started it, and after that project is closed (an export carries on). */
-  watchJobs(fn: (job: JobInfo) => void): () => void {
-    this.#jobListeners.add(fn);
-    return () => this.#jobListeners.delete(fn);
+  watchApp(fn: (e: AppEvent) => void): () => void {
+    this.#appListeners.add(fn);
+    return () => this.#appListeners.delete(fn);
   }
 
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void {
