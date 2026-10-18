@@ -8,7 +8,7 @@ then the recorder too (Phase 6).
 This document is architecture-first. The goal is that adding a feature later is
 "add one folder", not "touch ten layers".
 
-**Status (2026-10-16):** Phases 1–6 are done (Phase 3: headless Claude Code
+**Status (2026-10-18):** Phases 1–6 are done (Phase 3: headless Claude Code
 rough-cut a recording from its transcript, laid it out, zoomed and exported
 it; Phase 5 closed after the user's runs in the app, cut as v0.1.0; Phase 5.5,
 the new look, closed 2026-10-13 with more to add later; Phase 6, the
@@ -19,9 +19,12 @@ libraries), with frames kept for steps back (`docs/performance.md`). Phase
 6.5 made Beacon one self-contained app with fast export, released as v0.2.1
 and v0.3.0 (its gate run is left). Phase 7, transcript tools, is built and
 merged, released as v0.5.0 (2026-10-16; v0.4.0 was cut partway through it),
-with two of its gate checks left (below). Next: **Phase 8** (faster editing,
-voice narration first), then 9 (workspace), 10 (looks), 11 (security audit)
-and 12 (Camtasia export).
+with two of its gate checks left (below). Phase 8, faster editing (voice
+narration, favourites, shortcuts, the command palette, colour labels,
+settings and dialogs for agents), is built and merged, released as v0.6.0
+(2026-10-18), with its gate run left (below). Next: **Phase 9** (workspace),
+then 10 (looks), 11 (security audit) and 12 (Camtasia export); an in-app
+agent preview (§7, decided 2026-10-17) can come before Phase 9.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -542,6 +545,23 @@ interface BeaconCore {
 An agent panel in the app (like hance's AI adjustments tab) uses the same
 commands and queries, so anything it does is visible on the timeline and
 undoable in one step.
+
+Decided with the user (2026-10-17), for a preview on its own branch:
+- **Not a chat panel**: a prompt tied to what is selected ("zoom on each
+  click", "cut the false starts"), from the command palette or the
+  selection, whose run is shown as it goes and is one undo step ("Agent:
+  <prompt>"), with Undo the Agent's Changes.
+- **A real harness, not a hand-written tool loop**: Codex through its app
+  server (JSON-RPC), connected to Beacon's own MCP server for the open
+  project, so it has every command and query already. Behind a small
+  adapter, so Claude Code can be added later (with an API key: Anthropic
+  doesn't allow third-party apps to sign in with Pro or Max plans).
+- **Sign in with ChatGPT**, which Codex's app server does itself (it keeps
+  and refreshes the tokens; Beacon never holds a key). Fine for local use;
+  a paid or hosted Beacon needs OpenAI's separate access process.
+- **Codex pinned and bundled**, fetched and checksummed by the build like
+  FFmpeg and Whisper, never run from PATH.
+- Settings › General gets an Agent section: sign in, and the model.
 
 ---
 
