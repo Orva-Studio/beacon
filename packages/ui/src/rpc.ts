@@ -1,4 +1,5 @@
 import type { CanvasValues } from "./canvas-settings";
+import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo } from "@beacon/model";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
@@ -85,12 +86,7 @@ export interface RunReply {
 }
 
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */
-export interface DroppedFile {
-  name: string;
-  size: number;
-  lastModified: number;
-  uri?: string;
-}
+export type { DroppedFile };
 
 export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
@@ -111,13 +107,7 @@ export type { SettingsTab } from "@beacon/model";
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
 
 /** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
-export interface SoundOutput {
-  id: string;
-  name: string;
-  kind: string;
-  speakers: boolean;
-  default: boolean;
-}
+export type SoundOutput = RecorderDevices["outputs"][number];
 
 export interface RecordDevices {
   displays: { id: number; width: number; height: number }[];
@@ -131,11 +121,7 @@ export interface RecordDevices {
 }
 
 /** A sync check's result. */
-export interface SyncCheck {
-  cameraLateMs: number;
-  flashes: number;
-  spreadMs: number;
-}
+export type SyncCheck = SyncResult;
 
 /** The Export dialog's settings. */
 export interface ExportSettings {
@@ -165,24 +151,14 @@ export interface ExportSheet {
 }
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
-export interface RecordSources {
-  screen?: { display?: number; fps?: number };
-  systemAudio?: boolean;
-  camera?: { id?: string };
-  microphone?: { id?: string };
-}
+export type RecordSources = Pick<RecorderSources, "systemAudio" | "camera" | "microphone"> & { screen?: Omit<NonNullable<RecorderSources["screen"]>, "exclude"> };
 
 /** An audio level in dBFS: the average and the recent peak. */
-export interface AudioLevel {
-  db: number;
-  peak: number;
-}
+export type AudioLevel = RecorderLevel;
 
 /** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG), or the audio levels. */
 /** `live`: each source a take records, and whether it still sends; `picture.camera`: a camera still sending, but black or frozen. */
-export type RecordPreview =
-  | { source: "camera" | "screen"; jpeg: string }
-  | { microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>; picture?: { camera?: "black" | "frozen" | null } };
+export type RecordPreview = Exclude<RecorderPreviewEvent, { devicesChanged: true }>;
 
 /** A take just recorded and imported: its media item, to name. */
 export interface RecordedSheet {

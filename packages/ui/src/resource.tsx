@@ -3,23 +3,11 @@ import { Progress } from "./controls/progress";
 import { replica, useView } from "./store";
 import { useOnline } from "./online";
 
-/** A file an analysis needs that isn't part of Beacon (the speech model), as core describes it. */
-export interface ResourceInfo {
-  id: string;
-  title: string;
-  description: string;
-  bytes: number;
-  present: boolean;
-  job?: string;
-}
+import type { JobInfo, ResourceInfo } from "@beacon/core";
 
-/** Its download, while the dialog shows it. */
-export interface ResourceJob {
-  id: string;
-  state: "running" | "done" | "failed";
-  progress: number;
-  error?: string;
-}
+export type { ResourceInfo };
+/** A resource's download, while the dialog shows it. */
+export type ResourceJob = Pick<JobInfo, "id" | "state" | "progress" | "error">;
 
 export interface ResourceHost {
   /** Starts the download; replies with its job. */

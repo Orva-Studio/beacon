@@ -8,6 +8,8 @@
     "css": "tailwindcss -i src/styles.css -o dist/styles.css --minify"
   },
   "dependencies": {
+    "@beacon/core": "workspace:*",
+    "@beacon/media": "workspace:*",
     "@beacon/model": "workspace:*",
     "immer": "11.1.21",
     "react": "19.3.0",
