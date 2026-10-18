@@ -64,6 +64,8 @@ export function timelineView(project: Project, session: Session, nested: Record<
   lastView = { project, group: session.group, nested, view };
   return view;
 }
+/** No nested prop groups, as one object so `timelineView`'s callers share its cached view before `init` arrives. */
+export const NO_NESTED: Record<string, string> = {};
 let lastView: { project: Project; group: Session["group"]; nested: Record<string, string>; view: { project: Project; group?: Clip } } | undefined;
 
 /** Timeline seconds of a media time in a clip. */
@@ -155,9 +157,9 @@ export interface TimelineMark {
 
 const images = new Map<string, HTMLImageElement>();
 
-/** Lets go of decoded thumbnails no clip shows any more (replaced, deleted, or another project's). */
-function keepImages(thumbs: Record<string, string>) {
-  const shown = new Set(Object.values(thumbs));
+/** Lets go of decoded thumbnails no clip shows any more (deleted, or another project's): `thumbs` keeps every one sent. */
+function keepImages(project: Project, thumbs: Record<string, string>) {
+  const shown = new Set(project.tracks.flatMap((t) => t.clips.map((c) => thumbs[c.id])));
   for (const url of images.keys()) if (!shown.has(url)) images.delete(url);
 }
 
@@ -242,7 +244,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
   const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
-  useEffect(() => keepImages(thumbs), [thumbs]);
+  useEffect(() => keepImages(full, thumbs), [full, thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
   const loaded = useRef(0);

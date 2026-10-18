@@ -4,7 +4,7 @@ import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds } from "@beaco
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas";
 import type { Init } from "./rpc";
-import { timelineView } from "./timeline";
+import { NO_NESTED, timelineView } from "./timeline";
 import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { effectName } from "./effect-names";
@@ -15,8 +15,6 @@ import { useQuery } from "./query";
  * controls, showing values at the playhead. Edits apply to every selected
  * clip at the playhead (`clip.set` with `at`); a slider drag is one undo step.
  */
-const NO_NESTED: Record<string, string> = {};
-
 export function Properties({ project: full, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   // With a group open, its clips are the ones being edited, shown at main-timeline times.
   const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);

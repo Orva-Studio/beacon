@@ -1004,7 +1004,13 @@ export class LocalCore implements BeaconCore {
     const worker = async () => {
       for (let i = next++; i < todo.length; i = next++) {
         const { file, importer } = todo[i]!;
-        probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) } };
+        try {
+          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) } };
+        } catch (e) {
+          // The import fails: the others stop rather than decode the rest for nothing.
+          next = todo.length;
+          throw e;
+        }
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));

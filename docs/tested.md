@@ -22,6 +22,8 @@ feature lands and when it is checked.
 - Dragging on the canvas and sliders on a long timeline in the app: smooth, and Undo puts it back in one step.
 - Scrubbing and jumping around a `.trec` project from its originals in the app: cursors and captions draw
   right after they come back on screen.
+- Waveforms in the app: importing a file again (or one another project analysed) shows its waveform at once
+  (built only: the desktop now sends the waveforms the window doesn't have yet, after jobs and edits).
 
 ## Review fixes (`fix/review-bugs`, `docs/review-2026-10-17.md` §1)
 
@@ -136,6 +138,10 @@ feature lands and when it is checked.
   rounded border looks the same in preview and export.
 
 ### Known, not fixed
+
+- The UI flow "the ruler moves the playhead past the last clip" failed once in a full run (2026-10-18; the
+  playhead 1.7 s off the view's end after the edge auto-scroll) and passed in the next full run and alone
+  three times: its fixed sleeps around the auto-scroll are timing-sensitive.
 
 - `packages/desktop/__tests__/app.test.ts` fails on this Mac with or without these changes (an installed Beacon
   was running); not looked into.

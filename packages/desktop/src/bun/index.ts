@@ -166,6 +166,7 @@ async function switchTo(path: string) {
       send().patches({ patches: e.patches, label: e.label, kind: e.kind, rev: ++rev });
       void sendThumbs();
       void sendMissing();
+      sendWaveforms();
     }
     else if (e.kind === "session") {
       send().session({ changes: e.changes });
@@ -204,7 +205,11 @@ async function switchTo(path: string) {
         else delete proxyProgress.jobs[e.job.asset];
         sendPreparing();
       }
-      if (e.job.state === "done" && e.job.kind === "waveform") sendWaveforms(e.job.asset);
+      if (e.job.state === "done" && e.job.kind === "waveform") {
+        // Made again (relinked media): the window's copy is stale.
+        if (e.job.asset) waveformsSent.delete(e.job.asset);
+        sendWaveforms();
+      }
       if (e.job.state === "done" && e.job.kind === "proxy") void sendThumbs();
     }
   });
@@ -216,7 +221,7 @@ async function switchTo(path: string) {
   transcribing = {};
   send().opened(await openedPayload(h));
   if (canvas) await canvasView(canvas.id, canvas.rect, canvas.scale);
-  sendWaveforms();
+  sendWaveforms(true);
   sendProxies();
   lastMissing = undefined;
   void sendMissing();
@@ -943,13 +948,20 @@ async function sendThumbs() {
   if (thumbAgain) await sendThumbs();
 }
 
-/** Every asset's waveform, or only `asset`'s (the window merges them): one finishing needn't resend the others. */
-function sendWaveforms(asset?: string) {
+/** Assets whose waveform the window has (it merges them), so only the others are sent. */
+const waveformsSent = new Set<string>();
+/**
+ * The waveforms the window doesn't have yet: after a job, and after an edit, since media already analysed (the
+ * same file imported again) has its waveform from the cache with no job. `all`: the window starts afresh.
+ */
+function sendWaveforms(all = false) {
   if (!current) return;
+  if (all) waveformsSent.clear();
   const waveforms: Record<string, Record<number, number[]>> = {};
-  for (const id of asset ? [asset] : Object.keys(core.doc(current.path).assets)) {
+  for (const id of Object.keys(core.doc(current.path).assets)) {
+    if (waveformsSent.has(id)) continue;
     const w = core.derived<{ streams: Record<number, number[]> }>(current.path, id, "waveform");
-    if (w) waveforms[id] = w.streams;
+    if (w) (waveforms[id] = w.streams), waveformsSent.add(id);
   }
   if (Object.keys(waveforms).length) send().media({ waveforms });
 }
@@ -1003,7 +1015,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         // The webview may load after the project opened: send its pictures again once it asks.
         setTimeout(() => {
           thumbs.clear();
-          sendWaveforms();
+          sendWaveforms(true);
           void sendThumbs();
         }, 50);
         return {
