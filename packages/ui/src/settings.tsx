@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_SETTINGS, SETTINGS_TABS, type Project } from "@beacon/model";
+import { DEFAULT_SETTINGS, fpsRational, SETTINGS_TABS, type Project } from "@beacon/model";
 import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
@@ -129,7 +129,7 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
                 "project.settings.set",
                 {
                   ...(width !== undefined ? { width, height } : {}),
-                  ...(fps !== undefined ? { fps: { num: fps, den: 1 } } : {}),
+                  ...(fps !== undefined ? { fps: fpsRational(fps) } : {}),
                   ...(background !== undefined ? { background } : {}),
                   ...(normalize !== undefined ? { loudnessTarget: normalize ? LOUDNESS : null } : {}),
                 },

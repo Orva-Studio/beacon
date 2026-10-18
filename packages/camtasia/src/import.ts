@@ -13,6 +13,7 @@ import {
   type Project,
   type Track,
   fpsRational,
+  formatColor,
 } from "@beacon/model";
 import { fileFingerprint, probeMedia } from "@beacon/media";
 
@@ -23,10 +24,8 @@ export interface ImportResult {
 }
 
 const EASING: Record<string, Easing> = { linr: "linear", eioe: "easeInOut" };
-function hex(rgba: number[] | undefined): string {
-  const c = rgba ?? [0, 0, 0, 255];
-  return `#${c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
-}
+/** A Camtasia colour (0-255 RGBA) as the document's hex. */
+const hex = (rgba: number[] | undefined) => formatColor((rgba ?? [0, 0, 0, 255]).map((v) => v / 255));
 
 /** Camtasia times are numbers or exact fractions like `"27973120000/27"`. */
 function ticks(v: unknown): number {

@@ -31,7 +31,7 @@ type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
 const { appWideMessage, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
-const { chordOf, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
+const { chordOf, fpsRational, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
 
@@ -321,7 +321,7 @@ async function createProject(name: string, canvas?: CanvasValues, standalone = f
   const settings = canvas && {
     width: canvas.width,
     height: canvas.height,
-    fps: { num: canvas.fps, den: 1 },
+    fps: fpsRational(canvas.fps),
     background: canvas.background,
     // Off: no target (a new project's default has one).
     ...(canvas.normalize ? {} : { loudnessTarget: undefined }),
@@ -379,7 +379,10 @@ type ExportPrefs = { folder: string; settings: ExportSettings };
 function exportPrefs(): ExportPrefs {
   try {
     const saved = (core.readConfig("export.json") ?? {}) as Partial<ExportPrefs>;
-    return { folder: saved.folder && existsSync(saved.folder) ? saved.folder : join(homedir(), "Movies"), settings: { ...DEFAULT_EXPORT, ...saved.settings } };
+    const settings = { ...DEFAULT_EXPORT, ...saved.settings };
+    // 6000 was the default before Automatic (0.6): saved by every export, so almost never chosen.
+    if (settings.bitrate === 6000) settings.bitrate = null;
+    return { folder: saved.folder && existsSync(saved.folder) ? saved.folder : join(homedir(), "Movies"), settings };
   } catch {
     return { folder: join(homedir(), "Movies"), settings: DEFAULT_EXPORT };
   }

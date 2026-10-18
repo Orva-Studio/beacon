@@ -49,8 +49,8 @@ pub struct Encode {
     pub height: u32,
     /// The video's frame rate (frames are evaluated at it).
     pub fps: Fps,
-    /// Average bits per second (H.264, HEVC).
-    pub bitrate: Option<u64>,
+    /// Average bits per second (H.264, HEVC; ProRes has none). Always given: automatic is worked out in TypeScript.
+    pub bitrate: u64,
     /// A keyframe at most this many frames apart (H.264, HEVC).
     pub keyframe: u32,
     /// H.264's profile.

@@ -1074,8 +1074,7 @@ export class LocalCore implements BeaconCore {
   }
 
   /** What a job is for, so a second request joins the running one: the analysis, the asset as it is, and the variant (the transcriber). */
-  #subject(def: JobAnalyzerDef, asset: Asset): string {
-    const variant = def.variant?.(this.#pref);
+  #subject(def: JobAnalyzerDef, asset: Asset, variant = def.variant?.(this.#pref)): string {
     return `${def.id}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
   }
 
@@ -1334,7 +1333,7 @@ export class LocalCore implements BeaconCore {
     if (!asset) throw new Error(`no asset "${assetId}"`);
     if (!existsSync(asset.path)) throw new Error(`${basename(asset.path)} is missing: it was moved, renamed or deleted (Locate… in the Media Bin's menu finds it)`);
     const variant = def.variant?.(this.#pref);
-    const subject = this.#subject(def, asset);
+    const subject = this.#subject(def, asset, variant);
     const running = this.#running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const need = this.#needsOf(def);

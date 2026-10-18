@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { clipSpeed, rationalToNumber, ticksToSeconds } from "@beacon/model";
+import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas";
 import type { Init } from "./rpc";
@@ -517,7 +517,7 @@ function Effect({ clip, effect, host, schema, selected }: { clip: Clip; effect: 
             if (typeof v === "string" && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v)) {
               return (
                 <Row key={k} label={label}>
-                  <ColorSwatch color={fromHex(v)!} title={label} onChange={(c, key) => set({ [k]: toHex(c) }, key)} />
+                  <ColorSwatch color={fromHex(v)!} title={label} onChange={(c, key) => set({ [k]: formatColor(c) }, key)} />
                 </Row>
               );
             }

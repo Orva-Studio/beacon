@@ -1710,6 +1710,12 @@ test.skipIf(skip)("Canvas Color shows a background with alpha, as a Camtasia imp
   const swatch = `document.querySelector('[data-canvas-settings] button[title="The canvas colour behind the media"] span')`;
   await page.until(`!!${swatch}`);
   expect(await page.evaluate<string>(`getComputedStyle(${swatch}).backgroundColor`)).toBe("rgb(255, 51, 102)");
+  // A new colour picked keeps the alpha.
+  await page.evaluate(`${swatch}.parentElement.click()`);
+  await page.until(`!!document.querySelector('button[title="#ffffff"]')`);
+  await page.evaluate(`document.querySelector('button[title="#ffffff"]').click()`);
+  await arrived(() => ui.core.doc(ui.handle).settings.background === "#ffffff80");
+  expect(ui.core.doc(ui.handle).settings.background).toBe("#ffffff80");
   await page.key("Escape", "Escape");
   await run("project.settings.set", { background: before });
 });

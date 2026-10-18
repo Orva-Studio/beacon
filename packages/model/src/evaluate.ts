@@ -154,6 +154,13 @@ export function evaluateAudio(project: Project, registry: FeatureRegistry): Audi
   return ctx.tracks(project.tracks);
 }
 
+/** `#rrggbb`, with `aa` after it when not opaque: what `parseColor` reads. */
+export function formatColor(c: readonly number[]): string {
+  const byte = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, "0");
+  const alpha = c[3] ?? 1;
+  return `#${c.slice(0, 3).map(byte).join("")}${alpha < 1 ? byte(alpha) : ""}`;
+}
+
 /** `#rrggbb` or `#rrggbbaa`. */
 export function parseColor(hex: string): RGBA {
   const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex);

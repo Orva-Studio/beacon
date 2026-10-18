@@ -50,6 +50,8 @@ function block(doc: Project, pieces: Clip[], also: Clip[], newId: () => string, 
  * track showing the same asset, in timeline order.
  */
 function piecesOf(track: { clips: Clip[] }, clip: Clip): Clip[] {
+  // Stitched media and groups have no asset: other ones on the track show something else.
+  if (!clip.assetId) return [clip];
   return track.clips.filter((c) => c.type === clip.type && c.assetId === clip.assetId).sort((a, b) => a.start - b.start);
 }
 

@@ -13,7 +13,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { formatIssues, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
+import { formatIssues, fpsRational, jsonSchemaOf, KeysSchema, MAX_BITRATE, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
 import { DOCS, INSTRUCTIONS, WORKFLOWS, type Workflow } from "./docs";
 
 type Content = CallToolResult["content"];
@@ -117,7 +117,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       standalone: z.boolean().optional().describe("Copy media into the project's media folder as it is imported (a .cmproj's media too), so the project can be moved or shared whole"),
     }),
     async run({ path, cmproj, width, height, fps, standalone }) {
-      const settings = { ...(width ? { width } : {}), ...(height ? { height } : {}), ...(fps ? { fps: { num: fps, den: 1 } } : {}) };
+      const settings = { ...(width ? { width } : {}), ...(height ? { height } : {}), ...(fps ? { fps: fpsRational(fps) } : {}) };
       const h = await local.create({ path: expandHome(path), cmproj: cmproj && expandHome(cmproj), settings, ...(standalone ? { standalone } : {}) });
       await switchTo(h, local);
       return text(`created ${h}\n\n${await core.summary(h)}`);
@@ -299,7 +299,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       from: Seconds.optional(),
       to: Seconds.optional(),
       overwrite: z.boolean().default(false).describe("Replace an existing file"),
-      bitrate: z.int().min(64).max(100_000).optional().describe("Video data rate in kbit/s; omitted: automatic, by the output's size and frame rate (10 Mbps at 1080p30, never below 8 Mbps); not used by ProRes"),
+      bitrate: z.int().min(64).max(MAX_BITRATE).optional().describe("Video data rate in kbit/s; omitted: automatic: for H.264 and HEVC by the output's size and frame rate (10 Mbps at 1080p30, never below 8 Mbps), for WebM constant quality; not used by ProRes"),
       keyframe: z.int().positive().optional().describe("A keyframe every this many frames (default 30)"),
       profile: z.enum(["baseline", "main", "high"]).optional().describe("H.264 profile"),
       fps: z.number().positive().max(120).optional().describe("Output frame rate; omitted: the project's"),

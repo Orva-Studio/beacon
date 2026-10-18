@@ -99,7 +99,7 @@ export function visualSize(project: Project, registry: FeatureRegistry, clip: Cl
   return s?.width && s.height ? [s.width, s.height] : undefined;
 }
 
-/** A recording's screen stream: the `tsc2` codec. */
+/** A recording's screen stream: TechSmith's screen codec. */
 function screenStream(asset: Asset): number {
   return Math.max(0, videoStreams(asset).findIndex((s) => isScreenCodec(s.codec)));
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { autoBitrate, fittedSize } from "@beacon/model";
+import { autoBitrate, fittedSize, MAX_BITRATE } from "@beacon/model";
 import { Button, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
@@ -32,12 +32,12 @@ const SIZES = [
 const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
 /** Automatic or a custom rate on a slider, as the Data rate rows. */
-function DataRate({ value, min, max, auto, onChange }: { value: number | null; min: number; max: number; auto: number; onChange: (v: number | null) => void }) {
+function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: { value: number | null; min: number; max: number; auto: number; autoLabel?: string; onChange: (v: number | null) => void }) {
   const shown = value ?? auto;
   return (
     <>
       <label className="flex items-center gap-1">
-        <input type="radio" checked={value === null} onChange={() => onChange(null)} /> Automatic
+        <input type="radio" checked={value === null} onChange={() => onChange(null)} /> {autoLabel}
       </label>
       <label className="flex items-center gap-1">
         <input type="radio" checked={value !== null} onChange={() => onChange(shown)} /> Custom
@@ -155,9 +155,9 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
               </Select>
             </div>
           </Row>
-          {s.format !== "gif" && (
+          {s.format !== "gif" && !(video && s.codec === "prores") && (
             <Row label="Data rate">
-              <DataRate value={s.bitrate} min={64} max={100000} auto={autoRate} onChange={(bitrate) => set({ bitrate })} />
+              <DataRate value={s.bitrate} min={64} max={MAX_BITRATE} auto={autoRate} autoLabel={s.format === "webm" ? "Automatic (constant quality)" : "Automatic"} onChange={(bitrate) => set({ bitrate })} />
             </Row>
           )}
           {video && (

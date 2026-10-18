@@ -1,5 +1,6 @@
+import { formatColor } from "@beacon/model";
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, ColorSwatch, fromHex, Icon, Segmented, Select, SettingsRow, TextInput, toHex } from "./controls";
+import { Check, ColorSwatch, fromHex, Icon, Segmented, Select, SettingsRow, TextInput } from "./controls";
 
 /** Canvas size presets (Project Settings), by group. */
 const PRESETS: [string, [number, number, string][]][] = [
@@ -121,7 +122,7 @@ export function CanvasSettings({ value, onChange }: { value: CanvasValues; onCha
         <NumberField value={value.height} title="Canvas height in pixels" onCommit={(h) => size(locked ? (h * value.width) / value.height : value.width, h)} />
       </SettingsRow>
       <SettingsRow label="Background Color">
-        <ColorSwatch color={fromHex(value.background) ?? [0, 0, 0, 1]} title="The canvas colour behind the media" onChange={(c, key) => onChange({ background: toHex(c) }, "Canvas Color", key)} />
+        <ColorSwatch color={fromHex(value.background) ?? [0, 0, 0, 1]} title="The canvas colour behind the media" onChange={(c, key) => onChange({ background: formatColor(c) }, "Canvas Color", key)} />
       </SettingsRow>
       <SettingsRow label="Frame Rate">
         <div className="w-32">
