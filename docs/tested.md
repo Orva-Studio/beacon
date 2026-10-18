@@ -17,6 +17,7 @@ feature lands and when it is checked.
 | Settings › Shortcuts: rebinding, clashes, reset | 2026-10-17 | `56ac44d` | "Favourites work, so do shortcuts, colour labels" |
 | Colour labels from the clip menu: a stripe along the top | 2026-10-17 | `024f82e` | "Favourites work, so do shortcuts, colour labels" |
 | Resizing on the canvas snaps (sides and corners, to the recording and the canvas) | 2026-10-17 | `2a0c805` | "Snapping works great" |
+| Shortcuts run once (from the keys and the menus), and work with a dialog open | 2026-10-17 | `9e0bd91` | "Shortcuts run once"; "the shortcuts work with dialogs open" |
 
 ### Checked headless only (still to see by hand)
 
@@ -28,6 +29,7 @@ feature lands and when it is checked.
 | The Narration panel (tool rail), as Camtasia's: microphone and its level, timeline sound off by default, Start Voice Recording with a countdown, Stop | 2026-10-16 | `4175f89` | UI flow; screenshot |
 | The playhead's time white on the ruler's colour | 2026-10-17 | `fdb023c` | Screenshot |
 | App settings through core: an agent's change shows in an open Settings window, the window's reaches core; ui_open shows Settings (on a tab), Export, Export Selection, New Project and Record, and closes them | 2026-10-17 | `0741288` | UI flow; screenshot |
+| No spelling suggestion bar or corrections over the caption and callout text boxes | 2026-10-17 | `74e0388` | UI flow (the fields' attributes); the bar itself is macOS's, seen only in the app |
 | Offline: the AI tools greyed with why while OpenAI's transcriber has media to transcribe (not with Apple's); Settings marks it and offers the others; the speech model's download waits | 2026-10-17 | `a2d055a` | UI flow with the page told it's offline; screenshot |
 | Command palette: ⌘K lists the panels' items (favourites first) and the AI tools, searched by name or description; Enter adds an annotation at the playhead, an effect on the selected clips, or opens an AI review; its key can be rebound | 2026-10-17 | `6d25603` | UI flow; screenshot |
 
@@ -38,11 +40,11 @@ feature lands and when it is checked.
   the timeline ending it, the take transcribed afterwards.
 - `recorder_start` with `narrate` over MCP with the app open.
 - `settings_set` and `ui_open` over MCP with the app open, checked with `ui_snapshot` (the gate's agent half).
-- Settings now saved by core: your existing Settings › General choices still there after updating.
 - Offline in the app: turning Wi-Fi off greys the AI tools (with OpenAI's transcriber chosen and new media).
-- **Menus showing shortcuts** (only built, never seen): ⌘/⌃ keys beside items (File, Edit, View, Tools), others after
-  the name; a rebound key showing in the menu at once; ⌘ keys from the menu running once (not twice), and not acting
-  while typing in a text field (e.g. ⌘D in the project name); ⌘, ⌘N ⌘E working with a dialog open.
+- **Menus showing shortcuts**: ⌘/⌃ keys beside items (File, Edit, View, Tools), others after the name; a rebound key
+  showing in the menu at once; ⌘ keys not acting while typing in a text field (e.g. ⌘D in the project name), and ⌘A,
+  ⌘Z, ⇧⌘Z still editing there.
+- Settings › General's choices still there after the update (settings now saved by core).
 - Settings › Shortcuts and the palette in the app: rebinding to a ⌘ key the menu also has (Export ⌘E), ⌘K over a
   dialog.
 - `favorites_add` over MCP showing in the open window.
