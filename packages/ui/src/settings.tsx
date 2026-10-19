@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_SETTINGS, fpsRational, SETTINGS_TABS, type Project } from "@beacon/model";
-import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
+import { SETTINGS_TABS, type Project } from "@beacon/model";
+import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
+import { canvasChange, canvasValues } from "./canvas-values";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
@@ -19,7 +20,6 @@ export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsH
 const space = (bytes: number) =>
   bytes === 0 ? "No proxy videos" : `${bytes < 1e6 ? `${Math.ceil(bytes / 1e3)} KB` : bytes < 1e9 ? `${Math.round(bytes / 1e6)} MB` : `${(bytes / 1e9).toFixed(1)} GB`} used`;
 
-const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
 
 /** The app settings in a Settings sheet, without what it opened with (tab, devices…). */
 const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }: SettingsSheet): AppSettings => app;
@@ -28,7 +28,7 @@ const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
  */
-export function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   // Changed elsewhere while open (an agent, Check Sync): shown here.
@@ -123,19 +123,8 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
       {tab === "project" &&
         (s ? (
           <CanvasSettings
-            value={{ width: s.width, height: s.height, fps: s.fps.num / s.fps.den, background: s.background, normalize: s.loudnessTarget !== undefined }}
-            onChange={({ width, height, fps, background, normalize }, label) =>
-              host.run(
-                "project.settings.set",
-                {
-                  ...(width !== undefined ? { width, height } : {}),
-                  ...(fps !== undefined ? { fps: fpsRational(fps) } : {}),
-                  ...(background !== undefined ? { background } : {}),
-                  ...(normalize !== undefined ? { loudnessTarget: normalize ? LOUDNESS : null } : {}),
-                },
-                label,
-              )
-            }
+            value={canvasValues(s)}
+            onChange={(change, label) => host.run("project.settings.set", canvasChange(change), label)}
           />
         ) : (
           <p className="text-text-faint">Open a project to change its settings.</p>
@@ -168,22 +157,10 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
   return (
     <div className="flex flex-col gap-3" data-recording-settings>
       <Row label="Camera">
-        <Select value={camera} onChange={(e) => setCamera(e.target.value)}>
-          {devices.cameras.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
+        <DeviceSelect devices={devices.cameras} value={camera} onChange={setCamera} />
       </Row>
       <Row label="Microphone">
-        <Select value={microphone} onChange={(e) => setMicrophone(e.target.value)}>
-          {devices.microphones.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </Select>
+        <DeviceSelect devices={devices.microphones} value={microphone} onChange={setMicrophone} />
       </Row>
       <Row label="Sync" hint="A camera through a capture card shows its picture late. Each take recorded with this pair moves its camera clip earlier by this much, so lips match the voice.">
         <div className="min-w-0 flex-1">

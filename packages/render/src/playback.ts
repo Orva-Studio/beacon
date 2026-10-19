@@ -1,8 +1,8 @@
 import type { Pointer } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { AudioOutput, NativePreview, type PlaybackHeard, type PreviewMark, type PreviewStats } from "@beacon/media";
-import { evaluate, evaluateAudio, projectDuration, roundSeconds, snapSeconds, ticksPerFrame, ticksToSeconds, type FeatureRegistry, type Project, type SourceDef } from "@beacon/model";
-import { audioPlaybackArgs, renderJob, type AudioSource } from "./render";
+import { evaluateAudio, projectDuration, roundSeconds, snapSeconds, ticksPerFrame, ticksToSeconds, type FeatureRegistry, type Project } from "@beacon/model";
+import { audioPlaybackArgs, canvasKey, renderJob, sceneAt, type AudioSource } from "./render";
 
 export type ViewTarget = { layer: Pointer; width: number; height: number } | { offscreen: { width: number; height: number } };
 
@@ -106,12 +106,11 @@ export class LiveView {
   }
 
   #preview(project: Project): NativePreview {
-    const { width, height, fps } = project.settings;
-    const canvas = `${width}x${height}@${fps.num}/${fps.den}`;
+    const canvas = canvasKey(project);
     if (!this.#native || canvas !== this.#canvas) {
       // One surface per layer: the old renderer lets go of it first.
       this.#native?.close();
-      const job = JSON.stringify(renderJob(project, this.opts.registry, { kind: "raw" }, this.opts.cacheDir));
+      const job = JSON.stringify(renderJob(project, this.opts.registry, this.opts.cacheDir));
       const t = this.target;
       this.#native = "layer" in t ? NativePreview.onLayer(t.layer, this.#size.width, this.#size.height, job) : NativePreview.offscreen(this.#size.width, this.#size.height, job);
       this.#native.place(...this.#place);
@@ -125,14 +124,7 @@ export class LiveView {
   }
 
   #scene(project: Project, t: number): string {
-    const sources = new Map<string, SourceDef>();
-    const scene = evaluate(project, this.opts.registry, t, { data: this.opts.data, sources });
-    const fresh = [...sources].map(([id, def]) => [id, def, JSON.stringify(def)] as const).filter(([id, , json]) => this.#known.get(id) !== json);
-    if (fresh.length) {
-      scene.sources = Object.fromEntries(fresh.map(([id, def]) => [id, def]));
-      for (const [id, , json] of fresh) this.#known.set(id, json);
-    }
-    return JSON.stringify(scene);
+    return JSON.stringify(sceneAt(project, this.opts.registry, t, this.opts.data, this.#known));
   }
 
   /** Starts decoders for the cuts coming up after `seconds`. */

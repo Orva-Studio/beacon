@@ -1,11 +1,11 @@
 import type { z } from "zod";
-import type { ActionDef, AnalyzerDef, ClipTypeDef, CommandDef, EffectDef, ExportFileDef, Feature, JobAnalyzerDef, MediaImporterDef, PreferenceDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef, ResourceDef, SecretDef } from "./feature";
+import type { ActionDef, AnalyzerDef, AnnotationDef, ClipTypeDef, CommandDef, EffectDef, ExportFileDef, Feature, JobAnalyzerDef, MediaImporterDef, PanelItemDef, PreferenceDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef, ResourceDef, SecretDef } from "./feature";
 import type { SessionCommandDef } from "./session";
 import { CORE_COMMANDS } from "./commands";
 import type { Patch } from "immer";
 import { ClipSchema, formatIssues, ProjectSchema, type Clip, type Project, type Track } from "./schema";
 
-export class ValidationError extends Error {
+class ValidationError extends Error {
   constructor(readonly issues: string[]) {
     super(`invalid project:\n  ${issues.join("\n  ")}`);
     this.name = "ValidationError";
@@ -38,7 +38,10 @@ export class FeatureRegistry {
   /** Features' editor commands (session state, not undoable), beside core's `SESSION_COMMANDS`. */
   readonly sessionCommands = new Map<string, SessionCommandDef>();
   /** Every feature's panel items (`Feature.panelItems`), in registration order. */
-  readonly panelItems: { id: string; favorite?: boolean }[] = [];
+  readonly panelItems: PanelItemDef[] = [];
+  readonly annotations = new Map<string, AnnotationDef & { id: string }>();
+  /** A new user's Favorites panel: the items and effects features mark `favorite`, in registration order. */
+  readonly favorites: string[] = [];
 
   constructor(features: Feature[] = []) {
     claim(this.commands, CORE_COMMANDS, "command", "core");
@@ -46,6 +49,7 @@ export class FeatureRegistry {
   }
 
   register(feature: Feature): this {
+    this.#groups.clear();
     if (this.features.has(feature.id)) throw new Error(`feature "${feature.id}" registered twice`);
     if (!Number.isInteger(feature.version) || feature.version < 1) {
       throw new Error(`feature "${feature.id}" version must be a positive integer`);
@@ -75,10 +79,20 @@ export class FeatureRegistry {
     claim(this.actions, feature.actions ?? [], "action", feature.id);
     claim(this.sessionCommands, feature.sessionCommands ?? [], "session command", feature.id);
     claim(this.exportFiles, feature.exportFiles ?? [], "export file", feature.id);
+    const annotations = Object.entries(feature.annotations ?? {}).map(([id, a]) => ({ ...a, id }));
+    const items = new Set(this.panelItems.map((i) => i.id));
     for (const item of feature.panelItems ?? []) {
-      if (this.panelItems.some((i) => i.id === item.id)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" is already registered`);
-      this.panelItems.push(item);
+      if (items.has(item.id)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" is already registered`);
+      items.add(item.id);
+      // An Annotations item adds the preset it names: one of this feature's or an earlier one's.
+      const preset = item.args.preset;
+      if (item.id.startsWith("annotation:") && !(typeof preset === "string" && (this.annotations.has(preset) || annotations.some((a) => a.id === preset)))) {
+        throw new Error(`panel item "${item.id}" from feature "${feature.id}" names annotation preset "${preset}", which no feature registers`);
+      }
     }
+    this.panelItems.push(...(feature.panelItems ?? []));
+    claim(this.annotations, annotations, "annotation", feature.id);
+    this.favorites.push(...(feature.panelItems ?? []).filter((i) => i.favorite).map((i) => i.id), ...(feature.effects ?? []).filter((e) => e.favorite).map((e) => `effect:${e.id}`));
     this.features.set(feature.id, feature);
     return this;
   }
@@ -117,8 +131,31 @@ export class FeatureRegistry {
 
   /** Prop groups that apply to a clip type, in registration order; those kept on its track are left out. */
   groupsFor(clipType: string): PropGroupDef[] {
+    // Asked per clip per frame: worked out once per type, again only when a feature registers.
+    let groups = this.#groups.get(clipType);
+    if (!groups) {
+      const traits = this.clipTypes.get(clipType)?.traits ?? [];
+      groups = [...this.propGroups.values()].filter((g) => !g.track && g.traits.some((t) => traits.includes(t)));
+      this.#groups.set(clipType, groups);
+    }
+    return groups;
+  }
+  readonly #groups = new Map<string, PropGroupDef[]>();
+
+  /** A clip type's prop group `id`, if it has that group. */
+  group(clipType: string, id: string): PropGroupDef | undefined {
+    return this.groupsFor(clipType).find((g) => g.id === id);
+  }
+
+  /** Whether effect `effectType` applies to clips of `clipType` (they share a trait). */
+  effectFits(effectType: string, clipType: string): boolean {
     const traits = this.clipTypes.get(clipType)?.traits ?? [];
-    return [...this.propGroups.values()].filter((g) => !g.track && g.traits.some((t) => traits.includes(t)));
+    return this.effect(effectType).traits.some((t) => traits.includes(t));
+  }
+
+  /** The tracks nested in a clip (a group's, stitched media's pieces), to read: a new list, so to add or remove one use `walkClips`' `tracks`. */
+  nestedTracks(clip: Clip): Track[] {
+    return this.groupsFor(clip.type).flatMap((g) => (g.nested && clip.props[g.id] ? g.nested(clip.props[g.id]) : []));
   }
 
   hasTrait(clipType: string, trait: string): boolean {

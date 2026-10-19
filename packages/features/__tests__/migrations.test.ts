@@ -49,3 +49,18 @@ test("captions v2 then v3: a vertical position and margin become anchors with of
   expect(middle!.props!.captionStyle).toMatchObject({ anchorY: "middle", offsetY: 0 });
   expect(out.tracks.flatMap((t) => t.clips).every((c) => !("captionStyle" in c.props))).toBe(true);
 });
+
+test("transform v2: every transform gets flat tilts, a clip inside a group's tracks too", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.transform = 1;
+  const flat = { x: 10, y: 0, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1 };
+  const image = (id: string) => ({ id, type: "callout", start: 0, duration: 10, props: { transform: { ...flat } }, effects: [], animations: [] });
+  const group = { id: "g1", type: "group", start: 0, duration: 10, mediaStart: 0, props: { transform: { ...flat }, group: { width: 1920, height: 1080, tracks: [{ id: "t2", name: "Inner", clips: [image("c2")] }] } }, effects: [], animations: [] };
+  doc.tracks = [{ id: "t1", name: "Outer", clips: [group] }];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features.transform).toBe(2);
+  const outer = out.tracks[0].clips[0];
+  expect(outer.props.transform).toEqual({ ...flat, rotationX: 0, rotationY: 0 });
+  expect(outer.props.group.tracks[0].clips[0].props.transform).toEqual({ ...flat, rotationX: 0, rotationY: 0 });
+});

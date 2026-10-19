@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { autoBitrate, fittedSize, MAX_BITRATE } from "@beacon/model";
-import { Button, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
+import { Button, Check, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
 import { replica, useView } from "./store";
+import { clock } from "./time";
 
 export interface ExportHost {
   chooseFolder(start: string): Promise<string | null>;
@@ -28,8 +29,6 @@ const SIZES = [
   [1280, 720],
   [854, 480],
 ] as const;
-
-const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
 /** Automatic or a custom rate on a slider, as the Data rate rows. */
 function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: { value: number | null; min: number; max: number; auto: number; autoLabel?: string; onChange: (v: number | null) => void }) {
@@ -59,7 +58,7 @@ function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: 
 }
 
 /** File > Export…: name, folder, format and advanced options, in the window (Electrobun has no save panel). */
-export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet; host: ExportHost; muted?: string[]; unmute?: () => void }) {
+function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet; host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const [name, setName] = useState(sheet.name);
   const [folder, setFolder] = useState(sheet.folder);
   const [s, setS] = useState(sheet.settings);
@@ -101,10 +100,7 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
         </Row>
         {sheet.range && (
           <Row label="">
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={selectionOnly} onChange={(e) => setSelectionOnly(e.target.checked)} />
-              Export the selection only ({clock(sheet.range.in)}–{clock(sheet.range.out)})
-            </label>
+            <Check label={`Export the selection only (${clock(sheet.range.in, { tenths: true })}–${clock(sheet.range.out, { tenths: true })})`} checked={selectionOnly} onChange={setSelectionOnly} />
           </Row>
         )}
         <Row label="File format">
@@ -192,9 +188,7 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
             <>
               <div className="mt-1 text-text-strong">Audio</div>
               <Row label="">
-                <label className="flex items-center gap-1">
-                  <input type="checkbox" checked={s.audio} onChange={(e) => set({ audio: e.target.checked })} /> Encode audio
-                </label>
+                <Check label="Encode audio" checked={s.audio} onChange={(audio) => set({ audio })} />
               </Row>
               {s.audio && (
                 <Row label="Data rate">
@@ -234,7 +228,7 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
 }
 
 /** The running export's progress, then Show in Finder / Open when it is done; a failure stays until dismissed. */
-export function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
+function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
   const file = job.output.split("/").at(-1);
   return (
     <Toast

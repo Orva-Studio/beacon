@@ -22,6 +22,9 @@ test.skipIf(!existsSync(RECORDING))(
     };
     const json = async (name: string, args: Record<string, unknown> = {}) => JSON.parse((await call(name, args))[0]!.text!);
     try {
+      // export_start takes the encoding schema the app's Export dialog fills, plus where and which range.
+      const exportTool = (await client.listTools()).tools.find((t) => t.name === "export_start")!;
+      expect(Object.keys(exportTool.inputSchema.properties ?? {}).sort()).toEqual(["audio", "audioBitrate", "bitrate", "codec", "colorSpace", "fps", "from", "keyframe", "output", "overwrite", "profile", "size", "to"]);
       await call("project_create", { path: join(dir, "test.beproj") });
       const imported = await json("media_import", { files: [RECORDING] });
       for (const job of imported.jobs) {
@@ -49,7 +52,8 @@ test.skipIf(!existsSync(RECORDING))(
       expect(frame[0]!.type).toBe("image");
       expect(Buffer.from(frame[0]!.data!, "base64").subarray(1, 4).toString()).toBe("PNG");
 
-      await call("project_undo");
+      const last = (await json("project_history")).undo.at(-1);
+      expect((await call("project_undo"))[0]!.text).toBe(`undid "${last}"`);
       await call("project_undo");
       expect((await call("project_describe"))[0]!.text).toBe(before);
     } finally {

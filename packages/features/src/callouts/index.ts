@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineFeature, defineQuery, IDENTITY, RgbaSchema, walkClips, ticksToSeconds, type CamtasiaObject, type ClipEval, type EvalContext, type RGBA, type VisualLayer } from "@beacon/model";
+import { defineFeature, defineQuery, IDENTITY, RgbaSchema, solidLayer, walkClips, ticksToSeconds, type CamtasiaObject, type ClipEval, type EvalContext, type RGBA, type VisualLayer } from "@beacon/model";
 import { fontFamilies, textLayout } from "@beacon/media";
 import { flattenPath, trimLines } from "./svg-path";
 
@@ -46,16 +46,6 @@ function rasterScale(e: ClipEval): number {
   return Math.min(4, Math.max(1, Math.ceil(s * 4) / 4));
 }
 
-function solid(color: RGBA, size: [number, number], radius: number, at: [number, number] = [0, 0]): VisualLayer {
-  return {
-    kind: "visual",
-    content: { type: "solid", color },
-    size,
-    transform: [1, 0, 0, 1, at[0], at[1]],
-    radius: [radius, radius, radius, radius],
-  };
-}
-
 /** A closed rounded rectangle through the middle of a stroke `sw` wide inside a `w` × `h` box. */
 function outline(w: number, h: number, radius: number, sw: number): [number, number][] {
   const i = sw / 2;
@@ -80,15 +70,15 @@ function evaluateCallout(e: ClipEval, ctx: EvalContext) {
     // Under an opaque fill a solid box shows only as the stroke; under a see-through fill (or none) the stroke must be a ring.
     const opaque = !!c.fill && c.fill[3] >= 1;
     let ring: VisualLayer | undefined;
-    if (sw > 0 && opaque) e.layers.push(solid(c.stroke!.color, size, c.cornerRadius));
-    if (c.fill) e.layers.push(solid(c.fill, [Math.max(1, c.width - 2 * sw), Math.max(1, c.height - 2 * sw)], Math.max(0, c.cornerRadius - sw), [sw, sw]));
+    if (sw > 0 && opaque) e.layers.push(solidLayer(c.stroke!.color, size, c.cornerRadius));
+    if (c.fill) e.layers.push(solidLayer(c.fill, [Math.max(1, c.width - 2 * sw), Math.max(1, c.height - 2 * sw)], Math.max(0, c.cornerRadius - sw), [sw, sw]));
     if (sw > 0 && !opaque) {
       const source = ctx.source({ kind: "strokes", lines: [outline(c.width, c.height, c.cornerRadius, sw)], width: c.width, height: c.height, strokeWidth: sw, color: c.stroke!.color, scale: rasterScale(e) });
       ring = { kind: "visual", content: { type: "source", source }, size, transform: IDENTITY };
       e.layers.push(ring);
     }
     // The box is the clip's content for effects and the transform, even when only its stroke is drawn.
-    e.main = ring ?? e.layers[0] ?? solid([0, 0, 0, 0], size, c.cornerRadius);
+    e.main = ring ?? e.layers[0] ?? solidLayer([0, 0, 0, 0], size, c.cornerRadius);
     if (!e.layers.length) e.layers.push(e.main);
     e.main.size = size;
     return;
@@ -204,7 +194,20 @@ function calloutFromCamtasia(media: CamtasiaObject, report: (m: string) => void)
 /** Text, rectangle and sketch callouts (and sketch motion callouts). */
 export const callouts = defineFeature({
   id: "callouts",
-  panelItems: [{ id: "annotation:text", favorite: true }, { id: "annotation:rectangle", favorite: true }],
+  panelItems: [
+    { id: "annotation:text", label: "Text", title: "White text with a drop shadow", command: "edit.addAnnotation", args: { preset: "text" }, seconds: 5, favorite: true },
+    { id: "annotation:rectangle", label: "Rectangle", title: "A black rounded rectangle", command: "edit.addAnnotation", args: { preset: "rectangle" }, seconds: 5, favorite: true },
+  ],
+  // The settings the user's projects use most.
+  annotations: {
+    text: {
+      type: "callout",
+      title: "Add Text",
+      effects: [{ type: "drop-shadow", params: {} }],
+      props: { callout: { shape: "text", width: 900, height: 200, cornerRadius: 8, text: { text: "Text", font: "Suisse Intl", weight: 500, italic: false, size: 96, color: [1, 1, 1, 1], tracking: 0, lineSpacing: 0, align: "center", valign: "center" } } },
+    },
+    rectangle: { type: "callout", title: "Add Rectangle", props: { callout: { shape: "rectangle", width: 640, height: 360, cornerRadius: 8, fill: [0, 0, 0, 1] } } },
+  },
   version: 1,
   clipTypes: [{ id: "callout", description: "A text or rectangle annotation", traits: ["visual", "callout"] }],
   queries: [

@@ -1,16 +1,19 @@
-import type { CanvasValues } from "./canvas-settings";
-import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo } from "@beacon/model";
+import type { CanvasValues } from "./canvas-values";
+import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
+import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, VIDEO_FORMATS, VideoEncoding } from "@beacon/model";
+import type { SchemaInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export { syncKey, withPatch } from "@beacon/model";
 
-import type { CanvasMark } from "./canvas";
+import type { CanvasMark } from "./canvas-marks";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
 import type { ResourceInfo, ResourceJob } from "./resource";
 import type { PreferenceInfo } from "./transcripts-settings";
 
 export type { CanvasValues };
+export { canvasChange } from "./canvas-values";
 export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */
@@ -25,6 +28,8 @@ export interface Binding {
 export interface PropGroupInfo {
   id: string;
   description: string;
+  /** What a clip without its own values has. */
+  defaults: Record<string, unknown>;
 }
 
 export interface Opened {
@@ -52,7 +57,8 @@ export interface Init {
   shortcuts: ShortcutInfo[];
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
-  effects: { id: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
+  effects: SchemaInfo["effects"];
+  panelItems: SchemaInfo["panelItems"];
   /** Clip type → traits ("video", "hold", ...). */
   clipTypes: Record<string, string[]>;
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */
@@ -85,17 +91,16 @@ export interface RunReply {
 }
 
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */
-export interface DroppedFile {
-  name: string;
-  size: number;
-  lastModified: number;
-  uri?: string;
-}
+export type { DroppedFile };
 
 export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
+export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight } from "./record-panel-size";
+export { clock } from "./time";
+// The timeline's geometry, for the UI harness's clicks.
+export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
 
 export interface Notice {
   title: string;
@@ -110,13 +115,7 @@ export type { SettingsTab } from "@beacon/model";
 export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
 
 /** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
-export interface SoundOutput {
-  id: string;
-  name: string;
-  kind: string;
-  speakers: boolean;
-  default: boolean;
-}
+export type SoundOutput = RecorderDevices["outputs"][number];
 
 export interface RecordDevices {
   displays: { id: number; width: number; height: number }[];
@@ -130,20 +129,16 @@ export interface RecordDevices {
 }
 
 /** A sync check's result. */
-export interface SyncCheck {
-  cameraLateMs: number;
-  flashes: number;
-  spreadMs: number;
-}
+export type SyncCheck = SyncResult;
 
-/** The Export dialog's settings. */
+/** The Export dialog's choices: core's `VideoEncoding`, every one set, null where it is left automatic. */
 export interface ExportSettings {
-  format: "mp4" | "mov" | "gif" | "webm";
-  codec: "h264" | "hevc" | "prores";
+  format: (typeof VIDEO_FORMATS)[number];
+  codec: NonNullable<VideoEncoding["codec"]>;
   /** kbit/s; null: automatic. */
   bitrate: number | null;
   keyframe: number;
-  profile: "baseline" | "main" | "high";
+  profile: NonNullable<VideoEncoding["profile"]>;
   /** null: the project's. */
   fps: number | null;
   /** Fit within; null: the canvas. */
@@ -164,24 +159,14 @@ export interface ExportSheet {
 }
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
-export interface RecordSources {
-  screen?: { display?: number; fps?: number };
-  systemAudio?: boolean;
-  camera?: { id?: string };
-  microphone?: { id?: string };
-}
+export type RecordSources = Pick<RecorderSources, "systemAudio" | "camera" | "microphone"> & { screen?: Omit<NonNullable<RecorderSources["screen"]>, "exclude"> };
 
 /** An audio level in dBFS: the average and the recent peak. */
-export interface AudioLevel {
-  db: number;
-  peak: number;
-}
+export type AudioLevel = RecorderLevel;
 
 /** What the Record dialog or the recording panel shows: a camera or screen frame (base64 JPEG), or the audio levels. */
 /** `live`: each source a take records, and whether it still sends; `picture.camera`: a camera still sending, but black or frozen. */
-export type RecordPreview =
-  | { source: "camera" | "screen"; jpeg: string }
-  | { microphone?: AudioLevel; systemAudio?: AudioLevel; live?: Partial<Record<"screen" | "camera" | "microphone" | "systemAudio", boolean>>; picture?: { camera?: "black" | "frozen" | null } };
+export type RecordPreview = Exclude<RecorderPreviewEvent, { devicesChanged: true }>;
 
 /** A take just recorded and imported: its media item, to name. */
 export interface RecordedSheet {

@@ -2,15 +2,18 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Socket } from "bun";
-import type { CoreEvent, BeaconCore, ProjectHandle } from "./api";
+import type { AppEvent, CoreEvent, BeaconCore, ProjectHandle } from "./api";
+import { alive } from "./persist";
+import { LineReader } from "@beacon/media";
 
 /**
  * The app's automation socket (PLAN §7.1): newline-delimited JSON-RPC 2.0.
  * Requests name an `BeaconCore` method with positional params; the
  * server pushes `event` notifications (`{ project, event }`) for projects a
- * client has opened. Bytes (PNG stills) travel as `{ "$bytes": base64 }`.
+ * client has opened, and `appEvent` notifications (`{ event }`) to every
+ * client. Bytes (PNG stills) travel as `{ "$bytes": base64 }`.
  */
-export const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
+const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
 
 /**
  * This process's socket. One per app process, so a second app can't take
@@ -18,14 +21,6 @@ export const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
  */
 export const DEFAULT_SOCKET = join(SOCKET_DIR, `app-${process.pid}.sock`);
 
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
-};
 
 /** Removes sockets left by app processes that are gone (a crash leaves them behind). */
 function removeStaleSockets(dir: string) {
@@ -49,62 +44,20 @@ export function appSockets(): string[] {
 
 export const PROTOCOL_VERSION = 1;
 
-/** Methods a client may call; `close` only detaches the client, the project stays open in the app. */
-export const METHODS = [
-  "hello",
-  "open",
-  "close",
-  "save",
-  "saveAs",
-  "reveal",
-  "run",
-  "transaction",
-  "undo",
-  "redo",
-  "history",
-  "query",
-  "frame",
-  "captureFrame",
-  "sheet",
-  "export",
-  "import",
-  "analyze",
-  "forget",
-  "missing",
-  "relink",
-  "replace",
-  "analysisSize",
-  "forgetAll",
-  "job",
-  "jobs",
-  "cancelJob",
-  "resources",
-  "fetchResource",
-  "preferences",
-  "setPreference",
-  "favorites",
-  "favoriteAdd",
-  "favoriteRemove",
-  "favoriteMove",
-  "shortcuts",
-  "shortcutSet",
-  "shortcutReset",
-  "settings",
-  "setSettings",
-  "uiOpen",
-  "commands",
-  "queries",
-  "schema",
-  "summary",
-  "checkOutput",
-  "recorderDevices",
-  "recorderAccess",
-  "recordStart",
-  "recordStatus",
-  "recordStop",
-  "session",
-  "snapshot",
-] as const;
+/**
+ * Core methods that go over the socket as they are: called with their arguments, answered with their result.
+ * `RemoteCore` is built from this list, so a method added to `BeaconCore` needs only its name here.
+ */
+export const FORWARDED = [
+  "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "redo", "history", "query", "frame", "captureFrame", "sheet",
+  "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences",
+  "setPreference", "favorites", "favoriteAdd", "favoriteRemove", "favoriteMove", "shortcuts", "shortcutSet", "shortcutReset", "settings",
+  "setSettings", "uiOpen", "summary", "checkOutput", "recorderDevices", "recorderAccess", "recordStart", "recordStatus", "recordStop",
+  "session", "snapshot",
+] as const satisfies readonly (keyof BeaconCore)[];
+
+/** Methods a client may call: the forwarded ones, those that start a job (answered with its id), the registry's, and `hello`. */
+const METHODS = ["hello", ...FORWARDED, "export", "analyze", "fetchResource", "commands", "queries", "schema"] as const;
 
 export type Method = (typeof METHODS)[number];
 
@@ -116,27 +69,34 @@ export function decode(text: string): any {
   return JSON.parse(text, (_, v) => (v && typeof v === "object" && typeof v.$bytes === "string" ? new Uint8Array(Buffer.from(v.$bytes, "base64")) : v));
 }
 
-/** Splits a byte stream into lines. */
-export class LineReader {
-  #buf = "";
-  readonly #decoder = new TextDecoder();
-  constructor(readonly onLine: (line: string) => void) {}
-  push(chunk: Uint8Array) {
-    this.#buf += this.#decoder.decode(chunk, { stream: true });
-    let nl: number;
-    while ((nl = this.#buf.indexOf("\n")) >= 0) {
-      const line = this.#buf.slice(0, nl);
-      this.#buf = this.#buf.slice(nl + 1);
-      if (line.trim()) this.onLine(line);
+
+/** JSON-RPC messages written to a socket in order: Bun's write may take part of the data, and the rest waits for `drain`. */
+export class LineWriter {
+  #out: Uint8Array[] = [];
+  readonly #encoder = new TextEncoder();
+  constructor(readonly write: (bytes: Uint8Array) => number) {}
+  send(msg: unknown) {
+    const bytes = this.#encoder.encode(`${encode(msg)}\n`);
+    if (this.#out.length) return void this.#out.push(bytes);
+    const n = this.write(bytes);
+    if (n < bytes.length) this.#out.push(bytes.subarray(Math.max(0, n)));
+  }
+  drain() {
+    while (this.#out.length) {
+      const next = this.#out[0]!;
+      const n = this.write(next);
+      if (n < next.length) return void (this.#out[0] = next.subarray(Math.max(0, n)));
+      this.#out.shift();
     }
   }
 }
 
 interface Client {
   reader: LineReader;
+  writer: LineWriter;
   watching: Map<ProjectHandle, () => void>;
-  /** Bun's socket write may take part of the data; the rest waits for drain. */
-  pending: Uint8Array[];
+  /** Stops the app-wide events this client is sent. */
+  unwatchApp: () => void;
 }
 
 export interface CoreServer {
@@ -155,12 +115,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
   // A path given explicitly (BEACON_SOCKET, tests) is the caller's to reuse.
   if (existsSync(path)) rmSync(path);
 
-  const send = (s: Socket<Client>, msg: unknown) => {
-    const bytes = new TextEncoder().encode(`${encode(msg)}\n`);
-    if (s.data.pending.length) return void s.data.pending.push(bytes);
-    const n = s.write(bytes);
-    if (n < bytes.length) s.data.pending.push(bytes.subarray(Math.max(0, n)));
-  };
+  const send = (s: Socket<Client>, msg: unknown) => s.data.writer.send(msg);
 
   const handle = async (s: Socket<Client>, req: { id?: number | string; method: string; params?: unknown[] }) => {
     // JSON turns omitted optional arguments into null.
@@ -169,7 +124,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
       if (!(METHODS as readonly string[]).includes(req.method)) throw new Error(`unknown method "${req.method}"`);
       const method = req.method as Method;
       let result: unknown;
-      if (method === "hello") result = { protocol: PROTOCOL_VERSION, pid: process.pid, projects: opts.projects?.() ?? [] };
+      if (method === "hello") result = { protocol: PROTOCOL_VERSION, projects: opts.projects?.() ?? [] };
       else if (method === "open") {
         const p = String(params[0]);
         if (opts.canOpen && !opts.canOpen(p)) throw new Error(`${p} is not open in the app`);
@@ -205,23 +160,16 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
             return send(s, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
           }
           void handle(s, req);
-        }), watching: new Map(), pending: [] };
+        }), writer: new LineWriter((bytes) => s.write(bytes)), watching: new Map(), unwatchApp: core.watchApp((event: AppEvent) => send(s, { jsonrpc: "2.0", method: "appEvent", params: { event } })) };
       },
       data(s, chunk) {
         s.data.reader.push(chunk);
       },
       drain(s) {
-        while (s.data.pending.length) {
-          const next = s.data.pending[0]!;
-          const n = s.write(next);
-          if (n < next.length) {
-            s.data.pending[0] = next.subarray(Math.max(0, n));
-            return;
-          }
-          s.data.pending.shift();
-        }
+        s.data.writer.drain();
       },
       close(s) {
+        s.data?.unwatchApp();
         for (const off of s.data?.watching.values() ?? []) off();
       },
     },

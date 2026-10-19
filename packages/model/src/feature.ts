@@ -2,10 +2,9 @@ import type { z } from "zod";
 import type { Draft } from "immer";
 import type { Asset, Clip, Easing, Project, Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import type { Layer, SourceDef } from "./scene";
+import type { Layer, SourceDef, VisualLayer } from "./scene";
 import type { Ticks } from "./ticks";
 import type { Session, SessionCommandDef } from "./session";
-import type { EditScope } from "./edit";
 
 export interface ClipTypeDef {
   /** e.g. "screen", "callout"; stored in `Clip.type`. */
@@ -43,11 +42,20 @@ export interface PropGroupDef {
 export interface EffectDef {
   /** Stored in `EffectInstance.type`. */
   id: string;
+  /** Its name in the editor's panels. */
+  title: string;
   description: string;
+  /** In a new user's Favorites panel (`effect:<id>`), in registration order. */
+  favorite?: boolean;
   traits: string[];
   /** Validates `EffectInstance.params`. */
   params: z.ZodType<Record<string, unknown>>;
   defaults: () => Record<string, unknown>;
+  /**
+   * Draws the effect: runs, where the feature's own `evaluate.clip` would, for a clip with the effect enabled whose
+   * content is visual. Effects other features draw (the cursor's) leave it out.
+   */
+  apply?: (e: ClipEval & { main: VisualLayer }, params: Record<string, any>, ctx: EvalContext) => void;
 }
 
 /** WGSL fragment entry points run in order by the renderer (see beacon-render's prelude.wgsl). */
@@ -239,6 +247,8 @@ export interface CamtasiaContext {
    * the clip's props, keyframes become animation blocks.
    */
   param(media: CamtasiaObject, name: string, target: string, map?: (v: any) => any): void;
+  /** Numeric parameters present on `obj`, by the name each is stored under: `{ radius: "radius" }`. */
+  numbers(obj: CamtasiaObject, names: Record<string, string>): Record<string, number>;
   /** The asset for a Camtasia source id. */
   asset(src: number): Asset;
   /** The source bin entry for a Camtasia source id (`sourceTracks`, ...). */
@@ -260,7 +270,7 @@ export interface CamtasiaMapper {
   clipTypes?: Record<string, (media: CamtasiaObject, ctx: CamtasiaContext) => { type: string; props?: Clip["props"] } | null>;
   /** Reads parameters into this feature's prop groups (runs for every media). */
   params?: (media: CamtasiaObject, clip: Clip, ctx: CamtasiaContext) => void;
-  /** `effectName` → effect instance params, or null to drop it. */
+  /** `effectName` → effect instance params (those it has; the effect's defaults fill the rest), or null to drop it. */
   effects?: Record<string, (effect: CamtasiaObject, ctx: CamtasiaContext) => { type: string; params: Record<string, unknown> } | null>;
 }
 
@@ -377,18 +387,33 @@ export interface ActionDef<A = any> {
   resolve: (args: A, ctx: ActionContext) => ActionPlan;
 }
 
-export interface KeyBinding {
-  /** e.g. "cmd+shift+z". */
-  key: string;
+/**
+ * An item of the editor's Annotations or Audio Effects panel (Visual Effects lists `effects`): dropped on the
+ * timeline or double-clicked, it runs `command` with `args`, as the command palette does.
+ */
+export interface PanelItemDef {
+  /** What favourites call it: `annotation:text`, `audio:fade-in`. */
+  id: string;
+  label: string;
+  /** Its tooltip. */
+  title: string;
   command: string;
-  args?: unknown;
+  args: Record<string, unknown>;
+  /** Clips with any of these traits take it; none: it is added on its own, as an annotation. */
+  traits?: string[];
+  /** Seconds it lasts, dropped on a track. */
+  seconds?: number;
+  /** In a new user's Favorites panel, in registration order. */
+  favorite?: boolean;
 }
 
-export interface MenuItemDef {
-  /** e.g. ["Edit", "Undo"]. */
-  path: string[];
-  command: string;
-  args?: unknown;
+/** A clip `edit.addAnnotation` adds by its preset's name: an Annotations panel item's. */
+export interface AnnotationDef {
+  type: string;
+  /** Its undo step. */
+  title: string;
+  props: Record<string, unknown>;
+  effects?: { type: string; params: Record<string, unknown> }[];
 }
 
 /** `(doc) → doc` for one feature's data, from `version - 1` to `version`. Pure. */
@@ -421,16 +446,12 @@ export interface Feature {
   queries?: QueryDef[];
   actions?: ActionDef[];
   exportFiles?: ExportFileDef[];
-  /**
-   * The feature's items in the editor's panels that can be favourites (`annotation:text`, `audio:fade-in`,
-   * `effect:drop-shadow`); `favorite`: in a new user's Favorites panel, in registration order. Effects not only for
-   * the cursor are items without being listed.
-   */
-  panelItems?: { id: string; favorite?: boolean }[];
+  /** The feature's items in the Annotations and Audio Effects panels. */
+  panelItems?: PanelItemDef[];
+  /** Annotations by preset name, as the Annotations panel adds them. */
+  annotations?: Record<string, AnnotationDef>;
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
-  keymap?: KeyBinding[];
-  menus?: MenuItemDef[];
   migrations?: Migration[];
   /**
    * Runs at the end of every transaction that changed something, before

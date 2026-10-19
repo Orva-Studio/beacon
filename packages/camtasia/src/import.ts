@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import {
+  envelopeBlocks,
   SCHEMA_VERSION,
   type Animation,
   type Asset,
@@ -163,12 +164,20 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
       const v = obj.parameters?.[name];
       return v !== null && typeof v === "object" && !Array.isArray(v) ? v.defaultValue : v;
     },
+    numbers(obj, names) {
+      const out: Record<string, number> = {};
+      for (const [key, name] of Object.entries(names)) {
+        const v = ctx.value(obj, name);
+        if (v !== undefined) out[key] = Number(v);
+      }
+      return out;
+    },
     param(obj, name, target, map = (v) => v) {
       const raw = obj.parameters?.[name];
       read.add(name);
       if (raw === undefined || !clip) return;
       const [groupId, field] = target.split(".") as [string, string];
-      const group = registry.groupsFor(clip.type).find((g) => g.id === groupId);
+      const group = registry.group(clip.type, groupId);
       if (!group) return;
       const values = (clip.props[groupId] ??= group.defaults()) as Record<string, unknown>;
       const base = ctx.value(obj, name);
@@ -199,7 +208,7 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
       if (obj === media) read.add(name);
       if (raw === undefined || !clip) return;
       const [groupId, field] = target.split(".") as [string, string];
-      const group = registry.groupsFor(clip.type).find((g) => g.id === groupId);
+      const group = registry.group(clip.type, groupId);
       if (!group) return;
       const values = (clip.props[groupId] ??= group.defaults()) as Record<string, unknown>;
       const keys: CamtasiaObject[] = (typeof raw === "object" && raw?.keyframes) || [];
@@ -212,14 +221,11 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
         report.push(`${where}: ${name} has points but ${target} is not animatable; using the first`);
       }
       if (keys.some((k) => ticks(k.duration) !== 0)) report.push(`${where}: ${name} has points with a duration; imported as instantaneous`);
-      const points = keys.map((k) => ({ t: ticks(k.time), v: Number(k.value) })).sort((a, b) => a.t - b.t);
-      values[field] = points[0]!.v;
+      let n = blocks.size;
+      const envelope = envelopeBlocks(keys.map((k) => ({ time: ticks(k.time), value: Number(k.value) })), target, () => `a${n++}`);
+      values[field] = envelope.base;
       if (!group.animatable?.includes(field)) return;
-      for (const [i, p] of points.entries()) {
-        if (i === 0) continue;
-        const prev = points[i - 1]!;
-        blocks.set(`${target}#${i}`, { id: `a${blocks.size}`, end: p.t, duration: p.t - prev.t, easing: "linear", to: { [target]: p.v } });
-      }
+      for (const [i, block] of envelope.blocks.entries()) blocks.set(`${target}#${i + 1}`, block);
     },
     asset(src) {
       const a = bySrc.get(src);
@@ -286,7 +292,7 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
     const e = map(fx, ctx);
     if (!e) continue;
     const enabled = !fx.bypassed && Number(ctx.value(fx, "enabled") ?? 1) !== 0;
-    clip.effects.push({ id: `${clip.id}-fx${i}`, type: e.type, enabled, params: e.params });
+    clip.effects.push({ id: `${clip.id}-fx${i}`, type: e.type, enabled, params: { ...registry.effects.get(e.type)?.defaults(), ...e.params } });
   }
 
   clip.animations = [...blocks.values()].sort((a, b) => a.end - b.end);

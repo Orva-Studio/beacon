@@ -1,6 +1,5 @@
-import type { AppSettings, CommandResult, Keys, Patch, Session, Settings, SettingsPatch, ShortcutInfo, UiDialog } from "@beacon/model";
+import type { AppSettings, CommandResult, Keys, PanelItemDef, Patch, Session, SettingsChange, SettingsPatch, ShortcutInfo, UiDialog, VideoEncoding } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
-import type { VideoEncoding } from "@beacon/render";
 
 export type { CommandResult, Session };
 
@@ -10,7 +9,7 @@ export type ProjectHandle = string;
 export interface NewProjectOptions {
   /** The `.beproj` folder to create; must not exist yet. */
   path: string;
-  settings?: Partial<Settings>;
+  settings?: SettingsChange;
   /** Start from a Camtasia project (read only; never written). */
   cmproj?: string;
   /** A standalone project: media is copied into its `media` folder as it is imported (a Camtasia project's too). */
@@ -183,8 +182,11 @@ export interface QueryInfo extends CommandInfo {
 export interface SchemaInfo {
   /** `nested`: the prop group holding the clip type's own tracks (groups, stitched media), if any. */
   clipTypes: { id: string; description: string; traits: string[]; props: string[]; effects: string[]; nested?: string }[];
-  props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown> }[];
-  effects: { id: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
+  /** `defaults`: what a clip without its own values has. */
+  props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
+  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
+  /** The Annotations and Audio Effects panels' items (Visual Effects lists `effects`). */
+  panelItems: PanelItemDef[];
 }
 
 export interface RunOptions {
@@ -232,6 +234,9 @@ export type CoreEvent =
   | { kind: "error"; message: string }
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
   | { kind: "session"; changes: Partial<Session>; changed: (keyof Session)[] };
+
+/** What concerns the whole app, from any project or none: favourites, settings, keys, a preference, and every job. */
+export type AppEvent = Extract<CoreEvent, { kind: "favorites" | "settings" | "shortcuts" | "preference" | "job" }>;
 
 /** Everything an agent or the app can do (PLAN §7.1). */
 export interface BeaconCore {
@@ -366,5 +371,8 @@ export interface BeaconCore {
    * goes on a new track where it began, lined up with what was heard. One undo step.
    */
   recordStop(opts?: RecordStopOptions): Promise<RecordResult>;
+  /** A project's changes; app-wide ones (favourites, settings, keys, preferences, jobs) come through `watchApp`. */
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
+  /** App-wide changes and every job's progress, whichever project started it, or none (a download), and after it is closed. */
+  watchApp(fn: (e: AppEvent) => void): () => void;
 }

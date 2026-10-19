@@ -10,7 +10,7 @@ export type Matrix3 = [number, number, number, number, number, number, number, n
  * 20° about Y, then about X, foreshortens as an eye at 2999 and 3002 px would, and lands within 1 px of
  * where this camera draws it; +Y brings the left edge nearer, +X the top.
  */
-export const CAMERA_DISTANCE = 3000;
+const CAMERA_DISTANCE = 3000;
 
 export function fromAffine([a, b, c, d, e, f]: Affine): Matrix3 {
   return [a, c, e, b, d, f, 0, 0, 1];

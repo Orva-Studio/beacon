@@ -32,10 +32,6 @@ export function rationalToNumber(r: Rational): number {
   return r.num / r.den;
 }
 
-export function isTicks(value: unknown): value is Ticks {
-  return Number.isSafeInteger(value);
-}
-
 export function secondsToTicks(seconds: number): Ticks {
   return Math.round(seconds * TICKS_PER_SECOND);
 }

@@ -41,6 +41,8 @@ export interface ViewState {
   favorites: string[];
   /** App-wide choices (the transcriber), `Init.preferences`. */
   preferences: import("./transcripts-settings").PreferenceInfo[];
+  /** When ⌘S last asked for a save (`app.save`): the title bar says the project is saved already. */
+  confirmSaved?: number;
   /** Every action with its keys (`Init.shortcuts`). */
   shortcuts: import("@beacon/model").ShortcutInfo[];
   /** The command palette, while open. */
@@ -153,6 +155,9 @@ export const replica = {
   },
   shortcuts(shortcuts: ViewState["shortcuts"]) {
     set({ shortcuts });
+  },
+  confirmSaved() {
+    set({ confirmSaved: performance.now() });
   },
   /** Opened only with a project: it lists what can be added to one. */
   palette(palette: boolean) {

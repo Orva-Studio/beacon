@@ -1,17 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { apply, type Affine } from "@beacon/model";
-import type { CanvasMark } from "./canvas";
+import type { CanvasMark } from "./canvas-marks";
 import { rgba } from "./theme";
 import { PLAIN_TEXT } from "./controls";
 
 /** A line of text as the renderer lays it out (box units, y down): the `callout.textLayout` and `captions.layout` queries. */
-export interface TextLine {
-  start: number;
-  end: number;
-  top: number;
-  bottom: number;
-  carets: number[];
-}
+import type { TextLine } from "@beacon/media";
+
+export type { TextLine };
 
 /** Text typed in place: a callout's, or a caption's. */
 export interface TextTarget {

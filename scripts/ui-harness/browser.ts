@@ -109,7 +109,9 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
     },
     /** `key` as KeyboardEvent.key, `code` as KeyboardEvent.code; `commands` are editing commands the key runs ("copy", "paste"), as the OS menu would. */
     async key(key: string, code: string, mods?: Mods, commands?: string[]) {
-      await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, modifiers: bits(mods), ...(commands ? { commands } : {}) });
+      // Return carries its text as a real key does: that is what activates a focused button.
+      const text = key === "Enter" && !mods?.length ? { text: "\r" } : {};
+      await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, modifiers: bits(mods), ...text, ...(commands ? { commands } : {}) });
       await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, modifiers: bits(mods) });
     },
     /** Chromium's performance counters (ScriptDuration, TaskDuration, LayoutDuration… in seconds), for comparing the cost of a run. */

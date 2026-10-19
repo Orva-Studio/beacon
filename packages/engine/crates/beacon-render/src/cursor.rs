@@ -158,7 +158,8 @@ fn page_size(path: &Path) -> Option<[f64; 2]> {
     Some([r.size.width, r.size.height])
 }
 
-fn bitmap(data: &mut [u8], w: usize, h: usize) -> CGContext {
+/// A Core Graphics context drawing into `data`: `w` × `h` premultiplied RGBA.
+pub(crate) fn bitmap(data: &mut [u8], w: usize, h: usize) -> CGContext {
     CGContext::create_bitmap_context(Some(data.as_mut_ptr() as *mut _), w, h, 8, w * 4, &CGColorSpace::create_device_rgb(), kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big)
 }
 

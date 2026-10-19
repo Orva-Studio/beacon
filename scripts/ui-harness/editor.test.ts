@@ -7,8 +7,7 @@ import { DerivedData } from "@beacon/render";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
-import { clipBox, cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
-import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
+import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -277,6 +276,21 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
     await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
     await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
     await view.until("!!document.querySelector('[data-start-screen]')");
+    // Its keys are New Project's and Open…'s as the user has them: ⌘N, then the key it is rebound to.
+    await view.key("n", "KeyN", ["meta"]);
+    await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    await start.core.shortcutSet("app.new", [{ key: "n", modifiers: ["command", "option"] }]);
+    await Bun.sleep(100);
+    await view.key("n", "KeyN", ["meta"]);
+    await Bun.sleep(100);
+    expect(await view.evaluate<boolean>("!!document.querySelector('[data-start-screen]')")).toBe(true);
+    await view.key("n", "KeyN", ["meta", "alt"]);
+    await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    await start.core.shortcutReset("app.new");
     // The list follows Open Recent as the app changes it.
     start.send("recent", recent.slice(1));
     await view.until(`${rows}.length === 4 && ${rows}[0].startsWith('Launch')`);
@@ -338,8 +352,12 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   await page.until(`!!${button("Download Speech Model…")}`);
   await page.evaluate(`${button("Download Speech Model…")}.click()`);
   await page.until("!!document.querySelector('[data-resource]')");
-  await page.evaluate(`${button("Download")}.click()`);
+  // Return is the sheet's default (Download) wherever the focus is: with Not Now focused it doesn't also decline.
+  await page.evaluate(`${button("Not Now")}.focus()`);
+  await page.key("Enter", "Enter");
   await arrived(() => ui.menus.includes("fetchResource:whisper-model"));
+  await Bun.sleep(100);
+  expect(ui.menus.filter((m) => m === "declineResource:whisper-model")).toHaveLength(1);
   ui.send("resourceJob", { id: "job-download", state: "running", progress: 0.42 });
   await page.until("document.querySelector('[data-resource-progress]')?.innerText.includes('42%')");
   await page.evaluate(`${button("Cancel Download")}.click()`);
@@ -445,7 +463,9 @@ test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async 
 });
 
 test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, and an export outlives its project", async () => {
-  const core = new LocalCore();
+  const core = new LocalCore({ configDir: join(dir, "second-config") });
+  // Proxies made on their own, as the hang needed them.
+  await core.setSettings({ autoProxy: { recording: true, video: true } });
   const path = join(dir, "second.beproj");
   const h = await core.create({ path });
   await core.import(h, [RECORDING]);
@@ -454,7 +474,7 @@ test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, a
   await Bun.sleep(50);
   view.close();
   const states: string[] = [];
-  core.watchJobs((j) => j.kind === "export" && j.state !== "running" && states.push(j.state));
+  core.watchApp((e) => e.kind === "job" && e.job.kind === "export" && e.job.state !== "running" && states.push(e.job.state));
   const job = await core.export(h, { output: join(dir, "out.mp4"), from: 0, to: 1 });
   await core.close(h);
   await job.done;
@@ -617,7 +637,7 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   };
   ui.send("recordSheet", sheet);
   await page.until("!!document.querySelector('[data-record]')");
-  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').getAttribute('aria-checked') === 'true'`);
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([true, false, true, true]);
   await page.evaluate(`document.querySelector('[data-source="Camera"]').click()`);
   await page.until("!!document.querySelector('[data-permission=camera]')");
@@ -735,7 +755,7 @@ test.skipIf(skip)("The Narration panel records a narration itself, as Camtasia's
   const before = ui.menus.length;
   await run("panel.show", { tool: "narration" });
   await page.until("document.querySelector('[data-narration-panel] select')?.value === 'mic-2'");
-  expect(await page.evaluate<boolean>("document.querySelector('[data-narration-hear]').checked")).toBe(false);
+  expect(await page.evaluate<boolean>("document.querySelector('[data-narration-hear]').getAttribute('aria-checked') === 'true'")).toBe(false);
   // Its level, previewed while idle.
   await arrived(() => ui.menus.slice(before).includes(`recordPreview:${JSON.stringify({ microphone: { id: "mic-2" } })}`));
   await page.until("document.querySelector('[data-narration-panel] [role=meter]')?.dataset.level === '-20'");
@@ -769,10 +789,10 @@ test.skipIf(skip)("The microphone alone is voice narration: it plays the timelin
   ui.send("recordSheet", { ...devices, mode: "narration", sources: { screen: { fps: 60 }, microphone: { id: "mic-2" }, systemAudio: true } });
   await page.until("!!document.querySelector('[data-narration]')");
   expect(await has("[data-record-monitors]")).toBe(false);
-  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').getAttribute('aria-checked') === 'true'`);
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([false, false, true, false]);
   expect(await page.evaluate<string>("document.querySelector('[data-source=Microphone]').closest('[data-narration] > *').querySelector('select').value")).toBe("mic-2");
-  expect(await page.evaluate<boolean>("document.querySelector('[data-hear]').checked")).toBe(false);
+  expect(await page.evaluate<boolean>("document.querySelector('[data-hear]').getAttribute('aria-checked') === 'true'")).toBe(false);
   await page.until("/from the playhead \\(0:02\\)/.test(document.querySelector('[data-narration-span]').textContent)");
   // Only the microphone is previewed, for its level.
   const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
@@ -780,7 +800,9 @@ test.skipIf(skip)("The microphone alone is voice narration: it plays the timelin
   expect(previews().at(-1)).toEqual({ microphone: { id: "mic-2" } });
   await run("range.set", { in: 1, out: 3 });
   await page.until("document.querySelector('[data-narration-span]').textContent.includes('the range 0:01–0:03')");
-  await page.evaluate("document.querySelector('[data-record-start]').click()");
+  // Return on a focused checkbox starts, as the dialog's default (hear stays off).
+  await page.evaluate("document.querySelector('[data-hear]').focus()");
+  await page.key("Enter", "Enter");
   await page.until("/plays from 0:01/.test(document.querySelector('[data-countdown]')?.textContent ?? '')");
   await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
   const asked = ui.menus.slice(before).find((m) => m.startsWith("startNarration:"))!;
@@ -977,12 +999,47 @@ test.skipIf(skip)("every tile in the effect and annotation panels shows its pict
   }
 });
 
+test.skipIf(skip)("a track and a medium are renamed in place: Return keeps the name, Escape drops it", async () => {
+  const doc = () => ui.core.doc(ui.handle);
+  const track = doc().tracks.at(-1)!;
+  const field = "document.activeElement?.tagName === 'INPUT'";
+  ui.send("rename", { track: track.id });
+  await page.until(field);
+  await type("Narration Take");
+  await page.key("Enter", "Enter");
+  await arrived(() => doc().tracks.at(-1)!.name === "Narration Take");
+  ui.send("rename", { track: track.id });
+  await page.until(field);
+  await type("Not This");
+  await page.key("Escape", "Escape");
+  await page.until(`!(${field})`);
+  expect(doc().tracks.at(-1)!.name).toBe("Narration Take");
+  await ui.core.undo(ui.handle);
+
+  const asset = Object.keys(doc().assets)[0]!;
+  await run("panel.show", { tool: "media" });
+  ui.send("renameMedia", { asset });
+  await page.until(field);
+  await type("Intro Take");
+  await page.key("Enter", "Enter");
+  await arrived(() => doc().assets[asset]!.name === "Intro Take");
+  await ui.core.undo(ui.handle);
+});
+
 test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favorites; a double-click applies it to the selection; Favorites reorder by dropping one tile on another", async () => {
   const tile = (item: string) => `[data-item="${item}"]`;
   const star = (item: string) => page.evaluate<string | null>(`document.querySelector('${tile(item)} [data-star]')?.dataset.star ?? null`);
   const outlined = (item: string) => page.evaluate<boolean>(`document.querySelector('${tile(item)}').className.includes('ring-tile-selected')`);
+  // A new user's favourites, in the features' order; the panels list what the features declare.
+  expect(await ui.core.favorites()).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "effect:round-corners", "effect:crt-monitor", "effect:drop-shadow", "effect:motion-blur"]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('${tile("effect:round-corners")}')`);
+  expect(await page.evaluate<string>(`document.querySelector('${tile("effect:round-corners")}').innerText`)).toContain("Corner Rounding");
+  await run("panel.show", { tool: "audioEffects" });
+  await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
   // A favourite shows its gold star; another tile shows none until selected.
   expect(await star("annotation:text")).toBe("on");
@@ -1443,8 +1500,7 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   await arrived(() => ui.menus.at(-1) === `setAppSettings:${JSON.stringify({ proxyMode: "fast" })}`);
   expect(ui.menus.at(-1)).toBe(`setAppSettings:${JSON.stringify({ proxyMode: "fast" })}`);
   await page.key("Escape", "Escape");
-  // What the app does with it: no proxy is started for a video file.
-  ui.core.setAutomatic((analyzer, asset) => analyzer !== "proxy" || asset.kind === "recording");
+  // Core follows it: no proxy is started for a video file.
   const copy = join(dir, `like-${Date.now()}.mp4`);
   copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
@@ -1452,9 +1508,25 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   await Bun.sleep(1500);
   expect((await ui.core.jobs()).some((j) => j.kind === "proxy" && j.asset === assets[0])).toBe(false);
   ui.core.detachView(ui.handle);
-  ui.core.setAutomatic(() => true);
+  await ui.core.setSettings({ autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
   await ui.core.undo(ui.handle);
 }, 30000);
+
+test.skipIf(skip)("a dialog is cut out of the native canvas with its rounded corners, not as a rectangle", async () => {
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
+  await page.until("!!document.querySelector('[tabindex=\"-1\"] .ot-mask')");
+  // Whether a point is cut out: inside any masked element's rectangle, as the native view takes them.
+  const cut = await page.evaluate<boolean[]>(`(() => {
+    const sheet = document.querySelector('.ot-mask').closest('[tabindex="-1"]').getBoundingClientRect();
+    const rects = [...document.querySelectorAll('.ot-mask')].map((m) => m.getBoundingClientRect());
+    const inside = (x, y) => rects.some((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
+    const { left: l, top: t, right: r, bottom: b } = sheet;
+    return [inside(l + 1, t + 1), inside(r - 1, b - 1), inside(l + 14, t + 0.5), inside(l + 0.5, t + 14), inside((l + r) / 2, (t + b) / 2), inside(l + 0.5, (t + b) / 2)];
+  })()`);
+  // Corners left to the canvas; the edges (border included), the middle and the curve's start cut out.
+  expect(cut).toEqual([false, false, true, true, true, true]);
+  await page.key("Escape", "Escape");
+});
 
 test.skipIf(skip)("Settings > General shows the space proxies use, and Delete All Proxy Videos deletes every one", async () => {
   // Its own cache, so the user's proxies are never touched.
@@ -2189,3 +2261,22 @@ test.skipIf(skip)("Delete acts on what was selected last: a range made after a c
   await run("range.clear");
   expect(clips().length).toBe(before);
 });
+
+test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key, in one undo", async () => {
+  const before = clips().length;
+  await ui.core.import(ui.handle, [RECORDING]);
+  const linked = clips().filter((c) => c.linkId);
+  expect(new Set(linked.map((c) => c.linkId)).size).toBe(2);
+  await ui.core.shortcutSet("edit.unlink", [{ key: "u", modifiers: ["control", "option"] }]);
+  await select(linked.map((c) => c.id));
+  await page.key("u", "KeyU", ["ctrl", "alt"]);
+  await arrived(() => !clips().some((c) => c.linkId));
+  expect(clips().filter((c) => c.linkId)).toEqual([]);
+  await page.screenshot(join(dir, "unlinked.png"));
+  expect(await ui.core.undo(ui.handle)).toBe("Unlink Recording");
+  expect(new Set(clips().filter((c) => c.linkId).map((c) => c.linkId)).size).toBe(2);
+  await ui.core.shortcutReset("edit.unlink");
+  await ui.core.undo(ui.handle);
+  await select([]);
+  expect(clips().length).toBe(before);
+}, 30000);

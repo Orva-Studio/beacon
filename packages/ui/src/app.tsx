@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { bindingsOf, compileKeymap, match, menuKey, runAction, useShortcutTip, type ActionHost } from "./keymap";
+import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
 import { droppedFiles } from "./drop";
-import type { DroppedFile, Init, Narrating } from "./rpc";
-import { useView } from "./store";
+import type { DroppedFile, Narrating } from "./rpc";
+import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
-import { NO_NESTED, Timeline } from "./timeline";
-import { CanvasOverlay, type CanvasMark } from "./canvas";
+import { Timeline } from "./timeline";
+import { NO_NESTED } from "./timeline-draw";
+import { CanvasOverlay } from "./canvas";
+import type { CanvasMark } from "./canvas-marks";
 import { NoticeUi } from "./notice";
 import { MediaPreviewUi, type PreviewHost } from "./media-preview";
 import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project-name";
@@ -16,13 +18,15 @@ import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
-import { clock, RecordUi, type RecordHost } from "./record";
-import { goTo, reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { RecordUi, type RecordHost } from "./record";
+import { clock } from "./time";
+import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
+import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, type Eyedropper, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -62,6 +66,9 @@ const CANVAS_ZOOMS = [25, 33, 50, 66, 75, 100, 150, 200, 400];
 /** Bound in the keymap, but run from clipboard events (see `onClipboard`). */
 const CLIPBOARD: Record<string, boolean> = { "edit.cut": true, "edit.copy": true, "edit.paste": true };
 
+/** The colour controls' eyedropper: the canvas takes the next click while it picks. */
+const EYEDROPPER: Eyedropper = { start: (done) => replica.pick(done), stop: () => replica.pick(undefined), active: () => !!replica.get().picking };
+
 export function App({ host }: { host: Host }) {
   useWindowGuards();
   const init = useView((s) => s.init);
@@ -97,15 +104,13 @@ export function App({ host }: { host: Host }) {
       window.removeEventListener("drop", drop);
     };
   }, [host]);
-  const shortcuts = useView((s) => s.shortcuts);
-  const keymap = useMemo(() => compileKeymap(bindingsOf(shortcuts)), [shortcuts]);
+  const keymap = useKeymap();
 
   // A click anywhere but a text field ends typing in one, so the shortcuts (arrows nudge, , and . step) work again.
   useEffect(() => {
     const down = (e: PointerEvent) => {
       const el = document.activeElement;
-      const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
-      if (field && el !== e.target && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) el.blur();
+      if (isFormField(el) && el !== e.target && !isFormField(e.target)) el.blur();
     };
     window.addEventListener("pointerdown", down, true);
     return () => window.removeEventListener("pointerdown", down, true);
@@ -113,7 +118,7 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const field = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
+      const field = isFormField(e.target);
       const b = match(keymap, e);
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
@@ -123,7 +128,7 @@ export function App({ host }: { host: Host }) {
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
     const onClipboard = (e: ClipboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (isTextField(e.target)) return;
       e.preventDefault();
       host.run(`edit.${e.type}`);
     };
@@ -136,75 +141,77 @@ export function App({ host }: { host: Host }) {
   }, [keymap, host]);
 
   return (
-    <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
-      <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
-      <div className="flex min-h-0 flex-1 gap-gutter">
-        <ToolRail session={session} host={host} />
-        {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
-        <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
-          <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
-          {project && session && <Transport project={project} session={session} host={host} init={init} />}
+    <EyedropperContext.Provider value={EYEDROPPER}>
+      <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
+        <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
+        <div className="flex min-h-0 flex-1 gap-gutter">
+          <ToolRail session={session} host={host} />
+          {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
+          <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
+            <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
+            {project && session && <Transport project={project} session={session} host={host} />}
+          </div>
+          {session?.panels.properties &&
+            project &&
+            (reviewOf(session) ? (
+              <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
+            ) : fillerReviewOf(session) ? (
+              <FillerReviewPanel project={project} host={host} found={fillers} />
+            ) : (
+              <Properties project={project} session={session} host={host} init={init} />
+            ))}
         </div>
-        {session?.panels.properties &&
-          project &&
-          (reviewOf(session) ? (
-            <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
-          ) : fillerReviewOf(session) ? (
-            <FillerReviewPanel project={project} host={host} found={fillers} />
-          ) : (
-            <Properties project={project} session={session} host={host} init={init} />
-          ))}
+        {project && session ? (
+          <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
+            <Toolbar session={session} host={host} />
+            <Timeline
+              project={project}
+              session={session}
+              waveforms={waveforms}
+              thumbs={thumbs}
+              clipTypes={init?.clipTypes ?? {}}
+              nested={init?.nested ?? NO_NESTED}
+              run={host.run}
+              menu={host.clipMenu}
+              trackMenu={host.trackMenu}
+              dropFiles={host.dropFiles}
+              marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
+              markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
+            />
+          </div>
+        ) : (
+          <div className="panel-card h-[30%]" />
+        )}
+        <ExportUi
+          host={host}
+          muted={mutedAudio.map(({ t, i }) => trackName(t, project!.tracks.length - 1 - i))}
+          unmute={() => {
+            // One undo step for them all.
+            const step = `unmute-${Date.now()}`;
+            for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
+          }}
+        />
+        <RecordUi host={host} />
+        <SnapshotSaved host={host} />
+        <SettingsUi host={host} />
+        <StartScreen host={host} />
+        <NewProjectUi host={host} />
+        <SaveAsUi host={host} />
+        <ResourceUi host={host} />
+        <MediaPreviewUi host={host} />
+        <NoticeUi />
+        <Palette host={host} />
+        {/* The dragged panel item; a mask so it shows over the native canvas too. */}
+        {dragging && (
+          <div
+            className={`${MASK} pointer-events-none fixed z-50 rounded-md bg-tile-hover px-2 py-1 text-label text-text-strong shadow-lg ring-1 ring-accent`}
+            style={{ left: dragging.x + 10, top: dragging.y + 10 }}
+          >
+            {dragging.item.label}
+          </div>
+        )}
       </div>
-      {project && session ? (
-        <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
-          <Toolbar session={session} host={host} init={init} />
-          <Timeline
-            project={project}
-            session={session}
-            waveforms={waveforms}
-            thumbs={thumbs}
-            clipTypes={init?.clipTypes ?? {}}
-            nested={init?.nested ?? NO_NESTED}
-            run={host.run}
-            menu={host.clipMenu}
-            trackMenu={host.trackMenu}
-            dropFiles={host.dropFiles}
-            marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
-            markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
-          />
-        </div>
-      ) : (
-        <div className="panel-card h-[30%]" />
-      )}
-      <ExportUi
-        host={host}
-        muted={mutedAudio.map(({ t, i }) => trackName(t, project!.tracks.length - 1 - i))}
-        unmute={() => {
-          // One undo step for them all.
-          const step = `unmute-${Date.now()}`;
-          for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
-        }}
-      />
-      <RecordUi host={host} />
-      <SnapshotSaved host={host} />
-      <SettingsUi host={host} />
-      <StartScreen host={host} />
-      <NewProjectUi host={host} />
-      <SaveAsUi host={host} />
-      <ResourceUi host={host} />
-      <MediaPreviewUi host={host} />
-      <NoticeUi />
-      <Palette host={host} />
-      {/* The dragged panel item; a mask so it shows over the native canvas too. */}
-      {dragging && (
-        <div
-          className={`${MASK} pointer-events-none fixed z-50 rounded-md bg-tile-hover px-2 py-1 text-label text-text-strong shadow-lg ring-1 ring-accent`}
-          style={{ left: dragging.x + 10, top: dragging.y + 10 }}
-        >
-          {dragging.item.label}
-        </div>
-      )}
-    </div>
+    </EyedropperContext.Provider>
   );
 }
 
@@ -224,7 +231,7 @@ function useWindowGuards() {
   // The webview's own menu (Reload, Inspect Element) is for developers; text fields keep theirs.
   useEffect(() => {
     const onMenu = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+      if (!isTextField(e.target)) e.preventDefault();
     };
     window.addEventListener("contextmenu", onMenu);
     return () => window.removeEventListener("contextmenu", onMenu);
@@ -252,7 +259,7 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
   return (
     <div className="flex items-center gap-2 rounded-md bg-danger/15 py-0.5 pl-2.5 pr-1 text-xs" data-narrating>
       <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
-      <span className="tabular-nums text-text-strong">Narrating {clock(Math.max(0, now - narrating.started) / 1000)}</span>
+      <span className="tabular-nums text-text-strong">Narrating {clock((now - narrating.started) / 1000, { floor: true })}</span>
       <Button look="danger" onClick={() => host.stopNarration()} title="Stop and put the narration on the timeline (⌘⇧2)" data-narration-stop>
         Stop
       </Button>
@@ -266,20 +273,15 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
 function TopBar({ name, session, host, status, saved, preparing }: { name?: string; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
   const zoom = session?.canvas.zoom ?? "fit";
   const narrating = useView((v) => v.narrating);
-  // ⌘S out of habit: no dialog, the label confirms the project is already saved.
+  // ⌘S out of habit (`app.save`): no dialog, the label confirms the project is already saved.
+  const asked = useView((v) => v.confirmSaved);
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.key.toLowerCase() !== "s") return;
-      e.preventDefault();
-      setConfirm(true);
-      clearTimeout(timer);
-      timer = setTimeout(() => setConfirm(false), 1500);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => (window.removeEventListener("keydown", onKey), clearTimeout(timer));
-  }, []);
+    if (!asked) return;
+    setConfirm(true);
+    const timer = setTimeout(() => setConfirm(false), 1500);
+    return () => clearTimeout(timer);
+  }, [asked]);
   return (
     <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20 electrobun-webkit-app-region-drag" data-titlebar>
       {name && !narrating && <RecordButton host={host} />}
@@ -372,7 +374,7 @@ const TOOL_ICONS: Record<string, IconName> = {
 };
 
 /** The toolbar above the timeline: undo, redo, cut, copy, paste, split, snapshot, then the timeline zoom. */
-function Toolbar({ session, host, init }: { session: Session; host: Host; init?: Init }) {
+function Toolbar({ session, host }: { session: Session; host: Host }) {
   const tip = useShortcutTip();
   const some = session.selection.length > 0 || !!session.range;
   const tool = (name: string, title: string, onClick: () => void, enabled = true) => (
@@ -413,7 +415,7 @@ function Toolbar({ session, host, init }: { session: Session; host: Host; init?:
   );
 }
 
-function Transport({ project, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
+function Transport({ project, session, host }: { project: Project; session: Session; host: Host }) {
   const fps = rationalToNumber(project.settings.fps);
   const end = Math.max(0, ...project.tracks.flatMap((t) => t.clips.map((c) => ticksToSeconds(c.start + c.duration))));
   const tip = useShortcutTip();

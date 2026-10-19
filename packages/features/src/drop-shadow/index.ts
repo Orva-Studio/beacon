@@ -25,18 +25,14 @@ export function shadowParams(p: ShadowParams): number[] {
   ];
 }
 
+/** A Camtasia shadow (a clip's or the cursor's): what it leaves out is Camtasia's default, not the effect's. */
 export function shadowFromCamtasia(fx: CamtasiaObject, ctx: CamtasiaContext): ShadowParams {
-  const n = (k: string, d: number) => Number(ctx.value(fx, k) ?? d);
-  return {
-    angle: n("angle", 5.49779),
-    offset: n("offset", 10),
-    blur: n("blur", 10),
-    opacity: n("opacity", 0.4),
-    color: [n("color-red", 0), n("color-green", 0), n("color-blue", 0), n("color-alpha", 1)],
-  };
+  const n = { angle: 5.49779, offset: 10, blur: 10, opacity: 0.4, ...ctx.numbers(fx, { angle: "angle", offset: "offset", blur: "blur", opacity: "opacity" }) };
+  const c = { r: 0, g: 0, b: 0, a: 1, ...ctx.numbers(fx, { r: "color-red", g: "color-green", b: "color-blue", a: "color-alpha" }) };
+  return { ...n, color: [c.r, c.g, c.b, c.a] };
 }
 
-export const shadowSchema = z.strictObject({
+const shadowSchema = z.strictObject({
   angle: z.number().meta({ degrees: true }),
   offset: z.number().meta({ slider: { max: 100 } }),
   blur: z.number().nonnegative().meta({ slider: { max: 100 } }),
@@ -47,24 +43,21 @@ export const shadowSchema = z.strictObject({
 /** A blurred, offset copy of the clip's alpha drawn under it. */
 export const dropShadow = defineFeature({
   id: "drop-shadow",
-  panelItems: [{ id: "effect:drop-shadow", favorite: true }],
   version: 1,
   effects: [
     {
       id: "drop-shadow",
+      title: "Drop Shadow",
+      favorite: true,
       description: "Shadow behind the clip",
       traits: ["visual"],
       params: shadowSchema,
       defaults: () => ({ angle: 5.49779, offset: 10, blur: 10, opacity: 0.4, color: [0.1216, 0.1216, 0.1216, 1] }),
+      apply(e, p) {
+        (e.main.passes ??= []).push({ pass: "drop-shadow", params: shadowParams(p as ShadowParams) });
+      },
     },
   ],
   passes: [{ id: "drop-shadow", wgsl, steps: ["fs_mask", "fs_blur_h", "fs_blur_v", "fs_combine"] }],
   camtasia: { effects: { DropShadow: (fx, ctx) => ({ type: "drop-shadow", params: { ...shadowFromCamtasia(fx, ctx) } }) } },
-  evaluate: {
-    clip(e) {
-      const fx = e.clip.effects.find((x) => x.type === "drop-shadow" && x.enabled);
-      if (!fx || e.main?.kind !== "visual") return;
-      (e.main.passes ??= []).push({ pass: "drop-shadow", params: shadowParams(fx.params as unknown as ShadowParams) });
-    },
-  },
 });

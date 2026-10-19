@@ -29,6 +29,7 @@
     "packages/*/src",
     "packages/*/__tests__",
     "packages/desktop/*.ts",
+    "packages/ui/harness",
     "scripts"
   ]
 }

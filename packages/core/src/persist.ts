@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { migrateProject, SCHEMA_VERSION, type FeatureRegistry, type Project } from "@beacon/model";
 
-export const PROJECT_FILE = "project.json";
+const PROJECT_FILE = "project.json";
 const LOCK_FILE = "lock";
 
 type Assets = Record<string, { path: string }>;
@@ -42,12 +42,20 @@ export function writeProject(dir: string, doc: Project) {
   renameSync(tmp, join(dir, PROJECT_FILE));
 }
 
-function alive(pid: number): boolean {
+/** A name typed for a project's folder, without `.beproj`; throws when it can't be one (empty, hidden, or with / or :). */
+export function projectName(name: string): string {
+  const clean = name.trim().replace(/\.beproj$/i, "");
+  if (!clean || /[/:]/.test(clean) || clean.startsWith(".")) throw new Error(`"${name}" can't be a project name`);
+  return clean;
+}
+
+/** Whether a process is running: one of another user's can't be signalled (EPERM) but is. */
+export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 

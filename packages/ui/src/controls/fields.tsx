@@ -1,5 +1,42 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PLAIN_TEXT } from "./buttons";
+
+/** Whether keys typed at `t` edit text (a text box or text area). */
+export const isTextField = (t: EventTarget | null): t is HTMLInputElement | HTMLTextAreaElement => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
+
+/** Whether keys at `t` go to a form field: a text box, text area or select. */
+export const isFormField = (t: EventTarget | null): t is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => isTextField(t) || t instanceof HTMLSelectElement;
+
+/**
+ * A name typed in place, the old one selected to type over: Return or clicking away gives `onDone` the text
+ * (trimmed), Escape gives it null. Focus waits a frame, for a Rename… chosen from a native menu that has to close.
+ */
+export function RenameField({ value, onDone, className, style }: { value: string; onDone: (name: string | null) => void; className?: string; style?: CSSProperties }) {
+  const finished = useRef(false);
+  const finish = (name: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    onDone(name);
+  };
+  return (
+    <input
+      {...PLAIN_TEXT}
+      ref={(el) => {
+        if (el && document.activeElement !== el) requestAnimationFrame(() => (el.focus(), el.select()));
+      }}
+      defaultValue={value}
+      className={`rounded-sm border border-accent bg-well px-1 text-text-strong outline-none ${className ?? ""}`}
+      style={style}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value.trim());
+        if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value.trim())}
+    />
+  );
+}
 
 /** A block of controls in a panel, divided from the next. */
 export function Section({ children }: { children: ReactNode }) {
@@ -215,9 +252,10 @@ export function Stepper({ axis, value, min, max, onChange }: { axis: string; val
 }
 
 /** A tick box: with a label beside it, or alone with `title` as its tooltip (an effect's on/off). */
-export function Check({ label, title, checked, onChange, disabled }: { label?: string; title?: string; checked: boolean; onChange?: (on: boolean) => void; disabled?: boolean }) {
+export function Check({ label, title, checked, onChange, disabled, ...data }: { label?: string; title?: string; checked: boolean; onChange?: (on: boolean) => void; disabled?: boolean; [data: `data-${string}`]: unknown }) {
   return (
     <button
+      {...data}
       role="checkbox"
       aria-checked={checked}
       aria-label={label ?? title}
@@ -225,6 +263,8 @@ export function Check({ label, title, checked, onChange, disabled }: { label?: s
       disabled={disabled || !onChange}
       className="flex shrink-0 items-center gap-2 text-left text-text disabled:opacity-50"
       onClick={() => onChange?.(!checked)}
+      // A checkbox: Space toggles it, Enter is left to the dialog (its default action), as a native one does.
+      onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
     >
       <span className={`flex h-4 w-4 items-center justify-center rounded-xs border text-caption font-bold ${checked ? "border-accent bg-accent text-accent-text" : "border-text-faint"}`}>{checked ? "✓" : ""}</span>
       {label}

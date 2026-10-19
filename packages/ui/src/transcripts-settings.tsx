@@ -4,14 +4,9 @@ import type { ResourceInfo } from "./resource";
 import { replica } from "./store";
 import { useOnline } from "./online";
 
-/** An app-wide choice (the transcriber), as the main process sends it (core's `PreferenceInfo`). */
-export interface PreferenceInfo {
-  id: string;
-  title: string;
-  description: string;
-  value: string;
-  options: { id: string; title: string; description: string; secret?: { id: string; title: string; set: boolean }; online?: boolean }[];
-}
+import type { PreferenceInfo } from "@beacon/core";
+
+export type { PreferenceInfo };
 
 type Reply = { ok: boolean; error?: string; result?: PreferenceInfo[] };
 

@@ -5,6 +5,10 @@ use std::ffi::c_void;
 use std::ptr::null_mut;
 
 use beacon_decode::Surface;
+use core_foundation::base::{CFRelease, TCFType};
+use core_foundation::dictionary::CFDictionary;
+use core_foundation::number::CFNumber;
+use core_foundation::string::{CFString, CFStringRef};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLTexture, MTLTextureType};
@@ -30,29 +34,22 @@ unsafe extern "C" {
     fn CVPixelBufferGetHeightOfPlane(buf: *mut c_void, plane: usize) -> usize;
 }
 
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    fn CFRelease(cf: *const c_void);
-    fn CFNumberCreate(alloc: *const c_void, kind: isize, value: *const c_void) -> *const c_void;
-    fn CFDictionaryCreate(alloc: *const c_void, keys: *const *const c_void, values: *const *const c_void, n: isize, key_cb: *const c_void, value_cb: *const c_void) -> *const c_void;
-    static kCFTypeDictionaryKeyCallBacks: u8;
-    static kCFTypeDictionaryValueCallBacks: u8;
-}
-
 #[link(name = "CoreVideo", kind = "framework")]
 unsafe extern "C" {
-    static kCVMetalTextureUsage: *const c_void;
+    static kCVMetalTextureUsage: CFStringRef;
 }
 
 /// `{ kCVMetalTextureUsage: render target | shader read }`, made once and kept.
 fn render_target_attrs() -> *const c_void {
     static ATTRS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *ATTRS.get_or_init(|| unsafe {
-        // MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget, as a CFNumber of kCFNumberSInt64Type (4).
-        let usage: i64 = 0x0001 | 0x0004;
-        let value = CFNumberCreate(std::ptr::null(), 4, &usage as *const i64 as *const c_void);
-        let key = kCVMetalTextureUsage;
-        CFDictionaryCreate(std::ptr::null(), &key, &value, 1, &kCFTypeDictionaryKeyCallBacks as *const u8 as *const c_void, &kCFTypeDictionaryValueCallBacks as *const u8 as *const c_void) as usize
+    *ATTRS.get_or_init(|| {
+        let key = unsafe { CFString::wrap_under_get_rule(kCVMetalTextureUsage) };
+        // MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget.
+        let usage = CFNumber::from(0x0001i64 | 0x0004);
+        let attrs = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), usage.as_CFType())]);
+        let raw = attrs.as_concrete_TypeRef() as usize;
+        std::mem::forget(attrs);
+        raw
     }) as *const c_void
 }
 

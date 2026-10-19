@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
+import { foreignLinks } from "./macho";
 
 const ROOT = join(import.meta.dir, "../packages/engine/third-party");
 const SRC = join(ROOT, "src");
@@ -191,8 +192,7 @@ async function buildSpeech() {
 async function checkLinks() {
   const files = [...readdirSync(join(OUT, "bin")).map((f) => join(OUT, "bin", f)), ...readdirSync(join(OUT, "lib")).filter((f) => f.endsWith(".dylib")).map((f) => join(OUT, "lib", f))];
   for (const file of files) {
-    const linked = (await $`otool -L ${file}`.text()).split("\n").slice(1).map((l) => l.trim().split(" ")[0]!).filter(Boolean);
-    const foreign = linked.filter((l) => !l.startsWith("/System/") && !l.startsWith("/usr/lib/") && !l.startsWith(join(OUT, "lib") + "/"));
+    const foreign = await foreignLinks(file, (l) => l.startsWith(join(OUT, "lib") + "/"));
     if (foreign.length) throw new Error(`${file} links ${foreign.join(", ")}`);
   }
 }

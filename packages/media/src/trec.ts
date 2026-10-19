@@ -1,5 +1,5 @@
 import type { Pointer } from "bun:ffi";
-import { checkLen, checkStatus, loadEngine, pointer, takeString } from "./engine";
+import { checkLen, checkStatus, copyOut, cstr, loadEngine, pointer, takeString } from "./engine";
 
 export interface TrecStream {
   index: number;
@@ -87,7 +87,7 @@ export class Trec {
 
   static open(path: string): Trec {
     const e = loadEngine();
-    const handle = pointer(e.beacon_trec_open(Buffer.from(`${path}\0`)));
+    const handle = pointer(e.beacon_trec_open(cstr(path)));
     if (!handle) return takeString(e, null) as never;
     try {
       return new Trec(handle, JSON.parse(takeString(e, e.beacon_trec_info_json(handle))) as TrecInfo);
@@ -116,9 +116,7 @@ export class Trec {
   /** PNG bytes of `info.cursorImages[i]`. */
   cursorImage(i: number): Uint8Array {
     const e = loadEngine();
-    const out = new Uint8Array(checkLen(e, e.beacon_trec_cursor_image_len(this.#live(), i)));
-    checkStatus(e, e.beacon_trec_cursor_image_copy(this.#live(), i, out, out.length));
-    return out;
+    return copyOut(e, e.beacon_trec_cursor_image_len(this.#live(), i), (out, cap) => e.beacon_trec_cursor_image_copy(this.#live(), i, out, cap));
   }
 
   close(): void {

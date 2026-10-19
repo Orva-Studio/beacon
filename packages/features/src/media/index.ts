@@ -54,8 +54,10 @@ export function sourceOf(asset: Asset, kind: "video" | "audio", n: number): { pa
 }
 
 /** An audio clip's segment of the mix: its volume envelope, scaled by its gain and the levelling to the project's target. */
+const AUDIO_DEFAULTS: AudioProps = { gain: 1, volume: 1, normalize: false };
+
 function audioSegment(project: Project, clip: Clip, asset: Asset, stream: number): AudioSegment {
-  const a: AudioProps = { gain: 1, volume: 1, normalize: false, ...(clip.props.audio as Partial<AudioProps> | undefined) };
+  const a: AudioProps = { ...AUDIO_DEFAULTS, ...(clip.props.audio as Partial<AudioProps> | undefined) };
   const target = project.settings.loudnessTarget;
   const measured = (asset.derived.loudness as Loudness | undefined)?.[stream];
   const k = a.gain * (a.normalize && target !== undefined && measured !== undefined ? 10 ** ((target - measured) / 20) : 1);
@@ -154,7 +156,7 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
   const audio = info.streams.filter((s) => s.kind === "audio");
   for (const [i, s] of audio.entries()) {
     const track = (s.role && AUDIO_TRACKS[s.role]) ?? (audio.length > 1 ? `Audio ${i + 1}` : "Audio");
-    specs.push({ track, type: "audio", duration: secondsToTicks(s.duration || info.duration) - into(s), mediaStart: into(s), props: { media: { stream: i }, audio: { gain: 1, volume: 1, normalize: true } }, link: "picture" });
+    specs.push({ track, type: "audio", duration: secondsToTicks(s.duration || info.duration) - into(s), mediaStart: into(s), props: { media: { stream: i }, audio: { ...AUDIO_DEFAULTS, normalize: true } }, link: "picture" });
   }
   // Streams of one recording differ by a few ms; linked clips share the shortest length.
   const shortest = Math.min(duration - secondsToTicks(latest), ...specs.map((x) => x.duration));
@@ -308,7 +310,7 @@ export const media = defineFeature({
       description: "Linear gain, a volume envelope (fades, ducking) on top of it, and whether the clip is levelled to the project's loudness target",
       traits: ["audio"],
       schema: z.strictObject({ gain: z.number().nonnegative(), volume: z.number().nonnegative(), normalize: z.boolean() }),
-      defaults: () => ({ gain: 1, volume: 1, normalize: false }),
+      defaults: () => ({ ...AUDIO_DEFAULTS }),
       animatable: ["volume"],
     },
   ],
@@ -322,7 +324,7 @@ export const media = defineFeature({
     },
     params(media, clip, ctx) {
       if (clip.type !== "audio") return;
-      clip.props.audio = { gain: Number(media.attributes?.gain ?? 1), volume: 1, normalize: Boolean(media.attributes?.loudnessNormalization) };
+      clip.props.audio = { ...AUDIO_DEFAULTS, gain: Number(media.attributes?.gain ?? 1), normalize: Boolean(media.attributes?.loudnessNormalization) };
       ctx.points(media, "volume", "audio.volume");
     },
   },

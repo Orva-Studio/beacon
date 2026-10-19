@@ -11,16 +11,19 @@
 import { copyFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { $ } from "bun";
+import { foreignLinks, linked } from "./macho";
 
 const ENGINE = join(import.meta.dir, "../packages/engine");
 const RELEASE = join(ENGINE, "target/release");
 const TOOLS = join(ENGINE, "third-party/out");
 export const STAGE = join(ENGINE, "target/bundle");
 
-async function linked(file: string): Promise<string[]> {
-  const lines = (await $`otool -L ${file}`.text()).split("\n").slice(1);
-  return lines.map((l) => l.trim().split(" ")[0]!).filter(Boolean);
-}
+/** The engine's own binaries, from its Cargo build. */
+const ENGINE_BINARIES = ["libbeacon_ffi.dylib", "beacon-worker", "beacon-recorder"];
+/** Beacon's own tools, from `bun run build:tools`. */
+const TOOL_BINARIES = ["ffmpeg", "ffprobe", "whisper-cli", "beacon-speech"];
+/** Every file of the app's engine folder but the FFmpeg libraries. */
+export const ENGINE_FILES = ["beacon-mcp", ...ENGINE_BINARIES, ...TOOL_BINARIES];
 
 export async function bundleTools(to = STAGE): Promise<string[]> {
   // The app's stage is rebuilt from nothing; another folder (`build:mcp`'s dist) only gains these files.
@@ -30,8 +33,8 @@ export async function bundleTools(to = STAGE): Promise<string[]> {
   // The FFmpeg libraries by the names their users link (libavcodec.61.dylib), symlinks followed.
   const libs = readdirSync(join(TOOLS, "lib")).filter((f) => /^lib\w+\.\d+\.dylib$/.test(f));
   const files = [
-    ...["libbeacon_ffi.dylib", "beacon-worker", "beacon-recorder"].map((f) => join(RELEASE, f)),
-    ...["ffmpeg", "ffprobe", "whisper-cli", "beacon-speech"].map((f) => join(TOOLS, "bin", f)),
+    ...ENGINE_BINARIES.map((f) => join(RELEASE, f)),
+    ...TOOL_BINARIES.map((f) => join(TOOLS, "bin", f)),
     ...libs.map((f) => join(TOOLS, "lib", f)),
   ];
   for (const file of files) {
@@ -47,7 +50,7 @@ export async function bundleTools(to = STAGE): Promise<string[]> {
   }
   const staged = files.map((f) => basename(f));
   for (const f of staged) {
-    const foreign = (await linked(join(to, f))).filter((l) => !l.startsWith("/System/") && !l.startsWith("/usr/lib/") && !(l.startsWith("@rpath/") && staged.includes(l.slice(7))));
+    const foreign = await foreignLinks(join(to, f), (l) => l.startsWith("@rpath/") && staged.includes(l.slice(7)));
     if (foreign.length) throw new Error(`${f} would load ${foreign.join(", ")}, which a Mac without them doesn't have`);
   }
   return staged;

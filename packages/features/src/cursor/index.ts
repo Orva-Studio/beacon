@@ -2,11 +2,12 @@ import { z } from "zod";
 import {
   compose,
   defineFeature,
+  IDENTITY,
   mediaTimeAt,
   RgbaSchema,
   rotate,
   scale,
-  secondsToTicks,
+  shutterTimes,
   ticksToSeconds,
   translate,
   type Ticks,
@@ -48,8 +49,6 @@ const cursorGroup = z.strictObject({
   frozen: z.strictObject({ image: z.int().nonnegative(), x: z.number(), y: z.number() }).optional(),
 });
 
-/** Frames of shutter at intensity 1. */
-export const SHUTTER = 0.75;
 
 const intensity = z.strictObject({ intensity: z.number().nonnegative() });
 
@@ -71,11 +70,11 @@ function interpolate(d: CursorData, t: number): [number, number] {
 }
 
 /** Seconds of Gaussian smoothing for a `cursorTrackLevel`; a placeholder. */
-export function smoothingSigma(level: number): number {
+function smoothingSigma(level: number): number {
   return level <= 0 ? 0 : Math.min(0.6, 0.035 * Math.sqrt(level));
 }
 
-export function cursorPosition(d: CursorData, t: number, level: number): [number, number] {
+function cursorPosition(d: CursorData, t: number, level: number): [number, number] {
   const sigma = smoothingSigma(level);
   if (sigma === 0) return interpolate(d, t);
   let sx = 0;
@@ -181,7 +180,7 @@ function clickPhase(d: CursorData, t: number): { down: number; up?: number } | u
 
 /** Extra transform about the hotspot: physics tilt from horizontal speed, and click scaling. */
 function cursorExtra(e: ClipEval, d: CursorData, mediaSeconds: number): Affine {
-  let m: Affine = [1, 0, 0, 1, 0, 0];
+  let m: Affine = IDENTITY;
   const physics = effect(e.clip, "cursor-physics");
   if (physics) {
     const [x0] = cursorPosition(d, mediaSeconds - 0.05, e.props.cursor!.smoothing);
@@ -232,14 +231,16 @@ export const cursor = defineFeature({
   effects: [
     {
       id: "cursor-shadow",
+      title: "Cursor Shadow",
       description: "Shadow under the cursor",
       traits: ["cursor"],
       params: z.strictObject({ angle: z.number(), offset: z.number(), blur: z.number(), opacity: z.number(), color: RgbaSchema }),
       defaults: () => ({ angle: 3.92699, offset: 7, blur: 10, opacity: 0.5, color: [0, 0, 0, 1] }),
     },
-    { id: "cursor-motion-blur", description: "Blurs the cursor along its motion", traits: ["cursor"], params: intensity, defaults: () => ({ intensity: 1 }) },
+    { id: "cursor-motion-blur", title: "Cursor Motion Blur", description: "Blurs the cursor along its motion", traits: ["cursor"], params: intensity, defaults: () => ({ intensity: 1 }) },
     {
       id: "cursor-physics",
+      title: "Cursor Physics",
       description: "Tilts the cursor as it moves",
       traits: ["cursor"],
       params: z.strictObject({ intensity: z.number(), tilt: z.number() }),
@@ -247,6 +248,7 @@ export const cursor = defineFeature({
     },
     {
       id: "click-scaling",
+      title: "Click Scaling",
       description: "Resizes the cursor while the left button is down",
       traits: ["cursor"],
       /** `scale`: cursor size during a click, like `cursor.scale` (assumed); `speed`: 1/seconds of the ramp. */
@@ -274,9 +276,9 @@ export const cursor = defineFeature({
     },
     effects: {
       CursorShadow: (fx, ctx) => ({ type: "cursor-shadow", params: { ...shadowFromCamtasia(fx, ctx) } }),
-      CursorMotionBlur: (fx, ctx) => ({ type: "cursor-motion-blur", params: { intensity: Number(ctx.value(fx, "intensity") ?? 1) } }),
-      CursorPhysics: (fx, ctx) => ({ type: "cursor-physics", params: { intensity: Number(ctx.value(fx, "intensity") ?? 1.5), tilt: Number(ctx.value(fx, "tilt") ?? 2.5) } }),
-      LeftClickScaling: (fx, ctx) => ({ type: "click-scaling", params: { scale: Number(ctx.value(fx, "scale") ?? 3.5), speed: Number(ctx.value(fx, "speed") ?? 7.5) } }),
+      CursorMotionBlur: (fx, ctx) => ({ type: "cursor-motion-blur", params: ctx.numbers(fx, { intensity: "intensity" }) }),
+      CursorPhysics: (fx, ctx) => ({ type: "cursor-physics", params: ctx.numbers(fx, { intensity: "intensity", tilt: "tilt" }) }),
+      LeftClickScaling: (fx, ctx) => ({ type: "click-scaling", params: ctx.numbers(fx, { scale: "scale", speed: "speed" }) }),
     },
   },
   evaluate: {
@@ -309,11 +311,8 @@ export const cursor = defineFeature({
 
 /** Cursor transforms over the shutter interval before this frame. */
 function motionSamples(e: ClipEval, ctx: EvalContext, d: CursorData, streamWidth: number, image: number, amount: number): Affine[] {
-  const shutter = ctx.frameSeconds * Math.min(1, SHUTTER * amount);
-  const n = 16;
   const out: Affine[] = [];
-  for (let i = 1; i < n; i++) {
-    const time = e.time - secondsToTicks((shutter * i) / n);
+  for (const time of shutterTimes(e.time, ctx.frameSeconds, amount)) {
     const { pos } = cursorAt(e, d, time);
     out.push(spriteTransform(d, { image, pos }, e.props.cursor!.scale, streamWidth, cursorExtra(e, d, ticksToSeconds(mediaTimeAt(e.clip, time)))));
   }

@@ -16,6 +16,9 @@ import {
   type Project,
   type Session,
   type SessionCommandDef,
+  mergeSpans,
+  subtractSpans,
+  mediaWindow,
 } from "@beacon/model";
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
@@ -48,8 +51,7 @@ function* audioClips(project: Project, registry: FeatureRegistry, data: Data) {
       const t = data<TranscriptData>(clip.assetId, "transcript")?.streams[stream];
       if (!t) continue;
       const speed = clipSpeed(clip);
-      const from = ticksToSeconds(clip.mediaStart ?? 0);
-      const to = from + ticksToSeconds(clip.duration) * speed;
+      const [from, to] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
       const at = ticksToSeconds(clip.start);
       yield { clip, t, from, to, map: (m: number) => roundSeconds(at + (Math.min(Math.max(m, from), to) - from) / speed) };
     }
@@ -131,15 +133,10 @@ const SLIVER_FRAMES = 2;
 function withoutSlivers(doc: Project, ranges: [number, number][]): [number, number][] {
   const sliver = SLIVER_FRAMES * ticksPerFrame(doc.settings.fps);
   const clips = doc.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
-  let out = ranges.map((r) => [...r] as [number, number]).sort((a, b) => a[0] - b[0]);
+  let out: [number, number][] = ranges.map((r) => [...r]);
   for (let changed = true; changed; ) {
     changed = false;
-    const merged: [number, number][] = [];
-    for (const r of out) {
-      const last = merged.at(-1);
-      if (last && r[0] - last[1] <= sliver) last[1] = Math.max(last[1], r[1]);
-      else merged.push(r);
-    }
+    const merged = mergeSpans(out, sliver);
     for (const r of merged) {
       for (const c of clips) {
         const end = c.start + c.duration;
@@ -168,15 +165,6 @@ function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: nu
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
 
-/** `r` minus every range in `holes`. */
-function subtract(r: { start: number; end: number }, holes: { start: number; end: number }[]): { start: number; end: number }[] {
-  let parts = [r];
-  for (const h of holes) {
-    parts = parts.flatMap((p) => (h.end <= p.start || h.start >= p.end ? [p] : [{ start: p.start, end: h.start }, { start: h.end, end: p.end }].filter((x) => x.end > x.start)));
-  }
-  return parts;
-}
-
 /** What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it before the first word, none after the last), outside `except`. */
 function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
   const words = timelineWords(doc, registry, data);
@@ -184,13 +172,10 @@ function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min
   return pauses(doc, registry, data, words)
     .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
     .flatMap((p) =>
-      subtract(
-        {
-          start: p.after === undefined ? 0 : p.start + o.keep / 2,
-          end: p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2,
-        },
-        o.except,
-      ),
+      subtractSpans(
+        [p.after === undefined ? 0 : p.start + o.keep / 2, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2],
+        o.except.map((x) => [x.start, x.end]),
+      ).map(([start, end]) => ({ start, end })),
     );
 }
 
@@ -268,7 +253,7 @@ export interface SilenceReview {
 
 const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, keepActive: true, flipped: [] };
 
-export const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
+const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
 
 /**
  * What Remove Silences does with `o`: each silence over `min`, whether it is screen action and whether it is cut
@@ -296,6 +281,39 @@ const SilenceSettings = {
   keepActive: z.boolean().describe("Keep silences where the recording's cursor moves or clicks (screen action)"),
 };
 
+/** A review's flip, focus and close: Remove Silences' and Remove Filler Words' differ only in what they name. */
+function reviewSteps(key: "silences" | "fillers", title: string, item: string): SessionCommandDef[] {
+  const open = (s: Session) => {
+    const r = (s.features.transcript as { silences?: SilenceReview; fillers?: FillerReview } | undefined)?.[key];
+    if (!r) throw new Error(`${title}' review isn't open: ${key}.review opens it`);
+    return r;
+  };
+  const At = z.strictObject({ at: z.number().nonnegative() });
+  return [
+    {
+      id: `${key}.flip`,
+      description: `In ${title}' review, keep a ${item} it would cut, or cut one it would keep (clicking it on the timeline does): \`at\`, a time inside it, e.g. its start from transcript_${key}`,
+      args: At,
+      apply: (s, { at }: { at: number }) => void open(s).flipped.push(at),
+    },
+    {
+      id: `${key}.focus`,
+      description: `In ${title}' review, go to one ${item} to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): \`at\`, a time inside it, e.g. its start from transcript_${key}. ${key}.apply with \`one\` then cuts only that one`,
+      args: At,
+      apply: (s, { at }: { at: number }) => void (open(s).current = at),
+    },
+    {
+      id: `${key}.close`,
+      description: `Close ${title}' review without cutting anything`,
+      args: z.strictObject({}),
+      apply: (s) => {
+        const t = s.features.transcript as { silences?: SilenceReview; fillers?: FillerReview } | undefined;
+        if (t?.[key]) delete t[key];
+      },
+    },
+  ];
+}
+
 const silenceSessionCommands: SessionCommandDef[] = [
   {
     id: "silences.review",
@@ -307,36 +325,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
       openReview(s, "silences", { ...r, keep: Math.min(r.keep, r.min) });
     },
   },
-  {
-    id: "silences.flip",
-    description: "In Remove Silences' review, keep a silence it would cut, or cut one it would keep (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_silences",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = silenceReview(s);
-      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
-      r.flipped.push(at);
-    },
-  },
-  {
-    id: "silences.focus",
-    description:
-      "In Remove Silences' review, go to one silence to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): `at`, a time inside it, e.g. its start from transcript_silences. silences.apply with `one` then cuts only that one",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = silenceReview(s);
-      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
-      r.current = at;
-    },
-  },
-  {
-    id: "silences.close",
-    description: "Close Remove Silences' review without cutting anything",
-    args: z.strictObject({}),
-    apply: (s) => {
-      const t = s.features.transcript as { silences?: SilenceReview } | undefined;
-      if (t?.silences) delete t.silences;
-    },
-  },
+  ...reviewSteps("silences", "Remove Silences", "silence"),
 ];
 
 /**
@@ -344,7 +333,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
  * "oh": "Ah crap") nor "mm-hmm"/"uh-huh", which answer something.
  */
 const FILLER = /^(u+h*m+|u+h+|e+r+m*|h+m+|m{2,}|a+h+m+)$/;
-export const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
+const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
 
 /** Remove Filler Words' review (`session.features.transcript.fillers`): the fillers flipped by hand. */
 export interface FillerReview {
@@ -354,7 +343,7 @@ export interface FillerReview {
   current?: number;
 }
 
-export const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
+const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
 
 /**
  * The time cut for filler words `first`..`last`: them and the shorter of the pauses either side, so the pause
@@ -416,36 +405,7 @@ const fillerSessionCommands: SessionCommandDef[] = [
     args: z.strictObject({}),
     apply: (s) => openReview(s, "fillers", fillerReview(s) ?? { flipped: [] }),
   },
-  {
-    id: "fillers.flip",
-    description: "In Remove Filler Words' review, keep a filler it would cut, or cut it again (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_fillers",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = fillerReview(s);
-      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
-      r.flipped.push(at);
-    },
-  },
-  {
-    id: "fillers.focus",
-    description:
-      "In Remove Filler Words' review, go to one filler to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): `at`, a time inside it, e.g. its start from transcript_fillers. fillers.apply with `one` then cuts only that one",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = fillerReview(s);
-      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
-      r.current = at;
-    },
-  },
-  {
-    id: "fillers.close",
-    description: "Close Remove Filler Words' review without cutting anything",
-    args: z.strictObject({}),
-    apply: (s) => {
-      const t = s.features.transcript as { fillers?: FillerReview } | undefined;
-      if (t?.fillers) delete t.fillers;
-    },
-  },
+  ...reviewSteps("fillers", "Remove Filler Words", "filler"),
 ];
 
 /** After one item is cut from an open review, its flips and its place move with the timeline. */

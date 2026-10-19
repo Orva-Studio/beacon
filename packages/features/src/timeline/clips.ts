@@ -6,6 +6,8 @@ import {
   clipEnd,
   clipSpeed,
   defineCommand,
+  mergeSpans,
+  subtractSpans,
   isDraft,
   original,
   isFree,
@@ -19,39 +21,24 @@ import {
   ticksPerFrame,
   walkClips,
   type Clip,
-  type ClipLocation,
   type CommandContext,
   type FeatureRegistry,
   type Project,
   type Ticks,
   type Track,
+  clone,
+  freshEffect,
+  findClip,
+  locate,
+  onTrack,
+  withLinked,
+  IdSchema as Id,
+  SecondsSchema as Seconds,
 } from "@beacon/model";
 import { clipStream, mediaInfo, streamOf } from "../media";
 
-const Seconds = z.number().nonnegative();
-const Id = z.string().min(1);
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
 
-/** A main-timeline time (seconds, snapped to its frames) on the clip's own track. */
-export const onTrack = (doc: Project, loc: ClipLocation, seconds: number): Ticks => snapSeconds(seconds, doc.settings.fps) - loc.offset;
-
-export function findClip(doc: Project, registry: FeatureRegistry, id: string): ClipLocation {
-  for (const loc of walkClips(doc.tracks, registry)) if (loc.clip.id === id) return loc;
-  throw new Error(`no clip "${id}"`);
-}
-
-/** The clip and every clip linked to it in the same track list. */
-function withLinked(loc: ClipLocation, linked: boolean): ClipLocation[] {
-  if (!linked || !loc.clip.linkId) return [loc];
-  return loc.tracks.flatMap((track) => track.clips.filter((c) => c.linkId === loc.clip.linkId).map((clip) => ({ clip, track, tracks: loc.tracks, offset: loc.offset })));
-}
-
-/** Each clip once, with its linked clips when `linked`. */
-function locate(doc: Project, registry: FeatureRegistry, ids: string[], linked: boolean): ClipLocation[] {
-  const out = new Map<string, ClipLocation>();
-  for (const id of ids) for (const l of withLinked(findClip(doc, registry, id), linked)) out.set(l.clip.id, l);
-  return [...out.values()];
-}
 
 /** A speed as a fraction in thousandths, reduced (1.5 → 3/2). */
 function rational(x: number): { num: number; den: number } {
@@ -65,8 +52,6 @@ function unlocked(track: Track) {
   if (track.locked) throw new Error(`track "${track.name}" is locked`);
 }
 
-/** A plain copy; also of Immer drafts, which `structuredClone` can't copy. */
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 const holds = (registry: FeatureRegistry, clip: Clip) => registry.hasTrait(clip.type, "hold");
 
@@ -100,9 +85,15 @@ function earliestStart(clip: Clip, registry: FeatureRegistry): Ticks {
 
 /** A deep copy under a new id; clips nested in it (a group's, a stitched clip's pieces) get new ids too, as ids are unique across the document. */
 function copyClip(clip: Clip, ctx: CommandContext): Clip {
-  const copy: Clip = { ...(JSON.parse(JSON.stringify(clip)) as Clip), id: ctx.newId("clip") };
+  const copy: Clip = { ...(clone(clip) as Clip), id: ctx.newId("clip") };
   for (const inner of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) if (inner.clip !== copy) inner.clip.id = ctx.newId("clip");
   return copy;
+}
+
+/** The copies' link for an original's `linkId`: one new link per original link, so copies link to each other. */
+function copiedLink(links: Map<string, string>, linkId: string, ctx: CommandContext): string {
+  if (!links.has(linkId)) links.set(linkId, ctx.newId("link"));
+  return links.get(linkId)!;
 }
 
 /** Splits `clip` at timeline time `at` (strictly inside it); returns the right-hand piece, already in the track. */
@@ -110,24 +101,15 @@ function splitAt(track: Track, clip: Clip, at: Ticks, ctx: CommandContext, links
   const right = copyClip(clip, ctx);
   shiftIn(right, at - clip.start, ctx.registry);
   clip.duration = at - clip.start;
-  if (clip.linkId) {
-    if (!links.has(clip.linkId)) links.set(clip.linkId, ctx.newId("link"));
-    right.linkId = links.get(clip.linkId);
-  }
+  if (clip.linkId) right.linkId = copiedLink(links, clip.linkId, ctx);
   track.clips.splice(track.clips.indexOf(clip) + 1, 0, right);
   return right;
 }
 
 /** Merged, frame-snapped, latest first, so earlier ranges are unaffected by later deletions. */
 function normalizeRanges(doc: Project, ranges: { start: number; end: number }[]): [Ticks, Ticks][] {
-  const sorted = ranges.map((r) => [snapSeconds(r.start, doc.settings.fps), snapSeconds(r.end, doc.settings.fps)] as [Ticks, Ticks]).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
-  const merged: [Ticks, Ticks][] = [];
-  for (const r of sorted) {
-    const last = merged.at(-1);
-    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
-    else merged.push(r);
-  }
-  return merged.reverse();
+  const snapped = ranges.map((r) => [snapSeconds(r.start, doc.settings.fps), snapSeconds(r.end, doc.settings.fps)] as [Ticks, Ticks]).filter(([a, b]) => b > a);
+  return mergeSpans(snapped).reverse() as [Ticks, Ticks][];
 }
 
 /** Removes `[a, b)` from each unlocked, enabled track; with `ripple`, later media moves left to close the gap. */
@@ -184,23 +166,13 @@ export const clipCommands = [
       const locs = locate(doc, ctx.registry, clips ?? [clip!], linked);
       for (const l of locs) unlocked(l.track);
       // The removed time: the union of the clips' spans, across tracks.
-      const spans = locs.map((l) => [l.clip.start, clipEnd(l.clip)] as [Ticks, Ticks]).sort((x, y) => x[0] - y[0]);
-      const union: [Ticks, Ticks][] = [];
-      for (const s of spans) {
-        const last = union.at(-1);
-        if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]);
-        else union.push([...s]);
-      }
+      const union = mergeSpans(locs.map((l) => [l.clip.start, clipEnd(l.clip)]));
       const affected = new Set(locs.map((l) => l.track));
       for (const { clip: c, track } of locs) track.clips.splice(track.clips.indexOf(c), 1);
       if (!ripple) return;
       for (const track of affected) {
         // Time a clip left behind still covers isn't removed from its track, so nothing overlaps.
-        const gaps = union.flatMap(([a, b]) => {
-          let pieces: [Ticks, Ticks][] = [[a, b]];
-          for (const c of track.clips) pieces = pieces.flatMap(([x, y]) => [[x, Math.min(y, c.start)], [Math.max(x, clipEnd(c)), y]] as [Ticks, Ticks][]).filter(([x, y]) => y > x);
-          return pieces;
-        });
+        const gaps = union.flatMap((span) => subtractSpans(span, track.clips.map((c) => [c.start, clipEnd(c)])));
         const removedBefore = (t: Ticks) => gaps.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, t) - a), 0);
         for (const c of track.clips) c.start -= removedBefore(c.start);
       }
@@ -363,10 +335,10 @@ export const clipCommands = [
   }),
   defineCommand({
     id: "clip.unlink",
-    description: "Unlink a clip from the clips recorded with it, so it can be moved and cut on its own",
-    args: z.strictObject({ clip: Id }),
-    apply(doc, { clip }, ctx) {
-      for (const { clip: c } of withLinked(findClip(doc, ctx.registry, clip), true)) delete c.linkId;
+    description: "Unlink clips from the clips recorded with them, so each can be moved and cut on its own",
+    args: z.strictObject({ clips: z.array(Id).min(1) }),
+    apply(doc, { clips }, ctx) {
+      for (const { clip } of locate(doc, ctx.registry, clips, true)) delete clip.linkId;
     },
   }),
   defineCommand({
@@ -392,7 +364,6 @@ export const clipCommands = [
       if (ripple) shiftLater(track, end, d, c);
       else if (!track.magnetic && !isFree(track, end, end + d)) throw new Error("there is media right after the clip; extend it with `ripple`");
       const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
-      const traits = ctx.registry.clipType("still").traits;
       const id = ctx.newId("clip");
       const still: Clip = {
         id,
@@ -402,7 +373,7 @@ export const clipCommands = [
         mediaStart: mediaTimeAt(c, end - ticksPerFrame(doc.settings.fps)),
         assetId: c.assetId,
         props: clone(Object.fromEntries(Object.entries(c.props).filter(([k]) => groups.has(k)))),
-        effects: c.effects.filter((fx) => ctx.registry.effect(fx.type).traits.some((t) => traits.includes(t))).map((fx) => ({ ...clone(fx), id: ctx.newId("fx") })),
+        effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };
       track.clips.splice(track.clips.indexOf(c) + 1, 0, still);
@@ -440,17 +411,10 @@ export const clipCommands = [
         unlocked(to);
         if (to.hidden) throw new Error(`track "${to.name}" is disabled`);
         adoptTrackProps(to, clipboard.trackProps?.[row]);
-        const copy: Clip = { ...clone(clip), id: ctx.newId("clip"), start: t0 + clip.start };
-        if (copy.assetId) copy.assetId = assets.get(copy.assetId) ?? copy.assetId;
-        if (copy.linkId) {
-          if (!links.has(copy.linkId)) links.set(copy.linkId, ctx.newId("link"));
-          copy.linkId = links.get(copy.linkId);
-        }
-        for (const inner of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) {
-          if (inner.clip === copy) continue;
-          inner.clip.id = ctx.newId("clip");
-          if (inner.clip.assetId) inner.clip.assetId = assets.get(inner.clip.assetId) ?? inner.clip.assetId;
-        }
+        const copy = copyClip(clip, ctx);
+        copy.start = t0 + clip.start;
+        if (copy.linkId) copy.linkId = copiedLink(links, copy.linkId, ctx);
+        for (const { clip: c } of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) if (c.assetId) c.assetId = assets.get(c.assetId) ?? c.assetId;
         to.clips.push(copy);
         to.clips.sort((x, y) => x.start - y.start);
         out.push(copy.id);
@@ -497,7 +461,7 @@ export const clipCommands = [
 ];
 
 function hasNested(tracks: Track[], ctx: CommandContext): boolean {
-  return tracks.some((t) => t.clips.some((c) => ctx.registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id])));
+  return tracks.some((t) => t.clips.some((c) => ctx.registry.nestedTracks(c).length));
 }
 
 /**
@@ -512,7 +476,7 @@ export function packMagnetic(doc: Project, ctx: CommandContext) {
   if (!doc.tracks.some((t) => t.magnetic) && !hasNested((isDraft(doc) ? original(doc)! : doc).tracks, ctx)) return;
   const lists = [doc.tracks];
   for (const { clip } of walkClips(doc.tracks, ctx.registry)) {
-    for (const g of ctx.registry.groupsFor(clip.type)) if (g.nested && clip.props[g.id]) lists.push(g.nested(clip.props[g.id]));
+    lists.push(ctx.registry.nestedTracks(clip));
   }
   for (const track of lists.flat()) {
     if (!track.magnetic) continue;

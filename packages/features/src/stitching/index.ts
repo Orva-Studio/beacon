@@ -4,16 +4,19 @@ import {
   defineAction,
   defineCommand,
   defineFeature,
-  shiftIn,
   ticksToSeconds,
   TrackSchema,
   type Animation,
   type Clip,
   type CommandContext,
   type Track,
+  clone,
+  cutToWindow,
+  freshEffect,
+  drawNested,
+  nestedAudio,
 } from "@beacon/model";
 import { cursor } from "../cursor";
-import { drawNested, nestedAudio } from "../groups";
 import { visualSize } from "../media";
 
 const stitchSchema = z.strictObject({
@@ -36,10 +39,9 @@ const toSource = (seg: Clip, inner: number) => (seg.mediaStart ?? 0) + (inner - 
 
 /** Which effects and animation targets the stitched clip itself can carry; the rest belong to its pieces. */
 function outerFits(ctx: CommandContext) {
-  const traits = ctx.registry.clipType("stitched").traits;
   const groups = new Map(ctx.registry.groupsFor("stitched").map((g) => [g.id, g]));
   return {
-    effect: (type: string) => ctx.registry.effect(type).traits.some((t) => traits.includes(t)),
+    effect: (type: string) => ctx.registry.effectFits(type, "stitched"),
     target: (key: string) => {
       const [group, field] = key.split(".", 2);
       return !!groups.get(group!)?.animatable?.includes(field ?? "");
@@ -104,7 +106,7 @@ export const stitching = defineFeature({
         const fits = outerFits(ctx);
         const animations = new Map<string, Animation>();
         const segments: Clip[] = pieces.map((c, i) => {
-          const seg = JSON.parse(JSON.stringify(c)) as Clip;
+          const seg = clone(c) as Clip;
           seg.start = c.start - first.start;
           const windowEnd = (c.mediaStart ?? 0) + c.duration;
           const own: Animation[] = [];
@@ -112,10 +114,10 @@ export const stitching = defineFeature({
             const outer = Object.keys(a.to).filter(fits.target);
             const rest = Object.keys(a.to).filter((k) => !fits.target(k));
             // Targets the stitched clip can't take (the cursor's) stay on the piece.
-            if (rest.length) own.push({ ...JSON.parse(JSON.stringify(a)), ...(outer.length ? { id: ctx.newId("anim") } : {}), to: Object.fromEntries(rest.map((k) => [k, a.to[k]])) });
+            if (rest.length) own.push({ ...clone(a), ...(outer.length ? { id: ctx.newId("anim") } : {}), to: Object.fromEntries(rest.map((k) => [k, a.to[k]])) });
             // Split pieces share blocks (same ids, source time); keep each once, on the inner timeline.
             if (!outer.length || animations.has(a.id) || a.end > windowEnd) continue;
-            const block: Animation = { ...JSON.parse(JSON.stringify(a)), to: Object.fromEntries(outer.map((k) => [k, a.to[k]])), end: toInner(seg, a.end) };
+            const block: Animation = { ...clone(a), to: Object.fromEntries(outer.map((k) => [k, a.to[k]])), end: toInner(seg, a.end) };
             // A block that ended before a later piece starts shows there as it holds: a cut at the join, not a ramp over the piece before.
             if (i && block.end < seg.start) Object.assign(block, { end: seg.start, duration: 0 });
             animations.set(a.id, block);
@@ -132,8 +134,8 @@ export const stitching = defineFeature({
           start: first.start,
           duration: clipEnd(pieces.at(-1)!) - first.start,
           mediaStart: 0,
-          props: { ...Object.fromEntries(LOOK.filter((g) => first.props[g]).map((g) => [g, JSON.parse(JSON.stringify(first.props[g]))])), stitch: { width: size[0], height: size[1], tracks: [{ id: ctx.newId("track"), name: "Segments", clips: segments }] } },
-          effects: first.effects.filter((fx) => fits.effect(fx.type)).map((fx) => ({ ...JSON.parse(JSON.stringify(fx)), id: ctx.newId("fx") })),
+          props: { ...Object.fromEntries(LOOK.filter((g) => first.props[g]).map((g) => [g, clone(first.props[g])])), stitch: { width: size[0], height: size[1], tracks: [{ id: ctx.newId("track"), name: "Segments", clips: segments }] } },
+          effects: first.effects.filter((fx) => fits.effect(fx.type)).map((fx) => freshEffect(fx, ctx.newId)),
           animations: [...animations.values()].sort((a, b) => a.end - b.end),
         };
         track.clips = [...track.clips.filter((c) => !clips.includes(c.id)), stitched].sort((a, b) => a.start - b.start);
@@ -153,15 +155,12 @@ export const stitching = defineFeature({
         const [a, b] = [s.mediaStart ?? 0, (s.mediaStart ?? 0) + s.duration];
         const out: Clip[] = [];
         for (const seg of (s.props.stitch as Stitch).tracks[0]!.clips) {
-          if (clipEnd(seg) <= a || seg.start >= b) continue;
-          const c = JSON.parse(JSON.stringify(seg)) as Clip;
-          const hold = ctx.registry.hasTrait(c.type, "hold");
-          if (c.start < a) shiftIn(c, a - c.start, hold);
-          if (clipEnd(c) > b) c.duration = b - c.start;
-          for (const g of LOOK) if (s.props[g]) c.props[g] = JSON.parse(JSON.stringify(s.props[g]));
-          c.effects = [...seg.effects, ...s.effects.map((fx) => ({ ...JSON.parse(JSON.stringify(fx)), id: ctx.newId("fx") }))];
+          const c = cutToWindow(seg, a, b, ctx.registry);
+          if (!c) continue;
+          for (const g of LOOK) if (s.props[g]) c.props[g] = clone(s.props[g]);
+          c.effects = [...seg.effects, ...s.effects.map((fx) => freshEffect(fx, ctx.newId))];
           // Every piece keeps every block, in its own source time, as split pieces do.
-          c.animations = [...seg.animations, ...s.animations.map((x) => ({ ...JSON.parse(JSON.stringify(x)), end: toSource(seg, x.end) }))].sort((x, y) => x.end - y.end);
+          c.animations = [...seg.animations, ...s.animations.map((x) => ({ ...clone(x), end: toSource(seg, x.end) }))].sort((x, y) => x.end - y.end);
           c.start = s.start + (c.start - a);
           c.id = ctx.newId("clip");
           out.push(c);

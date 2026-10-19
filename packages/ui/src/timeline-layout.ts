@@ -33,6 +33,12 @@ export const SNAP = 12;
 /** The top of display row `i` (top track first) for tracks `track` points tall. */
 export const rowTop = (i: number, track: number) => RULER + i * track;
 
+/** The row under `y`, of `rows` (display order: top first), if any. */
+export const rowAt = (y: number, track: number, rows: number): number | undefined => {
+  const i = Math.floor((y - RULER) / track);
+  return y > RULER && i >= 0 && i < rows ? i : undefined;
+};
+
 /** A clip's box in its row: 3 points in from the row's edges. */
 export const clipBox = (i: number, track: number) => ({ y: rowTop(i, track) + 3, h: track - 6 });
 
@@ -70,10 +76,10 @@ export const rangeEdgeAt = (x: number, inX: number, outX: number): "in" | "out" 
   return din <= dout ? "in" : "out";
 };
 
-export const ARROW = { fill: () => color("arrow"), selected: () => color("arrow-selected"), start: () => color("arrow-start"), end: () => color("arrow-end") };
+const ARROW = { fill: () => color("arrow"), selected: () => color("arrow-selected"), start: () => color("arrow-start"), end: () => color("arrow-end") };
 
 /** The arrowhead's height on a clip `ch` tall: what the arrow hit test and drawing share. */
-export const arrowHead = (ch: number) => Math.min(ch * 0.72, 40);
+const arrowHead = (ch: number) => Math.min(ch * 0.72, 40);
 
 /** Half the animation band's height on a clip `ch` tall (its diamonds reach as far). */
 const bandHalf = (ch: number) => Math.min(15, arrowHead(ch) * 0.42);

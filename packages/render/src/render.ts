@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { enginePath, runTool, spawn, tool, toolsDir } from "@beacon/media";
+import { enginePath, ffmpegArgs, ffmpegInput, readLines, runTool, spawn, toolsDir } from "@beacon/media";
 import { DEFAULT_CACHE_DIR, DerivedData } from "./derived";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -14,6 +14,7 @@ import {
   type Easing,
   type FeatureRegistry,
   type Project,
+  type EvaluateEnv,
   type Scene,
   type SourceDef,
   type Ticks,
@@ -21,31 +22,11 @@ import {
   rationalToNumber,
   fittedSize,
   autoBitrate,
+  VIDEO_FORMATS,
+  type VideoEncoding,
 } from "@beacon/model";
 
-/** Export options; the format is the path's extension: .mp4, .mov, .gif or .webm. */
-export interface VideoEncoding {
-  /** .mp4 and .mov; ProRes only in .mov. */
-  codec?: "h264" | "hevc" | "prores";
-  /** Video data rate in kbit/s; omitted: automatic (`autoBitrate`). */
-  bitrate?: number;
-  /** A keyframe every this many frames. */
-  keyframe?: number;
-  /** H.264 profile. */
-  profile?: "baseline" | "main" | "high";
-  /** Output frame rate; omitted: the project's. */
-  fps?: number;
-  /** Fit within this size, keeping the aspect ratio; omitted: the canvas. */
-  size?: { width: number; height: number };
-  /** false: no audio track. */
-  audio?: boolean;
-  /** Audio data rate in kbit/s. */
-  audioBitrate?: number;
-  /** Export colour space: BT.709 (default), or sRGB's transfer, which macOS players show as the editor does. */
-  colorSpace?: "bt709" | "srgb";
-}
-
-export const VIDEO_FORMATS = ["mp4", "mov", "gif", "webm"] as const;
+export type { VideoEncoding };
 
 export type RenderOutput = ({ kind: "video"; path: string } & VideoEncoding) | { kind: "png"; dir: string };
 
@@ -69,10 +50,33 @@ function workerPath(): string {
   return path;
 }
 
-/** The worker/renderer job header: canvas, every registered pass, where to cache frame indexes. */
-export function renderJob(project: Project, registry: FeatureRegistry, output: unknown, cacheDir?: string) {
+/** The worker/renderer job header: canvas, every registered pass, where to cache frame indexes and (for the export worker) what it writes. */
+export function renderJob(project: Project, registry: FeatureRegistry, cacheDir?: string, output?: unknown) {
   const passes = Object.fromEntries([...registry.passes.values()].map((p) => [p.id, { wgsl: p.wgsl, steps: p.steps }]));
   return { width: project.settings.width, height: project.settings.height, fps: project.settings.fps, output, sources: {}, passes, cacheDir };
+}
+
+/** What a renderer is made for: a new canvas size or frame rate needs a new one. */
+export const canvasKey = ({ settings: { width, height, fps } }: Project) => `${width}x${height}@${fps.num}/${fps.den}`;
+
+/**
+ * The scene at `t` for a renderer that keeps the sources it was sent: it carries those `sent` doesn't have yet or
+ * that changed, and `sent` then has them. Without `sent`, every source the scene draws.
+ */
+export function sceneAt(project: Project, registry: FeatureRegistry, t: Ticks, data: EvaluateEnv["data"], sent?: Map<string, string>): Scene {
+  const sources = new Map<string, SourceDef>();
+  const scene = evaluate(project, registry, t, { data, sources });
+  const fresh = [...sources].map(([id, def]) => [id, def, JSON.stringify(def)] as const).filter(([id, , json]) => sent?.get(id) !== json);
+  if (fresh.length) {
+    scene.sources = Object.fromEntries(fresh.map(([id, def]) => [id, def]));
+    for (const [id, , json] of fresh) sent?.set(id, json);
+  }
+  return scene;
+}
+
+/** Refuses an encoding the format can't hold: ProRes is only in .mov. */
+export function checkEncoding(format: (typeof VIDEO_FORMATS)[number], o: Pick<VideoEncoding, "codec">) {
+  if (o.codec === "prores" && format !== "mov") throw new Error(`ProRes exports to .mov, not .${format}`);
 }
 
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
@@ -115,8 +119,8 @@ function encoderArgs(project: Project, o: Extract<RenderOutput, { kind: "video" 
     const quality = o.bitrate ? ["-b:v", `${o.bitrate}k`] : ["-b:v", "0", "-crf", "32"];
     return ["-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", ...quality, ...keyframe, "-row-mt", "1", "-deadline", "good", "-cpu-used", "4", "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
   }
+  checkEncoding(format, o);
   const codec = o.codec ?? "h264";
-  if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
   const quality = codec === "prores" ? [] : ["-b:v", `${bitrateOf(project, o)}k`, ...keyframe];
   const profile = codec === "h264" && o.profile ? ["-profile:v", o.profile] : [];
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
@@ -129,8 +133,8 @@ function encoderArgs(project: Project, o: Extract<RenderOutput, { kind: "video" 
 function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video" }>, path: string) {
   const format = videoFormat(o.path);
   if ((format !== "mp4" && format !== "mov") || process.env.BEACON_ENCODE_FFMPEG) return undefined;
+  checkEncoding(format, o);
   const codec = o.codec ?? "h264";
-  if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
   return {
     kind: "encode",
     path,
@@ -165,7 +169,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const step = native ? (TICKS_PER_SECOND * native.fps.den) / native.fps.num : frameTicks;
     const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + Math.round(i * step)) : frames.map((f) => f * frameTicks);
 
-    const job = renderJob(project, registry, output, opts.cacheDir);
+    const job = renderJob(project, registry, opts.cacheDir, output);
     // The audio is mixed while the video renders; the two are muxed after.
     const audio = opts.output.kind === "video" && format !== "gif" ? mixAudio(project, registry, opts.output, tmp!, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step)) : undefined;
     audio?.catch(() => {});
@@ -173,36 +177,21 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
     let error: string | undefined;
     let done = 0;
-    const reader = (async () => {
-      const lines = proc.stdout.pipeThrough(new TextDecoderStream());
-      let buf = "";
-      for await (const chunk of lines) {
-        buf += chunk;
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const msg = JSON.parse(buf.slice(0, nl)) as { frame?: number; done?: number; error?: string };
-          buf = buf.slice(nl + 1);
-          if (msg.error) error = msg.error;
-          if (msg.frame !== undefined) opts.onProgress?.(msg.frame, times.length);
-          if (msg.done !== undefined) done = msg.done;
-        }
-      }
-    })();
+    const reader = readLines(proc.stdout, (line) => {
+      const msg = JSON.parse(line) as { frame?: number; done?: number; error?: string };
+      if (msg.error) error = msg.error;
+      if (msg.frame !== undefined) opts.onProgress?.(msg.frame, times.length);
+      if (msg.done !== undefined) done = msg.done;
+    });
 
     const data = opts.data ?? new DerivedData(registry, opts.cacheDir ?? DEFAULT_CACHE_DIR, () => project).get;
-    const known = new Set<string>();
+    const sent = new Map<string, string>();
     let failure: unknown;
     try {
       proc.stdin.write(`${JSON.stringify(job)}\n`);
       for (const [i, time] of times.entries()) {
         if (error) break;
-        const sources = new Map<string, SourceDef>();
-        const scene: Scene = evaluate(project, registry, time, { data, sources });
-        const fresh = [...sources].filter(([id]) => !known.has(id));
-        if (fresh.length) {
-          scene.sources = Object.fromEntries(fresh);
-          for (const [id] of fresh) known.add(id);
-        }
+        const scene = sceneAt(project, registry, time, data, sent);
         if (opts.output.kind === "png") scene.name = `f${String(frames[i]).padStart(6, "0")}`;
         proc.stdin.write(`${JSON.stringify(scene)}\n`);
         await proc.stdin.flush();
@@ -262,7 +251,7 @@ function atempo(speed: number): string {
  * [start, start + length) into `[aout]`, starting at `firstInput`; the
  * export muxes it under the video, playback streams it to the device.
  */
-export function audioMix(project: Project, registry: FeatureRegistry, start: number, length: number, firstInput = 0, source?: AudioSource): { inputs: string[]; filter?: string } {
+function audioMix(project: Project, registry: FeatureRegistry, start: number, length: number, firstInput = 0, source?: AudioSource): { inputs: string[]; filter?: string } {
   const inputs: string[] = [];
   const filters: string[] = [];
   let n = 0;
@@ -273,7 +262,7 @@ export function audioMix(project: Project, registry: FeatureRegistry, start: num
     const media = s.mediaStart + (from - s.start) * s.speed;
     const input = firstInput + n++;
     const src = source?.(s) ?? { path: s.path, stream: s.stream };
-    inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), "-protocol_whitelist", "file", "-i", src.path);
+    inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), ...ffmpegInput(src.path));
     const volume = s.gain.ramps.length ? `volume='${gainExpr(s.gain, media)}':eval=frame` : `volume=${s.gain.base.toFixed(5)}`;
     filters.push(`[${input}:a:${src.stream}]${volume}${atempo(s.speed)},adelay=delays=${Math.round((from - start) * 1000)}:all=1[a${n}]`);
   }
@@ -290,7 +279,7 @@ export function audioPlaybackArgs(project: Project, registry: FeatureRegistry, s
   if (!filter) return [];
   // atempo keeps the pitch; ffmpeg 7 takes 0.5-100 in one stage.
   const sped = rate === 1 ? filter : `${filter};[aout]atempo=${rate}[sped]`;
-  return [tool("ffmpeg"), "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
+  return [...ffmpegArgs(), ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
 }
 
 /** Mixes every audible segment in the rendered range into a file in `dir`; undefined when silent or without audio. */
@@ -301,7 +290,7 @@ async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<
   // Opus runs at 48 kHz only.
   const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
   const path = join(dir, webm ? "audio.webm" : "audio.mov");
-  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
+  const args = [...ffmpegArgs(), "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio mix failed: ${e.message}`);
   });
@@ -310,8 +299,8 @@ async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<
 
 /** The rendered video with the mixed audio under it, both copied. */
 async function mux(video: string, audio: string | undefined, o: Extract<RenderOutput, { kind: "video" }>) {
-  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video];
-  if (audio) args.push("-protocol_whitelist", "file", "-i", audio, "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest");
+  const args = [...ffmpegArgs(), "-y", ...ffmpegInput(video)];
+  if (audio) args.push(...ffmpegInput(audio), "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest");
   else args.push("-map", "0:v", "-c:v", "copy");
   if (videoFormat(o.path) !== "webm") args.push("-movflags", "+faststart");
   args.push(o.path);

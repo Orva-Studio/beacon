@@ -9,7 +9,7 @@ use beacon_render::Renderer;
 use beacon_render::scene::{Job, Scene};
 use beacon_render::sources::{decode_png, png_bytes};
 
-use crate::{guard, str_arg};
+use crate::{copy_out, guard, str_arg};
 
 pub struct FfiRenderer {
     renderer: Renderer,
@@ -171,14 +171,7 @@ pub unsafe extern "C" fn beacon_renderer_sheet(h: *mut FfiRenderer, scenes_json:
 pub unsafe extern "C" fn beacon_renderer_result_copy(h: *mut FfiRenderer, out: *mut u8, cap: usize) -> i32 {
     guard(-1, || {
         let fr = handle(h)?;
-        if out.is_null() {
-            return Err("output is null".into());
-        }
-        if cap < fr.result.len() {
-            return Err("output is too small".into());
-        }
-        unsafe { ptr::copy_nonoverlapping(fr.result.as_ptr(), out, fr.result.len()) };
-        Ok(0)
+        unsafe { copy_out(&fr.result, out, cap) }
     })
 }
 
@@ -228,12 +221,7 @@ pub unsafe extern "C" fn beacon_png_paste(base: *const u8, base_len: usize, over
 pub unsafe extern "C" fn beacon_png_result_copy(out: *mut u8, cap: usize) -> i32 {
     guard(-1, || {
         PASTED.with(|p| {
-            let p = p.borrow();
-            if out.is_null() || cap < p.len() {
-                return Err("output is too small".into());
-            }
-            unsafe { ptr::copy_nonoverlapping(p.as_ptr(), out, p.len()) };
-            Ok(0)
+            unsafe { copy_out(&p.borrow(), out, cap) }
         })
     })
 }

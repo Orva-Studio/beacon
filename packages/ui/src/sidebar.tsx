@@ -2,13 +2,13 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem } from "./drop";
-import { AI_TOOLS, allItems, ANNOTATIONS, AUDIO_EFFECTS, inFavoriteOrder, visualEffects, type Item } from "./panel-items";
+import { AI_TOOLS, allItems, annotations, audioEffects, inFavoriteOrder, visualEffects, type Item } from "./panel-items";
 import type { Init, RecordSheet } from "./rpc";
-import { Button, Icon, ItemTile, LevelMeter, RailButton, Select, type IconName } from "./controls";
-import { clock, HEADPHONES, useCountdown, useNarrationSpan, useRecordLevels } from "./record";
+import { Button, Check, DeviceSelect, Icon, ItemTile, LevelMeter, RailButton, type IconName } from "./controls";
+import { HEADPHONES, useCountdown, useNarrationSpan, useRecordLevels } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
-import { replica, useView } from "./store";
+import { useView } from "./store";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 
@@ -59,7 +59,7 @@ export const ToolPanel = memo(function ToolPanel({
   if (tool === "ai") return <AiPanel host={host} />;
   if (tool === "narration") return <NarrationPanel host={host} />;
   const effects = visualEffects(init);
-  const items: Record<string, Item[]> = { annotations: ANNOTATIONS, visualEffects: effects, audioEffects: AUDIO_EFFECTS };
+  const items: Record<string, Item[]> = { annotations: annotations(init), visualEffects: effects, audioEffects: audioEffects(init) };
   if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={allItems(init)} host={host} ordered />;
   if (items[tool]) return <ItemsPanel key={tool} title={label} items={items[tool]} host={host} />;
   return (
@@ -156,13 +156,7 @@ function NarrationPanel({ host }: { host: Host }) {
   return (
     <Panel title="Narration">
       <div className="flex flex-col gap-3 text-body" data-narration-panel>
-        <Select value={microphone ?? ""} disabled={narrating || counting !== undefined} onChange={(e) => setMicrophone(e.target.value)} aria-label="Microphone">
-          {devices?.microphones.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </Select>
+        <DeviceSelect devices={devices?.microphones ?? []} value={microphone} disabled={narrating || counting !== undefined} onChange={setMicrophone} aria-label="Microphone" />
         <div className="flex">
           <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />
         </div>
@@ -170,10 +164,7 @@ function NarrationPanel({ host }: { host: Host }) {
           <span className="text-caption text-warning">Allow Beacon in System Settings › Privacy & Security › Microphone</span>
         )}
         {!span.still && (
-          <label className="flex items-center gap-2 text-text">
-            <input type="checkbox" checked={hear} disabled={narrating} onChange={(e) => setHear(e.target.checked)} data-narration-hear />
-            Hear the timeline while recording
-          </label>
+          <Check label="Hear the timeline while recording" checked={hear} disabled={narrating} onChange={setHear} data-narration-hear />
         )}
         {hear && !span.still && <span className="text-caption text-warning">{HEADPHONES}</span>}
         {narrating ? (

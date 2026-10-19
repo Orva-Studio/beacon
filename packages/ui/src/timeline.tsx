@@ -1,129 +1,27 @@
 import { useEffect, useRef } from "react";
 import {
-  animatedValue,
-  assetName,
-  trackName,
-  clipSpeed,
-  editScope,
-  scopedProject,
-  envelopePoints,
-  mediaTimeAt,
   planMove,
-  trimBounds,
   rationalToNumber,
   secondsToTicks,
   snapOffset,
   snapTargets,
   ticksToSeconds,
   TRACK_HEIGHT,
-  type Animation,
+  trackName,
+  trimBounds,
   type Clip,
   type Project,
   type Session,
-  type Track,
 } from "@beacon/model";
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
-import { drawIcon, PLAIN_TEXT, type IconName } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, cornerButtons, drawArrow, drawFxBadge, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, rangeEdgeAt, RULER, rowTop, SNAP, volumeY } from "./timeline-layout";
+import { RenameField } from "./controls";
+import { arrowHalfHeight, clipBox, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
-import { color, font } from "./theme";
-import { timecode } from "./time";
-
-const INVALID = () => color("invalid");
-
-type PressDrag = { kind: "press"; clip: string; x0: number; y0: number; toggle: boolean; ripple: boolean };
-/** `moves`: every clip that moves (with a ripple, those after it too) → tracks up. */
-type MoveDrag = { kind: "move"; ids: string[]; moves: Map<string, number>; by: number; rows: number; ripple: boolean; error?: string; x0: number; y0: number };
-type Drag =
-  | { kind: "playhead" }
-  | { kind: "height" }
-  | { kind: "track"; track: string; from: number; to: number }
-  | { kind: "anim"; clip: string; anim: string; part: "start" | "end" | "body"; x0: number; a: number; b: number; key: string }
-  | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
-  | { kind: "range"; anchor: number }
-  | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
-  | { kind: "space"; at: number; d: number }
-  | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
-  | PressDrag
-  | MoveDrag
-  | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean };
+import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
+import { propsOf } from "./props";
 
 const status = (text: string) => replica.status(text);
-
-/**
- * What the timeline shows: the project, or with a group open (its
- * group tab) its tracks at main-timeline times, the times commands take.
- */
-export function timelineView(project: Project, session: Session, nested: Record<string, string>): { project: Project; group?: Clip } {
-  // The same object while the project and the open group are: a new one each render would redraw the timeline every tick.
-  const last = lastView;
-  if (last && last.project === project && last.group === session.group && last.nested === nested) return last.view;
-  const scope = editScope(project, session.group, (c) => innerTracks(c, nested));
-  const view = { project: scopedProject(project, scope), group: scope.group };
-  lastView = { project, group: session.group, nested, view };
-  return view;
-}
-/** No nested prop groups, as one object so `timelineView`'s callers share its cached view before `init` arrives. */
-export const NO_NESTED: Record<string, string> = {};
-let lastView: { project: Project; group: Session["group"]; nested: Record<string, string>; view: { project: Project; group?: Clip } } | undefined;
-
-/** Timeline seconds of a media time in a clip. */
-const onTimeline = (c: Clip, media: number) => ticksToSeconds(c.start + (media - (c.mediaStart ?? 0)) / clipSpeed(c));
-
-/** The clip's visual animation blocks as timeline spans; audio volume points are drawn as a line instead. */
-function arrows(c: Clip): { anim: Animation; a: number; b: number }[] {
-  return c.animations
-    .filter((a) => Object.keys(a.to).some((k) => !k.startsWith("audio.")))
-    .map((anim) => ({ anim, a: onTimeline(c, anim.end - anim.duration), b: onTimeline(c, anim.end) }));
-}
-
-/** How long a clip's fx badge flashes after an effect is added to it. */
-const FLASH_MS = 1600;
-
-/** A clip's audio points on the timeline (seconds, gain), as the volume feature reads them. */
-function volumePoints(c: Clip): { time: number; value: number }[] {
-  const base = Number((c.props.audio as { volume?: number } | undefined)?.volume ?? 1);
-  return envelopePoints(base, c.animations, "audio.volume").map((p) => ({ time: onTimeline(c, p.time), value: p.value }));
-}
-
-function volumeAt(c: Clip, t: number): number {
-  return Number(animatedValue((c.props.audio as { volume?: number } | undefined)?.volume ?? 1, "audio.volume", c.animations, mediaTimeAt(c, secondsToTicks(t))));
-}
-
-const VOLUME = { line: () => color("volume-line"), selected: () => color("volume-selected") };
-
-/** `text` cut to `max` pixels wide with an ellipsis. */
-function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
-  if (ctx.measureText(text).width <= max) return text;
-  let s = text;
-  while (s && ctx.measureText(`${s}…`).width > max) s = s.slice(0, -1);
-  return `${s}…`;
-}
-
-/** Clips are coloured by kind; selection adds an accent border, and brightens audio. */
-const CLIP = { text: () => color("text-bright"), wave: () => color("wave"), badge: () => color("clip-badge") };
-const KIND: Record<string, string> = { screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation", caption: "clip-annotation" };
-
-/**
- * A clip's colour token: a recording's camera blue, other visual media (screen recordings, imported video
- * and images) green, audio orange, annotations purple; a stitched clip by its first piece; groups neutral.
- */
-function kindColor(clip: Clip, nested: Record<string, string>, project: Project): string {
-  const group = nested[clip.type];
-  if (clip.type === "stitched" && group) {
-    const first = (clip.props[group] as { tracks?: { clips: Clip[] }[] } | undefined)?.tracks?.[0]?.clips[0];
-    if (first) return kindColor(first, nested, project);
-  }
-  if ((clip.type === "video" || clip.type === "still") && project.assets[clip.assetId ?? ""]?.kind === "recording") return "clip-video";
-  return KIND[clip.type] ?? "clip";
-}
-const AUDIO_SELECTED = { fill: () => color("audio-selected"), top: () => color("audio-selected-top"), wave: () => color("audio-selected-wave") };
-const SELECTED = () => color("accent");
-const CLIP_RADIUS = 8;
-/** A colour label's stripe along the top of a clip, in points. */
-const LABEL_H = 6;
-const STITCH = () => color("stitch");
 
 interface Props {
   project: Project;
@@ -146,78 +44,6 @@ interface Props {
   markClick?: (mark: TimelineMark, alt: boolean) => void;
 }
 
-/** A span over every track, in timeline seconds. */
-export interface TimelineMark {
-  start: number;
-  end: number;
-  tone: "cut" | "keep";
-  /** The one being looked at, going through them one at a time: outlined. */
-  current?: boolean;
-}
-
-const images = new Map<string, HTMLImageElement>();
-
-/** Lets go of decoded thumbnails no clip shows any more (deleted, or another project's): `thumbs` keeps every one sent. */
-function keepImages(project: Project, thumbs: Record<string, string>) {
-  const shown = new Set(project.tracks.flatMap((t) => t.clips.map((c) => thumbs[c.id])));
-  for (const url of images.keys()) if (!shown.has(url)) images.delete(url);
-}
-
-/** A decoded thumbnail, or undefined until it has loaded (then `onLoad` redraws). */
-function image(url: string, onLoad: () => void): HTMLImageElement | undefined {
-  let img = images.get(url);
-  if (!img) {
-    img = new Image();
-    img.onload = onLoad;
-    img.src = url;
-    images.set(url, img);
-  }
-  return img.complete && img.naturalWidth ? img : undefined;
-}
-
-/** Points per frame from which the ruler ticks each frame, numbers them, and shades the playhead's frame. */
-const FRAME_TICKS = 5;
-const FRAME_LABELS = 36;
-const FRAME_SHADE = 10;
-
-/** Ruler ticks: the smallest step that leaves room for a label. */
-function step(pxPerSecond: number, fps: number): number {
-  const steps = [1 / fps, 5 / fps, 10 / fps, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
-  return steps.find((s) => s * pxPerSecond >= 90) ?? 3600;
-}
-
-/** A group's or stitched clip's own tracks, through the prop group that holds them (`Init.nested`). */
-export function innerTracks(clip: Clip, nested: Record<string, string>): Track[] | undefined {
-  const g = nested[clip.type];
-  return g ? (clip.props[g] as { tracks?: Track[] } | undefined)?.tracks : undefined;
-}
-
-/** The media's file name without its extension; a group is "Group". */
-function clipLabel(project: Project, clip: Clip, nested: Record<string, string>, traits: string[] = []): string {
-  if (traits.includes("group")) return "Group";
-  // Stitched media is named after the recording its pieces come from.
-  const inner = innerTracks(clip, nested)?.[0]?.clips[0];
-  const asset = project.assets[clip.assetId ?? inner?.assetId ?? ""];
-  if (asset) return assetName(asset);
-  // Annotations say what they are: a text callout its text, the rest their shape or kind.
-  const callout = clip.props.callout as { shape?: string; text?: { text?: string } } | undefined;
-  if (callout?.shape === "text") return callout.text?.text?.split("\n")[0]?.trim() || "Text";
-  if (callout?.shape) return callout.shape === "rectangle" ? "Shape" : callout.shape[0]!.toUpperCase() + callout.shape.slice(1);
-  const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
-  if (caption) {
-    const from = ticksToSeconds(clip.mediaStart ?? 0);
-    const to = from + ticksToSeconds(clip.duration);
-    return caption.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to).map((w) => w.text).join(" ") || "Caption";
-  }
-  const region = (clip.props.region as { kind?: string } | undefined)?.kind;
-  if (region) return region[0]!.toUpperCase() + region.slice(1);
-  return clip.type;
-}
-
-/**
- * The timeline, drawn on a canvas (PLAN §10). Drags draw a ghost and send
- * one command when they end, so each is one undo step.
- */
 export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
@@ -256,546 +82,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
 
-  const draw = () => {
-    const c = canvas.current;
-    if (!c) return;
-    const { project, session, waveforms, thumbs, marks } = latest.current;
-    const tracks = [...project.tracks].reverse();
-    const TRACK = session.timeline.trackHeight;
-    const fps = rationalToNumber(project.settings.fps);
-    const { w, h } = size.current;
-    const dpr = window.devicePixelRatio || 1;
-    const { start, end } = session.timeline;
-    const width = Math.max(1, w - HEADER);
-    const pps = width / (end - start);
-    const x = (t: number) => HEADER + (t - start) * pps;
-
-    // Everything but the playhead is drawn into a cached layer, redrawn only when what it shows changes:
-    // a playback tick then costs a copy and the playhead.
-    const now = performance.now();
-    for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, flashes.current.size ? now : 0];
-    const layer = staticLayer.current;
-    if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
-      layer.canvas = document.createElement("canvas");
-      layer.canvas.width = c.width;
-      layer.canvas.height = c.height;
-      layer.key = [];
-    }
-    if (layer.key.length !== key.length || key.some((k, i) => k !== layer.key[i])) {
-      layer.key = key;
-      drawStatic(layer.canvas.getContext("2d")!);
-    }
-    const ctx = c.getContext("2d")!;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(layer.canvas, 0, 0);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawPlayhead(ctx);
-
-    function drawStatic(ctx: CanvasRenderingContext2D) {
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = color("well");
-    ctx.fillRect(0, 0, w, h);
-
-    tracks.forEach((t, i) => {
-      const y = RULER + i * TRACK;
-      ctx.fillStyle = color("well");
-      ctx.fillRect(HEADER, y, width, TRACK);
-      ctx.strokeStyle = color("track-line");
-      ctx.beginPath();
-      ctx.moveTo(0, y + TRACK + 0.5);
-      ctx.lineTo(w, y + TRACK + 0.5);
-      ctx.stroke();
-    });
-
-    const d = dragState.current ?? settling.current?.drag;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(HEADER, RULER, width, h - RULER);
-    ctx.clip();
-    tracks.forEach((t, i) => {
-      const { y, h: ch } = clipBox(i, TRACK);
-      for (const clip of t.clips) {
-        let a = ticksToSeconds(clip.start);
-        let b = ticksToSeconds(clip.start + clip.duration);
-        if (d?.kind === "trim" && d.clip === clip.id && !d.extend) {
-          if (d.edge === "start") a = d.t;
-          else b = d.t;
-        }
-        if (b < start || a > end) continue;
-        const audio = clip.type === "audio";
-        const x0 = x(a) + 0.5;
-        const cw = Math.max(1, (b - a) * pps - 1.5);
-        const selected = session.selection.includes(clip.id);
-        const teal = audio && selected;
-        // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
-        const silent = audio && !!t.muted;
-        ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * (d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1) * (t.locked ? 0.6 : 1);
-        ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
-        const kind = kindColor(clip, nested, project);
-        ctx.fillStyle = teal ? AUDIO_SELECTED.fill() : color(kind);
-        ctx.fill();
-        ctx.clip();
-        let textX = x0 + 10;
-        const tag = (clip.props.label as { color?: string | null } | undefined)?.color;
-        if (audio) {
-          if (teal && !tag) {
-            ctx.fillStyle = AUDIO_SELECTED.top();
-            ctx.fillRect(x0, y, cw, 2);
-          }
-          const peaks = clip.assetId ? waveforms[clip.assetId]?.[Number((clip.props.media as { stream?: number } | undefined)?.stream ?? 0)] : undefined;
-          if (peaks) {
-            ctx.fillStyle = teal ? AUDIO_SELECTED.wave() : CLIP.wave();
-            const media0 = ticksToSeconds(clip.mediaStart ?? 0);
-            const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
-            // Drawn at the level it plays: boost times the volume line, so fades taper and a quiet clip looks quiet.
-            const boost = Number((clip.props.audio as { gain?: number } | undefined)?.gain ?? 1);
-            for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
-              const t = start + (px - HEADER) / pps;
-              const m = media0 + (t - a) * speed;
-              const k = Math.floor(m * 100);
-              let peak = 0;
-              for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
-              const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
-              ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
-            }
-          }
-        } else {
-          const url = thumbs[clip.id];
-          const img = url ? image(url, () => (loaded.current++, drawRef.current())) : undefined;
-          if (img && cw > 40) {
-            const th = ch - 10;
-            const tw = (img.naturalWidth / img.naturalHeight) * th;
-            ctx.drawImage(img, x0 + 6, y + 5, tw, th);
-            textX = x0 + 6 + tw + 10;
-          }
-        }
-        if (tag) {
-          ctx.fillStyle = color(`label-${tag}`);
-          ctx.fillRect(x0, y, cw, LABEL_H);
-        }
-        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
-        // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.
-        if (clip.linkId && cw > 40) {
-          ctx.fillStyle = CLIP.badge();
-          ctx.beginPath();
-          ctx.roundRect(x0 + 4, y + 4, 20, 18, 4);
-          ctx.fill();
-          ctx.fillStyle = CLIP.text();
-          drawIcon(ctx, "link-simple-horizontal", x0 + 14, y + 13, 14);
-          textX = Math.max(textX, x0 + 30);
-        }
-        if (cw > 24) {
-          ctx.fillStyle = CLIP.text();
-          ctx.font = font(13);
-          ctx.textBaseline = audio ? "top" : "middle";
-          ctx.fillText(label(clip), textX, audio ? y + 5 : y + ch / 2);
-          ctx.textBaseline = "alphabetic";
-        }
-        ctx.restore();
-        ctx.beginPath();
-        ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
-        ctx.strokeStyle = selected ? SELECTED() : color(`${kind}-edge`);
-        ctx.lineWidth = selected ? 2 : 1;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-    });
-    // Animation arrows across each clip, and the volume line on audio.
-    tracks.forEach((t, i) => {
-      const { y, h: ch } = clipBox(i, TRACK);
-      for (const clip of t.clips) {
-        const cs = ticksToSeconds(clip.start);
-        const ce = ticksToSeconds(clip.start + clip.duration);
-        if (ce < start || cs > end) continue;
-        // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
-        const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
-        const left = trim?.edge === "start" ? trim.t : cs;
-        const right = trim && trim.edge !== "start" ? trim.t : ce;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(x(left), y, (right - left) * pps, ch);
-        ctx.clip();
-        const selectedClip = session.selection.includes(clip.id);
-        if (clipTypes[clip.type]?.includes("audio")) {
-          const vy = (v: number) => volumeY(i, TRACK, v);
-          const pts = volumePoints(clip);
-          ctx.strokeStyle = selectedClip ? VOLUME.selected() : VOLUME.line();
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(x(cs), vy(volumeAt(clip, cs)));
-          for (const p of pts) if (p.time > cs && p.time < ce) ctx.lineTo(x(p.time), vy(p.value));
-          ctx.lineTo(x(ce), vy(volumeAt(clip, ce)));
-          ctx.stroke();
-          if (selectedClip) {
-            ctx.fillStyle = VOLUME.selected();
-            for (const p of pts) {
-              ctx.beginPath();
-              ctx.arc(x(p.time), vy(p.value), 3.5, 0, Math.PI * 2);
-              ctx.fill();
-            }
-          }
-        }
-        // Stitched media: a column of grey zig-zag stitches at each join; a group: its tracks as thin bars.
-        const traits = clipTypes[clip.type] ?? [];
-        const own = innerTracks(clip, nested);
-        const stitchTrack = traits.includes("stitched") ? own?.[0] : undefined;
-        if (stitchTrack) {
-          ctx.strokeStyle = STITCH();
-          ctx.lineWidth = 1.5;
-          ctx.lineCap = ctx.lineJoin = "round";
-          const marks = Math.max(1, Math.floor((ch - 8) / 12));
-          const top = y + (ch - marks * 12) / 2 + 2;
-          for (const seg of stitchTrack.clips.slice(1)) {
-            const tj = cs + ticksToSeconds(seg.start - (clip.mediaStart ?? 0));
-            if (tj <= cs || tj >= ce) continue;
-            const jx = Math.round(x(tj));
-            ctx.beginPath();
-            for (let m = 0; m < marks; m++) {
-              const my = top + m * 12;
-              ctx.moveTo(jx - 3.5, my);
-              ctx.lineTo(jx + 3.5, my + 1.5);
-              ctx.lineTo(jx - 3.5, my + 6.5);
-              ctx.lineTo(jx + 3.5, my + 8);
-            }
-            ctx.stroke();
-          }
-          ctx.lineCap = "butt";
-          ctx.lineJoin = "miter";
-        }
-        const groupTracks = traits.includes("group") ? own : undefined;
-        if (groupTracks?.length && ch > 24) {
-          const lanes = Math.min(groupTracks.length, 4);
-          [...groupTracks].reverse().slice(0, lanes).forEach((gt, li) => {
-            ctx.fillStyle = color("group-lane");
-            for (const c of gt.clips) {
-              const ta = cs + ticksToSeconds(c.start - (clip.mediaStart ?? 0));
-              const tb = ta + ticksToSeconds(c.duration);
-              ctx.fillRect(x(Math.max(cs, ta)), y + ch - 6 - (lanes - li) * 4, Math.max(1, (Math.min(ce, tb) - Math.max(cs, ta)) * pps - 1), 2);
-            }
-          });
-        }
-        for (const { anim, a, b } of arrows(clip)) {
-          const on = session.animation?.clip === clip.id && session.animation.id === anim.id;
-          drawArrow(ctx, x(a), x(b), y + ch / 2, ch, on, on && pickedDiamond.current?.anim === anim.id ? pickedDiamond.current.part : undefined);
-        }
-        // Effects are edited in the properties panel; the timeline marks the clip with Photoshop's "fx".
-        if (clip.effects.length) {
-          const age = flashes.current.get(clip.id);
-          const pulse = age === undefined ? undefined : 0.55 + 0.45 * Math.abs(Math.sin(((now - age) / 400) * Math.PI));
-          drawFxBadge(ctx, Math.min(x(right), w) - 6, y + 4, clip.effects.some((fx) => fx.enabled), pulse);
-        }
-        ctx.restore();
-      }
-    });
-    // A panel item dragged over a clip that takes it: the clip is outlined (and where an animation would go).
-    const over = latest.current.dragging;
-    const drop = over && dropHit(over.x, over.y, over.item);
-    if (over && drop) {
-      const y = RULER + drop.row * TRACK + 3;
-      const [cs, ce] = [ticksToSeconds(drop.clip.start), ticksToSeconds(drop.clip.start + drop.clip.duration)];
-      ctx.beginPath();
-      ctx.roundRect(x(cs) + 0.5, y, Math.max(1, (ce - cs) * pps - 1.5), TRACK - 6, CLIP_RADIUS);
-      ctx.fillStyle = color("accent-wash");
-      ctx.fill();
-      ctx.strokeStyle = SELECTED();
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      if (over.item.timed) {
-        const dur = Number(over.item.args.duration ?? 1);
-        const a = Math.max(cs, Math.min(drop.time, ce - dur));
-        ctx.globalAlpha = 0.6;
-        drawArrow(ctx, x(a), x(Math.min(ce, a + dur)), y + (TRACK - 6) / 2, TRACK - 6, false);
-        ctx.globalAlpha = 1;
-      }
-    }
-    if (d?.kind === "track" && d.to !== d.from) {
-      ctx.fillStyle = SELECTED();
-      ctx.fillRect(0, RULER + (d.to > d.from ? d.to + 1 : d.to) * TRACK - 1, w, 2);
-    }
-    // A locked track is dimmed with diagonal lines.
-    tracks.forEach((t, i) => {
-      if (!t.locked) return;
-      const y = RULER + i * TRACK;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(HEADER, y, width, TRACK);
-      ctx.clip();
-      ctx.strokeStyle = color("locked-hatch");
-      ctx.lineWidth = 2;
-      for (let lx = HEADER - TRACK; lx < w; lx += 8) {
-        ctx.beginPath();
-        ctx.moveTo(lx, y + TRACK);
-        ctx.lineTo(lx + TRACK, y);
-        ctx.stroke();
-      }
-      ctx.restore();
-    });
-    // Where a drag would put things.
-    const ghost = (a: number, b: number, i: number, label: string, bad?: boolean) => ghostRow(a, b, Math.max(0, i), label, i < 0, bad);
-    /** `fresh`: on a track the drop makes, dashed. */
-    const ghostRow = (a: number, b: number, row: number, label: string, fresh: boolean, bad?: boolean) => {
-      const gy = RULER + row * TRACK + 3;
-      if (fresh) ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      ctx.roundRect(x(a) + 0.5, gy, Math.max(1, (b - a) * pps - 1.5), TRACK - 6, CLIP_RADIUS);
-      ctx.fillStyle = color("clip-ghost");
-      ctx.fill();
-      ctx.strokeStyle = bad ? INVALID() : SELECTED();
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = CLIP.text();
-      ctx.font = font(13);
-      ctx.textBaseline = "middle";
-      ctx.fillText(label, x(a) + 10, gy + (TRACK - 6) / 2);
-      ctx.textBaseline = "alphabetic";
-    };
-    if (d?.kind === "move") {
-      project.tracks.forEach((t, ti) => {
-        for (const clip of t.clips) {
-          const rows = d.moves.get(clip.id);
-          if (rows === undefined) continue;
-          const a = ticksToSeconds(clip.start) + d.by;
-          ghost(a, a + ticksToSeconds(clip.duration), project.tracks.length - 1 - (ti + rows), label(clip), !!d.error);
-        }
-      });
-    } else if (d?.kind === "trim" && d.extend) {
-      const ti = project.tracks.findIndex((t) => t.clips.some((c) => c.id === d.clip));
-      const clip = project.tracks[ti]!.clips.find((c) => c.id === d.clip)!;
-      ghost(ticksToSeconds(clip.start + clip.duration), d.t, project.tracks.length - 1 - ti, `Frame of ${label(clip)}`);
-    }
-    if (d && snapLine.current !== undefined) {
-      ctx.strokeStyle = SELECTED();
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(Math.round(x(snapLine.current)) + 0.5, RULER);
-      ctx.lineTo(Math.round(x(snapLine.current)) + 0.5, h);
-      ctx.stroke();
-    }
-    const media = over?.item.media && mediaHit(over.x, over.y, over.item.media.seconds);
-    if (media) {
-      const { seconds, layers } = over!.item.media!;
-      const stack = layers?.length ? layers : [{ label: over!.item.label, seconds }];
-      const t = media.time;
-      if (media.row === undefined) {
-        // No track under the pointer: each clip on a new track at the top, the last listed highest.
-        stack.forEach((l, k) => ghostRow(t, t + l.seconds, stack.length - 1 - k, l.label, true));
-      } else {
-        // The first clip on the track under the pointer, the rest on the tracks above it; those past the top make new tracks.
-        const fits = stack.slice(0, media.row + 1);
-        const extra = stack.slice(media.row + 1);
-        fits.forEach((l, k) => ghost(t, t + l.seconds, media.row! - k, l.label, media.bad && k === 0));
-        if (extra.length) ghost(t, t + Math.max(...extra.map((l) => l.seconds)), -1, `New tracks: ${extra.map((l) => l.label).join(", ")}`);
-      }
-    }
-    if (d?.kind === "marquee") {
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = color("text-dim");
-      ctx.lineWidth = 1;
-      ctx.strokeRect(Math.min(d.x0, d.x1) + 0.5, Math.min(d.y0, d.y1) + 0.5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
-      ctx.setLineDash([]);
-    } else if (d?.kind === "space" && d.d > 0) {
-      ctx.fillStyle = color("insert-space");
-      ctx.fillRect(x(d.at), RULER, d.d * pps, h - RULER);
-    }
-    ctx.restore();
-
-    ctx.fillStyle = color("ruler");
-    ctx.fillRect(0, 0, w, RULER);
-    const s = step(pps, fps);
-    ctx.strokeStyle = color("ruler-tick");
-    ctx.fillStyle = color("ruler-text");
-    ctx.font = font(10);
-    // Zoomed in, every frame shows: a short tick each, and its number (;ff) where there is room.
-    const framePx = pps / fps;
-    if (framePx >= FRAME_TICKS && s > 1 / fps) {
-      for (let f = Math.ceil(start * fps); f <= end * fps; f++) {
-        const px = Math.round(x(f / fps)) + 0.5;
-        if (px < HEADER) continue;
-        ctx.beginPath();
-        ctx.moveTo(px, RULER - 4);
-        ctx.lineTo(px, RULER);
-        ctx.stroke();
-        if (framePx >= FRAME_LABELS && f % Math.round(s * fps) !== 0) ctx.fillText(`;${String(f % Math.round(fps)).padStart(2, "0")}`, px + 3, RULER - 6);
-      }
-    }
-    for (let t = Math.ceil(start / s) * s; t <= end; t += s) {
-      const px = Math.round(x(t)) + 0.5;
-      if (px < HEADER) continue;
-      ctx.beginPath();
-      ctx.moveTo(px, RULER - 8);
-      ctx.lineTo(px, RULER);
-      ctx.stroke();
-      ctx.fillText(timecode(t, fps), px + 3, RULER - 12);
-    }
-    for (const m of project.markers) {
-      const px = x(ticksToSeconds(m.time));
-      if (px < HEADER) continue;
-      ctx.fillStyle = color("marker");
-      ctx.beginPath();
-      ctx.moveTo(px, RULER - 10);
-      ctx.lineTo(px + 5, RULER - 5);
-      ctx.lineTo(px, RULER);
-      ctx.lineTo(px - 5, RULER - 5);
-      ctx.fill();
-    }
-
-    ctx.fillStyle = color("well");
-    ctx.fillRect(0, 0, HEADER, h);
-    tracks.forEach((t, i) => {
-      const y = RULER + i * TRACK;
-      ctx.fillStyle = color("track-head");
-      ctx.fillRect(0, y + 1, HEADER - 1, TRACK - 1);
-      ctx.textBaseline = "middle";
-      const icons = headerIcons(i, TRACK, HEADER);
-      const ny = icons.magnet ? icons.eye[1] : y + TRACK / 2;
-      // A name only when the track has one; otherwise its number, faint (Track N to agents and menus).
-      if (shownName(t.name)) {
-        ctx.fillStyle = t.hidden ? color("text-off") : color("text-strong");
-        ctx.font = font(13, 600);
-        ctx.fillText(fit(ctx, shownName(t.name), icons.mute[0] - 12 - 22), 12, ny);
-      } else {
-        ctx.fillStyle = color("text-off");
-        ctx.font = font(11, 500);
-        ctx.fillText(String(tracks.length - i), 12, ny);
-      }
-      // Mute, lock and eye (and the magnet on tall tracks): bright while on, dim while off.
-      const icon = (name: IconName, [ix, iy]: [number, number], on: boolean, lit: string, dim: string) => {
-        ctx.fillStyle = color(on ? lit : dim);
-        drawIcon(ctx, name, ix, iy, 16, on && name !== "eye");
-      };
-      icon(t.muted ? "speaker-slash" : "speaker-high", icons.mute, !!t.muted, "wave", "head-icon");
-      icon(t.locked ? "lock-simple" : "lock-simple-open", icons.lock, !!t.locked, "text-bright", "head-icon-off");
-      icon(t.hidden ? "eye-slash" : "eye", icons.eye, !t.hidden, "head-icon", "head-icon-off");
-      if (icons.magnet) icon("magnet", icons.magnet, !!t.magnetic, "text-bright", "text-disabled");
-      ctx.textBaseline = "alphabetic";
-    });
-
-    // The corner above the headers: track height slider and magnifier, add-track and options buttons.
-    ctx.fillStyle = color("panel");
-    ctx.fillRect(0, 0, HEADER, RULER);
-    const knob = HEIGHT_SLIDER.bottom - ((TRACK - TRACK_HEIGHT.min) / (TRACK_HEIGHT.max - TRACK_HEIGHT.min)) * (HEIGHT_SLIDER.bottom - HEIGHT_SLIDER.top);
-    ctx.fillStyle = color("groove");
-    ctx.fillRect(HEIGHT_SLIDER.x - 2, HEIGHT_SLIDER.top, 4, HEIGHT_SLIDER.bottom - HEIGHT_SLIDER.top);
-    ctx.fillStyle = color("text-strong");
-    ctx.beginPath();
-    ctx.arc(HEIGHT_SLIDER.x, knob, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = color("text-muted");
-    ctx.lineWidth = 1.3;
-    ctx.beginPath();
-    ctx.arc(33, 20, 3, 0, Math.PI * 2);
-    ctx.moveTo(35, 22);
-    ctx.lineTo(37, 24);
-    ctx.moveTo(33, 7);
-    ctx.lineTo(33, 13);
-    ctx.moveTo(31, 9);
-    ctx.lineTo(33, 7);
-    ctx.lineTo(35, 9);
-    ctx.moveTo(33, 27);
-    ctx.lineTo(33, 33);
-    ctx.moveTo(31, 31);
-    ctx.lineTo(33, 33);
-    ctx.lineTo(35, 31);
-    ctx.stroke();
-    for (const b of cornerButtons(HEADER)) {
-      const glyph = b.id === "add" ? "+" : "⌄";
-      ctx.fillStyle = color("tile");
-      ctx.beginPath();
-      ctx.roundRect(b.x, b.y, b.w, b.h, 4);
-      ctx.fill();
-      ctx.fillStyle = color("text-strong");
-      ctx.font = font(13, "bold");
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(glyph, b.x + b.w / 2, b.y + (glyph === "+" ? 8 : 5));
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-    }
-
-    }
-
-    function drawPlayhead(ctx: CanvasRenderingContext2D) {
-    // One colour, as CapCut, Premiere and Resolve: a pin-shaped head on the ruler over a thin line, its timecode beside it.
-    const ph = x(session.playhead);
-    // Zoomed in, the frame on show is a band from the playhead to the next frame.
-    if (pps / fps >= FRAME_SHADE) {
-      ctx.fillStyle = color("frame-shade");
-      ctx.fillRect(ph, RULER, pps / fps, h - RULER);
-    }
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(HEADER, 0, w - HEADER, h);
-    ctx.clip();
-    if (session.range) {
-      // The in/out range: a band on the ruler and a light tint over the tracks, its edges brackets dragged on the ruler.
-      const [a, b] = [x(session.range.in), x(session.range.out)];
-      ctx.fillStyle = color("range-ruler");
-      ctx.fillRect(a, 0, b - a, RULER);
-      ctx.fillStyle = color("range-band");
-      ctx.fillRect(a, RULER, b - a, h - RULER);
-      ctx.fillStyle = color("range-edge");
-      for (const [ex, dir] of [[a, 1], [b, -1]] as const) {
-        const lx = Math.round(ex) - (dir > 0 ? 0 : 1);
-        ctx.fillRect(lx, 0, 1.5, h);
-        ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, 0, RANGE_TAB, 2);
-        ctx.fillRect(dir > 0 ? lx : lx - RANGE_TAB + 1.5, RULER - 2, RANGE_TAB, 2);
-      }
-    }
-    for (const m of marks ?? []) {
-      const [a, b] = [x(m.start), x(m.end)];
-      if (b < HEADER || a > w) continue;
-      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : "silence-keep");
-      ctx.fillRect(a, RULER, Math.max(1, b - a), h - RULER);
-      ctx.fillRect(a, RULER - 4, Math.max(1, b - a), 4);
-      if (m.current) {
-        ctx.strokeStyle = color("accent");
-        ctx.lineWidth = 2;
-        ctx.strokeRect(a - 1, RULER - 3, Math.max(1, b - a) + 2, h - RULER + 2);
-      }
-    }
-    const drag = dragState.current;
-    const dragged = drag?.kind === "volume" && drag.at ? project.tracks.flatMap((t) => t.clips).find((c) => c.id === drag.clip) : undefined;
-    if (drag?.kind === "volume" && drag.at && dragged) {
-      // The level being dragged, as a percentage beside the pointer.
-      const level = drag.index === null ? volumeAt(dragged, start + (drag.at[0] - HEADER) / pps) : (volumePoints(dragged)[drag.index]?.value ?? 0);
-      const text = `${Math.round(level * 100)}%`;
-      ctx.font = font(11);
-      const tw = ctx.measureText(text).width + 12;
-      const [lx, ly] = [Math.min(drag.at[0] + 12, w - tw - 4), Math.max(RULER + 2, drag.at[1] - 26)];
-      ctx.fillStyle = color("chip");
-      ctx.beginPath();
-      ctx.roundRect(lx, ly, tw, 18, 9);
-      ctx.fill();
-      ctx.fillStyle = color("text-strong");
-      ctx.fillText(text, lx + 6, ly + 13);
-    }
-    if (ph >= HEADER - 12 && ph <= w + 12) {
-      const cx = Math.round(ph) + 0.5;
-      ctx.fillStyle = color("text-bright");
-      ctx.fillRect(cx - 0.5, PIN_H, 1, h - PIN_H);
-      ctx.beginPath();
-      ctx.roundRect(cx - PIN_W / 2, 3, PIN_W, PIN_H - 7, 3);
-      ctx.moveTo(cx - PIN_W / 2 + 1, PIN_H - 5);
-      ctx.lineTo(cx, PIN_H);
-      ctx.lineTo(cx + PIN_W / 2 - 1, PIN_H - 5);
-      ctx.closePath();
-      ctx.fill();
-      // White on the ruler's own colour, as Camtasia's: the ruler's labels underneath don't run into it.
-      const text = timecode(session.playhead, fps);
-      ctx.font = font(12, 600);
-      const tw = ctx.measureText(text).width;
-      ctx.fillStyle = color("ruler");
-      ctx.fillRect(cx + PIN_W / 2 + 2, 2, tw + 8, 17);
-      ctx.fillStyle = color("text-bright");
-      ctx.fillText(text, cx + PIN_W / 2 + 6, 15);
-    }
-    ctx.restore();
-    }
-  };
+  const draw = () =>
+    drawTimeline({ canvas, latest, size, staticLayer, dragState, settling, snapLine, pickedDiamond, loaded, flashes, HEADER, nested, clipTypes, label, redraw: () => drawRef.current(), dropHit, mediaHit });
 
   useEffect(() => {
     const el = box.current!;
@@ -877,8 +165,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const clipAt = (clientX: number, clientY: number): Clip | undefined => {
     const r = canvas.current!.getBoundingClientRect();
-    const i = Math.floor((clientY - r.top - RULER) / TRACK);
-    const t = tracks[i];
+    const i = rowAt(clientY - r.top, TRACK, tracks.length);
+    const t = i === undefined ? undefined : tracks[i];
     if (!t) return undefined;
     const ticks = timeAt(clientX);
     return t.clips.find((c) => ticksToSeconds(c.start) <= ticks && ticks < ticksToSeconds(c.start + c.duration));
@@ -888,7 +176,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const dropHit = (clientX: number, clientY: number, item: PanelItem) => {
     const r = canvas.current?.getBoundingClientRect();
     if (!r || clientX < r.left + HEADER || clientX > r.right || clientY > r.bottom) return undefined;
-    const row = rowAt(clientY - r.top);
+    const row = rowUnder(clientY - r.top);
     const clip = row === undefined || tracks[row]!.locked ? undefined : clipAt(clientX, clientY);
     return clip && takes(item, clipTypes[clip.type]) ? { clip, row: row!, time: timeAt(clientX) } : undefined;
   };
@@ -896,7 +184,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const mediaHit = (clientX: number, clientY: number, seconds: number) => {
     const r = canvas.current?.getBoundingClientRect();
     if (!r || latest.current.session.group || clientX < r.left + HEADER || clientX > r.right || clientY < r.top + RULER || clientY > r.bottom) return undefined;
-    const row = rowAt(clientY - r.top);
+    const row = rowUnder(clientY - r.top);
     const time = timeAt(clientX);
     const t = row === undefined ? undefined : tracks[row]!;
     const [a, b] = [secondsToTicks(time), secondsToTicks(time + seconds)];
@@ -911,10 +199,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   useEffect(() => addDropTarget((...a) => dropRef.current!(...a)), []);
 
   /** The track row under a point (display order: top first), if any. */
-  const rowAt = (y: number): number | undefined => {
-    const i = Math.floor((y - RULER) / TRACK);
-    return y > RULER && i >= 0 && i < tracks.length ? i : undefined;
-  };
+  const rowUnder = (y: number) => rowAt(y, TRACK, tracks.length);
 
   /** The header icon under a point: mute, lock and eye, and on tall tracks the magnet (see the drawing). */
   const headerIcon = (x: number, y: number, i: number): "eye" | "magnet" | "lock" | "mute" | undefined => {
@@ -931,7 +216,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const arrowAt = (clientX: number, clientY: number) => {
     const r = canvas.current!.getBoundingClientRect();
     const [px, py] = [clientX - r.left, clientY - r.top];
-    const i = rowAt(py);
+    const i = rowUnder(py);
     if (i === undefined) return undefined;
     const box = clipBox(i, TRACK);
     const ay = box.y + box.h / 2;
@@ -957,7 +242,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     if (!session.selection.includes(clip.id) || !clipTypes[clip.type]?.includes("audio")) return undefined;
     const r = canvas.current!.getBoundingClientRect();
     const [px, py] = [clientX - r.left, clientY - r.top];
-    const i = rowAt(py)!;
+    const i = rowUnder(py)!;
     const vy = (v: number) => volumeY(i, TRACK, v);
     // Points beyond the clip's edges aren't drawn, so they aren't grabbed either.
     const [cs, ce] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
@@ -1146,7 +431,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           e.preventDefault();
           e.stopPropagation();
           const r = canvas.current!.getBoundingClientRect();
-          const row = rowAt(e.clientY - r.top);
+          const row = rowUnder(e.clientY - r.top);
           const t = row === undefined ? undefined : tracks[row];
           dropFiles(files, { time: timeAt(Math.max(e.clientX, r.left + HEADER)), ...(t && !t.locked ? { track: t.id } : {}) });
         }}
@@ -1161,7 +446,6 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return setHeight(e.clientY);
           }
           if (x < HEADER) {
-            const { project } = latest.current;
             if (y < RULER) {
               const button = cornerButtonAt(HEADER, x, y);
               if (button === "add") {
@@ -1170,7 +454,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
               } else if (button === "menu") trackMenu(null);
               return;
             }
-            const i = rowAt(y);
+            const i = rowUnder(y);
             if (i === undefined) return;
             const t = tracks[i]!;
             const icon = headerIcon(x, y, i);
@@ -1219,7 +503,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           const clip = clipAt(e.clientX, e.clientY);
           const vol = clip && volumeHit(clip, e.clientX, e.clientY);
           if (clip && vol) {
-            const base = Number((clip.props.audio as { volume?: number } | undefined)?.volume ?? 1);
+            const base = propsOf<{ volume: number }>(clip, "audio").volume;
             dragState.current = { kind: "volume", clip: clip.id, index: vol.index, x0: x, y0: y, points: volumePoints(clip), base, key: `volume-${Date.now()}` };
             return;
           }
@@ -1319,7 +603,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const [x0, x1] = [Math.min(d.x0, x), Math.max(d.x0, x)];
             const [y0, y1] = [Math.min(d.y0, y), Math.max(d.y0, y)];
             const hit = tracks.flatMap((t, i) => {
-              const ty = RULER + i * TRACK;
+              const ty = rowTop(i, TRACK);
               if (ty + TRACK < y0 || ty > y1) return [];
               return t.clips.filter((c) => xOf(ticksToSeconds(c.start)) < x1 && xOf(ticksToSeconds(c.start + c.duration)) > x0).map((c) => c.id);
             });
@@ -1341,7 +625,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         onLostPointerCapture={(e) => dragState.current && finish(e)}
         onDoubleClick={(e) => {
           const { x, y } = pointer(e as unknown as React.PointerEvent);
-          const i = rowAt(y);
+          const i = rowUnder(y);
           if (x < HEADER && i !== undefined && !headerIcon(x, y, i)) replica.rename(tracks[i]!.id);
           if (x < HEADER || i === undefined) return;
           // On a selected audio clip's volume line: add a point there, or remove the one double-clicked.
@@ -1360,7 +644,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           e.preventDefault();
           const { x, y } = pointer(e as unknown as React.PointerEvent);
           if (x < HEADER) {
-            const i = rowAt(y);
+            const i = rowUnder(y);
             if (i !== undefined) trackMenu(tracks[i]!.id);
             return;
           }
@@ -1383,20 +667,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         }}
       />
       {renaming && tracks.some((t) => t.id === renaming) && (
-        <input
-          {...PLAIN_TEXT}
-          autoFocus
-          defaultValue={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
-          className="absolute rounded-sm border border-accent bg-well px-1 text-body font-semibold text-text-strong outline-none"
-          style={{ left: 8, top: RULER + tracks.findIndex((t) => t.id === renaming) * TRACK + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") replica.rename(undefined);
-          }}
-          onBlur={(e) => {
-            const name = e.currentTarget.value.trim();
+        <RenameField
+          key={renaming}
+          value={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
+          className="absolute text-body font-semibold"
+          style={{ left: 8, top: rowTop(tracks.findIndex((t) => t.id === renaming), TRACK) + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}
+          onDone={(name) => {
             const t = tracks.find((x) => x.id === renaming);
-            if (t && name !== t.name && name !== trackName(t, tracks.length - 1 - tracks.indexOf(t))) run("track.set", { track: t.id, name }, "Rename Track");
+            if (t && name !== null && name !== t.name && name !== trackName(t, tracks.length - 1 - tracks.indexOf(t))) run("track.set", { track: t.id, name }, "Rename Track");
             replica.rename(undefined);
           }}
         />

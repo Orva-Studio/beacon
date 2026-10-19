@@ -22,9 +22,11 @@ merged, released as v0.5.0 (2026-10-16; v0.4.0 was cut partway through it),
 with two of its gate checks left (below). Phase 8, faster editing (voice
 narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
-(2026-10-18), with its gate run left (below). Next: **Phase 9** (workspace),
-then 10 (looks), 11 (security audit) and 12 (Camtasia export); an in-app
-agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
+(2026-10-18), with its gate run left (below). Next: **Phase 8.5** (everyday
+fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
+any drive), then 9 (workspace and film look), 10 (filmstrips and
+backgrounds), 11 (security audit) and 12
+(Camtasia export); an in-app agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
 Phase 9 too (the user, 2026-10-17): the fixes from a review of the whole
 codebase, `docs/review-2026-10-17.md`, in three branches (bugs, hot paths,
 structure).
@@ -245,18 +247,22 @@ beacon/
 
 ### Dependency graph
 ```
-features  → model
 media     → model
-camtasia  → model + features + media
+features  → model + media    (text layout, cursor data and media probing; tests also read Camtasia projects)
+camtasia  → model + media
 render    → model + media    (TS wrapper over beacon-ffi / beacon-worker; derived-data cache)
 core      → model + features + media + camtasia + render   (the API)
-ui        → model + features (renders the replica; talks to core via RPC)
+ui        → model            (renders the replica; talks to core via RPC; types only from core, media and features)
 mcp       → core             (the `beacon-mcp` server)
 desktop   → core + ui (bundled dist)
 ```
 - `model` depends on nothing internal, so it can be tested in isolation.
-- **`mcp` and `desktop` only ever import `core`.** Nothing else talks to the
-  engine, the media layer or project files directly.
+- **`mcp` and `desktop` only ever import `core`** (and the desktop, the ui it
+  bundles); core re-exports the model helpers they need. Nothing else talks to
+  the engine, the media layer or project files directly.
+- `ui` can't import `features` at runtime: it loads the engine when imported.
+  What the editor needs of features comes in `Init` (effects, panel items,
+  prop-group defaults); their types are imported with `import type`.
 - The MCP server is its own small binary; a CLI can be added later as another
   thin client of `core` (backlog).
 - Unlike hance's desktop app, `desktop` does **not** serve the UI from a local
@@ -1282,6 +1288,11 @@ Making the transcript do the editing.
   seen yet: screen frames changing would catch it); a missing transcript
   (an import whose app quit first) is started by the review. Checked on a
   3:37 recording: 35 silences, 11 kept for screen action, 1:10 shorter.
+  It reads the timeline as edited, not the sources: each clip's speech
+  through its window, placed where the clip now sits, so a silence that
+  ends one clip and one that starts the next are one silence across the
+  cut, judged by their total length. Opened again after editing, it finds
+  the silences the edits made (the user asked, 2026-10-19).
 - **Remove Filler Words** (the user, 2026-10-15, after trying v0.2.1's Remove
   Silences): "um", "uh" and the like, found in the transcript and cut, in the
   AI panel beside Remove Silences and reviewed the same way (each marked on the
@@ -1548,7 +1559,57 @@ check on a real take.
 Export ⌘E and the editing), with narration recorded over the timeline and
 in step with it; an agent changes settings and opens each dialog.
 
-### Phase 9 — Workspace
+### Phase 8.5 — Everyday fixes (the user, 2026-10-19)
+What the user hit while editing, ahead of Phase 9.
+- **Export audio only** (the user, 2026-10-19): the Export dialog writes
+  just the timeline's mix, for a podcast or a voiceover: `.wav` (PCM,
+  sample-exact), `.m4a` (AAC, with the data rate already in the dialog)
+  and `.mp3`, chosen as the video formats are, by the output's extension.
+  No frames are rendered, so it is as fast as mixing the audio. The mix is
+  the export's own (track mute, volume points, fades, audio effects and
+  noise removal, the in/out range), and loudness normalization applies as
+  it does to a video. Agents get it through `export_start` with an audio
+  extension.
+- **Remove background noise, with ffmpeg first** (the user, 2026-10-19):
+  a "Noise Removal" audio effect, as Audacity's Noise Reduction works:
+  select a stretch of the clip with only room noise on the timeline, the
+  effect learns that noise there, and removes it from the whole clip, with
+  a strength slider (and a "learn from" range it keeps, so it can be
+  learned again). Built on Beacon's own FFmpeg (`afftdn`, which takes a
+  noise sample; `arnndn` for comparison), free, offline and in the
+  preview as well as the export. It is a trial: run on the user's own
+  takes (the Yeti in this room, a camera's mic) against the original; if
+  it is good enough it stays, if not the cleaning goes to Auphonic (see
+  *Background audio cleaning* in the backlog), with this effect kept for
+  the cases Auphonic doesn't cover. Open: whether a clip with no silent
+  stretch can learn its noise from its quietest moments (the silence
+  analysis already finds them).
+- **Shift-drag on empty space moves what comes after** (the user,
+  2026-10-19): today Shift-dragging the playhead line inserts space at the
+  playhead (`timeline.insertSpace`), rightwards only. The same from any
+  empty spot on a track: press Shift on a gap and drag, and everything
+  after that point moves with the pointer, right to open space, left to
+  close it (no further than the gap, so nothing overlaps), as one undoable
+  edit. Locked tracks and an open group refuse it as they refuse the
+  playhead's. Open: whether it moves every track (as the playhead's does)
+  or only the track pressed on (⌥ for the other).
+- **Drops carry their paths** (the user, 2026-10-19). The webview gives a
+  file dropped from Finder its name, size and date but not its path, so
+  `findDroppedFile` guesses: WebKit's URL when it sends one, the home
+  folders, then Spotlight. A clip dragged off a camera card isn't found
+  ("couldn't find P1078391.MP4 on disk"): cards aren't in Spotlight's
+  index. Native apps (Camtasia) read the file URLs from the drag
+  pasteboard and know the path; Electron hands it over with
+  `webUtils.getPathForFile`. Electrobun has no drop hook, so the window's
+  view registers for file URLs itself (through the engine's FFI, or
+  upstream in Electrobun) and the paths go with the drop to the UI, for
+  any drive and any depth. The guessing then goes.
+**Gate:** a project exported as `.wav`, `.m4a` and `.mp3` sounds as its
+video export does; noise removal judged by the user on their own takes, and
+Auphonic chosen or not; Shift-drag on a gap opens and closes space; a clip
+dragged straight off a camera card imports.
+
+### Phase 9 — Workspace and film look
 Seeing more at once.
 - **A window per project** (the user, 2026-10-12): several projects open at
   once, each in its own window (macOS's Merge All Windows then
@@ -1558,17 +1619,39 @@ Seeing more at once.
   view, thumbnails, proxy progress, RPC) moves to a per-window record, and
   menus and keys go to the focused window. Playing in one window pauses the
   others. Mostly `packages/desktop`; the UI and core are unchanged.
-- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
-  show frames along their length, not only the first. Measured on demo_1
-  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
-  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
-  (camera), ~3 s of CPU, about 4% of building the proxies; from the
-  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
-  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
-  the proxy, cached like waveforms; the timeline draws slices of the sprite
-  (its clips layer is redrawn only on zoom, scroll and edits). Design for
-  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
-  for what is in view, or keep two densities (1 s, 10 s).
+- **Project Settings apart from Settings, and a Settings window like
+  System Settings** (the user, 2026-10-19). Project Settings (canvas size,
+  frame rate, background, loudness, standalone) is the project's, with
+  undo, so it leaves the app's Settings for a dialog of its own, opened as
+  Camtasia does: Edit › Project Settings… (with a key) and the canvas's
+  right-click (already there), plus New Project's form, which already
+  reuses it. Agents keep their way in:
+  `project_settings_set` changes it, and `ui_open` gains a `projectSettings`
+  dialog in place of Settings' `project` tab, so `ui_snapshot` can show it.
+  Settings becomes a fixed-size window with a sidebar (General, Recording,
+  Transcripts, Shortcuts, later Appearance), each section scrolling inside
+  it, so switching sections never changes its height; a search over every
+  setting once there are enough to need it.
+- **Copying into a standalone project shows its progress** (the user,
+  2026-10-19). Today an import into a standalone project (and turning
+  standalone on) copies the media in before the clips appear, with nothing on
+  screen meanwhile: instant as an APFS clone on the same disk, but a large
+  file from another drive takes a while. Show it as proxies are shown: the
+  copy is a job, its progress on the medium's Media Bin tile and in the status
+  line ("Copying clip.mp4 into the project…"), and agents see it through
+  `job_status`. The clips still appear only once the copy is complete, and a
+  failed copy still leaves nothing behind. Save As standalone gets the same
+  progress in place of its one status message.
+- **Film look from hance** (the user, 2026-10-13; small, not hance's full
+  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
+  sliders (strength, grain, halation, fade, warmth, or whichever few hance
+  treats as its core), so the inspector, undo, copy properties and agent
+  commands come from the schema; hance's `.hlook` files import onto those
+  sliders, with what doesn't map listed in an import report rather than
+  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
+  fixes reach both; preview/export parity as for every pass. Open: what a
+  `.hlook` holds (values, a LUT, or both) decides whether the renderer
+  needs LUTs.
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,
@@ -1580,20 +1663,22 @@ Seeing more at once.
   zone anywhere on the timeline ("nothing under the TikTok buttons", one
   tool call for an agent); snapping to safe-area edges comes cheap. Face
   detection for the head guide is later, if wanted.
-**Gate:** two projects open side by side, clips show their frames, and a
-9:16 Short checks clean against its platform's safe areas.
+**Gate:** two projects open side by side, the film look matches between
+preview and export and a `.hlook` imports with a report of what didn't
+map, and a 9:16 Short checks clean against its platform's safe areas.
 
-### Phase 10 — Looks
-- **Film look from hance** (the user, 2026-10-13; small, not hance's full
-  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
-  sliders (strength, grain, halation, fade, warmth, or whichever few hance
-  treats as its core), so the inspector, undo, copy properties and agent
-  commands come from the schema; hance's `.hlook` files import onto those
-  sliders, with what doesn't map listed in an import report rather than
-  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
-  fixes reach both; preview/export parity as for every pass. Open: what a
-  `.hlook` holds (values, a LUT, or both) decides whether the renderer
-  needs LUTs.
+### Phase 10 — Filmstrips and backgrounds
+- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
+  show frames along their length, not only the first. Measured on demo_1
+  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
+  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
+  (camera), ~3 s of CPU, about 4% of building the proxies; from the
+  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
+  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
+  the proxy, cached like waveforms; the timeline draws slices of the sprite
+  (its clips layer is redrawn only on zoom, scroll and edits). Design for
+  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
+  for what is in view, or keep two densities (1 s, 10 s).
 - **Remove background** (the user, 2026-10-16): a camera or video clip's
   background removed, as Camtasia's Remove Color does for green screens
   but with no green screen. It is person segmentation (a matte per frame),
@@ -1614,9 +1699,8 @@ Seeing more at once.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
-**Gate:** the look matches between preview and export, and a `.hlook`
-imports with a report of what didn't map; a camera take's background removed
-by each provider, with the same matte in preview and export.
+**Gate:** clips show their frames; a camera take's background removed by
+each provider, with the same matte in preview and export.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -1742,7 +1826,8 @@ assets reviewed before they are placed (as Remove Silences is). Researched
 ### Background audio cleaning (tuneup / Auphonic)
 Clean each source recording's audio in the background while editing and swap
 it in when ready, using `~/tuneup` (Auphonic + local ffmpeg de-click/de-clip/
-de-ess). Parked because Auphonic is billed by audio length, and cleaning whole
+de-ess). Phase 8.5 tries ffmpeg's noise removal first; this is the fallback if
+it isn't good enough. Parked because Auphonic is billed by audio length, and cleaning whole
 raw recordings (bad takes included) costs more than cleaning the final cut.
 
 Notes for when it is picked up:

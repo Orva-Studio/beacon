@@ -5,10 +5,7 @@ use core_foundation::attributed_string::CFMutableAttributedString;
 use core_foundation::base::{CFRange, TCFType};
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
-use core_graphics::base::{kCGBitmapByteOrder32Big, kCGImageAlphaPremultipliedLast};
 use core_graphics::color::CGColor;
-use core_graphics::color_space::CGColorSpace;
-use core_graphics::context::CGContext;
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use core_graphics::path::CGPath;
 use core_text::font::{self, CTFont};
@@ -157,15 +154,7 @@ fn lay_out(spec: &TextSpec) -> Result<Laid> {
 pub fn render(spec: &TextSpec) -> Result<Pixels> {
     let Laid { lines, at, w, h } = lay_out(spec)?;
     let mut data = vec![0u8; w * h * 4];
-    let ctx = CGContext::create_bitmap_context(
-        Some(data.as_mut_ptr() as *mut _),
-        w,
-        h,
-        8,
-        w * 4,
-        &CGColorSpace::create_device_rgb(),
-        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big,
-    );
+    let ctx = crate::cursor::bitmap(&mut data, w, h);
     ctx.set_should_antialias(true);
     ctx.set_allows_font_smoothing(false);
     for (line, (x, y)) in lines.iter().zip(at) {
@@ -246,15 +235,7 @@ pub fn render_strokes(spec: &StrokeSpec) -> Result<Pixels> {
     let s = spec.scale.max(0.01);
     let (w, h) = ((spec.width * s).round().max(1.0) as usize, (spec.height * s).round().max(1.0) as usize);
     let mut data = vec![0u8; w * h * 4];
-    let ctx = CGContext::create_bitmap_context(
-        Some(data.as_mut_ptr() as *mut _),
-        w,
-        h,
-        8,
-        w * 4,
-        &CGColorSpace::create_device_rgb(),
-        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big,
-    );
+    let ctx = crate::cursor::bitmap(&mut data, w, h);
     ctx.set_should_antialias(true);
     ctx.set_line_cap(CGLineCap::CGLineCapRound);
     ctx.set_line_join(CGLineJoin::CGLineJoinRound);

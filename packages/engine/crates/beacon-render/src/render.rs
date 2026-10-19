@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use wgpu::util::DeviceExt;
 
+use crate::gpu::{linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
 use crate::scene::{Affine, Backdrop, Content, Job, Layer, PassUse, Scene, Source, Visual};
 use crate::sources::{self, Frame, VideoDecoder};
 use crate::{Error, Result};
@@ -179,40 +180,10 @@ impl Renderer {
             }
         }));
 
-        let builtin = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("builtin"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("builtin.wgsl").into()),
-        });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
-        let uniform = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-            count: None,
-        };
-        let texture = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let sampler_entry = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
+        let builtin = shader(&device, "builtin", include_str!("builtin.wgsl"));
+        let sampler = linear_sampler(&device, true);
+        let uniform = |binding| uniform_entry(binding, wgpu::ShaderStages::VERTEX_FRAGMENT);
+        let texture = texture_entry;
         let builtin_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("builtin"),
             entries: &[uniform(0), texture(1), sampler_entry(2)],
@@ -227,26 +198,25 @@ impl Renderer {
             alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
         };
         let over = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
-        let draw_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", Some(additive));
-        let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", Some(over));
-        let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", None);
-        let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", Some(over));
+        let draw_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", FMT, Some(additive));
+        let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", FMT, Some(over));
+        let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", FMT, None);
+        let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", FMT, Some(over));
         let yuv_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("yuv"),
             entries: &[uniform(0), texture(1), texture(2), sampler_entry(3)],
         });
-        let yuv = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("yuv"), source: wgpu::ShaderSource::Wgsl(include_str!("yuv.wgsl").into()) });
-        let yuv_pipe = pipeline(&device, &yuv, &yuv_bgl, "vs", "fs", None);
+        let yuv = shader(&device, "yuv", include_str!("yuv.wgsl"));
+        let yuv_pipe = pipeline(&device, &yuv, &yuv_bgl, "vs", "fs", FMT, None);
         let surfaces = (std::env::var_os("BEACON_DECODE_FFMPEG").is_none() && std::env::var_os("BEACON_NO_ZERO_COPY").is_none())
             .then(|| crate::surface::TextureCache::new(&device))
             .flatten();
 
         let mut passes = HashMap::new();
         for (id, def) in &job.passes {
-            let src = format!("{}\n{}", include_str!("prelude.wgsl"), def.wgsl);
             let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(id), source: wgpu::ShaderSource::Wgsl(src.into()) });
-            let steps: Vec<_> = def.steps.iter().map(|entry| pipeline(&device, &module, &pass_bgl, "vs_full", entry, None)).collect();
+            let module = shader(&device, id, &format!("{}\n{}", include_str!("prelude.wgsl"), def.wgsl));
+            let steps: Vec<_> = def.steps.iter().map(|entry| pipeline(&device, &module, &pass_bgl, "vs_full", entry, FMT, None)).collect();
             if let Some(err) = pollster::block_on(scope.pop()) {
                 return Err(Error::Scene(format!("pass \"{id}\": {err}")));
             }
@@ -368,22 +338,11 @@ impl Renderer {
     /// Decodes and uploads every source the scene shows before drawing.
     /// `parent`: target pixels per pixel of the canvas these layers are on (groups nest).
     fn prepare(&mut self, layers: &[Layer], seen: &mut HashMap<String, usize>, parent: f32, enc: &mut wgpu::CommandEncoder) -> Result<()> {
-        for layer in layers {
-            let Layer::Visual(v) = layer else { continue };
-            match &v.content {
-                Content::Source { source, time } => {
-                    let n = seen.entry(source.clone()).or_insert(0);
-                    let key = (source.clone(), *n);
-                    *n += 1;
-                    let scale = std::iter::once(&v.transform).chain(v.motion.iter()).map(scale_of).fold(0.0f32, f32::max) * parent;
-                    self.prepare_source(key, *time, scale as f64, enc)?;
-                }
-                Content::Group { layers, .. } => {
-                    let scale = std::iter::once(&v.transform).chain(v.motion.iter()).map(scale_of).fold(0.0f32, f32::max);
-                    self.prepare(layers, seen, parent * scale, enc)?
-                }
-                Content::Solid { .. } => {}
-            }
+        let mut videos = Vec::new();
+        collect_videos(layers, parent, &mut videos);
+        for (source, time, scale) in videos {
+            let key = source_key(seen, &source);
+            self.prepare_source(key, time, scale as f64, enc)?;
         }
         Ok(())
     }
@@ -392,7 +351,7 @@ impl Renderer {
     fn prepare_source(&mut self, key: (String, usize), time: f64, scale: f64, enc: &mut wgpu::CommandEncoder) -> Result<()> {
         let def = self.sources.get(&key.0).ok_or_else(|| Error::Scene(format!("unknown source \"{}\"", key.0)))?.clone();
         let factor = sources::decode_factor(scale);
-        let proxy = self.wants_proxy(&def, factor);
+        let proxy = self.wants_proxy(&def);
         let fits = |d: &VideoDecoder| d.scale == factor && d.proxy == proxy;
         let stale = self.textures.get(&key).and_then(|t| t.decoder.as_ref()).is_some_and(|d| !fits(d));
         let mut spare = None;
@@ -472,12 +431,10 @@ impl Renderer {
     fn start_seeks(&mut self, scene: &Scene) -> Result<()> {
         let mut wanted = Vec::new();
         collect_videos(&scene.layers, 1.0, &mut wanted);
-        let mut seen: HashMap<&str, usize> = HashMap::new();
+        let mut seen = HashMap::new();
         for (source, time, _) in &wanted {
-            let n = seen.entry(source).or_insert(0);
-            let key = (source.clone(), *n);
-            *n += 1;
-            let proxy = self.sources.get(source).is_some_and(|def| self.wants_proxy(def, 1.0));
+            let key = source_key(&mut seen, source);
+            let proxy = self.sources.get(source).is_some_and(|def| self.wants_proxy(def));
             let st = self.textures.get_mut(&key);
             let d = st.and_then(|st| if st.decoder.as_ref().is_some_and(|d| d.proxy == proxy) { st.decoder.as_mut() } else { st.spare.as_mut().filter(|d| d.proxy == proxy) });
             if let Some(d) = d {
@@ -492,7 +449,7 @@ impl Renderer {
 
     /// Whether `def` would be read from its proxy. Moving frames may be up to
     /// half the needed resolution; settled ones are drawn from the originals.
-    fn wants_proxy(&self, def: &Source, _factor: f64) -> bool {
+    fn wants_proxy(&self, def: &Source) -> bool {
         matches!(def, Source::Video { proxy: Some(p), .. } if self.use_proxies && !self.bad_proxies.contains(&p.path))
     }
 
@@ -506,7 +463,7 @@ impl Renderer {
     fn open_video_inner(&mut self, def: &Source, factor: f64) -> Result<VideoDecoder> {
         let Source::Video { path, stream, proxy } = def else { return Err(Error::Source("not a video".into())) };
         let from_proxy = match proxy {
-            Some(p) if self.wants_proxy(def, factor) => match VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0)) {
+            Some(p) if self.wants_proxy(def) => match VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0)) {
                 Ok(mut d) => {
                     d.proxy = true;
                     Some(d)
@@ -530,7 +487,7 @@ impl Renderer {
     }
 
     fn take_warm(&mut self, source: &str, def: &Source, factor: f64, time: f64) -> Option<VideoDecoder> {
-        let proxy = self.wants_proxy(def, factor);
+        let proxy = self.wants_proxy(def);
         let i = self.warm.iter().position(|w| w.source == source && w.decoder.scale == factor && w.decoder.proxy == proxy && w.decoder.can_reach(w.decoder.frame_for(time)))?;
         Some(self.warm.remove(i).decoder)
     }
@@ -544,7 +501,7 @@ impl Renderer {
         for (source, time, scale) in wanted {
             let Some(def @ Source::Video { .. }) = self.sources.get(&source).cloned() else { continue };
             let factor = sources::decode_factor(scale as f64);
-            let proxy = self.wants_proxy(&def, factor);
+            let proxy = self.wants_proxy(&def);
             let ready = |d: &VideoDecoder| d.scale == factor && d.proxy == proxy && d.can_reach(d.frame_for(time));
             let showing = self.textures.iter().any(|((s, _), st)| *s == source && st.decoder.as_ref().is_some_and(ready));
             if showing || self.warm.iter().any(|w| w.source == source && ready(&w.decoder)) {
@@ -569,11 +526,7 @@ impl Renderer {
             Frame::Surface(surface, matrix) => {
                 let cache = self.surfaces.as_ref().ok_or_else(|| Error::Source("a video frame came as a surface, which this renderer can't take".into()))?;
                 let (y, uv) = cache.planes(&self.device, surface.clone()).ok_or_else(|| Error::Source("CoreVideo couldn't make textures of a video frame".into()))?;
-                let (kr, kb) = match matrix {
-                    beacon_decode::Matrix::Bt601 => (0.299, 0.114),
-                    beacon_decode::Matrix::Bt709 => (0.2126, 0.0722),
-                    beacon_decode::Matrix::Bt2020 => (0.2627, 0.0593),
-                };
+                let (kr, kb) = matrix.kr_kb();
                 let (w, h) = (st.width as f32, st.height as f32);
                 let size = |t: &wgpu::Texture| (t.width() as f32, t.height() as f32);
                 let ((yw, yh), (cw, ch)) = (size(&y), size(&uv));
@@ -650,9 +603,7 @@ impl Renderer {
     ) -> Result<()> {
         let (content, color, group_tex) = match &v.content {
             Content::Source { source, .. } => {
-                let n = seen.entry(source.clone()).or_insert(0);
-                let key = (source.clone(), *n);
-                *n += 1;
+                let key = source_key(seen, source);
                 (self.textures[&key].tex.clone(), [1.0; 4], None)
             }
             Content::Solid { color } => (self.white.clone(), [color[0] * color[3], color[1] * color[3], color[2] * color[3], color[3]], None),
@@ -946,7 +897,16 @@ impl Renderer {
     }
 }
 
-/// (source, media time, target pixels per content pixel) of every video a layer list draws.
+/// The key of a source's next use in a frame, in drawing order: a source drawn twice (a stitched clip's repeats) gets a
+/// texture each.
+fn source_key(seen: &mut HashMap<String, usize>, source: &str) -> (String, usize) {
+    let n = seen.entry(source.to_string()).or_insert(0);
+    *n += 1;
+    (source.to_string(), *n - 1)
+}
+
+/// (source, media time, target pixels per content pixel) of every video a layer list draws, in drawing order;
+/// `parent`: target pixels per pixel of the canvas these layers are on (groups nest).
 fn collect_videos(layers: &[Layer], parent: f32, out: &mut Vec<(String, f64, f32)>) {
     for layer in layers {
         let Layer::Visual(v) = layer else { continue };
@@ -978,26 +938,6 @@ pub(crate) fn tex_desc(w: u32, h: u32, mips: u32, usage: wgpu::TextureUsages) ->
         usage,
         view_formats: &[],
     }
-}
-
-fn pipeline(device: &wgpu::Device, module: &wgpu::ShaderModule, bgl: &wgpu::BindGroupLayout, vs: &str, fs: &str, blend: Option<wgpu::BlendState>) -> wgpu::RenderPipeline {
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(bgl)], immediate_size: 0 });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(fs),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState { module, entry_point: Some(vs), buffers: &[], compilation_options: Default::default() },
-        fragment: Some(wgpu::FragmentState {
-            module,
-            entry_point: Some(fs),
-            targets: &[Some(wgpu::ColorTargetState { format: FMT, blend, write_mask: wgpu::ColorWrites::ALL })],
-            compilation_options: Default::default(),
-        }),
-        primitive: Default::default(),
-        depth_stencil: None,
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
-    })
 }
 
 fn begin<'a>(enc: &'a mut wgpu::CommandEncoder, view: &'a wgpu::TextureView, clear: Option<wgpu::Color>) -> wgpu::RenderPass<'a> {

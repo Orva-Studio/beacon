@@ -23,18 +23,41 @@ fn set_error(msg: impl Into<String>) {
     LAST_ERROR.with(|e| *e.borrow_mut() = msg);
 }
 
+/// What a caught panic said, when it said anything.
+fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "unknown".into())
+}
+
+/// Runs `f`, turning a panic into an error: `Err(context: message)`.
+fn caught<T>(context: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|p| Err(format!("{context}: {}", panic_message(&*p))))
+}
+
 fn guard<T>(fallback: T, f: impl FnOnce() -> Result<T, String>) -> T {
-    match catch_unwind(AssertUnwindSafe(f)) {
-        Ok(Ok(v)) => v,
-        Ok(Err(e)) => {
-            set_error(e);
-            fallback
-        }
-        Err(_) => {
-            set_error("panic in beacon-ffi");
-            fallback
-        }
+    caught("panic in beacon-ffi", f).unwrap_or_else(|e| {
+        set_error(e);
+        fallback
+    })
+}
+
+/// Copies `data` into the caller's buffer of `cap` elements.
+///
+/// # Safety
+/// `out` must be null or have room for `cap` elements.
+unsafe fn copy_out<T: Copy>(data: &[T], out: *mut T, cap: usize) -> Result<i32, String> {
+    if out.is_null() {
+        return Err("output is null".into());
     }
+    if cap < data.len() {
+        return Err("output is too small".into());
+    }
+    unsafe { ptr::copy_nonoverlapping(data.as_ptr(), out, data.len()) };
+    Ok(0)
+}
+
+/// A string for the caller, who frees it with `beacon_string_free`.
+fn c_string(s: String) -> Result<*mut c_char, String> {
+    Ok(CString::new(s).map_err(|e| e.to_string())?.into_raw())
 }
 
 /// Callers guarantee `s` is null or NUL-terminated.
@@ -77,7 +100,7 @@ pub unsafe extern "C" fn beacon_string_free(s: *mut c_char) {
 pub extern "C" fn beacon_font_families() -> *mut c_char {
     guard(ptr::null_mut(), || {
         let json = serde_json::to_string(&beacon_render::text::families()).map_err(|e| e.to_string())?;
-        Ok(CString::new(json).map_err(|e| e.to_string())?.into_raw())
+        c_string(json)
     })
 }
 
@@ -92,7 +115,7 @@ pub unsafe extern "C" fn beacon_text_layout(spec_json: *const c_char) -> *mut c_
         let spec: beacon_render::text::TextSpec = serde_json::from_str(str_arg(spec_json)?).map_err(|e| e.to_string())?;
         let lines = beacon_render::text::layout(&spec).map_err(|e| e.to_string())?;
         let json = serde_json::to_string(&lines).map_err(|e| e.to_string())?;
-        Ok(CString::new(json).map_err(|e| e.to_string())?.into_raw())
+        c_string(json)
     })
 }
 
@@ -130,7 +153,7 @@ fn trec<'a>(h: *const Trec) -> Result<&'a Trec, String> {
 pub unsafe extern "C" fn beacon_trec_info_json(h: *const Trec) -> *mut c_char {
     guard(ptr::null_mut(), || {
         let json = serde_json::to_string(trec(h)?).map_err(|e| e.to_string())?;
-        Ok(CString::new(json).map_err(|e| e.to_string())?.into_raw())
+        c_string(json)
     })
 }
 
@@ -147,18 +170,11 @@ pub unsafe extern "C" fn beacon_trec_cursor_len(h: *const Trec) -> i64 {
 pub unsafe extern "C" fn beacon_trec_cursor_copy(h: *const Trec, t: *mut f64, x: *mut i32, y: *mut i32, cap: usize) -> i32 {
     guard(-1, || {
         let c = &trec(h)?.tscm.cursor;
-        if t.is_null() || x.is_null() || y.is_null() {
-            return Err("output is null".into());
-        }
-        if cap < c.t.len() {
-            return Err("output is too small".into());
-        }
         unsafe {
-            ptr::copy_nonoverlapping(c.t.as_ptr(), t, c.t.len());
-            ptr::copy_nonoverlapping(c.x.as_ptr(), x, c.x.len());
-            ptr::copy_nonoverlapping(c.y.as_ptr(), y, c.y.len());
+            copy_out(&c.t, t, cap)?;
+            copy_out(&c.x, x, cap)?;
+            copy_out(&c.y, y, cap)
         }
-        Ok(0)
     })
 }
 
@@ -175,17 +191,10 @@ pub unsafe extern "C" fn beacon_trec_buttons_len(h: *const Trec) -> i64 {
 pub unsafe extern "C" fn beacon_trec_buttons_copy(h: *const Trec, t: *mut f64, kind: *mut u32, cap: usize) -> i32 {
     guard(-1, || {
         let b = &trec(h)?.tscm.buttons;
-        if t.is_null() || kind.is_null() {
-            return Err("output is null".into());
-        }
-        if cap < b.t.len() {
-            return Err("output is too small".into());
-        }
         unsafe {
-            ptr::copy_nonoverlapping(b.t.as_ptr(), t, b.t.len());
-            ptr::copy_nonoverlapping(b.kind.as_ptr(), kind, b.kind.len());
+            copy_out(&b.t, t, cap)?;
+            copy_out(&b.kind, kind, cap)
         }
-        Ok(0)
     })
 }
 
@@ -207,13 +216,6 @@ pub unsafe extern "C" fn beacon_trec_cursor_image_len(h: *const Trec, i: u32) ->
 pub unsafe extern "C" fn beacon_trec_cursor_image_copy(h: *const Trec, i: u32, out: *mut u8, cap: usize) -> i32 {
     guard(-1, || {
         let img = trec(h)?.tscm.cursor_images.get(i as usize).ok_or("cursor image out of range")?;
-        if out.is_null() {
-            return Err("output is null".into());
-        }
-        if cap < img.png.len() {
-            return Err("output is too small".into());
-        }
-        unsafe { ptr::copy_nonoverlapping(img.png.as_ptr(), out, img.png.len()) };
-        Ok(0)
+        unsafe { copy_out(&img.png, out, cap) }
     })
 }

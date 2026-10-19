@@ -1,7 +1,6 @@
 //! Export sidecar. stdin: one `Job` JSON line, then one `Scene` JSON line per
 //! frame. stdout: JSON-lines progress (`{"frame":n}`, then `{"done":n}` or
-//! `{"error":"..."}`), except with `Output::Raw`, where stdout carries RGBA
-//! frames and progress goes to stderr.
+//! `{"error":"..."}`).
 
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -15,11 +14,10 @@ enum Sink {
     /// VideoToolbox through AVAssetWriter, fed from the GPU (opened once the renderer exists).
     Encode,
     Png(String),
-    Raw(std::io::Stdout),
 }
 
-fn open_sink(job: &Job) -> Result<Sink, String> {
-    match &job.output {
+fn open_sink(job: &Job, output: &Output) -> Result<Sink, String> {
+    match output {
         Output::Video { path, args } => {
             let mut child = Command::new(beacon_render::tool("ffmpeg"))
                 .args(["-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba"])
@@ -39,30 +37,25 @@ fn open_sink(job: &Job) -> Result<Sink, String> {
             std::fs::create_dir_all(dir).map_err(|e| format!("{dir}: {e}"))?;
             Ok(Sink::Png(dir.clone()))
         }
-        Output::Raw => Ok(Sink::Raw(std::io::stdout())),
         Output::Encode(_) => Ok(Sink::Encode),
     }
 }
 
-fn report(raw: bool, msg: serde_json::Value) {
-    if raw {
-        eprintln!("{msg}");
-    } else {
-        let mut out = std::io::stdout().lock();
-        let _ = writeln!(out, "{msg}");
-        let _ = out.flush();
-    }
+fn report(msg: serde_json::Value) {
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{msg}");
+    let _ = out.flush();
 }
 
-fn run(raw: &mut bool) -> Result<u64, String> {
+fn run() -> Result<u64, String> {
     let stdin = std::io::stdin();
     let mut lines = stdin.lock().lines();
     let header = lines.next().ok_or("no job on stdin")?.map_err(|e| e.to_string())?;
     let job: Job = serde_json::from_str(&header).map_err(|e| format!("job: {e}"))?;
-    *raw = matches!(job.output, Output::Raw);
+    let output = job.output.clone().ok_or("job: no output")?;
     let mut renderer = Renderer::new(&job).map_err(|e| e.to_string())?;
-    let mut sink = open_sink(&job)?;
-    let mut encoder = match &job.output {
+    let mut sink = open_sink(&job, &output)?;
+    let mut encoder = match &output {
         Output::Encode(e) => Some(beacon_render::encode::Encoder::new(&renderer, e).map_err(|e| e.to_string())?),
         _ => None,
     };
@@ -80,7 +73,7 @@ fn run(raw: &mut bool) -> Result<u64, String> {
             renderer.profile.encode += t.elapsed().as_secs_f64();
             n += 1;
             if n.is_multiple_of(30) {
-                report(*raw, serde_json::json!({ "frame": n }));
+                report(serde_json::json!({ "frame": n }));
             }
             continue;
         }
@@ -92,11 +85,10 @@ fn run(raw: &mut bool) -> Result<u64, String> {
                 let name = scene.name.clone().unwrap_or_else(|| format!("{n:06}"));
                 sources::encode_png(&Path::new(dir).join(format!("{name}.png")), job.width, job.height, &px).map_err(|e| e.to_string())?;
             }
-            Sink::Raw(out) => out.write_all(&px).map_err(|e| e.to_string())?,
         }
         n += 1;
         if n.is_multiple_of(30) {
-            report(*raw, serde_json::json!({ "frame": n }));
+            report(serde_json::json!({ "frame": n }));
         }
     }
     if let Some(encoder) = encoder {
@@ -116,11 +108,10 @@ fn run(raw: &mut bool) -> Result<u64, String> {
 }
 
 fn main() {
-    let mut raw = false;
-    match run(&mut raw) {
-        Ok(n) => report(raw, serde_json::json!({ "done": n })),
+    match run() {
+        Ok(n) => report(serde_json::json!({ "done": n })),
         Err(e) => {
-            report(raw, serde_json::json!({ "error": e }));
+            report(serde_json::json!({ "error": e }));
             std::process::exit(1);
         }
     }

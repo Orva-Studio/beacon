@@ -1,9 +1,10 @@
 import { chordId, eventChordId, keysLabel, sameArgs, type ShortcutInfo } from "@beacon/model";
 import type { Binding } from "./rpc";
+import { useMemo } from "react";
 import { replica, useView } from "./store";
 
 /** Each action's keys as the window matches them. */
-export const bindingsOf = (shortcuts: ShortcutInfo[]): Binding[] =>
+const bindingsOf = (shortcuts: ShortcutInfo[]): Binding[] =>
   shortcuts.flatMap((s) => s.keys.map((keys) => ({ keys, command: s.command, ...(s.args ? { args: s.args } : {}), action: s.id })));
 
 /** " (⌘T)" for a button's tooltip: the first key of the action that runs `command` with `args`, as the user has them. */
@@ -15,8 +16,14 @@ export function useShortcutTip() {
   };
 }
 
+/** The user's keys, compiled for `match`. */
+export function useKeymap(): Map<string, Binding> {
+  const shortcuts = useView((v) => v.shortcuts);
+  return useMemo(() => compileKeymap(bindingsOf(shortcuts)), [shortcuts]);
+}
+
 /** Bindings that resolve to a command, by chord. */
-export function compileKeymap(bindings: Binding[]): Map<string, Binding> {
+function compileKeymap(bindings: Binding[]): Map<string, Binding> {
   const map = new Map<string, Binding>();
   for (const b of bindings) {
     const id = b.command && chordId(b.keys);
@@ -45,6 +52,7 @@ export interface ActionHost {
 /** Runs an action as its key or menu item would: the app's own through the main process, the rest as commands. */
 export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "args">) {
   if (a.command === "app.palette") replica.palette(true);
+  else if (a.command === "app.save") replica.confirmSaved();
   else if (a.command === "app.open") host.openDialog();
   else if (a.command.startsWith("app.")) host.app(a.command);
   else if (a.command === "project.undo") host.undo();

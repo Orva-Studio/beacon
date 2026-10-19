@@ -1,5 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
-import { MASK, syncNativeView } from "../native-view";
+import { syncNativeView } from "../native-view";
+import { RoundedMask } from "./rounded-mask";
+import { isFormField } from "./fields";
 import { Icon } from "./icons";
 
 /**
@@ -8,8 +10,8 @@ import { Icon } from "./icons";
  * masked out of it: masking the whole backdrop hid the canvas (it stays lit, not dimmed).
  */
 const BACKDROP = "fixed inset-0 z-50 flex overflow-y-auto bg-backdrop p-6";
-/** A dialog's panel, cut out of the native canvas. */
-const SHEET = `${MASK} m-auto max-w-full rounded-xl border border-divider bg-panel p-6 pt-4 text-body text-text shadow-2xl outline-none`;
+/** A dialog's panel, cut out of the native canvas (with its rounded corners: `RoundedMask`). */
+const SHEET = `relative m-auto max-w-full rounded-xl border border-divider bg-panel p-6 pt-4 text-body text-text shadow-2xl outline-none`;
 
 let dialogs = 0;
 const listeners = new Set<() => void>();
@@ -54,7 +56,7 @@ function keepFocusIn(e: React.KeyboardEvent, panel: HTMLElement | null) {
 export const useDialogsOpen = () => useSyncExternalStore((l) => (listeners.add(l), () => listeners.delete(l)), () => dialogs > 0);
 
 /** A dialog's title, anything beside it (tabs), and its close button. */
-export function ModalHeader({ title, onClose, children }: { title: ReactNode; onClose: () => void; children?: ReactNode }) {
+function ModalHeader({ title, onClose, children }: { title: ReactNode; onClose: () => void; children?: ReactNode }) {
   return (
     <div className="mb-4 flex items-center gap-2">
       <div className="flex-1 truncate text-title font-semibold text-text-strong">{title}</div>
@@ -108,10 +110,16 @@ export function Modal({
           e.stopPropagation();
           if (e.key === "Tab") keepFocusIn(e, panel.current);
           if (e.key === "Escape") onClose();
-          if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)) onEnter();
-          else if (onKey && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) onKey(e);
+          // Return is the dialog's default action, wherever the focus is (not the focused button's click, as macOS has
+          // it); in a list or a text area it is the field's.
+          if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement)) {
+            e.preventDefault();
+            onEnter();
+          }
+          else if (onKey && !isFormField(e.target)) onKey(e);
         }}
       >
+        <RoundedMask radius={14} />
         {title && (
           <ModalHeader title={title} onClose={onClose}>
             {header}

@@ -1,8 +1,9 @@
-import type { AudioContext, AudioSegment, ClipEval, EvalContext } from "./feature";
+import type { AudioContext, AudioSegment, ClipEval, EffectDef, EvalContext, EvaluateHook } from "./feature";
+import type { Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import type { Layer, RGBA, Scene, SourceDef } from "./scene";
+import { IDENTITY, type Layer, type RGBA, type Scene, type SourceDef, type VisualLayer } from "./scene";
 import type { Animation, Clip, Easing, Project } from "./schema";
-import { rationalToNumber, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
+import { rationalToNumber, secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
 
 /**
  * The two easings: linear, and a cubic ease in/out.
@@ -58,6 +59,23 @@ export function mediaTimeAt(clip: Clip, t: Ticks): Ticks {
   return (clip.mediaStart ?? 0) + Math.round((t - clip.start) * clipSpeed(clip));
 }
 
+/** When on the timeline (ticks, not rounded) `clip` shows its media's time `media`: `mediaTimeAt` the other way. */
+export function timelineTimeAt(clip: Clip, media: Ticks): number {
+  return clip.start + (media - (clip.mediaStart ?? 0)) / clipSpeed(clip);
+}
+
+/** The stretch of its media a clip shows, in ticks: from its in point for its duration at its speed. */
+export function mediaWindow(clip: Clip): [Ticks, Ticks] {
+  const from = clip.mediaStart ?? 0;
+  return [from, from + clip.duration * clipSpeed(clip)];
+}
+
+/** Timed words (seconds in the clip's media, as a transcript's) the clip shows: those whose middle is in its window. */
+export function wordsInWindow<W extends { start: number; end: number }>(clip: Clip, words: W[]): W[] {
+  const [from, to] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
+  return words.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+}
+
 export function resolveProps(registry: FeatureRegistry, clip: Clip, mediaTime: Ticks): Record<string, Record<string, any>> {
   const out: Record<string, Record<string, any>> = {};
   for (const group of registry.groupsFor(clip.type)) {
@@ -96,12 +114,25 @@ function sourceId(def: SourceDef): string {
   }
 }
 
+/** An effect's `apply` as a clip hook: for clips with it enabled and visual content. */
+function effectHook(def: EffectDef): NonNullable<EvaluateHook["clip"]>[] {
+  const apply = def.apply;
+  if (!apply) return [];
+  return [
+    (e, ctx) => {
+      if (e.main?.kind !== "visual") return;
+      const fx = e.clip.effects.find((x) => x.type === def.id && x.enabled);
+      if (fx) apply(e as ClipEval & { main: VisualLayer }, fx.params, ctx);
+    },
+  ];
+}
+
 /**
  * The timeline at time `t` as a flat Scene (PLAN §8). Pure: every feature
  * contributes through its `evaluate` hook; core knows no clip types.
  */
 export function evaluate(project: Project, registry: FeatureRegistry, t: Ticks, env: EvaluateEnv = {}): Scene {
-  const hooks = [...registry.features.values()].flatMap((f) => (f.evaluate?.clip ? [f.evaluate.clip] : []));
+  const hooks = [...registry.features.values()].flatMap((f) => [...(f.effects ?? []).flatMap(effectHook), ...(f.evaluate?.clip ? [f.evaluate.clip] : [])]);
   const sources = env.sources ?? new Map<string, SourceDef>();
   const frameSeconds = ticksToSeconds(ticksPerFrame(project.settings.fps));
   const contextFor = (canvas: { width: number; height: number }): EvalContext => {
@@ -169,3 +200,34 @@ export function parseColor(hex: string): RGBA {
   return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, m[2] ? parseInt(m[2], 16) / 255 : 1];
 }
 
+/** Frames of shutter at motion blur intensity 1 (the clip's and the cursor's). */
+const SHUTTER = 0.75;
+
+/** The times motion blur samples before `time`, newest first: 15 across the shutter at `intensity`. */
+export function shutterTimes(time: Ticks, frameSeconds: number, intensity: number): Ticks[] {
+  const shutter = frameSeconds * Math.min(1, SHUTTER * intensity);
+  const n = 16;
+  return Array.from({ length: n - 1 }, (_, i) => time - secondsToTicks((shutter * (i + 1)) / n));
+}
+
+/** The audio of nested tracks heard through a clip's window (groups, stitched media). */
+export function nestedAudio(clip: Clip, tracks: Track[] | undefined, ctx: AudioContext): AudioSegment[] {
+  if (!tracks) return [];
+  const speed = clipSpeed(clip);
+  const [inStart, inEnd] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
+  const start = ticksToSeconds(clip.start);
+  return ctx.tracks(tracks).flatMap((s) => {
+    const from = Math.max(s.start, inStart);
+    const to = Math.min(s.start + s.duration, inEnd);
+    if (to <= from) return [];
+    return [{ ...s, start: start + (from - inStart) / speed, duration: (to - from) / speed, mediaStart: s.mediaStart + (from - s.start) * s.speed, speed: s.speed * speed }];
+  });
+}
+
+/** Draws nested tracks on their own canvas as the clip's content, so its transform and effects apply to them as one. */
+export function drawNested(e: ClipEval, g: { width: number; height: number; tracks: Track[] }, ctx: EvalContext) {
+  const layers = ctx.evalTracks(g.tracks, e.mediaTime, { width: g.width, height: g.height }, { sample: e.sample });
+  const main: VisualLayer = { kind: "visual", content: { type: "group", background: [0, 0, 0, 0], layers }, size: [g.width, g.height], transform: IDENTITY };
+  e.layers.push(main);
+  e.main = main;
+}

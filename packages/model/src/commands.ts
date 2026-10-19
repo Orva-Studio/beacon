@@ -2,10 +2,8 @@ import { z } from "zod";
 import { defineCommand, type CommandDef } from "./feature";
 import { isFree } from "./edit";
 import type { FeatureRegistry } from "./registry";
-import { AssetSchema, IdSchema as Id, RationalSchema, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
+import { AssetSchema, changedSettings, IdSchema as Id, RationalSchema, SecondsSchema as Seconds, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
 import { secondsToTicks, snapSeconds, ticksToSeconds, type Ticks } from "./ticks";
-
-const Seconds = z.number().nonnegative();
 
 export interface ClipLocation {
   clip: Clip;
@@ -79,8 +77,30 @@ export function* walkClips(tracks: Track[], registry: FeatureRegistry, offset: T
 }
 
 
-export function findTrack(doc: Project, id: string, registry?: FeatureRegistry): Track {
+function findTrack(doc: Project, id: string, registry?: FeatureRegistry): Track {
   return locateTrack(doc, id, registry).track;
+}
+
+/** A main-timeline time (seconds, snapped to its frames) on the clip's own track. */
+export const onTrack = (doc: Project, loc: ClipLocation, seconds: number): Ticks => snapSeconds(seconds, doc.settings.fps) - loc.offset;
+
+/** A clip anywhere in the document (inside groups too), with where it is. */
+export function findClip(doc: Project, registry: FeatureRegistry, id: string): ClipLocation {
+  for (const loc of walkClips(doc.tracks, registry)) if (loc.clip.id === id) return loc;
+  throw new Error(`no clip "${id}"`);
+}
+
+/** The clip and every clip linked to it in the same track list. */
+export function withLinked(loc: ClipLocation, linked: boolean): ClipLocation[] {
+  if (!linked || !loc.clip.linkId) return [loc];
+  return loc.tracks.flatMap((track) => track.clips.filter((c) => c.linkId === loc.clip.linkId).map((clip) => ({ clip, track, tracks: loc.tracks, offset: loc.offset })));
+}
+
+/** Each clip once, with its linked clips when `linked`. */
+export function locate(doc: Project, registry: FeatureRegistry, ids: string[], linked: boolean): ClipLocation[] {
+  const out = new Map<string, ClipLocation>();
+  for (const id of ids) for (const l of withLinked(findClip(doc, registry, id), linked)) out.set(l.clip.id, l);
+  return [...out.values()];
 }
 
 /** A track and the list it is in: the timeline's, or with `registry`, a group's or stitched clip's. */
@@ -105,10 +125,8 @@ export const CORE_COMMANDS: CommandDef[] = [
     description:
       "Change project settings (canvas size, frame rate, background colour, loudness target, standalone); `loudnessTarget: null` turns Auto-normalize loudness off. `standalone: true` copies media from outside the project into its media folder and points the project at the copies (one undo step), and later imports are copied in too; on its own, not in a transaction",
     args: SettingsSchema.partial().extend({ loudnessTarget: z.number().nullable().optional() }),
-    apply(doc, { loudnessTarget, ...args }) {
-      Object.assign(doc.settings, args);
-      if (loudnessTarget === null) delete doc.settings.loudnessTarget;
-      else if (loudnessTarget !== undefined) doc.settings.loudnessTarget = loudnessTarget;
+    apply(doc, args) {
+      doc.settings = changedSettings(doc.settings, args);
     },
   }),
 

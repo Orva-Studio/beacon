@@ -8,6 +8,26 @@ export const CORE_MIGRATIONS: Migration[] = [
   { version: 2, migrate: (doc) => doc },
 ];
 
+type Raw = Record<string, any>;
+
+/** Every track in a document not yet migrated, nested ones (in groups) too: any object with a `clips` array. */
+export function eachRawTrack(doc: unknown, fn: (track: Raw & { clips: unknown[] }) => void) {
+  const visit = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(visit);
+    if (!v || typeof v !== "object") return;
+    if (Array.isArray((v as Raw).clips)) fn(v as Raw & { clips: unknown[] });
+    Object.values(v).forEach(visit);
+  };
+  visit(doc);
+}
+
+/** Every clip in a document not yet migrated, nested ones (in groups, stitched media) too. */
+export function eachRawClip(doc: unknown, fn: (clip: Raw) => void) {
+  eachRawTrack(doc, (track) => {
+    for (const c of track.clips) if (c && typeof c === "object") fn(c as Raw);
+  });
+}
+
 type Doc = Record<string, unknown> & { schemaVersion?: unknown; features?: Record<string, number> };
 
 function asDoc(value: unknown, what: string): Doc {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MASK, syncNativeView } from "../native-view";
+import { syncNativeView } from "../native-view";
+import { RoundedMask } from "./rounded-mask";
 import { Button } from "./buttons";
 
 /**
@@ -24,11 +25,12 @@ export function Toast({ title, hint, done, onDismiss, children }: { title: React
   }, [done, hovered, dismissable]);
   return (
     <div
-      className={`${MASK} fixed right-4 bottom-4 z-40 w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl`}
+      className={`fixed right-4 bottom-4 z-40 w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl`}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       data-toast
     >
+      <RoundedMask radius={14} />
       <div className="mb-2 flex items-center gap-2">
         <span className="flex-1 truncate text-text-strong" title={hint}>
           {title}

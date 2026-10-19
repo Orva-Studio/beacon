@@ -4,20 +4,23 @@ import {
   defineCommand,
   defineFeature,
   defineQuery,
+  eachRawClip,
+  eachRawTrack,
+  original,
   RgbaSchema,
   roundSeconds,
   secondsToTicks,
   snapSeconds,
+  solidLayer,
   ticksPerFrame,
   ticksToSeconds,
+  wordsInWindow,
   type Clip,
-  type EvalContext,
   type ClipEval,
-  original,
+  type EvalContext,
   type Project,
-  type Track,
-  type RGBA,
   type TextSpec,
+  type Track,
   type VisualLayer,
 } from "@beacon/model";
 import { textLayout, type TextLine } from "@beacon/media";
@@ -59,7 +62,7 @@ const placeSchema = styleSchema.pick({ anchorX: true, offsetX: true, anchorY: tr
 type CaptionPlace = z.infer<typeof placeSchema>;
 
 /** Sized for a canvas `height` pixels tall. */
-export function defaultStyle(height = 1080): CaptionStyle {
+function defaultStyle(height = 1080): CaptionStyle {
   const k = height / 1080;
   return {
     font: "Helvetica Neue",
@@ -79,21 +82,18 @@ export function defaultStyle(height = 1080): CaptionStyle {
 }
 
 /** The captions' style on `track`: kept there once for all its captions. */
-export function trackStyle(track: Track | undefined, height: number): CaptionStyle {
+function trackStyle(track: Track | undefined, height: number): CaptionStyle {
   return { ...defaultStyle(height), ...(track?.props?.captionStyle as Partial<CaptionStyle> | undefined) };
 }
 
 /** How `clip` looks on `track`: the track's style, with the clip's own place if it has one. */
-export function clipStyle(clip: Clip, track: Track | undefined, height: number): CaptionStyle {
+function clipStyle(clip: Clip, track: Track | undefined, height: number): CaptionStyle {
   return { ...trackStyle(track, height), ...(clip.props.captionPlace as CaptionPlace | undefined) };
 }
 
 /** The words a caption clip shows: those whose middle is inside its window on its media. */
-export function shownWords(clip: Clip): CaptionWord[] {
-  const words = (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? [];
-  const from = ticksToSeconds(clip.mediaStart ?? 0);
-  const to = from + ticksToSeconds(clip.duration);
-  return words.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+function shownWords(clip: Clip): CaptionWord[] {
+  return wordsInWindow(clip, (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? []);
 }
 
 /** Each word as shown: in capitals, a word can get longer ("Straße" is "STRASSE"), so offsets come from these. */
@@ -114,12 +114,8 @@ function layout(spec: TextSpec): TextLine[] {
   return lines;
 }
 
-function solid(color: RGBA, size: [number, number], at: [number, number], radius: number): VisualLayer {
-  return { kind: "visual", content: { type: "solid", color }, size, transform: [1, 0, 0, 1, at[0], at[1]], radius: [radius, radius, radius, radius] };
-}
-
 /** Where a caption's box and text sit on a `width` × `height` canvas: the box, the text's origin and lines, the text. */
-export function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { width: number; height: number }) {
+function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { width: number; height: number }) {
   if (!words.length) return undefined;
   const text = captionText(words, style);
   const width = Math.max(1, Math.round(canvas.width * style.maxWidth));
@@ -144,7 +140,7 @@ function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const g = captionGeometry(words, style, ctx.canvas);
   if (!g) return;
   const { box, origin, lines, spec } = g;
-  if (style.background[3] > 0) e.layers.push(solid(style.background, [box.width, box.height], [box.x, box.y], Math.min(style.cornerRadius, box.height / 2)));
+  if (style.background[3] > 0) e.layers.push(solidLayer(style.background, [box.width, box.height], Math.min(style.cornerRadius, box.height / 2), [box.x, box.y]));
   const main: VisualLayer = {
     kind: "visual",
     content: { type: "source", source: ctx.source({ kind: "text", ...spec, height: g.height }) },
@@ -180,7 +176,7 @@ const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
  * their times; each run of new or changed words shares the time of the old words between the kept ones around it,
  * or the gap there, by length. Typing a caption a key at a time so keeps its timing.
  */
-export function retime(old: CaptionWord[], tokens: string[], from: number, to: number): CaptionWord[] {
+function retime(old: CaptionWord[], tokens: string[], from: number, to: number): CaptionWord[] {
   const [n, m] = [old.length, tokens.length];
   const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i]![j] = norm(old[i]!.text) === norm(tokens[j]!) ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
@@ -220,34 +216,24 @@ export function retime(old: CaptionWord[], tokens: string[], from: number, to: n
 
 /** v2: a vertical `position` and `margin` became anchors with offsets on both axes. */
 function anchors(doc: unknown): unknown {
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!v || typeof v !== "object") return;
-    const s = (v as { props?: { captionStyle?: Record<string, unknown> } }).props?.captionStyle;
+  eachRawClip(doc, (c) => {
+    const s = c.props?.captionStyle;
     if (s && "position" in s) {
       const { position, margin, ...rest } = s;
-      (v as { props: Record<string, unknown> }).props.captionStyle = { ...rest, anchorY: position, offsetY: position === "middle" ? 0 : margin, anchorX: "center", offsetX: 0 };
+      c.props.captionStyle = { ...rest, anchorY: position, offsetY: position === "middle" ? 0 : margin, anchorX: "center", offsetX: 0 };
     }
-    Object.values(v).forEach(visit);
-  };
-  visit(doc);
+  });
   return doc;
 }
 
 /** v3: the style every caption carried went on their track, once. */
 function styleOnTrack(doc: unknown): unknown {
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!v || typeof v !== "object") return;
-    const o = v as { clips?: { props?: Record<string, unknown> }[]; props?: Record<string, unknown> };
-    if (Array.isArray(o.clips)) {
-      const style = o.clips.find((c) => c.props?.captionStyle)?.props?.captionStyle;
-      for (const c of o.clips) if (c.props) delete c.props.captionStyle;
-      if (style) o.props = { ...o.props, captionStyle: style };
-    }
-    Object.values(v).forEach(visit);
-  };
-  visit(doc);
+  eachRawTrack(doc, (t) => {
+    const clips = t.clips as { props?: Record<string, unknown> }[];
+    const style = clips.find((c) => c.props?.captionStyle)?.props?.captionStyle;
+    for (const c of clips) if (c.props) delete c.props.captionStyle;
+    if (style) t.props = { ...t.props, captionStyle: style };
+  });
   return doc;
 }
 

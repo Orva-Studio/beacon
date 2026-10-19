@@ -3,7 +3,7 @@ import { chordId, chordOf, KeysSchema, keysLabel, sameArgs, type ActionListing, 
 import actionList from "../../../keymaps/actions.json";
 import defaultKeymap from "../../../keymaps/default.json";
 
-export const ACTIONS = actionList.actions as ActionListing[];
+const ACTIONS = actionList.actions as ActionListing[];
 const ACTION_BY_ID = new Map(ACTIONS.map((a) => [a.id, a]));
 const DEFAULTS = defaultKeymap.bindings as { keys: Keys; command: string; args?: Record<string, unknown> }[];
 

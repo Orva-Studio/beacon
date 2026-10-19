@@ -12,7 +12,9 @@ pub struct Job {
     pub width: u32,
     pub height: u32,
     pub fps: Fps,
-    pub output: Output,
+    /// What the export worker writes; renderers that only draw (the preview, frame grabs) have none.
+    #[serde(default)]
+    pub output: Option<Output>,
     pub sources: HashMap<String, Source>,
     #[serde(default)]
     pub passes: HashMap<String, PassDef>,
@@ -33,8 +35,6 @@ pub enum Output {
     Video { path: String, args: Vec<String> },
     /// One PNG per scene, named by `Scene::name` or the frame number.
     Png { dir: String },
-    /// Raw RGBA frames on stdout.
-    Raw,
     /// Encoded by VideoToolbox from the GPU's frames, through AVAssetWriter (H.264, HEVC, ProRes).
     Encode(Encode),
 }

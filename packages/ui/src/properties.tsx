@@ -1,14 +1,15 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds } from "@beacon/model";
+import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
-import { contentSize, valueAt } from "./canvas";
+import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
-import { NO_NESTED, timelineView } from "./timeline";
+import type { CaptionStyle } from "@beacon/features";
+import { NO_NESTED, timelineView } from "./timeline-draw";
 import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
-import { effectName } from "./effect-names";
 import { useQuery } from "./query";
+import { propsOf } from "./props";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -116,14 +117,14 @@ function ClipProperties({
             <Check label="Mix to mono" checked={false} disabled />
             <Check
               label="Auto-normalize loudness"
-              checked={Boolean((clip.props.audio as { normalize?: boolean } | undefined)?.normalize)}
+              checked={propsOf<{ normalize: boolean }>(clip, "audio").normalize}
               onChange={(on) => edit("audio", { normalize: on }, "Auto-normalize Loudness")}
             />
           </div>
         </Section>
       )}
       {tab?.id === "effects" && clip.effects.map((e) => (
-          <Effect key={e.id} clip={clip} effect={e} host={host} schema={init?.effects.find((x) => x.id === e.type)?.schema} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
+          <Effect key={e.id} clip={clip} effect={e} host={host} def={init?.effects.find((x) => x.id === e.type)} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
         ))}
     </>
   );
@@ -137,7 +138,7 @@ function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: 
   const cw = size ? size[0] - crop("left") - crop("right") : undefined;
   const ch = size ? size[1] - crop("top") - crop("bottom") : undefined;
   const degrees = (value("transform", "rotation") * 180) / Math.PI;
-  const border = { thickness: 0, color: [1, 1, 1, 1] as RGBA, ...(clip.props.border as { thickness?: number; color?: RGBA } | undefined) };
+  const border = propsOf<{ thickness: number; color: RGBA }>(clip, "border");
   // Scale keeps the clip's aspect: the slider scales both axes.
   const setScale = (pct: number, key?: string) => edit("transform", { scaleX: pct / 100, scaleY: (pct / 100) * (sy / (sx || 1)) }, "Scale", key);
   return (
@@ -234,6 +235,37 @@ const WEIGHTS: [number, string][] = [
   [700, "Bold"],
 ];
 
+/** Font and Weight rows: the families the user's projects use first, then every installed one (`installed`). */
+function FontRows({ font, weight, installed, set, label }: { font: string; weight: number; installed?: string[]; set: (fields: { font?: string; weight?: number }, label: string) => void; label: string }) {
+  return (
+    <>
+      <Row label="Font">
+        <Select value={font} onChange={(e) => set({ font: e.target.value }, label)}>
+          {[...new Set([font, ...FONTS])].map((f) => (
+            <option key={f}>{f}</option>
+          ))}
+          {installed && (
+            <optgroup label="All fonts">
+              {installed.filter((f) => f !== font && !FONTS.includes(f)).map((f) => (
+                <option key={f}>{f}</option>
+              ))}
+            </optgroup>
+          )}
+        </Select>
+      </Row>
+      <Row label="Weight">
+        <Select value={weight} onChange={(e) => set({ weight: Number(e.target.value) }, label)}>
+          {(WEIGHTS.some(([w]) => w === weight) ? WEIGHTS : [...WEIGHTS, [weight, String(weight)] as [number, string]]).map(([w, name]) => (
+            <option key={w} value={w}>
+              {name}
+            </option>
+          ))}
+        </Select>
+      </Row>
+    </>
+  );
+}
+
 type CalloutProp = { shape: string; cornerRadius: number; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
 
 /** Annotation properties, what the user changes: text, font, size, colour; a shape's fill, outline and corners. */
@@ -260,29 +292,7 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
             value={text.text}
             onChange={(e) => setText({ text: e.target.value }, "Edit Text", `text-${clip.id}`)}
           />
-          <Row label="Font">
-            <Select value={text.font} onChange={(e) => setText({ font: e.target.value }, "Font")}>
-              {[...new Set([text.font, ...FONTS])].map((f) => (
-                <option key={f}>{f}</option>
-              ))}
-              {installed && (
-                <optgroup label="All fonts">
-                  {installed.filter((f) => f !== text.font && !FONTS.includes(f)).map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </optgroup>
-              )}
-            </Select>
-          </Row>
-          <Row label="Weight">
-            <Select value={text.weight} onChange={(e) => setText({ weight: Number(e.target.value) }, "Font")}>
-              {(WEIGHTS.some(([w]) => w === text.weight) ? WEIGHTS : [...WEIGHTS, [text.weight, String(text.weight)] as [number, string]]).map(([w, name]) => (
-                <option key={w} value={w}>
-                  {name}
-                </option>
-              ))}
-            </Select>
-          </Row>
+          <FontRows font={text.font} weight={text.weight} installed={installed} set={setText} label="Font" />
           <Slider unit="" label="Size" value={text.size} min={8} max={400} onChange={(v, key) => setText({ size: Math.max(8, v) }, "Font Size", key)} />
           <ColorRow label="Color" color={text.color} onChange={(color, key) => setText({ color }, "Text Color", key)} />
           <Row label="Align">
@@ -308,22 +318,6 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
   );
 }
 
-type CaptionStyle = {
-  font: string;
-  weight: number;
-  size: number;
-  color: RGBA;
-  background: RGBA;
-  cornerRadius: number;
-  anchorY: "top" | "middle" | "bottom";
-  offsetY: number;
-  anchorX: "left" | "center" | "right";
-  offsetX: number;
-  highlight: RGBA;
-  maxWidth: number;
-  uppercase: boolean;
-};
-
 /** Align to page: each button puts the captions against an edge, or in the middle, at the usual distance. */
 const ALIGN: { label: string; icon: IconName; fields: (margin: number) => Partial<CaptionStyle> }[] = [
   { label: "Top", icon: "align-top", fields: (m) => ({ anchorY: "top", offsetY: m }) },
@@ -341,9 +335,7 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
   // One style for all the captions on a track, kept on the track.
   const style = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id))?.props?.captionStyle as CaptionStyle | undefined;
   if (!style) return null;
-  const from = ticksToSeconds(clip.mediaStart ?? 0);
-  const to = from + ticksToSeconds(clip.duration);
-  const words = ((clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []).filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+  const words = wordsInWindow(clip, (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []);
   const text = words.map((w) => w.text).join(" ");
   // Typed into a draft and set on leaving the field or Return: the words are re-timed from the whole text.
   const commit = () => {
@@ -375,29 +367,7 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
       </Section>
       <Section>
         <div className="mb-3 text-label text-text-faint">Every caption</div>
-        <Row label="Font">
-          <Select value={style.font} onChange={(e) => set({ font: e.target.value }, "Caption Font")}>
-            {[...new Set([style.font, ...FONTS])].map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-            {installed && (
-              <optgroup label="All fonts">
-                {installed.filter((f) => f !== style.font && !FONTS.includes(f)).map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </optgroup>
-            )}
-          </Select>
-        </Row>
-        <Row label="Weight">
-          <Select value={style.weight} onChange={(e) => set({ weight: Number(e.target.value) }, "Caption Font")}>
-            {(WEIGHTS.some(([w]) => w === style.weight) ? WEIGHTS : [...WEIGHTS, [style.weight, String(style.weight)] as [number, string]]).map(([w, name]) => (
-              <option key={w} value={w}>
-                {name}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        <FontRows font={style.font} weight={style.weight} installed={installed} set={set} label="Caption Font" />
         <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
         <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
         <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
@@ -453,7 +423,7 @@ function RegionProps({ clip, value, edit }: { clip: Clip; value: (g: string, f: 
 }
 
 function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: number) => number; clip: Clip; edit: Edit }) {
-  const smooth = (clip.props.cursor as { smoothAcrossEdits?: number } | undefined)?.smoothAcrossEdits ?? 0;
+  const smooth = propsOf<{ smoothAcrossEdits: number }>(clip, "cursor").smoothAcrossEdits;
   return (
     <Section>
       <Slider label="Scale" value={value("cursor", "scale", 1) * 100} max={1000} unit="%" onChange={(v, key) => edit("cursor", { scale: Math.max(1, v) / 100 }, "Cursor Scale", key)} />
@@ -468,9 +438,9 @@ function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: numbe
 type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
 /** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
-function Effect({ clip, effect, host, schema, selected }: { clip: Clip; effect: EffectInstance; host: Host; schema?: Record<string, unknown>; selected: boolean }) {
-  const fields = (schema as JsonSchema | undefined)?.properties ?? {};
-  const name = effectName(effect.type);
+function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: EffectInstance; host: Host; def?: Init["effects"][number]; selected: boolean }) {
+  const fields = (def?.schema as JsonSchema | undefined)?.properties ?? {};
+  const name = def?.title ?? effect.type;
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
   return (
     <FoldSection

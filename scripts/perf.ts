@@ -5,11 +5,11 @@
 //     [--no-proxies] (an empty cache and no proxy jobs: everything read from the originals)
 //     [--export from-to] (instead: times an MP4 export of those timeline seconds; BEACON_PROFILE=1 adds its stages)
 // A .beproj is copied without its media: only its project.json, the media read where it is.
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, extname, isAbsolute, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { LocalCore } from "@beacon/core";
+import { LocalCore, readProject, writeProject } from "@beacon/core";
 import { DEFAULT_CACHE_DIR } from "@beacon/render";
 import { projectDuration, ticksToSeconds } from "@beacon/model";
 
@@ -37,17 +37,18 @@ function cacheWithoutProxies(): string {
   for (const f of readdirSync(DEFAULT_CACHE_DIR)) if (f.startsWith("frames-")) cpSync(join(DEFAULT_CACHE_DIR, f), join(dir, f));
   return dir;
 }
-const core = new LocalCore(values["no-proxies"] ? { cacheDir: cacheWithoutProxies() } : values.cache ? { cacheDir: values.cache } : {});
 if (values.mode !== "quiet" && values.mode !== "fast") throw new Error("--mode is quiet or fast");
-core.setJobMode(values.mode);
+// Settings of its own: every medium gets its proxy, built as --mode says, whatever the user chose.
+const configDir = join(dir, "config");
+const core = new LocalCore({ configDir, ...(values["no-proxies"] ? { cacheDir: cacheWithoutProxies() } : values.cache ? { cacheDir: values.cache } : {}) });
+await core.setSettings({ autoProxy: { recording: true, video: true }, proxyMode: values.mode });
 try {
   const path = join(dir, `${basename(source, extname(source))}.beproj`);
   let h;
   if (extname(source) === ".beproj") {
-    const doc = JSON.parse(readFileSync(join(source, "project.json"), "utf8")) as { assets: Record<string, { path: string }> };
-    for (const a of Object.values(doc.assets)) if (!isAbsolute(a.path)) a.path = join(source, a.path);
+    // Media inside the original stays where it is: the copy names it by its full path.
     mkdirSync(path);
-    writeFileSync(join(path, "project.json"), JSON.stringify(doc));
+    writeProject(path, readProject(source, core.registry).doc);
     h = await core.open(path);
   } else {
     h = await core.create({ path, cmproj: source });
@@ -70,7 +71,7 @@ try {
 
   // The proxies the app would build (cached across runs); the bench waits for them.
   const running = new Set<string>();
-  core.watchJobs((j) => (j.state === "running" ? running.add(j.id) : running.delete(j.id)));
+  core.watchApp((e) => e.kind === "job" && (e.job.state === "running" ? running.add(e.job.id) : running.delete(e.job.id)));
   const view = core.attachView(h, { offscreen: { width, height } }, { silent: true, proxies: !values["no-proxies"] });
   const waitStart = performance.now();
   for (let idle = 0; idle < 6; idle = running.size ? 0 : idle + 1) await Bun.sleep(250);

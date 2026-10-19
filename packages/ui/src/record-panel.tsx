@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Icon, LevelHistory } from "./controls";
 import { previewListeners } from "./record-preview";
 import type { AudioLevel, PanelState, RecordPreview } from "./rpc";
+import { clock } from "./time";
 
 type Source = "screen" | "camera" | "microphone" | "systemAudio";
 const SOURCES: [Source, string][] = [
@@ -10,12 +11,6 @@ const SOURCES: [Source, string][] = [
   ["microphone", "Mic"],
   ["systemAudio", "System"],
 ];
-
-const clock = (s: number) => {
-  const t = Math.max(0, Math.floor(s));
-  const two = (n: number) => String(n).padStart(2, "0");
-  return t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}:${two(t % 60)}` : `${Math.floor(t / 60)}:${two(t % 60)}`;
-};
 
 /**
  * The recording panel: a small window floating over the screen while a take records, left out of the recording.
@@ -49,7 +44,7 @@ export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onSt
       <div className="flex items-center gap-2">
         <span className="size-2.5 animate-pulse rounded-full bg-danger" />
         <span className="flex-1 text-body font-semibold text-text-strong tabular-nums" data-record-time>
-          {clock((now - state.started) / 1000)}
+          {clock((now - state.started) / 1000, { floor: true })}
         </span>
         <div className="electrobun-webkit-app-region-no-drag flex cursor-default items-center gap-1">
           <button

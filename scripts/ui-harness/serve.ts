@@ -2,10 +2,7 @@ import { join } from "node:path";
 import { importDropped, LocalCore } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { exportOptions } from "../../packages/ui/src/export-options";
-import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
-import { appWideMessage, exportCanvas, initPayload, settingsSheet } from "../../packages/ui/src/payloads";
-import type { RecentProject } from "../../packages/ui/src/rpc";
+import { appBridge, coreRequests, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
@@ -28,6 +25,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     configDir,
     secrets: { get: async (id) => secrets.get(id), set: async (id, value) => void (value === null ? secrets.delete(id) : secrets.set(id, value)) },
   });
+  // Every medium gets its proxy on its own here (the app's default is none), for the flows that watch one being made.
+  await core.setSettings({ autoProxy: { recording: true, video: true } });
   let shown = !opts.closed;
   const h = await core.open(project);
   const root = join(import.meta.dir, "../..");
@@ -38,23 +37,11 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   const js = await built.outputs[0]!.text();
   const html = (await Bun.file(join(root, "packages/ui/src/index.html")).text()).replace("index.js", "view.js");
   const menus: string[] = [];
-  const unwatch = new Map<unknown, () => void>();
+  const bridges = new Map<unknown, ProjectBridge>();
+  const appWatches = new Map<unknown, () => void>();
   const sockets = new Set<{ send(data: string): unknown }>();
-  let rev = 0;
   /** Set by a test: the next patches message is lost, as a dropped message would be; `runDelay` ms before each command runs, as the app's round trip takes. */
   const faults = { dropNext: false, runDelay: 0 };
-  /** Proxies being made, as the app tracks them. */
-  const transcribing: Record<string, number> = {};
-  const making: { queued: Record<string, number>; jobs: Record<string, number> } = { queued: {}, jobs: {} };
-  /** Every asset's waveform peaks, as the app sends them. */
-  const waveforms = () => {
-    const out: Record<string, Record<number, number[]>> = {};
-    for (const id of Object.keys(core.doc(h).assets)) {
-      const w = core.derived<{ streams: Record<number, number[]> }>(h, id, "waveform");
-      if (w) out[id] = w.streams;
-    }
-    return out;
-  };
   /** The newest preview frames, pulled by the page as the app's are (`recordFrames`). */
   const frames: { seq: number; camera?: string; screen?: string; at: Record<string, number> } = { seq: 0, at: {} };
   let frameWaiters: (() => void)[] = [];
@@ -64,7 +51,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     for (const wake of frameWaiters.splice(0)) wake();
   };
   let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
-  const opened = async () => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev });
+  /** The app's own handlers for what is core's alone. */
+  // Not cancelJob: the harness's downloads are stand-ins, so it only records it.
+  const { cancelJob: _, ...shared }: Record<string, (params: never) => Promise<unknown>> = coreRequests(core, () => h);
+  const opened = async (ws: unknown) => ({ path: h, name: "project", project: core.doc(h), session: await core.session(h), rev: bridges.get(ws)?.rev() ?? 0 });
   const sendAll = (type: string, data: unknown) => {
     for (const ws of sockets) ws.send(JSON.stringify({ type, data }));
   };
@@ -93,41 +83,29 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     },
     websocket: {
       open(ws) {
-        const stop = core.watch(h, (e) => {
-          if (e.kind === "apply" || e.kind === "undo" || e.kind === "redo") {
-            rev++;
-            if (faults.dropNext) faults.dropNext = false;
-            else ws.send(JSON.stringify({ type: "patches", data: { patches: e.patches, rev } }));
-            void core.missing(h).then((missing) => ws.send(JSON.stringify({ type: "media", data: { missing } })));
-          }
-          else if (e.kind === "session") ws.send(JSON.stringify({ type: "session", data: { changes: e.changes } }));
-          else if (e.kind === "favorites" || e.kind === "preference") void appWideMessage(core, e).then((m) => m && ws.send(JSON.stringify(m)));
-          else if (e.kind === "shortcuts") ws.send(JSON.stringify({ type: "shortcuts", data: { shortcuts: e.shortcuts } }));
-          else if (e.kind === "settings") ws.send(JSON.stringify({ type: "appSettings", data: e.settings }));
-          else if (e.kind === "preparing") {
-            making.queued = e.assets;
-            ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
-          } else if (e.kind === "job" && e.job.kind === "proxy" && e.job.asset) {
-            if (e.job.state === "running") making.jobs[e.job.asset] = e.job.progress;
-            else delete making.jobs[e.job.asset];
-            ws.send(JSON.stringify({ type: "media", data: { preparing: { ...making.queued, ...making.jobs } } }));
-          } else if (e.kind === "job" && e.job.kind === "transcript" && e.job.asset) {
-            if (e.job.state === "running") transcribing[e.job.asset] = e.job.progress;
-            else delete transcribing[e.job.asset];
-            ws.send(JSON.stringify({ type: "media", data: { transcribing: { ...transcribing } } }));
-          } else if (e.kind === "derived" && e.key === "proxy") ws.send(JSON.stringify({ type: "media", data: { proxies: { [e.asset]: e.present } } }));
-          else if (e.kind === "job" && e.job.kind === "waveform" && e.job.state === "done") ws.send(JSON.stringify({ type: "media", data: { waveforms: waveforms() } }));
+        // The app's own translation of core's events, as its window gets them.
+        const send: Send = (type, data) => {
+          if (type === "patches" && faults.dropNext) faults.dropNext = false;
+          else ws.send(JSON.stringify({ type, data }));
+        };
+        const bridge = projectBridge(core, h, send, {
+          changed: () => void core.missing(h).then((missing) => send("media", { missing })),
         });
-        unwatch.set(ws, stop);
+        appWatches.set(ws, appBridge(core, send));
+        bridges.set(ws, bridge);
         sockets.add(ws);
       },
       close(ws) {
-        unwatch.get(ws)?.();
+        bridges.get(ws)?.unwatch();
+        appWatches.get(ws)?.();
         sockets.delete(ws);
-        unwatch.delete(ws);
+        bridges.delete(ws);
+        appWatches.delete(ws);
       },
       async message(ws, raw) {
         const msg = JSON.parse(String(raw));
+        // The request's fields, named as the app's handlers get them.
+        const p = msg.params ?? {};
         const reply = async (fn: () => Promise<unknown>) => {
           try {
             return { ok: true, result: await fn() };
@@ -136,40 +114,36 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           }
         };
         let result: unknown;
-        if (msg.type === "init") {
-          result = { ...(await initPayload(core)), opened: shown ? await opened() : undefined, recent: opts.recent ?? [], socket: "" };
-        } else if (msg.type === "run") {
-          if (faults.runDelay) await Bun.sleep(faults.runDelay);
-          result = await reply(() => core.run(h, msg.command, msg.args ?? {}, { ...(msg.label ? { label: msg.label } : {}), ...(msg.coalesce ? { coalesce: msg.coalesce } : {}) }));
+        if (msg.type === "run" && faults.runDelay) await Bun.sleep(faults.runDelay);
+        if (msg.type === "setPreference" || msg.type === "setSecret") menus.push(msg.type === "setPreference" ? `setPreference:${p.id}=${p.value}` : `setSecret:${p.id}=${p.value === null ? "removed" : "set"}`);
+        if (shared[msg.type]) result = await shared[msg.type]!(p as never);
+        else if (msg.type === "init") {
+          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], socket: "" };
         }
-        else if (msg.type === "resync") result = await opened();
-        else if (msg.type === "query") result = await reply(() => core.query(h, msg.name, msg.args ?? {}));
-        else if (msg.type === "undo") result = await reply(() => core.undo(h));
-        else if (msg.type === "redo") result = await reply(() => core.redo(h));
+        else if (msg.type === "resync") result = await opened(ws);
         else if (msg.type === "openRecent" || msg.type === "openDialog") {
-          menus.push(msg.type === "openRecent" ? `openRecent:${msg.path}` : "openDialog");
+          menus.push(msg.type === "openRecent" ? `openRecent:${p.path}` : "openDialog");
           shown = true;
-          ws.send(JSON.stringify({ type: "opened", data: await opened() }));
+          ws.send(JSON.stringify({ type: "opened", data: await opened(ws) }));
           result = { ok: true };
         }
-        else if (msg.type === "clipMenu") menus.push(msg.clip);
+        else if (msg.type === "clipMenu") menus.push(p.clip);
         else if (msg.type === "canvasMenu") menus.push("canvas");
-        else if (msg.type === "trackMenu") menus.push(`track:${msg.track}`);
-        else if (msg.type === "binMenu") menus.push(`asset:${msg.asset}`);
+        else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
+        else if (msg.type === "binMenu") menus.push(`asset:${p.asset}`);
         else if (msg.type === "importMedia") menus.push("import");
-        else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, msg.files, msg));
+        else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, p.files, p));
         else if (msg.type === "captureFrame")
           result = await reply(async () => {
             const r = await core.captureFrame(h);
             ws.send(JSON.stringify({ type: "snapshotSaved", data: { path: r.path } }));
             return r;
           });
-        else if (msg.type === "frameImage") result = `data:image/png;base64,${Buffer.from((await core.frame(h, (await core.session(h)).playhead)).png).toString("base64")}`;
         else if (msg.type === "startExport")
           result = await reply(async () => {
-            const output = join(msg.folder, `${msg.name}.${msg.settings.format}`);
-            if (!msg.overwrite && existsSync(output)) throw new Error(`${msg.name}.${msg.settings.format} already exists`);
-            const job = await core.export(h, { output, overwrite: true, ...exportOptions(msg.settings), ...(msg.range ? { from: msg.range.in, to: msg.range.out } : {}) });
+            const output = join(p.folder, `${p.name}.${p.settings.format}`);
+            if (!p.overwrite && existsSync(output)) throw new Error(`${p.name}.${p.settings.format} already exists`);
+            const job = await core.export(h, { output, overwrite: true, ...exportOptions(p.settings), ...(p.range ? { from: p.range.in, to: p.range.out } : {}) });
             const stop = core.watch(h, (e) => {
               if (e.kind !== "job" || e.job.id !== job.id) return;
               ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: e.job.state, progress: e.job.progress, ...(e.job.error ? { error: e.job.error } : {}) } }));
@@ -177,86 +151,70 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             });
             ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: "running", progress: 0 } }));
           });
-        else if (msg.type === "analyze") await core.analyze(h, msg.key, msg.asset);
-        else if (msg.type === "binFrame") {
-          const png = await core.assetThumbnail(h, msg.asset, 128, msg.time).catch(() => undefined);
-          result = png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : null;
-        }
-        else if (msg.type === "previewOpen") result = core.assetPreviewInfo(h, msg.asset);
+        else if (msg.type === "previewOpen") result = core.assetPreviewInfo(h, p.asset);
         // No native view here: the preview's controls are recorded, and play/seek move its clock as the app's would.
         else if (msg.type === "previewControl") {
-          menus.push(`preview:${msg.op}${msg.time !== undefined ? `:${msg.time}` : ""}`);
-          if (msg.op !== "close") ws.send(JSON.stringify({ type: "previewClock", data: { time: msg.time ?? 0, playing: msg.op === "play" } }));
+          menus.push(`preview:${p.op}${p.time !== undefined ? `:${p.time}` : ""}`);
+          if (p.op !== "close") ws.send(JSON.stringify({ type: "previewClock", data: { time: p.time ?? 0, playing: p.op === "play" } }));
         }
         // The harness keeps its one project: these are recorded, as menus are.
         else if (msg.type === "setAppSettings") {
-          menus.push(`setAppSettings:${JSON.stringify(msg.settings)}`);
-          await core.setSettings(msg.settings).catch(() => {});
+          menus.push(`setAppSettings:${JSON.stringify(p)}`);
+          await core.setSettings(p).catch(() => {});
         }
         // Never records: the sources it was asked for are what a test checks.
-        else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(msg.sources)}`), (result = { ok: true }));
-        else if (msg.type === "startNarration") (menus.push(`startNarration:${JSON.stringify({ microphone: msg.microphone, hear: msg.hear })}`), (result = { ok: true }));
-        else if (msg.type === "stopNarration") (menus.push(`stopNarration${msg.discard ? ":discard" : ""}`), (result = { ok: true }));
+        else if (msg.type === "startRecording") (menus.push(`startRecording:${JSON.stringify(p.sources)}`), (result = { ok: true }));
+        else if (msg.type === "startNarration") (menus.push(`startNarration:${JSON.stringify({ microphone: p.microphone, hear: p.hear })}`), (result = { ok: true }));
+        else if (msg.type === "stopNarration") (menus.push(`stopNarration${p.discard ? ":discard" : ""}`), (result = { ok: true }));
         // Stand-in devices: a test sets them with `narrationDevices`.
         else if (msg.type === "narrationDevices") result = narrationDevices;
-        else if (msg.type === "openRecord") menus.push(msg.mode ? `openRecord:${msg.mode}` : "openRecord");
+        else if (msg.type === "openRecord") menus.push(p.mode ? `openRecord:${p.mode}` : "openRecord");
         // No devices here: still frames and levels stand in for them.
         else if (msg.type === "recordPreview") {
-          const { id: _, type: __, ...sources } = msg;
-          menus.push(`recordPreview:${JSON.stringify(sources)}`);
-          for (const source of ["screen", "camera"] as const) if (msg[source]) previewFrame(source, PREVIEW_JPEG);
-          if (msg.microphone || msg.systemAudio)
-            ws.send(JSON.stringify({ type: "recordPreview", data: { ...(msg.microphone ? { microphone: { db: -20, peak: -6 } } : {}), ...(msg.systemAudio ? { systemAudio: { db: -30, peak: -12 } } : {}) } }));
+          menus.push(`recordPreview:${JSON.stringify(p)}`);
+          for (const source of ["screen", "camera"] as const) if (p[source]) previewFrame(source, PREVIEW_JPEG);
+          if (p.microphone || p.systemAudio)
+            ws.send(JSON.stringify({ type: "recordPreview", data: { ...(p.microphone ? { microphone: { db: -20, peak: -6 } } : {}), ...(p.systemAudio ? { systemAudio: { db: -30, peak: -12 } } : {}) } }));
           result = { ok: true };
         }
         else if (msg.type === "stopRecording" || msg.type === "hidePanel") menus.push(msg.type);
         // The beep the stand-in microphone hears.
         else if (msg.type === "testBeep") {
-          menus.push(`testBeep>${msg.output}`);
+          menus.push(`testBeep>${p.output}`);
           ws.send(JSON.stringify({ type: "recordPreview", data: { microphone: { db: -24, peak: -12 } } }));
         }
         // No screen to flash here: a fixed measurement stands in.
         else if (msg.type === "checkSync") {
-          menus.push(`checkSync:${msg.camera}|${msg.microphone}@${msg.display}>${msg.output}`);
+          menus.push(`checkSync:${p.camera}|${p.microphone}@${p.display}>${p.output}`);
           result = { ok: true, result: { cameraLateMs: 112, flashes: 6, spreadMs: 4 } };
         }
         else if (msg.type === "recordFrames") {
-          const after = msg.after as number;
+          const after = p.after as number;
           if (frames.seq <= after) await new Promise<void>((wake) => (frameWaiters.push(wake), setTimeout(wake, 1000)));
           result = { seq: frames.seq, ...(["camera", "screen"] as const).reduce((o, k) => (frames.at[k]! > after && frames[k] ? { ...o, [k]: frames[k] } : o), {}) };
         }
-        else if (msg.type === "proxySpace") result = await core.analysisSize("proxy");
-        else if (msg.type === "deleteAllProxies") result = await core.forgetAll("proxy").then(() => core.analysisSize("proxy"));
         else if (msg.type === "newProject" || msg.type === "renameProject") {
-          menus.push(`${msg.type}:${msg.name}`);
-          if (msg.settings) menus.push(`newProjectSettings:${JSON.stringify(msg.settings)}`);
-          if (msg.standalone) menus.push("newProjectStandalone");
+          menus.push(`${msg.type}:${p.name}`);
+          if (p.settings) menus.push(`newProjectSettings:${JSON.stringify(p.settings)}`);
+          if (p.standalone) menus.push("newProjectStandalone");
           result = { ok: true };
         }
         else if (msg.type === "saveAs") {
-          menus.push(`saveAs:${msg.folder}/${msg.name}${msg.standalone ? " (standalone)" : ""}`);
-          result = msg.name === "Taken" ? { ok: false, error: "Taken.beproj already exists" } : { ok: true };
+          menus.push(`saveAs:${p.folder}/${p.name}${p.standalone ? " (standalone)" : ""}`);
+          result = p.name === "Taken" ? { ok: false, error: "Taken.beproj already exists" } : { ok: true };
         }
         else if (msg.type === "chooseFolder") result = "/Users/someone/Shared";
-        else if (msg.type === "cancelExport") result = await reply(() => core.cancelJob(msg.id));
         // A stand-in download: the test sends its progress as the app forwards a real one's.
         else if (msg.type === "fetchResource") {
-          menus.push(`fetchResource:${msg.id}`);
+          menus.push(`fetchResource:${p.id}`);
           result = { ok: true, result: "job-download" };
         }
-        else if (msg.type === "setPreference" || msg.type === "setSecret") {
-          menus.push(msg.type === "setPreference" ? `setPreference:${msg.pref}=${msg.value}` : `setSecret:${msg.secret}=${msg.value === null ? "removed" : "set"}`);
-          result = await reply(async () => (msg.type === "setPreference" ? await core.setPreference(msg.pref, msg.value) : await core.setSecret(msg.secret, msg.value), core.preferences()));
-        }
-        else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(msg.action, msg.keys, msg.replace));
-        else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(msg.action));
+        else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(p.action, p.keys, p.replace));
+        else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(p.action));
         // The app's own actions open dialogs the main process owns: recorded, as menus are.
-        else if (msg.type === "appAction") menus.push(`app:${msg.action}`);
-        else if (msg.type === "favoriteAdd") result = await reply(() => core.favoriteAdd(msg.item, msg.index));
-        else if (msg.type === "favoriteRemove") result = await reply(() => core.favoriteRemove(msg.item));
-        else if (msg.type === "favoriteMove") result = await reply(() => core.favoriteMove(msg.item, msg.index));
+        else if (msg.type === "appAction") menus.push(`app:${p.action}`);
         else if (msg.type === "declineResource" || msg.type === "cancelJob") {
-          menus.push(`${msg.type}:${msg.id}`);
+          menus.push(`${msg.type}:${p.id}`);
           result = { ok: true };
         }
         ws.send(JSON.stringify({ id: msg.id, result }));

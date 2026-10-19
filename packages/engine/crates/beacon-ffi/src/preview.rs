@@ -2,8 +2,8 @@
 //! `Preview` and draws the latest submitted scene, so scrubbing never
 //! queues frames and the Bun main thread never waits on the GPU or decoders.
 
-use std::ffi::{CString, c_char, c_void};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use core_foundation::base::{CFRelease, CFRetain};
+use std::ffi::{c_char, c_void};
 use std::ptr;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
@@ -13,7 +13,7 @@ use beacon_render::scene::{Job, Scene};
 use beacon_render::{Mark, Placement, Preview};
 use serde_json::json;
 
-use crate::{guard, str_arg};
+use crate::{c_string, copy_out, guard, str_arg};
 
 enum Msg {
     Scene(u32, String),
@@ -36,12 +36,6 @@ pub struct FfiPreview {
     /// The `CAMetalLayer` drawn into, retained until the render thread has
     /// stopped: the view that owns it (Electrobun's) can go away first.
     layer: Option<usize>,
-}
-
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    fn CFRetain(cf: *const c_void) -> *const c_void;
-    fn CFRelease(cf: *const c_void);
 }
 
 struct Layer(*mut c_void);
@@ -205,10 +199,7 @@ fn run(mut preview: Preview, rx: Receiver<Msg>) {
 /// Runs one unit of the render thread's work, turning a panic into an error:
 /// the thread must outlive a bad frame, or the canvas freezes with no word why.
 fn caught<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|p| {
-        let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "unknown".into());
-        Err(format!("render thread panicked: {msg}"))
-    })
+    crate::caught("render thread panicked", f)
 }
 
 fn spawn(make: impl FnOnce() -> Result<Preview, String> + Send + 'static) -> Result<*mut FfiPreview, String> {
@@ -382,11 +373,7 @@ pub unsafe extern "C" fn beacon_preview_flush(h: *mut FfiPreview) -> i64 {
 pub unsafe extern "C" fn beacon_preview_result_copy(h: *mut FfiPreview, out: *mut u8, cap: usize) -> i32 {
     guard(-1, || {
         let p = handle(h)?;
-        if out.is_null() || cap < p.result.len() {
-            return Err("output is too small".into());
-        }
-        unsafe { ptr::copy_nonoverlapping(p.result.as_ptr(), out, p.result.len()) };
-        Ok(0)
+        unsafe { copy_out(&p.result, out, cap) }
     })
 }
 
@@ -403,7 +390,7 @@ pub unsafe extern "C" fn beacon_preview_stats_json(h: *mut FfiPreview) -> *mut c
         let (tx, rx) = channel();
         p.tx.send(Msg::Stats(tx)).map_err(|_| "preview thread stopped".to_string())?;
         let s = rx.recv().map_err(|_| "preview thread stopped".to_string())?;
-        Ok(CString::new(s).map_err(|e| e.to_string())?.into_raw())
+        c_string(s)
     })
 }
 

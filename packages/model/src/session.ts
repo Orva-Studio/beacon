@@ -1,10 +1,10 @@
 import { produce } from "immer";
 import { z } from "zod";
-import { clipSpeed } from "./evaluate";
+import { clipSpeed, timelineTimeAt } from "./evaluate";
 import type { FeatureRegistry } from "./registry";
-import type { Animation, Clip, EffectInstance, Project, Track } from "./schema";
+import { formatIssues, type Animation, type Clip, type EffectInstance, type Project, type Track } from "./schema";
 import { projectDuration } from "./project";
-import { copyClips, editScope, scopedProject, type Clipboard } from "./edit";
+import { clone, copyClips, editScope, scopedProject, type Clipboard } from "./edit";
 import { roundSeconds, secondsToTicks, snapSeconds, ticksPerFrame, ticksToSeconds } from "./ticks";
 
 /** A range just made is what Delete, Cut and Copy act on next: the last thing selected wins, so clips selected before it are let go. */
@@ -59,7 +59,7 @@ export interface Session {
 }
 
 /** A clip's property groups and effects, as Copy Properties takes them. */
-export interface CopiedProperties {
+interface CopiedProperties {
   props: Record<string, Record<string, unknown>>;
   effects: EffectInstance[];
   /** A copied animation arrow: where it starts in its clip and how long it is (seconds), easing and end values. */
@@ -87,7 +87,7 @@ export interface SessionCommandDef<A = any> {
 }
 
 /** The tool panels, in sidebar order. */
-export const TOOL_PANELS = [
+const TOOL_PANELS = [
   "favorites",
   "media",
   "annotations",
@@ -101,7 +101,7 @@ export const TRACK_HEIGHT = { min: 26, max: 120, default: 44 };
 
 const MIN_SPAN_FRAMES = 10;
 
-export function defaultSession(project: Project, shared: Partial<SharedSession> = {}): Session {
+function defaultSession(project: Project, shared: Partial<SharedSession> = {}): Session {
   const end = Math.max(10, ticksToSeconds(projectDuration(project)));
   return {
     playhead: 0,
@@ -145,7 +145,7 @@ function stops(project: Project, kind: "edit" | "marker" | "animation"): number[
     if (kind === "animation") {
       for (const a of clip.animations) {
         for (const media of [a.end - a.duration, a.end]) {
-          const t = clip.start + (media - (clip.mediaStart ?? 0)) / clipSpeed(clip);
+          const t = timelineTimeAt(clip, media);
           if (t >= clip.start && t <= end(clip)) out.push(t);
         }
       }
@@ -513,7 +513,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       if (!clip || !anim) throw new Error("select an animation arrow first");
       const speed = clipSpeed(clip);
       const offset = ticksToSeconds((anim.end - anim.duration - (clip.mediaStart ?? 0)) / speed);
-      s.properties = JSON.parse(JSON.stringify({ props: {}, effects: [], animations: [{ offset, duration: ticksToSeconds(anim.duration / speed), easing: anim.easing, to: anim.to }] }));
+      s.properties = clone({ props: {}, effects: [], animations: [{ offset, duration: ticksToSeconds(anim.duration / speed), easing: anim.easing, to: anim.to }] });
       s.clipboard = null;
     },
   }),
@@ -526,7 +526,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       const effects = s.effects.flatMap((e) => clips.find((c) => c.id === e.clip)?.effects.filter((fx) => fx.id === e.id) ?? []);
       if (!effects.length) throw new Error("select effects first");
       // The span is the copied clip's media time; on another clip the effect covers it whole.
-      s.properties = JSON.parse(JSON.stringify({ props: {}, effects: effects.map(({ span: _, ...fx }) => fx) }));
+      s.properties = clone({ props: {}, effects: effects.map(({ span: _, ...fx }) => fx) });
       s.clipboard = null;
     },
   }),
@@ -538,7 +538,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     apply: (s, { clips }, { project, registry }) => {
       const ids = clips ?? (s.selection.length ? s.selection : undefined);
       const range = s.range ? ([secondsToTicks(s.range.in), secondsToTicks(s.range.out)] as [number, number]) : undefined;
-      const board = copyClips(project, ids ? { clips: ids } : { range }, (c) => registry.hasTrait(c.type, "hold"));
+      const board = copyClips(project, ids ? { clips: ids } : { range }, registry);
       if (!board) throw new Error("nothing to copy: select clips or set an in/out range");
       s.clipboard = board as Session["clipboard"];
     },
@@ -555,7 +555,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       // Which stream it shows and a group's own tracks belong to the clip, not its look.
       const own = new Set(registry.groupsFor(c.type).filter((g) => g.nested || g.identity).map((g) => g.id));
       const props = Object.fromEntries(Object.entries(c.props).filter(([k]) => !own.has(k))) as CopiedProperties["props"];
-      s.properties = JSON.parse(JSON.stringify({ props, effects: c.effects }));
+      s.properties = clone({ props, effects: c.effects });
     },
   }),
   sessionCommand({
@@ -647,7 +647,7 @@ export class SessionStore {
     const def = this.commands.get(id);
     if (!def) throw new Error(`no session command "${id}"`);
     const parsed = def.args.safeParse(args ?? {});
-    if (!parsed.success) throw new Error(`${id}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "args"}: ${i.message}`).join("; ")}`);
+    if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
     const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent };
     const next = produce(this.#state, (d) => def.apply(d as Session, parsed.data, ctx));

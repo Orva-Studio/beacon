@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runTool, spawn, tool } from "./tool";
+import { recording } from "./brec";
+import { decodeAudio, ffmpegArgs, ffmpegInput, runTool } from "./tool";
 
 /** What a sync check measured: how late the camera's picture is behind the microphone's sound. */
 export interface SyncResult {
@@ -11,14 +11,11 @@ export interface SyncResult {
   spreadMs: number;
 }
 
-interface Take {
-  streams: Record<string, { file: string; start: number | null }>;
-}
 
 /** Each frame's time (seconds into its file) and mean luma (0-255), every frame as recorded (a still screen sends few). */
 async function lumas(path: string): Promise<{ t: number; y: number }[]> {
   const out = await runTool([
-    tool("ffmpeg"), "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path,
+    ...ffmpegArgs(), ...ffmpegInput(path),
     "-vf", "scale=32:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-fps_mode", "passthrough", "-f", "null", "-",
   ]);
   const frames: { t: number; y: number }[] = [];
@@ -34,10 +31,8 @@ async function lumas(path: string): Promise<{ t: number; y: number }[]> {
 
 /** The file's audio as mono float samples at `rate`. */
 async function samples(path: string, rate: number): Promise<Float32Array> {
-  const proc = spawn([tool("ffmpeg"), "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-ac", "1", "-ar", String(rate), "-f", "f32le", "-"], { stdout: "pipe", stderr: "ignore" });
-  const bytes = await new Response(proc.stdout).arrayBuffer();
-  if ((await proc.exited) !== 0) throw new Error(`ffmpeg could not read ${path}`);
-  return new Float32Array(bytes);
+  const bytes = await decodeAudio(path, { rate, format: "f32le" });
+  return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 2);
 }
 
 /**
@@ -95,7 +90,7 @@ const nearest = (times: number[], t: number, from: number, to: number) => times.
  * speakers' own delays, a few milliseconds either way.
  */
 export async function measureSync(dir: string): Promise<SyncResult> {
-  const take = JSON.parse(readFileSync(join(dir, "recording.json"), "utf8")) as Take;
+  const take = recording(dir);
   const stream = (role: string) => {
     const s = take.streams[role];
     if (!s || s.start === null) throw new Error(`the check recorded no ${role === "systemAudio" ? "system audio" : role}`);

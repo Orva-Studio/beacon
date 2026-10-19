@@ -1,10 +1,10 @@
 import { createRoot } from "react-dom/client";
-import { App, type Host } from "../src/app";
+import { App } from "../src/app";
+import { createHost } from "../src/host";
 import { RecordPanel } from "../src/record-panel";
-import type { Init, RecordFrames, SyncCheck } from "../src/rpc";
+import type { Init } from "../src/rpc";
 import { replica } from "../src/store";
-import { applyReply, messageHandlers } from "../src/messages";
-import { commandQueue } from "../src/latest";
+import { messageHandlers } from "../src/messages";
 
 // Electrobun's preload styles the tag (api/preload/wgpuTag.ts); the app's layout has to win over it here too.
 document.head.insertAdjacentHTML("afterbegin", "<style>electrobun-wgpu { display: block; width: 800px; height: 300px; background: #000; overflow: hidden; }</style>");
@@ -33,11 +33,11 @@ customElements.define(
 const ws = new WebSocket(`ws://${location.host}/ws`);
 const waiting = new Map<number, (r: unknown) => void>();
 let seq = 0;
-const request = <R,>(type: string, payload: object = {}) =>
+const request = <R,>(type: string, params: object = {}) =>
   new Promise<R>((resolve) => {
     const id = ++seq;
     waiting.set(id, resolve as (r: unknown) => void);
-    ws.send(JSON.stringify({ id, type, ...payload }));
+    ws.send(JSON.stringify({ id, type, params }));
   });
 
 ws.onmessage = (m) => {
@@ -52,76 +52,8 @@ ws.onmessage = (m) => {
   } else (messageHandlers as Record<string, (data: unknown) => void>)[msg.type]?.(msg.data);
 };
 
-const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
-  const r = await p;
-  if (!r.ok && r.error) replica.status(r.error);
-};
-
-const commands = commandQueue(report);
-
-const shortcuts = applyReply(replica.shortcuts);
-const favorites = applyReply(replica.favorites);
-
-const host: Host = {
-  run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }) as Promise<{ ok: boolean; error?: string }>, coalesce),
-  query: async (name, args) => {
-    const r = (await request("query", { name, args })) as { ok: boolean; result?: unknown; error?: string };
-    if (!r.ok) throw new Error(r.error);
-    return r.result;
-  },
-  undo: () => commands.send(() => request("undo") as Promise<{ ok: boolean; error?: string }>),
-  redo: () => commands.send(() => request("redo") as Promise<{ ok: boolean; error?: string }>),
-  openDialog: () => void commands.ordered(() => request("openDialog")),
-  openRecent: (path) => void commands.ordered(() => request("openRecent", { path })),
-  canvasView: () => {},
-  clipMenu: (clip) => void request("clipMenu", { clip }),
-  canvasMenu: () => void request("canvasMenu"),
-  trackMenu: (track) => void request("trackMenu", { track }),
-  binMenu: (asset) => void request("binMenu", { asset }),
-  importMedia: () => void request("importMedia"),
-  dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at }) as Promise<{ ok: boolean; error?: string }>),
-  captureFrame: () => commands.send(() => request("captureFrame") as Promise<{ ok: boolean; error?: string }>),
-  frameImage: () => request("frameImage") as Promise<string | null>,
-  binFrame: (asset, time) => request("binFrame", { asset, time }) as Promise<string | null>,
-  analyze: (key, asset) => void request("analyze", { key, asset }),
-  favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, index })),
-  favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
-  favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
-  shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, replace })),
-  shortcutReset: (action) => void shortcuts(request("shortcutReset", { action })),
-  app: (action) => void request("appAction", { action }),
-  chooseFolder: (start) => request("chooseFolder", { start }) as Promise<string | null>,
-  startExport: (params) => request("startExport", params),
-  startRecording: (sources) => request("startRecording", { sources }) as Promise<{ ok: boolean; error?: string }>,
-  narrationDevices: () => request("narrationDevices") as Promise<never>,
-  openRecord: (mode) => void request("openRecord", mode ? { mode } : {}),
-  startNarration: (microphone, hear) => request("startNarration", { microphone, hear }) as Promise<{ ok: boolean; error?: string }>,
-  stopNarration: (discard) => void request("stopNarration", { discard: !!discard }),
-  recordPreview: (devices) => void request("recordPreview", devices),
-  recordFrames: (after) => request("recordFrames", { after }) as Promise<RecordFrames>,
-  checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, display, output }) as Promise<{ ok: boolean; result?: SyncCheck; error?: string }>,
-  testBeep: (output) => request("testBeep", { output }) as Promise<void>,
-  cancelExport: (id) => void request("cancelExport", { id }),
-  fetchResource: (id) => request("fetchResource", { id }) as Promise<{ ok: boolean; error?: string; result?: string }>,
-  declineResource: (id) => void request("declineResource", { id }),
-  // Not `id`: that field routes the reply.
-  setPreference: (pref, value) => request("setPreference", { pref, value }) as Promise<{ ok: boolean; error?: string }>,
-  setSecret: (secret, value) => request("setSecret", { secret, value }) as Promise<{ ok: boolean; error?: string }>,
-  cancelJob: (id) => void request("cancelJob", { id }),
-  showFile: () => {},
-  setAppSettings: (settings) => void request("setAppSettings", { settings }),
-  proxySpace: () => request("proxySpace") as Promise<number>,
-  deleteAllProxies: () => request("deleteAllProxies") as Promise<number>,
-  newProject: (name, settings, standalone) => commands.ordered(() => request("newProject", { name, settings, standalone }) as Promise<{ ok: boolean; error?: string }>),
-  saveAs: (params) => commands.ordered(() => request("saveAs", params) as Promise<{ ok: boolean; error?: string }>),
-  renameProject: (name) => request("renameProject", { name }) as Promise<{ ok: boolean; error?: string }>,
-  previewOpen: (asset) => request("previewOpen", { asset }) as Promise<never>,
-  previewView: () => {},
-  previewPlay: (time) => void request("previewControl", { op: "play", time }),
-  previewPause: (time) => void request("previewControl", { op: "pause", time }),
-  previewSeek: (time) => void request("previewControl", { op: "seek", time }),
-  previewClose: () => void request("previewControl", { op: "close" }),
-};
+// The app's host, over the socket; no native views or Finder here.
+const host = createHost((name, params) => request(name, params), { canvasView: () => {}, showFile: () => {}, previewView: () => {} });
 
 (window as unknown as { harness: unknown }).harness = { replica };
 await new Promise((r) => (ws.onopen = r));

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { roundSeconds } from "@beacon/model";
-import { jobSignal, runTool, tool } from "./tool";
+import { decodeAudio, jobSignal, runTool, tool } from "./tool";
 
 export interface Word {
   text: string;
@@ -115,7 +115,7 @@ function quietBoundaries(words: Word[], speech: [number, number][], db: number[]
  * the recording's noise floor and its speech level (10th and 90th
  * percentile window levels), so it adapts to the mic and gain.
  */
-export function speechRegions(pcm: Int16Array, rate = RATE): [number, number][] {
+function speechRegions(pcm: Int16Array, rate = RATE): [number, number][] {
   const db = levels(pcm);
   const sorted = [...db].sort((x, y) => x - y);
   const floor = sorted[Math.floor(sorted.length * 0.1)] ?? -90;
@@ -330,9 +330,7 @@ async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: Tr
 export async function transcribe(path: string, opts: TranscribeOptions = {}): Promise<Transcription> {
   const dir = mkdtempSync(join(tmpdir(), "beacon-transcribe-"));
   try {
-    const raw = join(dir, "audio.pcm");
-    await runTool([tool("ffmpeg"), "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${opts.stream ?? 0}`, "-ac", "1", "-ar", String(RATE), "-f", "s16le", raw]);
-    const bytes = await Bun.file(raw).bytes();
+    const bytes = await decodeAudio(path, { stream: opts.stream ?? 0, rate: RATE, format: "s16le" });
     const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
     const db = levels(pcm);
     const speech = speechRegions(pcm);

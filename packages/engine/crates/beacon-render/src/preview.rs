@@ -4,6 +4,7 @@
 
 use std::ffi::c_void;
 
+use crate::gpu::{linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
 use crate::render::{FMT, instance, rt_usage, tex_desc};
 use crate::scene::{Job, Scene};
 use crate::{Error, Renderer, Result};
@@ -136,8 +137,7 @@ struct Fit { scale: vec2<f32>, offset: vec2<f32>, footprint: vec2<f32>, taps: ve
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
-  let p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-  return vec4(p[i], 0.0, 1.0);
+  return vec4(fullscreen(i), 0.0, 1.0);
 }
 
 @fragment
@@ -200,63 +200,15 @@ impl Preview {
     fn build(mut renderer: Renderer, target: Target, format: wgpu::TextureFormat) -> Self {
         renderer.lenient_sources = true;
         let device = renderer.device();
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("fit"), source: wgpu::ShaderSource::Wgsl(FIT_WGSL.into()) });
+        let module = shader(device, "fit", FIT_WGSL);
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("fit"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
-            ],
+            entries: &[uniform_entry(0, wgpu::ShaderStages::FRAGMENT), texture_entry(1), sampler_entry(2)],
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
-        let pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("fit"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState { module: &module, entry_point: Some("vs"), buffers: &[], compilation_options: Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some("fs"),
-                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-                compilation_options: Default::default(),
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
-        let marks_module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("marks"), source: wgpu::ShaderSource::Wgsl(MARKS_WGSL.into()) });
-        let marks_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("marks"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-                count: None,
-            }],
-        });
+        let pipe = pipeline(device, &module, &bgl, "vs", "fs", format, None);
+        let sampler = linear_sampler(device, false);
+        let marks_module = shader(device, "marks", MARKS_WGSL);
+        let marks_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("marks"), entries: &[uniform_entry(0, wgpu::ShaderStages::VERTEX)] });
         let marks_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&marks_bgl)], immediate_size: 0 });
         let attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
         let marks_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

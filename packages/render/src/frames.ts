@@ -1,6 +1,6 @@
 import { NativeRenderer } from "@beacon/media";
-import { evaluate, type FeatureRegistry, type Project, type Scene, type SourceDef, type Ticks } from "@beacon/model";
-import { renderJob } from "./render";
+import { type FeatureRegistry, type Project, type Scene, type Ticks } from "@beacon/model";
+import { canvasKey, renderJob, sceneAt } from "./render";
 
 /**
  * Stills for agents and previews (`frame.at`, contact sheets), rendered
@@ -16,21 +16,17 @@ export class FrameRenderer {
   ) {}
 
   #renderer(project: Project): NativeRenderer {
-    const { width, height, fps } = project.settings;
-    const canvas = `${width}x${height}@${fps.num}/${fps.den}`;
+    const canvas = canvasKey(project);
     if (!this.#native || canvas !== this.#canvas) {
       this.#native?.close();
-      this.#native = new NativeRenderer(JSON.stringify(renderJob(project, this.registry, { kind: "raw" }, this.cacheDir)));
+      this.#native = new NativeRenderer(JSON.stringify(renderJob(project, this.registry, this.cacheDir)));
       this.#canvas = canvas;
     }
     return this.#native;
   }
 
   #scene(project: Project, t: Ticks, data: <T>(assetId: string, key: string) => T | undefined): Scene {
-    const sources = new Map<string, SourceDef>();
-    const scene = evaluate(project, this.registry, t, { data, sources });
-    scene.sources = Object.fromEntries(sources);
-    return scene;
+    return sceneAt(project, this.registry, t, data);
   }
 
   /** PNG of the canvas at `t`, `width` pixels wide (0 = canvas width). */

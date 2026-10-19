@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   animatedValue,
   clipEnd,
-  clipSpeed,
   defineAction,
   defineCommand,
   defineFeature,
@@ -17,9 +16,12 @@ import {
   type Clip,
   type EnvelopePoint,
   type Ticks,
+  timelineTimeAt,
+  findClip,
+  dropTargets,
+  selectedClips,
+  selectDropped,
 } from "@beacon/model";
-import { findClip } from "../timeline";
-import { dropTargets, selectDropped } from "../timeline/actions";
 
 const TARGET = "audio.volume";
 /** Fades are about a second. */
@@ -28,10 +30,10 @@ const FADE = 1;
 const RAMP = 0.05;
 
 const volumeOf = (c: Clip) => Number((c.props.audio as { volume?: number } | undefined)?.volume ?? 1);
-const toTimeline = (c: Clip, media: Ticks) => ticksToSeconds(c.start + (media - (c.mediaStart ?? 0)) / clipSpeed(c));
+const toTimeline = (c: Clip, media: Ticks) => ticksToSeconds(timelineTimeAt(c, media));
 
 /** The clip's audio points with times on the timeline (seconds). */
-export function audioPoints(c: Clip): { time: number; value: number }[] {
+function audioPoints(c: Clip): { time: number; value: number }[] {
   return envelopePoints(volumeOf(c), c.animations, TARGET).map((p) => ({ time: toTimeline(c, p.time), value: p.value }));
 }
 
@@ -45,7 +47,7 @@ const setPoints = (c: Clip, points: { time: number; value: number }[]): ActionSt
 /** Selected clips with audio, else those under the playhead (or in the range) on unlocked tracks. */
 function audioClips(ctx: ActionContext): Clip[] {
   const has = (c: Clip) => ctx.registry.hasTrait(c.type, "audio");
-  const picked = ctx.scope.tracks.flatMap((t) => t.clips.filter((c) => ctx.session.selection.includes(c.id) && has(c)));
+  const picked = selectedClips(ctx).filter(has);
   if (picked.length) return picked;
   const [a, b] = ctx.session.range ? [ctx.session.range.in, ctx.session.range.out] : [ctx.session.playhead, ctx.session.playhead];
   return ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips.filter((c) => has(c) && ticksToSeconds(c.start) <= b && ticksToSeconds(clipEnd(c)) >= a));
@@ -66,7 +68,10 @@ function replaceSpan(c: Clip, a: number, b: number, put: (keep: (t: number) => n
  */
 export const volume = defineFeature({
   id: "volume",
-  panelItems: [{ id: "audio:fade-in" }, { id: "audio:fade-out" }],
+  panelItems: [
+    { id: "audio:fade-in", label: "Fade In", title: "Fade the audio in from silence over its first second", command: "edit.fade", args: { kind: "in" }, traits: ["audio"] },
+    { id: "audio:fade-out", label: "Fade Out", title: "Fade the audio out to silence over its last second", command: "edit.fade", args: { kind: "out" }, traits: ["audio"] },
+  ],
   version: 1,
   commands: [
     defineCommand({
@@ -84,7 +89,7 @@ export const volume = defineFeature({
         const unique = [...new Map(media.map((p) => [p.time, p])).values()];
         const { base, blocks } = envelopeBlocks(unique, TARGET, ctx.newId);
         c.animations = [...c.animations.filter((a) => !(TARGET in a.to)), ...blocks].sort((x, y) => x.end - y.end);
-        const def = ctx.registry.groupsFor(c.type).find((g) => g.id === "audio")!;
+        const def = ctx.registry.group(c.type, "audio")!;
         c.props.audio = { ...def.defaults(), ...(c.props.audio as object | undefined), ...(base === undefined ? {} : { volume: base }) };
       },
     }),

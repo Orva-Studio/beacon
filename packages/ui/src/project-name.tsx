@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { DEFAULT_SETTINGS } from "@beacon/model";
-import { CanvasSettings, type CanvasValues } from "./canvas-settings";
-import { Button, Check, Modal, PLAIN_TEXT, SettingsRow, TextInput } from "./controls";
+import { CanvasSettings } from "./canvas-settings";
+import { DEFAULT_CANVAS, type CanvasValues } from "./canvas-values";
+import { Button, Check, Modal, RenameField, SettingsRow, TextInput } from "./controls";
 import { replica, useView } from "./store";
 
 export interface ProjectHost {
@@ -31,18 +31,11 @@ function StandaloneCheck({ checked, onChange }: { checked: boolean; onChange: (o
   );
 }
 
-const DEFAULTS: CanvasValues = {
-  width: DEFAULT_SETTINGS.width,
-  height: DEFAULT_SETTINGS.height,
-  fps: DEFAULT_SETTINGS.fps.num / DEFAULT_SETTINGS.fps.den,
-  background: DEFAULT_SETTINGS.background,
-  normalize: DEFAULT_SETTINGS.loudnessTarget !== undefined,
-};
 
 /** File > New Project (⌘N): its name and canvas (Project Settings), in the window as the Export dialog. */
 function NewProjectDialog({ name: initial, host }: { name: string; host: ProjectHost }) {
   const [name, setName] = useState(initial);
-  const [canvas, setCanvas] = useState(DEFAULTS);
+  const [canvas, setCanvas] = useState(DEFAULT_CANVAS);
   const [standalone, setStandalone] = useState(false);
   const [error, setError] = useState<string>();
   const close = () => replica.newProject(undefined);
@@ -138,26 +131,11 @@ export function ProjectName({ name, host }: { name?: string; host: ProjectHost }
       </button>
     );
   }
-  const done = async (el: HTMLInputElement, apply: boolean) => {
+  const done = async (next: string | null) => {
     setEditing(false);
-    const next = el.value.trim();
-    if (!apply || !next || next === name) return;
+    if (!next || next === name) return;
     const r = await host.renameProject(next);
     if (!r.ok && r.error) replica.status(r.error);
   };
-  return (
-    <input
-      {...PLAIN_TEXT}
-      autoFocus
-      className="w-56 rounded-sm border border-accent bg-well px-1 font-medium text-text-strong outline-none"
-      defaultValue={name}
-      onFocus={(e) => e.currentTarget.select()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") void done(e.currentTarget, true);
-        if (e.key === "Escape") void done(e.currentTarget, false);
-      }}
-      onBlur={(e) => void done(e.currentTarget, true)}
-    />
-  );
+  return <RenameField value={name} className="w-56 font-medium" onDone={(next) => void done(next)} />;
 }

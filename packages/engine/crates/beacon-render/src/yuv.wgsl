@@ -17,30 +17,14 @@ struct Yuv {
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
-  let p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-  return vec4(p[i], 0.0, 1.0);
-}
-
-// The mean of the source pixels under target pixel `p`. Each bilinear tap halfway between two source pixels
-// averages them, so ceil(span / 2) taps an axis cover the span; one tap when the source is no larger.
-fn area(t: texture_2d<f32>, p: vec2<f32>, size: vec2<f32>, per: vec2<f32>) -> vec4<f32> {
-  let n = max(vec2<i32>(1), vec2<i32>(ceil(per / 2.0 - 0.001)));
-  let start = p * per;
-  var sum = vec4(0.0);
-  for (var j = 0; j < n.y; j++) {
-    for (var i = 0; i < n.x; i++) {
-      let at = start + (vec2(f32(i), f32(j)) + 0.5) * per / vec2<f32>(n);
-      sum += textureSampleLevel(t, samp, at / size, 0.0);
-    }
-  }
-  return sum / f32(n.x * n.y);
+  return vec4(fullscreen(i), 0.0, 1.0);
 }
 
 @fragment
 fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
   let p = floor(pos.xy);
-  var y = area(luma, p, u.luma.xy, u.luma.zw).r;
-  var c = area(chroma, p, u.chroma.xy, u.chroma.zw).rg - vec2(128.0 / 255.0);
+  var y = area(luma, samp, p, u.luma.xy, u.luma.zw).r;
+  var c = area(chroma, samp, p, u.chroma.xy, u.chroma.zw).rg - vec2(128.0 / 255.0);
   if (u.matrix.z < 0.5) {
     y = (y - 16.0 / 255.0) * (255.0 / 219.0);
     c = c * (255.0 / 224.0);
