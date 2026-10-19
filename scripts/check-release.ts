@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
+import { ENGINE_FILES } from "./bundle-tools";
+import { foreignLinks } from "./macho";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -23,7 +25,6 @@ if (!dmg || !existsSync(dmg)) throw new Error("usage: bun scripts/check-release.
 
 /** Where the app looks for updates: the latest GitHub release's files. */
 const UPDATES = "https://github.com/Orva-Studio/beacon/releases/latest/download";
-const ENGINE_FILES = ["beacon-mcp", "beacon-worker", "beacon-recorder", "libbeacon_ffi.dylib", "ffmpeg", "ffprobe", "whisper-cli", "beacon-speech"];
 const dir = mkdtempSync(join(tmpdir(), "beacon-release-"));
 const mount = join(dir, "mnt");
 const step = (what: string) => console.log(`✓ ${what}`);
@@ -89,8 +90,7 @@ async function appEngine(): Promise<string> {
   const missing = ENGINE_FILES.filter((f) => !existsSync(join(engine, f)));
   if (missing.length) throw new Error(`the app's engine folder lacks ${missing.join(", ")}`);
   for (const f of readdirSync(engine)) {
-    const links = (await $`otool -L ${join(engine, f)}`.quiet().text()).split("\n").slice(1).map((l) => l.trim().split(" ")[0]!).filter(Boolean);
-    const foreign = links.filter((l) => !l.startsWith("/System/") && !l.startsWith("/usr/lib/") && !l.startsWith("@rpath/"));
+    const foreign = await foreignLinks(join(engine, f), (l) => l.startsWith("@rpath/"));
     if (foreign.length) throw new Error(`${f} loads ${foreign.join(", ")} from outside the app`);
   }
   step(`the engine folder has ${ENGINE_FILES.join(", ")}, linked only to the system and each other`);
