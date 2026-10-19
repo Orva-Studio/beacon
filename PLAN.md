@@ -1585,6 +1585,18 @@ Seeing more at once.
   `job_status`. The clips still appear only once the copy is complete, and a
   failed copy still leaves nothing behind. Save As standalone gets the same
   progress in place of its one status message.
+- **Drops carry their paths** (the user, 2026-10-19). The webview gives a
+  file dropped from Finder its name, size and date but not its path, so
+  `findDroppedFile` guesses: WebKit's URL when it sends one, the home
+  folders, then Spotlight. A clip dragged off a camera card isn't found
+  ("couldn't find P1078391.MP4 on disk"): cards aren't in Spotlight's
+  index. Native apps (Camtasia) read the file URLs from the drag
+  pasteboard and know the path; Electron hands it over with
+  `webUtils.getPathForFile`. Electrobun has no drop hook, so the window's
+  view registers for file URLs itself (through the engine's FFI, or
+  upstream in Electrobun) and the paths go with the drop to the UI, for
+  any drive and any depth. The guessing then goes. Fits with a window per
+  project, which reworks the native window layer too.
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
