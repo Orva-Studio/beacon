@@ -23,6 +23,7 @@ feature lands and when it is checked.
 | Engine: FFI marshalling, common.wgsl and gpu.rs, the scene walk, CoreFoundation, bitmap context, colour matrix; the worker without its raw output | 2026-10-19 | `047f94b`, `d584f2b`, `cdc4240`, `78f941d`, `768e9f3` | 36 PNG frames of three projects (two client projects with CRT, drop shadow, round corners, motion blur, callouts, cursors) byte-identical before and after; FFI smoke (cursor track, cursor image, PNG paste, a bad PNG's error); core export, parity and playback tests; clippy |
 | The desktop imports only core and ui | 2026-10-19 | `8b9718a` | `app.test.ts`; UI flows |
 | The PR review's fixes: bad settings leave no folder; Camtasia shadow defaults; settings reloaded from disk told once (back to defaults too); Return in a dialog is its default action, never also the focused button's click | 2026-10-19 | `2dc92f7`, this commit | Core tests (a standalone copy that fails half way leaves no folder: fails without the fix); features tests (registry's panel-item checks); UI flows (Return on a focused Not Now downloads and doesn't decline: fails without the fix) |
+| Unlink Recording unlinks every selected recording, not only the clicked one (`edit.unlink` on the selection; `clip.unlink` takes `clips`) | 2026-10-19 | this commit | Core test (two takes, both cameras selected, one Unlink: no links left, one undo restores them; fails without the fix); UI flow (two recordings selected, Unlink by a key: all unlinked, one undo). Still to try by hand from the clip menu |
 
 ### Not checked yet
 

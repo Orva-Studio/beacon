@@ -2261,3 +2261,22 @@ test.skipIf(skip)("Delete acts on what was selected last: a range made after a c
   await run("range.clear");
   expect(clips().length).toBe(before);
 });
+
+test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key, in one undo", async () => {
+  const before = clips().length;
+  await ui.core.import(ui.handle, [RECORDING]);
+  const linked = clips().filter((c) => c.linkId);
+  expect(new Set(linked.map((c) => c.linkId)).size).toBe(2);
+  await ui.core.shortcutSet("edit.unlink", [{ key: "u", modifiers: ["control", "option"] }]);
+  await select(linked.map((c) => c.id));
+  await page.key("u", "KeyU", ["ctrl", "alt"]);
+  await arrived(() => !clips().some((c) => c.linkId));
+  expect(clips().filter((c) => c.linkId)).toEqual([]);
+  await page.screenshot(join(dir, "unlinked.png"));
+  expect(await ui.core.undo(ui.handle)).toBe("Unlink Recording");
+  expect(new Set(clips().filter((c) => c.linkId).map((c) => c.linkId)).size).toBe(2);
+  await ui.core.shortcutReset("edit.unlink");
+  await ui.core.undo(ui.handle);
+  await select([]);
+  expect(clips().length).toBe(before);
+}, 30000);

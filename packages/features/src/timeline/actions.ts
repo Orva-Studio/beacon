@@ -287,6 +287,16 @@ export const actions = [
     },
   }),
   defineAction({
+    id: "edit.unlink",
+    description: "Unlink the selected clips from the clips recorded with them, so each can be moved and cut on its own",
+    args: none,
+    resolve: (_, ctx) => {
+      const clips = selectedClips(ctx).filter((c) => c.linkId).map((c) => c.id);
+      if (!clips.length) throw new Error("select linked clips first");
+      return { label: "Unlink Recording", steps: [{ command: "clip.unlink", args: { clips } }] };
+    },
+  }),
+  defineAction({
     id: "edit.addMarker",
     description: "Add a timeline marker at the playhead (⇧M)",
     args: none,

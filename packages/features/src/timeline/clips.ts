@@ -335,10 +335,10 @@ export const clipCommands = [
   }),
   defineCommand({
     id: "clip.unlink",
-    description: "Unlink a clip from the clips recorded with it, so it can be moved and cut on its own",
-    args: z.strictObject({ clip: Id }),
-    apply(doc, { clip }, ctx) {
-      for (const { clip: c } of withLinked(findClip(doc, ctx.registry, clip), true)) delete c.linkId;
+    description: "Unlink clips from the clips recorded with them, so each can be moved and cut on its own",
+    args: z.strictObject({ clips: z.array(Id).min(1) }),
+    apply(doc, { clips }, ctx) {
+      for (const { clip } of locate(doc, ctx.registry, clips, true)) delete clip.linkId;
     },
   }),
   defineCommand({

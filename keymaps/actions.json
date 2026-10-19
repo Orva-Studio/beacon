@@ -207,6 +207,11 @@
       "command": "edit.unstitch"
     },
     {
+      "id": "edit.unlink",
+      "name": "Unlink Recording",
+      "command": "edit.unlink"
+    },
+    {
       "id": "edit.addMarker",
       "name": "Add Timeline Marker",
       "command": "edit.addMarker"

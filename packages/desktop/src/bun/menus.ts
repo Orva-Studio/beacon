@@ -221,7 +221,7 @@ export function createMenus(app: MenusApp) {
       action("edit.delete"),
       action("edit.rippleCut"),
       action("edit.rippleDelete"),
-      ...(target?.linkId ? [SEPARATOR, own("Unlink Recording", "unlink")] : []),
+      ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
       SEPARATOR,
       own("Hide Properties", "hideProperties"),
       SEPARATOR,
@@ -377,7 +377,6 @@ export function createMenus(app: MenusApp) {
   function clipAction(h: string, op: string, clip: string) {
     const run = (command: string, args: unknown = {}) => void core.run(h, command, args).catch(fail);
     if (op.startsWith("label=")) run("edit.label", { color: op === "label=none" ? null : op.slice(6) });
-    else if (op === "unlink") run("clip.unlink", { clip });
     // The clip's properties gain a Speed tab.
     else if (op === "clipSpeed") {
       message("showClipSpeed", { clip });
