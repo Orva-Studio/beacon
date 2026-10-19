@@ -80,6 +80,7 @@ version = "0.0.0"
 dependencies = [
  "beacon-media",
  "beacon-render",
+ "core-foundation",
  "cpal",
  "serde_json",
 ]

@@ -2,6 +2,7 @@
 //! `Preview` and draws the latest submitted scene, so scrubbing never
 //! queues frames and the Bun main thread never waits on the GPU or decoders.
 
+use core_foundation::base::{CFRelease, CFRetain};
 use std::ffi::{c_char, c_void};
 use std::ptr;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -35,12 +36,6 @@ pub struct FfiPreview {
     /// The `CAMetalLayer` drawn into, retained until the render thread has
     /// stopped: the view that owns it (Electrobun's) can go away first.
     layer: Option<usize>,
-}
-
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    fn CFRetain(cf: *const c_void) -> *const c_void;
-    fn CFRelease(cf: *const c_void);
 }
 
 struct Layer(*mut c_void);

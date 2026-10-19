@@ -526,11 +526,7 @@ impl Renderer {
             Frame::Surface(surface, matrix) => {
                 let cache = self.surfaces.as_ref().ok_or_else(|| Error::Source("a video frame came as a surface, which this renderer can't take".into()))?;
                 let (y, uv) = cache.planes(&self.device, surface.clone()).ok_or_else(|| Error::Source("CoreVideo couldn't make textures of a video frame".into()))?;
-                let (kr, kb) = match matrix {
-                    beacon_decode::Matrix::Bt601 => (0.299, 0.114),
-                    beacon_decode::Matrix::Bt709 => (0.2126, 0.0722),
-                    beacon_decode::Matrix::Bt2020 => (0.2627, 0.0593),
-                };
+                let (kr, kb) = matrix.kr_kb();
                 let (w, h) = (st.width as f32, st.height as f32);
                 let size = |t: &wgpu::Texture| (t.width() as f32, t.height() as f32);
                 let ((yw, yh), (cw, ch)) = (size(&y), size(&uv));

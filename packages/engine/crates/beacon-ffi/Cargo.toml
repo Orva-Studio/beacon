@@ -13,3 +13,4 @@ beacon-media.workspace = true
 serde_json.workspace = true
 beacon-render.workspace = true
 cpal = "=0.18.2"
+core-foundation = "=0.10.1"

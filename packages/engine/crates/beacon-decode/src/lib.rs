@@ -85,6 +85,17 @@ pub enum Matrix {
     Bt2020,
 }
 
+impl Matrix {
+    /// Its luma weights of red and blue (Kr, Kb); green's is what is left.
+    pub fn kr_kb(self) -> (f32, f32) {
+        match self {
+            Matrix::Bt601 => (0.299, 0.114),
+            Matrix::Bt709 => (0.2126, 0.0722),
+            Matrix::Bt2020 => (0.2627, 0.0593),
+        }
+    }
+}
+
 /// A decoded frame kept for later (a reference: no pixels are copied).
 pub struct Kept {
     raw: *mut c_void,
