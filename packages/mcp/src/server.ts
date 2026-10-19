@@ -13,7 +13,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { formatIssues, fpsRational, jsonSchemaOf, KeysSchema, MAX_BITRATE, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
+import { formatIssues, fpsRational, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, VideoEncodingSchema, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
 import { DOCS, INSTRUCTIONS, WORKFLOWS, type Workflow } from "./docs";
 
 type Content = CallToolResult["content"];
@@ -299,20 +299,11 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   add("export_start", {
     description:
       "Export the project (or `from`-`to` seconds) in the background to a .mp4, .mov, .gif or .webm path (the format), or a folder ending in / for PNG frames. Returns a job id for job_status; job_cancel stops it",
-    schema: z.strictObject({
+    schema: VideoEncodingSchema.extend({
       output: z.string(),
-      codec: z.enum(["h264", "hevc", "prores"]).optional().describe(".mp4/.mov; ProRes only in .mov. Default H.264"),
       from: Seconds.optional(),
       to: Seconds.optional(),
       overwrite: z.boolean().default(false).describe("Replace an existing file"),
-      bitrate: z.int().min(64).max(MAX_BITRATE).optional().describe("Video data rate in kbit/s; omitted: automatic: for H.264 and HEVC by the output's size and frame rate (10 Mbps at 1080p30, never below 8 Mbps), for WebM constant quality; not used by ProRes"),
-      keyframe: z.int().positive().optional().describe("A keyframe every this many frames (default 30)"),
-      profile: z.enum(["baseline", "main", "high"]).optional().describe("H.264 profile"),
-      fps: z.number().positive().max(120).optional().describe("Output frame rate; omitted: the project's"),
-      size: z.strictObject({ width: z.int().positive(), height: z.int().positive() }).optional().describe("Fit within this size, keeping the aspect ratio; omitted: the canvas"),
-      audio: z.boolean().optional().describe("false: no audio track"),
-      audioBitrate: z.int().min(32).max(512).optional().describe("Audio data rate in kbit/s (default 256)"),
-      colorSpace: z.enum(["bt709", "srgb"]).optional().describe("Export Color Space: bt709 (default) or srgb, which macOS players show as the editor does"),
     }),
     async run({ output, ...rest }) {
       const job = await core.export(project(), { output: expandHome(output), ...rest });

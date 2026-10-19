@@ -21,31 +21,11 @@ import {
   rationalToNumber,
   fittedSize,
   autoBitrate,
+  VIDEO_FORMATS,
+  type VideoEncoding,
 } from "@beacon/model";
 
-/** Export options; the format is the path's extension: .mp4, .mov, .gif or .webm. */
-export interface VideoEncoding {
-  /** .mp4 and .mov; ProRes only in .mov. */
-  codec?: "h264" | "hevc" | "prores";
-  /** Video data rate in kbit/s; omitted: automatic (`autoBitrate`). */
-  bitrate?: number;
-  /** A keyframe every this many frames. */
-  keyframe?: number;
-  /** H.264 profile. */
-  profile?: "baseline" | "main" | "high";
-  /** Output frame rate; omitted: the project's. */
-  fps?: number;
-  /** Fit within this size, keeping the aspect ratio; omitted: the canvas. */
-  size?: { width: number; height: number };
-  /** false: no audio track. */
-  audio?: boolean;
-  /** Audio data rate in kbit/s. */
-  audioBitrate?: number;
-  /** Export colour space: BT.709 (default), or sRGB's transfer, which macOS players show as the editor does. */
-  colorSpace?: "bt709" | "srgb";
-}
-
-export const VIDEO_FORMATS = ["mp4", "mov", "gif", "webm"] as const;
+export type { VideoEncoding };
 
 export type RenderOutput = ({ kind: "video"; path: string } & VideoEncoding) | { kind: "png"; dir: string };
 

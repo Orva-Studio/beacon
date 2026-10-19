@@ -1,6 +1,6 @@
 import type { CanvasValues } from "./canvas-settings";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
-import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo } from "@beacon/model";
+import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, VIDEO_FORMATS, VideoEncoding } from "@beacon/model";
 import type { SchemaInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
@@ -126,13 +126,14 @@ export interface RecordDevices {
 export type SyncCheck = SyncResult;
 
 /** The Export dialog's settings. */
+/** The Export dialog's choices: core's `VideoEncoding`, every one set, null where it is left automatic. */
 export interface ExportSettings {
-  format: "mp4" | "mov" | "gif" | "webm";
-  codec: "h264" | "hevc" | "prores";
+  format: (typeof VIDEO_FORMATS)[number];
+  codec: NonNullable<VideoEncoding["codec"]>;
   /** kbit/s; null: automatic. */
   bitrate: number | null;
   keyframe: number;
-  profile: "baseline" | "main" | "high";
+  profile: NonNullable<VideoEncoding["profile"]>;
   /** null: the project's. */
   fps: number | null;
   /** Fit within; null: the canvas. */

@@ -1,6 +1,5 @@
-import type { AppSettings, CommandResult, Keys, PanelItemDef, Patch, Session, Settings, SettingsPatch, ShortcutInfo, UiDialog } from "@beacon/model";
+import type { AppSettings, CommandResult, Keys, PanelItemDef, Patch, VideoEncoding, Session, Settings, SettingsPatch, ShortcutInfo, UiDialog } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
-import type { VideoEncoding } from "@beacon/render";
 
 export type { CommandResult, Session };
 
