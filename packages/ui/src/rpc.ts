@@ -1,4 +1,4 @@
-import type { CanvasValues } from "./canvas-settings";
+import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, VIDEO_FORMATS, VideoEncoding } from "@beacon/model";
 import type { SchemaInfo } from "@beacon/core";
@@ -13,6 +13,7 @@ import type { ResourceInfo, ResourceJob } from "./resource";
 import type { PreferenceInfo } from "./transcripts-settings";
 
 export type { CanvasValues };
+export { canvasChange } from "./canvas-values";
 export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */

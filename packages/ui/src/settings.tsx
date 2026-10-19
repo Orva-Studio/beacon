@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_SETTINGS, fpsRational, SETTINGS_TABS, type Project } from "@beacon/model";
+import { SETTINGS_TABS, type Project } from "@beacon/model";
 import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
+import { canvasChange, canvasValues } from "./canvas-values";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
@@ -19,7 +20,6 @@ export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsH
 const space = (bytes: number) =>
   bytes === 0 ? "No proxy videos" : `${bytes < 1e6 ? `${Math.ceil(bytes / 1e3)} KB` : bytes < 1e9 ? `${Math.round(bytes / 1e6)} MB` : `${(bytes / 1e9).toFixed(1)} GB`} used`;
 
-const LOUDNESS = DEFAULT_SETTINGS.loudnessTarget!;
 
 /** The app settings in a Settings sheet, without what it opened with (tab, devices…). */
 const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }: SettingsSheet): AppSettings => app;
@@ -123,19 +123,8 @@ export function SettingsWindow({ app: { tab: opening, devices, resources, prefer
       {tab === "project" &&
         (s ? (
           <CanvasSettings
-            value={{ width: s.width, height: s.height, fps: s.fps.num / s.fps.den, background: s.background, normalize: s.loudnessTarget !== undefined }}
-            onChange={({ width, height, fps, background, normalize }, label) =>
-              host.run(
-                "project.settings.set",
-                {
-                  ...(width !== undefined ? { width, height } : {}),
-                  ...(fps !== undefined ? { fps: fpsRational(fps) } : {}),
-                  ...(background !== undefined ? { background } : {}),
-                  ...(normalize !== undefined ? { loudnessTarget: normalize ? LOUDNESS : null } : {}),
-                },
-                label,
-              )
-            }
+            value={canvasValues(s)}
+            onChange={(change, label) => host.run("project.settings.set", canvasChange(change), label)}
           />
         ) : (
           <p className="text-text-faint">Open a project to change its settings.</p>

@@ -128,6 +128,17 @@ export type Track = z.infer<typeof TrackSchema>;
 export type Asset = z.infer<typeof AssetSchema>;
 export type Marker = z.infer<typeof MarkerSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
+
+/** Settings changed, as `project.settings.set` and a new project take them: `loudnessTarget: null` turns Auto-normalize off. */
+export type SettingsChange = Omit<Partial<Settings>, "loudnessTarget"> & { loudnessTarget?: number | null };
+
+/** `settings` with `change` made. */
+export function changedSettings(settings: Settings, { loudnessTarget, ...change }: SettingsChange): Settings {
+  const next: Settings = { ...settings, ...change };
+  if (loudnessTarget === null) delete next.loudnessTarget;
+  else if (loudnessTarget !== undefined) next.loudnessTarget = loudnessTarget;
+  return next;
+}
 export type Project = z.infer<typeof ProjectSchema>;
 
 /** Zod issues as one readable line, e.g. "at: expected number; path: must be absolute". */

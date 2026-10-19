@@ -1,4 +1,4 @@
-import type { AppSettings, CommandResult, Keys, PanelItemDef, Patch, VideoEncoding, Session, Settings, SettingsPatch, ShortcutInfo, UiDialog } from "@beacon/model";
+import type { AppSettings, CommandResult, Keys, PanelItemDef, Patch, Session, SettingsChange, SettingsPatch, ShortcutInfo, UiDialog, VideoEncoding } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 
 export type { CommandResult, Session };
@@ -9,7 +9,7 @@ export type ProjectHandle = string;
 export interface NewProjectOptions {
   /** The `.beproj` folder to create; must not exist yet. */
   path: string;
-  settings?: Partial<Settings>;
+  settings?: SettingsChange;
   /** Start from a Camtasia project (read only; never written). */
   cmproj?: string;
   /** A standalone project: media is copied into its `media` folder as it is imported (a Camtasia project's too). */

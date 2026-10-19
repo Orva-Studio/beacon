@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineCommand, type CommandDef } from "./feature";
 import { isFree } from "./edit";
 import type { FeatureRegistry } from "./registry";
-import { AssetSchema, IdSchema as Id, RationalSchema, SecondsSchema as Seconds, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
+import { AssetSchema, changedSettings, IdSchema as Id, RationalSchema, SecondsSchema as Seconds, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
 import { secondsToTicks, snapSeconds, ticksToSeconds, type Ticks } from "./ticks";
 
 export interface ClipLocation {
@@ -125,10 +125,8 @@ export const CORE_COMMANDS: CommandDef[] = [
     description:
       "Change project settings (canvas size, frame rate, background colour, loudness target, standalone); `loudnessTarget: null` turns Auto-normalize loudness off. `standalone: true` copies media from outside the project into its media folder and points the project at the copies (one undo step), and later imports are copied in too; on its own, not in a transaction",
     args: SettingsSchema.partial().extend({ loudnessTarget: z.number().nullable().optional() }),
-    apply(doc, { loudnessTarget, ...args }) {
-      Object.assign(doc.settings, args);
-      if (loudnessTarget === null) delete doc.settings.loudnessTarget;
-      else if (loudnessTarget !== undefined) doc.settings.loudnessTarget = loudnessTarget;
+    apply(doc, args) {
+      doc.settings = changedSettings(doc.settings, args);
     },
   }),
 

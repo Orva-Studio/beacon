@@ -1,5 +1,6 @@
 import { formatColor } from "@beacon/model";
 import { useEffect, useState, type ReactNode } from "react";
+import type { CanvasValues } from "./canvas-values";
 import { Check, ColorSwatch, fromHex, Icon, Segmented, Select, SettingsRow, TextInput } from "./controls";
 
 /** Canvas size presets (Project Settings), by group. */
@@ -34,14 +35,6 @@ const PRESETS: [string, [number, number, string][]][] = [
 ];
 const FRAME_RATES = [24, 25, 30, 50, 60];
 
-export interface CanvasValues {
-  width: number;
-  height: number;
-  fps: number;
-  /** "#rrggbb". */
-  background: string;
-  normalize: boolean;
-}
 
 type Shape = "Horizontal" | "Square" | "Vertical";
 const shapeOf = (w: number, h: number): Shape => (w > h ? "Horizontal" : w < h ? "Vertical" : "Square");

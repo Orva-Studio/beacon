@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { DEFAULT_SETTINGS } from "@beacon/model";
-import { CanvasSettings, type CanvasValues } from "./canvas-settings";
+import { CanvasSettings } from "./canvas-settings";
+import { DEFAULT_CANVAS, type CanvasValues } from "./canvas-values";
 import { Button, Check, Modal, RenameField, SettingsRow, TextInput } from "./controls";
 import { replica, useView } from "./store";
 
@@ -31,18 +31,11 @@ function StandaloneCheck({ checked, onChange }: { checked: boolean; onChange: (o
   );
 }
 
-const DEFAULTS: CanvasValues = {
-  width: DEFAULT_SETTINGS.width,
-  height: DEFAULT_SETTINGS.height,
-  fps: DEFAULT_SETTINGS.fps.num / DEFAULT_SETTINGS.fps.den,
-  background: DEFAULT_SETTINGS.background,
-  normalize: DEFAULT_SETTINGS.loudnessTarget !== undefined,
-};
 
 /** File > New Project (⌘N): its name and canvas (Project Settings), in the window as the Export dialog. */
 function NewProjectDialog({ name: initial, host }: { name: string; host: ProjectHost }) {
   const [name, setName] = useState(initial);
-  const [canvas, setCanvas] = useState(DEFAULTS);
+  const [canvas, setCanvas] = useState(DEFAULT_CANVAS);
   const [standalone, setStandalone] = useState(false);
   const [error, setError] = useState<string>();
   const close = () => replica.newProject(undefined);

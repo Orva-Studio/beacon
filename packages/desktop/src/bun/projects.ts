@@ -3,8 +3,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { Utils } from "electrobun/main";
 import { findDropped, projectName, summarizeReport, type DroppedFile } from "@beacon/core";
-import { fpsRational, projectDuration, ticksToSeconds } from "@beacon/model";
-import type { CanvasValues, ProjectBridge } from "@beacon/ui";
+import { projectDuration, ticksToSeconds } from "@beacon/model";
+import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
 import { errorText, type App, type Current } from "./app";
 
 export interface ProjectsApp extends App {
@@ -180,15 +180,7 @@ export function createProjects(app: ProjectsApp) {
 
   async function createProject(name: string, canvas?: CanvasValues, standalone = false) {
     const to = freshProject(projectName(name));
-    const settings = canvas && {
-      width: canvas.width,
-      height: canvas.height,
-      fps: fpsRational(canvas.fps),
-      background: canvas.background,
-      // Off: no target (a new project's default has one).
-      ...(canvas.normalize ? {} : { loudnessTarget: undefined }),
-    };
-    await core.create({ path: to, ...(settings ? { settings } : {}), ...(standalone ? { standalone } : {}) });
+    await core.create({ path: to, ...(canvas ? { settings: canvasChange(canvas) } : {}), ...(standalone ? { standalone } : {}) });
     await open(to);
     status(`New project: ${to}`);
   }

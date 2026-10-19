@@ -5,6 +5,7 @@ import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
 import { fileFingerprint, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
 import {
+  changedSettings,
   createProject,
   describeSession,
   formatIssues,
@@ -224,9 +225,10 @@ export class LocalCore implements BeaconCore {
       const { project, report } = await importCmproj(resolve(opts.cmproj), this.registry);
       for (const line of report) console.error(`import: ${line}`);
       this.#importReports.set(dir, report);
-      doc = { ...project, settings: { ...project.settings, ...opts.settings } };
+      doc = { ...project, settings: changedSettings(project.settings, opts.settings ?? {}) };
     } else {
-      doc = createProject(this.registry, opts.settings);
+      const created = createProject(this.registry);
+      doc = { ...created, settings: changedSettings(created.settings, opts.settings ?? {}) };
     }
     if (opts.standalone) {
       doc = { ...doc, settings: { ...doc.settings, standalone: true } };

@@ -50,3 +50,24 @@ test.skipIf(!existsSync(VIDEO))("core starts proxies by the settings, and a chan
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a new project takes settings as project.settings.set does: loudnessTarget null is Auto-normalize off", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "beacon-settings-"));
+  try {
+    const core = new LocalCore({ configDir: join(dir, "config") });
+    const off = await core.create({ path: join(dir, "off.beproj"), settings: { width: 1080, height: 1920, loudnessTarget: null } });
+    expect(core.doc(off).settings).toMatchObject({ width: 1080, height: 1920 });
+    expect(core.doc(off).settings.loudnessTarget).toBeUndefined();
+    expect((await core.create({ path: join(dir, "on.beproj") })).length && core.doc(join(dir, "on.beproj")).settings.loudnessTarget).toBeNumber();
+    await core.run(off, "project.settings.set", { loudnessTarget: -16 });
+    expect(core.doc(off).settings.loudnessTarget).toBe(-16);
+    const cmproj = join(process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures"), "small.cmproj");
+    if (existsSync(cmproj)) {
+      const imported = await core.create({ path: join(dir, "imported.beproj"), cmproj, settings: { loudnessTarget: null } });
+      expect(core.doc(imported).settings.loudnessTarget).toBeUndefined();
+    }
+    core.closeAll();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
