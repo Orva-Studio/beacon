@@ -338,22 +338,11 @@ impl Renderer {
     /// Decodes and uploads every source the scene shows before drawing.
     /// `parent`: target pixels per pixel of the canvas these layers are on (groups nest).
     fn prepare(&mut self, layers: &[Layer], seen: &mut HashMap<String, usize>, parent: f32, enc: &mut wgpu::CommandEncoder) -> Result<()> {
-        for layer in layers {
-            let Layer::Visual(v) = layer else { continue };
-            match &v.content {
-                Content::Source { source, time } => {
-                    let n = seen.entry(source.clone()).or_insert(0);
-                    let key = (source.clone(), *n);
-                    *n += 1;
-                    let scale = std::iter::once(&v.transform).chain(v.motion.iter()).map(scale_of).fold(0.0f32, f32::max) * parent;
-                    self.prepare_source(key, *time, scale as f64, enc)?;
-                }
-                Content::Group { layers, .. } => {
-                    let scale = std::iter::once(&v.transform).chain(v.motion.iter()).map(scale_of).fold(0.0f32, f32::max);
-                    self.prepare(layers, seen, parent * scale, enc)?
-                }
-                Content::Solid { .. } => {}
-            }
+        let mut videos = Vec::new();
+        collect_videos(layers, parent, &mut videos);
+        for (source, time, scale) in videos {
+            let key = source_key(seen, &source);
+            self.prepare_source(key, time, scale as f64, enc)?;
         }
         Ok(())
     }
@@ -442,11 +431,9 @@ impl Renderer {
     fn start_seeks(&mut self, scene: &Scene) -> Result<()> {
         let mut wanted = Vec::new();
         collect_videos(&scene.layers, 1.0, &mut wanted);
-        let mut seen: HashMap<&str, usize> = HashMap::new();
+        let mut seen = HashMap::new();
         for (source, time, _) in &wanted {
-            let n = seen.entry(source).or_insert(0);
-            let key = (source.clone(), *n);
-            *n += 1;
+            let key = source_key(&mut seen, source);
             let proxy = self.sources.get(source).is_some_and(|def| self.wants_proxy(def, 1.0));
             let st = self.textures.get_mut(&key);
             let d = st.and_then(|st| if st.decoder.as_ref().is_some_and(|d| d.proxy == proxy) { st.decoder.as_mut() } else { st.spare.as_mut().filter(|d| d.proxy == proxy) });
@@ -620,9 +607,7 @@ impl Renderer {
     ) -> Result<()> {
         let (content, color, group_tex) = match &v.content {
             Content::Source { source, .. } => {
-                let n = seen.entry(source.clone()).or_insert(0);
-                let key = (source.clone(), *n);
-                *n += 1;
+                let key = source_key(seen, source);
                 (self.textures[&key].tex.clone(), [1.0; 4], None)
             }
             Content::Solid { color } => (self.white.clone(), [color[0] * color[3], color[1] * color[3], color[2] * color[3], color[3]], None),
@@ -916,7 +901,16 @@ impl Renderer {
     }
 }
 
-/// (source, media time, target pixels per content pixel) of every video a layer list draws.
+/// The key of a source's next use in a frame, in drawing order: a source drawn twice (a stitched clip's repeats) gets a
+/// texture each.
+fn source_key(seen: &mut HashMap<String, usize>, source: &str) -> (String, usize) {
+    let n = seen.entry(source.to_string()).or_insert(0);
+    *n += 1;
+    (source.to_string(), *n - 1)
+}
+
+/// (source, media time, target pixels per content pixel) of every video a layer list draws, in drawing order;
+/// `parent`: target pixels per pixel of the canvas these layers are on (groups nest).
 fn collect_videos(layers: &[Layer], parent: f32, out: &mut Vec<(String, f64, f32)>) {
     for layer in layers {
         let Layer::Visual(v) = layer else { continue };
