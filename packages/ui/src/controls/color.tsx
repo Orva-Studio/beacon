@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { parseColor, type RGBA } from "@beacon/model";
 import { PLAIN_TEXT } from "./buttons";
-import { MASK, syncNativeView } from "../native-view";
+import { syncNativeView } from "../native-view";
+import { RoundedMask } from "./rounded-mask";
 import { clamp, NumberBox, Row, Slider } from "./fields";
 import { Icon } from "./icons";
 
@@ -107,7 +108,8 @@ function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChange: (c: 
     <button key={hex} title={title ?? hex} className="h-4 w-4 rounded-sm border border-white/10" style={{ background: hex }} onClick={() => applyRgb(fromHex(hex)!)} />
   );
   return (
-    <div className="flex w-[260px] flex-col gap-2.5 rounded-md border border-divider bg-panel p-3 text-label shadow-xl" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+    <div className="relative flex w-[260px] flex-col gap-2.5 rounded-md border border-divider bg-panel p-3 text-label shadow-xl" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+      <RoundedMask radius={8} />
       <div className="flex flex-wrap gap-[2px]">{PRESETS.map((p) => swatch(p))}</div>
       <div {...square} className="relative h-[140px] cursor-crosshair rounded-sm" style={{ background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${pure})` }}>
         <div className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" style={{ left: `${s * 100}%`, top: `${(1 - v) * 100}%` }} />
@@ -212,7 +214,7 @@ export function ColorSwatch({ color, onChange, title }: { color: RGBA; onChange:
       </button>
       {at && (
         // Masked out of the native canvas, which would otherwise draw over the part of it that overlaps.
-        <div ref={pop} className={`${MASK} fixed z-50`} style={{ left: at.x, top: Math.min(at.y, innerHeight - 420) }}>
+        <div ref={pop} className="fixed z-50" style={{ left: at.x, top: Math.min(at.y, innerHeight - 420) }}>
           <ColorPicker color={color} onChange={onChange} onClose={() => setAt(null)} />
         </div>
       )}

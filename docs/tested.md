@@ -35,6 +35,8 @@ feature lands and when it is checked.
 - **Panels**: Annotations, Visual Effects and Audio Effects tiles and their names (Corner Rounding…), favourites.
 - **Renaming** a track, a medium and the project in place: Return keeps, Escape drops, clicking away keeps.
 - **⌘S** shows "Saved automatically"; on the start screen ⌘N and ⌘O.
+- **Dialog corners over the canvas** (Settings, Export, Record…), the toast's and the colour picker's: the dimmed
+  video shows around the rounded corner, no dark square.
 - **Return in dialogs** (Export, Record, New Project, Save As, the speech model sheet) does the default action with
   any button or checkbox focused, and doesn't also press it.
 - **New Project with Auto-normalize off**, then Project Settings shows it off.

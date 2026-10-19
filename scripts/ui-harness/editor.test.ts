@@ -1512,6 +1512,22 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   await ui.core.undo(ui.handle);
 }, 30000);
 
+test.skipIf(skip)("a dialog is cut out of the native canvas with its rounded corners, not as a rectangle", async () => {
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
+  await page.until("!!document.querySelector('[tabindex=\"-1\"] .ot-mask')");
+  // Whether a point is cut out: inside any masked element's rectangle, as the native view takes them.
+  const cut = await page.evaluate<boolean[]>(`(() => {
+    const sheet = document.querySelector('.ot-mask').closest('[tabindex="-1"]').getBoundingClientRect();
+    const rects = [...document.querySelectorAll('.ot-mask')].map((m) => m.getBoundingClientRect());
+    const inside = (x, y) => rects.some((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
+    const { left: l, top: t, right: r, bottom: b } = sheet;
+    return [inside(l + 1, t + 1), inside(r - 1, b - 1), inside(l + 14, t + 0.5), inside(l + 0.5, t + 14), inside((l + r) / 2, (t + b) / 2), inside(l + 0.5, (t + b) / 2)];
+  })()`);
+  // Corners left to the canvas; the edges (border included), the middle and the curve's start cut out.
+  expect(cut).toEqual([false, false, true, true, true, true]);
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("Settings > General shows the space proxies use, and Delete All Proxy Videos deletes every one", async () => {
   // Its own cache, so the user's proxies are never touched.
   const cacheDir = join(dir, "cache");
