@@ -22,6 +22,7 @@ use objc2_core_media::CMTime;
 use objc2_core_video::{CVPixelBuffer, CVPixelBufferPool};
 use objc2_foundation::{NSDictionary, NSNumber, NSString, NSURL};
 
+use crate::gpu::{linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
 use crate::render::Renderer;
 use crate::scene::{Codec, Encode, H264Profile};
 use crate::surface::TextureCache;
@@ -111,52 +112,13 @@ impl Encoder {
         }
         unsafe { writer.startSessionAtSourceTime(CMTime::new(0, job.fps.num as i32)) };
 
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("nv12"), source: wgpu::ShaderSource::Wgsl(include_str!("nv12.wgsl").into()) });
+        let module = shader(device, "nv12", include_str!("nv12.wgsl"));
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("nv12"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
-            ],
+            entries: &[uniform_entry(0, wgpu::ShaderStages::FRAGMENT), texture_entry(1), sampler_entry(2)],
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("nv12"), bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
-        let pipe = |fs: &str, format: wgpu::TextureFormat| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(fs),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState { module: &module, entry_point: Some("vs"), buffers: &[], compilation_options: Default::default() },
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(fs),
-                    targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let (luma, chroma) = (pipe("fs_luma", wgpu::TextureFormat::R8Unorm), pipe("fs_chroma", wgpu::TextureFormat::Rg8Unorm));
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
+        let (luma, chroma) = (pipeline(device, &module, &bgl, "vs", "fs_luma", wgpu::TextureFormat::R8Unorm, None), pipeline(device, &module, &bgl, "vs", "fs_chroma", wgpu::TextureFormat::Rg8Unorm, None));
+        let sampler = linear_sampler(device, false);
         let canvas = renderer.output();
         let u = [canvas.width() as f32, canvas.height() as f32, canvas.width() as f32 / job.width as f32, canvas.height() as f32 / job.height as f32];
         let buf = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&u), usage: wgpu::BufferUsages::UNIFORM });

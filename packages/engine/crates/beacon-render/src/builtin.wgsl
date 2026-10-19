@@ -8,15 +8,6 @@ struct VOut {
   @location(1) uv: vec2<f32>,
 };
 
-fn rounded_rect_sdf(p: vec2<f32>, size: vec2<f32>, radius: vec4<f32>) -> f32 {
-  // radius: top-left, top-right, bottom-right, bottom-left
-  let c = p - size * 0.5;
-  let r = select(radius.xw, radius.yz, c.x > 0.0);
-  let rr = select(r.x, r.y, c.y > 0.0);
-  let q = abs(c) - size * 0.5 + vec2(rr);
-  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - rr;
-}
-
 // Coverage from a signed distance in local pixels, antialiased over one
 // target pixel whatever the layer's scale.
 fn coverage(d: f32) -> f32 {
@@ -71,10 +62,10 @@ fn fs_draw(v: VOut) -> @location(0) vec4<f32> {
 
 @vertex
 fn vs_full(@builtin(vertex_index) i: u32) -> VOut {
-  let p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+  let p = fullscreen(i);
   var o: VOut;
-  o.pos = vec4(p[i], 0.0, 1.0);
-  o.uv = vec2(p[i].x * 0.5 + 0.5, 0.5 - p[i].y * 0.5);
+  o.pos = vec4(p, 0.0, 1.0);
+  o.uv = fullscreen_uv(p);
   o.local = vec2(0.0);
   return o;
 }

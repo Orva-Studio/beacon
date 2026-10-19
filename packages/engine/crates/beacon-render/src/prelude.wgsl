@@ -24,10 +24,10 @@ struct VOut {
 
 @vertex
 fn vs_full(@builtin(vertex_index) i: u32) -> VOut {
-  let p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+  let p = fullscreen(i);
   var o: VOut;
-  o.pos = vec4(p[i], 0.0, 1.0);
-  o.uv = vec2(p[i].x * 0.5 + 0.5, 0.5 - p[i].y * 0.5);
+  o.pos = vec4(p, 0.0, 1.0);
+  o.uv = fullscreen_uv(p);
   return o;
 }
 
@@ -45,14 +45,6 @@ fn to_layer(uv: vec2<f32>) -> vec2<f32> {
   return vec2(
     frame.inv0.x * p.x + frame.inv0.z * p.y + frame.inv1.x,
     frame.inv0.y * p.x + frame.inv0.w * p.y + frame.inv1.y);
-}
-
-fn rounded_rect_sdf(p: vec2<f32>, size: vec2<f32>, radius: vec4<f32>) -> f32 {
-  let c = p - size * 0.5;
-  let r = select(radius.xw, radius.yz, c.x > 0.0);
-  let rr = select(r.x, r.y, c.y > 0.0);
-  let q = abs(c) - size * 0.5 + vec2(rr);
-  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - rr;
 }
 
 /// Separable Gaussian over `tex` along `dir` (in target pixels), sigma in target pixels.

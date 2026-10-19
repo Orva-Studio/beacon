@@ -14,22 +14,12 @@ const KB: f32 = 0.0722;
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
-  let p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-  return vec4(p[i], 0.0, 1.0);
+  return vec4(fullscreen(i), 0.0, 1.0);
 }
 
-// Straight RGB of the canvas pixels under target pixel `p`, `per` canvas pixels across it (as yuv.wgsl's area).
+// Straight RGB of the canvas pixels under target pixel `p`, `per` canvas pixels across it.
 fn rgb(p: vec2<f32>, per: vec2<f32>) -> vec3<f32> {
-  let n = max(vec2<i32>(1), vec2<i32>(ceil(per / 2.0 - 0.001)));
-  let start = p * per;
-  var sum = vec4(0.0);
-  for (var j = 0; j < n.y; j++) {
-    for (var i = 0; i < n.x; i++) {
-      let at = start + (vec2(f32(i), f32(j)) + 0.5) * per / vec2<f32>(n);
-      sum += textureSampleLevel(canvas, samp, at / u.canvas.xy, 0.0);
-    }
-  }
-  let c = sum / f32(n.x * n.y);
+  let c = area(canvas, samp, p, u.canvas.xy, per);
   if (c.a <= 0.0) {
     return vec3(0.0);
   }

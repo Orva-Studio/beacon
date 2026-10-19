@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use wgpu::util::DeviceExt;
 
+use crate::gpu::{linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
 use crate::scene::{Affine, Backdrop, Content, Job, Layer, PassUse, Scene, Source, Visual};
 use crate::sources::{self, Frame, VideoDecoder};
 use crate::{Error, Result};
@@ -179,40 +180,10 @@ impl Renderer {
             }
         }));
 
-        let builtin = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("builtin"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("builtin.wgsl").into()),
-        });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
-        let uniform = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-            count: None,
-        };
-        let texture = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let sampler_entry = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
+        let builtin = shader(&device, "builtin", include_str!("builtin.wgsl"));
+        let sampler = linear_sampler(&device, true);
+        let uniform = |binding| uniform_entry(binding, wgpu::ShaderStages::VERTEX_FRAGMENT);
+        let texture = texture_entry;
         let builtin_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("builtin"),
             entries: &[uniform(0), texture(1), sampler_entry(2)],
@@ -227,26 +198,25 @@ impl Renderer {
             alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
         };
         let over = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
-        let draw_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", Some(additive));
-        let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", Some(over));
-        let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", None);
-        let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", Some(over));
+        let draw_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", FMT, Some(additive));
+        let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", FMT, Some(over));
+        let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", FMT, None);
+        let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", FMT, Some(over));
         let yuv_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("yuv"),
             entries: &[uniform(0), texture(1), texture(2), sampler_entry(3)],
         });
-        let yuv = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("yuv"), source: wgpu::ShaderSource::Wgsl(include_str!("yuv.wgsl").into()) });
-        let yuv_pipe = pipeline(&device, &yuv, &yuv_bgl, "vs", "fs", None);
+        let yuv = shader(&device, "yuv", include_str!("yuv.wgsl"));
+        let yuv_pipe = pipeline(&device, &yuv, &yuv_bgl, "vs", "fs", FMT, None);
         let surfaces = (std::env::var_os("BEACON_DECODE_FFMPEG").is_none() && std::env::var_os("BEACON_NO_ZERO_COPY").is_none())
             .then(|| crate::surface::TextureCache::new(&device))
             .flatten();
 
         let mut passes = HashMap::new();
         for (id, def) in &job.passes {
-            let src = format!("{}\n{}", include_str!("prelude.wgsl"), def.wgsl);
             let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(id), source: wgpu::ShaderSource::Wgsl(src.into()) });
-            let steps: Vec<_> = def.steps.iter().map(|entry| pipeline(&device, &module, &pass_bgl, "vs_full", entry, None)).collect();
+            let module = shader(&device, id, &format!("{}\n{}", include_str!("prelude.wgsl"), def.wgsl));
+            let steps: Vec<_> = def.steps.iter().map(|entry| pipeline(&device, &module, &pass_bgl, "vs_full", entry, FMT, None)).collect();
             if let Some(err) = pollster::block_on(scope.pop()) {
                 return Err(Error::Scene(format!("pass \"{id}\": {err}")));
             }
@@ -978,26 +948,6 @@ pub(crate) fn tex_desc(w: u32, h: u32, mips: u32, usage: wgpu::TextureUsages) ->
         usage,
         view_formats: &[],
     }
-}
-
-fn pipeline(device: &wgpu::Device, module: &wgpu::ShaderModule, bgl: &wgpu::BindGroupLayout, vs: &str, fs: &str, blend: Option<wgpu::BlendState>) -> wgpu::RenderPipeline {
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(bgl)], immediate_size: 0 });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(fs),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState { module, entry_point: Some(vs), buffers: &[], compilation_options: Default::default() },
-        fragment: Some(wgpu::FragmentState {
-            module,
-            entry_point: Some(fs),
-            targets: &[Some(wgpu::ColorTargetState { format: FMT, blend, write_mask: wgpu::ColorWrites::ALL })],
-            compilation_options: Default::default(),
-        }),
-        primitive: Default::default(),
-        depth_stencil: None,
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
-    })
 }
 
 fn begin<'a>(enc: &'a mut wgpu::CommandEncoder, view: &'a wgpu::TextureView, clear: Option<wgpu::Color>) -> wgpu::RenderPass<'a> {
