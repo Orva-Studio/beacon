@@ -1653,9 +1653,24 @@ Seeing more at once.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
+- **Remove background noise, with ffmpeg first** (the user, 2026-10-19):
+  a "Noise Removal" audio effect, as Audacity's Noise Reduction works:
+  select a stretch of the clip with only room noise on the timeline, the
+  effect learns that noise there, and removes it from the whole clip, with
+  a strength slider (and a "learn from" range it keeps, so it can be
+  learned again). Built on Beacon's own FFmpeg (`afftdn`, which takes a
+  noise sample; `arnndn` for comparison), free, offline and in the
+  preview as well as the export. It is a trial: run on the user's own
+  takes (the Yeti in this room, a camera's mic) against the original; if
+  it is good enough it stays, if not the cleaning goes to Auphonic (see
+  *Background audio cleaning* in the backlog), with this effect kept for
+  the cases Auphonic doesn't cover. Open: whether a clip with no silent
+  stretch can learn its noise from its quietest moments (the silence
+  analysis already finds them).
 **Gate:** the look matches between preview and export, and a `.hlook`
 imports with a report of what didn't map; a camera take's background removed
-by each provider, with the same matte in preview and export.
+by each provider, with the same matte in preview and export; noise removal
+judged by the user on their own takes, and Auphonic chosen or not.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -1781,7 +1796,8 @@ assets reviewed before they are placed (as Remove Silences is). Researched
 ### Background audio cleaning (tuneup / Auphonic)
 Clean each source recording's audio in the background while editing and swap
 it in when ready, using `~/tuneup` (Auphonic + local ffmpeg de-click/de-clip/
-de-ess). Parked because Auphonic is billed by audio length, and cleaning whole
+de-ess). Phase 10 tries ffmpeg's noise removal first; this is the fallback if
+it isn't good enough. Parked because Auphonic is billed by audio length, and cleaning whole
 raw recordings (bad takes included) costs more than cleaning the final cut.
 
 Notes for when it is picked up:
