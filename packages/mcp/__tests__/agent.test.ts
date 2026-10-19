@@ -49,7 +49,8 @@ test.skipIf(!existsSync(RECORDING))(
       expect(frame[0]!.type).toBe("image");
       expect(Buffer.from(frame[0]!.data!, "base64").subarray(1, 4).toString()).toBe("PNG");
 
-      await call("project_undo");
+      const last = (await json("project_history")).undo.at(-1);
+      expect((await call("project_undo"))[0]!.text).toBe(`undid "${last}"`);
       await call("project_undo");
       expect((await call("project_describe"))[0]!.text).toBe(before);
     } finally {

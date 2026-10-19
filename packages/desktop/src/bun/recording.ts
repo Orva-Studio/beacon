@@ -3,9 +3,9 @@ import { basename, dirname, join } from "node:path";
 import { BrowserView, BrowserWindow, GlobalShortcut, Tray } from "electrobun/main";
 import type { LocalCore, RecordResult } from "@beacon/core";
 import { syncKey } from "@beacon/model";
-import { panelHeight, type AppSettings, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
+import { panelHeight, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
 
-/** What recording needs of the app: its core, its window and the settings it keeps. */
+/** What recording needs of the app: its core and its window. */
 export interface RecordingApp {
   core: LocalCore;
   message: Send;
@@ -13,7 +13,6 @@ export interface RecordingApp {
   /** The open project, if one is. */
   project(): string | undefined;
   window: Pick<BrowserWindow, "hide" | "show" | "activate">;
-  settings(): AppSettings;
   setSettings(patch: SettingsPatch): void;
   /** The menus, rebuilt when narration starts or ends. */
   setMenu(): void;
@@ -23,7 +22,7 @@ export interface RecordingApp {
  * Recording: the Record dialog's devices and Check Sync, voice narration over the playing timeline, and a take
  * with its panel and menu-bar item, while Beacon hides.
  */
-export function createRecording({ core, message, status, project, window, settings, setSettings, setMenu }: RecordingApp) {
+export function createRecording({ core, message, status, project, window, setSettings, setMenu }: RecordingApp) {
   /** The Record dialog's last sources, offered next time. */
   const recordPrefs = (): RecordSources => (core.readConfig("record.json") as RecordSources | undefined) ?? { screen: { fps: 60 }, microphone: {}, systemAudio: true };
 
@@ -125,7 +124,7 @@ export function createRecording({ core, message, status, project, window, settin
         await Bun.sleep(400);
       }));
       const key = syncKey(camera, microphone);
-      setSettings({ cameraSync: { ...settings().cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
+      setSettings({ cameraSync: { ...(await core.settings()).cameraSync, [key]: { cameraLateMs: result.cameraLateMs, checked: { at: Date.now(), flashes: result.flashes, spreadMs: result.spreadMs } } } });
       return result;
     } finally {
       flash.close();
@@ -140,7 +139,7 @@ export function createRecording({ core, message, status, project, window, settin
     if (!project()) return status("Open a project first");
     if (recording) return status("Already recording: stop from the menu bar or ⌘⇧2");
     if (narrating) return status("Narrating: stop it first");
-    message("recordSheet", { ...(await core.recorderDevices()), mode, hear: narrationHear(), sources: recordPrefs(), cameraSync: settings().cameraSync ?? {} });
+    message("recordSheet", { ...(await core.recorderDevices()), mode, hear: narrationHear(), sources: recordPrefs(), cameraSync: (await core.settings()).cameraSync ?? {} });
   }
 
   /** The narration recording over the playing timeline, while it is (Beacon stays in front). */

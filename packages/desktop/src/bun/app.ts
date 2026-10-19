@@ -1,4 +1,4 @@
-import type { LiveView, LocalCore } from "@beacon/core";
+import type { LocalCore } from "@beacon/core";
 import type { ProjectBridge, Send } from "@beacon/ui";
 
 export type Rect = { x: number; y: number; width: number; height: number };
@@ -6,8 +6,8 @@ export type Rect = { x: number; y: number; width: number; height: number };
 /** The project the window shows. */
 export interface Current {
   path: string;
-  /** `rect`: the canvas view in the window, in points. */
-  view?: { id: number; live: LiveView; scale: number; rect: Rect };
+  /** The native view core draws the canvas in (`core.view`); `rect`, its place in the window, in points. */
+  view?: { id: number; scale: number; rect: Rect };
   /** Its events told to the window. */
   bridge: ProjectBridge;
   /** Already released by core (renamed): switching away must not close it again. */

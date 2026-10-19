@@ -29,6 +29,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     configDir,
     secrets: { get: async (id) => secrets.get(id), set: async (id, value) => void (value === null ? secrets.delete(id) : secrets.set(id, value)) },
   });
+  // Every medium gets its proxy on its own here (the app's default is none), for the flows that watch one being made.
+  await core.setSettings({ autoProxy: { recording: true, video: true } });
   let shown = !opts.closed;
   const h = await core.open(project);
   const root = join(import.meta.dir, "../..");

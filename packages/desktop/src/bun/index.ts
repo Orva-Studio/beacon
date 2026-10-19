@@ -24,8 +24,7 @@ if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
 }
 
 const { captureWindow, DEFAULT_SOCKET, LocalCore, serveCore, windowNumber } = await import("@beacon/core");
-type AppSettings = import("@beacon/ui").AppSettings;
-const { initPayload, appBridge, coreRequests, projectBridge, settingsSheet, withPatch } = await import("@beacon/ui");
+const { initPayload, appBridge, coreRequests, projectBridge, settingsSheet } = await import("@beacon/ui");
 const { createRecording } = await import("./recording");
 const { createMenus } = await import("./menus");
 const { createProjects } = await import("./projects");
@@ -56,21 +55,9 @@ async function openedPayload(h: string): Promise<import("@beacon/ui").Opened> {
   return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: current?.path === h ? current.bridge.rev() : 0 };
 }
 
-/** Beacon › Settings… › General and Recording: core keeps them (agents change them too); this copy is for reading them here. */
-let appSettings: AppSettings = await core.settings();
-/** What changed, from the Settings window (which shows it already) or Check Sync; core keeps it. */
+/** A change from the Settings window (which shows it already) or Check Sync; core keeps them and applies them. */
 function setAppSettings(patch: import("@beacon/ui").SettingsPatch) {
-  appSettings = withPatch(appSettings, patch);
-  applyAutoProxy();
   core.setSettings(patch).catch((e: unknown) => status(`could not save settings: ${errorText(e)}`));
-}
-
-/** Core's settings, after any change: one made elsewhere (an agent) is applied and shown in an open Settings window. */
-function settingsChanged(next: AppSettings) {
-  if (Bun.deepEquals(next, appSettings)) return;
-  appSettings = next;
-  applyAutoProxy();
-  send().appSettings(next);
 }
 
 /** Keys rebound (here, by an agent, or in another process's keymap.json): the menus and the window show them. */
@@ -87,7 +74,8 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
  */
 function followConfig() {
   const reload: Record<string, () => void> = {
-    "settings.json": () => void core.settings().then(settingsChanged),
+    // Core tells a change it reads, as it does its own.
+    "settings.json": () => void core.settings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "favorites.json": () => void core.favorites().then((items) => send().favorites({ items })),
   };
@@ -106,20 +94,13 @@ function followConfig() {
 }
 followConfig();
 
-/** Proxies start on their own only for the kinds of media the settings name. */
-function applyAutoProxy() {
-  core.setJobMode(appSettings.proxyMode);
-  core.setAutomatic((analyzer, asset) => analyzer !== "proxy" || (asset.kind === "recording" ? appSettings.autoProxy.recording : appSettings.autoProxy.video));
-}
-applyAutoProxy();
-
 /** Resources offered this session: the dialog asks once, not on every import. */
 const offered = new Set<string>();
 /** An import's analysis waits for a resource (the speech model): ask, unless the user said Not Now before. */
-function offerResource(r: import("@beacon/core").ResourceInfo) {
+async function offerResource(r: import("@beacon/core").ResourceInfo) {
   if (r.present || r.job || offered.has(r.id)) return;
   offered.add(r.id);
-  if (appSettings.declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › General)`);
+  if ((await core.settings()).declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › General)`);
   send().resourceSheet(r);
 }
 /** A download's progress, for the resource dialog and the status line. */
@@ -139,7 +120,7 @@ async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
 
 const views = createViews(base);
 const media = createWindowMedia(base);
-const exports = createExports({ ...base, settings: () => appSettings });
+const exports = createExports(base);
 
 const projects = createProjects({
   ...base,
@@ -158,7 +139,7 @@ const projects = createProjects({
         if (e.kind === "saved") {
           send().saved({ ok: true });
           projects.saveProjectThumbSoon(h);
-        } else if (e.kind === "needs") offerResource(e.resource);
+        } else if (e.kind === "needs") void offerResource(e.resource);
         else if (e.kind === "narrated") recorder.narrationEnded(e.result);
         else if (e.kind === "error") {
           if (e.message.startsWith("could not save")) send().saved({ ok: false });
@@ -247,7 +228,7 @@ if (diag) {
     expected = performance.now() + 5000;
     const cpu = process.cpuUsage();
     const jobs = (await core.jobs()).filter((j) => j.state === "running").map((j) => `${j.kind} ${Math.round(j.progress * 100)}%`);
-    appendFileSync(diag, `${new Date().toISOString()} lag ${lag} ms, cpu ${Math.round((cpu.user + cpu.system) / 1000)} ms total, ${JSON.stringify(Object.fromEntries(calls))}, jobs [${jobs.join(", ")}], playing ${current?.view?.live.playing ?? "-"}\n`);
+    appendFileSync(diag, `${new Date().toISOString()} lag ${lag} ms, cpu ${Math.round((cpu.user + cpu.system) / 1000)} ms total, ${JSON.stringify(Object.fromEntries(calls))}, jobs [${jobs.join(", ")}], playing ${(current && core.view(current.path)?.playing) ?? "-"}\n`);
     calls.clear();
   }, 5000);
 }
@@ -297,7 +278,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       newProject: ({ name, settings, standalone }) => reply(() => projects.createProject(name, settings, standalone)),
       saveAs: (params) => reply(() => projects.saveAs(params)),
       fetchResource: ({ id }) => replyWith(async () => (await core.fetchResource(id)).id),
-      declineResource: ({ id }) => setAppSettings({ declinedResources: [...new Set([...(appSettings.declinedResources ?? []), id])] }),
+      declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }),
       shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
       shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
       appAction: ({ action }) => appAction(action),
@@ -319,7 +300,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         reply(async () => {
           if (!current) return;
           // Core saves in Settings' folder, or the project's media folder when it's gone: say which.
-          const chosen = appSettings.snapshotFolder;
+          const chosen = (await core.settings()).snapshotFolder;
           if (chosen && !existsSync(chosen)) status(`${chosen} is missing: saved in the project's media folder`);
           const r = await core.captureFrame(current.path);
           send().snapshotSaved({ path: r.path });
@@ -348,7 +329,6 @@ const win = new BrowserWindow({
 // App-wide changes reach the window and the menus whether or not a project is open.
 appBridge(core, message, {
   shortcuts: (list) => void shortcutsChanged(list),
-  settings: settingsChanged,
   job: (job) => (job.kind === "export" ? exports.exportJob(job) : job.kind === "resource" ? resourceJob(job) : undefined),
 });
 const recorder = createRecording({
@@ -357,7 +337,6 @@ const recorder = createRecording({
   status,
   project: () => current?.path,
   window: win,
-  settings: () => appSettings,
   setSettings: setAppSettings,
   setMenu: menus.setMenu,
 });

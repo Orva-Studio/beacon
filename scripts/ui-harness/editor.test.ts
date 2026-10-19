@@ -1443,8 +1443,7 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   await arrived(() => ui.menus.at(-1) === `setAppSettings:${JSON.stringify({ proxyMode: "fast" })}`);
   expect(ui.menus.at(-1)).toBe(`setAppSettings:${JSON.stringify({ proxyMode: "fast" })}`);
   await page.key("Escape", "Escape");
-  // What the app does with it: no proxy is started for a video file.
-  ui.core.setAutomatic((analyzer, asset) => analyzer !== "proxy" || asset.kind === "recording");
+  // Core follows it: no proxy is started for a video file.
   const copy = join(dir, `like-${Date.now()}.mp4`);
   copyFileSync(join(FIXTURES, "video.mp4"), copy);
   const { assets } = await ui.core.import(ui.handle, [copy]);
@@ -1452,7 +1451,7 @@ test.skipIf(skip)("Settings choose which media get proxies on their own (the res
   await Bun.sleep(1500);
   expect((await ui.core.jobs()).some((j) => j.kind === "proxy" && j.asset === assets[0])).toBe(false);
   ui.core.detachView(ui.handle);
-  ui.core.setAutomatic(() => true);
+  await ui.core.setSettings({ autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
   await ui.core.undo(ui.handle);
 }, 30000);
 

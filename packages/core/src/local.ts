@@ -73,7 +73,7 @@ import { AppConfig } from "./config";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
-import { lock, readProject, unlock, writeProject } from "./persist";
+import { lock, projectName, readProject, unlock, writeProject } from "./persist";
 import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
@@ -343,9 +343,7 @@ export class LocalCore implements BeaconCore {
    */
   async rename(h: ProjectHandle, name: string): Promise<string> {
     const p = this.#get(h);
-    const clean = name.trim().replace(/\.beproj$/i, "");
-    if (!clean || /[/:]/.test(clean) || clean.startsWith(".")) throw new Error(`"${name}" can't be a project name`);
-    const to = join(dirname(p.path), `${clean}.beproj`);
+    const to = join(dirname(p.path), `${projectName(name)}.beproj`);
     if (to === p.path) return to;
     // A change of case only is the same folder on macOS's disks.
     if (existsSync(to) && to.toLowerCase() !== p.path.toLowerCase()) throw new Error(`${basename(to)} already exists`);
@@ -602,17 +600,16 @@ export class LocalCore implements BeaconCore {
   }
 
   /**
-   * How background analyses run (the app's setting): "quiet" (default), one preview job at a time at
-   * macOS background priority, slower but the fans stay off; "fast", two at once at normal priority.
-   * Jobs already running keep their mode.
+   * Narrows which analyses start on their own, on import, when shown or when a preference changes (proxies already
+   * follow Settings › General); projects shown now follow at once.
    */
-  setJobMode(mode: "quiet" | "fast") {
-    this.#analyses.jobMode = mode;
-  }
-
-  /** Sets which analyses (e.g. proxies) start on their own, on import, when shown or when a preference changes; projects shown now follow at once. */
   setAutomatic(fn: (analyzer: string, asset: Asset) => boolean) {
     this.#analyses.setAutomatic(fn);
+  }
+
+  /** The project's view, while one is attached. */
+  view(h: ProjectHandle): LiveView | undefined {
+    return this.#get(h).view;
   }
 
   detachView(h: ProjectHandle) {
@@ -739,6 +736,7 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
+    mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);

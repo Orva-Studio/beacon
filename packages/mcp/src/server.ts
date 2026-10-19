@@ -167,12 +167,18 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   add("project_undo", {
     description: "Undo the last change (a command or transaction)",
     schema: z.strictObject({}),
-    run: async () => text((await core.undo(project())) ? `undid "${(await core.history(project())).redo.at(-1)}"` : "nothing to undo"),
+    run: async () => {
+      const label = await core.undo(project());
+      return text(label ? `undid "${label}"` : "nothing to undo");
+    },
   });
   add("project_redo", {
     description: "Redo the last undone change",
     schema: z.strictObject({}),
-    run: async () => text((await core.redo(project())) ? `redid "${(await core.history(project())).undo.at(-1)}"` : "nothing to redo"),
+    run: async () => {
+      const label = await core.redo(project());
+      return text(label ? `redid "${label}"` : "nothing to redo");
+    },
   });
   add("project_history", {
     description: "Undo and redo history labels, oldest first",
@@ -309,10 +315,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       colorSpace: z.enum(["bt709", "srgb"]).optional().describe("Export Color Space: bt709 (default) or srgb, which macOS players show as the editor does"),
     }),
     async run({ output, ...rest }) {
-      const path = expandHome(output);
-      await core.checkOutput(project(), path, { overwrite: rest.overwrite });
-      mkdirSync(path.endsWith("/") ? path : dirname(path), { recursive: true });
-      const job = await core.export(project(), { output: path, ...rest });
+      const job = await core.export(project(), { output: expandHome(output), ...rest });
       return core.job(job.id);
     },
   });

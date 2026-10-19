@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { jobSignal } from "@beacon/media";
-import { secondsToTicks, walkClips, type Asset, type JobAnalyzerDef, type ResourceDef } from "@beacon/model";
+import { secondsToTicks, walkClips, type AppSettings, type Asset, type JobAnalyzerDef, type ResourceDef } from "@beacon/model";
 import type { AppEvent, ImportResult, Job, ResourceInfo } from "./api";
 import type { AppConfig } from "./config";
 import { download } from "./download";
@@ -36,14 +36,7 @@ async function diskSize(path: string): Promise<number> {
 export class Analyses {
   readonly #previewQueues = new WeakMap<OpenProject, PreviewQueue>();
 
-  /**
-   * How background analyses run (the app's setting): "quiet" (default), one preview job at a time at
-   * macOS background priority, slower but the fans stay off; "fast", two at once at normal priority.
-   * Jobs already running keep their mode.
-   */
-  jobMode: "quiet" | "fast" = "quiet";
-
-  /** Which analyses start on their own (the app's settings: proxies), on import, when shown or when a preference changes; the rest run only when asked. */
+  /** Which analyses may start on their own, beyond what the settings allow (tests leave transcripts out). */
   #automatic: (analyzer: string, asset: Asset) => boolean = () => true;
 
   constructor(
@@ -51,12 +44,28 @@ export class Analyses {
     readonly jobs: Jobs,
     readonly config: AppConfig,
     readonly watchApp: (fn: (e: AppEvent) => void) => () => void,
-  ) {}
+  ) {
+    // Settings › General chooses which media get proxies on their own: projects shown now follow at once.
+    watchApp((e) => e.kind === "settings" && this.#followAutomatic());
+  }
 
-  /** Sets which analyses (e.g. proxies) start on their own; projects shown now follow at once. */
+  /** Sets which analyses (e.g. proxies) may start on their own; projects shown now follow at once. */
   setAutomatic(fn: (analyzer: string, asset: Asset) => boolean) {
     this.#automatic = fn;
+    this.#followAutomatic();
+  }
+
+  #followAutomatic() {
     for (const p of this.parts.projects()) if (p.view) this.previewJobs(p);
+  }
+
+  /**
+   * Whether an analysis starts on its own (on import, when shown or when a preference changes) rather than only
+   * when asked: proxies only for the kinds of media the settings name.
+   */
+  #starts(settings: AppSettings, analyzer: string, asset: Asset): boolean {
+    if (analyzer === "proxy" && !(asset.kind === "recording" ? settings.autoProxy.recording : settings.autoProxy.video)) return false;
+    return this.#automatic(analyzer, asset);
   }
 
   /**
@@ -75,9 +84,10 @@ export class Analyses {
       const d = at < a ? a - at : at > b ? at - b : 0;
       distance.set(clip.assetId, Math.min(d, distance.get(clip.assetId) ?? Infinity));
     }
+    const settings = this.config.settings();
     const wanted = Object.values(doc.assets)
       .flatMap((asset) =>
-        [...registry.jobAnalyzers.values()].filter((def) => def.when === "preview" && def.applies(asset) && !p.data.has(asset, def.id) && this.#automatic(def.id, asset) && existsSync(asset.path)).map((def) => ({ asset, def })),
+        [...registry.jobAnalyzers.values()].filter((def) => def.when === "preview" && def.applies(asset) && !p.data.has(asset, def.id) && this.#starts(settings, def.id, asset) && existsSync(asset.path)).map((def) => ({ asset, def })),
       )
       .sort((x, y) => (distance.get(x.asset.id) ?? Infinity) - (distance.get(y.asset.id) ?? Infinity));
     // One queue per project: asked again (media imported), it is refilled rather than doubled.
@@ -126,7 +136,7 @@ export class Analyses {
       }, finished);
     };
     // Counted before each starts: a worker that finds nothing left stops at once, and must not be restarted here.
-    const started = Math.min(PREVIEW_JOBS_AT_ONCE[this.jobMode], todo.length);
+    const started = Math.min(PREVIEW_JOBS_AT_ONCE[settings.proxyMode], todo.length);
     workers = started;
     for (let i = 0; i < started; i++) void next();
   }
@@ -160,10 +170,11 @@ export class Analyses {
     const { registry } = this.parts;
     const jobs: string[] = [];
     const needs = new Set<string>();
+    const settings = this.config.settings();
     for (const id of assets) {
       for (const def of registry.jobAnalyzers.values()) {
         const a = p.store.doc.assets[id]!;
-        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id) || !this.#automatic(def.id, a)) continue;
+        if ((def.when ?? "import") !== "import" || !def.applies(a) || p.data.has(a, def.id) || !this.#starts(settings, def.id, a)) continue;
         const need = this.#needsOf(def);
         if (need && !this.#resourceReady(need)) needs.add(need);
         else if (existsSync(a.path)) jobs.push(this.analyze(p, def.id, id).id);
@@ -195,7 +206,8 @@ export class Analyses {
       async (progress) => {
         const value = await def.analyze(asset, progress, {
           cacheDir: this.parts.cacheDir,
-          quiet: this.jobMode === "quiet",
+          // How background analyses run (Settings › General): quietly, at macOS background priority, unless "fast".
+          quiet: this.config.settings().proxyMode === "quiet",
           resource: (id) => this.#resourcePath(this.parts.registry.resources.get(id)!),
           pref,
           secret: (id) => this.config.secrets.get(id),

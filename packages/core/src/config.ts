@@ -147,9 +147,16 @@ export class AppConfig {
     return this.#saveFavorites(items);
   }
 
+  /** The settings last read or written: one read that differs was written by another process (an agent's core), and is told. */
+  #settings?: AppSettings;
+
   settings(): AppSettings {
     const saved = AppSettingsSchema.partial().safeParse(this.read("settings.json"));
-    return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
+    const next = saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
+    const changed = this.#settings && !Bun.deepEquals(next, this.#settings);
+    this.#settings = next;
+    if (changed) this.emit({ kind: "settings", settings: next });
+    return next;
   }
 
   setSettings(patch: SettingsPatch): AppSettings {
@@ -158,6 +165,7 @@ export class AppConfig {
     const next = AppSettingsSchema.safeParse(withPatch(this.settings(), patch));
     if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
     this.write("settings.json", next.data);
+    this.#settings = next.data;
     this.emit({ kind: "settings", settings: next.data });
     return next.data;
   }

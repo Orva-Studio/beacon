@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Socket } from "bun";
 import type { AppEvent, CoreEvent, BeaconCore, ProjectHandle } from "./api";
+import { alive } from "./persist";
 
 /**
  * The app's automation socket (PLAN §7.1): newline-delimited JSON-RPC 2.0.
@@ -19,14 +20,6 @@ export const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
  */
 export const DEFAULT_SOCKET = join(SOCKET_DIR, `app-${process.pid}.sock`);
 
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
-};
 
 /** Removes sockets left by app processes that are gone (a crash leaves them behind). */
 function removeStaleSockets(dir: string) {
@@ -91,13 +84,33 @@ export class LineReader {
   }
 }
 
+/** JSON-RPC messages written to a socket in order: Bun's write may take part of the data, and the rest waits for `drain`. */
+export class LineWriter {
+  #out: Uint8Array[] = [];
+  readonly #encoder = new TextEncoder();
+  constructor(readonly write: (bytes: Uint8Array) => number) {}
+  send(msg: unknown) {
+    const bytes = this.#encoder.encode(`${encode(msg)}\n`);
+    if (this.#out.length) return void this.#out.push(bytes);
+    const n = this.write(bytes);
+    if (n < bytes.length) this.#out.push(bytes.subarray(Math.max(0, n)));
+  }
+  drain() {
+    while (this.#out.length) {
+      const next = this.#out[0]!;
+      const n = this.write(next);
+      if (n < next.length) return void (this.#out[0] = next.subarray(Math.max(0, n)));
+      this.#out.shift();
+    }
+  }
+}
+
 interface Client {
   reader: LineReader;
+  writer: LineWriter;
   watching: Map<ProjectHandle, () => void>;
   /** Stops the app-wide events this client is sent. */
   unwatchApp: () => void;
-  /** Bun's socket write may take part of the data; the rest waits for drain. */
-  pending: Uint8Array[];
 }
 
 export interface CoreServer {
@@ -116,12 +129,7 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
   // A path given explicitly (BEACON_SOCKET, tests) is the caller's to reuse.
   if (existsSync(path)) rmSync(path);
 
-  const send = (s: Socket<Client>, msg: unknown) => {
-    const bytes = new TextEncoder().encode(`${encode(msg)}\n`);
-    if (s.data.pending.length) return void s.data.pending.push(bytes);
-    const n = s.write(bytes);
-    if (n < bytes.length) s.data.pending.push(bytes.subarray(Math.max(0, n)));
-  };
+  const send = (s: Socket<Client>, msg: unknown) => s.data.writer.send(msg);
 
   const handle = async (s: Socket<Client>, req: { id?: number | string; method: string; params?: unknown[] }) => {
     // JSON turns omitted optional arguments into null.
@@ -166,21 +174,13 @@ export function serveCore(core: BeaconCore, opts: { path?: string; canOpen?: (pa
             return send(s, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
           }
           void handle(s, req);
-        }), watching: new Map(), pending: [], unwatchApp: core.watchApp((event: AppEvent) => send(s, { jsonrpc: "2.0", method: "appEvent", params: { event } })) };
+        }), writer: new LineWriter((bytes) => s.write(bytes)), watching: new Map(), unwatchApp: core.watchApp((event: AppEvent) => send(s, { jsonrpc: "2.0", method: "appEvent", params: { event } })) };
       },
       data(s, chunk) {
         s.data.reader.push(chunk);
       },
       drain(s) {
-        while (s.data.pending.length) {
-          const next = s.data.pending[0]!;
-          const n = s.write(next);
-          if (n < next.length) {
-            s.data.pending[0] = next.subarray(Math.max(0, n));
-            return;
-          }
-          s.data.pending.shift();
-        }
+        s.data.writer.drain();
       },
       close(s) {
         s.data?.unwatchApp();

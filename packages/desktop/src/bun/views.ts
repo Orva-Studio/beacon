@@ -27,8 +27,9 @@ export function createViews(app: App) {
 
   /** The canvas zoomed or panned. */
   function place(canvas: Session["canvas"]) {
-    const view = app.current()?.view;
-    if (view) view.live.place(...placement(canvas, view));
+    const current = app.current();
+    const live = current && core.view(current.path);
+    if (current?.view && live) live.place(...placement(canvas, current.view));
   }
 
   /** Attaches the project's preview to the canvas's native view, or follows its new size; returns the fit zoom in percent. */
@@ -44,7 +45,7 @@ export function createViews(app: App) {
       const layer = native?.getNativeHandle() as Pointer | null;
       if (!native || !layer) throw new Error(`no native view ${id}`);
       const live = core.attachView(current.path, { layer, width: w, height: h });
-      current.view = { id, live, scale, rect };
+      current.view = { id, scale, rect };
       // The window sends marks only when they change; a new preview starts from the last ones.
       live.marks(scaledMarks(lastMarks, scale));
       if (lastSurround) live.surround(...lastSurround);
@@ -58,10 +59,10 @@ export function createViews(app: App) {
     } else {
       current.view.scale = scale;
       current.view.rect = rect;
-      current.view.live.resize(w, h);
+      core.view(current.path)?.resize(w, h);
     }
     // Fitted placement depends on the view's size, so it is resent whenever the view changes.
-    current.view.live.place(...placement((await core.session(current.path)).canvas, current.view));
+    core.view(current.path)?.place(...placement((await core.session(current.path)).canvas, current.view));
     const percent = Math.round(fitPercent(core.doc(current.path).settings, rect));
     core.setFitPercent(current.path, percent);
     return percent;
@@ -70,8 +71,8 @@ export function createViews(app: App) {
   /** Positions are canvas pixels; sizes are points, drawn in physical pixels. */
   function marks(next: CanvasMark[]) {
     lastMarks = next;
-    const v = app.current()?.view;
-    if (v) v.live.marks(scaledMarks(next, v.scale));
+    const current = app.current();
+    if (current?.view) core.view(current.path)?.marks(scaledMarks(next, current.view.scale));
   }
 
   /** The Media Bin preview: the asset, and its view once the window's native view is up. */

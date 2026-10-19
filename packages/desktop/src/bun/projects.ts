@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { Utils } from "electrobun/main";
-import { findDropped, summarizeReport, type DroppedFile } from "@beacon/core";
+import { findDropped, projectName, summarizeReport, type DroppedFile } from "@beacon/core";
 import { fpsRational, projectDuration, ticksToSeconds } from "@beacon/model";
 import type { CanvasValues, ProjectBridge } from "@beacon/ui";
 import { errorText, type App, type Current } from "./app";
@@ -179,8 +179,7 @@ export function createProjects(app: ProjectsApp) {
   }
 
   async function createProject(name: string, canvas?: CanvasValues, standalone = false) {
-    if (/[/:]/.test(name) || name.startsWith(".") || !name.trim()) throw new Error(`"${name}" can't be a project name`);
-    const to = freshProject(name.trim());
+    const to = freshProject(projectName(name));
     const settings = canvas && {
       width: canvas.width,
       height: canvas.height,
@@ -206,8 +205,7 @@ export function createProjects(app: ProjectsApp) {
     queued(async () => {
       const current = app.current();
       if (!current) throw new Error("Open a project first");
-      const clean = name.trim().replace(/\.beproj$/i, "");
-      if (!clean || /[/:]/.test(clean) || clean.startsWith(".")) throw new Error(`"${name}" can't be a project name`);
+      const clean = projectName(name);
       if (standalone) status("Copying media into the project…");
       const to = await core.saveAs(current.path, join(folder, `${clean}.beproj`), { standalone });
       await switchTo(to);

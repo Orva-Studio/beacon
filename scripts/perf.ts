@@ -37,9 +37,11 @@ function cacheWithoutProxies(): string {
   for (const f of readdirSync(DEFAULT_CACHE_DIR)) if (f.startsWith("frames-")) cpSync(join(DEFAULT_CACHE_DIR, f), join(dir, f));
   return dir;
 }
-const core = new LocalCore(values["no-proxies"] ? { cacheDir: cacheWithoutProxies() } : values.cache ? { cacheDir: values.cache } : {});
 if (values.mode !== "quiet" && values.mode !== "fast") throw new Error("--mode is quiet or fast");
-core.setJobMode(values.mode);
+// Settings of its own: every medium gets its proxy, built as --mode says, whatever the user chose.
+const configDir = join(dir, "config");
+const core = new LocalCore({ configDir, ...(values["no-proxies"] ? { cacheDir: cacheWithoutProxies() } : values.cache ? { cacheDir: values.cache } : {}) });
+await core.setSettings({ autoProxy: { recording: true, video: true }, proxyMode: values.mode });
 try {
   const path = join(dir, `${basename(source, extname(source))}.beproj`);
   let h;

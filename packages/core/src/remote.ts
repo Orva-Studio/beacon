@@ -15,7 +15,7 @@ import type {
   QueryInfo,
   SchemaInfo,
 } from "./api";
-import { appSockets, decode, encode, FORWARDED, LineReader, PROTOCOL_VERSION, type Method } from "./socket";
+import { appSockets, decode, encode, FORWARDED, LineReader, LineWriter, PROTOCOL_VERSION, type Method } from "./socket";
 
 interface Pending {
   resolve: (v: any) => void;
@@ -36,8 +36,7 @@ export interface RemoteCore extends Pick<BeaconCore, (typeof FORWARDED)[number]>
  */
 export class RemoteCore implements BeaconCore {
   #socket!: Socket<undefined>;
-  /** Bun's socket write may take part of the data (a large request); the rest waits for drain. */
-  #out: Uint8Array[] = [];
+  #writer!: LineWriter;
   #next = 1;
   readonly #pending = new Map<number, Pending>();
   readonly #listeners = new Map<ProjectHandle, Set<(e: CoreEvent) => void>>();
@@ -64,18 +63,12 @@ export class RemoteCore implements BeaconCore {
       unix: path,
       socket: {
         data: (_, chunk) => reader.push(chunk),
-        drain: (s) => {
-          while (r.#out.length) {
-            const next = r.#out[0]!;
-            const n = s.write(next);
-            if (n < next.length) return void (r.#out[0] = next.subarray(Math.max(0, n)));
-            r.#out.shift();
-          }
-        },
+        drain: () => r.#writer.drain(),
         close: () => r.#fail(new Error("the Beacon app closed the connection")),
         error: (_, e) => r.#fail(e),
       },
     });
+    r.#writer = new LineWriter((bytes) => r.#socket.write(bytes));
     const hello = await r.#call<{ protocol: number }>("hello");
     if (hello.protocol !== PROTOCOL_VERSION) {
       r.disconnect();
@@ -127,10 +120,7 @@ export class RemoteCore implements BeaconCore {
     const id = this.#next++;
     return new Promise<T>((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
-      const bytes = new TextEncoder().encode(`${encode({ jsonrpc: "2.0", id, method, params })}\n`);
-      if (this.#out.length) return void this.#out.push(bytes);
-      const n = this.#socket.write(bytes);
-      if (n < bytes.length) this.#out.push(bytes.subarray(Math.max(0, n)));
+      this.#writer.send({ jsonrpc: "2.0", id, method, params });
     });
   }
 

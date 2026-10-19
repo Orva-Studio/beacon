@@ -2,14 +2,14 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { JobInfo } from "@beacon/core";
-import { DEFAULT_EXPORT, exportCanvas, exportOptions, type AppSettings, type ExportSettings } from "@beacon/ui";
+import { DEFAULT_EXPORT, exportCanvas, exportOptions, type ExportSettings } from "@beacon/ui";
 import type { App } from "./app";
 
 /** The Export dialog's last folder and settings, offered next time. */
 type ExportPrefs = { folder: string; settings: ExportSettings };
 
 /** File > Export… and Export Selection…: the window's Export dialog, the exports it starts, and every export's progress. */
-export function createExports(app: App & { settings(): AppSettings }) {
+export function createExports(app: App) {
   const { core, message, status } = app;
 
   function exportPrefs(): ExportPrefs {
@@ -46,7 +46,7 @@ export function createExports(app: App & { settings(): AppSettings }) {
     try {
       core.writeConfig("export.json", { folder, settings });
     } catch {}
-    const job = await core.export(current.path, { output, overwrite: true, ...exportOptions(settings), colorSpace: app.settings().exportColorSpace, ...(range ? { from: range.in, to: range.out } : {}) });
+    const job = await core.export(current.path, { output, overwrite: true, ...exportOptions(settings), ...(range ? { from: range.in, to: range.out } : {}) });
     exports.set(job.id, output);
     message("exportJob", { id: job.id, output, state: "running", progress: 0 });
   }
