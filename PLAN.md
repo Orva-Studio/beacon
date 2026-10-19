@@ -24,7 +24,8 @@ narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
 (2026-10-18), with its gate run left (below). Next: **Phase 8.5** (everyday
 fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
-any drive), then 9 (workspace), 10 (looks), 11 (security audit) and 12
+any drive), then 9 (workspace and film look), 10 (filmstrips and
+backgrounds), 11 (security audit) and 12
 (Camtasia export); an in-app agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
 Phase 9 too (the user, 2026-10-17): the fixes from a review of the whole
 codebase, `docs/review-2026-10-17.md`, in three branches (bugs, hot paths,
@@ -1287,6 +1288,11 @@ Making the transcript do the editing.
   seen yet: screen frames changing would catch it); a missing transcript
   (an import whose app quit first) is started by the review. Checked on a
   3:37 recording: 35 silences, 11 kept for screen action, 1:10 shorter.
+  It reads the timeline as edited, not the sources: each clip's speech
+  through its window, placed where the clip now sits, so a silence that
+  ends one clip and one that starts the next are one silence across the
+  cut, judged by their total length. Opened again after editing, it finds
+  the silences the edits made (the user asked, 2026-10-19).
 - **Remove Filler Words** (the user, 2026-10-15, after trying v0.2.1's Remove
   Silences): "um", "uh" and the like, found in the transcript and cut, in the
   AI panel beside Remove Silences and reviewed the same way (each marked on the
@@ -1554,7 +1560,7 @@ Export ⌘E and the editing), with narration recorded over the timeline and
 in step with it; an agent changes settings and opens each dialog.
 
 ### Phase 8.5 — Everyday fixes (the user, 2026-10-19)
-What the user hit while editing, ahead of Phase 9's workspace.
+What the user hit while editing, ahead of Phase 9.
 - **Export audio only** (the user, 2026-10-19): the Export dialog writes
   just the timeline's mix, for a podcast or a voiceover: `.wav` (PCM,
   sample-exact), `.m4a` (AAC, with the data rate already in the dialog)
@@ -1603,7 +1609,7 @@ video export does; noise removal judged by the user on their own takes, and
 Auphonic chosen or not; Shift-drag on a gap opens and closes space; a clip
 dragged straight off a camera card imports.
 
-### Phase 9 — Workspace
+### Phase 9 — Workspace and film look
 Seeing more at once.
 - **A window per project** (the user, 2026-10-12): several projects open at
   once, each in its own window (macOS's Merge All Windows then
@@ -1661,7 +1667,7 @@ Seeing more at once.
 preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.
 
-### Phase 10 — Looks
+### Phase 10 — Filmstrips and backgrounds
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
