@@ -7,8 +7,7 @@ import { DerivedData } from "@beacon/render";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
-import { clipBox, cornerButtons, headerIcons, headerWidth } from "../../packages/ui/src/timeline-layout";
-import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
+import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was

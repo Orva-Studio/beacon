@@ -31,6 +31,9 @@ test.skipIf(!existsSync(IMAGE))("an export makes its folder, after its checks", 
   await core.import(h, [image]);
   await expect(core.export(h, { output: join(dir, "Export.beproj", "inside", "out.mp4") })).rejects.toThrow("inside Export.beproj");
   expect(existsSync(join(dir, "Export.beproj", "inside"))).toBe(false);
+  // One rule for core and the renderer: ProRes only in .mov.
+  await expect(core.export(h, { output: join(dir, "prores.mp4"), codec: "prores" })).rejects.toThrow("ProRes exports to .mov, not .mp4");
+  await expect(core.export(h, { output: join(dir, "prores.webm"), codec: "prores" })).rejects.toThrow("ProRes exports to .mov, not .webm");
   const out = join(dir, "new", "folder", "out.mp4");
   await (await core.export(h, { output: out, to: 0.2 })).done;
   expect(existsSync(out)).toBe(true);

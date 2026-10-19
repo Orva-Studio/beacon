@@ -2,11 +2,7 @@ import { join } from "node:path";
 import { importDropped, LocalCore } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { exportOptions } from "../../packages/ui/src/export-options";
-import { DEFAULT_EXPORT } from "../../packages/ui/src/export-defaults";
-import { exportCanvas, initPayload, settingsSheet } from "../../packages/ui/src/payloads";
-import { appBridge, coreRequests, projectBridge, type ProjectBridge, type Send } from "../../packages/ui/src/bridge";
-import type { RecentProject } from "../../packages/ui/src/rpc";
+import { appBridge, coreRequests, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";

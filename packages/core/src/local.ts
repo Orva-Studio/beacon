@@ -39,7 +39,7 @@ import {
   type SettingsTab,
   type SettingsPatch,
 } from "@beacon/model";
-import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
+import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
   AssetPreview,
   CommandInfo,
@@ -737,7 +737,7 @@ export class LocalCore implements BeaconCore {
     const output = resolve(opts.output);
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
-    if (!opts.output.endsWith("/") && videoFormat(output) === "mp4" && opts.codec === "prores") throw new Error("ProRes exports to .mov, not .mp4");
+    if (!opts.output.endsWith("/")) checkEncoding(videoFormat(output), opts);
     mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.

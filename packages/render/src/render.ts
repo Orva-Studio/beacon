@@ -74,6 +74,11 @@ export function sceneAt(project: Project, registry: FeatureRegistry, t: Ticks, d
   return scene;
 }
 
+/** Refuses an encoding the format can't hold: ProRes is only in .mov. */
+export function checkEncoding(format: (typeof VIDEO_FORMATS)[number], o: Pick<VideoEncoding, "codec">) {
+  if (o.codec === "prores" && format !== "mov") throw new Error(`ProRes exports to .mov, not .${format}`);
+}
+
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
   h264: ["-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", "-tag:v", "avc1"],
   hevc: ["-c:v", "hevc_videotoolbox", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"],
@@ -114,8 +119,8 @@ function encoderArgs(project: Project, o: Extract<RenderOutput, { kind: "video" 
     const quality = o.bitrate ? ["-b:v", `${o.bitrate}k`] : ["-b:v", "0", "-crf", "32"];
     return ["-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", ...quality, ...keyframe, "-row-mt", "1", "-deadline", "good", "-cpu-used", "4", "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
   }
+  checkEncoding(format, o);
   const codec = o.codec ?? "h264";
-  if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
   const quality = codec === "prores" ? [] : ["-b:v", `${bitrateOf(project, o)}k`, ...keyframe];
   const profile = codec === "h264" && o.profile ? ["-profile:v", o.profile] : [];
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
@@ -128,8 +133,8 @@ function encoderArgs(project: Project, o: Extract<RenderOutput, { kind: "video" 
 function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video" }>, path: string) {
   const format = videoFormat(o.path);
   if ((format !== "mp4" && format !== "mov") || process.env.BEACON_ENCODE_FFMPEG) return undefined;
+  checkEncoding(format, o);
   const codec = o.codec ?? "h264";
-  if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
   return {
     kind: "encode",
     path,

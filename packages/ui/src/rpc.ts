@@ -98,6 +98,8 @@ export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payl
 export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight } from "./record-panel-size";
+// The timeline's geometry, for the UI harness's clicks.
+export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
 
 export interface Notice {
   title: string;

@@ -36,7 +36,8 @@
     "@beacon/media": "workspace:*",
     "@beacon/model": "workspace:*",
     "@beacon/render": "workspace:*",
-    "@beacon/core": "workspace:*"
+    "@beacon/core": "workspace:*",
+    "@beacon/ui": "workspace:*"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

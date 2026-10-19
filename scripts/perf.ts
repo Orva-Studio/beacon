@@ -5,11 +5,11 @@
 //     [--no-proxies] (an empty cache and no proxy jobs: everything read from the originals)
 //     [--export from-to] (instead: times an MP4 export of those timeline seconds; BEACON_PROFILE=1 adds its stages)
 // A .beproj is copied without its media: only its project.json, the media read where it is.
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, extname, isAbsolute, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { LocalCore } from "@beacon/core";
+import { LocalCore, readProject, writeProject } from "@beacon/core";
 import { DEFAULT_CACHE_DIR } from "@beacon/render";
 import { projectDuration, ticksToSeconds } from "@beacon/model";
 
@@ -46,10 +46,9 @@ try {
   const path = join(dir, `${basename(source, extname(source))}.beproj`);
   let h;
   if (extname(source) === ".beproj") {
-    const doc = JSON.parse(readFileSync(join(source, "project.json"), "utf8")) as { assets: Record<string, { path: string }> };
-    for (const a of Object.values(doc.assets)) if (!isAbsolute(a.path)) a.path = join(source, a.path);
+    // Media inside the original stays where it is: the copy names it by its full path.
     mkdirSync(path);
-    writeFileSync(join(path, "project.json"), JSON.stringify(doc));
+    writeProject(path, readProject(source, core.registry).doc);
     h = await core.open(path);
   } else {
     h = await core.create({ path, cmproj: source });
