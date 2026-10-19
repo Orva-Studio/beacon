@@ -5,6 +5,25 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Structure (`refactor/structure`, `docs/review-2026-10-17.md` §3)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Core split (analyses, recording, thumbnails, registry info) behaves as before | 2026-10-18 | `dc4ae1c` | core, features, mcp, camtasia tests; UI flows |
+| Desktop split: boot, open, MCP over the socket | 2026-10-18 | `6235adc` | `app.test.ts` (passes on this Mac now); UI flows |
+
+### Not checked yet
+
+- **Context menus in the app** (rebuilt from `actions.json`): clip menu (Cut … Split at Playhead, colour labels,
+  Open Group/Ungroup only on a group, Group otherwise, Remove All Stitches on stitched media, Stitch Selected Media
+  only when the selection can be stitched, shortcuts shown beside items), canvas menu (Project Settings…, Paste,
+  Zoom to Fit), track menus, Media Bin menu (Reveal in Finder now through Finder's own call).
+- File menu: New, Open, Open Recent (and Clear Menu), Save As, renaming the project from its name; switching
+  projects keeps the canvas, thumbnails, waveforms and missing-media marks; the start screen's pictures.
+- Export dialog's last folder and settings; the Media Bin preview (play, seek, close).
+
 ## Hot paths (`perf/hot-paths`, `docs/review-2026-10-17.md` §2, numbers in `docs/performance.md`)
 
 ### Checked headless only (still to see by hand)
