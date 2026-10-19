@@ -19,6 +19,15 @@ export function rational(num: number, den = 1): Rational {
   return { num, den };
 }
 
+/** A frame rate as a fraction: NTSC's 29.97 is 30000/1001, 12.5 is 25/2. */
+export function fpsRational(fps: number): Rational {
+  if (Number.isInteger(fps)) return { num: fps, den: 1 };
+  const ntsc = Math.round(fps * 1001);
+  if (ntsc % 1000 === 0 && Math.abs(fps - ntsc / 1001) < 0.01) return { num: ntsc, den: 1001 };
+  for (let den = 2; den < 1000; den++) if (Math.abs(fps * den - Math.round(fps * den)) < 1e-6) return { num: Math.round(fps * den), den };
+  return { num: Math.round(fps * 1000), den: 1000 };
+}
+
 export function rationalToNumber(r: Rational): number {
   return r.num / r.den;
 }

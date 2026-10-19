@@ -17,13 +17,17 @@ import {
   type Scene,
   type SourceDef,
   type Ticks,
+  fpsRational,
+  rationalToNumber,
+  fittedSize,
+  autoBitrate,
 } from "@beacon/model";
 
 /** Export options; the format is the path's extension: .mp4, .mov, .gif or .webm. */
 export interface VideoEncoding {
   /** .mp4 and .mov; ProRes only in .mov. */
   codec?: "h264" | "hevc" | "prores";
-  /** Video data rate in kbit/s; omitted: automatic. */
+  /** Video data rate in kbit/s; omitted: automatic (`autoBitrate`). */
   bitrate?: number;
   /** A keyframe every this many frames. */
   keyframe?: number;
@@ -83,8 +87,12 @@ const colorTags = (space: VideoEncoding["colorSpace"]) => ["-colorspace", "bt709
 // setparams: VideoToolbox writes the primaries and transfer from each frame, which the scale leaves unset.
 const toYuv = (space: VideoEncoding["colorSpace"]) => `scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=${trc(space)}:colorspace=bt709:range=tv`;
 
-/** Automatic data rate: what export used before the options existed. */
-const AUTO_BITRATE = "16M";
+/** The data rate in kbit/s: the one asked for, or automatic for the size and rate the video comes out at. */
+function bitrateOf(project: Project, o: Extract<RenderOutput, { kind: "video" }>): number {
+  if (o.bitrate) return o.bitrate;
+  const { width, height } = fittedSize(project.settings, o.size);
+  return autoBitrate(width, height, o.fps ?? rationalToNumber(project.settings.fps));
+}
 /** A keyframe every 30 frames. */
 const KEYFRAME = 30;
 
@@ -97,7 +105,7 @@ export function videoFormat(path: string): (typeof VIDEO_FORMATS)[number] {
 }
 
 /** The ffmpeg output options the worker encodes the frames with. */
-function encoderArgs(o: Extract<RenderOutput, { kind: "video" }>): string[] {
+function encoderArgs(project: Project, o: Extract<RenderOutput, { kind: "video" }>): string[] {
   const format = videoFormat(o.path);
   const fit = o.size ? `scale=${o.size.width}:${o.size.height}:force_original_aspect_ratio=decrease:force_divisible_by=2,` : "";
   const rate = o.fps ? ["-r", String(o.fps)] : [];
@@ -109,24 +117,9 @@ function encoderArgs(o: Extract<RenderOutput, { kind: "video" }>): string[] {
   }
   const codec = o.codec ?? "h264";
   if (codec === "prores" && format === "mp4") throw new Error("ProRes exports to .mov, not .mp4");
-  const quality = codec === "prores" ? [] : ["-b:v", o.bitrate ? `${o.bitrate}k` : AUTO_BITRATE, ...keyframe];
+  const quality = codec === "prores" ? [] : ["-b:v", `${bitrateOf(project, o)}k`, ...keyframe];
   const profile = codec === "h264" && o.profile ? ["-profile:v", o.profile] : [];
   return [...ENCODERS[codec], ...quality, ...profile, "-vf", `${fit}${toYuv(o.colorSpace)}`, ...colorTags(o.colorSpace), ...rate];
-}
-
-/** A frame rate as a fraction: NTSC's 29.97 is 30000/1001, 12.5 is 25/2. */
-export function rational(fps: number): { num: number; den: number } {
-  if (Number.isInteger(fps)) return { num: fps, den: 1 };
-  const ntsc = Math.round(fps * 1001);
-  if (ntsc % 1000 === 0 && Math.abs(fps - ntsc / 1001) < 0.01) return { num: ntsc, den: 1001 };
-  for (let den = 2; den < 1000; den++) if (Math.abs(fps * den - Math.round(fps * den)) < 1e-6) return { num: Math.round(fps * den), den };
-  return { num: Math.round(fps * 1000), den: 1000 };
-}
-
-/** The video's size: the canvas fitted within `size` (as ffmpeg's force_original_aspect_ratio=decrease), even. */
-export function fittedSize(canvas: { width: number; height: number }, size?: { width: number; height: number }): { width: number; height: number } {
-  const s = size ? Math.min(size.width / canvas.width, size.height / canvas.height) : 1;
-  return { width: Math.max(2, Math.floor((canvas.width * s) / 2) * 2), height: Math.max(2, Math.floor((canvas.height * s) / 2) * 2) };
 }
 
 /**
@@ -143,8 +136,8 @@ function nativeEncode(project: Project, o: Extract<RenderOutput, { kind: "video"
     path,
     codec,
     ...fittedSize(project.settings, o.size),
-    fps: o.fps ? rational(o.fps) : project.settings.fps,
-    bitrate: (o.bitrate ?? 16_000) * 1000,
+    fps: o.fps ? fpsRational(o.fps) : project.settings.fps,
+    bitrate: bitrateOf(project, o) * 1000,
     keyframe: o.keyframe ?? KEYFRAME,
     ...(codec === "h264" && o.profile ? { profile: o.profile } : {}),
     srgb: o.colorSpace === "srgb",
@@ -166,7 +159,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
     const videoOnly = tmp ? join(tmp, `video.${format === "mp4" ? "mov" : format}`) : undefined;
     const native = opts.output.kind === "video" ? nativeEncode(project, opts.output, videoOnly!) : undefined;
-    const output = native ?? (opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(opts.output) } : { kind: "png", dir: opts.output.dir });
+    const output = native ?? (opts.output.kind === "video" ? { kind: "video", path: videoOnly, args: encoderArgs(project, opts.output) } : { kind: "png", dir: opts.output.dir });
     // Natively encoded at another rate, frames are evaluated at that rate rather than dropped or repeated, each at the
     // tick nearest its time (a rate like 12.5 fps doesn't divide the tick clock).
     const step = native ? (TICKS_PER_SECOND * native.fps.den) / native.fps.num : frameTicks;

@@ -26,7 +26,7 @@ export async function captureWindow(windowId: number): Promise<Uint8Array> {
   const dir = mkdtempSync(join(tmpdir(), "beacon-shot-"));
   try {
     const file = join(dir, "window.png");
-    await runTool(["screencapture", "-x", "-o", `-l${windowId}`, file]);
+    await runTool(["/usr/sbin/screencapture", "-x", "-o", `-l${windowId}`, file]);
     return new Uint8Array(readFileSync(file));
   } finally {
     rmSync(dir, { recursive: true, force: true });

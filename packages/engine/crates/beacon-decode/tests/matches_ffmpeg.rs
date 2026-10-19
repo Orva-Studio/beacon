@@ -14,12 +14,12 @@ fn ours(path: &str, nth: u32, t: f64, w: u32, h: u32, native: bool) -> Vec<u8> {
     let mut d = if native { Decoder::open_native(path, nth) } else { Decoder::open(path, nth, true, 4) }.unwrap();
     d.seek(t).unwrap();
     loop {
-        if let Next::Frame(pts) = d.next().unwrap() {
-            if pts >= t - 0.0005 {
-                let mut buf = vec![0u8; (w * h * 4) as usize];
-                d.rgba(&mut buf, w, h).unwrap();
-                return buf;
-            }
+        if let Next::Frame(pts) = d.next().unwrap()
+            && pts >= t - 0.0005
+        {
+            let mut buf = vec![0u8; (w * h * 4) as usize];
+            d.rgba(&mut buf, w, h).unwrap();
+            return buf;
         }
     }
 }

@@ -31,7 +31,7 @@ type PanelState = import("@beacon/ui").PanelState;
 type AppSettings = import("@beacon/ui").AppSettings;
 type CanvasValues = import("@beacon/ui").CanvasValues;
 const { appWideMessage, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, panelHeight, settingsSheet, syncKey, withPatch } = await import("@beacon/ui");
-const { chordOf, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
+const { chordOf, fpsRational, keyOfCode, keysLabel, menuKey, MODIFIERS } = await import("@beacon/model");
 type Keys = import("@beacon/model").Keys;
 type ShortcutInfo = import("@beacon/model").ShortcutInfo;
 
@@ -79,12 +79,11 @@ function placement(c: Session["canvas"], view: { rect: { width: number; height: 
 }
 
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
-const RECENT_FILE = join(homedir(), "Library/Application Support/Beacon/recent.json");
 type Recent = { path: string; opened: number };
 let recent: Recent[] = (() => {
   try {
     // Before 0.5 the file held paths alone: their folders' modification times stand in.
-    return (JSON.parse(readFileSync(RECENT_FILE, "utf8")) as (string | Recent)[])
+    return ((core.readConfig("recent.json") ?? []) as (string | Recent)[])
       .map((r) => (typeof r === "string" ? { path: r, opened: existsSync(r) ? statSync(r).mtimeMs : 0 } : r))
       .filter((r) => existsSync(r.path));
   } catch {
@@ -94,8 +93,7 @@ let recent: Recent[] = (() => {
 function setRecent(list: Recent[]) {
   recent = list.slice(0, 10);
   try {
-    mkdirSync(dirname(RECENT_FILE), { recursive: true });
-    writeFileSync(RECENT_FILE, JSON.stringify(recent));
+    core.writeConfig("recent.json", recent);
   } catch (e) {
     status(`could not remember recent projects: ${e instanceof Error ? e.message : e}`);
   }
@@ -109,7 +107,7 @@ function setRecent(list: Recent[]) {
 const recentProjects = () => recent.map((r) => ({ ...r, name: basename(r.path, ".beproj"), thumb: projectThumb(r.path) }));
 
 /** The start screen's pictures: each recent project's frame at its playhead, as it was last left. */
-const PROJECT_THUMBS = join(homedir(), "Library/Application Support/Beacon/project-thumbs");
+const PROJECT_THUMBS = join(core.configDir, "project-thumbs");
 const projectThumbFile = (path: string) => join(PROJECT_THUMBS, `${Bun.hash(path).toString(16)}.png`);
 function projectThumb(path: string): string | undefined {
   try {
@@ -323,7 +321,7 @@ async function createProject(name: string, canvas?: CanvasValues, standalone = f
   const settings = canvas && {
     width: canvas.width,
     height: canvas.height,
-    fps: { num: canvas.fps, den: 1 },
+    fps: fpsRational(canvas.fps),
     background: canvas.background,
     // Off: no target (a new project's default has one).
     ...(canvas.normalize ? {} : { loudnessTarget: undefined }),
@@ -377,12 +375,14 @@ async function importMedia() {
 
 /** Export (⌘E): the whole project as an MP4 into a chosen folder, named after the project; progress shows in the status line. */
 /** The Export dialog's last folder and settings, offered next time. */
-const EXPORT_FILE = join(homedir(), "Library/Application Support/Beacon/export.json");
 type ExportPrefs = { folder: string; settings: ExportSettings };
 function exportPrefs(): ExportPrefs {
   try {
-    const saved = JSON.parse(readFileSync(EXPORT_FILE, "utf8")) as Partial<ExportPrefs>;
-    return { folder: saved.folder && existsSync(saved.folder) ? saved.folder : join(homedir(), "Movies"), settings: { ...DEFAULT_EXPORT, ...saved.settings } };
+    const saved = (core.readConfig("export.json") ?? {}) as Partial<ExportPrefs>;
+    const settings = { ...DEFAULT_EXPORT, ...saved.settings };
+    // 6000 was the default before Automatic (0.6): saved by every export, so almost never chosen.
+    if (settings.bitrate === 6000) settings.bitrate = null;
+    return { folder: saved.folder && existsSync(saved.folder) ? saved.folder : join(homedir(), "Movies"), settings };
   } catch {
     return { folder: join(homedir(), "Movies"), settings: DEFAULT_EXPORT };
   }
@@ -480,8 +480,7 @@ async function startExport({ name, folder, settings, range, overwrite }: { name:
   const output = join(folder, `${name}.${settings.format}`);
   if (!overwrite && existsSync(output)) throw new Error(`${basename(output)} already exists in ${basename(folder)}`);
   try {
-    mkdirSync(dirname(EXPORT_FILE), { recursive: true });
-    writeFileSync(EXPORT_FILE, JSON.stringify({ folder, settings }));
+    core.writeConfig("export.json", { folder, settings });
   } catch {}
   const job = await core.export(current.path, { output, overwrite: true, ...exportOptions(settings), colorSpace: appSettings.exportColorSpace, ...(range ? { from: range.in, to: range.out } : {}) });
   exports.set(job.id, output);
@@ -489,14 +488,7 @@ async function startExport({ name, folder, settings, range, overwrite }: { name:
 }
 
 /** The Record dialog's last sources, offered next time. */
-const RECORD_FILE = join(homedir(), "Library/Application Support/Beacon/record.json");
-const recordPrefs = (): RecordSources => {
-  try {
-    return JSON.parse(readFileSync(RECORD_FILE, "utf8")) as RecordSources;
-  } catch {
-    return { screen: { fps: 60 }, microphone: {}, systemAudio: true };
-  }
-};
+const recordPrefs = (): RecordSources => (core.readConfig("record.json") as RecordSources | undefined) ?? { screen: { fps: 60 }, microphone: {}, systemAudio: true };
 
 /** File > Record… (⌘R): the Record dialog, with what the recorder can use. */
 /** Beacon > Settings…, with the cameras and microphones Settings › Recording picks from. */
@@ -552,22 +544,22 @@ async function loudly<T>(output: string | undefined, run: () => Promise<T>): Pro
 }
 
 async function raised<T>(run: () => Promise<T>): Promise<T> {
-  const read = Bun.spawnSync(["osascript", "-e", "get volume settings"]).stdout.toString();
+  const read = Bun.spawnSync(["/usr/bin/osascript", "-e", "get volume settings"]).stdout.toString();
   const volume = Number(/output volume:(\d+)/.exec(read)?.[1]);
   const muted = /output muted:true/.test(read);
   const raise = Number.isFinite(volume) && (volume < 75 || muted);
-  if (raise) Bun.spawnSync(["osascript", "-e", `set volume output volume ${Math.max(volume, 75)}`, "-e", "set volume without output muted"]);
+  if (raise) Bun.spawnSync(["/usr/bin/osascript", "-e", `set volume output volume ${Math.max(volume, 75)}`, "-e", "set volume without output muted"]);
   try {
     return await run();
   } finally {
-    if (raise) Bun.spawnSync(["osascript", "-e", `set volume output volume ${volume}`, ...(muted ? ["-e", "set volume with output muted"] : [])]);
+    if (raise) Bun.spawnSync(["/usr/bin/osascript", "-e", `set volume output volume ${volume}`, ...(muted ? ["-e", "set volume with output muted"] : [])]);
   }
 }
 
 /** A test beep at the check's volume, through its speakers. */
 async function testBeep({ output }: { output?: string }) {
   await loudly(output, async () => {
-    await Bun.spawn(["afplay", beepFile()], { stdout: "ignore", stderr: "ignore" }).exited;
+    await Bun.spawn(["/usr/bin/afplay", beepFile()], { stdout: "ignore", stderr: "ignore" }).exited;
     await Bun.sleep(200);
   });
 }
@@ -599,7 +591,7 @@ async function checkSync({ camera, microphone, display: wanted, output }: { came
       await Bun.sleep(800);
       for (let i = 0; i < 6; i++) {
         flash.webview.executeJavascript("flash()");
-        Bun.spawn(["afplay", beep], { stdout: "ignore", stderr: "ignore" });
+        Bun.spawn(["/usr/bin/afplay", beep], { stdout: "ignore", stderr: "ignore" });
         await Bun.sleep(1500);
       }
       await Bun.sleep(400);
@@ -613,14 +605,7 @@ async function checkSync({ camera, microphone, display: wanted, output }: { came
 }
 
 /** Whether Voice Narration plays the timeline's sound while it records, as last chosen. */
-const NARRATION_FILE = join(homedir(), "Library/Application Support/Beacon/narration.json");
-const narrationHear = (): boolean => {
-  try {
-    return !!(JSON.parse(readFileSync(NARRATION_FILE, "utf8")) as { hear?: boolean }).hear;
-  } catch {
-    return false;
-  }
-};
+const narrationHear = (): boolean => !!(core.readConfig("narration.json") as { hear?: boolean } | undefined)?.hear;
 
 /** File › Record… (⌘R) and the Record button, or Tools › Voice Narration… (`narration`). */
 async function recordDialog(mode: import("@beacon/ui").RecordMode = "take") {
@@ -640,9 +625,8 @@ async function startNarration({ microphone, hear }: { microphone: { id?: string 
   const { permissions } = await core.recorderDevices();
   if (permissions.microphone !== "granted" && (await core.recorderAccess("microphone")) !== "granted") throw new Error("Allow Beacon in System Settings › Privacy & Security › Microphone");
   try {
-    mkdirSync(dirname(NARRATION_FILE), { recursive: true });
-    writeFileSync(NARRATION_FILE, JSON.stringify({ hear }));
-    writeFileSync(RECORD_FILE, JSON.stringify({ ...recordPrefs(), microphone }));
+    core.writeConfig("narration.json", { hear });
+    core.writeConfig("record.json", { ...recordPrefs(), microphone });
   } catch {}
   // The take's levels go to the window, for the Narration panel's meter.
   await core.recordStart(current.path, { sources: { microphone }, narrate: { hear }, monitor: (e) => !("devicesChanged" in e) && previewEvent(e, send().recordPreview) });
@@ -769,8 +753,7 @@ async function startRecording({ sources }: { sources: RecordSources }) {
     if ((await core.recorderAccess(kind)) !== "granted") throw new Error(`Allow Beacon in System Settings › Privacy & Security › ${kind === "camera" ? "Camera" : "Microphone"}`);
   }
   try {
-    mkdirSync(dirname(RECORD_FILE), { recursive: true });
-    writeFileSync(RECORD_FILE, JSON.stringify(sources));
+    core.writeConfig("record.json", sources);
   } catch {}
   win.hide();
   const panelSources = { screen: !!sources.screen, camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
@@ -779,13 +762,8 @@ async function startRecording({ sources }: { sources: RecordSources }) {
   clearFrames();
   const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
   try {
-    // The pair's measured delay goes into the take, so its camera clip lines up on import.
-    const sync = sources.camera?.id && sources.microphone?.id ? appSettings.cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
     await core.recordStart(current.path, {
-      sources: {
-        ...(sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources),
-        ...(sync?.cameraLateMs ? { offsets: { camera: -sync.cameraLateMs / 1000 } } : {}),
-      },
+      sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
       monitor: (e) => !("devicesChanged" in e) && previewEvent(e, panelSend),
     });
   } catch (e) {
@@ -1118,7 +1096,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
       },
       renameProject: ({ name }) => reply(() => renameProject(name)),
       showFile: ({ path, open }) => {
-        if (open) Bun.spawn(["open", path]);
+        if (open) Bun.spawn(["/usr/bin/open", path]);
         else Utils.showItemInFolder(path);
       },
       // Right-click on the canvas away from any clip.
@@ -1496,7 +1474,7 @@ function mediaAction(h: string, op: string, asset: string) {
   else if (op === "addEnd") void core.run(h, "edit.addMedia", { asset, end: true }).catch(fail);
   else if (op === "delete") void core.run(h, "edit.deleteMedia", { asset }).catch(fail);
   else if (op === "rename") send().renameMedia({ asset });
-  else if (op === "reveal") Bun.spawn(["open", "-R", a.path]);
+  else if (op === "reveal") Bun.spawn(["/usr/bin/open", "-R", a.path]);
   else if (op === "select") void core.run(h, "edit.selectMedia", { asset }).catch(fail);
   else if (op === "proxyCreate") void core.analyze(h, "proxy", asset).catch(fail);
   else if (op === "proxyDelete") void core.forget(h, "proxy", asset).catch(fail);

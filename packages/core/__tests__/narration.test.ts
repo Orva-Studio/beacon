@@ -21,6 +21,7 @@ chmodSync(recorder, 0o755);
 process.env.BEACON_RECORDER_PATH = recorder;
 
 test("a narration over the range plays it muted, stops at its end and lands on a new track where the timeline was heard, as one undo step", async () => {
+  // The system's ffmpeg: Beacon's is built without lavfi's test sources.
   await runTool(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=6:sample_rate=48000", join(dir, "tone.wav")]);
   await runTool(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=duration=10:sample_rate=48000:amplitude=0.1", "-ac", "1", join(dir, "mic.wav")]);
   const core = new LocalCore({ cacheDir: join(dir, "cache") });

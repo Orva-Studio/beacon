@@ -203,7 +203,7 @@ pub unsafe extern "C" fn beacon_audio_play(h: *mut FfiAudio, args_json: *const c
                     if current.load(Ordering::SeqCst) != generation {
                         return;
                     }
-                    p.buf.extend(carry[..whole].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+                    p.buf.extend(carry[..whole].as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
                     carry.drain(..whole);
                 }
             })
@@ -236,6 +236,9 @@ pub unsafe extern "C" fn beacon_audio_time(h: *mut FfiAudio) -> f64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn beacon_audio_heard(h: *mut FfiAudio, out: *mut f64) -> i32 {
     guard(-1, || {
+        if out.is_null() {
+            return Err("output is null".into());
+        }
         let a = handle(h)?;
         let p = a.state.lock().map_err(|_| "audio state poisoned")?;
         let (Some(heard), Some(last)) = (p.heard, p.last) else { return Ok(-1) };

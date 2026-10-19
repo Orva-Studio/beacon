@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { probeMedia, runTool, type MediaInfo } from "@beacon/media";
+import { probeMedia, runTool, tool, type MediaInfo } from "@beacon/media";
 import { projectDuration, ticksToSeconds } from "@beacon/model";
 import { LocalCore } from "../src";
 
@@ -65,7 +65,7 @@ test.skipIf(!existsSync(TAKE))("a .brec take exports as an MP4 as long as the ti
   expect(Math.abs(media.duration - length)).toBeLessThan(0.1);
   // The microphone and system audio mixed in: not silence.
   let stats = "";
-  await runTool(["ffmpeg", "-nostdin", "-v", "info", "-i", out, "-map", "0:a", "-af", "volumedetect", "-f", "null", "-"], { onStderr: (c) => (stats += c) });
+  await runTool([tool("ffmpeg"), "-nostdin", "-v", "info", "-i", out, "-map", "0:a", "-af", "volumedetect", "-f", "null", "-"], { onStderr: (c) => (stats += c) });
   const peak = Number(/max_volume: (-?[\d.]+) dB/.exec(stats)?.[1]);
   expect(peak).toBeGreaterThan(-50);
   await core.close(h);

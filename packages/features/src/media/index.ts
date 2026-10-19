@@ -16,9 +16,10 @@ import {
   type ImportClipSpec,
   type Project,
   type VisualLayer,
+  type FeatureRegistry,
 } from "@beacon/model";
 import { basename, join } from "node:path";
-import { makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
+import { isScreenCodec, makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
 
 /** `waveform` job data: peak level per 10 ms, 0–255, by audio stream index. */
 export interface WaveformData {
@@ -79,11 +80,6 @@ function videoStreams(asset: Asset) {
   return mediaInfo(asset).streams.filter((s) => s.kind === "video");
 }
 
-/** The `.trec` screen codec, as ffmpeg names it. */
-export function isScreenCodec(codec: string): boolean {
-  return codec === "tsc2" || codec === "tscc2";
-}
-
 /** A recording's screen: a `.trec`'s by its codec, a `.brec`'s by its role. */
 function isScreen(s: StreamInfo): boolean {
   return s.role === "screen" || isScreenCodec(s.codec);
@@ -94,17 +90,16 @@ export function clipStream(clip: Clip): number {
   return (clip.props.media as { stream?: number } | undefined)?.stream ?? 0;
 }
 
-/** Pixel size of what a visual clip shows: a group's canvas or its video stream; undefined for audio or missing info. */
-export function visualSize(project: Project, clip: Clip): [number, number] | undefined {
-  const group = clip.props.group as { width: number; height: number } | undefined;
-  if (group) return [group.width, group.height];
+/** Pixel size of what a visual clip shows: its own canvas (a group, stitched media) or its video stream; undefined for audio or missing info. */
+export function visualSize(project: Project, registry: FeatureRegistry, clip: Clip): [number, number] | undefined {
+  for (const g of registry.groupsFor(clip.type)) if (g.size && clip.props[g.id]) return g.size(clip.props[g.id]);
   const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
   if (!asset?.derived.media || clip.type === "audio") return undefined;
   const s = mediaInfo(asset).streams.filter((x) => x.kind === "video")[clipStream(clip)];
   return s?.width && s.height ? [s.width, s.height] : undefined;
 }
 
-/** A recording's screen stream: the `tsc2` codec. */
+/** A recording's screen stream: TechSmith's screen codec. */
 function screenStream(asset: Asset): number {
   return Math.max(0, videoStreams(asset).findIndex((s) => isScreenCodec(s.codec)));
 }

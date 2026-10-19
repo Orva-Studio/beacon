@@ -21,6 +21,7 @@ import {
   type Project,
   type Session,
   type Track,
+  type RGBA,
 } from "@beacon/model";
 import type { Host } from "./app";
 import { addDropTarget, takes, type DropTarget } from "./drop";
@@ -35,7 +36,6 @@ const SNAP = 8;
 /** The rotate control: the × circle at the clip's centre, and the dot this far out along its x axis. */
 const ROTATE = { ring: 14, dot: 10, arm: 52 };
 
-type RGBA = [number, number, number, number];
 /** The canvas colours, from the design tokens. */
 const COLOR = {
   get border() {

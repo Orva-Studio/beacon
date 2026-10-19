@@ -18,6 +18,7 @@ import {
   type Clip,
   type Project,
   type Ticks,
+  type FeatureRegistry,
 } from "@beacon/model";
 import { visualSize } from "../media";
 import { actions, animationActions } from "./actions";
@@ -190,7 +191,7 @@ const commands = [
 const s = (t: Ticks) => roundSeconds(ticksToSeconds(t));
 
 
-function clipSummary(project: Project, clip: Clip) {
+function clipSummary(project: Project, registry: FeatureRegistry, clip: Clip) {
   const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
   return {
     id: clip.id,
@@ -200,7 +201,7 @@ function clipSummary(project: Project, clip: Clip) {
     mediaStart: s(clip.mediaStart ?? 0),
     ...(clip.speed ? { speed: rationalToNumber(clip.speed) } : {}),
     ...(asset ? { asset: asset.id, file: asset.path.split("/").pop() } : {}),
-    ...((size) => (size ? { size } : {}))(visualSize(project, clip)),
+    ...((size) => (size ? { size } : {}))(visualSize(project, registry, clip)),
     ...(clip.linkId ? { linkId: clip.linkId } : {}),
     props: clip.props,
     effects: clip.effects.map((e) => ({ id: e.id, type: e.type, enabled: e.enabled, params: e.params })),
@@ -264,7 +265,7 @@ const queries = [
     description: "Clips with timeline times in seconds, optionally only those overlapping [from, to)",
     args: z.strictObject({ from: Seconds.optional(), to: Seconds.optional(), track: Id.optional() }),
     resource: { uri: "beacon://project/timeline", name: "Timeline clips", mimeType: "application/json" },
-    run: ({ from, to, track }, { project }) =>
+    run: ({ from, to, track }, { project, registry }) =>
       project.tracks
         .map((t, i) => [t, trackName(t, i)] as const)
         .filter(([t]) => !track || t.id === track)
@@ -274,7 +275,7 @@ const queries = [
           clips: t.clips
             .filter((c) => (to === undefined || ticksToSeconds(c.start) < to) && (from === undefined || ticksToSeconds(c.start + c.duration) > from))
             .sort((a, b) => a.start - b.start)
-            .map((c) => clipSummary(project, c)),
+            .map((c) => clipSummary(project, registry, c)),
         })),
   }),
 ];

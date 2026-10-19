@@ -189,7 +189,7 @@ impl Encoder {
                 Codec::Prores => AVVideoCodecTypeAppleProRes422HQ,
             }
             .unwrap();
-            let (rate, bitrate, keyframe) = (num(fps), num(job.bitrate.unwrap_or(16_000_000) as i64), num(job.keyframe as i64));
+            let (rate, bitrate, keyframe) = (num(fps), num(job.bitrate as i64), num(job.keyframe as i64));
             let mut props: Vec<(&NSString, &AnyObject)> = vec![(AVVideoExpectedSourceFrameRateKey.unwrap(), rate.as_ref())];
             if job.codec != Codec::Prores {
                 props.push((AVVideoAverageBitRateKey.unwrap(), bitrate.as_ref()));

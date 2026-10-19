@@ -52,6 +52,7 @@ import {
   type SettingsTab,
   type SettingsPatch,
   withPatch,
+  syncKey,
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -229,11 +230,11 @@ export class LocalCore implements BeaconCore {
     // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
     this.#configDir = opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
     this.#secrets = opts.secrets ?? keychain;
-    const prefs = this.#readConfig("preferences.json");
+    const prefs = this.readConfig("preferences.json");
     this.#prefs = prefs && typeof prefs === "object" ? (prefs as Record<string, string>) : {};
     this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
-    this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["open", "-R", path]));
+    this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
   }
 
   #get(h: ProjectHandle): OpenProject {
@@ -1064,12 +1065,21 @@ export class LocalCore implements BeaconCore {
     const def = this.#jobAnalyzer(key);
     const asset = p.store.doc.assets[assetId];
     if (!asset) throw new Error(`no asset "${assetId}"`);
-    const subject = `${key}:${asset.path}\0${asset.fingerprint}`;
-    for (const j of this.#jobs.values()) if (j.subject === subject && j.info.state === "running") await this.cancelJob(j.info.id).then(() => j.done).catch(() => {});
+    const running = this.#running(this.#subject(def, asset));
+    if (running) await this.cancelJob(running.info.id).then(() => running.done).catch(() => {});
     const had = p.data.drop(asset, def);
     this.#emit(p, { kind: "derived", asset: assetId, key, present: false });
     if (p.view && !p.view.playing) p.view.show(p.session.state.playhead);
     return had;
+  }
+
+  /** What a job is for, so a second request joins the running one: the analysis, the asset as it is, and the variant (the transcriber). */
+  #subject(def: JobAnalyzerDef, asset: Asset, variant = def.variant?.(this.#pref)): string {
+    return `${def.id}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
+  }
+
+  #running(subject: string): JobEntry | undefined {
+    for (const j of this.#jobs.values()) if (j.subject === subject && j.info.state === "running") return j;
   }
 
   #jobAnalyzer(key: string) {
@@ -1110,7 +1120,10 @@ export class LocalCore implements BeaconCore {
     const p = this.#get(h);
     if (this.#recording) throw new Error(`already recording ${basename(this.#recording.dir)}`);
     if (opts.narrate) return this.#narrate(p, opts);
-    const sources: RecorderSources = opts.sources ?? { screen: {}, microphone: {}, systemAudio: true };
+    const sources: RecorderSources = { ...(opts.sources ?? { screen: {}, microphone: {}, systemAudio: true }) };
+    // The pair's measured delay goes into the take, so its camera clip lines up on import.
+    const sync = sources.camera?.id && sources.microphone?.id ? this.#settings().cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
+    if (!sources.offsets && sync?.cameraLateMs) sources.offsets = { camera: -sync.cameraLateMs / 1000 };
     const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, sources, opts.monitor);
@@ -1320,8 +1333,8 @@ export class LocalCore implements BeaconCore {
     if (!asset) throw new Error(`no asset "${assetId}"`);
     if (!existsSync(asset.path)) throw new Error(`${basename(asset.path)} is missing: it was moved, renamed or deleted (Locate… in the Media Bin's menu finds it)`);
     const variant = def.variant?.(this.#pref);
-    const subject = `${key}:${asset.path}\0${asset.fingerprint}${variant ? `\0${variant}` : ""}`;
-    const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
+    const subject = this.#subject(def, asset, variant);
+    const running = this.#running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const need = this.#needsOf(def);
     if (need && !this.#resourceReady(need)) {
@@ -1419,7 +1432,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #resourceInfo(def: ResourceDef): ResourceInfo {
-    const job = [...this.#jobs.values()].find((j) => j.subject === `resource:${def.id}` && j.info.state === "running");
+    const job = this.#running(`resource:${def.id}`);
     return { id: def.id, title: def.title, description: def.description, bytes: def.bytes, present: this.#resourceReady(def.id), ...(job ? { job: job.info.id } : {}) };
   }
 
@@ -1457,7 +1470,7 @@ export class LocalCore implements BeaconCore {
     }
     if (this.#pref(id) === value) return;
     this.#prefs = { ...this.#prefs, [id]: value };
-    this.#writeConfig("preferences.json", this.#prefs);
+    this.writeConfig("preferences.json", this.#prefs);
     const decided = new Set([...this.registry.jobAnalyzers.values()].filter((d) => d.variant).map((d) => d.id));
     this.#cancelJobsOf(undefined, (j) => decided.has(j.info.kind));
     this.#broadcast({ kind: "preference", id, value });
@@ -1469,8 +1482,8 @@ export class LocalCore implements BeaconCore {
     return this.#configDir;
   }
 
-  /** A JSON file of the app's own (favourites, settings, keys) beside the preferences; undefined when missing or unreadable. */
-  #readConfig(name: string): unknown {
+  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects) beside the preferences; undefined when missing or unreadable. */
+  readConfig(name: string): unknown {
     try {
       return JSON.parse(readFileSync(join(this.#configDir, name), "utf8"));
     } catch {
@@ -1478,7 +1491,8 @@ export class LocalCore implements BeaconCore {
     }
   }
 
-  #writeConfig(name: string, value: unknown) {
+  /** Writes one atomically, so a crash never leaves it half written. */
+  writeConfig(name: string, value: unknown) {
     mkdirSync(this.#configDir, { recursive: true });
     const file = join(this.#configDir, name);
     writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
@@ -1490,7 +1504,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #favorites(): string[] {
-    const items = this.#readConfig("favorites.json");
+    const items = this.readConfig("favorites.json");
     if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
     return this.registry.panelItems.filter((i) => i.favorite).map((i) => i.id).filter((i) => this.#favoriteKnown(i));
   }
@@ -1503,7 +1517,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #saveFavorites(items: string[]): string[] {
-    this.#writeConfig("favorites.json", items);
+    this.writeConfig("favorites.json", items);
     this.#broadcast({ kind: "favorites", items });
     return items;
   }
@@ -1536,7 +1550,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #settings(): AppSettings {
-    const saved = AppSettingsSchema.partial().safeParse(this.#readConfig("settings.json"));
+    const saved = AppSettingsSchema.partial().safeParse(this.readConfig("settings.json"));
     return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
   }
 
@@ -1549,13 +1563,13 @@ export class LocalCore implements BeaconCore {
     if (typeof patch.snapshotFolder === "string" && !existsSync(patch.snapshotFolder)) throw new Error(`${patch.snapshotFolder} doesn't exist`);
     const next = AppSettingsSchema.safeParse(withPatch(this.#settings(), patch));
     if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
-    this.#writeConfig("settings.json", next.data);
+    this.writeConfig("settings.json", next.data);
     this.#broadcast({ kind: "settings", settings: next.data });
     return next.data;
   }
 
   #keymapOverrides(): KeymapOverrides {
-    const saved = KeymapFileSchema.safeParse(this.#readConfig("keymap.json"));
+    const saved = KeymapFileSchema.safeParse(this.readConfig("keymap.json"));
     return saved.success ? saved.data.overrides : {};
   }
 
@@ -1571,7 +1585,7 @@ export class LocalCore implements BeaconCore {
   }
 
   #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {
-    this.#writeConfig("keymap.json", { overrides });
+    this.writeConfig("keymap.json", { overrides });
     const shortcuts = this.#shortcutList(overrides);
     this.#broadcast({ kind: "shortcuts", shortcuts });
     return shortcuts;
@@ -1609,7 +1623,7 @@ export class LocalCore implements BeaconCore {
     const def = this.registry.resources.get(id);
     if (!def) throw new Error(`no resource "${id}"; there are: ${[...this.registry.resources.keys()].join(", ")}`);
     const subject = `resource:${id}`;
-    const running = [...this.#jobs.values()].find((j) => j.subject === subject && j.info.state === "running");
+    const running = this.#running(subject);
     if (running) return { id: running.info.id, done: running.done };
     const path = this.#resourcePath(def);
     return this.#startJob(undefined, "resource", `Download ${def.title}`, async (progress) => {

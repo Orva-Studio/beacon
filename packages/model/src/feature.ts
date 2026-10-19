@@ -29,6 +29,8 @@ export interface PropGroupDef {
   animatable?: string[];
   /** Tracks nested in this group's value (groups), validated like top-level tracks. */
   nested?: (value: any) => Track[];
+  /** The pixel size of what a clip holding this group shows (a group's or stitched clip's own canvas). */
+  size?: (value: any) => [number, number];
   /** What the clip is rather than how it looks (which stream it plays): Copy Properties leaves it out. */
   identity?: boolean;
   /**

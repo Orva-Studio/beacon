@@ -594,6 +594,19 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
+test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
+  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } });
+  await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
+  const rate = `document.querySelector('input[data-rate]')`;
+  await page.until(`!!${rate}`);
+  expect(await page.evaluate<[string, boolean]>(`[${rate}.value, ${rate}.disabled]`)).toEqual(["10000", true]);
+  // Fitted within 4K, the rate follows the size.
+  await page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === '3840x2160')); s.value = '3840x2160'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await page.until(`${rate}.value === '40000'`);
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("Record lists the sources with their devices, counts down, and asks for what was chosen", async () => {
   const sheet = {
     permissions: { screen: "granted", camera: "denied", microphone: "granted" },
@@ -1688,6 +1701,23 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
   await page.until(`!!document.querySelector('[data-canvas-settings]')`);
   await page.key("Escape", "Escape");
   await run("selection.clear");
+});
+
+test.skipIf(skip)("Canvas Color shows a background with alpha, as a Camtasia import keeps it", async () => {
+  const before = ui.core.doc(ui.handle).settings.background;
+  await run("project.settings.set", { background: "#ff336680" });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "project" });
+  const swatch = `document.querySelector('[data-canvas-settings] button[title="The canvas colour behind the media"] span')`;
+  await page.until(`!!${swatch}`);
+  expect(await page.evaluate<string>(`getComputedStyle(${swatch}).backgroundColor`)).toBe("rgb(255, 51, 102)");
+  // A new colour picked keeps the alpha.
+  await page.evaluate(`${swatch}.parentElement.click()`);
+  await page.until(`!!document.querySelector('button[title="#ffffff"]')`);
+  await page.evaluate(`document.querySelector('button[title="#ffffff"]').click()`);
+  await arrived(() => ui.core.doc(ui.handle).settings.background === "#ffffff80");
+  expect(ui.core.doc(ui.handle).settings.background).toBe("#ffffff80");
+  await page.key("Escape", "Escape");
+  await run("project.settings.set", { background: before });
 });
 
 test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); after a click on the timeline it goes to the timeline instead", async () => {

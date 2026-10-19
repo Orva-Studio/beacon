@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { autoBitrate, fittedSize, MAX_BITRATE } from "@beacon/model";
 import { Button, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
@@ -31,12 +32,12 @@ const SIZES = [
 const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
 /** Automatic or a custom rate on a slider, as the Data rate rows. */
-function DataRate({ value, min, max, auto, onChange }: { value: number | null; min: number; max: number; auto: number; onChange: (v: number | null) => void }) {
+function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: { value: number | null; min: number; max: number; auto: number; autoLabel?: string; onChange: (v: number | null) => void }) {
   const shown = value ?? auto;
   return (
     <>
       <label className="flex items-center gap-1">
-        <input type="radio" checked={value === null} onChange={() => onChange(null)} /> Automatic
+        <input type="radio" checked={value === null} onChange={() => onChange(null)} /> {autoLabel}
       </label>
       <label className="flex items-center gap-1">
         <input type="radio" checked={value !== null} onChange={() => onChange(shown)} /> Custom
@@ -49,6 +50,7 @@ function DataRate({ value, min, max, auto, onChange }: { value: number | null; m
         max={max}
         value={shown}
         disabled={value === null}
+        data-rate
         onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value) || min)))}
       />
       <span className="text-text-dim">kbits/sec</span>
@@ -76,6 +78,8 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
   };
   const video = s.format === "mp4" || s.format === "mov";
   const sizeKey = s.size ? `${s.size.width}x${s.size.height}` : "";
+  const fitted = fittedSize(sheet.canvas, s.size);
+  const autoRate = autoBitrate(fitted.width, fitted.height, s.fps ?? sheet.canvas.fps);
   return (
     <Modal title={sheet.range && selectionOnly ? "Export Selection" : "Export"} width={680} onClose={close} onEnter={() => void start()}>
       <div className="flex flex-col gap-3">
@@ -151,9 +155,9 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
               </Select>
             </div>
           </Row>
-          {s.format !== "gif" && (
+          {s.format !== "gif" && !(video && s.codec === "prores") && (
             <Row label="Data rate">
-              <DataRate value={s.bitrate} min={64} max={30000} auto={16000} onChange={(bitrate) => set({ bitrate })} />
+              <DataRate value={s.bitrate} min={64} max={MAX_BITRATE} auto={autoRate} autoLabel={s.format === "webm" ? "Automatic (constant quality)" : "Automatic"} onChange={(bitrate) => set({ bitrate })} />
             </Row>
           )}
           {video && (

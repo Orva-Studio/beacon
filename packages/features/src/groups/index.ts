@@ -94,6 +94,7 @@ export const groups = defineFeature({
       schema: groupSchema,
       defaults: () => ({ width: 1920, height: 1080, tracks: [] }),
       nested: (v: { tracks: Track[] }) => v.tracks,
+      size: (v: { width: number; height: number }) => [v.width, v.height],
     },
   ],
   commands: [

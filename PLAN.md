@@ -24,7 +24,10 @@ narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
 (2026-10-18), with its gate run left (below). Next: **Phase 9** (workspace),
 then 10 (looks), 11 (security audit) and 12 (Camtasia export); an in-app
-agent preview (§7, decided 2026-10-17) can come before Phase 9.
+agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
+Phase 9 too (the user, 2026-10-17): the fixes from a review of the whole
+codebase, `docs/review-2026-10-17.md`, in three branches (bugs, hot paths,
+structure).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.

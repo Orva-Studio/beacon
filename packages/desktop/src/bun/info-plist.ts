@@ -22,10 +22,10 @@ const ENTRIES: Record<string, string> = {
 /** Writes the entries into an app bundle's Info.plist; true when it changed. */
 export function patchInfoPlist(plist: string): boolean {
   if (!existsSync(plist)) return false;
-  const current = Bun.spawnSync(["plutil", "-extract", "NSCameraUsageDescription", "raw", plist]);
+  const current = Bun.spawnSync(["/usr/bin/plutil", "-extract", "NSCameraUsageDescription", "raw", plist]);
   if (current.exitCode === 0) return false;
   for (const [key, json] of Object.entries(ENTRIES)) {
-    const r = Bun.spawnSync(["plutil", "-replace", key, "-json", json, plist]);
+    const r = Bun.spawnSync(["/usr/bin/plutil", "-replace", key, "-json", json, plist]);
     if (r.exitCode !== 0) throw new Error(`plutil ${key}: ${r.stderr.toString()}`);
   }
   return true;

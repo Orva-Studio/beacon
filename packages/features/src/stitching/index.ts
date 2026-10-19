@@ -82,6 +82,7 @@ export const stitching = defineFeature({
       schema: stitchSchema,
       defaults: () => ({ width: 1920, height: 1080, tracks: [{ id: "segments", name: "Segments", clips: [] }] }),
       nested: (v: Stitch) => v.tracks,
+      size: (v: Stitch) => [v.width, v.height],
     },
   ],
   evaluate: {
@@ -99,7 +100,7 @@ export const stitching = defineFeature({
       apply(doc, { clips }, ctx) {
         const { track, clips: pieces } = stitchClips(doc, clips, ctx);
         const first = pieces[0]!;
-        const size = visualSize(doc, first) ?? [doc.settings.width, doc.settings.height];
+        const size = visualSize(doc, ctx.registry, first) ?? [doc.settings.width, doc.settings.height];
         const fits = outerFits(ctx);
         const animations = new Map<string, Animation>();
         const segments: Clip[] = pieces.map((c, i) => {
