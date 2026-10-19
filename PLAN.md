@@ -22,9 +22,10 @@ merged, released as v0.5.0 (2026-10-16; v0.4.0 was cut partway through it),
 with two of its gate checks left (below). Phase 8, faster editing (voice
 narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
-(2026-10-18), with its gate run left (below). Next: **Phase 9** (workspace),
-then 10 (looks), 11 (security audit) and 12 (Camtasia export); an in-app
-agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
+(2026-10-18), with its gate run left (below). Next: **Phase 8.5** (everyday
+fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
+any drive), then 9 (workspace), 10 (looks), 11 (security audit) and 12
+(Camtasia export); an in-app agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
 Phase 9 too (the user, 2026-10-17): the fixes from a review of the whole
 codebase, `docs/review-2026-10-17.md`, in three branches (bugs, hot paths,
 structure).
@@ -1552,6 +1553,56 @@ check on a real take.
 Export ⌘E and the editing), with narration recorded over the timeline and
 in step with it; an agent changes settings and opens each dialog.
 
+### Phase 8.5 — Everyday fixes (the user, 2026-10-19)
+What the user hit while editing, ahead of Phase 9's workspace.
+- **Export audio only** (the user, 2026-10-19): the Export dialog writes
+  just the timeline's mix, for a podcast or a voiceover: `.wav` (PCM,
+  sample-exact), `.m4a` (AAC, with the data rate already in the dialog)
+  and `.mp3`, chosen as the video formats are, by the output's extension.
+  No frames are rendered, so it is as fast as mixing the audio. The mix is
+  the export's own (track mute, volume points, fades, audio effects and
+  noise removal, the in/out range), and loudness normalization applies as
+  it does to a video. Agents get it through `export_start` with an audio
+  extension.
+- **Remove background noise, with ffmpeg first** (the user, 2026-10-19):
+  a "Noise Removal" audio effect, as Audacity's Noise Reduction works:
+  select a stretch of the clip with only room noise on the timeline, the
+  effect learns that noise there, and removes it from the whole clip, with
+  a strength slider (and a "learn from" range it keeps, so it can be
+  learned again). Built on Beacon's own FFmpeg (`afftdn`, which takes a
+  noise sample; `arnndn` for comparison), free, offline and in the
+  preview as well as the export. It is a trial: run on the user's own
+  takes (the Yeti in this room, a camera's mic) against the original; if
+  it is good enough it stays, if not the cleaning goes to Auphonic (see
+  *Background audio cleaning* in the backlog), with this effect kept for
+  the cases Auphonic doesn't cover. Open: whether a clip with no silent
+  stretch can learn its noise from its quietest moments (the silence
+  analysis already finds them).
+- **Shift-drag on empty space moves what comes after** (the user,
+  2026-10-19): today Shift-dragging the playhead line inserts space at the
+  playhead (`timeline.insertSpace`), rightwards only. The same from any
+  empty spot on a track: press Shift on a gap and drag, and everything
+  after that point moves with the pointer, right to open space, left to
+  close it (no further than the gap, so nothing overlaps), as one undoable
+  edit. Locked tracks and an open group refuse it as they refuse the
+  playhead's. Open: whether it moves every track (as the playhead's does)
+  or only the track pressed on (⌥ for the other).
+- **Drops carry their paths** (the user, 2026-10-19). The webview gives a
+  file dropped from Finder its name, size and date but not its path, so
+  `findDroppedFile` guesses: WebKit's URL when it sends one, the home
+  folders, then Spotlight. A clip dragged off a camera card isn't found
+  ("couldn't find P1078391.MP4 on disk"): cards aren't in Spotlight's
+  index. Native apps (Camtasia) read the file URLs from the drag
+  pasteboard and know the path; Electron hands it over with
+  `webUtils.getPathForFile`. Electrobun has no drop hook, so the window's
+  view registers for file URLs itself (through the engine's FFI, or
+  upstream in Electrobun) and the paths go with the drop to the UI, for
+  any drive and any depth. The guessing then goes.
+**Gate:** a project exported as `.wav`, `.m4a` and `.mp3` sounds as its
+video export does; noise removal judged by the user on their own takes, and
+Auphonic chosen or not; Shift-drag on a gap opens and closes space; a clip
+dragged straight off a camera card imports.
+
 ### Phase 9 — Workspace
 Seeing more at once.
 - **A window per project** (the user, 2026-10-12): several projects open at
@@ -1585,18 +1636,6 @@ Seeing more at once.
   `job_status`. The clips still appear only once the copy is complete, and a
   failed copy still leaves nothing behind. Save As standalone gets the same
   progress in place of its one status message.
-- **Drops carry their paths** (the user, 2026-10-19). The webview gives a
-  file dropped from Finder its name, size and date but not its path, so
-  `findDroppedFile` guesses: WebKit's URL when it sends one, the home
-  folders, then Spotlight. A clip dragged off a camera card isn't found
-  ("couldn't find P1078391.MP4 on disk"): cards aren't in Spotlight's
-  index. Native apps (Camtasia) read the file URLs from the drag
-  pasteboard and know the path; Electron hands it over with
-  `webUtils.getPathForFile`. Electrobun has no drop hook, so the window's
-  view registers for file URLs itself (through the engine's FFI, or
-  upstream in Electrobun) and the paths go with the drop to the UI, for
-  any drive and any depth. The guessing then goes. Fits with a window per
-  project, which reworks the native window layer too.
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
@@ -1653,34 +1692,9 @@ Seeing more at once.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
-- **Remove background noise, with ffmpeg first** (the user, 2026-10-19):
-  a "Noise Removal" audio effect, as Audacity's Noise Reduction works:
-  select a stretch of the clip with only room noise on the timeline, the
-  effect learns that noise there, and removes it from the whole clip, with
-  a strength slider (and a "learn from" range it keeps, so it can be
-  learned again). Built on Beacon's own FFmpeg (`afftdn`, which takes a
-  noise sample; `arnndn` for comparison), free, offline and in the
-  preview as well as the export. It is a trial: run on the user's own
-  takes (the Yeti in this room, a camera's mic) against the original; if
-  it is good enough it stays, if not the cleaning goes to Auphonic (see
-  *Background audio cleaning* in the backlog), with this effect kept for
-  the cases Auphonic doesn't cover. Open: whether a clip with no silent
-  stretch can learn its noise from its quietest moments (the silence
-  analysis already finds them).
-- **Export audio only** (the user, 2026-10-19): the Export dialog writes
-  just the timeline's mix, for a podcast or a voiceover: `.wav` (PCM,
-  sample-exact), `.m4a` (AAC, with the data rate already in the dialog)
-  and `.mp3`, chosen as the video formats are, by the output's extension.
-  No frames are rendered, so it is as fast as mixing the audio. The mix is
-  the export's own (track mute, volume points, fades, audio effects and
-  noise removal, the in/out range), and loudness normalization applies as
-  it does to a video. Agents get it through `export_start` with an audio
-  extension.
 **Gate:** the look matches between preview and export, and a `.hlook`
 imports with a report of what didn't map; a camera take's background removed
-by each provider, with the same matte in preview and export; noise removal
-judged by the user on their own takes, and Auphonic chosen or not; a
-project exported as `.wav`, `.m4a` and `.mp3` sounds as its video export does.
+by each provider, with the same matte in preview and export.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -1806,7 +1820,7 @@ assets reviewed before they are placed (as Remove Silences is). Researched
 ### Background audio cleaning (tuneup / Auphonic)
 Clean each source recording's audio in the background while editing and swap
 it in when ready, using `~/tuneup` (Auphonic + local ffmpeg de-click/de-clip/
-de-ess). Phase 10 tries ffmpeg's noise removal first; this is the fallback if
+de-ess). Phase 8.5 tries ffmpeg's noise removal first; this is the fallback if
 it isn't good enough. Parked because Auphonic is billed by audio length, and cleaning whole
 raw recordings (bad takes included) costs more than cleaning the final cut.
 
