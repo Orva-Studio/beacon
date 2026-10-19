@@ -4,6 +4,10 @@ import {
   defineCommand,
   defineFeature,
   defineQuery,
+  eachRawClip,
+  eachRawTrack,
+  mediaWindow,
+  original,
   RgbaSchema,
   roundSeconds,
   secondsToTicks,
@@ -11,15 +15,13 @@ import {
   ticksPerFrame,
   ticksToSeconds,
   type Clip,
-  type EvalContext,
   type ClipEval,
-  original,
+  type EvalContext,
   type Project,
-  type Track,
   type RGBA,
   type TextSpec,
+  type Track,
   type VisualLayer,
-  mediaWindow,
 } from "@beacon/model";
 import { textLayout, type TextLine } from "@beacon/media";
 import { timelineWords, type TimelineWord } from "../transcript";
@@ -220,34 +222,24 @@ export function retime(old: CaptionWord[], tokens: string[], from: number, to: n
 
 /** v2: a vertical `position` and `margin` became anchors with offsets on both axes. */
 function anchors(doc: unknown): unknown {
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!v || typeof v !== "object") return;
-    const s = (v as { props?: { captionStyle?: Record<string, unknown> } }).props?.captionStyle;
+  eachRawClip(doc, (c) => {
+    const s = c.props?.captionStyle;
     if (s && "position" in s) {
       const { position, margin, ...rest } = s;
-      (v as { props: Record<string, unknown> }).props.captionStyle = { ...rest, anchorY: position, offsetY: position === "middle" ? 0 : margin, anchorX: "center", offsetX: 0 };
+      c.props.captionStyle = { ...rest, anchorY: position, offsetY: position === "middle" ? 0 : margin, anchorX: "center", offsetX: 0 };
     }
-    Object.values(v).forEach(visit);
-  };
-  visit(doc);
+  });
   return doc;
 }
 
 /** v3: the style every caption carried went on their track, once. */
 function styleOnTrack(doc: unknown): unknown {
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!v || typeof v !== "object") return;
-    const o = v as { clips?: { props?: Record<string, unknown> }[]; props?: Record<string, unknown> };
-    if (Array.isArray(o.clips)) {
-      const style = o.clips.find((c) => c.props?.captionStyle)?.props?.captionStyle;
-      for (const c of o.clips) if (c.props) delete c.props.captionStyle;
-      if (style) o.props = { ...o.props, captionStyle: style };
-    }
-    Object.values(v).forEach(visit);
-  };
-  visit(doc);
+  eachRawTrack(doc, (t) => {
+    const clips = t.clips as { props?: Record<string, unknown> }[];
+    const style = clips.find((c) => c.props?.captionStyle)?.props?.captionStyle;
+    for (const c of clips) if (c.props) delete c.props.captionStyle;
+    if (style) t.props = { ...t.props, captionStyle: style };
+  });
   return doc;
 }
 

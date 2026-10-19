@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineFeature, RgbaSchema } from "@beacon/model";
+import { defineFeature, eachRawClip, RgbaSchema } from "@beacon/model";
 import wgsl from "./border.wgsl" with { type: "text" };
 
 /** Clip types that had the Border effect and take the property now (v1 was an effect on any visual clip). */
@@ -7,19 +7,13 @@ const PICTURES = new Set(["screen", "video", "image", "still", "stitched"]);
 
 /** v2: the Border effect became a property of video and images; other clips (annotations) drop it. */
 function effectToProp(doc: unknown): unknown {
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!v || typeof v !== "object") return;
-    const o = v as Record<string, unknown>;
-    if (Array.isArray(o.effects) && o.props && typeof o.props === "object") {
-      const effects = o.effects as { type: string; enabled: boolean; params: { thickness: number; color: number[] } }[];
-      const fx = effects.find((e) => e.type === "border" && e.enabled);
-      if (fx && PICTURES.has(String(o.type))) (o.props as Record<string, unknown>).border = { thickness: fx.params.thickness, color: fx.params.color };
-      o.effects = effects.filter((e) => e.type !== "border");
-    }
-    Object.values(o).forEach(visit);
-  };
-  visit(doc);
+  eachRawClip(doc, (o) => {
+    if (!Array.isArray(o.effects) || !o.props || typeof o.props !== "object") return;
+    const effects = o.effects as { type: string; enabled: boolean; params: { thickness: number; color: number[] } }[];
+    const fx = effects.find((e) => e.type === "border" && e.enabled);
+    if (fx && PICTURES.has(String(o.type))) o.props.border = { thickness: fx.params.thickness, color: fx.params.color };
+    o.effects = effects.filter((e) => e.type !== "border");
+  });
   return doc;
 }
 

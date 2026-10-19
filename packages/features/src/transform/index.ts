@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { compose, defineFeature, fromAffine, multiply, placement, split, translate, type ClipEval, type EvalContext, type Layer, type Matrix3, type TransformValues } from "@beacon/model";
+import { compose, defineFeature, eachRawClip, fromAffine, multiply, placement, split, translate, type ClipEval, type EvalContext, type Layer, type Matrix3, type TransformValues } from "@beacon/model";
 
 const transformGroup = z.strictObject({
   /** Canvas pixels from the canvas centre to the content centre; y points up. */
@@ -34,18 +34,13 @@ export function contentToCanvas(e: ClipEval, ctx: EvalContext, size: [number, nu
 
 /** v2: the 3D tilts, flat in every clip that had a transform. */
 function addTilt(doc: unknown): unknown {
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!v || typeof v !== "object") return;
-    const o = v as Record<string, unknown>;
-    const t = (o.props as Record<string, unknown> | undefined)?.transform as Record<string, unknown> | undefined;
+  eachRawClip(doc, (o) => {
+    const t = o.props?.transform;
     if (t && typeof t === "object") {
       t.rotationX ??= 0;
       t.rotationY ??= 0;
     }
-    Object.values(o).forEach(visit);
-  };
-  visit(doc);
+  });
   return doc;
 }
 
