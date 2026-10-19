@@ -13,9 +13,28 @@ feature lands and when it is checked.
 |---|---|---|---|
 | Core split (analyses, recording, thumbnails, registry info) behaves as before | 2026-10-18 | `dc4ae1c` | core, features, mcp, camtasia tests; UI flows |
 | Desktop split: boot, open, MCP over the socket | 2026-10-18 | `6235adc` | `app.test.ts` (passes on this Mac now); UI flows |
+| Proxies follow Settings › General in core; a settings.json written by another process is told and followed; the desktop keeps no settings copy | 2026-10-18 | `7d3faab` | Core test (no proxy for a video until an agent's core turns video proxies on); UI flow (a video file gets no proxy with video off); `app.test.ts` |
+| Project names: one check for rename, New Project and Save As; export makes its folder; MCP undo says what it undid | 2026-10-18 | `7d3faab` | Core and MCP tests |
+| Effects through `EffectDef.apply`; Camtasia effects filled from defaults; migrations' walkers; shutter, solid, audio defaults, envelope import | 2026-10-18 | `8842c3d`, `049c242`, `6f2b85a` | All 34 `.cmproj` under ~/client-videos and the fixtures: imports and evaluated scenes (60 times each) identical before and after; migration tests (transform v2 new) |
+| Panels from the feature contract (annotation and audio items, effect titles, new user's favourites in the same order) | 2026-10-18 | `20b4691` | UI flow |
+| One review panel; the timeline's and canvas's modules; renames in place (track, media, project), ⌘S and the start screen's keys from the keymap (rebinding New Project works there) | 2026-10-18 | `288a090`, `02c1e09`, `d79b972`, `6ee798b` | UI flows (new: rename in place; start screen with a rebound New Project) |
+| Export options from one schema; canvas form ↔ settings; prop-group defaults; eyedropper context | 2026-10-19 | `eca39b6`, `f40fdab`, `07a7e40`, `c373bf2` | MCP test (export_start's fields), core tests (new project with Auto-normalize off, schema defaults), UI flows |
+| ffmpeg helpers and PCM decoding; JSON-lines reader; Check Sync's version check; scene building; release scripts | 2026-10-19 | `0c8e3eb`…`f254513` | Waveform peaks of the fixtures identical; core/render/MCP tests; a take with `recording.json` version 2 refused; `check-release.ts` on a staged engine folder (exports, import, frame, whisper, speech) |
+| Engine: FFI marshalling, common.wgsl and gpu.rs, the scene walk, CoreFoundation, bitmap context, colour matrix; the worker without its raw output | 2026-10-19 | `047f94b`, `d584f2b`, `cdc4240`, `78f941d`, `768e9f3` | 36 PNG frames of three projects (two client projects with CRT, drop shadow, round corners, motion blur, callouts, cursors) byte-identical before and after; FFI smoke (cursor track, cursor image, PNG paste, a bad PNG's error); core export, parity and playback tests; clippy |
+| The desktop imports only core and ui | 2026-10-19 | `8b9718a` | `app.test.ts`; UI flows |
 
 ### Not checked yet
 
+- **Recording in the app** (`349dbb8` changed how the take and the Record dialog's previews set up capture): a take
+  with screen, system audio, camera and microphone; the Record dialog's camera and screen previews and levels;
+  voice narration; Check Sync.
+- **The canvas in the app** after the shader changes (`d584f2b`): video, a tilted clip with drop shadow, CRT, round
+  corners, the selection handles and guides drawn by the preview; an MP4 export plays as before.
+- **Settings › General's proxy choices** taking effect at once (video files on/off) and Quiet/Fast, now applied by core.
+- **Panels**: Annotations, Visual Effects and Audio Effects tiles and their names (Corner Rounding…), favourites.
+- **Renaming** a track, a medium and the project in place: Return keeps, Escape drops, clicking away keeps.
+- **⌘S** shows "Saved automatically"; on the start screen ⌘N and ⌘O.
+- **New Project with Auto-normalize off**, then Project Settings shows it off.
 - **Context menus in the app** (rebuilt from `actions.json`): clip menu (Cut … Split at Playhead, colour labels,
   Open Group/Ungroup only on a group, Group otherwise, Remove All Stitches on stitched media, Stitch Selected Media
   only when the selection can be stitched, shortcuts shown beside items), canvas menu (Project Settings…, Paste,
@@ -157,6 +176,13 @@ feature lands and when it is checked.
   rounded border looks the same in preview and export.
 
 ### Known, not fixed
+
+- `app.test.ts` fails while the screen is locked or the display asleep (the window draws nothing, so it never reports
+  what it shows); it passes once unlocked (2026-10-19).
+- One full UI run (2026-10-19, on a loaded Mac, 223 s instead of 62) timed out four caption flows; the next run passed
+  all 73.
+- `bun audit` reports a high advisory in `braces` (dev only: `@tailwindcss/cli` → `@parcel/watcher` → `micromatch`), at
+  `main` too; cargo deny is clean.
 
 - The UI flow "the ruler moves the playhead past the last clip" failed once in a full run (2026-10-18; the
   playhead 1.7 s off the view's end after the edge auto-scroll) and passed in the next full run and alone
