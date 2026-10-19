@@ -351,7 +351,7 @@ impl Renderer {
     fn prepare_source(&mut self, key: (String, usize), time: f64, scale: f64, enc: &mut wgpu::CommandEncoder) -> Result<()> {
         let def = self.sources.get(&key.0).ok_or_else(|| Error::Scene(format!("unknown source \"{}\"", key.0)))?.clone();
         let factor = sources::decode_factor(scale);
-        let proxy = self.wants_proxy(&def, factor);
+        let proxy = self.wants_proxy(&def);
         let fits = |d: &VideoDecoder| d.scale == factor && d.proxy == proxy;
         let stale = self.textures.get(&key).and_then(|t| t.decoder.as_ref()).is_some_and(|d| !fits(d));
         let mut spare = None;
@@ -434,7 +434,7 @@ impl Renderer {
         let mut seen = HashMap::new();
         for (source, time, _) in &wanted {
             let key = source_key(&mut seen, source);
-            let proxy = self.sources.get(source).is_some_and(|def| self.wants_proxy(def, 1.0));
+            let proxy = self.sources.get(source).is_some_and(|def| self.wants_proxy(def));
             let st = self.textures.get_mut(&key);
             let d = st.and_then(|st| if st.decoder.as_ref().is_some_and(|d| d.proxy == proxy) { st.decoder.as_mut() } else { st.spare.as_mut().filter(|d| d.proxy == proxy) });
             if let Some(d) = d {
@@ -449,7 +449,7 @@ impl Renderer {
 
     /// Whether `def` would be read from its proxy. Moving frames may be up to
     /// half the needed resolution; settled ones are drawn from the originals.
-    fn wants_proxy(&self, def: &Source, _factor: f64) -> bool {
+    fn wants_proxy(&self, def: &Source) -> bool {
         matches!(def, Source::Video { proxy: Some(p), .. } if self.use_proxies && !self.bad_proxies.contains(&p.path))
     }
 
@@ -463,7 +463,7 @@ impl Renderer {
     fn open_video_inner(&mut self, def: &Source, factor: f64) -> Result<VideoDecoder> {
         let Source::Video { path, stream, proxy } = def else { return Err(Error::Source("not a video".into())) };
         let from_proxy = match proxy {
-            Some(p) if self.wants_proxy(def, factor) => match VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0)) {
+            Some(p) if self.wants_proxy(def) => match VideoDecoder::new(&p.path, 0, self.cache_dir.as_deref(), (factor / p.factor).min(1.0)) {
                 Ok(mut d) => {
                     d.proxy = true;
                     Some(d)
@@ -487,7 +487,7 @@ impl Renderer {
     }
 
     fn take_warm(&mut self, source: &str, def: &Source, factor: f64, time: f64) -> Option<VideoDecoder> {
-        let proxy = self.wants_proxy(def, factor);
+        let proxy = self.wants_proxy(def);
         let i = self.warm.iter().position(|w| w.source == source && w.decoder.scale == factor && w.decoder.proxy == proxy && w.decoder.can_reach(w.decoder.frame_for(time)))?;
         Some(self.warm.remove(i).decoder)
     }
@@ -501,7 +501,7 @@ impl Renderer {
         for (source, time, scale) in wanted {
             let Some(def @ Source::Video { .. }) = self.sources.get(&source).cloned() else { continue };
             let factor = sources::decode_factor(scale as f64);
-            let proxy = self.wants_proxy(&def, factor);
+            let proxy = self.wants_proxy(&def);
             let ready = |d: &VideoDecoder| d.scale == factor && d.proxy == proxy && d.can_reach(d.frame_for(time));
             let showing = self.textures.iter().any(|((s, _), st)| *s == source && st.decoder.as_ref().is_some_and(ready));
             if showing || self.warm.iter().any(|w| w.source == source && ready(&w.decoder)) {

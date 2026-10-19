@@ -50,8 +50,8 @@ function workerPath(): string {
   return path;
 }
 
-/** The worker/renderer job header: canvas, every registered pass, where to cache frame indexes. */
-export function renderJob(project: Project, registry: FeatureRegistry, output: unknown, cacheDir?: string) {
+/** The worker/renderer job header: canvas, every registered pass, where to cache frame indexes and (for the export worker) what it writes. */
+export function renderJob(project: Project, registry: FeatureRegistry, cacheDir?: string, output?: unknown) {
   const passes = Object.fromEntries([...registry.passes.values()].map((p) => [p.id, { wgsl: p.wgsl, steps: p.steps }]));
   return { width: project.settings.width, height: project.settings.height, fps: project.settings.fps, output, sources: {}, passes, cacheDir };
 }
@@ -169,7 +169,7 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const step = native ? (TICKS_PER_SECOND * native.fps.den) / native.fps.num : frameTicks;
     const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + Math.round(i * step)) : frames.map((f) => f * frameTicks);
 
-    const job = renderJob(project, registry, output, opts.cacheDir);
+    const job = renderJob(project, registry, opts.cacheDir, output);
     // The audio is mixed while the video renders; the two are muxed after.
     const audio = opts.output.kind === "video" && format !== "gif" ? mixAudio(project, registry, opts.output, tmp!, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step)) : undefined;
     audio?.catch(() => {});

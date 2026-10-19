@@ -144,7 +144,6 @@ name = "beacon-worker"
 version = "0.0.0"
 dependencies = [
  "beacon-render",
- "serde",
  "serde_json",
 ]
 

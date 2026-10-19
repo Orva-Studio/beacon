@@ -2,7 +2,7 @@ import { produce } from "immer";
 import { z } from "zod";
 import { clipSpeed, timelineTimeAt } from "./evaluate";
 import type { FeatureRegistry } from "./registry";
-import type { Animation, Clip, EffectInstance, Project, Track } from "./schema";
+import { formatIssues, type Animation, type Clip, type EffectInstance, type Project, type Track } from "./schema";
 import { projectDuration } from "./project";
 import { clone, copyClips, editScope, scopedProject, type Clipboard } from "./edit";
 import { roundSeconds, secondsToTicks, snapSeconds, ticksPerFrame, ticksToSeconds } from "./ticks";
@@ -647,7 +647,7 @@ export class SessionStore {
     const def = this.commands.get(id);
     if (!def) throw new Error(`no session command "${id}"`);
     const parsed = def.args.safeParse(args ?? {});
-    if (!parsed.success) throw new Error(`${id}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "args"}: ${i.message}`).join("; ")}`);
+    if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
     const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent };
     const next = produce(this.#state, (d) => def.apply(d as Session, parsed.data, ctx));

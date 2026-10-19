@@ -19,7 +19,7 @@ export class FrameRenderer {
     const canvas = canvasKey(project);
     if (!this.#native || canvas !== this.#canvas) {
       this.#native?.close();
-      this.#native = new NativeRenderer(JSON.stringify(renderJob(project, this.registry, { kind: "raw" }, this.cacheDir)));
+      this.#native = new NativeRenderer(JSON.stringify(renderJob(project, this.registry, this.cacheDir)));
       this.#canvas = canvas;
     }
     return this.#native;

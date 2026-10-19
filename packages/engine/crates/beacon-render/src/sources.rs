@@ -144,16 +144,12 @@ pub struct VideoDecoder {
     path: String,
     stream: u32,
     pub index: FrameIndex,
-    /// Decoded size: the stream scaled by `factor`.
+    /// Decoded size: the stream scaled by the factor it was opened with.
     pub width: u32,
     pub height: u32,
-    pub factor: f64,
-    /// Size over the original stream's (differs from `factor` when reading a proxy).
+    /// Size over the original stream's (differs from the factor it was opened with when reading a proxy).
     pub scale: f64,
     pub proxy: bool,
-    /// Decode with VideoToolbox when the codec has it: a quarter of the CPU
-    /// for a 4K H.264 camera reading straight through, but slower to seek.
-    pub hardware: bool,
     /// Decode H.264/HEVC natively through VideoToolbox (the preview): seeks ~4× faster at a hundredth
     /// of the CPU, with frames identical to FFmpeg's (beacon-decode's matches_ffmpeg test).
     pub native: bool,
@@ -348,10 +344,8 @@ impl VideoDecoder {
             index,
             width,
             height,
-            factor,
             scale: factor,
             proxy: false,
-            hardware: true,
             native: false,
             surfaces: false,
             pipe: None,
@@ -421,7 +415,8 @@ impl VideoDecoder {
 
     fn restart(&mut self, i: usize) -> Result<()> {
         self.pipe = None;
-        let hardware = self.hardware && matches!(self.index.codec.as_deref(), Some("h264" | "hevc" | "prores"));
+        // VideoToolbox where the codec has it: a quarter of the CPU for a 4K H.264 camera reading straight through.
+        let hardware = matches!(self.index.codec.as_deref(), Some("h264" | "hevc" | "prores"));
         let native = self.native && hardware;
         let worker = self.worker.get_or_insert_with(|| Worker::spawn(self.path.clone(), self.stream, hardware, native, native && self.surfaces));
         let (tx, rx) = sync_channel(READ_AHEAD);

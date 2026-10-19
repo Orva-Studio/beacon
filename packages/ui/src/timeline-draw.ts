@@ -254,7 +254,7 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.fillStyle = color("well");
     ctx.fillRect(0, 0, w, h);
 
-    tracks.forEach((t, i) => {
+    tracks.forEach((_, i) => {
       const y = rowTop(i, TRACK);
       ctx.fillStyle = color("well");
       ctx.fillRect(HEADER, y, width, TRACK);

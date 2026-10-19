@@ -110,7 +110,7 @@ export class LiveView {
     if (!this.#native || canvas !== this.#canvas) {
       // One surface per layer: the old renderer lets go of it first.
       this.#native?.close();
-      const job = JSON.stringify(renderJob(project, this.opts.registry, { kind: "raw" }, this.opts.cacheDir));
+      const job = JSON.stringify(renderJob(project, this.opts.registry, this.opts.cacheDir));
       const t = this.target;
       this.#native = "layer" in t ? NativePreview.onLayer(t.layer, this.#size.width, this.#size.height, job) : NativePreview.offscreen(this.#size.width, this.#size.height, job);
       this.#native.place(...this.#place);

@@ -13,15 +13,13 @@ export interface RecordingApp {
   project(): string | undefined;
   window: Pick<BrowserWindow, "hide" | "show" | "activate">;
   setSettings(patch: SettingsPatch): void;
-  /** The menus, rebuilt when narration starts or ends. */
-  setMenu(): void;
 }
 
 /**
  * Recording: the Record dialog's devices and Check Sync, voice narration over the playing timeline, and a take
  * with its panel and menu-bar item, while Beacon hides.
  */
-export function createRecording({ core, message, status, project, window, setSettings, setMenu }: RecordingApp) {
+export function createRecording({ core, message, status, project, window, setSettings }: RecordingApp) {
   /** The Record dialog's last sources, offered next time. */
   const recordPrefs = (): RecordSources => (core.readConfig("record.json") as RecordSources | undefined) ?? { screen: { fps: 60 }, microphone: {}, systemAudio: true };
 

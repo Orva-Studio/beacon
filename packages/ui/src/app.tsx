@@ -3,7 +3,7 @@ import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session
 import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
 import { droppedFiles } from "./drop";
-import type { DroppedFile, Init, Narrating } from "./rpc";
+import type { DroppedFile, Narrating } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
@@ -149,7 +149,7 @@ export function App({ host }: { host: Host }) {
           {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
           <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
             <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
-            {project && session && <Transport project={project} session={session} host={host} init={init} />}
+            {project && session && <Transport project={project} session={session} host={host} />}
           </div>
           {session?.panels.properties &&
             project &&
@@ -163,7 +163,7 @@ export function App({ host }: { host: Host }) {
         </div>
         {project && session ? (
           <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
-            <Toolbar session={session} host={host} init={init} />
+            <Toolbar session={session} host={host} />
             <Timeline
               project={project}
               session={session}
@@ -374,7 +374,7 @@ const TOOL_ICONS: Record<string, IconName> = {
 };
 
 /** The toolbar above the timeline: undo, redo, cut, copy, paste, split, snapshot, then the timeline zoom. */
-function Toolbar({ session, host, init }: { session: Session; host: Host; init?: Init }) {
+function Toolbar({ session, host }: { session: Session; host: Host }) {
   const tip = useShortcutTip();
   const some = session.selection.length > 0 || !!session.range;
   const tool = (name: string, title: string, onClick: () => void, enabled = true) => (
@@ -415,7 +415,7 @@ function Toolbar({ session, host, init }: { session: Session; host: Host; init?:
   );
 }
 
-function Transport({ project, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
+function Transport({ project, session, host }: { project: Project; session: Session; host: Host }) {
   const fps = rationalToNumber(project.settings.fps);
   const end = Math.max(0, ...project.tracks.flatMap((t) => t.clips.map((c) => ticksToSeconds(c.start + c.duration))));
   const tip = useShortcutTip();

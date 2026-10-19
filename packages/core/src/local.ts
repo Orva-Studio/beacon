@@ -82,8 +82,6 @@ import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
-  /** Save after every change (headless agents never lose work). Default true. */
-  autosave?: boolean;
   /** Frame indexes and derived data such as transcripts. */
   cacheDir?: string;
   /** The app's automation socket, recorded in each project's lock so agents connect to it. */
@@ -121,7 +119,6 @@ const encoding = ({ output: _, overwrite: _o, from: _f, to: _t, ...rest }: Expor
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
-  readonly #autosave: boolean;
   readonly #socket?: string;
   readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
@@ -147,7 +144,6 @@ export class LocalCore implements BeaconCore {
       for (const l of this.#appListeners) l(e);
     });
     this.#pref = this.#config.pref;
-    this.#autosave = opts.autosave ?? true;
     this.#socket = opts.socket;
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
@@ -363,7 +359,7 @@ export class LocalCore implements BeaconCore {
       if (p.saveTimer !== undefined) {
         clearTimeout(p.saveTimer);
         try {
-          if (this.#autosave) writeProject(p.path, p.store.doc);
+          writeProject(p.path, p.store.doc);
         } catch (e) {
           console.error(`could not save ${p.path} on exit:`, e);
         }
@@ -397,7 +393,6 @@ export class LocalCore implements BeaconCore {
 
   /** A drag changes the document many times a second: write it once things settle. */
   #saveSoon(p: OpenProject) {
-    if (!this.#autosave) return;
     clearTimeout(p.saveTimer);
     p.saveTimer = setTimeout(() => {
       p.saveTimer = undefined;
@@ -653,7 +648,7 @@ export class LocalCore implements BeaconCore {
 
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
   #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T {
-    if (!this.#autosave || !change || change.dryRun || !change.patches.length) return change;
+    if (!change || change.dryRun || !change.patches.length) return change;
     try {
       writeProject(p.path, p.store.doc);
       this.#emit(p, { kind: "saved", path: p.path });

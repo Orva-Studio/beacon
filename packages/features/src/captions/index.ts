@@ -19,7 +19,6 @@ import {
   type ClipEval,
   type EvalContext,
   type Project,
-  type RGBA,
   type TextSpec,
   type Track,
   type VisualLayer,

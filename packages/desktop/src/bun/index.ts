@@ -338,7 +338,6 @@ const recorder = createRecording({
   project: () => current?.path,
   window: win,
   setSettings: setAppSettings,
-  setMenu: menus.setMenu,
 });
 
 const server = serveCore(core, { path: socket, canOpen: (p) => current?.path === resolve(p), projects: () => (current ? [current.path] : []) });
