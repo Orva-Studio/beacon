@@ -1667,10 +1667,20 @@ Seeing more at once.
   the cases Auphonic doesn't cover. Open: whether a clip with no silent
   stretch can learn its noise from its quietest moments (the silence
   analysis already finds them).
+- **Export audio only** (the user, 2026-10-19): the Export dialog writes
+  just the timeline's mix, for a podcast or a voiceover: `.wav` (PCM,
+  sample-exact), `.m4a` (AAC, with the data rate already in the dialog)
+  and `.mp3`, chosen as the video formats are, by the output's extension.
+  No frames are rendered, so it is as fast as mixing the audio. The mix is
+  the export's own (track mute, volume points, fades, audio effects and
+  noise removal, the in/out range), and loudness normalization applies as
+  it does to a video. Agents get it through `export_start` with an audio
+  extension.
 **Gate:** the look matches between preview and export, and a `.hlook`
 imports with a report of what didn't map; a camera take's background removed
 by each provider, with the same matte in preview and export; noise removal
-judged by the user on their own takes, and Auphonic chosen or not.
+judged by the user on their own takes, and Auphonic chosen or not; a
+project exported as `.wav`, `.m4a` and `.mp3` sounds as its video export does.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
