@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ActionDef, AnalyzerDef, ClipTypeDef, CommandDef, EffectDef, ExportFileDef, Feature, JobAnalyzerDef, MediaImporterDef, PreferenceDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef, ResourceDef, SecretDef } from "./feature";
+import type { ActionDef, AnalyzerDef, AnnotationDef, ClipTypeDef, CommandDef, EffectDef, ExportFileDef, Feature, JobAnalyzerDef, MediaImporterDef, PanelItemDef, PreferenceDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef, ResourceDef, SecretDef } from "./feature";
 import type { SessionCommandDef } from "./session";
 import { CORE_COMMANDS } from "./commands";
 import type { Patch } from "immer";
@@ -38,7 +38,10 @@ export class FeatureRegistry {
   /** Features' editor commands (session state, not undoable), beside core's `SESSION_COMMANDS`. */
   readonly sessionCommands = new Map<string, SessionCommandDef>();
   /** Every feature's panel items (`Feature.panelItems`), in registration order. */
-  readonly panelItems: { id: string; favorite?: boolean }[] = [];
+  readonly panelItems: PanelItemDef[] = [];
+  readonly annotations = new Map<string, AnnotationDef & { id: string }>();
+  /** A new user's Favorites panel: the items and effects features mark `favorite`, in registration order. */
+  readonly favorites: string[] = [];
 
   constructor(features: Feature[] = []) {
     claim(this.commands, CORE_COMMANDS, "command", "core");
@@ -80,6 +83,8 @@ export class FeatureRegistry {
       if (this.panelItems.some((i) => i.id === item.id)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" is already registered`);
       this.panelItems.push(item);
     }
+    claim(this.annotations, Object.entries(feature.annotations ?? {}).map(([id, a]) => ({ ...a, id })), "annotation", feature.id);
+    this.favorites.push(...(feature.panelItems ?? []).filter((i) => i.favorite).map((i) => i.id), ...(feature.effects ?? []).filter((e) => e.favorite).map((e) => `effect:${e.id}`));
     this.features.set(feature.id, feature);
     return this;
   }

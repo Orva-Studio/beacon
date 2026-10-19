@@ -70,6 +70,12 @@ export function mediaWindow(clip: Clip): [Ticks, Ticks] {
   return [from, from + clip.duration * clipSpeed(clip)];
 }
 
+/** Timed words (seconds in the clip's media, as a transcript's) the clip shows: those whose middle is in its window. */
+export function wordsInWindow<W extends { start: number; end: number }>(clip: Clip, words: W[]): W[] {
+  const [from, to] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
+  return words.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+}
+
 export function resolveProps(registry: FeatureRegistry, clip: Clip, mediaTime: Ticks): Record<string, Record<string, any>> {
   const out: Record<string, Record<string, any>> = {};
   for (const group of registry.groupsFor(clip.type)) {

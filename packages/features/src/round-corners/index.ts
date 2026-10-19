@@ -4,11 +4,12 @@ import { defineFeature } from "@beacon/model";
 /** Rounds the clip's corners. Radius in canvas pixels. */
 export const roundCorners = defineFeature({
   id: "round-corners",
-  panelItems: [{ id: "effect:round-corners", favorite: true }],
   version: 1,
   effects: [
     {
       id: "round-corners",
+      title: "Corner Rounding",
+      favorite: true,
       description: "Rounded corners on the clip's content",
       traits: ["visual"],
       params: z.strictObject({

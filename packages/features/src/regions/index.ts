@@ -20,13 +20,25 @@ function num(v: unknown, fallback: number): number {
   return typeof x === "number" ? x : fallback;
 }
 
+/** An Annotations panel preset: a 640 × 360 box. */
+const preset = (kind: string, intensity: number, title: string) => ({
+  type: "region",
+  title,
+  props: { region: { kind, width: 640, height: 360, cornerRadius: 6, intensity, invert: false } },
+});
+
 /**
  * Blur, pixelate and spotlight regions: boxes that change what is already
  * composited under them. Intensity → strength mappings are guesses.
  */
 export const regions = defineFeature({
   id: "regions",
-  panelItems: [{ id: "annotation:spotlight", favorite: true }, { id: "annotation:blur" }, { id: "annotation:pixelate" }],
+  panelItems: [
+    { id: "annotation:spotlight", label: "Spotlight", title: "Darken everything outside the box", command: "edit.addAnnotation", args: { preset: "spotlight" }, seconds: 5, favorite: true },
+    { id: "annotation:blur", label: "Blur", title: "Blur what is inside the box", command: "edit.addAnnotation", args: { preset: "blur" }, seconds: 5 },
+    { id: "annotation:pixelate", label: "Pixelate", title: "Pixelate what is inside the box", command: "edit.addAnnotation", args: { preset: "pixelate" }, seconds: 5 },
+  ],
+  annotations: { spotlight: preset("spotlight", 0.5, "Add Spotlight"), blur: preset("blur", 2, "Add Blur"), pixelate: preset("pixelate", 0.33, "Add Pixelate") },
   version: 1,
   clipTypes: [{ id: "region", description: "A blur, pixelate or spotlight region", traits: ["visual", "region"] }],
   props: [

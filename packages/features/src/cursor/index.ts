@@ -231,14 +231,16 @@ export const cursor = defineFeature({
   effects: [
     {
       id: "cursor-shadow",
+      title: "Cursor Shadow",
       description: "Shadow under the cursor",
       traits: ["cursor"],
       params: z.strictObject({ angle: z.number(), offset: z.number(), blur: z.number(), opacity: z.number(), color: RgbaSchema }),
       defaults: () => ({ angle: 3.92699, offset: 7, blur: 10, opacity: 0.5, color: [0, 0, 0, 1] }),
     },
-    { id: "cursor-motion-blur", description: "Blurs the cursor along its motion", traits: ["cursor"], params: intensity, defaults: () => ({ intensity: 1 }) },
+    { id: "cursor-motion-blur", title: "Cursor Motion Blur", description: "Blurs the cursor along its motion", traits: ["cursor"], params: intensity, defaults: () => ({ intensity: 1 }) },
     {
       id: "cursor-physics",
+      title: "Cursor Physics",
       description: "Tilts the cursor as it moves",
       traits: ["cursor"],
       params: z.strictObject({ intensity: z.number(), tilt: z.number() }),
@@ -246,6 +248,7 @@ export const cursor = defineFeature({
     },
     {
       id: "click-scaling",
+      title: "Click Scaling",
       description: "Resizes the cursor while the left button is down",
       traits: ["cursor"],
       /** `scale`: cursor size during a click, like `cursor.scale` (assumed); `speed`: 1/seconds of the ramp. */

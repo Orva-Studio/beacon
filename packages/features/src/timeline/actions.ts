@@ -78,30 +78,6 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
   };
 }
 
-const white = [1, 1, 1, 1];
-const region = (kind: string, intensity: number, title: string) => ({
-  type: "region",
-  title,
-  props: { region: { kind, width: 640, height: 360, cornerRadius: 6, intensity, invert: false } },
-});
-/**
- * The Annotations panel's items, with the settings the user's
- * projects use most: white Suisse Intl
- * text with a drop shadow, a black rounded rectangle, spotlight, blur and pixelate.
- */
-const ANNOTATIONS: Record<string, { type: string; title: string; props: Record<string, unknown>; effects?: { type: string; params: Record<string, unknown> }[] }> = {
-  text: {
-    type: "callout",
-    title: "Add Text",
-    effects: [{ type: "drop-shadow", params: {} }],
-    props: { callout: { shape: "text", width: 900, height: 200, cornerRadius: 8, text: { text: "Text", font: "Suisse Intl", weight: 500, italic: false, size: 96, color: white, tracking: 0, lineSpacing: 0, align: "center", valign: "center" } } },
-  },
-  rectangle: { type: "callout", title: "Add Rectangle", props: { callout: { shape: "rectangle", width: 640, height: 360, cornerRadius: 8, fill: [0, 0, 0, 1] } } },
-  spotlight: region("spotlight", 0.5, "Add Spotlight"),
-  blur: region("blur", 2, "Add Blur"),
-  pixelate: region("pixelate", 0.33, "Add Pixelate"),
-};
-
 const placed = { duration: z.number().positive().default(5), time: z.number().nonnegative().optional(), track: z.string().min(1).optional() };
 
 const selectPasted = (results: unknown[]): ActionStep[] => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }];
@@ -252,7 +228,7 @@ export const actions = [
     description:
       "Add an annotation for `duration` seconds (default 5) at `time` (default the playhead) on the lowest free track, or on `track` when dropped on one, and select it: a `preset` from the Annotations panel (text, rectangle, spotlight, blur, pixelate), or a callout or region clip given by `type`, `props` and `effects`",
     args: z.union([
-      z.strictObject({ preset: z.enum(Object.keys(ANNOTATIONS) as [keyof typeof ANNOTATIONS]), ...placed }),
+      z.strictObject({ preset: z.string().min(1), ...placed }),
       z.strictObject({
         type: z.string().min(1),
         props: z.record(z.string(), z.unknown()),
@@ -263,7 +239,9 @@ export const actions = [
     ]),
     resolve: (args, ctx) => {
       mainTimelineOnly(ctx, "add an annotation");
-      const { type, props, effects = [], title } = "preset" in args ? ANNOTATIONS[args.preset]! : args;
+      const preset = "preset" in args ? ctx.registry.annotations.get(args.preset) : undefined;
+      if ("preset" in args && !preset) throw new Error(`no annotation preset "${args.preset}"; there are: ${[...ctx.registry.annotations.keys()].join(", ")}`);
+      const { type, props, effects = [], title } = preset ?? (args as Exclude<typeof args, { preset: string }>);
       const { duration, time, track } = args;
       return {
         label: title,

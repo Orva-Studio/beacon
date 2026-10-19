@@ -2,20 +2,21 @@ import { useEffect, useRef } from "react";
 import {
   animatedValue,
   assetName,
-  trackName,
   clipSpeed,
   editScope,
-  scopedProject,
   envelopePoints,
   mediaTimeAt,
   planMove,
-  trimBounds,
   rationalToNumber,
+  scopedProject,
   secondsToTicks,
   snapOffset,
   snapTargets,
   ticksToSeconds,
   TRACK_HEIGHT,
+  trackName,
+  trimBounds,
+  wordsInWindow,
   type Animation,
   type Clip,
   type Project,
@@ -204,11 +205,7 @@ function clipLabel(project: Project, clip: Clip, nested: Record<string, string>,
   if (callout?.shape === "text") return callout.text?.text?.split("\n")[0]?.trim() || "Text";
   if (callout?.shape) return callout.shape === "rectangle" ? "Shape" : callout.shape[0]!.toUpperCase() + callout.shape.slice(1);
   const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
-  if (caption) {
-    const from = ticksToSeconds(clip.mediaStart ?? 0);
-    const to = from + ticksToSeconds(clip.duration);
-    return caption.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to).map((w) => w.text).join(" ") || "Caption";
-  }
+  if (caption) return wordsInWindow(clip, caption).map((w) => w.text).join(" ") || "Caption";
   const region = (clip.props.region as { kind?: string } | undefined)?.kind;
   if (region) return region[0]!.toUpperCase() + region.slice(1);
   return clip.type;

@@ -15,7 +15,8 @@ export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "re
   return {
     shortcuts: await core.shortcuts(),
     propGroups: schema.props.map((p) => ({ id: p.id, description: p.description })),
-    effects: schema.effects.map((e) => ({ id: e.id, description: e.description, traits: e.traits, schema: e.schema })),
+    effects: schema.effects,
+    panelItems: schema.panelItems,
     clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
     nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
     favorites: await core.favorites(),

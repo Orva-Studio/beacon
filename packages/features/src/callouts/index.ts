@@ -194,7 +194,20 @@ function calloutFromCamtasia(media: CamtasiaObject, report: (m: string) => void)
 /** Text, rectangle and sketch callouts (and sketch motion callouts). */
 export const callouts = defineFeature({
   id: "callouts",
-  panelItems: [{ id: "annotation:text", favorite: true }, { id: "annotation:rectangle", favorite: true }],
+  panelItems: [
+    { id: "annotation:text", label: "Text", title: "White text with a drop shadow", command: "edit.addAnnotation", args: { preset: "text" }, seconds: 5, favorite: true },
+    { id: "annotation:rectangle", label: "Rectangle", title: "A black rounded rectangle", command: "edit.addAnnotation", args: { preset: "rectangle" }, seconds: 5, favorite: true },
+  ],
+  // The settings the user's projects use most.
+  annotations: {
+    text: {
+      type: "callout",
+      title: "Add Text",
+      effects: [{ type: "drop-shadow", params: {} }],
+      props: { callout: { shape: "text", width: 900, height: 200, cornerRadius: 8, text: { text: "Text", font: "Suisse Intl", weight: 500, italic: false, size: 96, color: [1, 1, 1, 1], tracking: 0, lineSpacing: 0, align: "center", valign: "center" } } },
+    },
+    rectangle: { type: "callout", title: "Add Rectangle", props: { callout: { shape: "rectangle", width: 640, height: 360, cornerRadius: 8, fill: [0, 0, 0, 1] } } },
+  },
   version: 1,
   clipTypes: [{ id: "callout", description: "A text or rectangle annotation", traits: ["visual", "callout"] }],
   queries: [

@@ -6,7 +6,6 @@ import {
   defineQuery,
   eachRawClip,
   eachRawTrack,
-  mediaWindow,
   original,
   RgbaSchema,
   roundSeconds,
@@ -15,6 +14,7 @@ import {
   solidLayer,
   ticksPerFrame,
   ticksToSeconds,
+  wordsInWindow,
   type Clip,
   type ClipEval,
   type EvalContext,
@@ -94,9 +94,7 @@ export function clipStyle(clip: Clip, track: Track | undefined, height: number):
 
 /** The words a caption clip shows: those whose middle is inside its window on its media. */
 export function shownWords(clip: Clip): CaptionWord[] {
-  const words = (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? [];
-  const [from, to] = mediaWindow(clip).map(ticksToSeconds) as [number, number];
-  return words.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+  return wordsInWindow(clip, (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? []);
 }
 
 /** Each word as shown: in capitals, a word can get longer ("Straße" is "STRASSE"), so offsets come from these. */

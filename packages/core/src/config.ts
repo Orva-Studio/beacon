@@ -108,7 +108,7 @@ export class AppConfig {
   favorites(): string[] {
     const items = this.read("favorites.json");
     if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
-    return this.registry.panelItems.filter((i) => i.favorite).map((i) => i.id).filter((i) => this.#favoriteKnown(i));
+    return this.registry.favorites.filter((i) => this.#favoriteKnown(i));
   }
 
   /** An item the panels have: one a feature lists, or an effect not only for the cursor. */

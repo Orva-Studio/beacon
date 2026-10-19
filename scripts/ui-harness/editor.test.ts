@@ -981,8 +981,16 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   const tile = (item: string) => `[data-item="${item}"]`;
   const star = (item: string) => page.evaluate<string | null>(`document.querySelector('${tile(item)} [data-star]')?.dataset.star ?? null`);
   const outlined = (item: string) => page.evaluate<boolean>(`document.querySelector('${tile(item)}').className.includes('ring-tile-selected')`);
+  // A new user's favourites, in the features' order; the panels list what the features declare.
+  expect(await ui.core.favorites()).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "effect:round-corners", "effect:crt-monitor", "effect:drop-shadow", "effect:motion-blur"]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('${tile("effect:round-corners")}')`);
+  expect(await page.evaluate<string>(`document.querySelector('${tile("effect:round-corners")}').innerText`)).toContain("Corner Rounding");
+  await run("panel.show", { tool: "audioEffects" });
+  await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
   // A favourite shows its gold star; another tile shows none until selected.
   expect(await star("annotation:text")).toBe("on");

@@ -42,7 +42,11 @@ export interface PropGroupDef {
 export interface EffectDef {
   /** Stored in `EffectInstance.type`. */
   id: string;
+  /** Its name in the editor's panels. */
+  title: string;
   description: string;
+  /** In a new user's Favorites panel (`effect:<id>`), in registration order. */
+  favorite?: boolean;
   traits: string[];
   /** Validates `EffectInstance.params`. */
   params: z.ZodType<Record<string, unknown>>;
@@ -383,18 +387,33 @@ export interface ActionDef<A = any> {
   resolve: (args: A, ctx: ActionContext) => ActionPlan;
 }
 
-export interface KeyBinding {
-  /** e.g. "cmd+shift+z". */
-  key: string;
+/**
+ * An item of the editor's Annotations or Audio Effects panel (Visual Effects lists `effects`): dropped on the
+ * timeline or double-clicked, it runs `command` with `args`, as the command palette does.
+ */
+export interface PanelItemDef {
+  /** What favourites call it: `annotation:text`, `audio:fade-in`. */
+  id: string;
+  label: string;
+  /** Its tooltip. */
+  title: string;
   command: string;
-  args?: unknown;
+  args: Record<string, unknown>;
+  /** Clips with any of these traits take it; none: it is added on its own, as an annotation. */
+  traits?: string[];
+  /** Seconds it lasts, dropped on a track. */
+  seconds?: number;
+  /** In a new user's Favorites panel, in registration order. */
+  favorite?: boolean;
 }
 
-export interface MenuItemDef {
-  /** e.g. ["Edit", "Undo"]. */
-  path: string[];
-  command: string;
-  args?: unknown;
+/** A clip `edit.addAnnotation` adds by its preset's name: an Annotations panel item's. */
+export interface AnnotationDef {
+  type: string;
+  /** Its undo step. */
+  title: string;
+  props: Record<string, unknown>;
+  effects?: { type: string; params: Record<string, unknown> }[];
 }
 
 /** `(doc) → doc` for one feature's data, from `version - 1` to `version`. Pure. */
@@ -427,16 +446,12 @@ export interface Feature {
   queries?: QueryDef[];
   actions?: ActionDef[];
   exportFiles?: ExportFileDef[];
-  /**
-   * The feature's items in the editor's panels that can be favourites (`annotation:text`, `audio:fade-in`,
-   * `effect:drop-shadow`); `favorite`: in a new user's Favorites panel, in registration order. Effects not only for
-   * the cursor are items without being listed.
-   */
-  panelItems?: { id: string; favorite?: boolean }[];
+  /** The feature's items in the Annotations and Audio Effects panels. */
+  panelItems?: PanelItemDef[];
+  /** Annotations by preset name, as the Annotations panel adds them. */
+  annotations?: Record<string, AnnotationDef>;
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
-  keymap?: KeyBinding[];
-  menus?: MenuItemDef[];
   migrations?: Migration[];
   /**
    * Runs at the end of every transaction that changed something, before

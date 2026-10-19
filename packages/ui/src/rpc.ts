@@ -1,6 +1,7 @@
 import type { CanvasValues } from "./canvas-settings";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo } from "@beacon/model";
+import type { SchemaInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export { syncKey, withPatch } from "@beacon/model";
@@ -53,7 +54,8 @@ export interface Init {
   shortcuts: ShortcutInfo[];
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
-  effects: { id: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
+  effects: SchemaInfo["effects"];
+  panelItems: SchemaInfo["panelItems"];
   /** Clip type → traits ("video", "hold", ...). */
   clipTypes: Record<string, string[]>;
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */

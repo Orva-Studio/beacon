@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds } from "@beacon/model";
+import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas";
 import type { Init } from "./rpc";
+import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline";
 import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
-import { effectName } from "./effect-names";
 import { useQuery } from "./query";
 
 /**
@@ -123,7 +123,7 @@ function ClipProperties({
         </Section>
       )}
       {tab?.id === "effects" && clip.effects.map((e) => (
-          <Effect key={e.id} clip={clip} effect={e} host={host} schema={init?.effects.find((x) => x.id === e.type)?.schema} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
+          <Effect key={e.id} clip={clip} effect={e} host={host} def={init?.effects.find((x) => x.id === e.type)} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
         ))}
     </>
   );
@@ -308,22 +308,6 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
   );
 }
 
-type CaptionStyle = {
-  font: string;
-  weight: number;
-  size: number;
-  color: RGBA;
-  background: RGBA;
-  cornerRadius: number;
-  anchorY: "top" | "middle" | "bottom";
-  offsetY: number;
-  anchorX: "left" | "center" | "right";
-  offsetX: number;
-  highlight: RGBA;
-  maxWidth: number;
-  uppercase: boolean;
-};
-
 /** Align to page: each button puts the captions against an edge, or in the middle, at the usual distance. */
 const ALIGN: { label: string; icon: IconName; fields: (margin: number) => Partial<CaptionStyle> }[] = [
   { label: "Top", icon: "align-top", fields: (m) => ({ anchorY: "top", offsetY: m }) },
@@ -341,9 +325,7 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
   // One style for all the captions on a track, kept on the track.
   const style = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id))?.props?.captionStyle as CaptionStyle | undefined;
   if (!style) return null;
-  const from = ticksToSeconds(clip.mediaStart ?? 0);
-  const to = from + ticksToSeconds(clip.duration);
-  const words = ((clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []).filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < to);
+  const words = wordsInWindow(clip, (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []);
   const text = words.map((w) => w.text).join(" ");
   // Typed into a draft and set on leaving the field or Return: the words are re-timed from the whole text.
   const commit = () => {
@@ -468,9 +450,9 @@ function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: numbe
 type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
 /** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
-function Effect({ clip, effect, host, schema, selected }: { clip: Clip; effect: EffectInstance; host: Host; schema?: Record<string, unknown>; selected: boolean }) {
-  const fields = (schema as JsonSchema | undefined)?.properties ?? {};
-  const name = effectName(effect.type);
+function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: EffectInstance; host: Host; def?: Init["effects"][number]; selected: boolean }) {
+  const fields = (def?.schema as JsonSchema | undefined)?.properties ?? {};
+  const name = def?.title ?? effect.type;
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
   return (
     <FoldSection
