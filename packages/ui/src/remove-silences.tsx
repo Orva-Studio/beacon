@@ -1,6 +1,7 @@
 import { type Project, type Session } from "@beacon/model";
-import { Slider } from "./controls";
-import { clock, ReviewPanel, useReviewed } from "./review";
+import { Check, Slider } from "./controls";
+import { ReviewPanel, useReviewed } from "./review";
+import { clock } from "./time";
 import type { Host } from "./app";
 
 /** Remove Silences' review in `session.features.transcript.silences` (the transcript feature's `silences.review`). */
@@ -48,10 +49,9 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
     >
       <Slider label="Cut over" title="Silences longer than this are cut" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
       <Slider label="Leave" title="How much of each cut silence is left in, half each side" value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
-      <label className="mt-1 mb-1 flex items-center gap-2 text-text">
-        <input type="checkbox" checked={review.keepActive} onChange={(e) => set({ keepActive: e.target.checked })} data-keep-active />
-        Keep silences with screen action
-      </label>
+      <div className="mt-1 mb-1">
+        <Check label="Keep silences with screen action" checked={review.keepActive} onChange={(keepActive) => set({ keepActive })} data-keep-active />
+      </div>
       <div className="mb-4 text-label text-text-faint">Where the recording's cursor moves or clicks. Typing alone isn't seen.</div>
     </ReviewPanel>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { MASK, syncNativeView } from "../native-view";
+import { isFormField } from "./fields";
 import { Icon } from "./icons";
 
 /**
@@ -109,7 +110,7 @@ export function Modal({
           if (e.key === "Tab") keepFocusIn(e, panel.current);
           if (e.key === "Escape") onClose();
           if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)) onEnter();
-          else if (onKey && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) onKey(e);
+          else if (onKey && !isFormField(e.target)) onKey(e);
         }}
       >
         {title && (

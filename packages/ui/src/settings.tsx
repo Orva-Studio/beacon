@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_SETTINGS, fpsRational, SETTINGS_TABS, type Project } from "@beacon/model";
-import { Button, Check, Modal, Select, SettingsRow as Row } from "./controls";
+import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
 import { CanvasSettings } from "./canvas-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
@@ -168,22 +168,10 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
   return (
     <div className="flex flex-col gap-3" data-recording-settings>
       <Row label="Camera">
-        <Select value={camera} onChange={(e) => setCamera(e.target.value)}>
-          {devices.cameras.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
+        <DeviceSelect devices={devices.cameras} value={camera} onChange={setCamera} />
       </Row>
       <Row label="Microphone">
-        <Select value={microphone} onChange={(e) => setMicrophone(e.target.value)}>
-          {devices.microphones.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </Select>
+        <DeviceSelect devices={devices.microphones} value={microphone} onChange={setMicrophone} />
       </Row>
       <Row label="Sync" hint="A camera through a capture card shows its picture late. Each take recorded with this pair moves its camera clip earlier by this much, so lips match the voice.">
         <div className="min-w-0 flex-1">

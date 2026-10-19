@@ -37,6 +37,22 @@ export function Select({ look = "field", onChange, ...props }: SelectHTMLAttribu
   return <select {...props} className={SELECT[look]} onChange={(e) => (onChange?.(e), e.currentTarget.blur())} />;
 }
 
+/** A choice of device (camera, microphone, sound output, display) by its id. */
+export function DeviceSelect<I extends string | number>({ devices, value, onChange, ...props }: { devices: { id: I; name: string }[]; value: I | undefined; onChange: (id: I) => void } & Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange">) {
+  return (
+    <Select {...props} value={value ?? ""} onChange={(e) => ((d) => d && onChange(d.id))(devices.find((d) => String(d.id) === e.target.value))}>
+      {devices.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.name}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+/** A display as the device lists name it: its place and its size in pixels. */
+export const displayName = (i: number, d: { width: number; height: number; pixelWidth?: number; pixelHeight?: number }) => `Display ${i + 1} (${d.pixelWidth ?? d.width} × ${d.pixelHeight ?? d.height})`;
+
 const FIELD = "rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent disabled:opacity-50";
 
 /**

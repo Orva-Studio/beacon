@@ -617,7 +617,7 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   };
   ui.send("recordSheet", sheet);
   await page.until("!!document.querySelector('[data-record]')");
-  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').getAttribute('aria-checked') === 'true'`);
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([true, false, true, true]);
   await page.evaluate(`document.querySelector('[data-source="Camera"]').click()`);
   await page.until("!!document.querySelector('[data-permission=camera]')");
@@ -735,7 +735,7 @@ test.skipIf(skip)("The Narration panel records a narration itself, as Camtasia's
   const before = ui.menus.length;
   await run("panel.show", { tool: "narration" });
   await page.until("document.querySelector('[data-narration-panel] select')?.value === 'mic-2'");
-  expect(await page.evaluate<boolean>("document.querySelector('[data-narration-hear]').checked")).toBe(false);
+  expect(await page.evaluate<boolean>("document.querySelector('[data-narration-hear]').getAttribute('aria-checked') === 'true'")).toBe(false);
   // Its level, previewed while idle.
   await arrived(() => ui.menus.slice(before).includes(`recordPreview:${JSON.stringify({ microphone: { id: "mic-2" } })}`));
   await page.until("document.querySelector('[data-narration-panel] [role=meter]')?.dataset.level === '-20'");
@@ -769,10 +769,10 @@ test.skipIf(skip)("The microphone alone is voice narration: it plays the timelin
   ui.send("recordSheet", { ...devices, mode: "narration", sources: { screen: { fps: 60 }, microphone: { id: "mic-2" }, systemAudio: true } });
   await page.until("!!document.querySelector('[data-narration]')");
   expect(await has("[data-record-monitors]")).toBe(false);
-  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').checked`);
+  const on = (label: string) => page.evaluate<boolean>(`document.querySelector('[data-source="${label}"]').getAttribute('aria-checked') === 'true'`);
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([false, false, true, false]);
   expect(await page.evaluate<string>("document.querySelector('[data-source=Microphone]').closest('[data-narration] > *').querySelector('select').value")).toBe("mic-2");
-  expect(await page.evaluate<boolean>("document.querySelector('[data-hear]').checked")).toBe(false);
+  expect(await page.evaluate<boolean>("document.querySelector('[data-hear]').getAttribute('aria-checked') === 'true'")).toBe(false);
   await page.until("/from the playhead \\(0:02\\)/.test(document.querySelector('[data-narration-span]').textContent)");
   // Only the microphone is previewed, for its level.
   const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
@@ -975,6 +975,33 @@ test.skipIf(skip)("every tile in the effect and annotation panels shows its pict
     );
     expect({ tool, missing }).toEqual({ tool, missing: [] });
   }
+});
+
+test.skipIf(skip)("a track and a medium are renamed in place: Return keeps the name, Escape drops it", async () => {
+  const doc = () => ui.core.doc(ui.handle);
+  const track = doc().tracks.at(-1)!;
+  const field = "document.activeElement?.tagName === 'INPUT'";
+  ui.send("rename", { track: track.id });
+  await page.until(field);
+  await type("Narration Take");
+  await page.key("Enter", "Enter");
+  await arrived(() => doc().tracks.at(-1)!.name === "Narration Take");
+  ui.send("rename", { track: track.id });
+  await page.until(field);
+  await type("Not This");
+  await page.key("Escape", "Escape");
+  await page.until(`!(${field})`);
+  expect(doc().tracks.at(-1)!.name).toBe("Narration Take");
+  await ui.core.undo(ui.handle);
+
+  const asset = Object.keys(doc().assets)[0]!;
+  await run("panel.show", { tool: "media" });
+  ui.send("renameMedia", { asset });
+  await page.until(field);
+  await type("Intro Take");
+  await page.key("Enter", "Enter");
+  await arrived(() => doc().assets[asset]!.name === "Intro Take");
+  await ui.core.undo(ui.handle);
 });
 
 test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favorites; a double-click applies it to the selection; Favorites reorder by dropping one tile on another", async () => {

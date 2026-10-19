@@ -234,6 +234,37 @@ const WEIGHTS: [number, string][] = [
   [700, "Bold"],
 ];
 
+/** Font and Weight rows: the families the user's projects use first, then every installed one (`installed`). */
+function FontRows({ font, weight, installed, set, label }: { font: string; weight: number; installed?: string[]; set: (fields: { font?: string; weight?: number }, label: string) => void; label: string }) {
+  return (
+    <>
+      <Row label="Font">
+        <Select value={font} onChange={(e) => set({ font: e.target.value }, label)}>
+          {[...new Set([font, ...FONTS])].map((f) => (
+            <option key={f}>{f}</option>
+          ))}
+          {installed && (
+            <optgroup label="All fonts">
+              {installed.filter((f) => f !== font && !FONTS.includes(f)).map((f) => (
+                <option key={f}>{f}</option>
+              ))}
+            </optgroup>
+          )}
+        </Select>
+      </Row>
+      <Row label="Weight">
+        <Select value={weight} onChange={(e) => set({ weight: Number(e.target.value) }, label)}>
+          {(WEIGHTS.some(([w]) => w === weight) ? WEIGHTS : [...WEIGHTS, [weight, String(weight)] as [number, string]]).map(([w, name]) => (
+            <option key={w} value={w}>
+              {name}
+            </option>
+          ))}
+        </Select>
+      </Row>
+    </>
+  );
+}
+
 type CalloutProp = { shape: string; cornerRadius: number; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
 
 /** Annotation properties, what the user changes: text, font, size, colour; a shape's fill, outline and corners. */
@@ -260,29 +291,7 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
             value={text.text}
             onChange={(e) => setText({ text: e.target.value }, "Edit Text", `text-${clip.id}`)}
           />
-          <Row label="Font">
-            <Select value={text.font} onChange={(e) => setText({ font: e.target.value }, "Font")}>
-              {[...new Set([text.font, ...FONTS])].map((f) => (
-                <option key={f}>{f}</option>
-              ))}
-              {installed && (
-                <optgroup label="All fonts">
-                  {installed.filter((f) => f !== text.font && !FONTS.includes(f)).map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </optgroup>
-              )}
-            </Select>
-          </Row>
-          <Row label="Weight">
-            <Select value={text.weight} onChange={(e) => setText({ weight: Number(e.target.value) }, "Font")}>
-              {(WEIGHTS.some(([w]) => w === text.weight) ? WEIGHTS : [...WEIGHTS, [text.weight, String(text.weight)] as [number, string]]).map(([w, name]) => (
-                <option key={w} value={w}>
-                  {name}
-                </option>
-              ))}
-            </Select>
-          </Row>
+          <FontRows font={text.font} weight={text.weight} installed={installed} set={setText} label="Font" />
           <Slider unit="" label="Size" value={text.size} min={8} max={400} onChange={(v, key) => setText({ size: Math.max(8, v) }, "Font Size", key)} />
           <ColorRow label="Color" color={text.color} onChange={(color, key) => setText({ color }, "Text Color", key)} />
           <Row label="Align">
@@ -357,29 +366,7 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
       </Section>
       <Section>
         <div className="mb-3 text-label text-text-faint">Every caption</div>
-        <Row label="Font">
-          <Select value={style.font} onChange={(e) => set({ font: e.target.value }, "Caption Font")}>
-            {[...new Set([style.font, ...FONTS])].map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-            {installed && (
-              <optgroup label="All fonts">
-                {installed.filter((f) => f !== style.font && !FONTS.includes(f)).map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </optgroup>
-            )}
-          </Select>
-        </Row>
-        <Row label="Weight">
-          <Select value={style.weight} onChange={(e) => set({ weight: Number(e.target.value) }, "Caption Font")}>
-            {(WEIGHTS.some(([w]) => w === style.weight) ? WEIGHTS : [...WEIGHTS, [style.weight, String(style.weight)] as [number, string]]).map(([w, name]) => (
-              <option key={w} value={w}>
-                {name}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        <FontRows font={style.font} weight={style.weight} installed={installed} set={set} label="Caption Font" />
         <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
         <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
         <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />

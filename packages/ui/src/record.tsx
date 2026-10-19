@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { narrationSpan } from "@beacon/model";
-import { Button, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
+import { Button, Check, DeviceSelect, displayName, Icon, LevelMeter, Modal, Select, SettingsRow as Row, TextInput, type IconName } from "./controls";
 import { previewListeners, useRecordFrames } from "./record-preview";
 import { syncKey, type AudioLevel, type CameraSync, type RecordedSheet, type RecordFrames, type RecordMode, type RecordPreview, type RecordSheet, type RecordSources } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
+import { clock } from "./time";
 
 export interface RecordHost extends SyncCheckHost {
   startRecording(sources: RecordSources): Promise<{ ok: boolean; error?: string }>;
@@ -73,7 +74,7 @@ function Monitor({ label, icon, jpeg, mirrored, why, size, className }: { label:
 function Source({ label, on, setOn, hint, children }: { label: string; on: boolean; setOn: (on: boolean) => void; hint?: ReactNode; children?: ReactNode }) {
   return (
     <Row label={label} hint={on ? hint : undefined}>
-      <input type="checkbox" aria-label={label} checked={on} onChange={(e) => setOn(e.target.checked)} data-source={label} />
+      <Check title={label} checked={on} onChange={setOn} data-source={label} />
       {on && children}
     </Row>
   );
@@ -91,7 +92,6 @@ function present(sources: RecordSources, sheet: RecordSheet): RecordSources {
   };
 }
 
-export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 /** What a narration plays (`narrationSpan`, as core decides it). */
 export function useNarrationSpan(): { from: number; until: number; ranged: boolean; still: boolean } {
@@ -206,8 +206,8 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
             {!narration
               ? "Beacon hides while you record. Stop from the menu bar or ⌘⇧2."
               : still
-                ? `Records at ${clock(span.from)}. Stop in the top bar or ⌘⇧2 ends it.`
-                : `The timeline plays from ${clock(span.from)} while you speak. Stop in the top bar or ⌘⇧2 ends it.`}
+                ? `Records at ${clock(span.from, { floor: true })}. Stop in the top bar or ⌘⇧2 ends it.`
+                : `The timeline plays from ${clock(span.from, { floor: true })} while you speak. Stop in the top bar or ⌘⇧2 ends it.`}
           </div>
         </div>
         <div className="flex justify-end">
@@ -227,13 +227,7 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
       <div className="flex flex-col gap-3" data-record {...(narration ? { "data-narration": true } : {})}>
         <Source label="Screen" hint={permission("screen", sheet.permissions.screen)} on={!!s.screen} setOn={(on) => setS({ ...s, screen: on ? { display: display(undefined)?.id, fps: 60 } : undefined })}>
           <div className="w-56">
-            <Select value={display(s.screen?.display)?.id ?? ""} onChange={(e) => setS({ ...s, screen: { ...s.screen, display: Number(e.target.value) } })}>
-              {sheet.displays.map((d, i) => (
-                <option key={d.id} value={d.id}>
-                  Display {i + 1} ({d.pixelWidth ?? d.width} × {d.pixelHeight ?? d.height})
-                </option>
-              ))}
-            </Select>
+            <DeviceSelect devices={sheet.displays.map((d, i) => ({ id: d.id, name: displayName(i, d) }))} value={display(s.screen?.display)?.id} onChange={(id) => setS({ ...s, screen: { ...s.screen, display: id } })} />
           </div>
           <div className="w-24">
             <Select value={s.screen?.fps ?? 60} onChange={(e) => setS({ ...s, screen: { ...s.screen, fps: Number(e.target.value) } })}>
@@ -244,24 +238,12 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
         </Source>
         <Source label="Camera" hint={permission("camera", sheet.permissions.camera)} on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
           <div className="w-72">
-            <Select value={s.camera?.id ?? ""} onChange={(e) => setS({ ...s, camera: { id: e.target.value } })}>
-              {sheet.cameras.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
+            <DeviceSelect devices={sheet.cameras} value={s.camera?.id} onChange={(id) => setS({ ...s, camera: { id } })} />
           </div>
         </Source>
         <Source label="Microphone" hint={permission("microphone", sheet.permissions.microphone)} on={!!s.microphone} setOn={(on) => setS({ ...s, microphone: on ? { id: sheet.microphones[0]?.id } : undefined })}>
           <div className="w-72">
-            <Select value={s.microphone?.id ?? ""} onChange={(e) => setS({ ...s, microphone: { id: e.target.value } })}>
-              {sheet.microphones.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </Select>
+            <DeviceSelect devices={sheet.microphones} value={s.microphone?.id} onChange={(id) => setS({ ...s, microphone: { id } })} />
           </div>
           {microphone && <LevelMeter label="Microphone level" db={levels.microphone?.db} peak={levels.microphone?.peak} />}
         </Source>
@@ -291,21 +273,18 @@ export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: Record
         </Source>
         {narration && !still && (
           <Row label="Timeline sound" hint={hear ? <span className="text-warning">{HEADPHONES}</span> : undefined}>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={hear} onChange={(e) => setHear(e.target.checked)} data-hear />
-              Hear it while recording
-            </label>
+            <Check label="Hear it while recording" checked={hear} onChange={setHear} data-hear />
           </Row>
         )}
         {narration && (
           <div className="text-caption text-text-muted" data-narration-span>
             Voice narration: Beacon stays open
             {still
-              ? ` and records at the playhead (${clock(span.from)}) until you stop. Nothing plays: the timeline ends there.`
+              ? ` and records at the playhead (${clock(span.from, { floor: true })}) until you stop. Nothing plays: the timeline ends there.`
               : span.ranged
-                ? ` and plays the range ${clock(span.from)}–${clock(span.until)} while you speak, then stops.`
-                : ` and plays from the playhead (${clock(span.from)}) while you speak, until you stop or the timeline ends.`}{" "}
-            It goes on a new track at {clock(span.from)}.
+                ? ` and plays the range ${clock(span.from, { floor: true })}–${clock(span.until, { floor: true })} while you speak, then stops.`
+                : ` and plays from the playhead (${clock(span.from, { floor: true })}) while you speak, until you stop or the timeline ends.`}{" "}
+            It goes on a new track at {clock(span.from, { floor: true })}.
           </div>
         )}
       </div>
@@ -340,7 +319,7 @@ function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHos
           aria-label="Recording name"
           data-recorded-name
         />
-        <div className="text-caption text-text-muted">{clock(sheet.duration)} recorded, at the end of the timeline. The name shows in the Media Bin and on its clips.</div>
+        <div className="text-caption text-text-muted">{clock(sheet.duration, { floor: true })} recorded, at the end of the timeline. The name shows in the Media Bin and on its clips.</div>
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={close}>Skip</Button>

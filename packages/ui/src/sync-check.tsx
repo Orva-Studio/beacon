@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Icon, LevelMeter, Modal, NumberBox, Select, SettingsRow as Row } from "./controls";
+import { Button, DeviceSelect, displayName, Icon, LevelMeter, Modal, NumberBox, SettingsRow as Row } from "./controls";
 import { previewListeners, useRecordFrames } from "./record-preview";
 import type { AudioLevel, CameraSync, RecordFrames, RecordPreview, RecordSources, SoundOutput, SyncCheck } from "./rpc";
 
@@ -80,7 +80,6 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
       setStep({ result: r.result });
     } else setStep({ error: r.error ?? "The check failed" });
   };
-  const screenName = (i: number, d: { width: number; height: number }) => `Display ${i + 1} (${d.width} × ${d.height})`;
 
   if (step === "checking") {
     return (
@@ -151,24 +150,12 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
           }
         >
           <div className="w-56">
-            <Select value={output ?? ""} onChange={(e) => setOutput(e.target.value)} data-sync-output>
-              {devices.outputs.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </Select>
+            <DeviceSelect devices={devices.outputs} value={output} onChange={setOutput} data-sync-output />
           </div>
         </Row>
         <Row label="Flash">
           <div className="w-56">
-            <Select value={display ?? ""} onChange={(e) => setDisplay(Number(e.target.value))} data-sync-display>
-              {devices.displays.map((d, i) => (
-                <option key={d.id} value={d.id}>
-                  {screenName(i, d)}
-                </option>
-              ))}
-            </Select>
+            <DeviceSelect devices={devices.displays.map((d, i) => ({ id: d.id, name: displayName(i, d) }))} value={display} onChange={setDisplay} data-sync-display />
           </div>
         </Row>
       </div>

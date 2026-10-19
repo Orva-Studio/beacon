@@ -26,7 +26,7 @@ import { addDropTarget, takes, type DropTarget } from "./drop";
 import { rgba } from "./theme";
 import { useTextEdit, type TextLine, type TextTarget } from "./text-edit";
 import { useQuery } from "./query";
-import { useDialogsOpen } from "./controls";
+import { isFormField, useDialogsOpen } from "./controls";
 import { canvasSnapping, type Guide } from "./canvas-snap";
 import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
@@ -206,7 +206,7 @@ export function CanvasOverlay({
   /** The text callout being typed in place (a double-click on it). */
   const [typing, setTyping] = useState<string | null>(null);
   useEffect(() => {
-    const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
+    const typing = (e: KeyboardEvent) => isFormField(e.target);
     const down = (e: KeyboardEvent) => {
       const r = spaceRef.current;
       if (e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || typing(e) || !(r.over || r.held)) return;

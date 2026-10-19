@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import Electrobun, { Electroview } from "electrobun/view";
 import { App } from "./app";
+import { isTextField } from "./controls";
 import { createHost } from "./host";
 import type { AppRPC } from "./rpc";
 import { replica } from "./store";
@@ -17,7 +18,7 @@ const rpc = Electroview.defineRPC<AppRPC>({
       },
       key: ({ code, meta, shift = false, alt = false, ctrl = false }) => {
         const el = document.activeElement;
-        const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+        const field = isTextField(el);
         // The menu took these from a text field (Select All, Undo, Redo): a replayed key can't edit, so do it here.
         if (field && meta && !alt && !ctrl && (code === "KeyA" || code === "KeyZ")) {
           if (code === "KeyA") el.select();

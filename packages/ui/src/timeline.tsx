@@ -15,7 +15,7 @@ import {
 } from "@beacon/model";
 import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
-import { PLAIN_TEXT } from "./controls";
+import { RenameField } from "./controls";
 import { arrowHalfHeight, clipBox, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
@@ -666,20 +666,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         }}
       />
       {renaming && tracks.some((t) => t.id === renaming) && (
-        <input
-          {...PLAIN_TEXT}
-          autoFocus
-          defaultValue={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
-          className="absolute rounded-sm border border-accent bg-well px-1 text-body font-semibold text-text-strong outline-none"
-          style={{ left: 8, top: RULER + tracks.findIndex((t) => t.id === renaming) * TRACK + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") replica.rename(undefined);
-          }}
-          onBlur={(e) => {
-            const name = e.currentTarget.value.trim();
+        <RenameField
+          value={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
+          className="absolute text-body font-semibold"
+          style={{ left: 8, top: rowTop(tracks.findIndex((t) => t.id === renaming), TRACK) + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}
+          onDone={(name) => {
             const t = tracks.find((x) => x.id === renaming);
-            if (t && name !== t.name && name !== trackName(t, tracks.length - 1 - tracks.indexOf(t))) run("track.set", { track: t.id, name }, "Rename Track");
+            if (t && name !== null && name !== t.name && name !== trackName(t, tracks.length - 1 - tracks.indexOf(t))) run("track.set", { track: t.id, name }, "Rename Track");
             replica.rename(undefined);
           }}
         />

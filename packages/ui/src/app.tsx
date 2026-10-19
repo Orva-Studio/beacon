@@ -18,14 +18,15 @@ import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
-import { clock, RecordUi, type RecordHost } from "./record";
+import { RecordUi, type RecordHost } from "./record";
+import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, Icon, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
+import { Button, Icon, isFormField, isTextField, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -107,8 +108,7 @@ export function App({ host }: { host: Host }) {
   useEffect(() => {
     const down = (e: PointerEvent) => {
       const el = document.activeElement;
-      const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
-      if (field && el !== e.target && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) el.blur();
+      if (isFormField(el) && el !== e.target && !isFormField(e.target)) el.blur();
     };
     window.addEventListener("pointerdown", down, true);
     return () => window.removeEventListener("pointerdown", down, true);
@@ -116,7 +116,7 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const field = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
+      const field = isFormField(e.target);
       const b = match(keymap, e);
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
@@ -126,7 +126,7 @@ export function App({ host }: { host: Host }) {
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
     const onClipboard = (e: ClipboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (isTextField(e.target)) return;
       e.preventDefault();
       host.run(`edit.${e.type}`);
     };
@@ -227,7 +227,7 @@ function useWindowGuards() {
   // The webview's own menu (Reload, Inspect Element) is for developers; text fields keep theirs.
   useEffect(() => {
     const onMenu = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+      if (!isTextField(e.target)) e.preventDefault();
     };
     window.addEventListener("contextmenu", onMenu);
     return () => window.removeEventListener("contextmenu", onMenu);
@@ -255,7 +255,7 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
   return (
     <div className="flex items-center gap-2 rounded-md bg-danger/15 py-0.5 pl-2.5 pr-1 text-xs" data-narrating>
       <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
-      <span className="tabular-nums text-text-strong">Narrating {clock(Math.max(0, now - narrating.started) / 1000)}</span>
+      <span className="tabular-nums text-text-strong">Narrating {clock((now - narrating.started) / 1000, { floor: true })}</span>
       <Button look="danger" onClick={() => host.stopNarration()} title="Stop and put the narration on the timeline (⌘⇧2)" data-narration-stop>
         Stop
       </Button>

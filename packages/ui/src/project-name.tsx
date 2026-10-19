@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { DEFAULT_SETTINGS } from "@beacon/model";
 import { CanvasSettings, type CanvasValues } from "./canvas-settings";
-import { Button, Check, Modal, PLAIN_TEXT, SettingsRow, TextInput } from "./controls";
+import { Button, Check, Modal, RenameField, SettingsRow, TextInput } from "./controls";
 import { replica, useView } from "./store";
 
 export interface ProjectHost {
@@ -138,26 +138,11 @@ export function ProjectName({ name, host }: { name?: string; host: ProjectHost }
       </button>
     );
   }
-  const done = async (el: HTMLInputElement, apply: boolean) => {
+  const done = async (next: string | null) => {
     setEditing(false);
-    const next = el.value.trim();
-    if (!apply || !next || next === name) return;
+    if (!next || next === name) return;
     const r = await host.renameProject(next);
     if (!r.ok && r.error) replica.status(r.error);
   };
-  return (
-    <input
-      {...PLAIN_TEXT}
-      autoFocus
-      className="w-56 rounded-sm border border-accent bg-well px-1 font-medium text-text-strong outline-none"
-      defaultValue={name}
-      onFocus={(e) => e.currentTarget.select()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") void done(e.currentTarget, true);
-        if (e.key === "Escape") void done(e.currentTarget, false);
-      }}
-      onBlur={(e) => void done(e.currentTarget, true)}
-    />
-  );
+  return <RenameField value={name} className="w-56 font-medium" onDone={(next) => void done(next)} />;
 }

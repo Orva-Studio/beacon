@@ -3,8 +3,9 @@ import { assetName, type Asset, type Project } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
 import { replica, useView, type BinKind, type BinSort } from "./store";
-import { Icon, MediaTile, PLAIN_TEXT, Progress, TextInput, Waveform, type IconName } from "./controls";
+import { Icon, MediaTile, Progress, RenameField, TextInput, Waveform, type IconName } from "./controls";
 import { openPreview } from "./media-preview";
+import { clock } from "./time";
 
 /** Each sort with its two directions, as one menu. */
 const SORTS: [BinSort, string, string, string][] = [
@@ -44,12 +45,6 @@ function sortAssets(assets: Asset[], { by, desc }: { by: BinSort; desc: boolean 
 }
 
 const KIND_ICON: Record<Asset["kind"], IconName> = { recording: "monitor-play", image: "image", audio: "music-note", video: "video-camera" };
-
-const clock = (s: number) => {
-  const t = Math.round(s);
-  const two = (n: number) => String(n).padStart(2, "0");
-  return t >= 3600 ? `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}:${two(t % 60)}` : `${Math.floor(t / 60)}:${two(t % 60)}`;
-};
 
 /** Frames across a video for scrubbing its tile: one per few pixels of a grid tile. */
 const SCRUB_FRAMES = 30;
@@ -330,22 +325,11 @@ function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Ass
     </div>
   );
   const name = renaming ? (
-    <input
-      {...PLAIN_TEXT}
-      // Rename… comes from a native menu: take focus once it has closed, with the name selected to type over.
-      ref={(el) => {
-        if (el && document.activeElement !== el) requestAnimationFrame(() => (el.focus(), el.select()));
-      }}
-      defaultValue={assetName(a)}
-      className="min-w-0 flex-1 rounded-sm border border-accent bg-well px-1 text-label text-text-strong outline-none"
-      onPointerDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") replica.renameMedia(undefined);
-      }}
-      onBlur={(e) => {
-        const value = e.currentTarget.value.trim();
-        if (replica.get().renamingMedia === a.id && value !== assetName(a)) host.run("asset.rename", { asset: a.id, name: value }, "Rename Media");
+    <RenameField
+      value={assetName(a)}
+      className="min-w-0 flex-1 text-label"
+      onDone={(value) => {
+        if (value !== null && replica.get().renamingMedia === a.id && value !== assetName(a)) host.run("asset.rename", { asset: a.id, name: value }, "Rename Media");
         replica.renameMedia(undefined);
       }}
     />

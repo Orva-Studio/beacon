@@ -4,6 +4,7 @@ import { Button, Progress } from "./controls";
 import { useQuery } from "./query";
 import { useView } from "./store";
 import type { Host } from "./app";
+import { clock } from "./time";
 
 /** The mean progress of the transcripts being made, 0-1. */
 export function useTranscribing(): number | undefined {
@@ -36,11 +37,6 @@ export function useTranscriptsReady<T extends { waiting: string[] }>(host: Host,
 /** What an open review (`review`, its query's args) finds, for the timeline's marks and the review panel. */
 export const useReviewed = <T extends { waiting: string[] }>(host: Host, query: string, review: object | undefined, project: Project | undefined) =>
   useTranscriptsReady<T>(host, query, review ?? {}, !!review, project);
-
-export const clock = (s: number) => {
-  const t = Math.max(0, Math.round(s));
-  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
-};
 
 type Review = "silences" | "fillers";
 type Item = { start: number; end: number; cut: boolean };

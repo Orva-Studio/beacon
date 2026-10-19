@@ -1,5 +1,6 @@
 import { type Project, type Session } from "@beacon/model";
-import { clock, ReviewPanel, useReviewed } from "./review";
+import { ReviewPanel, useReviewed } from "./review";
+import { clock } from "./time";
 import type { Host } from "./app";
 
 /** What `transcript.fillers` answers. */
