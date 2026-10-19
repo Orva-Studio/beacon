@@ -2,7 +2,7 @@ import { dlopen, FFIType, type Pointer } from "bun:ffi";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkLen, checkStatus, loadEngine } from "./engine";
+import { copyOut, loadEngine } from "./engine";
 import { runTool } from "./tool";
 
 let objc: ReturnType<typeof open> | undefined;
@@ -36,8 +36,5 @@ export async function captureWindow(windowId: number): Promise<Uint8Array> {
 /** PNG `over` pasted onto PNG `base` with its top-left at (x, y), clipped to `base`. */
 export function pastePng(base: Uint8Array, over: Uint8Array, x: number, y: number): Uint8Array {
   const e = loadEngine();
-  const n = checkLen(e, e.beacon_png_paste(base, base.length, over, over.length, Math.round(x), Math.round(y)));
-  const out = new Uint8Array(n);
-  checkStatus(e, e.beacon_png_result_copy(out, n));
-  return out;
+  return copyOut(e, e.beacon_png_paste(base, base.length, over, over.length, Math.round(x), Math.round(y)), (out, cap) => e.beacon_png_result_copy(out, cap));
 }

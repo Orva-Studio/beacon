@@ -1,5 +1,5 @@
 import type { TextSpec } from "@beacon/model";
-import { loadEngine, takeString } from "./engine";
+import { cstr, loadEngine, takeString } from "./engine";
 
 /** One line of text as the renderer lays it out, in box units, y down from the box's top. */
 export interface TextLine {
@@ -12,7 +12,6 @@ export interface TextLine {
   carets: number[];
 }
 
-const cstr = (s: string) => Buffer.from(`${s}\0`);
 
 /** Lays out a callout's text with Core Text, exactly as the renderer draws it. */
 export function textLayout(spec: TextSpec): TextLine[] {

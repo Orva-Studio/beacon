@@ -71,7 +71,7 @@ function libraryPath(): string {
 export function loadEngine(): Engine {
   if (!engine) {
     const e = dlopen(libraryPath(), symbols).symbols;
-    checkStatus(e, e.beacon_set_tools_dir(Buffer.from(`${toolsDir()}\0`)));
+    checkStatus(e, e.beacon_set_tools_dir(cstr(toolsDir())));
     engine = e;
   }
   return engine;
@@ -95,6 +95,16 @@ export function takeString(e: Engine, raw: Pointer | bigint | null): string {
   } finally {
     e.beacon_string_free(p);
   }
+}
+
+/** A string as the engine takes it: UTF-8, NUL-terminated. */
+export const cstr = (s: string) => Buffer.from(`${s}\0`);
+
+/** Bytes the engine holds for us: `len` (its byte count, or -1 and an error), then `copy` into a buffer of ours. */
+export function copyOut(e: Engine, len: number | bigint, copy: (out: Uint8Array, cap: number) => number): Uint8Array {
+  const out = new Uint8Array(checkLen(e, len));
+  checkStatus(e, copy(out, out.length));
+  return out;
 }
 
 export function checkLen(e: Engine, n: number | bigint): number {

@@ -1,5 +1,5 @@
 import type { Pointer } from "bun:ffi";
-import { checkLen, checkStatus, lastError, loadEngine, pointer, takeString } from "./engine";
+import { checkStatus, copyOut, cstr, lastError, loadEngine, pointer, takeString } from "./engine";
 
 export interface PreviewStats {
   shown: number;
@@ -37,23 +37,23 @@ export class NativePreview {
   /** `layer`: the view's `CAMetalLayer`; `width`×`height` physical pixels. */
   static onLayer(layer: Pointer, width: number, height: number, jobJson: string): NativePreview {
     const e = loadEngine();
-    return new NativePreview(pointer(e.beacon_preview_new(layer, width, height, Buffer.from(`${jobJson}\0`))));
+    return new NativePreview(pointer(e.beacon_preview_new(layer, width, height, cstr(jobJson))));
   }
 
   static offscreen(width: number, height: number, jobJson: string): NativePreview {
     const e = loadEngine();
-    return new NativePreview(pointer(e.beacon_preview_offscreen(width, height, Buffer.from(`${jobJson}\0`))));
+    return new NativePreview(pointer(e.beacon_preview_offscreen(width, height, cstr(jobJson))));
   }
 
   submit(seq: number, sceneJson: string): void {
     const e = loadEngine();
-    checkStatus(e, e.beacon_preview_submit(this.#live(), seq >>> 0, Buffer.from(`${sceneJson}\0`)));
+    checkStatus(e, e.beacon_preview_submit(this.#live(), seq >>> 0, cstr(sceneJson)));
   }
 
   /** Starts decoders for an upcoming scene (the next cut) without drawing it. */
   preroll(sceneJson: string): void {
     const e = loadEngine();
-    checkStatus(e, e.beacon_preview_preroll(this.#live(), Buffer.from(`${sceneJson}\0`)));
+    checkStatus(e, e.beacon_preview_preroll(this.#live(), cstr(sceneJson)));
   }
 
   /** Read video from proxies where available (fast seeking) or only from the originals. */
@@ -81,17 +81,14 @@ export class NativePreview {
   /** Replaces what is drawn over the canvas in the same frame as the picture (the editor's selection and guides). */
   marks(marks: PreviewMark[]): void {
     const e = loadEngine();
-    checkStatus(e, e.beacon_preview_marks(this.#live(), Buffer.from(`${JSON.stringify(marks)}\0`)));
+    checkStatus(e, e.beacon_preview_marks(this.#live(), cstr(JSON.stringify(marks))));
   }
 
   /** Waits for queued work; an offscreen preview returns its RGBA pixels. */
   flush(): Uint8Array | undefined {
     const e = loadEngine();
-    const n = checkLen(e, e.beacon_preview_flush(this.#live()));
-    if (!n) return undefined;
-    const out = new Uint8Array(n);
-    checkStatus(e, e.beacon_preview_result_copy(this.#live(), out, n));
-    return out;
+    const out = copyOut(e, e.beacon_preview_flush(this.#live()), (out, cap) => e.beacon_preview_result_copy(this.#live(), out, cap));
+    return out.length ? out : undefined;
   }
 
   stats(): PreviewStats {
@@ -137,7 +134,7 @@ export class AudioOutput {
   /** `args`: ffmpeg argv (inputs and filters, output appended natively), empty for silence. */
   play(args: string[], start: number): void {
     const e = loadEngine();
-    checkStatus(e, e.beacon_audio_play(this.#live(), Buffer.from(`${JSON.stringify(args)}\0`), start));
+    checkStatus(e, e.beacon_audio_play(this.#live(), cstr(JSON.stringify(args)), start));
   }
 
   /** Timeline seconds now audible, or undefined when stopped. */
