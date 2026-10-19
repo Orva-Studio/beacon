@@ -1562,6 +1562,20 @@ Seeing more at once.
   view, thumbnails, proxy progress, RPC) moves to a per-window record, and
   menus and keys go to the focused window. Playing in one window pauses the
   others. Mostly `packages/desktop`; the UI and core are unchanged.
+- **Project Settings apart from Settings, and a Settings window like
+  System Settings** (the user, 2026-10-19). Project Settings (canvas size,
+  frame rate, background, loudness, standalone) is the project's, with
+  undo, so it leaves the app's Settings for a dialog of its own, opened as
+  Camtasia does: Edit › Project Settings… (with a key), the canvas's
+  right-click (already there), and the Properties panel when nothing is
+  selected (Camtasia's Properties button with no selection), plus New
+  Project's form, which already reuses it. Agents keep their way in:
+  `project_settings_set` changes it, and `ui_open` gains a `projectSettings`
+  dialog in place of Settings' `project` tab, so `ui_snapshot` can show it.
+  Settings becomes a fixed-size window with a sidebar (General, Recording,
+  Transcripts, Shortcuts, later Appearance), each section scrolling inside
+  it, so switching sections never changes its height; a search over every
+  setting once there are enough to need it.
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
