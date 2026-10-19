@@ -1636,17 +1636,16 @@ Seeing more at once.
   `job_status`. The clips still appear only once the copy is complete, and a
   failed copy still leaves nothing behind. Save As standalone gets the same
   progress in place of its one status message.
-- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
-  show frames along their length, not only the first. Measured on demo_1
-  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
-  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
-  (camera), ~3 s of CPU, about 4% of building the proxies; from the
-  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
-  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
-  the proxy, cached like waveforms; the timeline draws slices of the sprite
-  (its clips layer is redrawn only on zoom, scroll and edits). Design for
-  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
-  for what is in view, or keep two densities (1 s, 10 s).
+- **Film look from hance** (the user, 2026-10-13; small, not hance's full
+  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
+  sliders (strength, grain, halation, fade, warmth, or whichever few hance
+  treats as its core), so the inspector, undo, copy properties and agent
+  commands come from the schema; hance's `.hlook` files import onto those
+  sliders, with what doesn't map listed in an import report rather than
+  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
+  fixes reach both; preview/export parity as for every pass. Open: what a
+  `.hlook` holds (values, a LUT, or both) decides whether the renderer
+  needs LUTs.
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,
@@ -1658,20 +1657,22 @@ Seeing more at once.
   zone anywhere on the timeline ("nothing under the TikTok buttons", one
   tool call for an agent); snapping to safe-area edges comes cheap. Face
   detection for the head guide is later, if wanted.
-**Gate:** two projects open side by side, clips show their frames, and a
-9:16 Short checks clean against its platform's safe areas.
+**Gate:** two projects open side by side, the film look matches between
+preview and export and a `.hlook` imports with a report of what didn't
+map, and a 9:16 Short checks clean against its platform's safe areas.
 
 ### Phase 10 — Looks
-- **Film look from hance** (the user, 2026-10-13; small, not hance's full
-  grading): a "Film Look" feature folder, one WGSL pass and a few of hance's
-  sliders (strength, grain, halation, fade, warmth, or whichever few hance
-  treats as its core), so the inspector, undo, copy properties and agent
-  commands come from the schema; hance's `.hlook` files import onto those
-  sliders, with what doesn't map listed in an import report rather than
-  dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
-  fixes reach both; preview/export parity as for every pass. Open: what a
-  `.hlook` holds (values, a LUT, or both) decides whether the renderer
-  needs LUTs.
+- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
+  show frames along their length, not only the first. Measured on demo_1
+  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
+  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
+  (camera), ~3 s of CPU, about 4% of building the proxies; from the
+  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
+  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
+  the proxy, cached like waveforms; the timeline draws slices of the sprite
+  (its clips layer is redrawn only on zoom, scroll and edits). Design for
+  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
+  for what is in view, or keep two densities (1 s, 10 s).
 - **Remove background** (the user, 2026-10-16): a camera or video clip's
   background removed, as Camtasia's Remove Color does for green screens
   but with no green screen. It is person segmentation (a matte per frame),
@@ -1692,9 +1693,8 @@ Seeing more at once.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
-**Gate:** the look matches between preview and export, and a `.hlook`
-imports with a report of what didn't map; a camera take's background removed
-by each provider, with the same matte in preview and export.
+**Gate:** clips show their frames; a camera take's background removed by
+each provider, with the same matte in preview and export.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
