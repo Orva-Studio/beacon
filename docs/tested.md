@@ -22,6 +22,7 @@ feature lands and when it is checked.
 | ffmpeg helpers and PCM decoding; JSON-lines reader; Check Sync's version check; scene building; release scripts | 2026-10-19 | `0c8e3eb`…`f254513` | Waveform peaks of the fixtures identical; core/render/MCP tests; a take with `recording.json` version 2 refused; `check-release.ts` on a staged engine folder (exports, import, frame, whisper, speech) |
 | Engine: FFI marshalling, common.wgsl and gpu.rs, the scene walk, CoreFoundation, bitmap context, colour matrix; the worker without its raw output | 2026-10-19 | `047f94b`, `d584f2b`, `cdc4240`, `78f941d`, `768e9f3` | 36 PNG frames of three projects (two client projects with CRT, drop shadow, round corners, motion blur, callouts, cursors) byte-identical before and after; FFI smoke (cursor track, cursor image, PNG paste, a bad PNG's error); core export, parity and playback tests; clippy |
 | The desktop imports only core and ui | 2026-10-19 | `8b9718a` | `app.test.ts`; UI flows |
+| The PR review's fixes: bad settings leave no folder; Camtasia shadow defaults; settings reloaded from disk told once (back to defaults too); Return in a dialog is its default action, never also the focused button's click | 2026-10-19 | `2dc92f7`, this commit | Core tests; features tests; UI flows (Return on a focused Not Now downloads and doesn't decline; it failed before the fix) |
 
 ### Not checked yet
 
@@ -34,6 +35,8 @@ feature lands and when it is checked.
 - **Panels**: Annotations, Visual Effects and Audio Effects tiles and their names (Corner Rounding…), favourites.
 - **Renaming** a track, a medium and the project in place: Return keeps, Escape drops, clicking away keeps.
 - **⌘S** shows "Saved automatically"; on the start screen ⌘N and ⌘O.
+- **Return in dialogs** (Export, Record, New Project, Save As, the speech model sheet) does the default action with
+  any button or checkbox focused, and doesn't also press it.
 - **New Project with Auto-normalize off**, then Project Settings shows it off.
 - **Context menus in the app** (rebuilt from `actions.json`): clip menu (Cut … Split at Playhead, colour labels,
   Open Group/Ungroup only on a group, Group otherwise, Remove All Stitches on stitched media, Stitch Selected Media

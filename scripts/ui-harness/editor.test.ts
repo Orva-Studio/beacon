@@ -352,8 +352,12 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   await page.until(`!!${button("Download Speech Model…")}`);
   await page.evaluate(`${button("Download Speech Model…")}.click()`);
   await page.until("!!document.querySelector('[data-resource]')");
-  await page.evaluate(`${button("Download")}.click()`);
+  // Return is the sheet's default (Download) wherever the focus is: with Not Now focused it doesn't also decline.
+  await page.evaluate(`${button("Not Now")}.focus()`);
+  await page.key("Enter", "Enter");
   await arrived(() => ui.menus.includes("fetchResource:whisper-model"));
+  await Bun.sleep(100);
+  expect(ui.menus.filter((m) => m === "declineResource:whisper-model")).toHaveLength(1);
   ui.send("resourceJob", { id: "job-download", state: "running", progress: 0.42 });
   await page.until("document.querySelector('[data-resource-progress]')?.innerText.includes('42%')");
   await page.evaluate(`${button("Cancel Download")}.click()`);

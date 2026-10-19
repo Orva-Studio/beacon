@@ -109,8 +109,12 @@ export function Modal({
           e.stopPropagation();
           if (e.key === "Tab") keepFocusIn(e, panel.current);
           if (e.key === "Escape") onClose();
-          // Return in a text box submits; in a list or a text area it is the field's.
-          if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement)) onEnter();
+          // Return is the dialog's default action, wherever the focus is (not the focused button's click, as macOS has
+          // it); in a list or a text area it is the field's.
+          if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement)) {
+            e.preventDefault();
+            onEnter();
+          }
           else if (onKey && !isFormField(e.target)) onKey(e);
         }}
       >

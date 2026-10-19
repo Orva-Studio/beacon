@@ -73,3 +73,22 @@ test("a new project takes settings as project.settings.set does: loudnessTarget 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("reloading tells a change back to the defaults, and nothing when the file didn't change", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "beacon-settings-"));
+  try {
+    const configDir = join(dir, "config");
+    mkdirSync(configDir);
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ autoProxy: { recording: false, video: true } }));
+    const core = new LocalCore({ configDir });
+    const told: unknown[] = [];
+    core.watchApp((e) => e.kind === "settings" && told.push(e.settings));
+    core.reloadSettings();
+    expect(told).toEqual([]);
+    await new LocalCore({ configDir }).setSettings({ autoProxy: { recording: false, video: false } });
+    core.reloadSettings();
+    expect(told).toMatchObject([{ autoProxy: { video: false } }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

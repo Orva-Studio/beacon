@@ -228,12 +228,18 @@ export class LocalCore implements BeaconCore {
     }
     // Refused before anything is written: a bad setting mustn't leave a folder that blocks trying again.
     this.registry.validate(doc);
-    if (opts.standalone) {
-      doc = { ...doc, settings: { ...doc.settings, standalone: true } };
-      const moved = await this.#copyIn(dir, Object.values(doc.assets));
-      doc = { ...doc, assets: { ...doc.assets, ...Object.fromEntries(moved.map((a) => [a.id, a])) } };
+    try {
+      if (opts.standalone) {
+        doc = { ...doc, settings: { ...doc.settings, standalone: true } };
+        const moved = await this.#copyIn(dir, Object.values(doc.assets));
+        doc = { ...doc, assets: { ...doc.assets, ...Object.fromEntries(moved.map((a) => [a.id, a])) } };
+      }
+      writeProject(dir, doc);
+    } catch (e) {
+      // The folder didn't exist: a copy that failed half way mustn't block trying again.
+      rmSync(dir, { recursive: true, force: true });
+      throw e;
     }
-    writeProject(dir, doc);
     return this.#attach(dir, doc);
   }
 

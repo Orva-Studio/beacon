@@ -79,15 +79,17 @@ export class FeatureRegistry {
     claim(this.actions, feature.actions ?? [], "action", feature.id);
     claim(this.sessionCommands, feature.sessionCommands ?? [], "session command", feature.id);
     claim(this.exportFiles, feature.exportFiles ?? [], "export file", feature.id);
+    const annotations = Object.entries(feature.annotations ?? {}).map(([id, a]) => ({ ...a, id }));
     for (const item of feature.panelItems ?? []) {
       if (this.panelItems.some((i) => i.id === item.id)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" is already registered`);
-      this.panelItems.push(item);
-    }
-    claim(this.annotations, Object.entries(feature.annotations ?? {}).map(([id, a]) => ({ ...a, id })), "annotation", feature.id);
-    for (const item of feature.panelItems ?? []) {
+      // An Annotations item adds the preset it names: one of this feature's or an earlier one's.
       const preset = item.args.preset;
-      if (typeof preset === "string" && !this.annotations.has(preset)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" names annotation preset "${preset}", which no feature registers`);
+      if (item.id.startsWith("annotation:") && !(typeof preset === "string" && (this.annotations.has(preset) || annotations.some((a) => a.id === preset)))) {
+        throw new Error(`panel item "${item.id}" from feature "${feature.id}" names annotation preset "${preset}", which no feature registers`);
+      }
     }
+    this.panelItems.push(...(feature.panelItems ?? []));
+    claim(this.annotations, annotations, "annotation", feature.id);
     this.favorites.push(...(feature.panelItems ?? []).filter((i) => i.favorite).map((i) => i.id), ...(feature.effects ?? []).filter((e) => e.favorite).map((e) => `effect:${e.id}`));
     this.features.set(feature.id, feature);
     return this;

@@ -34,6 +34,8 @@ export class AppConfig {
   ) {
     const prefs = this.read("preferences.json");
     this.#prefs = prefs && typeof prefs === "object" ? (prefs as Record<string, string>) : {};
+    // What the file holds now: `reloadSettings` tells what differs from it.
+    this.#told = this.settings();
   }
 
   /** A preference's value: the user's choice, or its default when unset or no longer an option. */
@@ -148,7 +150,7 @@ export class AppConfig {
   }
 
   /** The settings last told (written here, or found changed by `reloadSettings`). */
-  #told?: AppSettings;
+  #told: AppSettings;
 
   settings(): AppSettings {
     const saved = AppSettingsSchema.partial().safeParse(this.read("settings.json"));
@@ -158,7 +160,7 @@ export class AppConfig {
   /** Reads the settings again after another process (an agent's core) may have written them, telling a change. */
   reloadSettings(): AppSettings {
     const next = this.settings();
-    const changed = !Bun.deepEquals(next, this.#told ?? DEFAULT_APP_SETTINGS);
+    const changed = !Bun.deepEquals(next, this.#told);
     this.#told = next;
     if (changed) this.emit({ kind: "settings", settings: next });
     return next;
