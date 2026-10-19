@@ -6,7 +6,7 @@ import type { SchemaInfo } from "@beacon/core";
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export { syncKey, withPatch } from "@beacon/model";
 
-import type { CanvasMark } from "./canvas";
+import type { CanvasMark } from "./canvas-marks";
 import type { AssetPreviewInfo } from "./media-preview";
 import type { SaveAsSheet } from "./project-name";
 import type { ResourceInfo, ResourceJob } from "./resource";

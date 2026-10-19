@@ -33,6 +33,12 @@ export const SNAP = 12;
 /** The top of display row `i` (top track first) for tracks `track` points tall. */
 export const rowTop = (i: number, track: number) => RULER + i * track;
 
+/** The row under `y`, of `rows` (display order: top first), if any. */
+export const rowAt = (y: number, track: number, rows: number): number | undefined => {
+  const i = Math.floor((y - RULER) / track);
+  return y > RULER && i >= 0 && i < rows ? i : undefined;
+};
+
 /** A clip's box in its row: 3 points in from the row's edges. */
 export const clipBox = (i: number, track: number) => ({ y: rowTop(i, track) + 3, h: track - 6 });
 

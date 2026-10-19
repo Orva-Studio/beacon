@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apply, type Affine } from "@beacon/model";
-import type { CanvasMark } from "./canvas";
+import type { CanvasMark } from "./canvas-marks";
 import { rgba } from "./theme";
 import { PLAIN_TEXT } from "./controls";
 

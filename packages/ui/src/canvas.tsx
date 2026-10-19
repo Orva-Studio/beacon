@@ -1,7 +1,6 @@
 import { replica, useView } from "./store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  animatedValue,
   editedValue,
   apply,
   compose,
@@ -21,7 +20,6 @@ import {
   type Project,
   type Session,
   type Track,
-  type RGBA,
 } from "@beacon/model";
 import type { Host } from "./app";
 import { addDropTarget, takes, type DropTarget } from "./drop";
@@ -29,72 +27,12 @@ import { rgba } from "./theme";
 import { useTextEdit, type TextLine, type TextTarget } from "./text-edit";
 import { useQuery } from "./query";
 import { useDialogsOpen } from "./controls";
+import { canvasSnapping, type Guide } from "./canvas-snap";
+import { boxGroup, contentSize, valueAt } from "./canvas-clips";
+import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
 
-const HANDLE = 10;
-/** Dragged media snaps from this many points away. */
-const SNAP = 8;
-/** The rotate control: the × circle at the clip's centre, and the dot this far out along its x axis. */
-const ROTATE = { ring: 14, dot: 10, arm: 52 };
 
-/** The canvas colours, from the design tokens. */
-const COLOR = {
-  get border() {
-    return rgba("canvas-border");
-  },
-  get outline() {
-    return rgba("canvas-outline");
-  },
-  get handle() {
-    return rgba("canvas-handle");
-  },
-  get guide() {
-    return rgba("canvas-guide");
-  },
-  get hot() {
-    return rgba("canvas-hot");
-  },
-  get ring() {
-    return rgba("canvas-ring");
-  },
-};
-
-/**
- * What the preview draws over the canvas in the same frame as the picture
- * (beacon-render's `Mark`), computed in overlay points; the app hands them to the
- * native view in canvas pixels, the harness draws them as SVG.
- */
-export type CanvasMark =
-  /** `butt`: square ends (a band, such as a text selection) instead of round caps. */
-  | { kind: "line"; from: [number, number]; to: [number, number]; width: number; color: RGBA; butt?: boolean }
-  | { kind: "circle"; at: [number, number]; radius: number; width: number; fill: RGBA; stroke: RGBA };
-
-const line = (from: [number, number], to: [number, number], color: RGBA, width = 1): CanvasMark => ({ kind: "line", from, to, width, color });
-const circle = (at: [number, number], radius: number, fill: RGBA, stroke: RGBA = COLOR.outline, width = 1.5): CanvasMark => ({ kind: "circle", at, radius, width, fill, stroke });
-const cross = ([x, y]: [number, number], r: number, color: RGBA, width = 1.3): CanvasMark[] => [line([x - r, y - r], [x + r, y + r], color, width), line([x + r, y - r], [x - r, y + r], color, width)];
-
-/** Pixels of what a visual clip shows before crop: its video or image, or the box a prop group sizes (a group's or stitched clip's canvas, a callout). */
-/** The prop group holding a clip's own box size (annotations), if its size isn't its media's. */
-function boxGroup(clip: Clip): string | undefined {
-  return Object.entries(clip.props).find(([, v]) => typeof (v as { width?: unknown })?.width === "number" && typeof (v as { height?: unknown })?.height === "number")?.[0];
-}
-
-export function contentSize(project: Project, clip: Clip): [number, number] | undefined {
-  const group = boxGroup(clip);
-  const box = group ? (clip.props[group] as { width: number; height: number }) : undefined;
-  if (box?.width && box.height) return [box.width, box.height];
-  const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
-  const streams = (asset?.derived.media as { streams?: { kind: string; width?: number; height?: number }[] } | undefined)?.streams?.filter((s) => s.kind === "video");
-  const s = streams?.[Number((clip.props.media as { stream?: number } | undefined)?.stream ?? 0)];
-  return s?.width && s.height ? [s.width, s.height] : undefined;
-}
-
-/** A property's value at the playhead, through the clip's animations. */
-export function valueAt(clip: Clip, playhead: number, group: string, field: string, fallback: number): number {
-  const t = Math.min(Math.max(secondsToTicks(playhead), clip.start), clip.start + clip.duration);
-  return Number(animatedValue((clip.props[group] as Record<string, unknown> | undefined)?.[field] ?? fallback, `${group}.${field}`, clip.animations, mediaTimeAt(clip, t)));
-}
-
-interface Placed {
+export interface Placed {
   clip: Clip;
   size: [number, number];
   t: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
@@ -179,7 +117,7 @@ const HANDLES = [
   { id: "sw", sx: -1, sy: 1 },
   { id: "w", sx: -1, sy: 0 },
 ] as const;
-type Handle = (typeof HANDLES)[number];
+export type Handle = (typeof HANDLES)[number];
 
 type Drag =
   /** `x`/`y`: where each clip is shown when the drag starts; `sx`/`sy`: the stored values the drag adds to. */
@@ -424,103 +362,7 @@ export function CanvasOverlay({
     });
   };
 
-  /** Lines a box can align on along axis `i`: its two edges (spanning its extent on the other axis) and its centre (a point). */
-  const lines = (a: number, b: number, c0: number, c1: number): Line[] => [
-    { at: a, span: [c0, c1] },
-    { at: (a + b) / 2, span: [(c0 + c1) / 2, (c0 + c1) / 2], centre: true },
-    { at: b, span: [c0, c1] },
-  ];
-
-  /** A clip's corners in canvas pixels, and the box around them. */
-  const canvasBox = (p: Placed) => {
-    const c = p.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as const);
-    const lo = [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1]))] as const;
-    const hi = [Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))] as const;
-    return { c, lo, hi };
-  };
-
-  /** What a box snaps to along axis `i` (canvas pixels): the canvas's edges and centre, and other clips' edges. */
-  const snapTargets = (i: 0 | 1, skip: Set<string>): Line[] => {
-    const out = i === 0 ? lines(0, CW, 0, CH) : lines(0, CH, 0, CW);
-    for (const p of placed) {
-      if (skip.has(p.clip.id)) continue;
-      const { lo, hi } = canvasBox(p);
-      const j = (1 - i) as 0 | 1;
-      out.push(...lines(lo[i], hi[i], lo[j], hi[j]).filter((l) => !l.centre));
-    }
-    return out;
-  };
-
-  /** The nearest target within snapping distance of any of `own` (centres only to centres), and how far to move to it. */
-  const nearest = (own: Line[], targets: Line[]) => {
-    let best: { by: number; own: Line; target: Line } | undefined;
-    for (const o of own) for (const t of targets) if (!!o.centre === !!t.centre && Math.abs(t.at - o.at) * k <= SNAP && (!best || Math.abs(t.at - o.at) < Math.abs(best.by))) best = { by: t.at - o.at, own: o, target: t };
-    return best;
-  };
-
-  /** The guide drawn for a snap: a line through what aligned, with an × at each end. */
-  const guideOf = (i: 0 | 1, s: { own: Line; target: Line }): Guide => {
-    const ends = [...s.own.span, ...s.target.span];
-    return { axis: i === 0 ? "x" : "y", at: s.target.at, from: Math.min(...ends), to: Math.max(...ends), marks: [...new Set(ends)] };
-  };
-
-  /**
-   * Snaps a resized box: the side or corner dragged, by `rel` (its size over the size when the drag started) on
-   * each axis, to the lines moving snaps to, keeping the opposite side where it is. `uniform`: one factor for
-   * both (a video's corner), snapped on the closer axis. A box turned on the canvas doesn't snap.
-   */
-  const snapResize = (p: Placed, handle: Handle, rel: [number, number], uniform: boolean, off: boolean): { rel: [number, number]; guides: Guide[] } => {
-    if (off || !session.canvas.snapping) return { rel, guides: [] };
-    const { c, lo, hi } = canvasBox(p);
-    if (!c.every((q) => [0, 1].every((i) => Math.abs(q[i]! - lo[i]!) < 0.5 || Math.abs(q[i]! - hi[i]!) < 0.5))) return { rel, guides: [] };
-    const sides = [handle.sx, handle.sy];
-    const skip = new Set([p.clip.id]);
-    /** The box's extent on axis `i` as resized by `r`. */
-    const extent = (i: 0 | 1, r: number): [number, number] => {
-      const side = sides[i]!;
-      const size = (hi[i] - lo[i]) * r;
-      return side > 0 ? [lo[i], lo[i] + size] : side < 0 ? [hi[i] - size, hi[i]] : [(lo[i] + hi[i] - size) / 2, (lo[i] + hi[i] + size) / 2];
-    };
-    const snap = (i: 0 | 1) => {
-      const side = sides[i]!;
-      if (!side) return undefined;
-      const [a, b] = extent(i, rel[i]);
-      const [fixed, edge] = side > 0 ? [a, b] : [b, a];
-      const j = (1 - i) as 0 | 1;
-      // Only the dragged edge moves; the canvas's centre is the one centre it aligns on.
-      const targets = snapTargets(i, skip).filter((t) => !t.centre);
-      const found = nearest([{ at: edge, span: extent(j, rel[j]) }], [...targets, { at: i === 0 ? CW / 2 : CH / 2, span: i === 0 ? [0, CH] : [0, CW] }]);
-      const r = found && ((found.target.at - fixed) / (edge - fixed || 1)) * rel[i];
-      return found && r! > 0.02 ? { r: r!, d: Math.abs(found.by), guide: guideOf(i, found) } : undefined;
-    };
-    const sx = snap(0);
-    const sy = snap(1);
-    if (uniform) {
-      const b = sx && sy ? (sx.d <= sy.d ? sx : sy) : (sx ?? sy);
-      return b ? { rel: [b.r, b.r], guides: [b.guide] } : { rel, guides: [] };
-    }
-    return { rel: [sx?.r ?? rel[0], sy?.r ?? rel[1]], guides: [...(sx ? [sx.guide] : []), ...(sy ? [sy.guide] : [])] };
-  };
-
-  /**
-   * Snaps a moved box (canvas pixels) to the canvas's edges and centre and
-   * other clips' edges: returns the shift and, per axis, the
-   * guide to show (a line through the aligned edges or between the centres).
-   */
-  const snapMove = (boxes: [number, number][][], dx: number, dy: number, off: boolean) => {
-    if (off || !session.canvas.snapping) return { dx, dy, guides: [] as Guide[] };
-    const moving = new Set(selected.map((p) => p.clip.id));
-    const all = boxes.flat();
-    const lo = (i: 0 | 1) => Math.min(...all.map((q) => q[i]));
-    const hi = (i: 0 | 1) => Math.max(...all.map((q) => q[i]));
-    const snapAxis = (i: 0 | 1, d: number, other: number) => {
-      const j = (1 - i) as 0 | 1;
-      return nearest(lines(lo(i) + d, hi(i) + d, lo(j) + other, hi(j) + other), snapTargets(i, moving));
-    };
-    const sx = snapAxis(0, dx, dy);
-    const sy = snapAxis(1, dy, dx + (sx?.by ?? 0));
-    return { dx: dx + (sx?.by ?? 0), dy: dy + (sy?.by ?? 0), guides: [...(sx ? [guideOf(0, sx)] : []), ...(sy ? [guideOf(1, sy)] : [])] };
-  };
+  const { snapResize, snapMove } = canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on: session.canvas.snapping, moving: new Set(selected.map((p) => p.clip.id)) });
 
   return (
     <div
@@ -751,79 +593,12 @@ export function CanvasOverlay({
   );
 }
 
-/** Something a moved box aligns on: a vertical (axis x) or horizontal line at `at`, over `span` on the other axis; a centre is a point. */
-interface Line {
-  at: number;
-  span: [number, number];
-  centre?: boolean;
-}
-
-/** A snap guide in canvas pixels: the line at `at` from `from` to `to`, with an × at each aligned point. */
-interface Guide {
-  axis: "x" | "y";
-  at: number;
-  from: number;
-  to: number;
-  marks: number[];
-}
-
-/** Where the clip turns about: its content's centre, in overlay points. */
-const pivot = (p: Placed) => apply(p.m, p.size[0] / 2, p.size[1] / 2);
-
-/** The content's x axis on screen from the pivot, so the rotate arm turns with the clip (and points left when it is flipped). */
-function axis(p: Placed): [number, number] {
-  const [cx, cy] = pivot(p);
-  const q = apply(p.m, p.size[0] / 2 + 1, p.size[1] / 2);
-  const n = Math.hypot(q[0] - cx, q[1] - cy) || 1;
-  return [(q[0] - cx) / n, (q[1] - cy) / n];
-}
-
-const handlePoints = (p: Placed): Record<string, [number, number]> => {
-  const [a, b, c, d] = p.corners as [[number, number], [number, number], [number, number], [number, number]];
-  const mid = (u: [number, number], v: [number, number]): [number, number] => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
-  return { nw: a, n: mid(a, b), ne: b, e: mid(b, c), se: c, s: mid(c, d), sw: d, w: mid(d, a) };
-};
-
-const dotAt = (p: Placed): [number, number] => {
-  const [cx, cy] = pivot(p);
-  const [ux, uy] = axis(p);
-  return [cx + ux * ROTATE.arm, cy + uy * ROTATE.arm];
-};
-
-/**
- * The selection: a thin white outline that turns with the clip, round
- * handles at its corners and sides, and the rotate control in the middle (a
- * circle with an ×, joined by a line to a dot that is green when hot).
- */
-function selectionMarks(p: Placed, hot: boolean): CanvasMark[] {
-  const q = p.corners;
-  const [cx, cy] = pivot(p);
-  const [ux, uy] = axis(p);
-  const dot = dotAt(p);
-  return [
-    ...q.map((a, i) => line(a, q[(i + 1) % 4]!, COLOR.outline)),
-    ...Object.values(handlePoints(p)).map((h) => circle(h, HANDLE / 2, COLOR.handle)),
-    line([cx + (ux * ROTATE.ring) / 2, cy + (uy * ROTATE.ring) / 2], [dot[0] - (ux * ROTATE.dot) / 2, dot[1] - (uy * ROTATE.dot) / 2], COLOR.outline),
-    circle([cx, cy], ROTATE.ring / 2, COLOR.ring),
-    ...cross([cx, cy], 2.6, COLOR.outline),
-    circle(dot, ROTATE.dot / 2, hot ? COLOR.hot : COLOR.handle),
-  ];
-}
-
-/** Invisible grab areas over the drawn handles and rotate dot (the picture is drawn by the preview). */
 /** The crop glyph, white edged in black so it shows on any picture; the hotspot at its middle. */
 const CROP_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
     '<g stroke="black" stroke-width="4"><path d="M6 2v16h16"/><path d="M2 6h16v16"/></g>' +
     '<g stroke="white" stroke-width="2"><path d="M6 2v16h16"/><path d="M2 6h16v16"/></g></svg>',
 )}") 12 12, crosshair`;
-
-/** A caption's selection: its box, and the side handles that set how wide its lines run. */
-function captionMarks(p: Placed): CanvasMark[] {
-  const q = p.corners;
-  const at = handlePoints(p);
-  return [...q.map((a, i) => line(a, q[(i + 1) % 4]!, COLOR.outline)), circle(at.e!, HANDLE / 2, COLOR.handle), circle(at.w!, HANDLE / 2, COLOR.handle)];
-}
 
 function Grips({ p, onHot, crop, caption }: { p: Placed; onHot: (on: boolean) => void; crop: boolean; caption?: boolean }) {
   const at = handlePoints(p);
@@ -850,23 +625,6 @@ function Grips({ p, onHot, crop, caption }: { p: Placed; onHot: (on: boolean) =>
         onPointerLeave={() => onHot(false)}
       />}
     </>
-  );
-}
-
-const css = (c: RGBA) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`;
-
-/** The marks as SVG, where there is no native view to draw them (the UI harness). */
-function MarksSvg({ marks }: { marks: CanvasMark[] }) {
-  return (
-    <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
-      {marks.map((m, i) =>
-        m.kind === "line" ? (
-          <line key={i} x1={m.from[0]} y1={m.from[1]} x2={m.to[0]} y2={m.to[1]} stroke={css(m.color)} strokeWidth={m.width} />
-        ) : (
-          <circle key={i} cx={m.at[0]} cy={m.at[1]} r={m.radius} fill={css(m.fill)} stroke={css(m.stroke)} strokeWidth={m.width} />
-        ),
-      )}
-    </svg>
   );
 }
 
