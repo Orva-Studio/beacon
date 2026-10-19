@@ -281,6 +281,39 @@ const SilenceSettings = {
   keepActive: z.boolean().describe("Keep silences where the recording's cursor moves or clicks (screen action)"),
 };
 
+/** A review's flip, focus and close: Remove Silences' and Remove Filler Words' differ only in what they name. */
+function reviewSteps(key: "silences" | "fillers", title: string, item: string): SessionCommandDef[] {
+  const open = (s: Session) => {
+    const r = (s.features.transcript as { silences?: SilenceReview; fillers?: FillerReview } | undefined)?.[key];
+    if (!r) throw new Error(`${title}' review isn't open: ${key}.review opens it`);
+    return r;
+  };
+  const At = z.strictObject({ at: z.number().nonnegative() });
+  return [
+    {
+      id: `${key}.flip`,
+      description: `In ${title}' review, keep a ${item} it would cut, or cut one it would keep (clicking it on the timeline does): \`at\`, a time inside it, e.g. its start from transcript_${key}`,
+      args: At,
+      apply: (s, { at }: { at: number }) => void open(s).flipped.push(at),
+    },
+    {
+      id: `${key}.focus`,
+      description: `In ${title}' review, go to one ${item} to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): \`at\`, a time inside it, e.g. its start from transcript_${key}. ${key}.apply with \`one\` then cuts only that one`,
+      args: At,
+      apply: (s, { at }: { at: number }) => void (open(s).current = at),
+    },
+    {
+      id: `${key}.close`,
+      description: `Close ${title}' review without cutting anything`,
+      args: z.strictObject({}),
+      apply: (s) => {
+        const t = s.features.transcript as { silences?: SilenceReview; fillers?: FillerReview } | undefined;
+        if (t?.[key]) delete t[key];
+      },
+    },
+  ];
+}
+
 const silenceSessionCommands: SessionCommandDef[] = [
   {
     id: "silences.review",
@@ -292,36 +325,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
       openReview(s, "silences", { ...r, keep: Math.min(r.keep, r.min) });
     },
   },
-  {
-    id: "silences.flip",
-    description: "In Remove Silences' review, keep a silence it would cut, or cut one it would keep (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_silences",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = silenceReview(s);
-      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
-      r.flipped.push(at);
-    },
-  },
-  {
-    id: "silences.focus",
-    description:
-      "In Remove Silences' review, go to one silence to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): `at`, a time inside it, e.g. its start from transcript_silences. silences.apply with `one` then cuts only that one",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = silenceReview(s);
-      if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
-      r.current = at;
-    },
-  },
-  {
-    id: "silences.close",
-    description: "Close Remove Silences' review without cutting anything",
-    args: z.strictObject({}),
-    apply: (s) => {
-      const t = s.features.transcript as { silences?: SilenceReview } | undefined;
-      if (t?.silences) delete t.silences;
-    },
-  },
+  ...reviewSteps("silences", "Remove Silences", "silence"),
 ];
 
 /**
@@ -401,36 +405,7 @@ const fillerSessionCommands: SessionCommandDef[] = [
     args: z.strictObject({}),
     apply: (s) => openReview(s, "fillers", fillerReview(s) ?? { flipped: [] }),
   },
-  {
-    id: "fillers.flip",
-    description: "In Remove Filler Words' review, keep a filler it would cut, or cut it again (clicking it on the timeline does): `at`, a time inside it, e.g. its start from transcript_fillers",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = fillerReview(s);
-      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
-      r.flipped.push(at);
-    },
-  },
-  {
-    id: "fillers.focus",
-    description:
-      "In Remove Filler Words' review, go to one filler to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): `at`, a time inside it, e.g. its start from transcript_fillers. fillers.apply with `one` then cuts only that one",
-    args: z.strictObject({ at: z.number().nonnegative() }),
-    apply: (s, { at }: { at: number }) => {
-      const r = fillerReview(s);
-      if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
-      r.current = at;
-    },
-  },
-  {
-    id: "fillers.close",
-    description: "Close Remove Filler Words' review without cutting anything",
-    args: z.strictObject({}),
-    apply: (s) => {
-      const t = s.features.transcript as { fillers?: FillerReview } | undefined;
-      if (t?.fillers) delete t.fillers;
-    },
-  },
+  ...reviewSteps("fillers", "Remove Filler Words", "filler"),
 ];
 
 /** After one item is cut from an open review, its flips and its place move with the timeline. */
