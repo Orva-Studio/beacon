@@ -1575,6 +1575,16 @@ Seeing more at once.
   Transcripts, Shortcuts, later Appearance), each section scrolling inside
   it, so switching sections never changes its height; a search over every
   setting once there are enough to need it.
+- **Copying into a standalone project shows its progress** (the user,
+  2026-10-19). Today an import into a standalone project (and turning
+  standalone on) copies the media in before the clips appear, with nothing on
+  screen meanwhile: instant as an APFS clone on the same disk, but a large
+  file from another drive takes a while. Show it as proxies are shown: the
+  copy is a job, its progress on the medium's Media Bin tile and in the status
+  line ("Copying clip.mp4 into the project…"), and agents see it through
+  `job_status`. The clips still appear only once the copy is complete, and a
+  failed copy still leaves nothing behind. Save As standalone gets the same
+  progress in place of its one status message.
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
