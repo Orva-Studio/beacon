@@ -17,7 +17,8 @@ import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-v
 import { rgba } from "./theme";
 import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
 import { clock, RecordUi, type RecordHost } from "./record";
-import { goTo, reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";

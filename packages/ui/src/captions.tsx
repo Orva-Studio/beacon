@@ -1,14 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { Host } from "./app";
 import { Button, Progress } from "./controls";
-import { useQuery } from "./query";
+import { useTranscribing, useTranscriptsReady } from "./review";
 import { replica, useView } from "./store";
-
-/** The mean progress of the transcripts being made, 0-1. */
-export function useTranscribing(): number | undefined {
-  const values = useView((v) => Object.values(v.transcribing).join());
-  return values ? values.split(",").reduce((n, v) => n + Number(v), 0) / values.split(",").length : undefined;
-}
 
 /**
  * Captions asked for before every audio heard on the timeline has a transcript: the missing ones are started,
@@ -16,18 +10,9 @@ export function useTranscribing(): number | undefined {
  */
 export function useCaptionsPending(host: Host) {
   const pending = useView((v) => !!v.captionsPending);
-  const [tick, setTick] = useState(0);
-  const found = useQuery<{ waiting: string[] }>(host, pending ? "transcript.silences" : "", {}, tick);
-  const waiting = found?.waiting.join() ?? "";
+  const found = useTranscriptsReady<{ waiting: string[] }>(host, "transcript.silences", {}, pending);
   useEffect(() => {
-    for (const asset of waiting ? waiting.split(",") : []) host.analyze("transcript", asset);
-  }, [waiting]);
-  useEffect(() => {
-    if (!pending || !found) return;
-    if (found.waiting.length) {
-      const t = setTimeout(() => setTick((n) => n + 1), 1000);
-      return () => clearTimeout(t);
-    }
+    if (!pending || !found || found.waiting.length) return;
     replica.pendCaptions(false);
     host.run("captions.add", {});
     host.run("panel.show", { properties: true });
