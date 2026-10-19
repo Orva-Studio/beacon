@@ -226,6 +226,8 @@ export class LocalCore implements BeaconCore {
       const created = createProject(this.registry);
       doc = { ...created, settings: changedSettings(created.settings, opts.settings ?? {}) };
     }
+    // Refused before anything is written: a bad setting mustn't leave a folder that blocks trying again.
+    this.registry.validate(doc);
     if (opts.standalone) {
       doc = { ...doc, settings: { ...doc.settings, standalone: true } };
       const moved = await this.#copyIn(dir, Object.values(doc.assets));
@@ -733,7 +735,6 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/")) checkEncoding(videoFormat(output), opts);
-    mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
@@ -746,6 +747,7 @@ export class LocalCore implements BeaconCore {
           return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
         });
     for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
+    mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
     return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
@@ -938,6 +940,11 @@ export class LocalCore implements BeaconCore {
 
   async settings(): Promise<AppSettings> {
     return this.#config.settings();
+  }
+
+  /** The settings again, after another process may have written them (the app watches the file): a change is told as `setSettings`'s are. */
+  reloadSettings(): AppSettings {
+    return this.#config.reloadSettings();
   }
 
   async setSettings(patch: SettingsPatch): Promise<AppSettings> {

@@ -39,11 +39,13 @@ test.skipIf(!existsSync(VIDEO))("core starts proxies by the settings, and a chan
     const proxying = async () => (await core.jobs()).some((j) => j.kind === "proxy" && j.asset === assets[0] && j.state === "running");
     expect(await proxying()).toBe(false);
 
-    // An agent's core, with the project not open here, writes the file; reading it tells the change and follows it.
+    // An agent's core, with the project not open here, writes the file; reloading tells the change and follows it.
     await new LocalCore({ configDir }).setSettings({ autoProxy: { recording: false, video: true } });
     expect(told).toEqual([]);
-    expect((await core.settings()).autoProxy.video).toBe(true);
+    expect(core.reloadSettings().autoProxy.video).toBe(true);
     expect(told).toMatchObject([{ autoProxy: { video: true } }]);
+    core.reloadSettings();
+    expect(told).toHaveLength(1);
     expect(await proxying()).toBe(true);
     await core.close(h);
   } finally {

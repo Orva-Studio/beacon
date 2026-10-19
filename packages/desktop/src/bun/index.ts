@@ -55,9 +55,14 @@ async function openedPayload(h: string): Promise<import("@beacon/ui").Opened> {
   return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: current?.path === h ? current.bridge.rev() : 0 };
 }
 
+/** Set while core saves the window's own change: its "settings" event isn't sent back, over a newer change. */
+let ownChange = false;
 /** A change from the Settings window (which shows it already) or Check Sync; core keeps them and applies them. */
 function setAppSettings(patch: import("@beacon/ui").SettingsPatch) {
+  ownChange = true;
+  // Core tells the change before its promise settles, while this is still set.
   core.setSettings(patch).catch((e: unknown) => status(`could not save settings: ${errorText(e)}`));
+  ownChange = false;
 }
 
 /** Keys rebound (here, by an agent, or in another process's keymap.json): the menus and the window show them. */
@@ -74,8 +79,7 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
  */
 function followConfig() {
   const reload: Record<string, () => void> = {
-    // Core tells a change it reads, as it does its own.
-    "settings.json": () => void core.settings(),
+    "settings.json": () => void core.reloadSettings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "favorites.json": () => void core.favorites().then((items) => send().favorites({ items })),
   };
@@ -329,6 +333,7 @@ const win = new BrowserWindow({
 // App-wide changes reach the window and the menus whether or not a project is open.
 appBridge(core, message, {
   shortcuts: (list) => void shortcutsChanged(list),
+  settings: (s) => ownChange || send().appSettings(s),
   job: (job) => (job.kind === "export" ? exports.exportJob(job) : job.kind === "resource" ? resourceJob(job) : undefined),
 });
 const recorder = createRecording({

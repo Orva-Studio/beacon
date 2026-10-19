@@ -275,7 +275,7 @@ export const cursor = defineFeature({
       }
     },
     effects: {
-      CursorShadow: (fx, ctx) => ({ type: "cursor-shadow", params: shadowFromCamtasia(fx, ctx) }),
+      CursorShadow: (fx, ctx) => ({ type: "cursor-shadow", params: { ...shadowFromCamtasia(fx, ctx) } }),
       CursorMotionBlur: (fx, ctx) => ({ type: "cursor-motion-blur", params: ctx.numbers(fx, { intensity: "intensity" }) }),
       CursorPhysics: (fx, ctx) => ({ type: "cursor-physics", params: ctx.numbers(fx, { intensity: "intensity", tilt: "tilt" }) }),
       LeftClickScaling: (fx, ctx) => ({ type: "click-scaling", params: ctx.numbers(fx, { scale: "scale", speed: "speed" }) }),

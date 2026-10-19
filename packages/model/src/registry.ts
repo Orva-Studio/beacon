@@ -84,6 +84,10 @@ export class FeatureRegistry {
       this.panelItems.push(item);
     }
     claim(this.annotations, Object.entries(feature.annotations ?? {}).map(([id, a]) => ({ ...a, id })), "annotation", feature.id);
+    for (const item of feature.panelItems ?? []) {
+      const preset = item.args.preset;
+      if (typeof preset === "string" && !this.annotations.has(preset)) throw new Error(`panel item "${item.id}" from feature "${feature.id}" names annotation preset "${preset}", which no feature registers`);
+    }
     this.favorites.push(...(feature.panelItems ?? []).filter((i) => i.favorite).map((i) => i.id), ...(feature.effects ?? []).filter((e) => e.favorite).map((e) => `effect:${e.id}`));
     this.features.set(feature.id, feature);
     return this;

@@ -263,6 +263,8 @@ export function Check({ label, title, checked, onChange, disabled, ...data }: { 
       disabled={disabled || !onChange}
       className="flex shrink-0 items-center gap-2 text-left text-text disabled:opacity-50"
       onClick={() => onChange?.(!checked)}
+      // A checkbox: Space toggles it, Enter is left to the dialog (its default action), as a native one does.
+      onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
     >
       <span className={`flex h-4 w-4 items-center justify-center rounded-xs border text-caption font-bold ${checked ? "border-accent bg-accent text-accent-text" : "border-text-faint"}`}>{checked ? "✓" : ""}</span>
       {label}

@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { BrowserView, BrowserWindow, GlobalShortcut, Tray } from "electrobun/main";
 import { syncKey, type LocalCore, type RecordResult } from "@beacon/core";
-import { panelHeight, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
+import { clock, panelHeight, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
 
 /** What recording needs of the app: its core and its window. */
 export interface RecordingApp {
@@ -182,11 +182,10 @@ export function createRecording({ core, message, status, project, window, setSet
     narrating = undefined;
     GlobalShortcut.unregister(STOP_SHORTCUT);
     message("narrating", null);
-    if (result) status(result.discarded ? "Narration discarded" : `Narration recorded (${clock(result.duration)}) on a new track`);
+    if (result) status(result.discarded ? "Narration discarded" : `Narration recorded (${clock(result.duration, { floor: true })}) on a new track`);
   }
 
   const STOP_SHORTCUT = "CommandOrControl+Shift+2";
-  const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow; panelShown: boolean } | undefined;
 
   /**
@@ -310,7 +309,7 @@ export function createRecording({ core, message, status, project, window, setSet
       else if (action === "hidePanel") showPanel(false);
     });
     const started = Date.now();
-    const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000)}`), 1000);
+    const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000, { floor: true })}`), 1000);
     GlobalShortcut.register(STOP_SHORTCUT, () => void stopRecording());
     recording = { tray, timer, panel, panelShown: true };
     trayMenu();
@@ -350,7 +349,7 @@ export function createRecording({ core, message, status, project, window, setSet
     panelState = undefined;
     try {
       const take = await core.recordStop();
-      status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration)})`);
+      status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration, { floor: true })})`);
       if (take.assets[0]) message("recordedSheet", { asset: take.assets[0], name: basename(take.take, ".brec"), duration: take.duration });
     } catch (e) {
       status(e instanceof Error ? e.message : String(e));

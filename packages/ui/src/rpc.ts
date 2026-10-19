@@ -98,6 +98,7 @@ export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payl
 export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight } from "./record-panel-size";
+export { clock } from "./time";
 // The timeline's geometry, for the UI harness's clicks.
 export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
 
@@ -130,7 +131,6 @@ export interface RecordDevices {
 /** A sync check's result. */
 export type SyncCheck = SyncResult;
 
-/** The Export dialog's settings. */
 /** The Export dialog's choices: core's `VideoEncoding`, every one set, null where it is left automatic. */
 export interface ExportSettings {
   format: (typeof VIDEO_FORMATS)[number];

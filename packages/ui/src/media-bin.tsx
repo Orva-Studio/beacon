@@ -326,6 +326,7 @@ function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Ass
   );
   const name = renaming ? (
     <RenameField
+      key={a.id}
       value={assetName(a)}
       className="min-w-0 flex-1 text-label"
       onDone={(value) => {

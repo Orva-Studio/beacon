@@ -25,11 +25,11 @@ export function shadowParams(p: ShadowParams): number[] {
   ];
 }
 
-/** A Camtasia shadow's params it has; a colour with any channel set is black where the others are missing, as Camtasia's. */
-export function shadowFromCamtasia(fx: CamtasiaObject, ctx: CamtasiaContext): Partial<ShadowParams> {
-  const c = ctx.numbers(fx, { r: "color-red", g: "color-green", b: "color-blue", a: "color-alpha" });
-  const color: ShadowParams["color"] | undefined = Object.keys(c).length ? [c.r ?? 0, c.g ?? 0, c.b ?? 0, c.a ?? 1] : undefined;
-  return { ...ctx.numbers(fx, { angle: "angle", offset: "offset", blur: "blur", opacity: "opacity" }), ...(color ? { color } : {}) };
+/** A Camtasia shadow (a clip's or the cursor's): what it leaves out is Camtasia's default, not the effect's. */
+export function shadowFromCamtasia(fx: CamtasiaObject, ctx: CamtasiaContext): ShadowParams {
+  const n = { angle: 5.49779, offset: 10, blur: 10, opacity: 0.4, ...ctx.numbers(fx, { angle: "angle", offset: "offset", blur: "blur", opacity: "opacity" }) };
+  const c = { r: 0, g: 0, b: 0, a: 1, ...ctx.numbers(fx, { r: "color-red", g: "color-green", b: "color-blue", a: "color-alpha" }) };
+  return { ...n, color: [c.r, c.g, c.b, c.a] };
 }
 
 const shadowSchema = z.strictObject({
@@ -59,5 +59,5 @@ export const dropShadow = defineFeature({
     },
   ],
   passes: [{ id: "drop-shadow", wgsl, steps: ["fs_mask", "fs_blur_h", "fs_blur_v", "fs_combine"] }],
-  camtasia: { effects: { DropShadow: (fx, ctx) => ({ type: "drop-shadow", params: shadowFromCamtasia(fx, ctx) }) } },
+  camtasia: { effects: { DropShadow: (fx, ctx) => ({ type: "drop-shadow", params: { ...shadowFromCamtasia(fx, ctx) } }) } },
 });

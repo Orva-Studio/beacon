@@ -668,6 +668,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       />
       {renaming && tracks.some((t) => t.id === renaming) && (
         <RenameField
+          key={renaming}
           value={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
           className="absolute text-body font-semibold"
           style={{ left: 8, top: rowTop(tracks.findIndex((t) => t.id === renaming), TRACK) + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}

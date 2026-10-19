@@ -147,14 +147,19 @@ export class AppConfig {
     return this.#saveFavorites(items);
   }
 
-  /** The settings last read or written: one read that differs was written by another process (an agent's core), and is told. */
-  #settings?: AppSettings;
+  /** The settings last told (written here, or found changed by `reloadSettings`). */
+  #told?: AppSettings;
 
   settings(): AppSettings {
     const saved = AppSettingsSchema.partial().safeParse(this.read("settings.json"));
-    const next = saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
-    const changed = this.#settings && !Bun.deepEquals(next, this.#settings);
-    this.#settings = next;
+    return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
+  }
+
+  /** Reads the settings again after another process (an agent's core) may have written them, telling a change. */
+  reloadSettings(): AppSettings {
+    const next = this.settings();
+    const changed = !Bun.deepEquals(next, this.#told ?? DEFAULT_APP_SETTINGS);
+    this.#told = next;
     if (changed) this.emit({ kind: "settings", settings: next });
     return next;
   }
@@ -165,7 +170,7 @@ export class AppConfig {
     const next = AppSettingsSchema.safeParse(withPatch(this.settings(), patch));
     if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
     this.write("settings.json", next.data);
-    this.#settings = next.data;
+    this.#told = next.data;
     this.emit({ kind: "settings", settings: next.data });
     return next.data;
   }

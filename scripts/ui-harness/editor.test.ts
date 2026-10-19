@@ -459,7 +459,9 @@ test.skipIf(skip)("zoomed all the way in, the timeline shows ten frames", async 
 });
 
 test.skipIf(skip)("opening a project whose proxies are all built doesn't hang, and an export outlives its project", async () => {
-  const core = new LocalCore();
+  const core = new LocalCore({ configDir: join(dir, "second-config") });
+  // Proxies made on their own, as the hang needed them.
+  await core.setSettings({ autoProxy: { recording: true, video: true } });
   const path = join(dir, "second.beproj");
   const h = await core.create({ path });
   await core.import(h, [RECORDING]);
@@ -794,7 +796,9 @@ test.skipIf(skip)("The microphone alone is voice narration: it plays the timelin
   expect(previews().at(-1)).toEqual({ microphone: { id: "mic-2" } });
   await run("range.set", { in: 1, out: 3 });
   await page.until("document.querySelector('[data-narration-span]').textContent.includes('the range 0:01–0:03')");
-  await page.evaluate("document.querySelector('[data-record-start]').click()");
+  // Return on a focused checkbox starts, as the dialog's default (hear stays off).
+  await page.evaluate("document.querySelector('[data-hear]').focus()");
+  await page.key("Enter", "Enter");
   await page.until("/plays from 0:01/.test(document.querySelector('[data-countdown]')?.textContent ?? '')");
   await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
   const asked = ui.menus.slice(before).find((m) => m.startsWith("startNarration:"))!;

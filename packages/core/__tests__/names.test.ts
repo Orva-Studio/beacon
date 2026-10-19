@@ -18,6 +18,13 @@ test("one check for a project's name, as rename, New Project and Save As take it
   expect(await core.rename(h, "Second.beproj")).toBe(join(dir, "Second.beproj"));
 });
 
+test("a project with bad settings is refused before its folder is written", async () => {
+  const core = new LocalCore({ configDir: join(dir, "config") });
+  const path = join(dir, "Bad.beproj");
+  await expect(core.create({ path, settings: { width: -5 } })).rejects.toThrow();
+  expect(existsSync(path)).toBe(false);
+});
+
 test("a process of another user's (launchd) is alive, so its project lock and socket are kept", () => {
   expect(alive(1)).toBe(true);
   expect(alive(process.pid)).toBe(true);
