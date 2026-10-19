@@ -44,3 +44,13 @@ test("a panel item naming an annotation preset no feature registers is refused a
   const item = { id: "annotation:arrow", label: "Arrow", title: "An arrow", command: "edit.addAnnotation", args: { preset: "arrow" } };
   expect(() => createRegistry().register(defineFeature({ id: "arrows", version: 1, panelItems: [item] }))).toThrow('names annotation preset "arrow"');
 });
+
+test("panel items: a feature may name its own preset; a repeated id, or an Annotations item without a preset, is refused; other items' presets aren't checked", () => {
+  const annotation = (id: string, args: Record<string, unknown>) => ({ id, label: id, title: id, command: "edit.addAnnotation", args });
+  const box = { type: "callout", title: "Add Box", props: { callout: { shape: "rectangle", width: 10, height: 10, cornerRadius: 0, fill: [0, 0, 0, 1] } } };
+  expect(() => createRegistry().register(defineFeature({ id: "boxes", version: 1, annotations: { box }, panelItems: [annotation("annotation:box", { preset: "box" })] }))).not.toThrow();
+  expect(() => createRegistry().register(defineFeature({ id: "twice", version: 1, annotations: { box }, panelItems: [annotation("annotation:box", { preset: "box" }), annotation("annotation:box", { preset: "box" })] }))).toThrow("already registered");
+  expect(() => createRegistry().register(defineFeature({ id: "bare", version: 1, panelItems: [annotation("annotation:bare", {})] }))).toThrow("names annotation preset");
+  const animation = { id: "animation:restore", label: "Restore", title: "Restore", command: "edit.addAnimation", args: { preset: "restore" } };
+  expect(() => createRegistry().register(defineFeature({ id: "anim", version: 1, panelItems: [animation] }))).not.toThrow();
+});
