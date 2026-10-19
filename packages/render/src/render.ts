@@ -14,6 +14,7 @@ import {
   type Easing,
   type FeatureRegistry,
   type Project,
+  type EvaluateEnv,
   type Scene,
   type SourceDef,
   type Ticks,
@@ -53,6 +54,24 @@ function workerPath(): string {
 export function renderJob(project: Project, registry: FeatureRegistry, output: unknown, cacheDir?: string) {
   const passes = Object.fromEntries([...registry.passes.values()].map((p) => [p.id, { wgsl: p.wgsl, steps: p.steps }]));
   return { width: project.settings.width, height: project.settings.height, fps: project.settings.fps, output, sources: {}, passes, cacheDir };
+}
+
+/** What a renderer is made for: a new canvas size or frame rate needs a new one. */
+export const canvasKey = ({ settings: { width, height, fps } }: Project) => `${width}x${height}@${fps.num}/${fps.den}`;
+
+/**
+ * The scene at `t` for a renderer that keeps the sources it was sent: it carries those `sent` doesn't have yet or
+ * that changed, and `sent` then has them. Without `sent`, every source the scene draws.
+ */
+export function sceneAt(project: Project, registry: FeatureRegistry, t: Ticks, data: EvaluateEnv["data"], sent?: Map<string, string>): Scene {
+  const sources = new Map<string, SourceDef>();
+  const scene = evaluate(project, registry, t, { data, sources });
+  const fresh = [...sources].map(([id, def]) => [id, def, JSON.stringify(def)] as const).filter(([id, , json]) => sent?.get(id) !== json);
+  if (fresh.length) {
+    scene.sources = Object.fromEntries(fresh.map(([id, def]) => [id, def]));
+    for (const [id, , json] of fresh) sent?.set(id, json);
+  }
+  return scene;
 }
 
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
@@ -161,19 +180,13 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     });
 
     const data = opts.data ?? new DerivedData(registry, opts.cacheDir ?? DEFAULT_CACHE_DIR, () => project).get;
-    const known = new Set<string>();
+    const sent = new Map<string, string>();
     let failure: unknown;
     try {
       proc.stdin.write(`${JSON.stringify(job)}\n`);
       for (const [i, time] of times.entries()) {
         if (error) break;
-        const sources = new Map<string, SourceDef>();
-        const scene: Scene = evaluate(project, registry, time, { data, sources });
-        const fresh = [...sources].filter(([id]) => !known.has(id));
-        if (fresh.length) {
-          scene.sources = Object.fromEntries(fresh);
-          for (const [id] of fresh) known.add(id);
-        }
+        const scene = sceneAt(project, registry, time, data, sent);
         if (opts.output.kind === "png") scene.name = `f${String(frames[i]).padStart(6, "0")}`;
         proc.stdin.write(`${JSON.stringify(scene)}\n`);
         await proc.stdin.flush();
