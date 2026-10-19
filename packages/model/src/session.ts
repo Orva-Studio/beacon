@@ -59,7 +59,7 @@ export interface Session {
 }
 
 /** A clip's property groups and effects, as Copy Properties takes them. */
-export interface CopiedProperties {
+interface CopiedProperties {
   props: Record<string, Record<string, unknown>>;
   effects: EffectInstance[];
   /** A copied animation arrow: where it starts in its clip and how long it is (seconds), easing and end values. */
@@ -87,7 +87,7 @@ export interface SessionCommandDef<A = any> {
 }
 
 /** The tool panels, in sidebar order. */
-export const TOOL_PANELS = [
+const TOOL_PANELS = [
   "favorites",
   "media",
   "annotations",
@@ -101,7 +101,7 @@ export const TRACK_HEIGHT = { min: 26, max: 120, default: 44 };
 
 const MIN_SPAN_FRAMES = 10;
 
-export function defaultSession(project: Project, shared: Partial<SharedSession> = {}): Session {
+function defaultSession(project: Project, shared: Partial<SharedSession> = {}): Session {
   const end = Math.max(10, ticksToSeconds(projectDuration(project)));
   return {
     playhead: 0,

@@ -70,11 +70,11 @@ function interpolate(d: CursorData, t: number): [number, number] {
 }
 
 /** Seconds of Gaussian smoothing for a `cursorTrackLevel`; a placeholder. */
-export function smoothingSigma(level: number): number {
+function smoothingSigma(level: number): number {
   return level <= 0 ? 0 : Math.min(0.6, 0.035 * Math.sqrt(level));
 }
 
-export function cursorPosition(d: CursorData, t: number, level: number): [number, number] {
+function cursorPosition(d: CursorData, t: number, level: number): [number, number] {
   const sigma = smoothingSigma(level);
   if (sigma === 0) return interpolate(d, t);
   let sx = 0;

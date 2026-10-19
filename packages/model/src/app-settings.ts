@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** How late a camera's picture is behind a microphone's sound, typed or measured by Check Sync. */
-export const CameraSyncSchema = z.object({
+const CameraSyncSchema = z.object({
   cameraLateMs: z.number(),
   /** When it was measured (Unix ms), from how many flashes, and how far they spread (ms). */
   checked: z.object({ at: z.number(), flashes: z.number(), spreadMs: z.number() }).optional(),

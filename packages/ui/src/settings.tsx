@@ -28,7 +28,7 @@ const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }
  * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
  * `project.settings.set`, so it is undoable and agents can do the same.
  */
-export function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   // Changed elsewhere while open (an agent, Check Sync): shown here.

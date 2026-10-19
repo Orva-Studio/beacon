@@ -3,8 +3,8 @@ import { z } from "zod";
 /** Core document shape. Bump with a migration in `migrations.ts`. */
 export const SCHEMA_VERSION = 2;
 
-export const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
-export const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
+const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
+const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
 
 export const RationalSchema = z.strictObject({
   num: z.int().positive(),
@@ -20,7 +20,7 @@ export const RgbaSchema = z.tuple([z.number(), z.number(), z.number(), z.number(
 
 export const EasingSchema = z.enum(["linear", "easeInOut"]);
 
-export const AnimationSchema = z.strictObject({
+const AnimationSchema = z.strictObject({
   id: IdSchema,
   /** Media time (source position), so split pieces share blocks. */
   end: SignedTicksSchema,
@@ -91,7 +91,7 @@ export const trackName = (track: { name: string }, index: number) => track.name 
 /** What the Media Bin and clips call an asset: its name, else the file's name without its extension. */
 export const assetName = (a: { name?: string; path: string }) => a.name ?? a.path.split("/").pop()!.replace(/\.[^.]+$/, "");
 
-export const MarkerSchema = z.strictObject({
+const MarkerSchema = z.strictObject({
   id: IdSchema,
   time: TicksSchema,
   name: z.string(),

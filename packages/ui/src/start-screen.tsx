@@ -11,7 +11,7 @@ export interface StartHost {
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
 /** "5 minutes ago", "yesterday", "3 Oct". */
-export function whenOpened(at: number, now = Date.now()): string {
+function whenOpened(at: number, now = Date.now()): string {
   const minutes = Math.round((at - now) / 60_000);
   if (minutes > -1) return "just now";
   if (minutes > -60) return RELATIVE.format(minutes, "minute");

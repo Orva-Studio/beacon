@@ -151,7 +151,7 @@ function narrationSources(sources: RecordSources, sheet: RecordSheet): RecordSou
  * File > Record…: what to record, then a countdown; Beacon then hides and its menu-bar item stops the take.
  * The microphone alone is voice narration: Beacon stays open and plays the timeline while it records.
  */
-export function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost }) {
+function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost }) {
   const [hear, setHear] = useState(!!sheet.hear);
   const span = useNarrationSpan();
   const [s, setS] = useState<RecordSources>(() => present(sheet.mode === "narration" ? narrationSources(sheet.sources, sheet) : sheet.sources, sheet));

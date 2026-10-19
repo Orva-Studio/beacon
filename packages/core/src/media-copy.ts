@@ -2,7 +2,7 @@ import { constants, existsSync, lstatSync, mkdirSync, realpathSync } from "node:
 import { copyFile, mkdir, readdir, readlink, stat, symlink, utimes } from "node:fs/promises";
 import { basename, extname, join, sep } from "node:path";
 
-export const MEDIA_FOLDER = "media";
+const MEDIA_FOLDER = "media";
 
 export const isInside = (dir: string, path: string) => path.startsWith(dir + sep);
 

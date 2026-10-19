@@ -13,7 +13,7 @@ import { LineReader } from "@beacon/media";
  * client has opened, and `appEvent` notifications (`{ event }`) to every
  * client. Bytes (PNG stills) travel as `{ "$bytes": base64 }`.
  */
-export const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
+const SOCKET_DIR = join(homedir(), "Library/Application Support/Beacon");
 
 /**
  * This process's socket. One per app process, so a second app can't take
@@ -57,7 +57,7 @@ export const FORWARDED = [
 ] as const satisfies readonly (keyof BeaconCore)[];
 
 /** Methods a client may call: the forwarded ones, those that start a job (answered with its id), the registry's, and `hello`. */
-export const METHODS = ["hello", ...FORWARDED, "export", "analyze", "fetchResource", "commands", "queries", "schema"] as const;
+const METHODS = ["hello", ...FORWARDED, "export", "analyze", "fetchResource", "commands", "queries", "schema"] as const;
 
 export type Method = (typeof METHODS)[number];
 

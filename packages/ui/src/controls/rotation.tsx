@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { NumberBox } from "./fields";
 
-export type Axis = "x" | "y" | "z";
+type Axis = "x" | "y" | "z";
 type Vec = [number, number, number];
 
 const SIZE = 112;

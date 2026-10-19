@@ -11,7 +11,7 @@ export interface SyncCheckHost {
 }
 
 /** The devices a sync check uses: the pair, and the displays it can flash. */
-export interface SyncDevices {
+interface SyncDevices {
   camera: { id: string; name: string };
   microphone: { id: string; name: string };
   displays: { id: number; width: number; height: number }[];

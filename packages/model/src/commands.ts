@@ -77,7 +77,7 @@ export function* walkClips(tracks: Track[], registry: FeatureRegistry, offset: T
 }
 
 
-export function findTrack(doc: Project, id: string, registry?: FeatureRegistry): Track {
+function findTrack(doc: Project, id: string, registry?: FeatureRegistry): Track {
   return locateTrack(doc, id, registry).track;
 }
 

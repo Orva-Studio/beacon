@@ -115,7 +115,7 @@ function quietBoundaries(words: Word[], speech: [number, number][], db: number[]
  * the recording's noise floor and its speech level (10th and 90th
  * percentile window levels), so it adapts to the mic and gain.
  */
-export function speechRegions(pcm: Int16Array, rate = RATE): [number, number][] {
+function speechRegions(pcm: Int16Array, rate = RATE): [number, number][] {
   const db = levels(pcm);
   const sorted = [...db].sort((x, y) => x - y);
   const floor = sorted[Math.floor(sorted.length * 0.1)] ?? -90;

@@ -62,7 +62,7 @@ const placeSchema = styleSchema.pick({ anchorX: true, offsetX: true, anchorY: tr
 type CaptionPlace = z.infer<typeof placeSchema>;
 
 /** Sized for a canvas `height` pixels tall. */
-export function defaultStyle(height = 1080): CaptionStyle {
+function defaultStyle(height = 1080): CaptionStyle {
   const k = height / 1080;
   return {
     font: "Helvetica Neue",
@@ -82,17 +82,17 @@ export function defaultStyle(height = 1080): CaptionStyle {
 }
 
 /** The captions' style on `track`: kept there once for all its captions. */
-export function trackStyle(track: Track | undefined, height: number): CaptionStyle {
+function trackStyle(track: Track | undefined, height: number): CaptionStyle {
   return { ...defaultStyle(height), ...(track?.props?.captionStyle as Partial<CaptionStyle> | undefined) };
 }
 
 /** How `clip` looks on `track`: the track's style, with the clip's own place if it has one. */
-export function clipStyle(clip: Clip, track: Track | undefined, height: number): CaptionStyle {
+function clipStyle(clip: Clip, track: Track | undefined, height: number): CaptionStyle {
   return { ...trackStyle(track, height), ...(clip.props.captionPlace as CaptionPlace | undefined) };
 }
 
 /** The words a caption clip shows: those whose middle is inside its window on its media. */
-export function shownWords(clip: Clip): CaptionWord[] {
+function shownWords(clip: Clip): CaptionWord[] {
   return wordsInWindow(clip, (clip.props.caption as { words?: CaptionWord[] } | undefined)?.words ?? []);
 }
 
@@ -115,7 +115,7 @@ function layout(spec: TextSpec): TextLine[] {
 }
 
 /** Where a caption's box and text sit on a `width` × `height` canvas: the box, the text's origin and lines, the text. */
-export function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { width: number; height: number }) {
+function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { width: number; height: number }) {
   if (!words.length) return undefined;
   const text = captionText(words, style);
   const width = Math.max(1, Math.round(canvas.width * style.maxWidth));
@@ -176,7 +176,7 @@ const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
  * their times; each run of new or changed words shares the time of the old words between the kept ones around it,
  * or the gap there, by length. Typing a caption a key at a time so keeps its timing.
  */
-export function retime(old: CaptionWord[], tokens: string[], from: number, to: number): CaptionWord[] {
+function retime(old: CaptionWord[], tokens: string[], from: number, to: number): CaptionWord[] {
   const [n, m] = [old.length, tokens.length];
   const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i]![j] = norm(old[i]!.text) === norm(tokens[j]!) ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);

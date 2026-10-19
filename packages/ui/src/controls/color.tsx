@@ -18,7 +18,7 @@ export interface Eyedropper {
 
 export const EyedropperContext = createContext<Eyedropper | undefined>(undefined);
 
-export const toHex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, "0")).join("")}`;
+const toHex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, "0")).join("")}`;
 /** `#rrggbb` or `#rrggbbaa` (Camtasia's colours keep their alpha), the `#` optional. */
 export const fromHex = (h: string): RGBA | undefined => {
   try {
@@ -85,7 +85,7 @@ function useDrag(onMove: (fx: number, fy: number, key: string) => void) {
  * The colour picker: presets, a saturation/brightness square, a hue strip, an eyedropper that
  * samples the canvas, R/G/B and hex boxes, and My Colors (kept by this window). Alpha is passed through.
  */
-export function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChange: (c: RGBA, key?: string) => void; onClose: () => void }) {
+function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChange: (c: RGBA, key?: string) => void; onClose: () => void }) {
   // Hue is kept apart from the colour: greys and black have none, and the square shouldn't lose it.
   const [hsv, setHsv] = useState(() => toHsv(color));
   const [mine, setMine] = useState(loadMine);

@@ -33,7 +33,7 @@ const volumeOf = (c: Clip) => Number((c.props.audio as { volume?: number } | und
 const toTimeline = (c: Clip, media: Ticks) => ticksToSeconds(timelineTimeAt(c, media));
 
 /** The clip's audio points with times on the timeline (seconds). */
-export function audioPoints(c: Clip): { time: number; value: number }[] {
+function audioPoints(c: Clip): { time: number; value: number }[] {
   return envelopePoints(volumeOf(c), c.animations, TARGET).map((p) => ({ time: toTimeline(c, p.time), value: p.value }));
 }
 

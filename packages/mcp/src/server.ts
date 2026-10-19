@@ -25,7 +25,7 @@ interface ToolDef {
 }
 
 /** Claude's API allows only `[a-zA-Z0-9_-]` in tool names. */
-export const toolName = (id: string) => id.replaceAll(".", "_");
+const toolName = (id: string) => id.replaceAll(".", "_");
 
 const text = (t: string): Content => [{ type: "text", text: t }];
 

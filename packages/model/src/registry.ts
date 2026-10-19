@@ -5,7 +5,7 @@ import { CORE_COMMANDS } from "./commands";
 import type { Patch } from "immer";
 import { ClipSchema, formatIssues, ProjectSchema, type Clip, type Project, type Track } from "./schema";
 
-export class ValidationError extends Error {
+class ValidationError extends Error {
   constructor(readonly issues: string[]) {
     super(`invalid project:\n  ${issues.join("\n  ")}`);
     this.name = "ValidationError";

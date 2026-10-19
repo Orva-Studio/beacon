@@ -13,7 +13,7 @@ interface Transform {
  * The transform that shows content rectangle `rect` as large as fits on the
  * canvas, centred, without uncovering the canvas where the content covered it.
  */
-export function zoomTransform(canvas: [number, number], size: [number, number], rect: { x: number; y: number; width: number; height: number }): Transform {
+function zoomTransform(canvas: [number, number], size: [number, number], rect: { x: number; y: number; width: number; height: number }): Transform {
   const [cw, ch] = canvas;
   const [w, h] = size;
   const s = Math.min(cw / rect.width, ch / rect.height);

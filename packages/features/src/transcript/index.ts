@@ -253,7 +253,7 @@ export interface SilenceReview {
 
 const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, keepActive: true, flipped: [] };
 
-export const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
+const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
 
 /**
  * What Remove Silences does with `o`: each silence over `min`, whether it is screen action and whether it is cut
@@ -333,7 +333,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
  * "oh": "Ah crap") nor "mm-hmm"/"uh-huh", which answer something.
  */
 const FILLER = /^(u+h*m+|u+h+|e+r+m*|h+m+|m{2,}|a+h+m+)$/;
-export const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
+const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
 
 /** Remove Filler Words' review (`session.features.transcript.fillers`): the fillers flipped by hand. */
 export interface FillerReview {
@@ -343,7 +343,7 @@ export interface FillerReview {
   current?: number;
 }
 
-export const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
+const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
 
 /**
  * The time cut for filler words `first`..`last`: them and the shorter of the pauses either side, so the pause

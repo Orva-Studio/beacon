@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { migrateProject, SCHEMA_VERSION, type FeatureRegistry, type Project } from "@beacon/model";
 
-export const PROJECT_FILE = "project.json";
+const PROJECT_FILE = "project.json";
 const LOCK_FILE = "lock";
 
 type Assets = Record<string, { path: string }>;

@@ -184,7 +184,7 @@ function brief(value: unknown): string {
 }
 
 /** Each patch read against the document as it stands just before that patch. */
-export function describePatches(before: Project, patches: Patch[]): string[] {
+function describePatches(before: Project, patches: Patch[]): string[] {
   let doc = before;
   return patches.map((p) => {
     const path = p.path.join("/");

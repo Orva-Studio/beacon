@@ -201,7 +201,7 @@ export function parseColor(hex: string): RGBA {
 }
 
 /** Frames of shutter at motion blur intensity 1 (the clip's and the cursor's). */
-export const SHUTTER = 0.75;
+const SHUTTER = 0.75;
 
 /** The times motion blur samples before `time`, newest first: 15 across the shutter at `intensity`. */
 export function shutterTimes(time: Ticks, frameSeconds: number, intensity: number): Ticks[] {

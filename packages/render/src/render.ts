@@ -251,7 +251,7 @@ function atempo(speed: number): string {
  * [start, start + length) into `[aout]`, starting at `firstInput`; the
  * export muxes it under the video, playback streams it to the device.
  */
-export function audioMix(project: Project, registry: FeatureRegistry, start: number, length: number, firstInput = 0, source?: AudioSource): { inputs: string[]; filter?: string } {
+function audioMix(project: Project, registry: FeatureRegistry, start: number, length: number, firstInput = 0, source?: AudioSource): { inputs: string[]; filter?: string } {
   const inputs: string[] = [];
   const filters: string[] = [];
   let n = 0;

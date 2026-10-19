@@ -58,7 +58,7 @@ function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: 
 }
 
 /** File > Export…: name, folder, format and advanced options, in the window (Electrobun has no save panel). */
-export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet; host: ExportHost; muted?: string[]; unmute?: () => void }) {
+function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet; host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const [name, setName] = useState(sheet.name);
   const [folder, setFolder] = useState(sheet.folder);
   const [s, setS] = useState(sheet.settings);
@@ -228,7 +228,7 @@ export function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: Expor
 }
 
 /** The running export's progress, then Show in Finder / Open when it is done; a failure stays until dismissed. */
-export function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
+function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
   const file = job.output.split("/").at(-1);
   return (
     <Toast

@@ -55,7 +55,7 @@ function keepFocusIn(e: React.KeyboardEvent, panel: HTMLElement | null) {
 export const useDialogsOpen = () => useSyncExternalStore((l) => (listeners.add(l), () => listeners.delete(l)), () => dialogs > 0);
 
 /** A dialog's title, anything beside it (tabs), and its close button. */
-export function ModalHeader({ title, onClose, children }: { title: ReactNode; onClose: () => void; children?: ReactNode }) {
+function ModalHeader({ title, onClose, children }: { title: ReactNode; onClose: () => void; children?: ReactNode }) {
   return (
     <div className="mb-4 flex items-center gap-2">
       <div className="flex-1 truncate text-title font-semibold text-text-strong">{title}</div>

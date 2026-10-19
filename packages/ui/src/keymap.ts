@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { replica, useView } from "./store";
 
 /** Each action's keys as the window matches them. */
-export const bindingsOf = (shortcuts: ShortcutInfo[]): Binding[] =>
+const bindingsOf = (shortcuts: ShortcutInfo[]): Binding[] =>
   shortcuts.flatMap((s) => s.keys.map((keys) => ({ keys, command: s.command, ...(s.args ? { args: s.args } : {}), action: s.id })));
 
 /** " (⌘T)" for a button's tooltip: the first key of the action that runs `command` with `args`, as the user has them. */
@@ -23,7 +23,7 @@ export function useKeymap(): Map<string, Binding> {
 }
 
 /** Bindings that resolve to a command, by chord. */
-export function compileKeymap(bindings: Binding[]): Map<string, Binding> {
+function compileKeymap(bindings: Binding[]): Map<string, Binding> {
   const map = new Map<string, Binding>();
   for (const b of bindings) {
     const id = b.command && chordId(b.keys);

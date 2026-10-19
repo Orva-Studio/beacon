@@ -32,7 +32,7 @@ export function shadowFromCamtasia(fx: CamtasiaObject, ctx: CamtasiaContext): Pa
   return { ...ctx.numbers(fx, { angle: "angle", offset: "offset", blur: "blur", opacity: "opacity" }), ...(color ? { color } : {}) };
 }
 
-export const shadowSchema = z.strictObject({
+const shadowSchema = z.strictObject({
   angle: z.number().meta({ degrees: true }),
   offset: z.number().meta({ slider: { max: 100 } }),
   blur: z.number().nonnegative().meta({ slider: { max: 100 } }),
