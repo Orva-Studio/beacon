@@ -5,7 +5,7 @@ import { probeMedia, type MediaInfo, type StreamInfo } from "./probe";
 /** A Beacon recording: a folder of one file per stream (docs/formats/brec.md). */
 export const isBrec = (path: string) => path.toLowerCase().replace(/\/+$/, "").endsWith(".brec");
 
-interface RecordingJson {
+export interface RecordingJson {
   version: number;
   complete: boolean;
   /** Host-clock seconds when the take began (mach time, as the audio output's); takes before narration have none. */
@@ -17,7 +17,8 @@ interface RecordingJson {
 /** Streams in the order a take's clips are stacked: screen, camera, then the microphone above system audio. */
 const ORDER: NonNullable<StreamInfo["role"]>[] = ["screen", "camera", "microphone", "systemAudio"];
 
-function recording(path: string): RecordingJson {
+/** A take's `recording.json`, refused when written by a newer recorder. */
+export function recording(path: string): RecordingJson {
   const data = JSON.parse(readFileSync(join(path, "recording.json"), "utf8")) as RecordingJson;
   if (data.version !== 1) throw new Error(`${path}: recording.json version ${data.version} isn't one Beacon reads`);
   return data;

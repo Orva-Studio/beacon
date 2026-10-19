@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { probeMedia, runTool, tool, type MediaInfo } from "@beacon/media";
+import { measureSync, probeMedia, runTool, tool, type MediaInfo } from "@beacon/media";
 import { projectDuration, ticksToSeconds } from "@beacon/model";
 import { LocalCore } from "../src";
 
@@ -85,3 +85,11 @@ test.skipIf(!existsSync(TAKE))("a take whose recorder was killed imports from wh
   expect(info.duration).toBeGreaterThan(1.5);
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(TAKE))("Check Sync reads a take as importing does: one from a newer recorder is refused", async () => {
+  const take = join(dir, "newer.brec");
+  cpSync(TAKE, take, { recursive: true });
+  const json = JSON.parse(readFileSync(join(take, "recording.json"), "utf8"));
+  writeFileSync(join(take, "recording.json"), JSON.stringify({ ...json, version: 2 }));
+  await expect(measureSync(take)).rejects.toThrow("recording.json version 2 isn't one Beacon reads");
+});

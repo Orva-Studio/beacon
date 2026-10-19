@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { recording } from "./brec";
 import { decodeAudio, ffmpegArgs, ffmpegInput, runTool } from "./tool";
 
 /** What a sync check measured: how late the camera's picture is behind the microphone's sound. */
@@ -11,9 +11,6 @@ export interface SyncResult {
   spreadMs: number;
 }
 
-interface Take {
-  streams: Record<string, { file: string; start: number | null }>;
-}
 
 /** Each frame's time (seconds into its file) and mean luma (0-255), every frame as recorded (a still screen sends few). */
 async function lumas(path: string): Promise<{ t: number; y: number }[]> {
@@ -93,7 +90,7 @@ const nearest = (times: number[], t: number, from: number, to: number) => times.
  * speakers' own delays, a few milliseconds either way.
  */
 export async function measureSync(dir: string): Promise<SyncResult> {
-  const take = JSON.parse(readFileSync(join(dir, "recording.json"), "utf8")) as Take;
+  const take = recording(dir);
   const stream = (role: string) => {
     const s = take.streams[role];
     if (!s || s.start === null) throw new Error(`the check recorded no ${role === "systemAudio" ? "system audio" : role}`);
