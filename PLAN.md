@@ -1566,10 +1566,9 @@ Seeing more at once.
   System Settings** (the user, 2026-10-19). Project Settings (canvas size,
   frame rate, background, loudness, standalone) is the project's, with
   undo, so it leaves the app's Settings for a dialog of its own, opened as
-  Camtasia does: Edit › Project Settings… (with a key), the canvas's
-  right-click (already there), and the Properties panel when nothing is
-  selected (Camtasia's Properties button with no selection), plus New
-  Project's form, which already reuses it. Agents keep their way in:
+  Camtasia does: Edit › Project Settings… (with a key) and the canvas's
+  right-click (already there), plus New Project's form, which already
+  reuses it. Agents keep their way in:
   `project_settings_set` changes it, and `ui_open` gains a `projectSettings`
   dialog in place of Settings' `project` tab, so `ui_snapshot` can show it.
   Settings becomes a fixed-size window with a sidebar (General, Recording,
