@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { bindingsOf, compileKeymap, match, menuKey, runAction, useShortcutTip, type ActionHost } from "./keymap";
+import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
 import { droppedFiles } from "./drop";
 import type { DroppedFile, Init, Narrating } from "./rpc";
@@ -101,8 +101,7 @@ export function App({ host }: { host: Host }) {
       window.removeEventListener("drop", drop);
     };
   }, [host]);
-  const shortcuts = useView((s) => s.shortcuts);
-  const keymap = useMemo(() => compileKeymap(bindingsOf(shortcuts)), [shortcuts]);
+  const keymap = useKeymap();
 
   // A click anywhere but a text field ends typing in one, so the shortcuts (arrows nudge, , and . step) work again.
   useEffect(() => {
@@ -269,20 +268,15 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
 function TopBar({ name, session, host, status, saved, preparing }: { name?: string; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
   const zoom = session?.canvas.zoom ?? "fit";
   const narrating = useView((v) => v.narrating);
-  // ⌘S out of habit: no dialog, the label confirms the project is already saved.
+  // ⌘S out of habit (`app.save`): no dialog, the label confirms the project is already saved.
+  const asked = useView((v) => v.confirmSaved);
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.key.toLowerCase() !== "s") return;
-      e.preventDefault();
-      setConfirm(true);
-      clearTimeout(timer);
-      timer = setTimeout(() => setConfirm(false), 1500);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => (window.removeEventListener("keydown", onKey), clearTimeout(timer));
-  }, []);
+    if (!asked) return;
+    setConfirm(true);
+    const timer = setTimeout(() => setConfirm(false), 1500);
+    return () => clearTimeout(timer);
+  }, [asked]);
   return (
     <div className="-mx-gutter flex h-10 shrink-0 items-center gap-3 bg-app px-3 pl-20 electrobun-webkit-app-region-drag" data-titlebar>
       {name && !narrating && <RecordButton host={host} />}

@@ -36,6 +36,11 @@
       "description": "Open a Beacon project or a Camtasia .cmproj"
     },
     {
+      "id": "app.save",
+      "name": "Save",
+      "description": "Every change is saved as it is made: says so for a moment"
+    },
+    {
       "id": "app.saveAs",
       "name": "Save As…",
       "description": "Save a copy of the project under another name or folder and open it"

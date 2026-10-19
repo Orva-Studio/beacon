@@ -277,6 +277,21 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
     await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
     await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
     await view.until("!!document.querySelector('[data-start-screen]')");
+    // Its keys are New Project's and Open…'s as the user has them: ⌘N, then the key it is rebound to.
+    await view.key("n", "KeyN", ["meta"]);
+    await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    await start.core.shortcutSet("app.new", [{ key: "n", modifiers: ["command", "option"] }]);
+    await Bun.sleep(100);
+    await view.key("n", "KeyN", ["meta"]);
+    await Bun.sleep(100);
+    expect(await view.evaluate<boolean>("!!document.querySelector('[data-start-screen]')")).toBe(true);
+    await view.key("n", "KeyN", ["meta", "alt"]);
+    await view.until("!document.querySelector('[data-start-screen]') && document.body.innerText.includes('Standalone project')");
+    await view.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+    await view.until("!!document.querySelector('[data-start-screen]')");
+    await start.core.shortcutReset("app.new");
     // The list follows Open Recent as the app changes it.
     start.send("recent", recent.slice(1));
     await view.until(`${rows}.length === 4 && ${rows}[0].startsWith('Launch')`);

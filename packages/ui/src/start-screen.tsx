@@ -1,4 +1,5 @@
 import { Button, Icon, Modal } from "./controls";
+import { match, useKeymap } from "./keymap";
 import type { RecentProject } from "./rpc";
 import { replica, useView } from "./store";
 
@@ -43,6 +44,7 @@ function RecentCard({ project, host }: { project: RecentProject; host: StartHost
 export function StartScreen({ host }: { host: StartHost }) {
   const show = useView((v) => !!v.init && !v.opened && !v.newProject && !v.settings && !v.resource);
   const recent = useView((v) => v.init?.recent);
+  const keymap = useKeymap();
   if (!show) return null;
   const newProject = () => replica.newProject({ name: "Untitled Project" });
   return (
@@ -50,8 +52,9 @@ export function StartScreen({ host }: { host: StartHost }) {
       width={560}
       onClose={() => {}}
       onKey={(e) => {
-        if (e.metaKey && e.code === "KeyO") host.openDialog();
-        if (e.metaKey && e.code === "KeyN") newProject();
+        const b = match(keymap, e.nativeEvent);
+        if (b?.command === "app.open") host.openDialog();
+        if (b?.command === "app.new") newProject();
       }}
     >
       <div className="mb-4 text-title font-semibold text-text-strong" data-start-screen>
