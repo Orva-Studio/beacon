@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { Draft } from "immer";
 import type { Asset, Clip, Easing, Project, Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import type { Layer, SourceDef } from "./scene";
+import type { Layer, SourceDef, VisualLayer } from "./scene";
 import type { Ticks } from "./ticks";
 import type { Session, SessionCommandDef } from "./session";
 
@@ -47,6 +47,11 @@ export interface EffectDef {
   /** Validates `EffectInstance.params`. */
   params: z.ZodType<Record<string, unknown>>;
   defaults: () => Record<string, unknown>;
+  /**
+   * Draws the effect: runs, where the feature's own `evaluate.clip` would, for a clip with the effect enabled whose
+   * content is visual. Effects other features draw (the cursor's) leave it out.
+   */
+  apply?: (e: ClipEval & { main: VisualLayer }, params: Record<string, any>, ctx: EvalContext) => void;
 }
 
 /** WGSL fragment entry points run in order by the renderer (see beacon-render's prelude.wgsl). */
@@ -238,6 +243,8 @@ export interface CamtasiaContext {
    * the clip's props, keyframes become animation blocks.
    */
   param(media: CamtasiaObject, name: string, target: string, map?: (v: any) => any): void;
+  /** Numeric parameters present on `obj`, by the name each is stored under: `{ radius: "radius" }`. */
+  numbers(obj: CamtasiaObject, names: Record<string, string>): Record<string, number>;
   /** The asset for a Camtasia source id. */
   asset(src: number): Asset;
   /** The source bin entry for a Camtasia source id (`sourceTracks`, ...). */
@@ -259,7 +266,7 @@ export interface CamtasiaMapper {
   clipTypes?: Record<string, (media: CamtasiaObject, ctx: CamtasiaContext) => { type: string; props?: Clip["props"] } | null>;
   /** Reads parameters into this feature's prop groups (runs for every media). */
   params?: (media: CamtasiaObject, clip: Clip, ctx: CamtasiaContext) => void;
-  /** `effectName` → effect instance params, or null to drop it. */
+  /** `effectName` → effect instance params (those it has; the effect's defaults fill the rest), or null to drop it. */
   effects?: Record<string, (effect: CamtasiaObject, ctx: CamtasiaContext) => { type: string; params: Record<string, unknown> } | null>;
 }
 

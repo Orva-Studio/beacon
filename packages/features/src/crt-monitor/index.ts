@@ -35,38 +35,30 @@ export const crtMonitor = defineFeature({
         vignetteShape: 5,
         warp: 0.0573914,
       }),
+      apply(e, p) {
+        (e.main.passes ??= []).unshift({
+          pass: "crt-monitor",
+          params: [p.brightness, p.chromaticShift, p.cornerRadius, p.scanlineBrightness, p.scanlineSpacing, p.vignetteIntensity, p.vignetteShape, p.warp],
+        });
+      },
     },
   ],
   passes: [{ id: "crt-monitor", wgsl, steps: ["fs_crt"] }],
   camtasia: {
     effects: {
-      "CRT Monitor": (fx, ctx) => {
-        const n = (k: string, d: number) => Number(ctx.value(fx, k) ?? d);
-        return {
-          type: "crt-monitor",
-          params: {
-            brightness: n("Brightness", 1),
-            chromaticShift: n("ChromaticShift", 0),
-            cornerRadius: n("CornerRadius", 0),
-            scanlineBrightness: n("ScanlineBrightness", 0.8),
-            scanlineSpacing: n("ScanlineSpacing", 16.5288),
-            vignetteIntensity: n("VignetteIntensity", 0.2),
-            vignetteShape: n("VignetteShape", 5),
-            warp: n("Warp", 0.0573914),
-          },
-        };
-      },
-    },
-  },
-  evaluate: {
-    clip(e) {
-      const fx = e.clip.effects.find((x) => x.type === "crt-monitor" && x.enabled);
-      if (!fx || e.main?.kind !== "visual") return;
-      const p = fx.params as z.infer<typeof params>;
-      (e.main.passes ??= []).unshift({
-        pass: "crt-monitor",
-        params: [p.brightness, p.chromaticShift, p.cornerRadius, p.scanlineBrightness, p.scanlineSpacing, p.vignetteIntensity, p.vignetteShape, p.warp],
-      });
+      "CRT Monitor": (fx, ctx) => ({
+        type: "crt-monitor",
+        params: ctx.numbers(fx, {
+          brightness: "Brightness",
+          chromaticShift: "ChromaticShift",
+          cornerRadius: "CornerRadius",
+          scanlineBrightness: "ScanlineBrightness",
+          scanlineSpacing: "ScanlineSpacing",
+          vignetteIntensity: "VignetteIntensity",
+          vignetteShape: "VignetteShape",
+          warp: "Warp",
+        }),
+      }),
     },
   },
 });

@@ -163,6 +163,14 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
       const v = obj.parameters?.[name];
       return v !== null && typeof v === "object" && !Array.isArray(v) ? v.defaultValue : v;
     },
+    numbers(obj, names) {
+      const out: Record<string, number> = {};
+      for (const [key, name] of Object.entries(names)) {
+        const v = ctx.value(obj, name);
+        if (v !== undefined) out[key] = Number(v);
+      }
+      return out;
+    },
     param(obj, name, target, map = (v) => v) {
       const raw = obj.parameters?.[name];
       read.add(name);
@@ -286,7 +294,7 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
     const e = map(fx, ctx);
     if (!e) continue;
     const enabled = !fx.bypassed && Number(ctx.value(fx, "enabled") ?? 1) !== 0;
-    clip.effects.push({ id: `${clip.id}-fx${i}`, type: e.type, enabled, params: e.params });
+    clip.effects.push({ id: `${clip.id}-fx${i}`, type: e.type, enabled, params: { ...registry.effects.get(e.type)?.defaults(), ...e.params } });
   }
 
   clip.animations = [...blocks.values()].sort((a, b) => a.end - b.end);

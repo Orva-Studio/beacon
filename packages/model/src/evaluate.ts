@@ -1,4 +1,4 @@
-import type { AudioContext, AudioSegment, ClipEval, EvalContext } from "./feature";
+import type { AudioContext, AudioSegment, ClipEval, EffectDef, EvalContext, EvaluateHook } from "./feature";
 import type { Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
 import { IDENTITY, type Layer, type RGBA, type Scene, type SourceDef, type VisualLayer } from "./scene";
@@ -108,12 +108,25 @@ function sourceId(def: SourceDef): string {
   }
 }
 
+/** An effect's `apply` as a clip hook: for clips with it enabled and visual content. */
+function effectHook(def: EffectDef): NonNullable<EvaluateHook["clip"]>[] {
+  const apply = def.apply;
+  if (!apply) return [];
+  return [
+    (e, ctx) => {
+      if (e.main?.kind !== "visual") return;
+      const fx = e.clip.effects.find((x) => x.type === def.id && x.enabled);
+      if (fx) apply(e as ClipEval & { main: VisualLayer }, fx.params, ctx);
+    },
+  ];
+}
+
 /**
  * The timeline at time `t` as a flat Scene (PLAN §8). Pure: every feature
  * contributes through its `evaluate` hook; core knows no clip types.
  */
 export function evaluate(project: Project, registry: FeatureRegistry, t: Ticks, env: EvaluateEnv = {}): Scene {
-  const hooks = [...registry.features.values()].flatMap((f) => (f.evaluate?.clip ? [f.evaluate.clip] : []));
+  const hooks = [...registry.features.values()].flatMap((f) => [...(f.effects ?? []).flatMap(effectHook), ...(f.evaluate?.clip ? [f.evaluate.clip] : [])]);
   const sources = env.sources ?? new Map<string, SourceDef>();
   const frameSeconds = ticksToSeconds(ticksPerFrame(project.settings.fps));
   const contextFor = (canvas: { width: number; height: number }): EvalContext => {
