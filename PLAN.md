@@ -245,18 +245,22 @@ beacon/
 
 ### Dependency graph
 ```
-features  → model
 media     → model
-camtasia  → model + features + media
+features  → model + media    (text layout, cursor data and media probing; tests also read Camtasia projects)
+camtasia  → model + media
 render    → model + media    (TS wrapper over beacon-ffi / beacon-worker; derived-data cache)
 core      → model + features + media + camtasia + render   (the API)
-ui        → model + features (renders the replica; talks to core via RPC)
+ui        → model            (renders the replica; talks to core via RPC; types only from core, media and features)
 mcp       → core             (the `beacon-mcp` server)
 desktop   → core + ui (bundled dist)
 ```
 - `model` depends on nothing internal, so it can be tested in isolation.
-- **`mcp` and `desktop` only ever import `core`.** Nothing else talks to the
-  engine, the media layer or project files directly.
+- **`mcp` and `desktop` only ever import `core`** (and the desktop, the ui it
+  bundles); core re-exports the model helpers they need. Nothing else talks to
+  the engine, the media layer or project files directly.
+- `ui` can't import `features` at runtime: it loads the engine when imported.
+  What the editor needs of features comes in `Init` (effects, panel items,
+  prop-group defaults); their types are imported with `import type`.
 - The MCP server is its own small binary; a CLI can be added later as another
   thin client of `core` (backlog).
 - Unlike hance's desktop app, `desktop` does **not** serve the UI from a local

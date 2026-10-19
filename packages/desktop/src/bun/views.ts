@@ -1,7 +1,6 @@
 import type { Pointer } from "bun:ffi";
 import { WGPUView } from "electrobun/main";
-import type { LiveView, Session } from "@beacon/core";
-import { enginePlacement, fitPercent, placeCanvas } from "@beacon/model";
+import { enginePlacement, fitPercent, placeCanvas, type LiveView, type Session } from "@beacon/core";
 import type { CanvasMark } from "@beacon/ui";
 import type { App, Rect } from "./app";
 

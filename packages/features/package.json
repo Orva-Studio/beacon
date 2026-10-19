@@ -8,5 +8,8 @@
     "@beacon/media": "workspace:*",
     "@beacon/model": "workspace:*",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@beacon/camtasia": "workspace:*"
   }
 }

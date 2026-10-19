@@ -2,8 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { Utils } from "electrobun/main";
-import { findDropped, projectName, summarizeReport, type DroppedFile } from "@beacon/core";
-import { projectDuration, ticksToSeconds } from "@beacon/model";
+import { findDropped, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
 import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
 import { errorText, type App, type Current } from "./app";
 

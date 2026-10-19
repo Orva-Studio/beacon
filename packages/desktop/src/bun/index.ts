@@ -32,7 +32,7 @@ const { createViews } = await import("./views");
 const { createWindowMedia } = await import("./window-media");
 const { createExports } = await import("./exports");
 const { errorText } = await import("./app");
-type ShortcutInfo = import("@beacon/model").ShortcutInfo;
+type ShortcutInfo = import("@beacon/core").ShortcutInfo;
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;

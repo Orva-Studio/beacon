@@ -1,8 +1,7 @@
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { BrowserView, BrowserWindow, GlobalShortcut, Tray } from "electrobun/main";
-import type { LocalCore, RecordResult } from "@beacon/core";
-import { syncKey } from "@beacon/model";
+import { syncKey, type LocalCore, type RecordResult } from "@beacon/core";
 import { panelHeight, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
 
 /** What recording needs of the app: its core and its window. */

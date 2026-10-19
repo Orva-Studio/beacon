@@ -11,8 +11,6 @@
   },
   "dependencies": {
     "@beacon/core": "workspace:*",
-    "@beacon/features": "workspace:*",
-    "@beacon/model": "workspace:*",
     "@beacon/ui": "workspace:*"
   },
   "devDependencies": {

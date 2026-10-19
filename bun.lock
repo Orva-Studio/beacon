@@ -24,7 +24,6 @@
       "name": "@beacon/camtasia",
       "version": "0.6.0",
       "dependencies": {
-        "@beacon/features": "workspace:*",
         "@beacon/media": "workspace:*",
         "@beacon/model": "workspace:*",
       },
@@ -46,8 +45,6 @@
       "version": "0.6.0",
       "dependencies": {
         "@beacon/core": "workspace:*",
-        "@beacon/features": "workspace:*",
-        "@beacon/model": "workspace:*",
         "@beacon/ui": "workspace:*",
       },
       "devDependencies": {
@@ -62,6 +59,9 @@
         "@beacon/media": "workspace:*",
         "@beacon/model": "workspace:*",
         "zod": "4.6.5",
+      },
+      "devDependencies": {
+        "@beacon/camtasia": "workspace:*",
       },
     },
     "packages/mcp": {
