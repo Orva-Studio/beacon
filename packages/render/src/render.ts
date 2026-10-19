@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { enginePath, ffmpegArgs, ffmpegInput, runTool, spawn, toolsDir } from "@beacon/media";
+import { enginePath, ffmpegArgs, ffmpegInput, readLines, runTool, spawn, toolsDir } from "@beacon/media";
 import { DEFAULT_CACHE_DIR, DerivedData } from "./derived";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -153,21 +153,12 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
     let error: string | undefined;
     let done = 0;
-    const reader = (async () => {
-      const lines = proc.stdout.pipeThrough(new TextDecoderStream());
-      let buf = "";
-      for await (const chunk of lines) {
-        buf += chunk;
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const msg = JSON.parse(buf.slice(0, nl)) as { frame?: number; done?: number; error?: string };
-          buf = buf.slice(nl + 1);
-          if (msg.error) error = msg.error;
-          if (msg.frame !== undefined) opts.onProgress?.(msg.frame, times.length);
-          if (msg.done !== undefined) done = msg.done;
-        }
-      }
-    })();
+    const reader = readLines(proc.stdout, (line) => {
+      const msg = JSON.parse(line) as { frame?: number; done?: number; error?: string };
+      if (msg.error) error = msg.error;
+      if (msg.frame !== undefined) opts.onProgress?.(msg.frame, times.length);
+      if (msg.done !== undefined) done = msg.done;
+    });
 
     const data = opts.data ?? new DerivedData(registry, opts.cacheDir ?? DEFAULT_CACHE_DIR, () => project).get;
     const known = new Set<string>();

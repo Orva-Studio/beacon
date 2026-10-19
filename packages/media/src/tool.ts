@@ -86,6 +86,28 @@ export async function decodeAudio(path: string, opts: { stream?: number; rate: n
   return bytes;
 }
 
+/** Splits a byte stream into lines. */
+export class LineReader {
+  #buf = "";
+  readonly #decoder = new TextDecoder();
+  constructor(readonly onLine: (line: string) => void) {}
+  push(chunk: Uint8Array) {
+    this.#buf += this.#decoder.decode(chunk, { stream: true });
+    let nl: number;
+    while ((nl = this.#buf.indexOf("\n")) >= 0) {
+      const line = this.#buf.slice(0, nl);
+      this.#buf = this.#buf.slice(nl + 1);
+      if (line.trim()) this.onLine(line);
+    }
+  }
+}
+
+/** Each line a stream of text sends (a tool's JSON-lines output), as it arrives. */
+export async function readLines(stream: ReadableStream<Uint8Array>, onLine: (line: string) => void): Promise<void> {
+  const reader = new LineReader(onLine);
+  for await (const chunk of stream) reader.push(chunk);
+}
+
 /** Size and modification time (of every file, for a folder like a `.brec`): cheap, and what relinking and derived-data caches key on. */
 export function fileFingerprint(path: string): string {
   const s = statSync(path);

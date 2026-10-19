@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import type { Subprocess } from "bun";
 import { enginePath } from "./engine";
+import { readLines } from "./tool";
 
 /** What `beacon-recorder devices` reports: permissions and what can be recorded. */
 export interface RecorderDevices {
@@ -64,35 +65,24 @@ export class Recorder {
     this.#proc = proc;
     let ready!: () => void;
     const started = new Promise<void>((r) => (ready = r));
-    void (async () => {
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for await (const chunk of proc.stdout) {
-        buffer += decoder.decode(chunk, { stream: true });
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, nl);
-          buffer = buffer.slice(nl + 1);
-          if (!line.trim()) continue;
-          const e = JSON.parse(line) as Event;
-          if (e.event === "ready") ready();
-          else if (e.event === "previewFrame") (this.#monitor ?? this.#preview)?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
-          else if (e.event === "devicesChanged") this.#preview?.({ devicesChanged: true });
-          else if (e.event === "previewLevel")
-            (this.#monitor ?? this.#preview)?.({
-              ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}),
-              ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}),
-              ...(e.live ? { live: e.live as RecorderLive } : {}),
-              ...(e.picture ? { picture: e.picture as RecorderPicture } : {}),
-            });
-          const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
-          if (!w) continue;
-          this.#waiting.delete(e.id!);
-          if (e.event === "error") w.reject(new Error(e.message ?? "the recorder failed"));
-          else w.resolve(e);
-        }
-      }
-    })();
+    void readLines(proc.stdout, (line) => {
+      const e = JSON.parse(line) as Event;
+      if (e.event === "ready") ready();
+      else if (e.event === "previewFrame") (this.#monitor ?? this.#preview)?.({ source: e.source as "camera" | "screen", jpeg: e.jpeg as string });
+      else if (e.event === "devicesChanged") this.#preview?.({ devicesChanged: true });
+      else if (e.event === "previewLevel")
+        (this.#monitor ?? this.#preview)?.({
+          ...(e.microphone ? { microphone: e.microphone as RecorderLevel } : {}),
+          ...(e.systemAudio ? { systemAudio: e.systemAudio as RecorderLevel } : {}),
+          ...(e.live ? { live: e.live as RecorderLive } : {}),
+          ...(e.picture ? { picture: e.picture as RecorderPicture } : {}),
+        });
+      const w = e.id !== undefined ? this.#waiting.get(e.id) : undefined;
+      if (!w) return;
+      this.#waiting.delete(e.id!);
+      if (e.event === "error") w.reject(new Error(e.message ?? "the recorder failed"));
+      else w.resolve(e);
+    });
     void proc.exited.then((code) => {
       this.#proc = undefined;
       this.#ready = undefined;

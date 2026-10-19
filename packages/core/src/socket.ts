@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type { Socket } from "bun";
 import type { AppEvent, CoreEvent, BeaconCore, ProjectHandle } from "./api";
 import { alive } from "./persist";
+import { LineReader } from "@beacon/media";
 
 /**
  * The app's automation socket (PLAN §7.1): newline-delimited JSON-RPC 2.0.
@@ -68,21 +69,6 @@ export function decode(text: string): any {
   return JSON.parse(text, (_, v) => (v && typeof v === "object" && typeof v.$bytes === "string" ? new Uint8Array(Buffer.from(v.$bytes, "base64")) : v));
 }
 
-/** Splits a byte stream into lines. */
-export class LineReader {
-  #buf = "";
-  readonly #decoder = new TextDecoder();
-  constructor(readonly onLine: (line: string) => void) {}
-  push(chunk: Uint8Array) {
-    this.#buf += this.#decoder.decode(chunk, { stream: true });
-    let nl: number;
-    while ((nl = this.#buf.indexOf("\n")) >= 0) {
-      const line = this.#buf.slice(0, nl);
-      this.#buf = this.#buf.slice(nl + 1);
-      if (line.trim()) this.onLine(line);
-    }
-  }
-}
 
 /** JSON-RPC messages written to a socket in order: Bun's write may take part of the data, and the rest waits for `drain`. */
 export class LineWriter {

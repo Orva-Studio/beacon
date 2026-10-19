@@ -15,7 +15,8 @@ import type {
   QueryInfo,
   SchemaInfo,
 } from "./api";
-import { appSockets, decode, encode, FORWARDED, LineReader, LineWriter, PROTOCOL_VERSION, type Method } from "./socket";
+import { LineReader } from "@beacon/media";
+import { appSockets, decode, encode, FORWARDED, LineWriter, PROTOCOL_VERSION, type Method } from "./socket";
 
 interface Pending {
   resolve: (v: any) => void;
