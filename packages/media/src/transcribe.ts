@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { roundSeconds } from "@beacon/model";
-import { jobSignal, runTool, tool } from "./tool";
+import { decodeAudio, jobSignal, runTool, tool } from "./tool";
 
 export interface Word {
   text: string;
@@ -330,9 +330,7 @@ async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: Tr
 export async function transcribe(path: string, opts: TranscribeOptions = {}): Promise<Transcription> {
   const dir = mkdtempSync(join(tmpdir(), "beacon-transcribe-"));
   try {
-    const raw = join(dir, "audio.pcm");
-    await runTool([tool("ffmpeg"), "-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i", path, "-map", `0:a:${opts.stream ?? 0}`, "-ac", "1", "-ar", String(RATE), "-f", "s16le", raw]);
-    const bytes = await Bun.file(raw).bytes();
+    const bytes = await decodeAudio(path, { stream: opts.stream ?? 0, rate: RATE, format: "s16le" });
     const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
     const db = levels(pcm);
     const speech = speechRegions(pcm);

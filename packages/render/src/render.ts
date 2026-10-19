@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { enginePath, runTool, spawn, tool, toolsDir } from "@beacon/media";
+import { enginePath, ffmpegArgs, ffmpegInput, runTool, spawn, toolsDir } from "@beacon/media";
 import { DEFAULT_CACHE_DIR, DerivedData } from "./derived";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -253,7 +253,7 @@ export function audioMix(project: Project, registry: FeatureRegistry, start: num
     const media = s.mediaStart + (from - s.start) * s.speed;
     const input = firstInput + n++;
     const src = source?.(s) ?? { path: s.path, stream: s.stream };
-    inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), "-protocol_whitelist", "file", "-i", src.path);
+    inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), ...ffmpegInput(src.path));
     const volume = s.gain.ramps.length ? `volume='${gainExpr(s.gain, media)}':eval=frame` : `volume=${s.gain.base.toFixed(5)}`;
     filters.push(`[${input}:a:${src.stream}]${volume}${atempo(s.speed)},adelay=delays=${Math.round((from - start) * 1000)}:all=1[a${n}]`);
   }
@@ -270,7 +270,7 @@ export function audioPlaybackArgs(project: Project, registry: FeatureRegistry, s
   if (!filter) return [];
   // atempo keeps the pitch; ffmpeg 7 takes 0.5-100 in one stage.
   const sped = rate === 1 ? filter : `${filter};[aout]atempo=${rate}[sped]`;
-  return [tool("ffmpeg"), "-nostdin", "-v", "error", ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
+  return [...ffmpegArgs(), ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
 }
 
 /** Mixes every audible segment in the rendered range into a file in `dir`; undefined when silent or without audio. */
@@ -281,7 +281,7 @@ async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<
   // Opus runs at 48 kHz only.
   const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
   const path = join(dir, webm ? "audio.webm" : "audio.mov");
-  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
+  const args = [...ffmpegArgs(), "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio mix failed: ${e.message}`);
   });
@@ -290,8 +290,8 @@ async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<
 
 /** The rendered video with the mixed audio under it, both copied. */
 async function mux(video: string, audio: string | undefined, o: Extract<RenderOutput, { kind: "video" }>) {
-  const args = [tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file", "-i", video];
-  if (audio) args.push("-protocol_whitelist", "file", "-i", audio, "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest");
+  const args = [...ffmpegArgs(), "-y", ...ffmpegInput(video)];
+  if (audio) args.push(...ffmpegInput(audio), "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest");
   else args.push("-map", "0:v", "-c:v", "copy");
   if (videoFormat(o.path) !== "webm") args.push("-movflags", "+faststart");
   args.push(o.path);
