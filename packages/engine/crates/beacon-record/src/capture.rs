@@ -342,6 +342,33 @@ fn allowed(media: &NSString) -> bool {
     (unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) }) == AVAuthorizationStatus::Authorized
 }
 
+/// Adds `dev` to `session` with `output` reading it; `kind` names it in an error.
+pub(crate) fn add_capture(session: &AVCaptureSession, dev: &AVCaptureDevice, output: &AVCaptureOutput, kind: &str) -> Result<(), String> {
+    let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(dev) }.map_err(|e| format!("{kind}: {}", e.localizedDescription()))?;
+    if !unsafe { session.canAddInput(&input) && session.canAddOutput(output) } {
+        return Err(format!("{kind}: the capture session refused it"));
+    }
+    unsafe {
+        session.addInput(&input);
+        session.addOutput(output);
+    }
+    Ok(())
+}
+
+/// ScreenCaptureKit's settings for a `width` × `height` stream at up to `fps`, with system audio at 48 kHz stereo when `audio`.
+pub(crate) fn stream_config(width: usize, height: usize, fps: i32, audio: bool) -> Retained<SCStreamConfiguration> {
+    let config = unsafe { SCStreamConfiguration::new() };
+    unsafe {
+        config.setWidth(width);
+        config.setHeight(height);
+        config.setMinimumFrameInterval(CMTime::new(1, fps));
+        config.setCapturesAudio(audio);
+        config.setSampleRate(48_000);
+        config.setChannelCount(2);
+    }
+    config
+}
+
 pub(crate) fn device(media: &NSString, wanted: &Device, kind: &str) -> Result<Retained<AVCaptureDevice>, String> {
     unsafe {
         match &wanted.id {
@@ -401,7 +428,6 @@ impl Take {
         if sources.screen.is_some() || sources.system_audio {
             let want = sources.screen.as_ref();
             let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude.as_deref()))?;
-            let config = unsafe { SCStreamConfiguration::new() };
             let fps = sources.screen.as_ref().map_or(1, |s| s.fps.clamp(1, 60));
             // Audio alone still needs a video stream: the smallest one.
             let (pw, ph) = match sources.screen {
@@ -412,15 +438,10 @@ impl Take {
                 },
                 None => (2, 2),
             };
+            let config = stream_config(pw, ph, fps as i32, sources.system_audio);
             unsafe {
-                config.setWidth(pw);
-                config.setHeight(ph);
-                config.setMinimumFrameInterval(CMTime::new(1, fps as i32));
                 config.setShowsCursor(false);
                 config.setQueueDepth(8);
-                config.setCapturesAudio(sources.system_audio);
-                config.setSampleRate(48_000);
-                config.setChannelCount(2);
                 config.setExcludesCurrentProcessAudio(false);
             }
             let s = unsafe { SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None) };
@@ -454,34 +475,20 @@ impl Take {
         let configured = (|| -> Result<(), String> {
             if let Some(want) = &sources.camera {
                 let dev = device(video_type, want, "camera")?;
-                let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&dev) }.map_err(|e| format!("camera: {}", e.localizedDescription()))?;
                 let output = unsafe { AVCaptureVideoDataOutput::new() };
                 let q = DispatchQueue::new("beacon.record.camera", None);
                 unsafe { output.setSampleBufferDelegate_queue(Some(ProtocolObject::from_ref(&*capture_out)), Some(&q)) };
                 queues.push(q);
-                if !unsafe { session.canAddInput(&input) && session.canAddOutput(&output) } {
-                    return Err("camera: the capture session refused it".into());
-                }
-                unsafe {
-                    session.addInput(&input);
-                    session.addOutput(&output);
-                }
+                add_capture(&session, &dev, &output, "camera")?;
                 camera = Some((output, dev));
             }
             if let Some(want) = &sources.microphone {
                 let dev = device(audio_type, want, "microphone")?;
-                let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&dev) }.map_err(|e| format!("microphone: {}", e.localizedDescription()))?;
                 let output = unsafe { AVCaptureAudioDataOutput::new() };
                 let q = DispatchQueue::new("beacon.record.microphone", None);
                 unsafe { output.setSampleBufferDelegate_queue(Some(ProtocolObject::from_ref(&*capture_out)), Some(&q)) };
                 queues.push(q);
-                if !unsafe { session.canAddInput(&input) && session.canAddOutput(&output) } {
-                    return Err("microphone: the capture session refused it".into());
-                }
-                unsafe {
-                    session.addInput(&input);
-                    session.addOutput(&output);
-                }
+                add_capture(&session, &dev, &output, "microphone")?;
                 let recommended = unsafe { output.recommendedAudioSettingsForAssetWriterWithOutputFileType(AVFileTypeWAVE.unwrap()) };
                 let rate = recommended.as_deref().and_then(|s| setting(s, "AVSampleRateKey")).unwrap_or(48_000.0) as i64;
                 let channels = recommended.as_deref().and_then(|s| setting(s, "AVNumberOfChannelsKey")).unwrap_or(1.0) as i64;

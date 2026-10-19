@@ -9,16 +9,16 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_av_foundation::{
-    AVCaptureAudioDataOutput, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureConnection, AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession,
+    AVCaptureAudioDataOutput, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureConnection, AVCaptureOutput, AVCaptureSession,
     AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeAudio, AVMediaTypeVideo,
 };
-use objc2_core_media::{CMSampleBuffer, CMTime};
+use objc2_core_media::CMSampleBuffer;
 use objc2_foundation::{NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
-use objc2_screen_capture_kit::{SCStream, SCStreamConfiguration, SCStreamOutput, SCStreamOutputType};
+use objc2_screen_capture_kit::{SCStream, SCStreamOutput, SCStreamOutputType};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::capture::{Device, device, wait_for};
+use crate::capture::{Device, add_capture, device, stream_config, wait_for};
 use crate::monitor::{Meter, channel_level, jpeg};
 
 /// Camera frames are this wide, the screen's this wide, at most this many a second: enough to frame a shot.
@@ -120,17 +120,10 @@ impl Preview {
         let configured = (|| -> Result<(), String> {
             if let Some(want) = &sources.camera {
                 let dev = device(video_type, want, "camera")?;
-                let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&dev) }.map_err(|e| format!("camera: {}", e.localizedDescription()))?;
                 let output = unsafe { AVCaptureVideoDataOutput::new() };
                 unsafe { output.setAlwaysDiscardsLateVideoFrames(true) };
                 unsafe { output.setSampleBufferDelegate_queue(Some(ProtocolObject::from_ref(&*out)), Some(&queue)) };
-                if !unsafe { session.canAddInput(&input) && session.canAddOutput(&output) } {
-                    return Err("camera: the capture session refused it".into());
-                }
-                unsafe {
-                    session.addInput(&input);
-                    session.addOutput(&output);
-                }
+                add_capture(&session, &dev, &output, "camera")?;
                 // macOS scales in the capture pipeline: frames arrive CAMERA_WIDTH wide at the camera's aspect.
                 let dims = unsafe { objc2_core_media::CMVideoFormatDescriptionGetDimensions(&dev.activeFormat().formatDescription()) };
                 let height = (CAMERA_WIDTH * dims.height as i64 / (dims.width as i64).max(1)).max(2) & !1;
@@ -141,17 +134,10 @@ impl Preview {
             }
             if let Some(want) = &sources.microphone {
                 let dev = device(audio_type, want, "microphone")?;
-                let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&dev) }.map_err(|e| format!("microphone: {}", e.localizedDescription()))?;
                 let output = unsafe { AVCaptureAudioDataOutput::new() };
                 // Levels are read from the connection; the delegate only keeps the output running.
                 unsafe { output.setSampleBufferDelegate_queue(Some(ProtocolObject::from_ref(&*out)), Some(&queue)) };
-                if !unsafe { session.canAddInput(&input) && session.canAddOutput(&output) } {
-                    return Err("microphone: the capture session refused it".into());
-                }
-                unsafe {
-                    session.addInput(&input);
-                    session.addOutput(&output);
-                }
+                add_capture(&session, &dev, &output, "microphone")?;
                 microphone = Some(output);
             }
             Ok(())
@@ -164,7 +150,6 @@ impl Preview {
         if sources.screen.is_some() || sources.system_audio {
             let want = sources.screen.as_ref();
             let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude.as_deref()))?;
-            let config = unsafe { SCStreamConfiguration::new() };
             // System audio alone still needs a video stream: the smallest one.
             let (w, h) = match sources.screen {
                 Some(_) => {
@@ -173,16 +158,11 @@ impl Preview {
                 }
                 None => (2, 2),
             };
+            let config = stream_config(w, h, SCREEN_FPS, sources.system_audio);
             unsafe {
-                config.setWidth(w);
-                config.setHeight(h);
                 config.setPixelFormat(u32::from_be_bytes(*b"BGRA"));
-                config.setMinimumFrameInterval(CMTime::new(1, SCREEN_FPS));
                 config.setShowsCursor(true);
                 config.setQueueDepth(3);
-                config.setCapturesAudio(sources.system_audio);
-                config.setSampleRate(48_000);
-                config.setChannelCount(2);
             }
             let s = unsafe { SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None) };
             let q = DispatchQueue::new("beacon.record.preview-screen", None);
