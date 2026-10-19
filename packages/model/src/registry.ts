@@ -2,7 +2,8 @@ import type { z } from "zod";
 import type { ActionDef, AnalyzerDef, ClipTypeDef, CommandDef, EffectDef, ExportFileDef, Feature, JobAnalyzerDef, MediaImporterDef, PreferenceDef, PropGroupDef, QueryContext, QueryDef, RenderPassDef, ResourceDef, SecretDef } from "./feature";
 import type { SessionCommandDef } from "./session";
 import { CORE_COMMANDS } from "./commands";
-import { formatIssues, ProjectSchema, type Clip, type Project, type Track } from "./schema";
+import type { Patch } from "immer";
+import { ClipSchema, formatIssues, ProjectSchema, type Clip, type Project, type Track } from "./schema";
 
 export class ValidationError extends Error {
   constructor(readonly issues: string[]) {
@@ -148,6 +149,31 @@ export class FeatureRegistry {
     }
     for (const [key, asset] of Object.entries(project.assets)) {
       if (asset.id !== key) issues.push(`assets.${key}: id "${asset.id}" does not match its key`);
+    }
+    if (issues.length) throw new ValidationError(issues);
+  }
+
+  /**
+   * `validate` after a change that touched only top-level clips' props, effects or animations (a drag on the
+   * canvas, a slider): those clips, as `validate` checks them, for a fraction of the time on a long timeline.
+   * Any other change, or props holding nested tracks, checks the whole document.
+   */
+  validateChanged(doc: Project, patches: readonly Patch[]): void {
+    const touched = new Map<string, [number, number]>();
+    for (const { path } of patches) {
+      const [tracks, ti, clips, ci, field, group] = path;
+      const partOfClip = tracks === "tracks" && typeof ti === "number" && clips === "clips" && typeof ci === "number" && (field === "props" || field === "effects" || field === "animations");
+      if (!partOfClip || (field === "props" && (group === undefined || this.propGroups.get(String(group))?.nested))) return this.validate(doc);
+      touched.set(`${ti}/${ci}`, [ti, ci]);
+    }
+    const issues: string[] = [];
+    for (const [ti, ci] of touched.values()) {
+      const clip = doc.tracks[ti]?.clips[ci];
+      if (!clip) return this.validate(doc);
+      const path = `tracks.${ti}.clips.${ci}`;
+      const shape = ClipSchema.safeParse(clip);
+      if (!shape.success) issues.push(...zodIssues(path, shape.error));
+      else this.#validateClip(doc, clip, path, new Set(), issues);
     }
     if (issues.length) throw new ValidationError(issues);
   }

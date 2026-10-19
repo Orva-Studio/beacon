@@ -46,6 +46,16 @@ struct SourceTex {
 /// Frames a source texture (and its decoder) is kept after its last use, so
 /// brief gaps between clips of one recording don't restart its decoder.
 const KEEP_FRAMES: u64 = 30;
+/// The still cache's key for stills read from files: images and recorded cursor shapes. Text and strokes aren't
+/// kept: a draw-on or a resize makes a new one every frame, which would push the images out.
+fn still_key(source: &Source) -> Option<String> {
+    match source {
+        Source::Image { path } => Some(path.clone()),
+        Source::Cursor { path, index } => Some(format!("cursor\0{path}\0{index}")),
+        _ => None,
+    }
+}
+
 /// Render targets unused for this many frames are freed: a zoom on a tilted layer asks for a new size every frame.
 const POOL_KEEP_FRAMES: u64 = 2;
 
@@ -406,15 +416,18 @@ impl Renderer {
                     };
                     (Arc::new(sources::Pixels { width: d.width, height: d.height, data: Vec::new() }), Some(d))
                 }
-                Source::Image { path } => match self.stills.get(path) {
-                    Some(px) => (px, None),
-                    None => {
-                        let px = Arc::new(sources::load_still(&def, &mut self.trecs)?);
-                        self.stills.put(path, px.clone());
-                        (px, None)
-                    }
+                // A screenshot or a cursor shape that comes back isn't decoded or rendered again.
+                still => match still_key(still) {
+                    Some(key) => match self.stills.get(&key) {
+                        Some(px) => (px, None),
+                        None => {
+                            let px = Arc::new(sources::load_still(still, &mut self.trecs)?);
+                            self.stills.put(&key, px.clone());
+                            (px, None)
+                        }
+                    },
+                    None => (Arc::new(sources::load_still(still, &mut self.trecs)?), None),
                 },
-                still => (Arc::new(sources::load_still(still, &mut self.trecs)?), None),
             };
             let tex = self.device.create_texture(&tex_desc(pixels.width, pixels.height, mip_count(pixels.width, pixels.height), rt_usage()));
             let st = SourceTex { tex, width: pixels.width, height: pixels.height, decoder, spare, last_used: self.frame };

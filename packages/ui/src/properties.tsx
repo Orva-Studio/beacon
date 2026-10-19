@@ -4,7 +4,7 @@ import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds } from "@beaco
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas";
 import type { Init } from "./rpc";
-import { timelineView } from "./timeline";
+import { NO_NESTED, timelineView } from "./timeline";
 import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { effectName } from "./effect-names";
@@ -17,7 +17,7 @@ import { useQuery } from "./query";
  */
 export function Properties({ project: full, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   // With a group open, its clips are the ones being edited, shown at main-timeline times.
-  const { project } = timelineView(full, session, init?.nested ?? {});
+  const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);
   const all = project.tracks.flatMap((t) => t.clips);
   const selected = session.selection.map((id) => all.find((c) => c.id === id)).filter((c): c is Clip => !!c);
   const clip = selected[0];

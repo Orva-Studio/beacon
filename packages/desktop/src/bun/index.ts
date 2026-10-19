@@ -166,6 +166,8 @@ async function switchTo(path: string) {
       send().patches({ patches: e.patches, label: e.label, kind: e.kind, rev: ++rev });
       void sendThumbs();
       void sendMissing();
+      // Media added, replaced or relinked may have its waveform cached already, with no job to say so.
+      if (e.patches.some((p) => p.path[0] === "assets")) sendWaveforms();
     }
     else if (e.kind === "session") {
       send().session({ changes: e.changes });
@@ -216,7 +218,7 @@ async function switchTo(path: string) {
   transcribing = {};
   send().opened(await openedPayload(h));
   if (canvas) await canvasView(canvas.id, canvas.rect, canvas.scale);
-  sendWaveforms();
+  sendWaveforms(true);
   sendProxies();
   lastMissing = undefined;
   void sendMissing();
@@ -943,12 +945,21 @@ async function sendThumbs() {
   if (thumbAgain) await sendThumbs();
 }
 
-function sendWaveforms() {
+/** The file each asset's waveform in the window is of (it merges them), so only new or replaced media is sent. */
+const waveformsSent = new Map<string, string>();
+/**
+ * The waveforms the window doesn't have yet: after a job, and after an edit to the media, since a file already
+ * analysed (imported again, or relinked to) has its waveform from the cache with no job. `all`: the window starts afresh.
+ */
+function sendWaveforms(all = false) {
   if (!current) return;
+  if (all) waveformsSent.clear();
   const waveforms: Record<string, Record<number, number[]>> = {};
-  for (const id of Object.keys(core.doc(current.path).assets)) {
+  for (const [id, asset] of Object.entries(core.doc(current.path).assets)) {
+    const file = `${asset.path}\0${asset.fingerprint}`;
+    if (waveformsSent.get(id) === file) continue;
     const w = core.derived<{ streams: Record<number, number[]> }>(current.path, id, "waveform");
-    if (w) waveforms[id] = w.streams;
+    if (w) (waveforms[id] = w.streams), waveformsSent.set(id, file);
   }
   if (Object.keys(waveforms).length) send().media({ waveforms });
 }
@@ -1002,7 +1013,7 @@ const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
         // The webview may load after the project opened: send its pictures again once it asks.
         setTimeout(() => {
           thumbs.clear();
-          sendWaveforms();
+          sendWaveforms(true);
           void sendThumbs();
         }, 50);
         return {

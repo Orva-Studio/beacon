@@ -7,7 +7,7 @@ import type { DroppedFile, Init, Narrating } from "./rpc";
 import { useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
-import { Timeline } from "./timeline";
+import { NO_NESTED, Timeline } from "./timeline";
 import { CanvasOverlay, type CanvasMark } from "./canvas";
 import { NoticeUi } from "./notice";
 import { MediaPreviewUi, type PreviewHost } from "./media-preview";
@@ -164,7 +164,7 @@ export function App({ host }: { host: Host }) {
             waveforms={waveforms}
             thumbs={thumbs}
             clipTypes={init?.clipTypes ?? {}}
-            nested={init?.nested ?? {}}
+            nested={init?.nested ?? NO_NESTED}
             run={host.run}
             menu={host.clipMenu}
             trackMenu={host.trackMenu}

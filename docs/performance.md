@@ -420,3 +420,24 @@ Steps 2-3 are the big ones and need no change outside `beacon-render`/`beacon-ff
 (`Pixels` becomes a texture source) except deleting the ffmpeg spawn path for
 preview. Export keeps its own decode path until in-process decoding matches
 it frame for frame.
+
+## Hot paths from the 2026-10-17 review (branch `perf/hot-paths`, 2026-10-18)
+
+Measured before changing anything (`docs/review-2026-10-17.md` §2), on a copy of the user's largest project
+(304 clips, 1080p30), in the UI harness (headless Chromium, React's development build) or by script:
+
+| What | Before | After |
+|---|---|---|
+| Timeline's cached layer redrawn by 20 proxy/transcript progress messages (P1) | 20 redraws, 25 ms | 0 |
+| The same layer over 30 playhead moves with a group open (P2) | 30 redraws (every tick) | 0 |
+| The shell (App, top bar, toolbar, transport, Properties, timeline) over 60 playhead moves (P3) | 60 renders each, 1.4 ms a tick | not changed: under a millisecond to win in a production build |
+| Saving the whole project after an edit (P5): stringify, write, fsync | 0.6 ms (0.9 worst) | not changed |
+| One drag step (`clip.set`, coalesced) on the 304-clip project (P6, P7): validation 1.6 ms of it, `packMagnetic` 0.3, the diff 0.02 | 2.2 ms p50, 5.4 worst | 0.16 ms p50, 1.8 worst: only the clips a props/effects/animations change touched are validated; `packMagnetic` skips a timeline with no magnetic or nested tracks |
+| Export's audio mix (P15), 578 s from 27 segments of 2 files | 9.6 s, of which the AAC encode is 9.5 and opening 27 inputs about 0.2 | not changed: it runs beside the video render, so no export waits for it |
+| First audio at play start (P15), 27 / 18 / 11 inputs | 56 / 50 / 41 ms | not changed |
+| Importing 7 fixture files (P16): probe and loudness, one file at a time | 0.67 s | 0.26 s, four at a time |
+| Waveforms sent to the window when one finishes (P11) | every asset's | the one that finished |
+| Missing-media check on every edit and every 3 s (P10) | one `existsSync` per asset, sent only on a change | not changed |
+| Preview from the originals on the same project, 1280×720 (`perf.ts --no-proxies`), decode buffers reused (P19) | jump p50 95 ms, settle 4.2, scrub forward 3.5 / backward 6.9 | jump 91-98, settle 3.7 (both runs), forward 3.5-3.6 / backward 6.5-7.2: within a run's noise, but no 33 MB allocation per CPU-decoded frame |
+| Stills drawn again when they come back (P20): only images were cached; a cursor shape costs 9 ms (27 worst) | 13 cursor loads in a `perf.ts` run | 8 (one per shape), 5 served from the cache |
+

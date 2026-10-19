@@ -126,8 +126,9 @@ export const replica = {
   },
   media({ waveforms, thumbs, highlight, preparing, transcribing, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
-      waveforms: { ...state.waveforms, ...waveforms },
-      thumbs: { ...state.thumbs, ...thumbs },
+      // Only what came: a new object would redraw the timeline and the Media Bin for a progress message.
+      ...(waveforms ? { waveforms: { ...state.waveforms, ...waveforms } } : {}),
+      ...(thumbs ? { thumbs: { ...state.thumbs, ...thumbs } } : {}),
       ...(highlight ? { binSelected: [highlight] } : {}),
       ...(preparing ? { preparing, prepared: Object.keys(preparing).length ? state.prepared + Object.keys(state.preparing).filter((id) => !(id in preparing)).length : 0 } : {}),
       ...(transcribing ? { transcribing } : {}),

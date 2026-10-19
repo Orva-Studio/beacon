@@ -993,12 +993,27 @@ export class LocalCore implements BeaconCore {
   async import(h: ProjectHandle, files: string[], opts: ImportOptions = {}): Promise<ImportResult> {
     const p = this.#get(h);
     const result: ImportResult = { assets: [], clips: [], jobs: [] };
-    const probed: { file: string; importer: MediaImporterDef; asset: Omit<Asset, "id"> }[] = [];
-    for (const file of files.map((f) => resolve(f))) {
+    const todo = files.map((f) => resolve(f)).map((file) => {
       const importer = this.registry.importerFor(extname(file));
       if (!importer) throw new Error(`no feature imports ${extname(file) || "files without an extension"} (${file})`);
-      probed.push({ file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) } });
-    }
+      return { file, importer };
+    });
+    // A few at a time: each decodes its audio once for its loudness.
+    const probed: { file: string; importer: MediaImporterDef; asset: Omit<Asset, "id"> }[] = new Array(todo.length);
+    let next = 0;
+    const worker = async () => {
+      for (let i = next++; i < todo.length; i = next++) {
+        const { file, importer } = todo[i]!;
+        try {
+          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await this.#probe(file) } };
+        } catch (e) {
+          // The import fails: the others stop rather than decode the rest for nothing.
+          next = todo.length;
+          throw e;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
     let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
     const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
     const copies = p.store.doc.settings.standalone ? await this.#copyIn(p.path, probed.map(({ asset }, i) => ({ id: String(i), ...asset }))) : [];

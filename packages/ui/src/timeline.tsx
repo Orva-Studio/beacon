@@ -56,9 +56,17 @@ const status = (text: string) => replica.status(text);
  * group tab) its tracks at main-timeline times, the times commands take.
  */
 export function timelineView(project: Project, session: Session, nested: Record<string, string>): { project: Project; group?: Clip } {
+  // The same object while the project and the open group are: a new one each render would redraw the timeline every tick.
+  const last = lastView;
+  if (last && last.project === project && last.group === session.group && last.nested === nested) return last.view;
   const scope = editScope(project, session.group, (c) => innerTracks(c, nested));
-  return { project: scopedProject(project, scope), group: scope.group };
+  const view = { project: scopedProject(project, scope), group: scope.group };
+  lastView = { project, group: session.group, nested, view };
+  return view;
 }
+/** No nested prop groups, as one object so `timelineView`'s callers share its cached view before `init` arrives. */
+export const NO_NESTED: Record<string, string> = {};
+let lastView: { project: Project; group: Session["group"]; nested: Record<string, string>; view: { project: Project; group?: Clip } } | undefined;
 
 /** Timeline seconds of a media time in a clip. */
 const onTimeline = (c: Clip, media: number) => ticksToSeconds(c.start + (media - (c.mediaStart ?? 0)) / clipSpeed(c));
@@ -149,6 +157,12 @@ export interface TimelineMark {
 
 const images = new Map<string, HTMLImageElement>();
 
+/** Lets go of decoded thumbnails no clip shows any more (deleted, or another project's): `thumbs` keeps every one sent. */
+function keepImages(project: Project, thumbs: Record<string, string>) {
+  const shown = new Set(project.tracks.flatMap((t) => t.clips.map((c) => thumbs[c.id])));
+  for (const url of images.keys()) if (!shown.has(url)) images.delete(url);
+}
+
 /** A decoded thumbnail, or undefined until it has loaded (then `onLoad` redraws). */
 function image(url: string, onLoad: () => void): HTMLImageElement | undefined {
   let img = images.get(url);
@@ -230,6 +244,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
   const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
+  useEffect(() => keepImages(full, thumbs), [full, thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
   const loaded = useRef(0);
