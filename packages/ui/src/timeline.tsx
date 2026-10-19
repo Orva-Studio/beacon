@@ -19,6 +19,7 @@ import { RenameField } from "./controls";
 import { arrowHalfHeight, clipBox, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
+import { propsOf } from "./props";
 
 const status = (text: string) => replica.status(text);
 
@@ -502,7 +503,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           const clip = clipAt(e.clientX, e.clientY);
           const vol = clip && volumeHit(clip, e.clientX, e.clientY);
           if (clip && vol) {
-            const base = Number((clip.props.audio as { volume?: number } | undefined)?.volume ?? 1);
+            const base = propsOf<{ volume: number }>(clip, "audio").volume;
             dragState.current = { kind: "volume", clip: clip.id, index: vol.index, x0: x, y0: y, points: volumePoints(clip), base, key: `volume-${Date.now()}` };
             return;
           }

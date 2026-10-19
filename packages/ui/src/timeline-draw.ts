@@ -24,6 +24,7 @@ import { clipBox, cornerButtons, rowTop, drawArrow, drawFxBadge, headerIcons, sh
 import type { ViewState } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
+import { propsOf } from "./props";
 
 const INVALID = () => color("invalid");
 
@@ -77,12 +78,12 @@ const FLASH_MS = 1600;
 
 /** A clip's audio points on the timeline (seconds, gain), as the volume feature reads them. */
 export function volumePoints(c: Clip): { time: number; value: number }[] {
-  const base = Number((c.props.audio as { volume?: number } | undefined)?.volume ?? 1);
+  const base = propsOf<{ volume: number }>(c, "audio").volume;
   return envelopePoints(base, c.animations, "audio.volume").map((p) => ({ time: onTimeline(c, p.time), value: p.value }));
 }
 
 export function volumeAt(c: Clip, t: number): number {
-  return Number(animatedValue((c.props.audio as { volume?: number } | undefined)?.volume ?? 1, "audio.volume", c.animations, mediaTimeAt(c, secondsToTicks(t))));
+  return Number(animatedValue(propsOf<{ volume: number }>(c, "audio").volume, "audio.volume", c.animations, mediaTimeAt(c, secondsToTicks(t))));
 }
 
 const VOLUME = { line: () => color("volume-line"), selected: () => color("volume-selected") };
@@ -301,13 +302,13 @@ export function drawTimeline(t: TimelineDrawing) {
             ctx.fillStyle = AUDIO_SELECTED.top();
             ctx.fillRect(x0, y, cw, 2);
           }
-          const peaks = clip.assetId ? waveforms[clip.assetId]?.[Number((clip.props.media as { stream?: number } | undefined)?.stream ?? 0)] : undefined;
+          const peaks = clip.assetId ? waveforms[clip.assetId]?.[propsOf<{ stream: number }>(clip, "media").stream] : undefined;
           if (peaks) {
             ctx.fillStyle = teal ? AUDIO_SELECTED.wave() : CLIP.wave();
             const media0 = ticksToSeconds(clip.mediaStart ?? 0);
             const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
             // Drawn at the level it plays: boost times the volume line, so fades taper and a quiet clip looks quiet.
-            const boost = Number((clip.props.audio as { gain?: number } | undefined)?.gain ?? 1);
+            const boost = propsOf<{ gain: number }>(clip, "audio").gain;
             for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
               const t = start + (px - HEADER) / pps;
               const m = media0 + (t - a) * speed;

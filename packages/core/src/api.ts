@@ -182,7 +182,8 @@ export interface QueryInfo extends CommandInfo {
 export interface SchemaInfo {
   /** `nested`: the prop group holding the clip type's own tracks (groups, stitched media), if any. */
   clipTypes: { id: string; description: string; traits: string[]; props: string[]; effects: string[]; nested?: string }[];
-  props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown> }[];
+  /** `defaults`: what a clip without its own values has. */
+  props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
   effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
   /** The Annotations and Audio Effects panels' items (Visual Effects lists `effects`). */
   panelItems: PanelItemDef[];

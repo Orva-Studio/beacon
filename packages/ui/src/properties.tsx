@@ -9,6 +9,7 @@ import { NO_NESTED, timelineView } from "./timeline-draw";
 import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
+import { propsOf } from "./props";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -116,7 +117,7 @@ function ClipProperties({
             <Check label="Mix to mono" checked={false} disabled />
             <Check
               label="Auto-normalize loudness"
-              checked={Boolean((clip.props.audio as { normalize?: boolean } | undefined)?.normalize)}
+              checked={propsOf<{ normalize: boolean }>(clip, "audio").normalize}
               onChange={(on) => edit("audio", { normalize: on }, "Auto-normalize Loudness")}
             />
           </div>
@@ -137,7 +138,7 @@ function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: 
   const cw = size ? size[0] - crop("left") - crop("right") : undefined;
   const ch = size ? size[1] - crop("top") - crop("bottom") : undefined;
   const degrees = (value("transform", "rotation") * 180) / Math.PI;
-  const border = { thickness: 0, color: [1, 1, 1, 1] as RGBA, ...(clip.props.border as { thickness?: number; color?: RGBA } | undefined) };
+  const border = propsOf<{ thickness: number; color: RGBA }>(clip, "border");
   // Scale keeps the clip's aspect: the slider scales both axes.
   const setScale = (pct: number, key?: string) => edit("transform", { scaleX: pct / 100, scaleY: (pct / 100) * (sy / (sx || 1)) }, "Scale", key);
   return (
@@ -422,7 +423,7 @@ function RegionProps({ clip, value, edit }: { clip: Clip; value: (g: string, f: 
 }
 
 function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: number) => number; clip: Clip; edit: Edit }) {
-  const smooth = (clip.props.cursor as { smoothAcrossEdits?: number } | undefined)?.smoothAcrossEdits ?? 0;
+  const smooth = propsOf<{ smoothAcrossEdits: number }>(clip, "cursor").smoothAcrossEdits;
   return (
     <Section>
       <Slider label="Scale" value={value("cursor", "scale", 1) * 100} max={1000} unit="%" onChange={(v, key) => edit("cursor", { scale: Math.max(1, v) / 100 }, "Cursor Scale", key)} />

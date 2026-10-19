@@ -36,3 +36,10 @@ test.skipIf(!existsSync(IMAGE))("an export makes its folder, after its checks", 
   expect(existsSync(out)).toBe(true);
   await core.close(h);
 });
+
+test("the schema gives each prop group's defaults, which the editor fills a clip's missing values from", () => {
+  const props = new LocalCore({ configDir: join(dir, "config") }).schema().props;
+  expect(props.find((p) => p.id === "audio")?.defaults).toEqual({ gain: 1, volume: 1, normalize: false });
+  expect(props.find((p) => p.id === "border")?.defaults).toEqual({ thickness: 0, color: [1, 1, 1, 1] });
+  expect(props.every((p) => p.defaults && typeof p.defaults === "object")).toBe(true);
+});

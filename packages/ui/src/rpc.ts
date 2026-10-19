@@ -28,6 +28,8 @@ export interface Binding {
 export interface PropGroupInfo {
   id: string;
   description: string;
+  /** What a clip without its own values has. */
+  defaults: Record<string, unknown>;
 }
 
 export interface Opened {
