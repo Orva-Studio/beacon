@@ -1,12 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { parseColor, type RGBA } from "@beacon/model";
 import { PLAIN_TEXT } from "./buttons";
 import { MASK, syncNativeView } from "../native-view";
-import { replica } from "../store";
 import { clamp, NumberBox, Row, Slider } from "./fields";
 import { Icon } from "./icons";
 
 export type { RGBA };
+
+/** Picking a colour from the canvas, which the app gives the colour controls (the canvas takes the click). */
+export interface Eyedropper {
+  /** Starts picking; `done` gets the colour, or nothing when cancelled. */
+  start(done: (rgb?: [number, number, number]) => void): void;
+  stop(): void;
+  /** Whether a pick is under way: a click on the canvas then isn't one away from the picker. */
+  active(): boolean;
+}
+
+export const EyedropperContext = createContext<Eyedropper | undefined>(undefined);
 
 export const toHex = (c: readonly number[]) => `#${c.slice(0, 3).map((v) => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, "0")).join("")}`;
 /** `#rrggbb` or `#rrggbbaa` (Camtasia's colours keep their alpha), the `#` optional. */
@@ -80,6 +90,7 @@ export function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChang
   const [hsv, setHsv] = useState(() => toHsv(color));
   const [mine, setMine] = useState(loadMine);
   const [picking, setPicking] = useState(false);
+  const eyedropper = useContext(EyedropperContext);
   const [h, s, v] = toHex(color) === toHex(fromHsv(...hsv)) ? hsv : toHsv(color);
   const apply = (next: [number, number, number], key?: string) => {
     setHsv(next);
@@ -102,17 +113,19 @@ export function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChang
         <div className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" style={{ left: `${s * 100}%`, top: `${(1 - v) * 100}%` }} />
       </div>
       <div className="flex items-center gap-2">
-        <button
-          title="Pick a colour from the canvas"
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-sm ${picking ? "bg-accent text-accent-text" : "bg-control text-text-strong hover:bg-tile-hover"}`}
-          onClick={() => {
-            if (picking) return (setPicking(false), replica.pick(undefined));
-            setPicking(true);
-            replica.pick((rgb) => (setPicking(false), rgb && applyRgb(rgb)));
-          }}
-        >
-          <Icon name="eyedropper" size={14} />
-        </button>
+        {eyedropper && (
+          <button
+            title="Pick a colour from the canvas"
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-sm ${picking ? "bg-accent text-accent-text" : "bg-control text-text-strong hover:bg-tile-hover"}`}
+            onClick={() => {
+              if (picking) return (setPicking(false), eyedropper.stop());
+              setPicking(true);
+              eyedropper.start((rgb) => (setPicking(false), rgb && applyRgb(rgb)));
+            }}
+          >
+            <Icon name="eyedropper" size={14} />
+          </button>
+        )}
         <div {...hue} className="relative h-3 flex-1 cursor-pointer rounded-full" style={{ background: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" }}>
           <div className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" style={{ left: `${(h / 360) * 100}%`, background: pure }} />
         </div>
@@ -163,6 +176,7 @@ export function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChang
 /** A colour swatch that opens the picker below it; `onChange`'s key makes a drag one undo step. */
 export function ColorSwatch({ color, onChange, title }: { color: RGBA; onChange: (c: RGBA, key?: string) => void; title?: string }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const eyedropper = useContext(EyedropperContext);
   const pop = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -170,16 +184,16 @@ export function ColorSwatch({ color, onChange, title }: { color: RGBA; onChange:
     if (!at) return;
     const away = (e: PointerEvent) => {
       // The eyedropper's click on the canvas isn't "away".
-      if (replica.get().picking || pop.current?.contains(e.target as Node) || button.current?.contains(e.target as Node)) return;
+      if (eyedropper?.active() || pop.current?.contains(e.target as Node) || button.current?.contains(e.target as Node)) return;
       setAt(null);
     };
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && !replica.get().picking && setAt(null);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && !eyedropper?.active() && setAt(null);
     window.addEventListener("pointerdown", away, true);
     window.addEventListener("keydown", esc);
     return () => {
       window.removeEventListener("pointerdown", away, true);
       window.removeEventListener("keydown", esc);
-      replica.pick(undefined);
+      eyedropper?.stop();
       syncNativeView();
     };
   }, [at]);

@@ -4,7 +4,7 @@ import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost }
 import { Palette } from "./palette";
 import { droppedFiles } from "./drop";
 import type { DroppedFile, Init, Narrating } from "./rpc";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
 import { Timeline } from "./timeline";
@@ -26,7 +26,7 @@ import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers"
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, Icon, isFormField, isTextField, NativeView, Select, Timecode, type IconName, type NativeTag } from "./controls";
+import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, type Eyedropper, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -65,6 +65,9 @@ const CANVAS_ZOOMS = [25, 33, 50, 66, 75, 100, 150, 200, 400];
 
 /** Bound in the keymap, but run from clipboard events (see `onClipboard`). */
 const CLIPBOARD: Record<string, boolean> = { "edit.cut": true, "edit.copy": true, "edit.paste": true };
+
+/** The colour controls' eyedropper: the canvas takes the next click while it picks. */
+const EYEDROPPER: Eyedropper = { start: (done) => replica.pick(done), stop: () => replica.pick(undefined), active: () => !!replica.get().picking };
 
 export function App({ host }: { host: Host }) {
   useWindowGuards();
@@ -138,75 +141,77 @@ export function App({ host }: { host: Host }) {
   }, [keymap, host]);
 
   return (
-    <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
-      <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
-      <div className="flex min-h-0 flex-1 gap-gutter">
-        <ToolRail session={session} host={host} />
-        {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
-        <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
-          <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
-          {project && session && <Transport project={project} session={session} host={host} init={init} />}
+    <EyedropperContext.Provider value={EYEDROPPER}>
+      <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
+        <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
+        <div className="flex min-h-0 flex-1 gap-gutter">
+          <ToolRail session={session} host={host} />
+          {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
+          <div className="panel-card flex min-w-0 flex-1 flex-col overflow-hidden">
+            <CanvasArea host={host} project={project} session={session} clipTypes={init?.clipTypes ?? {}} />
+            {project && session && <Transport project={project} session={session} host={host} init={init} />}
+          </div>
+          {session?.panels.properties &&
+            project &&
+            (reviewOf(session) ? (
+              <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
+            ) : fillerReviewOf(session) ? (
+              <FillerReviewPanel project={project} host={host} found={fillers} />
+            ) : (
+              <Properties project={project} session={session} host={host} init={init} />
+            ))}
         </div>
-        {session?.panels.properties &&
-          project &&
-          (reviewOf(session) ? (
-            <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
-          ) : fillerReviewOf(session) ? (
-            <FillerReviewPanel project={project} host={host} found={fillers} />
-          ) : (
-            <Properties project={project} session={session} host={host} init={init} />
-          ))}
+        {project && session ? (
+          <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
+            <Toolbar session={session} host={host} init={init} />
+            <Timeline
+              project={project}
+              session={session}
+              waveforms={waveforms}
+              thumbs={thumbs}
+              clipTypes={init?.clipTypes ?? {}}
+              nested={init?.nested ?? NO_NESTED}
+              run={host.run}
+              menu={host.clipMenu}
+              trackMenu={host.trackMenu}
+              dropFiles={host.dropFiles}
+              marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
+              markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
+            />
+          </div>
+        ) : (
+          <div className="panel-card h-[30%]" />
+        )}
+        <ExportUi
+          host={host}
+          muted={mutedAudio.map(({ t, i }) => trackName(t, project!.tracks.length - 1 - i))}
+          unmute={() => {
+            // One undo step for them all.
+            const step = `unmute-${Date.now()}`;
+            for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
+          }}
+        />
+        <RecordUi host={host} />
+        <SnapshotSaved host={host} />
+        <SettingsUi host={host} />
+        <StartScreen host={host} />
+        <NewProjectUi host={host} />
+        <SaveAsUi host={host} />
+        <ResourceUi host={host} />
+        <MediaPreviewUi host={host} />
+        <NoticeUi />
+        <Palette host={host} />
+        {/* The dragged panel item; a mask so it shows over the native canvas too. */}
+        {dragging && (
+          <div
+            className={`${MASK} pointer-events-none fixed z-50 rounded-md bg-tile-hover px-2 py-1 text-label text-text-strong shadow-lg ring-1 ring-accent`}
+            style={{ left: dragging.x + 10, top: dragging.y + 10 }}
+          >
+            {dragging.item.label}
+          </div>
+        )}
       </div>
-      {project && session ? (
-        <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
-          <Toolbar session={session} host={host} init={init} />
-          <Timeline
-            project={project}
-            session={session}
-            waveforms={waveforms}
-            thumbs={thumbs}
-            clipTypes={init?.clipTypes ?? {}}
-            nested={init?.nested ?? NO_NESTED}
-            run={host.run}
-            menu={host.clipMenu}
-            trackMenu={host.trackMenu}
-            dropFiles={host.dropFiles}
-            marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
-            markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
-          />
-        </div>
-      ) : (
-        <div className="panel-card h-[30%]" />
-      )}
-      <ExportUi
-        host={host}
-        muted={mutedAudio.map(({ t, i }) => trackName(t, project!.tracks.length - 1 - i))}
-        unmute={() => {
-          // One undo step for them all.
-          const step = `unmute-${Date.now()}`;
-          for (const { t } of mutedAudio) host.run("track.set", { track: t.id, muted: false }, "Unmute Tracks", step);
-        }}
-      />
-      <RecordUi host={host} />
-      <SnapshotSaved host={host} />
-      <SettingsUi host={host} />
-      <StartScreen host={host} />
-      <NewProjectUi host={host} />
-      <SaveAsUi host={host} />
-      <ResourceUi host={host} />
-      <MediaPreviewUi host={host} />
-      <NoticeUi />
-      <Palette host={host} />
-      {/* The dragged panel item; a mask so it shows over the native canvas too. */}
-      {dragging && (
-        <div
-          className={`${MASK} pointer-events-none fixed z-50 rounded-md bg-tile-hover px-2 py-1 text-label text-text-strong shadow-lg ring-1 ring-accent`}
-          style={{ left: dragging.x + 10, top: dragging.y + 10 }}
-        >
-          {dragging.item.label}
-        </div>
-      )}
-    </div>
+    </EyedropperContext.Provider>
   );
 }
 
