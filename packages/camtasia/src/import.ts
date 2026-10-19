@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import {
+  envelopeBlocks,
   SCHEMA_VERSION,
   type Animation,
   type Asset,
@@ -220,14 +221,11 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
         report.push(`${where}: ${name} has points but ${target} is not animatable; using the first`);
       }
       if (keys.some((k) => ticks(k.duration) !== 0)) report.push(`${where}: ${name} has points with a duration; imported as instantaneous`);
-      const points = keys.map((k) => ({ t: ticks(k.time), v: Number(k.value) })).sort((a, b) => a.t - b.t);
-      values[field] = points[0]!.v;
+      let n = blocks.size;
+      const envelope = envelopeBlocks(keys.map((k) => ({ time: ticks(k.time), value: Number(k.value) })), target, () => `a${n++}`);
+      values[field] = envelope.base;
       if (!group.animatable?.includes(field)) return;
-      for (const [i, p] of points.entries()) {
-        if (i === 0) continue;
-        const prev = points[i - 1]!;
-        blocks.set(`${target}#${i}`, { id: `a${blocks.size}`, end: p.t, duration: p.t - prev.t, easing: "linear", to: { [target]: p.v } });
-      }
+      for (const [i, block] of envelope.blocks.entries()) blocks.set(`${target}#${i + 1}`, block);
     },
     asset(src) {
       const a = bySrc.get(src);

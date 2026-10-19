@@ -2,10 +2,8 @@ import { z } from "zod";
 import { defineCommand, type CommandDef } from "./feature";
 import { isFree } from "./edit";
 import type { FeatureRegistry } from "./registry";
-import { AssetSchema, IdSchema as Id, RationalSchema, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
+import { AssetSchema, IdSchema as Id, RationalSchema, SecondsSchema as Seconds, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
 import { secondsToTicks, snapSeconds, ticksToSeconds, type Ticks } from "./ticks";
-
-const Seconds = z.number().nonnegative();
 
 export interface ClipLocation {
   clip: Clip;

@@ -12,6 +12,8 @@ export const RationalSchema = z.strictObject({
 });
 
 export const IdSchema = z.string().min(1);
+/** A time or length in seconds, as commands take them. */
+export const SecondsSchema = z.number().nonnegative();
 
 /** Straight-alpha RGBA, 0–1; `color` tells the properties panel to show a swatch. */
 export const RgbaSchema = z.tuple([z.number(), z.number(), z.number(), z.number()]).meta({ color: true });

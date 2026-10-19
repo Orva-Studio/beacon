@@ -12,6 +12,7 @@ import {
   roundSeconds,
   secondsToTicks,
   snapSeconds,
+  solidLayer,
   ticksPerFrame,
   ticksToSeconds,
   type Clip,
@@ -116,10 +117,6 @@ function layout(spec: TextSpec): TextLine[] {
   return lines;
 }
 
-function solid(color: RGBA, size: [number, number], at: [number, number], radius: number): VisualLayer {
-  return { kind: "visual", content: { type: "solid", color }, size, transform: [1, 0, 0, 1, at[0], at[1]], radius: [radius, radius, radius, radius] };
-}
-
 /** Where a caption's box and text sit on a `width` × `height` canvas: the box, the text's origin and lines, the text. */
 export function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { width: number; height: number }) {
   if (!words.length) return undefined;
@@ -146,7 +143,7 @@ function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const g = captionGeometry(words, style, ctx.canvas);
   if (!g) return;
   const { box, origin, lines, spec } = g;
-  if (style.background[3] > 0) e.layers.push(solid(style.background, [box.width, box.height], [box.x, box.y], Math.min(style.cornerRadius, box.height / 2)));
+  if (style.background[3] > 0) e.layers.push(solidLayer(style.background, [box.width, box.height], Math.min(style.cornerRadius, box.height / 2), [box.x, box.y]));
   const main: VisualLayer = {
     kind: "visual",
     content: { type: "source", source: ctx.source({ kind: "text", ...spec, height: g.height }) },

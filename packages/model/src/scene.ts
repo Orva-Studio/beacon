@@ -92,6 +92,11 @@ export interface TextSpec {
 
 export const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 
+/** A rectangle of one colour `size` big at `at`, its corners rounded by `radius`. */
+export function solidLayer(color: RGBA, size: [number, number], radius: number, at: [number, number] = [0, 0]): VisualLayer {
+  return { kind: "visual", content: { type: "solid", color }, size, transform: [1, 0, 0, 1, at[0], at[1]], radius: [radius, radius, radius, radius] };
+}
+
 /** `outer ∘ inner`: apply `inner` first. */
 export function compose(outer: Affine, inner: Affine): Affine {
   const [a1, b1, c1, d1, e1, f1] = outer;

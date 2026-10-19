@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineFeature, secondsToTicks, SHUTTER } from "@beacon/model";
+import { defineFeature, shutterTimes } from "@beacon/model";
 
 /**
  * Blurs a clip along its animated motion by averaging its transform over the
@@ -19,12 +19,10 @@ export const motionBlur = defineFeature({
       apply(e, p, ctx) {
         if (e.sample) return;
         const index = e.layers.indexOf(e.main);
-        const shutter = ctx.frameSeconds * Math.min(1, SHUTTER * (p.intensity as number));
-        const n = 16;
         const motion = [];
         const perspective: [number, number][] = [];
-        for (let i = 1; i < n; i++) {
-          const s = ctx.evalClip(e.clip, e.track, e.time - secondsToTicks((shutter * i) / n), { sample: true });
+        for (const time of shutterTimes(e.time, ctx.frameSeconds, p.intensity)) {
+          const s = ctx.evalClip(e.clip, e.track, time, { sample: true });
           const layer = s.layers[index];
           if (layer?.kind !== "visual") continue;
           motion.push(layer.transform);

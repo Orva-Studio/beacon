@@ -2,11 +2,12 @@ import { z } from "zod";
 import {
   compose,
   defineFeature,
+  IDENTITY,
   mediaTimeAt,
   RgbaSchema,
   rotate,
   scale,
-  secondsToTicks,
+  shutterTimes,
   ticksToSeconds,
   translate,
   type Ticks,
@@ -16,7 +17,6 @@ import {
   type EvalContext,
   type Track,
   type VisualLayer,
-  SHUTTER,
 } from "@beacon/model";
 import { loadCursorData } from "@beacon/media";
 import { streamOf } from "../media";
@@ -180,7 +180,7 @@ function clickPhase(d: CursorData, t: number): { down: number; up?: number } | u
 
 /** Extra transform about the hotspot: physics tilt from horizontal speed, and click scaling. */
 function cursorExtra(e: ClipEval, d: CursorData, mediaSeconds: number): Affine {
-  let m: Affine = [1, 0, 0, 1, 0, 0];
+  let m: Affine = IDENTITY;
   const physics = effect(e.clip, "cursor-physics");
   if (physics) {
     const [x0] = cursorPosition(d, mediaSeconds - 0.05, e.props.cursor!.smoothing);
@@ -308,11 +308,8 @@ export const cursor = defineFeature({
 
 /** Cursor transforms over the shutter interval before this frame. */
 function motionSamples(e: ClipEval, ctx: EvalContext, d: CursorData, streamWidth: number, image: number, amount: number): Affine[] {
-  const shutter = ctx.frameSeconds * Math.min(1, SHUTTER * amount);
-  const n = 16;
   const out: Affine[] = [];
-  for (let i = 1; i < n; i++) {
-    const time = e.time - secondsToTicks((shutter * i) / n);
+  for (const time of shutterTimes(e.time, ctx.frameSeconds, amount)) {
     const { pos } = cursorAt(e, d, time);
     out.push(spriteTransform(d, { image, pos }, e.props.cursor!.scale, streamWidth, cursorExtra(e, d, ticksToSeconds(mediaTimeAt(e.clip, time)))));
   }

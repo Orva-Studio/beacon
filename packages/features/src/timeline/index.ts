@@ -23,13 +23,13 @@ import {
   freshEffect,
   findClip,
   onTrack,
+  IdSchema as Id,
+  SecondsSchema as Seconds,
 } from "@beacon/model";
 import { visualSize } from "../media";
 import { actions, animationActions } from "./actions";
 import { clipCommands, packMagnetic } from "./clips";
 
-const Seconds = z.number().nonnegative();
-const Id = z.string().min(1);
 
 export { rippleDeleteRanges } from "./clips";
 

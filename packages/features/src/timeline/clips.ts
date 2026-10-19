@@ -32,11 +32,11 @@ import {
   locate,
   onTrack,
   withLinked,
+  IdSchema as Id,
+  SecondsSchema as Seconds,
 } from "@beacon/model";
 import { clipStream, mediaInfo, streamOf } from "../media";
 
-const Seconds = z.number().nonnegative();
-const Id = z.string().min(1);
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
 
 

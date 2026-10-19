@@ -3,7 +3,7 @@ import type { Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
 import { IDENTITY, type Layer, type RGBA, type Scene, type SourceDef, type VisualLayer } from "./scene";
 import type { Animation, Clip, Easing, Project } from "./schema";
-import { rationalToNumber, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
+import { rationalToNumber, secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
 
 /**
  * The two easings: linear, and a cubic ease in/out.
@@ -196,6 +196,13 @@ export function parseColor(hex: string): RGBA {
 
 /** Frames of shutter at motion blur intensity 1 (the clip's and the cursor's). */
 export const SHUTTER = 0.75;
+
+/** The times motion blur samples before `time`, newest first: 15 across the shutter at `intensity`. */
+export function shutterTimes(time: Ticks, frameSeconds: number, intensity: number): Ticks[] {
+  const shutter = frameSeconds * Math.min(1, SHUTTER * intensity);
+  const n = 16;
+  return Array.from({ length: n - 1 }, (_, i) => time - secondsToTicks((shutter * (i + 1)) / n));
+}
 
 /** The audio of nested tracks heard through a clip's window (groups, stitched media). */
 export function nestedAudio(clip: Clip, tracks: Track[] | undefined, ctx: AudioContext): AudioSegment[] {
