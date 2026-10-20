@@ -473,10 +473,13 @@ export const clipCommands = [
     args: z.strictObject({ at: Seconds, duration: z.number().positive(), track: Id.optional() }),
     apply(doc, { at, duration, track }) {
       const t = snapSeconds(at, doc.settings.fps);
-      const d = Math.min(snapSeconds(duration, doc.settings.fps), t);
-      if (d <= 0) return;
       const tracks = spaceTracks(doc, track);
-      if (tracks.some((tr) => tr.clips.some((c) => c.start < t && clipEnd(c) > t - d))) throw new Error("there is media in that time; only empty time can be closed");
+      const room = t - Math.max(0, ...tracks.flatMap((tr) => tr.clips.filter((c) => c.start < t).map((c) => Math.min(clipEnd(c), t))));
+      let d = Math.min(snapSeconds(duration, doc.settings.fps), t);
+      // All the room asked for, rounded to a frame past media that ends between frames: as far as the media.
+      if (d > room && d - room < ticksPerFrame(doc.settings.fps)) d = room;
+      if (d <= 0) return;
+      if (d > room) throw new Error("there is media in that time; only empty time can be closed");
       for (const tr of tracks) shiftLater(tr, t, -d);
       if (!track) for (const m of doc.markers) if (m.time >= t - d) m.time = Math.max(t - d, m.time - d);
     },

@@ -1605,7 +1605,11 @@ What the user hit while editing, ahead of Phase 9.
   pressed on. **Built 2026-10-19**: `timeline.removeSpace` closes empty time
   (refused over media), and both it and `timeline.insertSpace` take an
   optional `track`. Shift on a track's gap now moves time instead of adding
-  to the selection with a marquee; ⌘-drag still adds.
+  to the selection with a marquee; ⌘-drag still adds. Known, from the PR
+  review (2026-10-19), older than this: a magnetic track packs its clips
+  again at once, so space opened across tracks closes on it while linked
+  clips on ordinary tracks move; decide whether space edits skip magnetic
+  tracks or move their linked partners with them.
 - **Drops carry their paths** (the user, 2026-10-19). The webview gives a
   file dropped from Finder its name, size and date but not its path, so
   `findDroppedFile` guesses: WebKit's URL when it sends one, the home

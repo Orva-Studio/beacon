@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
+import { audioPlaybackArgs } from "@beacon/render";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -19,12 +20,17 @@ function listen(path: string) {
   return { codec: j.streams[0]?.codec_name, seconds: Number(j.format.duration), mean: Number(/mean_volume: (-?[\d.]+) dB/.exec(v)?.[1]), video: video !== "" };
 }
 
+const rate = (path: string) =>
+  Number(Bun.spawnSync([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0", path]).stdout.toString().trim());
+
 test.skipIf(!existsSync(RECORDING))("the audio alone exports as .wav, .m4a and .mp3, sounding as the video's export does", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache") });
   const h = await core.create({ path: join(dir, "p.beproj") });
   const r = await core.import(h, [RECORDING]);
   for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
   const range = { from: 1, to: 4 };
+  // Each clip's delay into the mix is exact, not rounded to a millisecond (one 30 fps frame: 33.3333 ms).
+  expect(audioPlaybackArgs(core.doc(h), core.registry, -1 / 30, 1).join(" ")).toContain("adelay=delays=33.3333:all=1");
   await (await core.export(h, { output: join(dir, "video.mp4"), ...range })).done;
   const reference = listen(join(dir, "video.mp4"));
 
@@ -38,5 +44,19 @@ test.skipIf(!existsSync(RECORDING))("the audio alone exports as .wav, .m4a and .
     expect(Math.abs(heard.mean - reference.mean)).toBeLessThan(0.5);
   }
   await expect(core.export(h, { output: join(dir, "none.wav"), audio: false })).rejects.toThrow("can't be exported without audio");
+
+  // MP3 stops at 48 kHz: a 96 kHz project is resampled for it, while .wav keeps 96 kHz.
+  await core.run(h, "project.settings.set", { sampleRate: 96000 });
+  for (const format of ["mp3", "wav"] as const) await (await core.export(h, { output: join(dir, `hi.${format}`), ...range })).done;
+  expect(rate(join(dir, "hi.mp3"))).toBe(48000);
+  expect(rate(join(dir, "hi.wav"))).toBe(96000);
+  await core.run(h, "project.settings.set", { sampleRate: 48000 });
+
+  // A range with nothing to hear (every track muted) is that much silence, not a failure.
+  for (const t of core.doc(h).tracks) await core.run(h, "track.set", { track: t.id, muted: true });
+  await (await core.export(h, { output: join(dir, "silent.wav"), ...range })).done;
+  const silent = listen(join(dir, "silent.wav"));
+  expect(silent.seconds).toBeCloseTo(3, 1);
+  expect(silent.mean).toBeLessThan(-80);
   await core.close(h);
 }, 120000);

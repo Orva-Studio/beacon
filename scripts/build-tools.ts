@@ -57,7 +57,7 @@ const ENABLE = {
     "buffer", "abuffer", "buffersink", "abuffersink", "null", "anull", "copy", "acopy", "format", "aformat", "aresample",
     "scale", "scale_vt", "setparams", "fps", "split", "palettegen", "paletteuse", "signalstats", "metadata",
     "transpose", "transpose_vt", "hflip", "vflip", "rotate", "hwdownload", "hwupload",
-    "volume", "atempo", "adelay", "amix", "apad", "ebur128", "volumedetect",
+    "volume", "atempo", "adelay", "amix", "apad", "anullsrc", "ebur128", "volumedetect",
   ],
 };
 

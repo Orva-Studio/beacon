@@ -159,13 +159,12 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   const frameTicks = ticksPerFrame(project.settings.fps);
   const from = opts.from ?? 0;
   const to = opts.to ?? projectDuration(project);
-  const frames = opts.frames ?? Array.from({ length: Math.ceil((to - from) / frameTicks) }, (_, i) => Math.round(from / frameTicks) + i);
-
   if (opts.output.kind === "video" && isAudioFormat(videoFormat(opts.output.path))) {
     await exportAudio(project, registry, opts.output, ticksToSeconds(from), ticksToSeconds(to - from));
     opts.onProgress?.(1, 1);
     return { frames: 0 };
   }
+  const frames = opts.frames ?? Array.from({ length: Math.ceil((to - from) / frameTicks) }, (_, i) => Math.round(from / frameTicks) + i);
   const tmp = opts.output.kind === "video" ? mkdtempSync(join(tmpdir(), "beacon-")) : undefined;
   try {
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
@@ -272,7 +271,7 @@ function audioMix(project: Project, registry: FeatureRegistry, start: number, le
     const src = source?.(s) ?? { path: s.path, stream: s.stream };
     inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), ...ffmpegInput(src.path));
     const volume = s.gain.ramps.length ? `volume='${gainExpr(s.gain, media)}':eval=frame` : `volume=${s.gain.base.toFixed(5)}`;
-    filters.push(`[${input}:a:${src.stream}]${volume}${atempo(s.speed)},adelay=delays=${Math.round((from - start) * 1000)}:all=1[a${n}]`);
+    filters.push(`[${input}:a:${src.stream}]${volume}${atempo(s.speed)},adelay=delays=${((from - start) * 1000).toFixed(4)}:all=1[a${n}]`);
   }
   if (!n) return { inputs };
   return { inputs, filter: `${filters.join(";")};${Array.from({ length: n }, (_, i) => `[a${i + 1}]`).join("")}amix=inputs=${n}:normalize=0:duration=longest,apad[aout]` };
@@ -314,10 +313,13 @@ const AUDIO_CODECS: Record<string, (o: Extract<RenderOutput, { kind: "video" }>)
 
 /** The mix of [start, start + length) alone, written straight to the output (.wav, .m4a, .mp3). */
 async function exportAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
-  const { inputs, filter } = audioMix(project, registry, start, length);
-  if (!filter) throw new Error("there is no audio to export in that range");
-  const codec = AUDIO_CODECS[videoFormat(o.path)]!(o);
-  const args = [...ffmpegArgs(), "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-ar", String(project.settings.sampleRate), "-t", length.toFixed(6), o.path];
+  const format = videoFormat(o.path);
+  // MP3 stops at 48 kHz; a project at 96 kHz is resampled for it.
+  const rate = format === "mp3" ? Math.min(48000, project.settings.sampleRate) : project.settings.sampleRate;
+  const mix = audioMix(project, registry, start, length);
+  // Nothing audible in the range: that much silence, as a range with some sound keeps its quiet parts.
+  const filter = mix.filter ?? `anullsrc=r=${rate}:cl=stereo[aout]`;
+  const args = [...ffmpegArgs(), "-y", ...mix.inputs, "-filter_complex", filter, "-map", "[aout]", ...AUDIO_CODECS[format]!(o), "-ar", String(rate), "-t", length.toFixed(6), o.path];
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio export failed: ${e.message}`);
   });
