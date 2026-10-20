@@ -18,7 +18,7 @@ export interface RetakeGroup {
   start: number;
   end: number;
   takes: { start: number; end: number; text: string }[];
-  /** The take kept, from 0. */
+  /** The take kept, from 0; -1 when every take is cut. */
   best: number;
   by: "you" | "openai" | "beacon";
   reason?: string;
@@ -49,7 +49,10 @@ export const retakeMarks = (found: Retakes): TimelineMark[] =>
 
 const BY = { you: "Chosen by you", openai: "Picked by OpenAI", beacon: "Picked by Beacon" };
 
-/** A group's takes as text, with their lengths: a click keeps one, ▶ plays it alone. */
+/** Takes a group cuts: all but the one kept, or every one. */
+const cutCount = (g: RetakeGroup) => (g.best < 0 ? g.takes.length : g.takes.length - 1);
+
+/** A group's takes as text, with their lengths: a click keeps one, ▶ plays it alone; or cut every take. */
 function Takes({ group, host, session }: { group: RetakeGroup; host: Host; session: Session }) {
   /** The take being played: where it ends, and whether playback has begun (it starts a moment after ▶). */
   const [until, setUntil] = useState<{ end: number; started: boolean }>();
@@ -89,9 +92,20 @@ function Takes({ group, host, session }: { group: RetakeGroup; host: Host; sessi
           </Button>
         </div>
       ))}
-      <div className="text-label text-text-faint" data-take-by>
-        {BY[group.by]}
-        {group.reason ? `: ${group.reason}` : ""}
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-label text-text-faint" data-take-by>
+          {group.best < 0 ? "Every take cut, by you" : BY[group.by]}
+          {group.reason ? `: ${group.reason}` : ""}
+        </span>
+        <Button
+          look="quiet"
+          title={group.best < 0 ? "Keep one take again: the one picked" : "Cut every take of this line, keeping none"}
+          onClick={() => host.run("retakes.cutAll", { start: group.start, end: group.end, on: group.best >= 0 })}
+          data-take-cut
+          data-take-cut-all={group.best < 0 || undefined}
+        >
+          {group.best < 0 ? "Keep One" : "Cut All"}
+        </Button>
       </div>
     </div>
   );
@@ -116,8 +130,9 @@ export function RetakeReviewPanel({ project, session, host, found }: { project: 
       host={host}
       found={found}
       items={found?.groups.map((g) => ({ ...g, cut: true as const }))}
-      tally={(groups) => `${groups.length} ${groups.length === 1 ? "line" : "lines"} said more than once, ${groups.reduce((n, g) => n + g.takes.length - 1, 0)} takes to cut.`}
-      describe={(g) => `${clock(g.start)}: ${g.takes.length} takes, keeping take ${g.best + 1}`}
+      tally={(groups) => `${groups.length} ${groups.length === 1 ? "line" : "lines"} said more than once, ${groups.reduce((n, g) => n + cutCount(g), 0)} takes to cut.`}
+      describe={(g) => `${clock(g.start)}: ${g.takes.length} takes, ${g.best < 0 ? "cutting them all" : `keeping take ${g.best + 1}`}`}
+      list
       detail={(g) => <Takes group={g} host={host} session={session} />}
       legend={
         <>
@@ -125,7 +140,7 @@ export function RetakeReviewPanel({ project, session, host, found }: { project: 
             <span className="h-2.5 w-4 rounded-sm bg-take-kept" /> Take kept
             <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-cut" /> To cut
           </span>
-          <span>Click a take on the timeline to keep it instead.</span>
+          <span>Click a line on the timeline or in the list to look at it, then one of its takes to keep it instead.</span>
         </>
       }
       note={

@@ -187,7 +187,8 @@ export function App({ host }: { host: Host }) {
               marks={retakes ? retakeMarks(retakes) : (silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
               markClick={(m, alt) =>
                 retakes
-                  ? alt
+                  ? // A click picks the line to look at; a click on one of its takes then keeps that one.
+                    alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
                   : alt

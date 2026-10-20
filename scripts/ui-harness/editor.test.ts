@@ -2292,7 +2292,7 @@ test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler mark
   }
 }, 180_000);
 
-test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the kept one green; a click keeps another; the takes listed with play; OpenAI's picks, or why it couldn't; Apply cuts in one undo step", async () => {
+test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the kept one green; a click picks a line (or the list does), another keeps a take; Cut All keeps none; the takes listed with play; OpenAI's picks, or why it couldn't; Apply cuts in one undo step", async () => {
   // The talk's real audio under a transcript that restarts two lines, in a cache of its own.
   const cacheDir = join(dir, "retakes-cache");
   const core = new LocalCore({ cacheDir });
@@ -2349,7 +2349,14 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     const [kept, cut] = [await rgb((g.takes[1]!.start + g.takes[1]!.end) / 2), await rgb((g.takes[0]!.start + g.takes[0]!.end) / 2)];
     expect(kept[1]).toBeGreaterThan(kept[0]);
     expect(cut[0]).toBeGreaterThan(cut[1]);
-    // A click on the first take keeps it instead.
+    // A click on a line picks it to look at, keeping what was kept; a click on one of its takes then keeps that one.
+    const curr = async () => ((await other.core.session(other.handle)).features.transcript as { retakes?: { current?: number } }).retakes?.current;
+    await p.click(xAt((g.takes[0]!.start + g.takes[0]!.end) / 2), box.y + box.h - 20);
+    for (let i = 0; i < 50 && (await curr()) === undefined; i++) await Bun.sleep(50);
+    expect((await found()).groups[0]!.best).toBe(1);
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    await go("timeline.view", { start: g.start - 1, end: g.end + 1 });
+    await Bun.sleep(200);
     await p.click(xAt((g.takes[0]!.start + g.takes[0]!.end) / 2), box.y + box.h - 20);
     for (let i = 0; i < 50 && !(await review())?.kept.length; i++) await Bun.sleep(50);
     expect((await found()).groups.map((x) => [x.best, x.by])).toEqual([
@@ -2357,9 +2364,28 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
       [1, "beacon"],
     ]);
     // One at a time, the group's takes are listed: the kept one marked, a click on the other keeps it, ▶ plays one and stops at its end.
-    await p.evaluate("document.querySelector('[data-one-next]').click()");
     await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
     await p.until("document.querySelectorAll('[data-retake-takes] [data-take]').length === 2");
+    // Every line listed: a click on one goes to it.
+    expect(await p.evaluate<number>("document.querySelectorAll('[data-review-item]').length")).toBe(2);
+    await p.evaluate("document.querySelector('[data-review-item=\"1\"]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 2') && !!document.querySelector('[data-review-item=\"1\"][data-current]')");
+    // Cut All: neither take kept, both red on the timeline; Keep One puts the pick back.
+    await p.evaluate("document.querySelector('[data-take-cut]').click()");
+    await p.until("!!document.querySelector('[data-take-cut-all]') && !document.querySelector('[data-retake-takes] [data-kept]')");
+    expect((await found()).groups[1]!.best).toBe(-1);
+    expect(await summary()).toStartWith("2 lines said more than once, 3 takes to cut.");
+    const g1 = (await found()).groups[1]!;
+    await go("timeline.view", { start: g1.start - 1, end: g1.end + 1 });
+    await Bun.sleep(200);
+    const s1 = await other.core.session(other.handle);
+    const xAt1 = (t: number) => header + ((t - s1.timeline.start) / (s1.timeline.end - s1.timeline.start)) * (box.w - header);
+    for (const take of g1.takes) await p.until(`(([r, g]) => r > g)(${timelinePixel(xAt1((take.start + take.end) / 2), box.h - 6)}.split(',').map(Number))`);
+    await p.evaluate("document.querySelector('[data-take-cut-all]').click()");
+    await p.until("!document.querySelector('[data-take-cut-all]') && !!document.querySelector('[data-retake-takes] [data-kept]')");
+    expect((await found()).groups[1]!.best).toBe(1);
+    await p.evaluate("document.querySelector('[data-review-item=\"0\"]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
     expect(await p.evaluate<string>("document.querySelector('[data-retake-takes] [data-kept]').dataset.take")).toBe("0");
     expect(await p.evaluate<string>("document.querySelector('[data-take-by]').textContent")).toBe("Chosen by you");
     await p.evaluate("document.querySelectorAll('[data-take-keep]')[1].click()");
@@ -2375,6 +2401,32 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     for (let i = 0; i < 100 && (await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
     expect((await other.core.session(other.handle)).playing).toBe(false);
     other.core.detachView(other.handle);
+
+    // Cut This One: the clips close up, and the marks of the group left move with them.
+    const second = (await found()).groups[1]!;
+    await go("timeline.view", { start: 0, end: second.end + 2 });
+    await go("retakes.focus", { at: g.start });
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    await p.evaluate("document.querySelector('[data-one-cut]').click()");
+    for (let i = 0; i < 100 && (await found()).groups.length !== 1; i++) await Bun.sleep(50);
+    const moved = (await found()).groups[0]!;
+    expect(moved.start).toBeLessThan(second.start - 0.5);
+    const s2 = await other.core.session(other.handle);
+    const xAt2 = (t: number) => header + ((t - s2.timeline.start) / (s2.timeline.end - s2.timeline.start)) * (box.w - header);
+    const keptAt = (moved.takes[moved.best]!.start + moved.takes[moved.best]!.end) / 2;
+    await p.until(`(([r, g]) => g > r)(${timelinePixel(xAt2(keptAt), box.h - 6)}.split(',').map(Number))`);
+    // Where the group was, past the end of the take now kept, no mark is left behind.
+    const gone = (second.takes[1]!.start + second.takes[1]!.end) / 2;
+    if (gone > moved.end + 0.2) {
+      const [r2, g2, b2] = (await p.evaluate<string>(timelinePixel(xAt2(gone), box.h - 6))).split(",").map(Number);
+      expect(g2! > r2! + 20).toBe(false);
+      void b2;
+    }
+    await other.core.undo(other.handle);
+    await go("retakes.close");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    await p.until("!!document.querySelector('[data-retake-review]')");
 
     // OpenAI as the judge: its picks once it has answered, with why.
     await other.core.setSecret("openai-api-key", "sk-test");

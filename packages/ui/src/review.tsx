@@ -146,8 +146,10 @@ export function ReviewPanel<T extends Item>(props: {
   detail?: (item: T) => ReactNode;
   /** A line under the summary while it is still being worked out (OpenAI judging). */
   note?: ReactNode;
+  /** Every one listed, a click going to it, for reviews with few (a talk's retakes, not its silences). */
+  list?: boolean;
 }) {
-  const { review, title, noun, project, host, found, items = [], none, describe, one, children, tally, legend, detail, note } = props;
+  const { review, title, noun, project, host, found, items = [], none, describe, one, children, tally, legend, detail, note, list } = props;
   const length = ticksToSeconds(projectDuration(project));
   const cut = items.filter((s) => s.cut).length;
   const kept = items.length - cut;
@@ -180,6 +182,21 @@ export function ReviewPanel<T extends Item>(props: {
           </>
         )}
       </div>
+      {list && !found?.waiting.length && items.length > 0 && (
+        <div className="mb-3 flex flex-col gap-0.5" data-review-list>
+          {items.map((item, i) => (
+            <button
+              key={`${item.start}`}
+              className={`truncate rounded-md px-2 py-1 text-left text-label ${i === found?.current ? "bg-accent-wash text-text-strong" : "text-text-muted hover:bg-groove"}`}
+              onClick={() => goTo(host, review, item)}
+              data-review-item={i}
+              data-current={i === found?.current || undefined}
+            >
+              {describe(item)}
+            </button>
+          ))}
+        </div>
+      )}
       <OneByOne review={review} items={found?.waiting.length ? [] : items} current={found?.current} host={host} describe={describe} {...(detail ? { detail } : {})} />
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={() => host.run(`${review}.close`)} {...{ [`data-${review}-cancel`]: true }}>

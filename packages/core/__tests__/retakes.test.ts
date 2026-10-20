@@ -101,6 +101,30 @@ test.skipIf(!existsSync(AUDIO))("keeping an earlier take cuts only what the late
   await core.close(h);
 }, 60_000);
 
+test.skipIf(!existsSync(AUDIO))("cutting every take of a line keeps none of it (what the last goes on to say stays); keeping one of its takes again undoes that, and Apply cuts them all", async () => {
+  const { core, h, text } = await talk("cut-all");
+  await core.run(h, "retakes.review", {});
+  const review = async () => ((await core.session(h)).features.transcript as { retakes: object }).retakes;
+  const [first, second] = ((await core.query(h, "transcript.retakes", {})) as Found).groups;
+  await core.run(h, "retakes.cutAll", { start: second!.start, end: second!.end });
+  const none = (await core.query(h, "transcript.retakes", await review())) as Found;
+  expect(none.groups.map((g) => [g.best, g.by])).toEqual([
+    [1, "beacon"],
+    [-1, "you"],
+  ]);
+  // Keeping one of its takes again puts it back to keeping one; cut again for Apply.
+  await core.run(h, "retakes.keep", { at: second!.takes[0]!.start + 0.1 });
+  expect(((await core.query(h, "transcript.retakes", await review())) as Found).groups[1]!.best).toBe(0);
+  await core.run(h, "retakes.cutAll", { start: second!.start, end: second!.end });
+  await core.run(h, "retakes.focus", { at: first!.start });
+  // Cut This One on the first group: the second, cut whole, moves with the timeline and stays cut whole.
+  await core.run(h, "retakes.apply", { one: true });
+  expect(((await core.query(h, "transcript.retakes", await review())) as Found).groups.map((g) => g.best)).toEqual([-1]);
+  await core.run(h, "retakes.apply", {});
+  expect(await text()).toBe("Welcome to the video. so the next step is to open the settings. pair the keyboard. That's all for today.");
+  await core.close(h);
+}, 60_000);
+
 test.skipIf(!existsSync(AUDIO))("with OpenAI as the judge, its picks are kept once the review asks for them, and applied", async () => {
   const secrets = new Map([["openai-api-key", "sk-test"]]);
   const { core, h, asset, text } = await talk("openai", secrets);

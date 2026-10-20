@@ -26,6 +26,7 @@ feature lands and when it is checked.
 | A clip being dragged is drawn where it would land as itself (its waveform or thumbnail, name and link chain, outlined), not as a plain grey box, so waveforms can be lined up by eye | 2026-10-20 | this commit | UI flow (bars of the dragged audio's waveform past its own end mid-drag; fails without the change) |
 | Shift-drag opens or closes time live: the clips after the point move as you drag (one across it drawn split, its right part moving), with no green band; the edit is still made on release, Esc cancels | 2026-10-20 | this commit | UI flow (mid-drag the clip has left its place and the opened gap is empty, not green; fails without the change) |
 | Import progress: a placeholder tile in the Media Bin for each file while it is read (before its media exist), and a dismissable panel bottom-right listing each file's stage (Reading, Transcribing %, Making a proxy %, Ready, Failed) that goes by itself once all are ready; Export's and the Snapshot's panels stack with it | 2026-10-20 | this commit | UI flow (a file Reading then Failed; a real import Ready; the panel dismissed) |
+| Remove Retakes: Cut All cuts every take of a line, keeping none (what the last goes on to say stays), and Keep One (or keeping one of its takes) undoes it; every line is listed in the panel and a click goes to it; on the timeline a click picks the line to look at and a click on one of its takes then keeps it (it used to keep at once); the marks of the lines left follow a Cut This One | 2026-10-20 | this commit | Core test (cut all, kept again, moved by Cut This One, applied); UI flow (list, Cut All both red then Keep One, click to pick then keep, marks after Cut This One) |
 | Review fixes checked by reading only: a Settings change made in one window reaches the others (only the changing window skips the echo); a Record dialog opened in another window while a take or narration runs is refused rather than taking the recorder over | 2026-10-20 | this commit | No headless test: both live in the desktop main process (`index.ts`) |
 
 ### Not checked yet
@@ -38,6 +39,7 @@ feature lands and when it is checked.
 - Film Look's split tone and Tint on your own footage, and the hue sliders.
 - ⌘L and Edit › Unlink Recording in the app; lining up waveforms by dragging a clip; Shift-drag moving clips live.
 - Import progress in the app: dropping a big file from your camera, its placeholder tile and the panel.
+- Remove Retakes in the app: Cut All, the list, click to pick then keep, and whether the marks follow a cut on your own talk.
 - A take whose microphone fails in the app: the panel's red Mic chip and Not saving while it records, the menu-bar title, and the sheet's line after Stop.
 - Safe areas in the app: the zones drawn by the native preview over a real Short (and a 16:9 project with YouTube's), View › Safe Areas, and whether the zones match what TikTok, Reels and Shorts cover on your phone.
 
