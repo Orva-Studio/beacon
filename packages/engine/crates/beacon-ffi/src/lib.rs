@@ -11,6 +11,7 @@ use std::ptr;
 use beacon_media::Trec;
 
 mod audio;
+mod focus;
 mod preview;
 mod render;
 

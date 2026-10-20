@@ -29,6 +29,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Shortcuts work straight after switching back from another app (Electrobun gave the keys to the canvas's native view as the window became key; the page takes them back) | 2026-10-19 | this commit | Found in Electrobun's `-[WindowDelegate windowDidBecomeKey:]` (libNativeWrapper); built and typechecked, no headless check possible (the harness has no native window). To try by hand: switch away and back, then press Space |
 | Core split (analyses, recording, thumbnails, registry info) behaves as before | 2026-10-18 | `dc4ae1c` | core, features, mcp, camtasia tests; UI flows |
 | Desktop split: boot, open, MCP over the socket | 2026-10-18 | `6235adc` | `app.test.ts` (passes on this Mac now); UI flows |
 | Proxies follow Settings › General in core; a settings.json written by another process is told and followed; the desktop keeps no settings copy | 2026-10-18 | `7d3faab` | Core test (no proxy for a video until an agent's core turns video proxies on); UI flow (a video file gets no proxy with video off); `app.test.ts` |

@@ -31,5 +31,5 @@ export {
   type ShortcutInfo,
 } from "@beacon/model";
 export { LABEL_COLORS } from "@beacon/features";
-export { captureWindow, windowNumber, type DroppedFile } from "@beacon/media";
+export { captureWindow, focusPage, windowNumber, type DroppedFile } from "@beacon/media";
 export type { LiveView, ViewTarget } from "@beacon/render";

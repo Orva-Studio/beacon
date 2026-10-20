@@ -82,6 +82,8 @@ dependencies = [
  "beacon-render",
  "core-foundation",
  "cpal",
+ "dispatch2",
+ "objc2",
  "serde_json",
 ]
 

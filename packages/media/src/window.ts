@@ -21,6 +21,11 @@ export function windowNumber(nsWindow: Pointer): number {
   return Number(objc.objc_msgSend(nsWindow, sel));
 }
 
+/** Gives the page in an `NSWindow` the keys when the canvas's native view took them as the window became key. */
+export function focusPage(nsWindow: Pointer): void {
+  loadEngine().beacon_focus_page(nsWindow);
+}
+
 /** PNG of one window, including native views inside it, without its shadow. */
 export async function captureWindow(windowId: number): Promise<Uint8Array> {
   const dir = mkdtempSync(join(tmpdir(), "beacon-shot-"));
