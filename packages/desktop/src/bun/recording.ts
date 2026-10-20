@@ -4,14 +4,15 @@ import { BrowserView, BrowserWindow, GlobalShortcut, Tray } from "electrobun/mai
 import { syncKey, type LocalCore, type RecordResult } from "@beacon/core";
 import { clock, panelHeight, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
 
-/** What recording needs of the app: its core and its window. */
+/** What recording needs of the app: its core and the window it records for. */
 export interface RecordingApp {
   core: LocalCore;
   message: Send;
   status(text: string): void;
-  /** The open project, if one is. */
+  /** The project recorded into, if one is open. */
   project(): string | undefined;
-  window: Pick<BrowserWindow, "hide" | "show" | "activate">;
+  /** Hides and shows the editor (every window, so none is in the take). */
+  window: { hide(): void; show(): void; activate(): void };
   setSettings(patch: SettingsPatch): void;
 }
 

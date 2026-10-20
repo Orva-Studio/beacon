@@ -1,21 +1,29 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { Utils } from "electrobun/main";
 import { findDropped, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
 import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
-import { errorText, type App, type Current } from "./app";
+import type { LocalCore } from "@beacon/core";
+import { errorText, type ProjectWindow, type Current } from "./app";
 
-export interface ProjectsApp extends App {
-  setCurrent(c: Current): void;
-  /** The project's events told to the window, from now on. */
-  watch(h: string): ProjectBridge;
-  /** The window shows the project just opened; `canvas` is the native view the last one was drawn in. */
-  shown(h: string, canvas: Current["view"]): Promise<void>;
-  /** Before the open project is let go. */
-  leaving(): void;
-  /** Open Recent changed: the menu and the start screen follow. */
+export interface ProjectsApp {
+  core: LocalCore;
+  /** The window menus and keys act on, if any. */
+  focused(): ProjectWindow | undefined;
+  /** Every editor window. */
+  windows(): Iterable<ProjectWindow>;
+  /** A new editor window, showing the start screen. */
+  newWindow(): ProjectWindow;
+  /** The project's events told to `w`, from now on. */
+  watch(w: ProjectWindow, h: string): ProjectBridge;
+  /** `w` shows the project just opened; `canvas` is the native view the last one was drawn in. */
+  shown(w: ProjectWindow, h: string, canvas: Current["view"]): Promise<void>;
+  /** Before `w`'s project is let go. */
+  leaving(w: ProjectWindow): void;
+  /** Open Recent changed: the menu and the start screens follow. */
   recentChanged(): void;
+  /** Finder's open dialog (Electrobun's `Utils.openFileDialog`): the paths picked, none if cancelled. */
+  openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string }): Promise<string[]>;
 }
 
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
@@ -35,9 +43,14 @@ function freshProject(name: string): string {
 
 const isProject = (path: string) => /\.(cmproj|beproj)\/?$/.test(path);
 
-/** The projects the window opens, one at a time: open, switch, create, Save As and rename, and the recent ones. */
+/**
+ * The projects the windows show, one each: open (in a window of its own once the focused one has a project),
+ * switch, create, Save As and rename, close, and the recent ones.
+ */
 export function createProjects(app: ProjectsApp) {
-  const { core, message, status } = app;
+  const { core } = app;
+  /** Said in the focused window's status line, for what concerns the app rather than one window. */
+  const status = (text: string) => app.focused()?.status(text);
 
   let recent: Recent[] = (() => {
     try {
@@ -88,10 +101,10 @@ export function createProjects(app: ProjectsApp) {
     } catch {}
   }
   // Quitting can't wait for a render, so the picture follows edits, a while after they stop.
-  let thumbTimer: ReturnType<typeof setTimeout> | undefined;
+  const thumbTimers = new Map<string, ReturnType<typeof setTimeout>>();
   function saveProjectThumbSoon(h: string) {
-    clearTimeout(thumbTimer);
-    thumbTimer = setTimeout(() => void saveProjectThumb(h), 5000);
+    clearTimeout(thumbTimers.get(h));
+    thumbTimers.set(h, setTimeout(() => (thumbTimers.delete(h), void saveProjectThumb(h)), 5000));
   }
 
   function openRecent(path: string) {
@@ -107,32 +120,59 @@ export function createProjects(app: ProjectsApp) {
     opening = next.catch(() => {});
     return next;
   }
-  const open = (path: string) => queued(() => switchTo(path));
-
-  async function switchTo(path: string) {
+  /** Where `path` opens: the window already showing it, the focused one while it shows none, else a new window. */
+  function windowFor(path: string): ProjectWindow {
     const dir = resolve(path);
-    const current = app.current();
-    if (current?.path === dir && !current.closed) return;
+    const showing = [...app.windows()].find((w) => w.current?.path === dir && !w.current.closed);
+    if (showing) return showing;
+    const focused = app.focused();
+    return focused && !focused.current ? focused : app.newWindow();
+  }
+
+  /** Opens `path` where `windowFor` says, or in `w` (Save As and renaming keep their window). */
+  const open = (path: string, w?: ProjectWindow) => queued(() => switchTo(w ?? windowFor(path), path));
+
+  async function switchTo(w: ProjectWindow, path: string) {
+    const dir = resolve(path);
+    const current = w.current;
+    if (current?.path === dir && !current.closed) return void w.activate();
     const h = await core.open(dir);
     // The webview keeps its canvas element across projects, so it won't report it again.
     const canvas = current?.view;
-    if (current) {
-      clearTimeout(thumbTimer);
-      if (!current.closed) await saveProjectThumb(current.path);
-      current.bridge.unwatch();
-      app.leaving();
-      // A failed final save still releases the old project; say so and finish switching.
-      if (!current.closed) await core.close(current.path).catch((e: unknown) => status(errorText(e)));
-    }
-    app.setCurrent({ path: h, bridge: app.watch(h) });
+    if (current) await letGo(w);
+    w.current = { path: h, bridge: app.watch(w, h) };
     setRecent([{ path: h, opened: Date.now() }, ...recent.filter((r) => r.path !== h)]);
-    await app.shown(h, canvas);
+    await app.shown(w, h, canvas);
     if (!existsSync(projectThumbFile(h))) saveProjectThumbSoon(h);
+  }
+
+  /** `w`'s project saved, its picture kept for the start screen, and released by core. */
+  async function letGo(w: ProjectWindow) {
+    const current = w.current;
+    if (!current) return;
+    clearTimeout(thumbTimers.get(current.path));
+    thumbTimers.delete(current.path);
+    if (!current.closed) await saveProjectThumb(current.path);
+    current.bridge.unwatch();
+    app.leaving(w);
+    // A failed final save still releases the old project; say so and carry on.
+    if (!current.closed) await core.close(current.path).catch((e: unknown) => w.status(errorText(e)));
+    w.current = undefined;
+  }
+
+  /** A window closed: its project is saved and released. */
+  const closeWindow = (w: ProjectWindow) => queued(() => letGo(w));
+
+  /** `w` started playing: the other windows stop, so one plays at a time. */
+  async function playing(w: ProjectWindow) {
+    for (const other of app.windows()) {
+      if (other !== w && other.current && !other.current.closed) await core.run(other.current.path, "playback.pause", {}).catch(() => {});
+    }
   }
 
   /** Opens a .beproj, or a Camtasia .cmproj as a new Beacon project beside the others (the .cmproj is only read). */
   async function openDialog() {
-    const [path] = await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: "~/" });
+    const [path] = await app.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: "~/" });
     if (path) await openProject(path);
   }
 
@@ -142,77 +182,77 @@ export function createProjects(app: ProjectsApp) {
       status(`Importing ${basename(path)}…`);
       await core.create({ path: to, cmproj: path });
       await open(to);
+      const w = windowFor(to);
       const left = summarizeReport(core.importReport(to));
-      if (left.length) message("notice", { title: `Opened "${basename(path, ".cmproj")}"`, message: "Some of the Camtasia project isn't supported yet and was left out or changed:", lines: left.map((l) => (l.count > 1 ? `${l.message} (×${l.count})` : l.message)) });
-      return status(`Opened ${basename(path)} as ${to}; the Camtasia project is unchanged`);
+      if (left.length) w.message("notice", { title: `Opened "${basename(path, ".cmproj")}"`, message: "Some of the Camtasia project isn't supported yet and was left out or changed:", lines: left.map((l) => (l.count > 1 ? `${l.message} (×${l.count})` : l.message)) });
+      return w.status(`Opened ${basename(path)} as ${to}; the Camtasia project is unchanged`);
     }
     if (!path.endsWith(".beproj")) throw new Error(`${path} is neither a Beacon project (.beproj) nor a Camtasia project (.cmproj)`);
     await open(path);
   }
 
-  /** Media into the open project; a project among them (Import or a Finder drop of a .cmproj) is opened instead. */
-  async function importPaths(paths: string[], at: { time?: number; track?: string } = {}) {
+  /** Media into `w`'s project; a project among them (Import or a Finder drop of a .cmproj) is opened instead. */
+  async function importPaths(w: ProjectWindow, paths: string[], at: { time?: number; track?: string } = {}) {
     const media = paths.filter((p) => !isProject(p));
     const project = paths.find(isProject);
     if (media.length) {
-      const current = app.current();
-      if (!current) throw new Error("Open or create a project first");
-      const r = await core.import(current.path, media, { ...(at.time !== undefined ? { at: at.time } : {}), ...(at.track ? { track: at.track } : {}) });
-      status(`Imported ${r.assets.length} file${r.assets.length === 1 ? "" : "s"}`);
+      if (!w.current) throw new Error("Open or create a project first");
+      const r = await core.import(w.current.path, media, { ...(at.time !== undefined ? { at: at.time } : {}), ...(at.track ? { track: at.track } : {}) });
+      w.status(`Imported ${r.assets.length} file${r.assets.length === 1 ? "" : "s"}`);
     }
     if (project) await openProject(project.replace(/\/$/, ""));
   }
 
-  /** Import Media (⌘I): recordings, video, audio and images onto the timeline, after what is there. */
-  async function importMedia() {
-    const files = await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: true, startingFolder: "~/" });
-    if (files.filter(Boolean).length) await importPaths(files.filter(Boolean));
+  /** Import Media (⌘I): recordings, video, audio and images onto `w`'s timeline, after what is there. */
+  async function importMedia(w: ProjectWindow) {
+    const files = await app.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: true, startingFolder: "~/" });
+    if (files.filter(Boolean).length) await importPaths(w, files.filter(Boolean));
   }
 
-  /** Files dropped on the window, as Finder gave them. */
-  const dropFiles = async (files: DroppedFile[], at: { time?: number; track?: string }) => importPaths(await findDropped(files), at);
+  /** Files dropped on `w`, as Finder gave them. */
+  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) => importPaths(w, await findDropped(files), at);
 
-  /** File > New Project: the window asks for the name, then `createProject`. */
-  function newProject() {
-    message("newProjectSheet", { name: "Untitled Project" });
+  /** File > New Project: `w` asks for the name, then `createProject`. */
+  function newProject(w: ProjectWindow) {
+    w.message("newProjectSheet", { name: "Untitled Project" });
   }
 
   async function createProject(name: string, canvas?: CanvasValues, standalone = false) {
     const to = freshProject(projectName(name));
     await core.create({ path: to, ...(canvas ? { settings: canvasChange(canvas) } : {}), ...(standalone ? { standalone } : {}) });
     await open(to);
-    status(`New project: ${to}`);
+    windowFor(to).status(`New project: ${to}`);
   }
 
-  /** File > Save As…: the window asks for the copy's name, folder and whether it is standalone, then `saveAs`. */
-  function saveAsDialog() {
-    const current = app.current();
-    if (!current) return status("Open a project first");
-    message("saveAsSheet", { name: `${basename(current.path, ".beproj")} copy`, folder: dirname(current.path), standalone: !!core.doc(current.path).settings.standalone });
+  /** File > Save As…: `w` asks for the copy's name, folder and whether it is standalone, then `saveAs`. */
+  function saveAsDialog(w: ProjectWindow) {
+    const current = w.current;
+    if (!current) return w.status("Open a project first");
+    w.message("saveAsSheet", { name: `${basename(current.path, ".beproj")} copy`, folder: dirname(current.path), standalone: !!core.doc(current.path).settings.standalone });
   }
 
-  /** The copy is opened in place of the project, which stays as last saved. */
-  const saveAs = ({ name, folder, standalone }: { name: string; folder: string; standalone: boolean }) =>
+  /** The copy is opened in place of `w`'s project, which stays as last saved. */
+  const saveAs = (w: ProjectWindow, { name, folder, standalone }: { name: string; folder: string; standalone: boolean }) =>
     queued(async () => {
-      const current = app.current();
+      const current = w.current;
       if (!current) throw new Error("Open a project first");
       const clean = projectName(name);
-      if (standalone) status("Copying media into the project…");
+      if (standalone) w.status("Copying media into the project…");
       const to = await core.saveAs(current.path, join(folder, `${clean}.beproj`), { standalone });
-      await switchTo(to);
-      status(`Saved as ${to}`);
+      await switchTo(w, to);
+      w.status(`Saved as ${to}`);
     });
 
   /** Clicking the project's name: its folder takes the new name, and Open Recent follows. */
-  const renameProject = (name: string) =>
+  const renameProject = (w: ProjectWindow, name: string) =>
     queued(async () => {
-      const current = app.current();
+      const current = w.current;
       if (!current) throw new Error("Open a project first");
       const from = current.path;
       const to = await core.rename(from, name);
       if (to === from) return;
       current.closed = true;
-      await switchTo(to);
+      await switchTo(w, to);
       setRecent(recent.filter((r) => r.path !== from));
     });
 
@@ -223,6 +263,8 @@ export function createProjects(app: ProjectsApp) {
     openRecent,
     open,
     openDialog,
+    closeWindow,
+    playing,
     importMedia,
     dropFiles,
     newProject,

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
 import Electrobun, { BrowserView, BrowserWindow, Utils } from "electrobun/main";
-import type { Current } from "./app";
+import type { ProjectWindow } from "./app";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
 
@@ -33,6 +33,7 @@ const { createWindowMedia } = await import("./window-media");
 const { createExports } = await import("./exports");
 const { errorText } = await import("./app");
 type ShortcutInfo = import("@beacon/core").ShortcutInfo;
+type Send = import("@beacon/ui").Send;
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
@@ -40,19 +41,34 @@ const core = new LocalCore({ socket, reveal: (path) => Utils.showItemInFolder(pa
 /** Every action with its keys, the user's over the defaults: the menus show them. */
 let shortcuts = await core.shortcuts();
 
-let current: Current | undefined;
-let shown: import("@beacon/ui").Shown | undefined;
+/** One editor window: its project (none on the start screen), native views, Media Bin pictures and exports. */
+interface Win extends ProjectWindow {
+  win: BrowserWindow;
+  /** What the window last said it shows, for `ui_snapshot`. */
+  shown?: import("@beacon/ui").Shown;
+  views: ReturnType<typeof createViews>;
+  media: ReturnType<typeof createWindowMedia>;
+  exports: ReturnType<typeof createExports>;
+}
 
-const send = () => win.webview.rpc!.send;
-/** `send()` by message name, for the bridge shared with the UI harness. */
-const message: import("@beacon/ui").Send = (type, data) => (send()[type] as (d: typeof data) => void)(data);
-const status = (text: string) => send().status({ text });
+/**
+ * The editor windows, one per project (macOS's Merge All Windows makes them tabs), and the one menus and keys act
+ * on. Each keeps its project, its native canvas and its messages; core holds the projects.
+ */
+const windows = new Set<Win>();
+let focused: Win | undefined;
+
+const winFor = (h: string) => [...windows].find((w) => w.current?.path === h);
+/** Messages for every window: what concerns the app (keys, favourites, settings, recent projects). */
+const broadcast: Send = (type, data) => {
+  for (const w of windows) w.message(type, data);
+};
+/** The focused window's status line, for what isn't one window's. */
+const status = (text: string) => focused?.status(text);
 const report = (err: unknown) => status(errorText(err));
 
-const base = { core, message, status, current: () => current };
-
-async function openedPayload(h: string): Promise<import("@beacon/ui").Opened> {
-  return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: current?.path === h ? current.bridge.rev() : 0 };
+async function openedPayload(w: Win, h: string): Promise<import("@beacon/ui").Opened> {
+  return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: w.current?.path === h ? w.current.bridge.rev() : 0 };
 }
 
 /** Set while core saves the window's own change: its "settings" event isn't sent back, over a newer change. */
@@ -65,11 +81,11 @@ function setAppSettings(patch: import("@beacon/ui").SettingsPatch) {
   ownChange = false;
 }
 
-/** Keys rebound (here, by an agent, or in another process's keymap.json): the menus and the window show them. */
+/** Keys rebound (here, by an agent, or in another process's keymap.json): the menus and the windows show them. */
 function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
   shortcuts = next;
   menus.setMenu();
-  send().shortcuts({ shortcuts: next });
+  broadcast("shortcuts", { shortcuts: next });
   return next;
 }
 
@@ -81,7 +97,7 @@ function followConfig() {
   const reload: Record<string, () => void> = {
     "settings.json": () => void core.reloadSettings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
-    "favorites.json": () => void core.favorites().then((items) => send().favorites({ items })),
+    "favorites.json": () => void core.favorites().then((items) => broadcast("favorites", { items })),
   };
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   try {
@@ -100,100 +116,111 @@ followConfig();
 
 /** Resources offered this session: the dialog asks once, not on every import. */
 const offered = new Set<string>();
-/** An import's analysis waits for a resource (the speech model): ask, unless the user said Not Now before. */
-async function offerResource(r: import("@beacon/core").ResourceInfo) {
+/** An import's analysis waits for a resource (the speech model): ask in `w`, unless the user said Not Now before. */
+async function offerResource(w: Win, r: import("@beacon/core").ResourceInfo) {
   if (r.present || r.job || offered.has(r.id)) return;
   offered.add(r.id);
-  if ((await core.settings()).declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › Transcripts)`);
-  send().resourceSheet(r);
+  if ((await core.settings()).declinedResources?.includes(r.id)) return w.status(`No transcript: the ${r.title} isn't downloaded (Settings › Transcripts)`);
+  w.message("resourceSheet", r);
 }
 /** A download's progress, for the resource dialog and the status line. */
 function resourceJob(job: import("@beacon/core").JobInfo) {
-  send().resourceJob({ id: job.id, state: job.state, progress: job.progress, ...(job.error ? { error: job.error } : {}) });
+  broadcast("resourceJob", { id: job.id, state: job.state, progress: job.progress, ...(job.error ? { error: job.error } : {}) });
   if (job.state === "done") status(`${job.label.replace(/^Download /, "")} downloaded: transcripts are being made`);
   else if (job.state === "failed" && job.error !== "cancelled") status(`${job.label}: ${job.error}`);
 }
 
-/** Beacon > Settings…, with the cameras and microphones Settings › Recording picks from. */
-async function openSettings(tab?: import("@beacon/ui").SettingsTab) {
+/** Beacon > Settings…, in `w`, with the cameras and microphones Settings › Recording picks from. */
+async function openSettings(w: Win, tab?: import("@beacon/ui").SettingsTab) {
   const d = await core.recorderDevices().catch(() => undefined);
   const prefs = recorder.recordPrefs();
   const devices = d && { displays: d.displays, display: prefs.screen?.display, outputs: d.outputs, cameras: d.cameras, microphones: d.microphones, camera: prefs.camera?.id, microphone: prefs.microphone?.id };
-  send().settingsSheet(await settingsSheet(core, { ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) }));
+  w.message("settingsSheet", await settingsSheet(core, { ...(tab ? { tab } : {}), ...(devices ? { devices } : {}) }));
 }
 
-const views = createViews(base);
-const media = createWindowMedia(base);
-const exports = createExports(base);
-
 const projects = createProjects({
-  ...base,
-  setCurrent: (c) => void (current = c),
-  watch: (h) =>
-    projectBridge(core, h, message, {
+  core,
+  focused: () => focused,
+  windows: () => windows,
+  newWindow: () => openWindow(),
+  openFileDialog: (opts) => Utils.openFileDialog(opts),
+  watch: (target, h) => {
+    const w = target as Win;
+    return projectBridge(core, h, w.message, {
       every: (e) => tally(`event ${e.kind}`),
       changed: () => {
-        void media.sendThumbs();
-        void media.sendMissing();
+        void w.media.sendThumbs();
+        void w.media.sendMissing();
       },
       session: (changes) => {
-        if (changes.canvas) views.place(changes.canvas);
+        if (changes.canvas) w.views.place(changes.canvas);
+        if (changes.playing) void projects.playing(w);
       },
       other: (e) => {
         if (e.kind === "saved") {
-          send().saved({ ok: true });
+          w.message("saved", { ok: true });
           projects.saveProjectThumbSoon(h);
-        } else if (e.kind === "needs") void offerResource(e.resource);
+        } else if (e.kind === "needs") void offerResource(w, e.resource);
         else if (e.kind === "narrated") recorder.narrationEnded(e.result);
         else if (e.kind === "error") {
-          if (e.message.startsWith("could not save")) send().saved({ ok: false });
+          if (e.message.startsWith("could not save")) w.message("saved", { ok: false });
           if (e.message.startsWith("narration:")) recorder.narrationEnded();
-          status(e.message);
+          w.status(e.message);
         } else if (e.kind === "job" && e.job.kind !== "export") {
-          if (e.job.state === "failed" && e.job.error !== "cancelled") status(`${e.job.label}: ${e.job.error}`);
-          if (e.job.state === "done" && e.job.kind === "proxy") void media.sendThumbs();
+          if (e.job.state === "failed" && e.job.error !== "cancelled") w.status(`${e.job.label}: ${e.job.error}`);
+          if (e.job.state === "done" && e.job.kind === "proxy") void w.media.sendThumbs();
         }
       },
-    }),
-  leaving: () => recorder.narrationEnded(),
-  shown: async (h, canvas) => {
-    win.setTitle(`${basename(h)} — Beacon`);
-    send().opened(await openedPayload(h));
-    if (canvas) await views.canvasView(canvas.id, canvas.rect, canvas.scale);
-    current?.bridge.sendWaveforms(true);
-    media.resend();
+    });
+  },
+  leaving: (target) => {
+    if (recording === target) recorder.narrationEnded();
+  },
+  shown: async (target, h, canvas) => {
+    const w = target as Win;
+    w.win.setTitle(`${basename(h)} — Beacon`);
+    w.message("opened", await openedPayload(w, h));
+    if (canvas) await w.views.canvasView(canvas.id, canvas.rect, canvas.scale);
+    w.current?.bridge.sendWaveforms(true);
+    w.media.resend();
+    if (w === focused) menus.setMenu();
   },
   recentChanged: () => {
     menus.setMenu();
-    send().recent(projects.recentProjects());
+    broadcast("recent", projects.recentProjects());
   },
 });
 
-/** The app's own actions, from their menu items, the command palette or keys the window matched. */
-function appAction(id: string): void {
+/** The app's own actions, from their menu items, the command palette or keys a window matched, in that window. */
+function appAction(id: string, w: Win | undefined = focused): void {
   if (id === "app.open") return void projects.openDialog().catch(report);
-  if (id === "app.new") return void projects.newProject();
-  if (id === "app.import") return void projects.importMedia().catch(report);
-  if (id === "app.record") return void recorder.recordDialog().catch(report);
-  if (id === "app.narration") return void recorder.recordDialog("narration").catch(report);
-  if (id === "app.export") return void exports.exportDialog().catch(report);
-  if (id === "app.exportSelection") return void exports.exportDialog(true).catch(report);
-  if (id === "app.saveAs") return void projects.saveAsDialog();
-  if (id === "app.reveal") return void (current && core.reveal(current.path).catch(report));
-  if (id === "app.settings") return void openSettings();
-  if (id === "app.shortcuts") return void openSettings("shortcuts");
-  if (id === "app.projectSettings") return void send().projectSettings({});
   if (id === "app.checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
-  if (id === "app.palette") return void send().palette({});
+  // With every window closed (the app stays up while the recorder's are open), one comes back for it.
+  const target = w ?? openWindow();
+  if (id === "app.new") return void projects.newProject(target);
+  if (id === "app.import") return void projects.importMedia(target).catch(report);
+  if (id === "app.record") return void openRecord(target);
+  if (id === "app.narration") return void openRecord(target, "narration");
+  if (id === "app.export") return void target.exports.exportDialog().catch(report);
+  if (id === "app.exportSelection") return void target.exports.exportDialog(true).catch(report);
+  if (id === "app.saveAs") return void projects.saveAsDialog(target);
+  if (id === "app.reveal") return void (target.current && core.reveal(target.current.path).catch(report));
+  if (id === "app.settings") return void openSettings(target);
+  if (id === "app.shortcuts") return void openSettings(target, "shortcuts");
+  if (id === "app.projectSettings") return void target.message("projectSettings", {});
+  if (id === "app.palette") return void target.message("palette", {});
 }
 
 const menus = createMenus({
-  ...base,
+  core,
+  message: (type, data) => focused?.message(type, data),
+  status,
+  current: () => focused?.current,
   shortcuts: () => shortcuts,
   recent: projects.recent,
   openRecent: projects.openRecent,
   clearRecent: projects.clearRecent,
-  appAction,
+  appAction: (id) => appAction(id),
   quit: () => {
     quitLog("⌘Q");
     quit();
@@ -232,139 +259,190 @@ if (diag) {
     expected = performance.now() + 5000;
     const cpu = process.cpuUsage();
     const jobs = (await core.jobs()).filter((j) => j.state === "running").map((j) => `${j.kind} ${Math.round(j.progress * 100)}%`);
-    appendFileSync(diag, `${new Date().toISOString()} lag ${lag} ms, cpu ${Math.round((cpu.user + cpu.system) / 1000)} ms total, ${JSON.stringify(Object.fromEntries(calls))}, jobs [${jobs.join(", ")}], playing ${(current && core.view(current.path)?.playing) ?? "-"}\n`);
+    const playing = [...windows].map((w) => (w.current && core.view(w.current.path)?.playing) ?? "-").join("/");
+    appendFileSync(diag, `${new Date().toISOString()} lag ${lag} ms, cpu ${Math.round((cpu.user + cpu.system) / 1000)} ms total, ${JSON.stringify(Object.fromEntries(calls))}, jobs [${jobs.join(", ")}], windows ${windows.size}, playing ${playing}\n`);
     calls.clear();
   }, 5000);
 }
 
-const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
-  maxRequestTime: 120_000,
-  handlers: {
-    requests: counted({
-      ...coreRequests(core, () => current?.path, status),
-      resync: async () => (current ? openedPayload(current.path) : undefined),
-      init: async () => {
-        // The webview may load after the project opened: send its pictures again once it asks.
-        setTimeout(() => {
-          current?.bridge.sendWaveforms(true);
-          media.resendThumbs();
-        }, 50);
-        return {
-          ...(await initPayload(core)),
-          opened: current ? await openedPayload(current.path) : undefined,
-          recent: projects.recentProjects(),
-          keyLog: !!keyLog,
-          socket,
-        };
-      },
-      openDialog: () => reply(projects.openDialog),
-      openRecent: ({ path }) => projects.openRecent(path),
-      chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
-      chooseFile: async ({ extensions }) => (await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: extensions.join(",") }))[0] || null,
-      startExport: (params) => reply(() => exports.startExport(params)),
-      startRecording: (params) => reply(() => recorder.startRecording(params)),
-      narrationDevices: async () => ({ ...(await core.recorderDevices()), sources: recorder.recordPrefs(), hear: recorder.narrationHear() }),
-      openRecord: ({ mode }) => void recorder.recordDialog(mode).catch(report),
-      startNarration: (params) => reply(() => recorder.startNarration(params)),
-      stopNarration: (params) => reply(() => recorder.stopNarration(params)),
-      recordPreview: (devices) => {
-        recorder.clearFrames();
-        return reply(() =>
-          core.recorderPreview(devices, (e) => {
-            if (!("devicesChanged" in e)) return recorder.previewEvent(e, send().recordPreview);
-            void core.recorderDevices().then((d) => send().recordDevices(d), () => {});
-          }),
-        );
-      },
-      recordFrames: ({ after }) => recorder.newerFrames(after),
-      testBeep: (params) => recorder.testBeep(params),
-      checkSync: (params) => replyWith(() => recorder.checkSync(params)),
-      setAppSettings: (next) => setAppSettings(next),
-      newProject: ({ name, settings, standalone }) => reply(() => projects.createProject(name, settings, standalone)),
-      saveAs: (params) => reply(() => projects.saveAs(params)),
-      fetchResource: ({ id }) => replyWith(async () => (await core.fetchResource(id)).id),
-      declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }),
-      shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
-      shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
-      appAction: ({ action }) => appAction(action),
-      previewOpen: ({ asset }) => views.previewOpen(asset),
-      previewView: ({ id, x, y, width, height, scale }) => views.previewView(id, { x, y, width, height }, scale),
-      previewControl: ({ op, time }) => views.previewControl(op, time),
-      renameProject: ({ name }) => reply(() => projects.renameProject(name)),
-      showFile: ({ path, open }) => {
-        if (open) Bun.spawn(["/usr/bin/open", path]);
-        else Utils.showItemInFolder(path);
-      },
-      canvasMenu: () => menus.canvasMenu(),
-      clipMenu: (params) => menus.clipMenu(params),
-      importMedia: () => void projects.importMedia().catch(report),
-      binMenu: (params) => menus.binMenu(params),
-      dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(files, { time, track })),
-      trackMenu: (params) => menus.trackMenu(params),
-      captureFrame: () =>
-        reply(async () => {
-          if (!current) return;
-          // Core saves in Settings' folder, or the project's media folder when it's gone: say which.
-          const chosen = (await core.settings()).snapshotFolder;
-          if (chosen && !existsSync(chosen)) status(`${chosen} is missing: saved in the project's media folder`);
-          const r = await core.captureFrame(current.path);
-          send().snapshotSaved({ path: r.path });
-          send().media({ highlight: r.asset });
-          void media.sendThumbs();
-        }),
-      canvasView: async ({ id, x, y, width, height, scale, surround }) => ({ fitPercent: await views.canvasView(id, { x, y, width, height }, scale, { surround }) }),
-    }),
-    messages: counted({
-      shown: (s) => void (shown = s),
-      keyLog: ({ line }) => keyLog && appendFileSync(keyLog, `${new Date().toISOString()} ${line}\n`),
-      canvasMarks: ({ marks }) => views.marks(marks),
-    }),
-  },
-});
+/** The window the recorder serves: the Record dialog's or narration's, until the next one opens. */
+let recording: Win | undefined;
+function openRecord(w: Win, mode?: import("@beacon/ui").RecordMode) {
+  recording = w;
+  void recorder.recordDialog(mode).catch((e: unknown) => w.status(errorText(e)));
+}
 
-const win = new BrowserWindow({
-  title: "Beacon",
-  url: "views://mainview/index.html",
-  rpc,
-  frame: { x: 80, y: 60, width: 1600, height: 1000 },
-  titleBarStyle: "hiddenInset",
-  // Agents and tests can start the app without taking focus from the user.
-  activate: process.env.BEACON_BACKGROUND !== "1",
-});
-// Coming back from another app, Electrobun gives the keys to the canvas's native view: shortcuts waited for a click.
-win.on("focus", () => focusPage(win.ptr as Pointer));
-// App-wide changes reach the window and the menus whether or not a project is open.
-appBridge(core, message, {
+/** A new editor window, a little down and right of the focused one; it shows the start screen until a project opens in it. */
+function openWindow(): Win {
+  const at = focused?.win.getFrame();
+  const w = {} as Win;
+  const rpc = BrowserView.defineRPC<import("@beacon/ui").AppRPC>({
+    maxRequestTime: 120_000,
+    handlers: {
+      requests: counted({
+        ...coreRequests(core, () => w.current?.path, (text) => w.status(text)),
+        resync: async () => (w.current ? openedPayload(w, w.current.path) : undefined),
+        init: async () => {
+          // The webview may load after the project opened: send its pictures again once it asks.
+          setTimeout(() => {
+            w.current?.bridge.sendWaveforms(true);
+            w.media.resendThumbs();
+          }, 50);
+          return {
+            ...(await initPayload(core)),
+            opened: w.current ? await openedPayload(w, w.current.path) : undefined,
+            recent: projects.recentProjects(),
+            keyLog: !!keyLog,
+            socket,
+          };
+        },
+        openDialog: () => reply(projects.openDialog),
+        openRecent: ({ path }) => projects.openRecent(path),
+        chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
+        chooseFile: async ({ extensions }) => (await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: extensions.join(",") }))[0] || null,
+        startExport: (params) => reply(() => w.exports.startExport(params)),
+        startRecording: (params) => ((recording = w), reply(() => recorder.startRecording(params))),
+        narrationDevices: async () => ({ ...(await core.recorderDevices()), sources: recorder.recordPrefs(), hear: recorder.narrationHear() }),
+        openRecord: ({ mode }) => openRecord(w, mode),
+        startNarration: (params) => ((recording = w), reply(() => recorder.startNarration(params))),
+        stopNarration: (params) => reply(() => recorder.stopNarration(params)),
+        recordPreview: (devices) => {
+          recorder.clearFrames();
+          return reply(() =>
+            core.recorderPreview(devices, (e) => {
+              if (!("devicesChanged" in e)) return recorder.previewEvent(e, (p) => w.message("recordPreview", p));
+              void core.recorderDevices().then((d) => w.message("recordDevices", d), () => {});
+            }),
+          );
+        },
+        recordFrames: ({ after }) => recorder.newerFrames(after),
+        testBeep: (params) => recorder.testBeep(params),
+        checkSync: (params) => replyWith(() => recorder.checkSync(params)),
+        setAppSettings: (next) => setAppSettings(next),
+        newProject: ({ name, settings, standalone }) => reply(() => projects.createProject(name, settings, standalone)),
+        saveAs: (params) => reply(() => projects.saveAs(w, params)),
+        fetchResource: ({ id }) => replyWith(async () => (await core.fetchResource(id)).id),
+        declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }),
+        shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
+        shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
+        appAction: ({ action }) => appAction(action, w),
+        previewOpen: ({ asset }) => w.views.previewOpen(asset),
+        previewView: ({ id, x, y, width, height, scale }) => w.views.previewView(id, { x, y, width, height }, scale),
+        previewControl: ({ op, time }) => w.views.previewControl(op, time),
+        renameProject: ({ name }) => reply(() => projects.renameProject(w, name)),
+        showFile: ({ path, open }) => {
+          if (open) Bun.spawn(["/usr/bin/open", path]);
+          else Utils.showItemInFolder(path);
+        },
+        canvasMenu: () => menus.canvasMenu(),
+        clipMenu: (params) => menus.clipMenu(params),
+        importMedia: () => void projects.importMedia(w).catch((e: unknown) => w.status(errorText(e))),
+        binMenu: (params) => menus.binMenu(params),
+        dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(w, files, { time, track })),
+        trackMenu: (params) => menus.trackMenu(params),
+        captureFrame: () =>
+          reply(async () => {
+            if (!w.current) return;
+            // Core saves in Settings' folder, or the project's media folder when it's gone: say which.
+            const chosen = (await core.settings()).snapshotFolder;
+            if (chosen && !existsSync(chosen)) w.status(`${chosen} is missing: saved in the project's media folder`);
+            const r = await core.captureFrame(w.current.path);
+            w.message("snapshotSaved", { path: r.path });
+            w.message("media", { highlight: r.asset });
+            void w.media.sendThumbs();
+          }),
+        canvasView: async ({ id, x, y, width, height, scale, surround }) => ({ fitPercent: await w.views.canvasView(id, { x, y, width, height }, scale, { surround }) }),
+      }),
+      messages: counted({
+        shown: (s) => void (w.shown = s),
+        keyLog: ({ line }) => keyLog && appendFileSync(keyLog, `${new Date().toISOString()} ${line}\n`),
+        canvasMarks: ({ marks }) => w.views.marks(marks),
+      }),
+    },
+  });
+  const win = new BrowserWindow({
+    title: "Beacon",
+    url: "views://mainview/index.html",
+    rpc,
+    frame: { x: (at?.x ?? 50) + 30, y: (at?.y ?? 30) + 30, width: at?.width ?? 1600, height: at?.height ?? 1000 },
+    titleBarStyle: "hiddenInset",
+    // Agents and tests can start the app without taking focus from the user.
+    activate: process.env.BEACON_BACKGROUND !== "1",
+  });
+  const message: Send = (type, data) => (win.webview.rpc!.send[type] as (d: typeof data) => void)(data);
+  const part = { core, message, status: (text: string) => message("status", { text }), current: () => w.current };
+  Object.assign(w, { win, message, status: part.status, activate: () => win.activate(), views: createViews(part), media: createWindowMedia(part), exports: createExports(part) });
+  windows.add(w);
+  focused ??= w;
+  // Coming back from another app, Electrobun gives the keys to the canvas's native view: shortcuts waited for a click.
+  win.on("focus", () => {
+    focusPage(win.ptr as Pointer);
+    if (focused === w) return;
+    focused = w;
+    menus.setMenu();
+  });
+  win.on("close", () => {
+    windows.delete(w);
+    if (focused === w) focused = [...windows].at(-1);
+    void projects.closeWindow(w).catch(report);
+    menus.setMenu();
+  });
+  return w;
+}
+
+openWindow();
+
+// App-wide changes reach every window and the menus whether or not a project is open.
+appBridge(core, broadcast, {
   shortcuts: (list) => void shortcutsChanged(list),
-  settings: (s) => ownChange || send().appSettings(s),
-  job: (job) => (job.kind === "export" ? exports.exportJob(job) : job.kind === "resource" ? resourceJob(job) : undefined),
+  settings: (s) => ownChange || broadcast("appSettings", s),
+  job: (job) => {
+    if (job.kind === "resource") return resourceJob(job);
+    if (job.kind !== "export") return;
+    // To the window that started it; an agent's to the focused one.
+    const w = [...windows].find((x) => x.exports.owns(job.id)) ?? focused;
+    w?.exports.exportJob(job);
+  },
 });
 const recorder = createRecording({
   core,
-  message,
-  status,
-  project: () => current?.path,
-  window: win,
+  message: (type, data) => (recording ?? focused)?.message(type, data),
+  status: (text) => (recording ?? focused)?.status(text),
+  project: () => (recording ?? focused)?.current?.path,
+  // Every window leaves the screen while a take records, so none is in it.
+  window: {
+    hide: () => {
+      for (const w of windows) w.win.hide();
+    },
+    show: () => {
+      for (const w of windows) w.win.show();
+    },
+    activate: () => (recording ?? focused)?.win.activate(),
+  },
   setSettings: setAppSettings,
 });
 
-const server = serveCore(core, { path: socket, canOpen: (p) => current?.path === resolve(p), projects: () => (current ? [current.path] : []) });
-core.setUiOpener((_, dialog, tab) => {
-  if (dialog === null) send().closeDialogs({});
-  else if (dialog === "settings") void openSettings(tab);
-  else if (dialog === "projectSettings") send().projectSettings({});
-  else if (dialog === "export") void exports.exportDialog().catch(report);
-  else if (dialog === "exportSelection") void exports.exportDialog(true).catch(report);
-  else if (dialog === "newProject") projects.newProject();
-  else if (dialog === "record") void recorder.recordDialog().catch(report);
+const server = serveCore(core, { path: socket, canOpen: (p) => !!winFor(resolve(p)), projects: () => [...windows].flatMap((w) => (w.current ? [w.current.path] : [])) });
+core.setUiOpener((h, dialog, tab) => {
+  const w = winFor(h) ?? focused;
+  if (!w) return;
+  if (dialog === null) w.message("closeDialogs", {});
+  else if (dialog === "settings") void openSettings(w, tab);
+  else if (dialog === "projectSettings") w.message("projectSettings", {});
+  else if (dialog === "export") void w.exports.exportDialog().catch(report);
+  else if (dialog === "exportSelection") void w.exports.exportDialog(true).catch(report);
+  else if (dialog === "newProject") projects.newProject(w);
+  else if (dialog === "record") openRecord(w);
 });
-core.setSnapshotter(async () => {
-  const png = await captureWindow(windowNumber(win.ptr as Pointer));
-  const v = current?.view;
+core.setSnapshotter(async (h) => {
+  const w = winFor(h) ?? focused;
+  if (!w) throw new Error("no window shows the project");
+  const png = await captureWindow(windowNumber(w.win.ptr as Pointer));
+  const v = w.current?.view;
   // The capture is in pixels; the webview lays out in points from the window's top-left.
   const scale = v?.scale ?? 2;
   const canvas = v && { x: v.rect.x * scale, y: v.rect.y * scale, width: v.rect.width * scale, height: v.rect.height * scale };
-  const s = shown;
+  const s = w.shown;
   const text =
     s &&
     `${s.project}: ${s.tracks} tracks, ${s.clips} clips, ${s.markers} markers; playhead ${s.playhead.toFixed(2)} s; ` +
@@ -383,7 +461,7 @@ const quitLog = (step: string) => {
     appendFileSync(join(homedir(), "Library/Logs/beacon-quit.log"), `${new Date().toISOString()} ${step}\n`);
   } catch {}
 };
-// Stops decoders and playback, releases the project lock and the socket.
+// Stops decoders and playback, releases the project locks and the socket.
 const quit = () => {
   if (stopped) return;
   stopped = true;

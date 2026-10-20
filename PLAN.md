@@ -1650,6 +1650,15 @@ Seeing more at once.
   view, thumbnails, proxy progress, RPC) moves to a per-window record, and
   menus and keys go to the focused window. Playing in one window pauses the
   others. Mostly `packages/desktop`; the UI and core are unchanged.
+  **Built 2026-10-20**: the main process keeps a record per window (its
+  project, native canvas, Media Bin pictures, exports, messages and status
+  line); a project opens in the focused window while it shows the start
+  screen, else in a new one (cascaded), and one already open is brought
+  forward; Save As and renaming keep their window; closing a window saves
+  and releases its project (Window › Close Window, ⌘W); menus, keys and
+  dialogs act on the focused window, agents' `ui_open` and `ui_snapshot` on
+  the window showing their project; playing in one pauses the others; a take
+  hides every window. Merge All Windows is macOS's own, not checked yet.
 - **Project Settings apart from Settings, and a Settings window like
   System Settings** (the user, 2026-10-19). Project Settings (canvas size,
   frame rate, background, loudness, standalone) is the project's, with

@@ -175,6 +175,7 @@ export function createMenus(app: MenusApp) {
         submenu: [
           { role: "minimize", accelerator: "command+m" },
           { role: "zoom" },
+          { role: "close", accelerator: "command+w" },
           SEPARATOR,
           { role: "toggleFullScreen", accelerator: "control+command+f" },
           { role: "bringAllToFront" },

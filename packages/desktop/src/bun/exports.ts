@@ -60,5 +60,5 @@ export function createExports(app: App) {
     if (state !== "running") exports.delete(id);
   }
 
-  return { exportDialog, startExport, exportJob };
+  return { exportDialog, startExport, exportJob, owns: (id: string) => exports.has(id) };
 }
