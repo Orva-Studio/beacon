@@ -136,6 +136,7 @@ export function createMenus(app: MenusApp) {
           SEPARATOR,
           item("edit.split"),
           item("edit.splitAll"),
+          item("edit.unlink"),
           SEPARATOR,
           { label: "Select", submenu: [item("selection.all"), item("selection.side:left", { label: "All Timeline to Left" }), item("selection.side:right", { label: "All Timeline to Right" })] },
           item("selection.clear"),

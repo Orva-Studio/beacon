@@ -867,6 +867,15 @@
     },
     {
       "keys": {
+        "key": "l",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.unlink"
+    },
+    {
+      "keys": {
         "key": "z",
         "modifiers": [
           "command"
