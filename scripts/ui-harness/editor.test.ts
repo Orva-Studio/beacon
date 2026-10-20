@@ -7,7 +7,7 @@ import { DerivedData } from "@beacon/render";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
-import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth } from "@beacon/ui";
+import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -997,9 +997,16 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   await arrived(() => ui.core.doc(ui.handle).assets[take.id]!.name === "Intro take");
   expect(ui.core.doc(ui.handle).assets[take.id]!.name).toBe("Intro take");
   await ui.core.undo(ui.handle);
+
+  // A source the recorder couldn't save is said, not only logged.
+  ui.send("recordedSheet", { asset: take.id, name: "2026-10-20 12.37.32", duration: 748, problems: ["microphone: The operation could not be completed"] });
+  await page.until("!!document.querySelector('[data-recorded-problem]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-recorded-problem]').textContent")).toBe("The microphone stopped saving (The operation could not be completed): the take has no microphone after that.");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-recorded]')");
 });
 
-test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels; – hides it, Stop stops", async () => {
+test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels (Not saving for a stopped one); – hides it, Stop stops", async () => {
   const panel = await openPage(`${ui.url}?panel=screen,camera,microphone,systemAudio`);
   try {
     await panel.until("!!document.querySelector('[data-record-panel]')");
@@ -1015,6 +1022,15 @@ test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source
     ui.send("recordPreview", { microphone: { db: -20, peak: -6 }, live: { screen: true, camera: false, microphone: true, systemAudio: true } });
     await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'stopped'");
     expect(await chips()).toBe("Screen:live Camera:stopped Mic:live System:live");
+    // A microphone whose file stopped being written still has a level: its waveform gives way to "Not saving".
+    ui.send("recordPreview", { microphone: { db: -20, peak: -6 }, live: { screen: true, camera: true, microphone: false, systemAudio: true } });
+    await panel.until("document.querySelector('[data-source=microphone]')?.dataset.sourceLive === 'stopped'");
+    expect(await chips()).toBe("Screen:live Camera:live Mic:stopped System:live");
+    expect(await panel.evaluate<string>("document.querySelector('[data-not-saving]')?.dataset.notSaving")).toBe("microphone");
+    expect(await panel.evaluate<string[]>("[...document.querySelectorAll('canvas[data-history]')].map((c) => c.getAttribute('aria-label'))")).toEqual(["System level"]);
+    // The menu-bar item says it too, for when the panel is hidden.
+    expect(recordingTitle(83, { screen: true, camera: true, microphone: false, systemAudio: true })).toBe("● 1:23 · Mic not saving");
+    expect(recordingTitle(83, { screen: true })).toBe("● 1:23");
     // Frames coming, but black: amber, and back to green when the picture returns.
     ui.send("recordPreview", { live: { screen: true, camera: true, microphone: true, systemAudio: true }, picture: { camera: "black" } });
     await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'black'");

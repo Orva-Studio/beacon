@@ -299,6 +299,15 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
   );
 }
 
+const SOURCE_NAMES: Record<string, string> = { screen: "The screen", camera: "The camera", microphone: "The microphone", systemAudio: "System audio" };
+
+/** A recorder's "microphone: <why>" as a sentence; anything else as it came. */
+function lostSource(problem: string): string {
+  const [, key, why] = /^(\w+): (.*)$/.exec(problem) ?? [];
+  const name = key && SOURCE_NAMES[key];
+  return name ? `${name} stopped saving (${why}): the take has no ${name.replace(/^The /, "").toLowerCase()} after that.` : problem;
+}
+
 /** After a take: its name (the date and time) selected to type over; Enter keeps what is typed, Esc the name it has. */
 function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHost }) {
   const [name, setName] = useState(sheet.name);
@@ -320,6 +329,11 @@ function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHos
           data-recorded-name
         />
         <div className="text-caption text-text-muted">{clock(sheet.duration, { floor: true })} recorded, at the end of the timeline. The name shows in the Media Bin and on its clips.</div>
+        {sheet.problems?.map((p) => (
+          <div key={p} className="text-caption text-danger" data-recorded-problem>
+            {lostSource(p)}
+          </div>
+        ))}
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={close}>Skip</Button>

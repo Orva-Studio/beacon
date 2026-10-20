@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { BrowserView, BrowserWindow, GlobalShortcut, Tray } from "electrobun/main";
 import { syncKey, type LocalCore, type RecordResult } from "@beacon/core";
-import { clock, panelHeight, type PanelState, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
+import { clock, panelHeight, recordingTitle, type PanelState, type RecorderLive, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
 
 /** What recording needs of the app: its core and the window it records for. */
 export interface RecordingApp {
@@ -187,6 +187,8 @@ export function createRecording({ core, message, status, project, window, setSet
   }
 
   const STOP_SHORTCUT = "CommandOrControl+Shift+2";
+  /** Each source of the take recording, and whether it still saves. */
+  let live: RecorderLive = {};
   let recording: { tray: Tray; timer: ReturnType<typeof setInterval>; panel?: BrowserWindow; panelShown: boolean } | undefined;
 
   /**
@@ -284,11 +286,16 @@ export function createRecording({ core, message, status, project, window, setSet
     // Opened first, so the recorder can leave it out of the take by its title.
     const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
     clearFrames();
+    live = {};
     const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
     try {
       await core.recordStart(project()!, {
         sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
-        monitor: (e) => !("devicesChanged" in e) && previewEvent(e, panelSend),
+        monitor: (e) => {
+          if ("devicesChanged" in e) return;
+          if ("live" in e && e.live) live = e.live;
+          previewEvent(e, panelSend);
+        },
       });
     } catch (e) {
       panel.close();
@@ -302,7 +309,7 @@ export function createRecording({ core, message, status, project, window, setSet
       panelState.started = Date.now();
       panel.webview.rpc?.send.recordStarted({ started: panelState.started });
     }
-    const tray = new Tray({ title: "● 0:00" });
+    const tray = new Tray({ title: recordingTitle(0) });
     tray.on("tray-clicked", (e) => {
       const action = (e as { data?: { action?: string } }).data?.action;
       if (action === "stopRecording") void stopRecording();
@@ -310,7 +317,7 @@ export function createRecording({ core, message, status, project, window, setSet
       else if (action === "hidePanel") showPanel(false);
     });
     const started = Date.now();
-    const timer = setInterval(() => tray.setTitle(`● ${clock((Date.now() - started) / 1000, { floor: true })}`), 1000);
+    const timer = setInterval(() => tray.setTitle(recordingTitle((Date.now() - started) / 1000, live)), 1000);
     GlobalShortcut.register(STOP_SHORTCUT, () => void stopRecording());
     recording = { tray, timer, panel, panelShown: true };
     trayMenu();
@@ -350,10 +357,11 @@ export function createRecording({ core, message, status, project, window, setSet
     panelState = undefined;
     try {
       const take = await core.recordStop();
-      status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration, { floor: true })})`);
-      if (take.assets[0]) message("recordedSheet", { asset: take.assets[0], name: basename(take.take, ".brec"), duration: take.duration });
+      const lost = take.problems?.length ? `, but it couldn't save: ${take.problems.join("; ")}` : "";
+      status(`Recorded ${basename(take.take, ".brec")} (${clock(take.duration, { floor: true })})${lost}`);
+      if (take.assets[0]) message("recordedSheet", { asset: take.assets[0], name: basename(take.take, ".brec"), duration: take.duration, ...(take.problems ? { problems: take.problems } : {}) });
     } catch (e) {
-      status(e instanceof Error ? e.message : String(e));
+      status(`The take couldn't be added (${e instanceof Error ? e.message : String(e)}): it is kept in the project's recordings folder`);
     } finally {
       window.show();
       window.activate();

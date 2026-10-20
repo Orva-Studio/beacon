@@ -87,7 +87,8 @@ export interface RecordStopOptions extends ImportOptions {
 }
 
 /** What stopping a take imported (nothing, when discarded); a narration's clip is on a track of its own. */
-export type RecordResult = ImportResult & { take: string; duration: number; discarded?: boolean };
+/** `problems`: what the recorder couldn't save ("microphone: …"), as it said when the take stopped. */
+export type RecordResult = ImportResult & { take: string; duration: number; discarded?: boolean; problems?: string[] };
 
 export interface RecordStatus {
   recording: boolean;

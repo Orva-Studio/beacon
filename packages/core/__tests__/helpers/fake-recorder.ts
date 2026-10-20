@@ -1,8 +1,9 @@
 /**
  * Stands in for `beacon-recorder serve` (no microphone): a take is a microphone file the test made, and its
  * `recording.json` gets the host-clock start the test writes to `$FAKE_RECORDER_HOST_START` before it stops.
+ * With `$FAKE_RECORDER_TAKE`, a take is a copy of that `.brec`, as its recorder left it.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const reply = (e: object) => process.stdout.write(`${JSON.stringify(e)}\n`);
@@ -11,7 +12,16 @@ reply({ event: "ready" });
 for await (const line of console) {
   if (!line.trim()) continue;
   const { cmd, id, ...rest } = JSON.parse(line) as { cmd: string; id: number; dir?: string };
-  if (cmd === "start") {
+  const take = process.env.FAKE_RECORDER_TAKE;
+  if (cmd === "start" && take) {
+    dir = rest.dir!;
+    cpSync(take, dir, { recursive: true });
+    reply({ event: "recording", id, dir });
+  } else if (cmd === "stop" && dir && take) {
+    const { duration, errors } = JSON.parse(readFileSync(join(dir, "recording.json"), "utf8"));
+    reply({ event: "stopped", id, take: { dir, duration, errors } });
+    dir = undefined;
+  } else if (cmd === "start") {
     dir = rest.dir!;
     mkdirSync(dir, { recursive: true });
     copyFileSync(process.env.FAKE_RECORDER_MIC!, join(dir, "microphone.wav"));

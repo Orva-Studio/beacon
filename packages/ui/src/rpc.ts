@@ -4,6 +4,7 @@ import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPa
 import type { SchemaInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
+export type { RecorderLive } from "@beacon/media";
 export { syncKey, withPatch } from "@beacon/model";
 
 import type { CanvasMark } from "./canvas-marks";
@@ -97,7 +98,7 @@ export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
 export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
-export { panelHeight } from "./record-panel-size";
+export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
 // The timeline's geometry, for the UI harness's clicks.
 export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
@@ -173,6 +174,8 @@ export interface RecordedSheet {
   asset: string;
   name: string;
   duration: number;
+  /** What the recorder couldn't save, by source ("microphone: …"). */
+  problems?: string[];
 }
 
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
