@@ -1708,7 +1708,10 @@ Seeing more at once.
   saturation, grain, grain size, halation, halation size, vignette); the
   inspector's Look menu and Import .hlook… (effects can now declare
   `presets` and an `importFile`), with what doesn't map listed under it;
-  `filmLook.load` / `filmLook.read` / `filmLook.looks` for agents. On a frame
+  `filmLook.load` / `filmLook.read` / `filmLook.looks` for agents. Split tone and Tint added
+  (the user, 2026-10-20): hance's split tone (shadow and highlight hues, a
+  highlight strength; its pivot fixed at hance's 0.3) and tint, on hue
+  sliders; 58.3 dB from hance's own render with just those on. On a frame
   with CineStill 800T it is 49.5 dB from hance's own render, and adds about 5 ms
   to a 1080p preview frame (the scatter takes at most 40 taps a side).
 - **Remove Retakes** (the user, 2026-10-19; an AI feature, next to Remove
@@ -1801,6 +1804,13 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
+- **LUT import** (the user, 2026-10-20): a LUT effect of its own, not part
+  of Film Look (a LUT usually goes first, a look on top): a `.cube` file
+  (what nearly every LUT is sold as) copied into the project so it travels
+  with it, drawn by a 3D texture with an Intensity slider, preview equal to
+  export. Effects can't yet load a table from a file into the renderer, so
+  the feature contract grows for it. Mostly creative LUTs: the Cam Link's
+  footage is Rec.709, not log.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 

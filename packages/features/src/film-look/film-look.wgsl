@@ -1,6 +1,7 @@
 // Film Look, ported from hance's colour settings, halation, grain and vignette passes (docs/shared-candidates.md).
 // params: 0 strength, 1 white balance (K), 2 fade, 3 contrast, 4 saturation, 5 exposure, 6 grain (0-1),
-// 7 grain size, 8 halation, 9 halation size (px at 1080 high), 10 vignette, 11 frame (grain's seed)
+// 7 grain size, 8 halation, 9 halation size (px at 1080 high), 10 vignette, 11 frame (grain's seed), 12 tint,
+// 13-15 split tone's shadow shift (rgb), 16-18 its highlight shift, 19 its midtone red
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 // hance's render constants (core/constants/render.json).
@@ -47,13 +48,35 @@ fn white_balance(color: vec3<f32>, kelvin: f32) -> vec3<f32> {
   return color * vec3(r, g, b) / vec3(1.0, 0.9468, 0.9228);
 }
 
-/// hance's colour settings, in sRGB: exposure, contrast, fade (lifted blacks, flatter contrast), saturation, white balance.
+/// hance's colour settings, in sRGB: exposure, contrast, fade (lifted blacks, flatter contrast), saturation, white balance, tint.
 fn grade(color: vec3<f32>) -> vec3<f32> {
   let fade = param(2u);
   var c = (color - 0.5) * param(3u) * (1.0 - fade) + 0.5 + param(5u) * 0.1;
   c = clamp(c + vec3(fade * 0.05), vec3(0.0), vec3(1.0));
   c = mix(vec3(dot(c, LUMA)), c, param(4u));
-  return clamp(white_balance(c, param(1u)), vec3(0.0), vec3(1.0));
+  c = white_balance(c, param(1u));
+  c.g += param(12u) * 0.1;
+  return clamp(c, vec3(0.0), vec3(1.0));
+}
+
+/// hance's split tone (GIMP's colour balance): a channel shifted by how much of it is shadow, midtone and highlight.
+fn balance(v: f32, lightness: f32, shadows: f32, midtones: f32, highlights: f32) -> f32 {
+  let a = 4.0;
+  let b = 0.333;
+  let scale = 0.7;
+  let shadow = clamp((b - lightness) * a + 0.5, 0.0, 1.0) * scale;
+  let mid = clamp((lightness - b) * a + 0.5, 0.0, 1.0) * clamp((1.0 - lightness - b) * a + 0.5, 0.0, 1.0) * scale;
+  let highlight = clamp((lightness + b - 1.0) * a + 0.5, 0.0, 1.0) * scale;
+  return clamp(v + shadows * shadow + midtones * mid + highlights * highlight, 0.0, 1.0);
+}
+
+fn split_tone(c: vec3<f32>) -> vec3<f32> {
+  let lightness = max(max(c.r, c.g), c.b) + min(min(c.r, c.g), c.b);
+  return vec3(
+    balance(c.r, lightness, param(13u), param(19u), param(16u)),
+    balance(c.g, lightness, param(14u), 0.0, param(17u)),
+    balance(c.b, lightness, param(15u), 0.0, param(18u)),
+  );
 }
 
 fn highlights(c: vec3<f32>) -> vec3<f32> {
@@ -151,5 +174,9 @@ fn fs_look(v: VOut) -> @location(0) vec4<f32> {
   let p = to_layer(v.uv) / frame.layer.xy - 0.5;
   let vig = cos(min(length(vec2(p.x, p.y * 0.875)) * 2.0 * param(10u) * 1.5707963, 1.5707963));
   c = c * vig * vig;
-  return vec4(mix(before, clamp(to_srgb(c), vec3(0.0), vec3(1.0)), param(0u)) * o.a, o.a);
+  var after = clamp(to_srgb(c), vec3(0.0), vec3(1.0));
+  if (param(19u) != 0.0) {
+    after = split_tone(after);
+  }
+  return vec4(mix(before, after, param(0u)) * o.a, o.a);
 }

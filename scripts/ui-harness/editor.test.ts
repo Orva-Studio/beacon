@@ -1973,7 +1973,7 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and says what it can't do; Import .hlook… reads a file of your own; each one undo step", async () => {
+test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and says what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
   await run("effect.add", { clip: screen.id, type: "film-look" });
   await select([screen.id]);
   await run("inspector.tab", { tab: "effects" });
@@ -1988,6 +1988,17 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and sa
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
   await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('bloom 0.45')");
   expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toStartWith("Not in Film Look, from “CineStill 800T”:");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).not.toContain("split tone");
+  // Its split tone on two hue sliders, the hues along their grooves; Tint just under Warmth.
+  expect(fx().params).toMatchObject({ tint: 0.02, splitTone: 0.25, shadowHue: 220, highlightHue: 40 });
+  const labels = await page.evaluate<string[]>("[...document.querySelectorAll('label, span, div')].filter((e) => e.children.length === 0).map((e) => e.textContent)");
+  expect(labels.indexOf("Warmth")).toBeLessThan(labels.indexOf("Tint"));
+  expect(labels.indexOf("Tint")).toBeLessThan(labels.indexOf("Fade"));
+  const grooves = "[...document.querySelectorAll('div')].filter((d) => d.style.background.includes('linear-gradient'))";
+  expect(await page.evaluate<number>(`${grooves}.length`)).toBe(2);
+  const at = await page.evaluate<[number, number]>(`(() => { const g = ${grooves}[0]; g.scrollIntoView({ block: "center" }); const r = g.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+  await page.click(...at);
+  await arrived(() => Math.abs(fx().params.shadowHue as number - 180) <= 2);
   // A slider moved: no longer the look, Custom.
   await run("effect.set", { clip: screen.id, effect: fx().id, params: { fade: 0.5 } });
   await page.until("document.querySelector('[data-effect-preset]')?.value === ''");
@@ -2007,9 +2018,9 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and sa
   await page.evaluate("document.querySelector('[data-effect-import]').click()");
   await Bun.sleep(300);
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
-  for (let i = 0; i < 4; i++) await ui.core.undo(ui.handle);
+  for (let i = 0; i < 5; i++) await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
-});
+}, 30_000);
 
 test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });

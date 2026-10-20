@@ -435,7 +435,10 @@ function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: numbe
   );
 }
 
-type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
+/** Every hue at full saturation, 0° to 360°, as a hue parameter's slider groove. */
+const HUES = "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
+
+type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; hue?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
 /** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
 function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: EffectInstance; host: Host; def?: Init["effects"][number]; selected: boolean }) {
@@ -502,7 +505,8 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               Not in {name}, from “{report.name}”: {report.notes.join("; ")}.
             </div>
           )}
-          {Object.entries(effect.params).map(([k, v]) => {
+          {[...Object.keys(fields).filter((k) => k in effect.params), ...Object.keys(effect.params).filter((k) => !(k in fields))].map((k) => {
+            const v = effect.params[k];
             const f = fields[k] ?? {};
             const label = k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
             if (typeof v === "boolean") return <div key={k} className="mb-2 ml-[92px]"><Check label={label} checked={v} onChange={(on) => set({ [k]: on })} /></div>;
@@ -513,6 +517,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
                 const deg = (((v * 180) / Math.PI) % 360 + 360) % 360;
                 return <Slider key={k} label={label} value={Math.round(deg)} max={360} unit="°" onChange={(x, key) => set({ [k]: (x * Math.PI) / 180 }, key)} />;
               }
+              if (f.hue) return <Slider key={k} label={label} value={Math.round(v)} max={360} unit="°" digits={0} groove={HUES} onChange={(x, key) => set({ [k]: x }, key)} />;
               if (max !== undefined && f.percent) return <Slider key={k} label={label} value={v * 100} min={min * 100} max={max * 100} unit="%" onChange={(x, key) => set({ [k]: x / 100 }, key)} />;
               if (max !== undefined) {
                 const whole = f.type === "integer";

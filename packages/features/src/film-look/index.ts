@@ -1,17 +1,18 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { z } from "zod";
-import { defineCommand, defineFeature, defineQuery, ticksToSeconds, walkClips, type EffectPreset } from "@beacon/model";
+import { defineCommand, defineFeature, defineQuery, eachRawClip, ticksToSeconds, walkClips, type EffectPreset } from "@beacon/model";
 import wgsl from "./film-look.wgsl" with { type: "text" };
 import LOOKS from "./looks.json";
-import { fromHlook, KELVIN_PER_WARMTH, WARMTH_RANGE, type FilmLookParams } from "./hlook";
+import { fromHlook, KELVIN_PER_WARMTH, splitToneShifts, WARMTH_RANGE, type FilmLookParams } from "./hlook";
 
 export { fromHlook, type FilmLookParams } from "./hlook";
 
-// `slider`: the properties panel's range, not a limit; `percent`: shown ×100.
+// `slider`: the properties panel's range, not a limit; `percent`: shown ×100; `hue`: degrees on a hue track.
 const params = z.strictObject({
   strength: z.number().min(0).max(1).meta({ percent: true }).describe("How much of the look shows over the clip"),
   exposure: z.number().min(-2).max(2).meta({ slider: { min: -2, max: 2 } }),
   warmth: z.number().min(-WARMTH_RANGE).max(WARMTH_RANGE).meta({ slider: { min: -WARMTH_RANGE, max: WARMTH_RANGE } }).describe(`White balance: each 1 is ${KELVIN_PER_WARMTH} K warmer than daylight, cooler below 0`),
+  tint: z.number().min(-1).max(1).meta({ percent: true }).describe("Greener above 0, more magenta below"),
   fade: z.number().min(0).max(1).meta({ percent: true }).describe("Lifted blacks and flatter contrast"),
   contrast: z.number().min(0).max(3).meta({ slider: { max: 2 } }),
   saturation: z.number().min(0).max(3).meta({ slider: { max: 2 } }),
@@ -20,10 +21,24 @@ const params = z.strictObject({
   halation: z.number().min(0).max(1).meta({ percent: true }).describe("The red glow film gives around bright highlights"),
   halationSize: z.number().min(1).max(100).meta({ slider: { min: 1, max: 40 } }),
   vignette: z.number().min(0).max(1).meta({ percent: true }),
+  splitTone: z.number().min(0).max(1).meta({ percent: true }).describe("Split tone: the shadows tinted one hue and the highlights another"),
+  shadowHue: z.number().min(0).max(360).meta({ hue: true }).describe("The shadows' tint, in degrees (30 orange, 210 teal)"),
+  highlightHue: z.number().min(0).max(360).meta({ hue: true }).describe("The highlights' tint, in degrees"),
+  highlightStrength: z.number().min(0).max(1).meta({ percent: true }).describe("How strongly the highlights are tinted, against the shadows"),
 });
 
 /** hance's Default look, without the bloom, aberration and camera shake Film Look doesn't have. */
-const DEFAULTS: FilmLookParams = { strength: 1, exposure: 0, warmth: 0, fade: 0, contrast: 1, saturation: 1, grain: 0.125, grainSize: 0, halation: 0.25, halationSize: 4, vignette: 0.25 };
+const DEFAULTS: FilmLookParams = { strength: 1, exposure: 0, warmth: 0, tint: 0, fade: 0, contrast: 1, saturation: 1, grain: 0.125, grainSize: 0, halation: 0.25, halationSize: 4, vignette: 0.25, splitTone: 0, shadowHue: 30, highlightHue: 210, highlightStrength: 0.5 };
+
+/** v2: Tint and split tone, off on a Film Look saved before them. */
+function addSplitTone(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    for (const e of Array.isArray(o.effects) ? (o.effects as { type: string; params: Record<string, unknown> }[]) : []) {
+      if (e.type === "film-look") e.params = { tint: 0, splitTone: 0, shadowHue: 30, highlightHue: 210, highlightStrength: 0.5, ...e.params };
+    }
+  });
+  return doc;
+}
 
 const looks = LOOKS.looks as { id: string; name: string; description: string; params: Record<string, unknown> }[];
 
@@ -78,12 +93,13 @@ const LookArgs = {
 /** hance's film look, small: grade, halation, grain and vignette on a clip, with hance's looks as presets and its `.hlook` files imported. */
 export const filmLook = defineFeature({
   id: "film-look",
-  version: 1,
+  version: 2,
+  migrations: [{ version: 2, migrate: addSplitTone }],
   effects: [
     {
       id: "film-look",
       title: "Film Look",
-      description: "hance's film look: warmth, fade, contrast, saturation, grain, halation and vignette, with its looks (CineStill, Portra…) and .hlook files",
+      description: "hance's film look: warmth, tint, fade, contrast, saturation, grain, halation, vignette and split tone, with its looks (CineStill, Portra…) and .hlook files",
       traits: ["visual"],
       params,
       defaults: () => ({ ...DEFAULTS }),
@@ -91,7 +107,7 @@ export const filmLook = defineFeature({
         const f = p as FilmLookParams;
         (e.main.passes ??= []).push({
           pass: "film-look",
-          params: [f.strength, 6500 - f.warmth * KELVIN_PER_WARMTH, f.fade, f.contrast, f.saturation, f.exposure, f.grain, f.grainSize, f.halation, f.halationSize, f.vignette, Math.round(ticksToSeconds(e.time) / ctx.frameSeconds) % 9973],
+          params: [f.strength, 6500 - f.warmth * KELVIN_PER_WARMTH, f.fade, f.contrast, f.saturation, f.exposure, f.grain, f.grainSize, f.halation, f.halationSize, f.vignette, Math.round(ticksToSeconds(e.time) / ctx.frameSeconds) % 9973, f.tint, ...splitToneShifts(f)],
         });
       },
       presets: PRESETS,
@@ -108,7 +124,7 @@ export const filmLook = defineFeature({
     }),
     defineQuery({
       id: "filmLook.read",
-      description: "A hance look on Film Look's sliders, without applying it: `params`, and `notReproduced`, what the look does that Film Look can't (bloom, chromatic aberration, split tone…) or only partly",
+      description: "A hance look on Film Look's sliders, without applying it: `params`, and `notReproduced`, what the look does that Film Look can't (bloom, chromatic aberration, colour wheels…) or only partly",
       args: z.strictObject(LookArgs),
       run: (args) => readLook(args),
     }),
