@@ -27,7 +27,8 @@ with the app open, below). The review's three branches were merged
 2026-10-19 (#18, #19, #20). Next: **Phase 8.5** (everyday
 fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
 any drive), then 9 (workspace and film look), 10 (filmstrips and
-backgrounds), 11 (security audit) and 12 (Camtasia export); an in-app
+backgrounds), 11 (security audit), 12 (Camtasia export) and 13 (Beacon
+learns how you edit); an in-app
 agent preview (§7, decided 2026-10-17) can come before Phase 9.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
@@ -1800,6 +1801,55 @@ finished videos: MP4 and `.srt` export already covers those.
 **Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
 captions opens in Camtasia with its edit intact, and the report lists what
 didn't carry over.
+
+### Phase 13 — Beacon learns how you edit (the user, 2026-10-19)
+The AI tools start from what the user tends to do, not fixed settings: if
+they always keep short silences but cut long ones, or keep "so" and "like"
+but always cut "um", the next review opens that way. A preference changes
+only after the user has made the same choice several times, never from one
+edit.
+- **What others do** (looked at 2026-10-19). Aftershoot's culling learns
+  from the user changing its picks and weighs what they favour (emotion
+  over sharpness, say); Imagen builds a Personal AI Profile from finished
+  edits, fine-tunes it as more come in, and lets the user see and adjust
+  what it learned (Profile Adjustments). Both need many examples: Imagen
+  asks for 2,000–3,000 edited photos. Descript's Remove Filler Words sets
+  each instance to Delete or Ignore but, as far as found, doesn't remember
+  the choices. Beacon has far fewer decisions than a photographer has
+  photos, so it should learn simple, readable rules rather than train a
+  model.
+- **What it learns from.** Every decision in a review (Remove Silences,
+  Remove Filler Words, Remove Retakes): each item cut or kept, flipped from
+  what Beacon proposed or not, with what describes it (a silence's length,
+  screen action, where it falls in a take; a filler's word, the words
+  around it, sentence start or middle). Later, edits made by hand after
+  Apply (undoing an AI cut, cutting a filler the review kept) count too.
+  Stored in the config folder, app-wide and local, never uploaded.
+- **How it decides.** Counts per rule, not a black box: per filler word a
+  keep/cut tally; for silences, where the user's keeps and cuts divide by
+  length (the "shortest silence to cut" and "pause to keep" settings move
+  to that point). A rule changes a default only with enough evidence: at
+  least 5 decisions over at least 2 projects, about 80% one way (a Beta
+  prior over the tally, so one or two choices never tip it), recent ones
+  counting more than old ones. Adaptive thresholds from accept/reject
+  feedback are well studied (Robertson and Walker on adaptive filtering;
+  BPR for preferences from implicit signals), but simple tallies are
+  enough to start.
+- **What the user sees.** A review opens with the learned defaults and
+  says so where they apply ("Kept: you usually keep 'so' (9 of 11)"), so a
+  surprise can be traced and flipped; Settings gets a Learned section
+  listing every learned preference with its evidence, each resettable, a
+  Reset All, and a switch to turn learning off (as Imagen lets its profile
+  be adjusted). Agents read the same list through the preferences, so they
+  prepare reviews the user's way.
+- Fits as its own feature folder with session state and a preference
+  store; the reviews ask it for defaults rather than knowing about it.
+  Open: per kind of video (a tutorial vs a talking head) or per speaker;
+  how fast old habits fade; whether hand edits outside the reviews are a
+  clear enough signal.
+**Gate:** after the user cuts or keeps the same kind of item the same way
+across a few projects, the next review opens that way and says why; one
+choice alone changes nothing; Settings shows and resets what was learned.
 
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
