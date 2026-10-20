@@ -1818,6 +1818,11 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   pastes only Beacon's own clips). The window has the image's bytes either
   way: write them into the project's folder (a `media` folder, named by the
   screenshot or by date) and import them, at the drop point or the playhead.
+  Found 2026-10-20: the thumbnail's drag is a file promise that also offers a
+  `public.file-url` in `TemporaryItems/NSIRD_screencaptureui_*` and the PNG
+  itself (`public.png`); the drop fails "couldn't find … among the dragged
+  files" because that file's size or date isn't the webview's, and the folder
+  is cleared once the drag ends, so it must be copied in, not used in place.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 
