@@ -1268,7 +1268,7 @@ Making the transcript do the editing.
   and which screen frames changed, so silences with that activity are kept by
   default (a tick box), the cheap stand-in for an agent looking at frames.
   Waits for the transcript job if it is still running. Retakes and filler words
-  stay with agents (MCP), where judgement is needed. As built: an **AI** panel
+  stay with agents (MCP; retakes get their own review in Phase 9), where judgement is needed. As built: an **AI** panel
   in the left sidebar, not the Edit menu (the user's choice: it is the home for
   later AI features), nor Audio Effects (those are dragged onto one clip; this
   edits the whole timeline). Its tile opens a **review**, not a dialog (the
@@ -1668,6 +1668,26 @@ Seeing more at once.
   fixes reach both; preview/export parity as for every pass. Open: what a
   `.hlook` holds (values, a LUT, or both) decides whether the renderer
   needs LUTs.
+- **Remove Retakes** (the user, 2026-10-19; an AI feature, next to Remove
+  Silences and Remove Filler Words): finds the same thing said more than
+  once (a line restarted, a sentence said again after a stumble) and keeps
+  the best take. Detection from the transcript: runs of words that repeat
+  closely within a short span (aligned word by word, so "so the next step
+  is… so the next step is to open" groups as two takes of one line),
+  ending where the takes agree again. The best is the last complete one
+  by default (people redo until it's right), scored too for fewer
+  fillers, no cut-off ending and fluency; an LLM judging the takes is an
+  option behind the AI setting, as the transcriber is. UI as the other
+  reviews: its AI panel tile opens a review; each group is one mark on the
+  timeline spanning its takes, the kept take green and the others red;
+  ‹ › step through the groups (playhead on the group), clicking a take
+  keeps that one instead, and the properties panel lists the group's
+  takes as text with their lengths and a play button each; Apply All cuts
+  the losing takes in one undo step, Cut This One one group at a time.
+  Agents get `retakes.review`/`apply` (they already cut retakes by word
+  ranges with `transcript_cut`). Open: how close two takes must be to
+  count (a threshold in the review's settings), and a take that runs on
+  past the line it repeats.
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,
