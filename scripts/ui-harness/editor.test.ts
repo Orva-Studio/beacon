@@ -1719,6 +1719,33 @@ test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top
   await expect(run("edit.label", { color: "blue" })).rejects.toThrow("select clips first");
 });
 
+test.skipIf(skip)("a clip being dragged is drawn where it would land with its waveform, so it can be lined up by eye", async () => {
+  await select([]);
+  const voice = clips().find((c) => c.type === "audio" && c.assetId)!;
+  const job = await ui.core.analyze(ui.handle, "waveform", voice.assetId!);
+  for (let j = await ui.core.job(job.id); j.state === "running"; j = await ui.core.job(job.id)) await Bun.sleep(100);
+  const [a, b] = [ticksToSeconds(voice.start), ticksToSeconds(voice.start + voice.duration)];
+  await run("timeline.view", { start: Math.max(0, a - 1), end: b + (b - a) + 1 });
+  await page.until(`!!document.querySelector('canvas[data-timeline]')`);
+  await Bun.sleep(500);
+  const { y, h, xAt, box } = await timelinePlaces(voice.id);
+  const by = (xAt(b) - xAt(a)) * 0.6;
+  const bars = (from: number, to: number) =>
+    `new Set((() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const out = []; for (let x = ${from}; x < ${to}; x += 1) out.push([...c.getContext('2d').getImageData(Math.round(x * k), Math.round(${y + h - 4} * k), 1, 1).data].slice(0, 3).join()); return out; })()).size`;
+  await page.until(`${bars(xAt(a) + 6, xAt(b) - 6)} > 1`, 60000);
+  const [x0, y0] = [box.x + (xAt(a) + xAt(b)) / 2, box.y + y + h / 2];
+  await page.down(x0, y0);
+  for (let i = 1; i <= 10; i++) await page.move(x0 + (by * i) / 10, y0);
+  await Bun.sleep(300);
+  // Past the clip's own end only the dragged one is drawn: bars of its waveform, not one flat fill.
+  const colours = await page.evaluate<number>(bars(xAt(b) + 6, xAt(b) + by - 6));
+  await page.up(x0 + by, y0);
+  await Bun.sleep(300);
+  expect(colours).toBeGreaterThan(1);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+}, 90_000);
+
 test.skipIf(skip)("a clip dropped after a drag stays where it was dropped while the move is applied, never back where it was for a frame", async () => {
   await select([]);
   await run("timeline.view", { start: 0, end: 20 });
@@ -2646,11 +2673,16 @@ test.skipIf(skip)("Delete acts on what was selected last: a range made after a c
   expect(clips().length).toBe(before);
 });
 
-test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key, in one undo", async () => {
+test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key (⌘L), in one undo", async () => {
   const before = clips().length;
   await ui.core.import(ui.handle, [RECORDING]);
   const linked = clips().filter((c) => c.linkId);
   expect(new Set(linked.map((c) => c.linkId)).size).toBe(2);
+  await select(linked.map((c) => c.id));
+  await page.key("l", "KeyL", ["meta"]);
+  await arrived(() => !clips().some((c) => c.linkId));
+  expect(clips().filter((c) => c.linkId)).toEqual([]);
+  await ui.core.undo(ui.handle);
   await ui.core.shortcutSet("edit.unlink", [{ key: "u", modifiers: ["control", "option"] }]);
   await select(linked.map((c) => c.id));
   await page.key("u", "KeyU", ["ctrl", "alt"]);
@@ -2692,7 +2724,7 @@ test.skipIf(skip)("deleting a caption's text character by character keeps the cu
   await select([]);
 }, 150_000);
 
-test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead and on a gap; with ⌥ on a gap, only that track", async () => {
+test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead and on a gap, the clips moving as it drags; with ⌥ on a gap, only that track", async () => {
   await select([]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.insertSpace", { at: 2, duration: 3 });
@@ -2720,7 +2752,19 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   for (const id of after) expect(startOf(id)).toBeCloseTo(2, 1);
   await undoOne();
 
-  // Shift on the gap, dragged right, opens time there on every track.
+  // Shift on the gap, dragged right, opens time there on every track, the clips after it moving as it goes.
+  const empty = await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2));
+  await page.down(...at(3), ["shift"]);
+  for (let i = 1; i <= 8; i++) await page.move(box.x + xAt(3 + i / 8), at(3)[1], ["shift"]);
+  await Bun.sleep(200);
+  expect(await page.evaluate<string>(timelinePixel(xAt(5.5), y + h / 2))).toBe(empty);
+  expect(await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2))).toBe(empty);
+  expect(await page.evaluate<string>(timelinePixel(xAt(6.5), y + h / 2))).not.toBe(empty);
+  await page.up(...at(4), ["shift"]);
+  await arrived(() => after.every((id) => Math.abs(startOf(id) - 6) < 0.05));
+  for (const id of after) expect(startOf(id)).toBeCloseTo(6, 1);
+  await undoOne();
+
   await page.drag(at(3), at(4), ["shift"]);
   await arrived(() => after.every((id) => Math.abs(startOf(id) - 6) < 0.05));
   for (const id of after) expect(startOf(id)).toBeCloseTo(6, 1);

@@ -112,7 +112,6 @@
   --color-group-lane: rgba(150, 176, 164, 0.4);
   --color-locked-hatch: rgba(0, 0, 0, 0.35);
   --color-grip: rgba(0, 0, 0, 0.35);
-  --color-insert-space: rgba(62, 230, 141, 0.2);
   --color-range-edge: var(--color-accent);
   /* Something to check before going on (a muted track's audio left out of an export) */
   --color-warning: var(--color-wave);
