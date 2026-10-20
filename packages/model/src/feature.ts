@@ -61,9 +61,10 @@ export interface EffectDef {
 }
 
 /**
- * An ffmpeg audio filter chain run on each of a clip's segments, before its volume. `lead`: seconds of the clip's
- * own media the chain hears first, trimmed away after it (what a noise filter learns from). `delay`: seconds the
- * chain's output lags its input, padded on and trimmed away so the sound stays in step and whole.
+ * An ffmpeg audio filter chain run on each of a clip's segments, before its volume; `{id}` in it becomes a name of
+ * its own in the mix (for `afftdn@{id}` and commands sent to it). `lead`: seconds of the clip's own media the chain
+ * hears first, trimmed away after it (what a noise filter learns from). `delay`: seconds the chain's output lags its
+ * input, padded on and trimmed away so the sound stays in step and whole.
  */
 export interface AudioEffect {
   filter: string;

@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
+import { ticksToSeconds } from "@beacon/model";
+import { audioPlaybackArgs } from "@beacon/render";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -75,3 +77,52 @@ test.skipIf(!existsSync(RECORDING))("Noise Removal learns the noise from the in/
   expect(Math.abs(lag(before, after))).toBeLessThanOrEqual(1);
   await core.close(h);
 }, 180_000);
+
+test.skipIf(!existsSync(RECORDING))("each cleaned clip learns its own noise, a range up to a cut takes only the clip it covers, and stacked effects each learn their own", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache2") });
+  const h = await core.create({ path: join(dir, "two.beproj") });
+  for (let i = 0; i < 2; i++) {
+    const r = await core.import(h, [RECORDING]);
+    for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  }
+  const audio = () => core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio").sort((a, b) => a.start - b.start);
+  const [first] = audio();
+  const cut = ticksToSeconds(first!.start + first!.duration);
+  const range = { from: cut, to: cut + 10 };
+  await (await core.export(h, { output: join(dir, "second-before.wav"), ...range })).done;
+  const before = samples(join(dir, "second-before.wav"));
+  const quiet = loudness(before, (a, b) => a < b);
+
+  // A range drawn up to the cut, nothing selected: only the clips it runs over, not the ones starting at the cut.
+  await core.run(h, "selection.clear", {});
+  await core.run(h, "range.set", { in: cut - 0.5, out: cut });
+  await core.run(h, "edit.removeNoise", {});
+  const cleaned = () => audio().filter((c) => c.effects.some((e) => e.type === "noise-removal"));
+  expect(cleaned().every((c) => c.start < first!.start + first!.duration)).toBe(true);
+  expect(cleaned().length).toBeGreaterThan(0);
+
+  // Now the second recording too, learning from its own quiet stretch: in one mix, each learns its own.
+  await core.run(h, "range.set", { in: cut + quiet, out: cut + quiet + 0.5 });
+  await core.run(h, "edit.removeNoise", {});
+  await core.run(h, "range.clear", {});
+  expect(cleaned().length).toBe(audio().length);
+  const args = audioPlaybackArgs(core.doc(h), core.registry, cut - 1, 2).join(" ");
+  const names = [...args.matchAll(/afftdn@(\w+)=/g)].map((m) => m[1]);
+  expect(new Set(names).size).toBe(names.length);
+  await (await core.export(h, { output: join(dir, "second-after.wav"), ...range })).done;
+  const after = samples(join(dir, "second-after.wav"));
+  expect(after.length).toBe(before.length);
+  expect(db(after, quiet, quiet + 0.5)).toBeLessThan(db(before, quiet, quiet + 0.5) - 6);
+  expect(Math.abs(lag(before, after))).toBeLessThanOrEqual(1);
+
+  // A second Noise Removal on one clip, with a stretch of its own: two stages, each fed its own lead, in step and whole.
+  const one = audio().at(-1)!;
+  await core.run(h, "effect.add", { clip: one.id, type: "noise-removal", params: { learnFrom: quiet + 0.1, learnTo: quiet + 0.4, strength: 6 } });
+  const stacked = audioPlaybackArgs(core.doc(h), core.registry, cut, 10).join(" ");
+  expect(stacked.match(/concat=n=2/g)!.length).toBeGreaterThanOrEqual(2);
+  await (await core.export(h, { output: join(dir, "stacked.wav"), ...range })).done;
+  const twice = samples(join(dir, "stacked.wav"));
+  expect(twice.length).toBe(before.length);
+  expect(Math.abs(lag(before, twice))).toBeLessThanOrEqual(1);
+  await core.close(h);
+}, 240_000);

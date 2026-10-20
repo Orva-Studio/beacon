@@ -30,13 +30,14 @@ function quietest(c: Clip, ctx: ActionContext): [number, number] | undefined {
   return [best[1] * PEAK, (best[1] + n) * PEAK];
 }
 
-/** Selected clips with audio, else those under the playhead on unlocked tracks. */
+/** Selected clips with audio, else those the in/out range runs over (more than touches), else those under the playhead. */
 function audioClips(ctx: ActionContext): Clip[] {
   const has = (c: Clip) => ctx.registry.hasTrait(c.type, "audio");
   const picked = selectedClips(ctx).filter(has);
   if (picked.length) return picked;
-  const t = ctx.session.playhead;
-  return ctx.scope.tracks.filter((tr) => !tr.locked).flatMap((tr) => tr.clips.filter((c) => has(c) && ticksToSeconds(c.start) <= t && ticksToSeconds(clipEnd(c)) >= t));
+  const r = ctx.session.range;
+  const over = (c: Clip) => (r ? ticksToSeconds(c.start) < r.out && ticksToSeconds(clipEnd(c)) > r.in : ticksToSeconds(c.start) <= ctx.session.playhead && ctx.session.playhead < ticksToSeconds(clipEnd(c)));
+  return ctx.scope.tracks.filter((tr) => !tr.locked).flatMap((tr) => tr.clips.filter((c) => has(c) && over(c)));
 }
 
 /**
@@ -62,10 +63,11 @@ export const noise = defineFeature({
       audio(p) {
         // afftdn hands each block back two blocks (a rate / 80 each) later; at 48 kHz that is exactly 25 ms.
         const delay = (2 * (RATE / 80)) / RATE;
-        const filter = `aresample=${RATE},afftdn=nr=${p.strength}:nf=-50`;
+        const filter = `aresample=${RATE},afftdn@{id}=nr=${p.strength}:nf=-50`;
         if (!(p.learnTo > p.learnFrom)) return { filter: `${filter}:tn=1`, delay };
         const length = (p.learnTo - p.learnFrom).toFixed(6);
-        return { filter: `asendcmd=0 afftdn sn start,asendcmd=${length} afftdn sn stop,${filter}`, lead: { start: p.learnFrom, end: p.learnTo }, delay };
+        // Sent to this clip's afftdn only: a command finds the first filter its target names.
+        return { filter: `asendcmd=0 afftdn@{id} sn start,asendcmd=${length} afftdn@{id} sn stop,${filter}`, lead: { start: p.learnFrom, end: p.learnTo }, delay };
       },
     },
   ],
@@ -89,12 +91,15 @@ export const noise = defineFeature({
         const clips = clip ? dropTargets(ctx, clip).filter((c) => ctx.registry.hasTrait(c.type, "audio")) : audioClips(ctx);
         if (!clips.length) throw new Error(clip ? "Noise Removal applies to media with audio" : "select audio first");
         const range = ctx.session.range;
-        const steps = clips.map((c) => {
+        // With a range, the clips it covers enough of to learn from; one it only grazes is left as it is.
+        const covered = (c: Clip) => !range || Math.min(range.out, ticksToSeconds(clipEnd(c))) - Math.max(range.in, ticksToSeconds(c.start)) >= 0.1;
+        const learning = clips.filter(covered);
+        if (!learning.length) throw new Error("the in/out range must cover at least a tenth of a second of the clip, where there is only room noise");
+        const steps = learning.map((c) => {
           let learn = quietest(c, ctx) ?? [0, 0];
           if (range) {
             const a = Math.max(range.in, ticksToSeconds(c.start));
             const b = Math.min(range.out, ticksToSeconds(clipEnd(c)));
-            if (b - a < 0.1) throw new Error("the in/out range must cover at least a tenth of a second of each clip, where there is only room noise");
             learn = [a, b].map((t) => ticksToSeconds(mediaTimeAt(c, secondsToTicks(t)))).sort((x, y) => x - y) as [number, number];
           }
           const params = { learnFrom: learn[0], learnTo: learn[1], ...(strength === undefined ? {} : { strength }) };

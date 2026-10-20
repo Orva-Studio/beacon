@@ -270,24 +270,29 @@ function audioMix(project: Project, registry: FeatureRegistry, start: number, le
     const src = source?.(s) ?? { path: s.path, stream: s.stream };
     const input = firstInput + inputs.filter((x) => x === "-i").length;
     inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), ...ffmpegInput(src.path));
-    let head = `[${input}:a:${src.stream}]`;
-    // A lead (the first effect's) is played into the effects first, then trimmed away.
-    const lead = s.effects?.find((e) => e.lead)?.lead;
-    if (lead) {
-      const length = (lead.end - lead.start).toFixed(6);
-      inputs.push("-ss", lead.start.toFixed(6), "-t", length, ...ffmpegInput(src.path));
-      // Exactly its length (decoded, it can fall a few samples short), so trimming it takes none of the clip.
-      filters.push(`[${input + 1}:a:${src.stream}]apad=whole_dur=${length},atrim=end=${length},asetpts=PTS-STARTPTS[lead${n}]`);
-      head = `[lead${n}]${head}concat=n=2:v=0:a=1,`;
+    let at = `[${input}:a:${src.stream}]`;
+    // Each effect is a stage of its own: its lead played in first, its delay padded on, both trimmed away after.
+    for (const [k, e] of (s.effects ?? []).entries()) {
+      const id = `s${n}e${k}`;
+      let head = at;
+      if (e.lead) {
+        const length = (e.lead.end - e.lead.start).toFixed(6);
+        const lead = firstInput + inputs.filter((x) => x === "-i").length;
+        inputs.push("-ss", e.lead.start.toFixed(6), "-t", length, ...ffmpegInput(src.path));
+        // Exactly its length (decoded, it can fall a few samples short), so trimming it takes none of the clip.
+        filters.push(`[${lead}:a:${src.stream}]apad=whole_dur=${length},atrim=end=${length},asetpts=PTS-STARTPTS[${id}lead]`);
+        head = `[${id}lead]${at}concat=n=2:v=0:a=1,`;
+      }
+      const cut = (e.lead ? e.lead.end - e.lead.start : 0) + (e.delay ?? 0);
+      const pad = e.delay ? `apad=pad_dur=${e.delay.toFixed(6)},` : "";
+      const trim = cut ? `,atrim=start=${cut.toFixed(6)},asetpts=PTS-STARTPTS` : "";
+      // `{id}` names the effect's filters apart from every other segment's, so commands reach the right one.
+      filters.push(`${head}${pad}${e.filter.replaceAll("{id}", id)}${trim}[${id}]`);
+      at = `[${id}]`;
     }
-    const delay = s.effects?.reduce((d, e) => d + (e.delay ?? 0), 0) ?? 0;
-    const pad = delay ? `apad=pad_dur=${delay.toFixed(6)},` : "";
-    const effects = s.effects?.length ? `${pad}${s.effects.map((e) => e.filter).join(",")},` : "";
-    const cut = (lead ? lead.end - lead.start : 0) + delay;
-    const trim = cut ? `atrim=start=${cut.toFixed(6)},asetpts=PTS-STARTPTS,` : "";
     const volume = s.gain.ramps.length ? `volume='${gainExpr(s.gain, media)}':eval=frame` : `volume=${s.gain.base.toFixed(5)}`;
     n++;
-    filters.push(`${head}${effects}${trim}${volume}${atempo(s.speed)},adelay=delays=${((from - start) * 1000).toFixed(4)}:all=1[a${n}]`);
+    filters.push(`${at}${volume}${atempo(s.speed)},adelay=delays=${((from - start) * 1000).toFixed(4)}:all=1[a${n}]`);
   }
   if (!n) return { inputs };
   return { inputs, filter: `${filters.join(";")};${Array.from({ length: n }, (_, i) => `[a${i + 1}]`).join("")}amix=inputs=${n}:normalize=0:duration=longest,apad[aout]` };
