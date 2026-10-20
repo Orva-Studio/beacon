@@ -160,8 +160,28 @@ export function createProjects(app: ProjectsApp) {
     w.current = undefined;
   }
 
-  /** A window closed: its project is saved and released. */
-  const closeWindow = (w: ProjectWindow) => queued(() => letGo(w));
+  /**
+   * A window closed: its project is saved and released. If it can't be saved (a full disk), it stays open in core,
+   * edits and all, and another window says so: opened again, it comes back as it was.
+   */
+  const closeWindow = (w: ProjectWindow) =>
+    queued(async () => {
+      const current = w.current;
+      if (current && !current.closed) {
+        try {
+          await core.save(current.path);
+        } catch (e) {
+          current.bridge.unwatch();
+          app.leaving(w);
+          w.current = undefined;
+          const name = basename(current.path, ".beproj");
+          const other = [app.focused(), ...app.windows()].find((x) => x && x !== w);
+          other?.message("notice", { title: `“${name}” couldn't be saved`, message: `${errorText(e)}. Its edits are kept while Beacon is open: open it again (File › Open Recent) and save it somewhere with room.`, lines: [] });
+          return;
+        }
+      }
+      await letGo(w);
+    });
 
   /** `w` started playing: the other windows stop, so one plays at a time. */
   async function playing(w: ProjectWindow) {

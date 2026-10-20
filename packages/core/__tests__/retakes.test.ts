@@ -136,3 +136,35 @@ test.skipIf(!existsSync(AUDIO))("with OpenAI as the judge, its picks are kept on
   expect(await text()).toBe("Welcome to the video. so the next step is to open the settings. Then we click on Bluetooth and pair the keyboard. That's all for today.");
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("keeping the first of \"click on save / click on save then save\" cuts only the repeat: the second take's own \"then save\" stays", async () => {
+  const { core, h, asset, text } = await talk("earliest");
+  transcribed(core, asset, said("Now. | Click on save. | click on save then save the file. | Done."));
+  await core.run(h, "retakes.review", {});
+  const [g] = ((await core.query(h, "transcript.retakes", {})) as Found).groups;
+  expect(g!.takes.map((t) => t.text)).toEqual(["Click on save.", "click on save"]);
+  await core.run(h, "retakes.keep", { at: g!.takes[0]!.start + 0.1 });
+  await core.run(h, "retakes.apply", {});
+  expect(await text()).toBe("Now. Click on save. then save the file. Done.");
+  await core.close(h);
+}, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("cancelling OpenAI's judging aborts its request", async () => {
+  const { core, h, asset } = await talk("cancel", new Map([["openai-api-key", "sk-test"]]));
+  await core.setPreference("retake-judge", "openai");
+  let signal: AbortSignal | undefined;
+  let asked!: () => void;
+  const started = new Promise<void>((r) => (asked = r));
+  globalThis.fetch = ((_url: string, init: RequestInit) => {
+    signal = init.signal ?? undefined;
+    asked();
+    return new Promise((_, reject) => signal?.addEventListener("abort", () => reject(signal!.reason)));
+  }) as unknown as typeof fetch;
+  const job = await core.analyze(h, "retakes", asset.id);
+  await started;
+  await core.cancelJob(job.id);
+  await job.done.catch(() => {});
+  expect(signal?.aborted).toBe(true);
+  expect((await core.job(job.id)).state).toBe("failed");
+  await core.close(h);
+}, 60_000);

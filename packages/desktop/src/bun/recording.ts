@@ -361,6 +361,8 @@ export function createRecording({ core, message, status, project, window, setSet
   }
 
   return {
+    /** A take or a narration is under way. */
+    busy: () => !!recording || !!narrating,
     checkSync,
     clearFrames,
     narrationEnded,

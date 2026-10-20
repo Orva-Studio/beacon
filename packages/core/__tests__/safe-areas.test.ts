@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DerivedData } from "@beacon/render";
@@ -71,3 +71,45 @@ test.skipIf(!existsSync(AUDIO))("a 9:16 Short's captions under TikTok's caption 
   expect(existsSync(join(path, "editor.json"))).toBe(false);
   await core.close(again);
 }, 60_000);
+
+test("callouts inside groups are checked where the group puts them, and a callout that passes under a zone for a few frames is caught", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-g") });
+  const h = await core.create({ path: join(dir, "grouped.beproj"), settings: { width: 1080, height: 1920 } });
+  await core.run(h, "edit.addAnnotation", { preset: "text", time: 0, duration: 4 });
+  const text = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "callout")!;
+  const rail = async () => ((await core.query(h, "safeAreas.check", { layout: "tiktok" })) as Check).issues.filter((i) => i.zone === "rail");
+  // Clear of the action rail, then a tenth of a second over it, then back.
+  await core.run(h, "clip.set", { clips: [text.id], props: { callout: { width: 300 }, transform: { x: -100, y: -150 } } });
+  expect(await rail()).toEqual([]);
+  await core.run(h, "animation.add", { clip: text.id, end: 1.1, duration: 0.1, to: { "transform.x": 380 } });
+  await core.run(h, "animation.add", { clip: text.id, end: 1.2, duration: 0.1, to: { "transform.x": -100 } });
+  const brief = await rail();
+  expect(brief.length).toBe(1);
+  expect(brief[0]!.from).toBeGreaterThan(1);
+  expect(brief[0]!.to).toBeLessThan(1.25);
+  await core.undo(h);
+  await core.undo(h);
+
+  // Under the rail, then grouped: still under it; the group moved left, clear of it.
+  await core.run(h, "clip.set", { clips: [text.id], props: { transform: { x: 380 } } });
+  expect((await rail()).map((i) => i.clip)).toEqual([text.id]);
+  const group = (await core.run(h, "clip.group", { clips: [text.id] })).results[0] as string;
+  expect((await rail()).map((i) => i.clip)).toEqual([text.id]);
+  await core.run(h, "clip.set", { clips: [group], props: { transform: { x: -480 } } });
+  expect(await rail()).toEqual([]);
+  await core.close(h);
+});
+
+test("the safe areas kept with a project replace a link left where editor.json goes, never writing through it", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-l") });
+  const path = join(dir, "linked.beproj");
+  const h = await core.create({ path, settings: { width: 1080, height: 1920 } });
+  const target = join(dir, "precious.txt");
+  writeFileSync(target, "keep me");
+  symlinkSync(target, join(path, "editor.json"));
+  await core.run(h, "safeAreas.show", { layout: "reels" });
+  expect(readFileSync(target, "utf8")).toBe("keep me");
+  expect(lstatSync(join(path, "editor.json")).isSymbolicLink()).toBe(false);
+  expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels" } } });
+  await core.close(h);
+});

@@ -10,7 +10,9 @@ import {
   roundSeconds,
   secondsToTicks,
   ticksToSeconds,
+  ticksPerFrame,
   type Clip,
+  type FeatureRegistry,
   type Project,
   type Session,
   type Track,
@@ -78,28 +80,66 @@ const aspectText = (w: number, h: number) => {
   return `${Math.round(w) / d}:${Math.round(h) / d}`;
 };
 
-/** Seconds between samples of a clip's place: animations move it. */
-const STEP = 0.25;
+type Size = { width: number; height: number };
 
-/** A callout's corners on the canvas (canvas pixels, y down) at timeline seconds `t`, through its animations. */
-function calloutCorners(project: Project, clip: Clip, t: number): [number, number][] | undefined {
-  const box = clip.props.callout as { width?: number; height?: number } | undefined;
-  if (!box?.width || !box.height) return undefined;
-  const at = mediaTimeAt(clip, Math.min(Math.max(secondsToTicks(t), clip.start), clip.start + clip.duration));
+/** Where a clip with content `size` sits on a `canvas` at main-timeline ticks `t`, through its animations (`offset`: its track's start on the main timeline). */
+function placedAt(clip: Clip, size: [number, number], canvas: Size, t: number, offset: number) {
+  const at = mediaTimeAt(clip, Math.min(Math.max(t - offset, clip.start), clip.start + clip.duration));
   const tr = (clip.props.transform ?? {}) as Record<string, unknown>;
   const v = (f: string, d: number) => Number(animatedValue(tr[f] ?? d, `transform.${f}`, clip.animations, at));
-  const m = placement(project.settings, [box.width, box.height], { x: v("x", 0), y: v("y", 0), scaleX: v("scaleX", 1), scaleY: v("scaleY", 1), rotation: v("rotation", 0), rotationX: v("rotationX", 0), rotationY: v("rotationY", 0) });
-  return [projectPoint(m, 0, 0), projectPoint(m, box.width, 0), projectPoint(m, box.width, box.height), projectPoint(m, 0, box.height)];
+  return placement(canvas, size, { x: v("x", 0), y: v("y", 0), scaleX: v("scaleX", 1), scaleY: v("scaleY", 1), rotation: v("rotation", 0), rotationX: v("rotationX", 0), rotationY: v("rotationY", 0) });
 }
 
-/** What a clip shows on the canvas at `t` as a box (canvas pixels): callouts and captions, the clips that carry words. */
-function boxAt(project: Project, track: Track, clip: Clip, t: number): Rect | undefined {
-  if (clip.type === "caption") {
-    const b = captionBox(clip, track, project.settings);
-    return b && [b.x, b.y, b.x + b.width, b.y + b.height];
+/** A group a clip is inside: it, its own canvas's size, the canvas it is placed on, and its track's offset. */
+type Ancestor = { clip: Clip; size: [number, number]; canvas: Size; offset: number };
+
+/** A callout or caption on a visible track, inside groups or not, with where its track starts and when it shows (main-timeline ticks). */
+interface Leaf {
+  clip: Clip;
+  track: Track;
+  canvas: Size;
+  offset: number;
+  chain: Ancestor[];
+  from: number;
+  to: number;
+}
+
+function* leaves(tracks: Track[], registry: FeatureRegistry, canvas: Size, offset: number, chain: Ancestor[], from: number, to: number): Generator<Leaf> {
+  for (const track of tracks) {
+    if (track.hidden) continue;
+    for (const clip of track.clips) {
+      const [a, b] = [Math.max(from, offset + clip.start), Math.min(to, offset + clip.start + clip.duration)];
+      if (b <= a) continue;
+      if (clip.type === "caption" || clip.type === "callout") yield { clip, track, canvas, offset, chain, from: a, to: b };
+      for (const g of registry.groupsFor(clip.type)) {
+        const value = clip.props[g.id];
+        if (!g.nested || !g.size || !value) continue;
+        const size = g.size(value);
+        yield* leaves(g.nested(value), registry, { width: size[0], height: size[1] }, offset + clip.start - (clip.mediaStart ?? 0), [...chain, { clip, size, canvas, offset }], a, b);
+      }
+    }
   }
-  const c = calloutCorners(project, clip, t);
-  return c && [Math.min(...c.map((p) => p[0])), Math.min(...c.map((p) => p[1])), Math.max(...c.map((p) => p[0])), Math.max(...c.map((p) => p[1]))];
+}
+
+/** A leaf's box on the main canvas at main-timeline ticks `t`: its corners carried out through every group it is in. */
+function boxAt(leaf: Leaf, t: number): Rect | undefined {
+  const { clip, track, canvas } = leaf;
+  let pts: [number, number][];
+  if (clip.type === "caption") {
+    const b = captionBox(clip, track, canvas);
+    if (!b) return undefined;
+    pts = [[b.x, b.y], [b.x + b.width, b.y], [b.x + b.width, b.y + b.height], [b.x, b.y + b.height]];
+  } else {
+    const box = clip.props.callout as { width?: number; height?: number } | undefined;
+    if (!box?.width || !box.height) return undefined;
+    const m = placedAt(clip, [box.width, box.height], canvas, t, leaf.offset);
+    pts = [projectPoint(m, 0, 0), projectPoint(m, box.width, 0), projectPoint(m, box.width, box.height), projectPoint(m, 0, box.height)];
+  }
+  for (const g of [...leaf.chain].reverse()) {
+    const m = placedAt(g.clip, g.size, g.canvas, t, g.offset);
+    pts = pts.map(([x, y]) => projectPoint(m, x, y));
+  }
+  return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
 }
 
 const overlaps = (a: Rect, b: Rect) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0.5 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 0.5;
@@ -117,48 +157,50 @@ export interface SafeIssue {
 }
 
 /**
- * Every callout and caption on a visible track (top level) that lies under one of `l`'s zones, beyond its
- * title-safe frame, or in its end-screen seconds, at any moment it shows, sampled every quarter second.
+ * Every callout and caption on a visible track, inside groups too, that lies under one of `l`'s zones, beyond its
+ * title-safe frame, or in its end-screen seconds, on any frame it shows (once when nothing moves it).
  */
-function check(project: Project, l: SafeLayout): SafeIssue[] {
+function check(project: Project, registry: FeatureRegistry, l: SafeLayout): SafeIssue[] {
   const s = project.settings;
   const z = inPixels(l, s);
-  const end = ticksToSeconds(projectDuration(project));
+  const end = projectDuration(project);
+  const frame = ticksPerFrame(s.fps);
+  const endScreen = z.endScreen ? end - secondsToTicks(z.endScreen) : undefined;
   const issues: SafeIssue[] = [];
-  for (const track of project.tracks) {
-    if (track.hidden) continue;
-    for (const clip of track.clips) {
-      if (clip.type !== "caption" && clip.type !== "callout") continue;
-      const [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
-      const text =
-        clip.type === "caption"
-          ? ((clip.props.caption as { words?: { text: string }[] } | undefined)?.words ?? []).map((w) => w.text).join(" ")
-          : ((clip.props.callout as { text?: { text?: string } } | undefined)?.text?.text ?? "");
-      const open = new Map<string, SafeIssue>();
-      const times = [];
-      for (let t = a; t < b - 1e-6; t += STEP) times.push(t);
-      times.push(Math.max(a, b - 1e-3));
-      for (const t of times) {
-        const box = boxAt(project, track, clip, t);
-        if (!box) continue;
-        const hit: { zone: string; label: string }[] = z.zones.filter((zone) => overlaps(box, zone.rect)).map((zone) => ({ zone: zone.id, label: zone.label }));
-        const ts = z.titleSafe;
-        if (ts && (box[0] < ts[0] - 0.5 || box[1] < ts[1] - 0.5 || box[2] > ts[2] + 0.5 || box[3] > ts[3] + 0.5)) hit.push({ zone: "titleSafe", label: "Beyond the title-safe frame" });
-        if (z.endScreen && t >= end - z.endScreen) hit.push({ zone: "endScreen", label: `End screen (the last ${z.endScreen} s)` });
-        for (const h of hit) {
-          const run = open.get(h.zone);
-          const to = Math.min(t + STEP, b);
-          if (run && t <= run.to + 1e-6) run.to = to;
-          else {
-            const next = { clip: clip.id, type: clip.type, text: text.slice(0, 80), zone: h.zone, label: h.label, from: t, to };
-            issues.push(next);
-            open.set(h.zone, next);
-          }
+  for (const leaf of leaves(project.tracks, registry, s, 0, [], 0, Infinity)) {
+    const { clip } = leaf;
+    const text =
+      clip.type === "caption"
+        ? ((clip.props.caption as { words?: { text: string }[] } | undefined)?.words ?? []).map((w) => w.text).join(" ")
+        : ((clip.props.callout as { text?: { text?: string } } | undefined)?.text?.text ?? "");
+    const still = !clip.animations.length && leaf.chain.every((g) => !g.clip.animations.length);
+    // Still, it is checked once over its whole time, the end screen apart; moving, on each frame.
+    const spans: [number, number][] = still
+      ? endScreen !== undefined && leaf.from < endScreen && leaf.to > endScreen
+        ? [[leaf.from, endScreen], [endScreen, leaf.to]]
+        : [[leaf.from, leaf.to]]
+      : [];
+    if (!still) for (let t = leaf.from; t < leaf.to; t += frame) spans.push([t, Math.min(t + frame, leaf.to)]);
+    const open = new Map<string, SafeIssue>();
+    for (const [a, b] of spans) {
+      const box = boxAt(leaf, a);
+      if (!box) continue;
+      const hit: { zone: string; label: string }[] = z.zones.filter((zone) => overlaps(box, zone.rect)).map((zone) => ({ zone: zone.id, label: zone.label }));
+      const ts = z.titleSafe;
+      if (ts && (box[0] < ts[0] - 0.5 || box[1] < ts[1] - 0.5 || box[2] > ts[2] + 0.5 || box[3] > ts[3] + 0.5)) hit.push({ zone: "titleSafe", label: "Beyond the title-safe frame" });
+      if (endScreen !== undefined && a >= endScreen) hit.push({ zone: "endScreen", label: `End screen (the last ${z.endScreen} s)` });
+      for (const h of hit) {
+        const run = open.get(h.zone);
+        if (run && a <= run.to) run.to = b;
+        else {
+          const next = { clip: clip.id, type: clip.type, text: text.slice(0, 80), zone: h.zone, label: h.label, from: a, to: b };
+          issues.push(next);
+          open.set(h.zone, next);
         }
       }
     }
   }
-  return issues.map((i) => ({ ...i, from: roundSeconds(i.from), to: roundSeconds(i.to) })).sort((x, y) => x.from - y.from);
+  return issues.map((i) => ({ ...i, from: roundSeconds(ticksToSeconds(i.from)), to: roundSeconds(ticksToSeconds(i.to)) })).sort((x, y) => x.from - y.from);
 }
 
 /** Where a platform's own UI sits over the video (TikTok, Reels, Shorts, YouTube): guides on the canvas, and a check for text under it. */
@@ -196,11 +238,11 @@ export const safeAreas = defineFeature({
       description:
         "Text the platform's UI would cover: every callout and caption that lies under one of the layout's zones (or beyond its title-safe frame, or in its end-screen seconds) at any moment it shows, with the zone and the timeline seconds; `clean` when there are none. `layout`: one of safeAreas.layouts', else the one shown (ui_state), else the first for the canvas's shape. A callout counts by its box, so a text box wider than its words can be flagged",
       args: z.strictObject({ layout: z.string().optional() }),
-      run: ({ layout }, { project, session }) => {
+      run: ({ layout }, { project, registry, session }) => {
         const id = layout ?? (session && shown(session)) ?? SAFE_LAYOUTS.find((l) => fits(l, project.settings))?.id;
         if (!id) throw new Error(`no platform's safe areas are for a ${aspectText(project.settings.width, project.settings.height)} canvas`);
         const l = layoutOf(id);
-        const issues = check(project, l);
+        const issues = check(project, registry, l);
         return { layout: l.id, title: l.title, fits: fits(l, project.settings), clean: !issues.length, issues };
       },
     }),

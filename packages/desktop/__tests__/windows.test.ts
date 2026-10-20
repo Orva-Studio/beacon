@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
@@ -102,6 +102,22 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
   await projects.open(B);
   expect(windows[1]!.current?.path).toBe(B);
   expect(windows.length).toBe(3);
+  // Closed while it can't be saved (its folder read-only, as a full disk would refuse it): kept open with its edits,
+  // another window says so, and opened again it comes back as it was.
+  await core.run(B, "track.add", { name: "Unsaved" });
+  chmodSync(B, 0o555);
+  try {
+    await projects.closeWindow(windows[1]!);
+    expect(windows[1]!.current).toBeUndefined();
+    expect(core.doc(B).tracks.some((t) => t.name === "Unsaved")).toBe(true);
+    const told = windows[0]!.messages.find(([t]) => t === "notice");
+    expect((told?.[1] as { title: string }).title).toBe("“B” couldn't be saved");
+  } finally {
+    chmodSync(B, 0o755);
+  }
+  await projects.open(B);
+  expect(windows.find((w) => w.current?.path === B)).toBeDefined();
+  expect(core.doc(B).tracks.some((t) => t.name === "Unsaved")).toBe(true);
   for (const w of windows) await projects.closeWindow(w);
   core.closeAll();
 }, 120_000);

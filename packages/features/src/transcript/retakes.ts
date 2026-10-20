@@ -45,20 +45,15 @@ export const takeText = (words: Word[], take: Take) =>
     .map((w) => w.text)
     .join(" ");
 
-/** The longest common subsequence of `a` and `b`: its length, and the index in `b` of its last word. */
+/**
+ * The longest common subsequence of `a` and `b`: its length, and the index in `b` of its last word, as early as
+ * it can be ("click on save" in "click on save then save" ends at the first "save", not the second).
+ */
 function common(a: string[], b: string[]): { n: number; last: number } {
   const dp = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
   for (let x = 1; x <= a.length; x++) for (let y = 1; y <= b.length; y++) dp[x]![y] = a[x - 1] === b[y - 1] ? dp[x - 1]![y - 1]! + 1 : Math.max(dp[x - 1]![y]!, dp[x]![y - 1]!);
-  let [x, y, last] = [a.length, b.length, -1];
-  while (x > 0 && y > 0) {
-    if (a[x - 1] === b[y - 1]) {
-      if (last < 0) last = y - 1;
-      x--;
-      y--;
-    } else if (dp[x - 1]![y]! >= dp[x]![y - 1]!) x--;
-    else y--;
-  }
-  return { n: dp[a.length]![b.length]!, last };
+  const n = dp[a.length]![b.length]!;
+  return { n, last: n ? dp[a.length]!.findIndex((v) => v === n) - 1 : -1 };
 }
 
 /** A take this much of whose words the next take says again (in order) is one take of the same line. */
@@ -177,6 +172,7 @@ const BATCH = 25;
 export async function judgeTakes(groups: { takes: string[]; then: string }[], apiKey: string, progress: (f: number) => void, signal?: AbortSignal): Promise<{ best: number; reason: string }[]> {
   const out: { best: number; reason: string }[] = [];
   for (let at = 0; at < groups.length; at += BATCH) {
+    signal?.throwIfAborted();
     const batch = groups.slice(at, at + BATCH);
     const listing = batch.map((g, n) => [`Group ${n + 1}:`, ...g.takes.map((t, k) => `  Take ${k + 1}: ${t}`), ...(g.then ? [`  (then: ${g.then})`] : [])].join("\n")).join("\n\n");
     const res = await fetch("https://api.openai.com/v1/chat/completions", {

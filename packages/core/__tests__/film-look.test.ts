@@ -86,3 +86,16 @@ test("a .hlook of your own: what it leaves out is hance's default, and what Film
   expect(((await core.query(h, "filmLook.looks", {})) as unknown[]).length).toBe(41);
   await core.close(h);
 });
+
+test("a .hlook path that isn't a small regular file is refused without reading it (a pipe would block)", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-c") });
+  const h = await core.create({ path: join(dir, "pipe.beproj") });
+  const fifo = join(dir, "look.fifo");
+  Bun.spawnSync(["/usr/bin/mkfifo", fifo]);
+  await expect(core.query(h, "filmLook.read", { path: fifo })).rejects.toThrow(/not a file/);
+  await expect(core.query(h, "filmLook.read", { path: dir })).rejects.toThrow(/not a file/);
+  const big = join(dir, "big.hlook");
+  writeFileSync(big, Buffer.alloc(2 << 20, 32));
+  await expect(core.query(h, "filmLook.read", { path: big })).rejects.toThrow(/2 MB/);
+  await core.close(h);
+});

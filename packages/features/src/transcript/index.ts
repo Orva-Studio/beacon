@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { transcribe, type Transcriber, type Transcription } from "@beacon/media";
+import { jobSignal, transcribe, type Transcriber, type Transcription } from "@beacon/media";
 import {
   defineAction,
   defineCommand,
@@ -644,7 +644,7 @@ export const transcript = defineFeature({
           }
         }
         const groups = [...found.values()];
-        const picks = groups.length ? await judgeTakes(groups.map((g) => ({ takes: g.said, then: g.then })), apiKey, progress) : [];
+        const picks = groups.length ? await judgeTakes(groups.map((g) => ({ takes: g.said, then: g.then })), apiKey, progress, jobSignal()) : [];
         return { groups: groups.map((g, k) => ({ takes: g.takes, best: picks[k]!.best, reason: picks[k]!.reason })) } satisfies RetakeJudgments;
       },
     },

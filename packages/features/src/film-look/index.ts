@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { defineCommand, defineFeature, defineQuery, ticksToSeconds, walkClips, type EffectPreset } from "@beacon/model";
 import wgsl from "./film-look.wgsl" with { type: "text" };
@@ -33,6 +33,22 @@ const PRESETS: EffectPreset[] = looks.map((l) => {
   return { id: l.id, title: l.name, description: l.description, params: { ...p }, ...(notReproduced.length ? { notes: notReproduced } : {}) };
 });
 
+/** A `.hlook` is a few hundred bytes; anything far larger isn't one. */
+const MAX_LOOK_BYTES = 1 << 20;
+
+/** A `.hlook` file's text: only a regular file (not a pipe or a device, which would block), and not a huge one. */
+function readLookFile(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new Error(`${path} isn't a .hlook: not a file`);
+    if (st.size > MAX_LOOK_BYTES) throw new Error(`${path} isn't a .hlook: ${Math.round(st.size / 1e6)} MB`);
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** A look by a built-in's id, or a `.hlook` file's path or contents. */
 function readLook({ look, path, json }: { look?: string; path?: string; json?: string }) {
   const given = [look, path, json].filter((x) => x !== undefined).length;
@@ -42,7 +58,7 @@ function readLook({ look, path, json }: { look?: string; path?: string; json?: s
     if (!l) throw new Error(`no built-in look "${look}": ${looks.map((x) => x.id).join(", ")}`);
     return fromHlook(l);
   }
-  const text = path !== undefined ? readFileSync(path, "utf8") : json!;
+  const text = path !== undefined ? readLookFile(path) : json!;
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

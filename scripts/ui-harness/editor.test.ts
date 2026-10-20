@@ -2269,21 +2269,27 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     expect(await p.evaluate<string>("document.querySelector('[data-take-by]').textContent")).toBe("Chosen by you");
     await p.evaluate("document.querySelectorAll('[data-take-keep]')[1].click()");
     await p.until("document.querySelector('[data-retake-takes] [data-kept]')?.dataset.take === '1'");
+    // Playback plays in a preview: an offscreen one here.
+    other.core.attachView(other.handle, { offscreen: { width: 320, height: 180 } }, { silent: true });
     await p.evaluate("document.querySelectorAll('[data-take-play]')[0].click()");
     for (let i = 0; i < 50 && !(await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
+    // Playing starts a moment after the click: the take's end is kept until it has, then stops it.
+    expect((await other.core.session(other.handle)).playing).toBe(true);
     expect((await other.core.session(other.handle)).playhead).toBeCloseTo(g.takes[0]!.start, 1);
     await go("playhead.set", { time: g.takes[0]!.end + 0.1 });
     for (let i = 0; i < 100 && (await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
     expect((await other.core.session(other.handle)).playing).toBe(false);
+    other.core.detachView(other.handle);
 
     // OpenAI as the judge: its picks once it has answered, with why.
     await other.core.setSecret("openai-api-key", "sk-test");
     await other.core.setPreference("retake-judge", "openai");
-    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const judge = (async (_url: string, init: RequestInit) => {
       const groups = (JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages[1]!.content.split("\n\n");
       const picks = groups.map((x, n) => ({ group: n + 1, best: /Bluetooth/.test(x) ? 1 : 2, reason: "says it all" }));
       return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ picks }) } }] }));
     }) as typeof fetch;
+    globalThis.fetch = judge;
     await go("retakes.close");
     await p.until("!document.querySelector('[data-retake-review]')");
     await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
@@ -2295,6 +2301,11 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     await p.evaluate("document.querySelector('[data-one-next]').click()");
     await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by OpenAI: says it all'");
     await p.until("!document.querySelector('[data-retakes-judging]')");
+    // Best Take changed with the review open: it shows (and Apply would cut) the new judge's picks at once.
+    await other.core.setPreference("retake-judge", "beacon");
+    await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by Beacon'");
+    await other.core.setPreference("retake-judge", "openai");
+    await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by OpenAI: says it all'");
 
     // Apply All: one undo step, the takes not kept gone from the transcript.
     const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
@@ -2316,6 +2327,14 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
     await p.until("(document.querySelector('[data-retakes-judging]')?.textContent ?? '').includes('Incorrect API key provided')", 10_000);
     expect((await found()).groups.map((x) => x.by)).toEqual(["beacon", "beacon"]);
+    await p.evaluate("document.querySelector('[data-retakes-cancel]').click()");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    // The key put right, the review opened again asks again.
+    globalThis.fetch = judge;
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    for (let i = 0; i < 100 && !(await found()).groups.every((x) => x.by === "openai"); i++) await Bun.sleep(50);
+    expect((await found()).groups.map((x) => x.by)).toEqual(["openai", "openai"]);
+    await p.until("!document.querySelector('[data-retakes-judging]')");
     await p.evaluate("document.querySelector('[data-retakes-cancel]').click()");
     await p.until("!document.querySelector('[data-retake-review]')");
     expect(length()).toBeCloseTo(before, 3);

@@ -53,10 +53,14 @@ export function readEditor(dir: string): Record<string, unknown> {
   }
 }
 
+/** Written beside it and renamed over it, so a link in its place is replaced rather than written through. */
 export function writeEditor(dir: string, features: Record<string, unknown>) {
   const file = join(dir, EDITOR_FILE);
   if (!Object.keys(features).length) return rmSync(file, { force: true });
-  writeFileSync(file, `${JSON.stringify({ features }, null, 2)}\n`);
+  const tmp = join(dir, `.${EDITOR_FILE}.${process.pid}.tmp`);
+  rmSync(tmp, { force: true });
+  writeFileSync(tmp, `${JSON.stringify({ features }, null, 2)}\n`, { flag: "wx", mode: 0o644 });
+  renameSync(tmp, file);
 }
 
 /** A name typed for a project's folder, without `.beproj`; throws when it can't be one (empty, hidden, or with / or :). */

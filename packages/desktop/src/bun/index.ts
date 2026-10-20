@@ -71,14 +71,14 @@ async function openedPayload(w: Win, h: string): Promise<import("@beacon/ui").Op
   return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: w.current?.path === h ? w.current.bridge.rev() : 0 };
 }
 
-/** Set while core saves the window's own change: its "settings" event isn't sent back, over a newer change. */
-let ownChange = false;
-/** A change from the Settings window (which shows it already) or Check Sync; core keeps them and applies them. */
-function setAppSettings(patch: import("@beacon/ui").SettingsPatch) {
-  ownChange = true;
+/** Set while core saves a window's own change: its "settings" event isn't sent back to that window, over a newer change; the others take it. */
+let changedBy: Win | undefined;
+/** A change from a Settings window (which shows it already) or Check Sync; core keeps them and applies them. */
+function setAppSettings(patch: import("@beacon/ui").SettingsPatch, from?: Win) {
+  changedBy = from;
   // Core tells the change before its promise settles, while this is still set.
-  core.setSettings(patch).catch((e: unknown) => status(`could not save settings: ${errorText(e)}`));
-  ownChange = false;
+  core.setSettings(patch).catch((e: unknown) => (from ?? focused)?.status(`could not save settings: ${errorText(e)}`));
+  changedBy = undefined;
 }
 
 /** Keys rebound (here, by an agent, or in another process's keymap.json): the menus and the windows show them. */
@@ -265,9 +265,13 @@ if (diag) {
   }, 5000);
 }
 
-/** The window the recorder serves: the Record dialog's or narration's, until the next one opens. */
+/** The window the recorder serves: the Record dialog's or narration's; while a take or narration is under way, it stays theirs. */
 let recording: Win | undefined;
+function recordFor(w: Win) {
+  if (!recorder.busy()) recording = w;
+}
 function openRecord(w: Win, mode?: import("@beacon/ui").RecordMode) {
+  if (recorder.busy()) return w.status("Already recording or narrating: stop it first");
   recording = w;
   void recorder.recordDialog(mode).catch((e: unknown) => w.status(errorText(e)));
 }
@@ -301,10 +305,10 @@ function openWindow(): Win {
         chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
         chooseFile: async ({ extensions }) => (await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: extensions.join(",") }))[0] || null,
         startExport: (params) => reply(() => w.exports.startExport(params)),
-        startRecording: (params) => ((recording = w), reply(() => recorder.startRecording(params))),
+        startRecording: (params) => (recordFor(w), reply(() => recorder.startRecording(params))),
         narrationDevices: async () => ({ ...(await core.recorderDevices()), sources: recorder.recordPrefs(), hear: recorder.narrationHear() }),
         openRecord: ({ mode }) => openRecord(w, mode),
-        startNarration: (params) => ((recording = w), reply(() => recorder.startNarration(params))),
+        startNarration: (params) => (recordFor(w), reply(() => recorder.startNarration(params))),
         stopNarration: (params) => reply(() => recorder.stopNarration(params)),
         recordPreview: (devices) => {
           recorder.clearFrames();
@@ -318,11 +322,11 @@ function openWindow(): Win {
         recordFrames: ({ after }) => recorder.newerFrames(after),
         testBeep: (params) => recorder.testBeep(params),
         checkSync: (params) => replyWith(() => recorder.checkSync(params)),
-        setAppSettings: (next) => setAppSettings(next),
+        setAppSettings: (next) => setAppSettings(next, w),
         newProject: ({ name, settings, standalone }) => reply(() => projects.createProject(name, settings, standalone)),
         saveAs: (params) => reply(() => projects.saveAs(w, params)),
         fetchResource: ({ id }) => replyWith(async () => (await core.fetchResource(id)).id),
-        declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }),
+        declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }, w),
         shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
         shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
         appAction: ({ action }) => appAction(action, w),
@@ -395,7 +399,9 @@ openWindow();
 // App-wide changes reach every window and the menus whether or not a project is open.
 appBridge(core, broadcast, {
   shortcuts: (list) => void shortcutsChanged(list),
-  settings: (s) => ownChange || broadcast("appSettings", s),
+  settings: (s) => {
+    for (const w of windows) if (w !== changedBy) w.message("appSettings", s);
+  },
   job: (job) => {
     if (job.kind === "resource") return resourceJob(job);
     if (job.kind !== "export") return;
@@ -419,7 +425,7 @@ const recorder = createRecording({
     },
     activate: () => (recording ?? focused)?.win.activate(),
   },
-  setSettings: setAppSettings,
+  setSettings: (patch) => setAppSettings(patch, recording ?? focused),
 });
 
 const server = serveCore(core, { path: socket, canOpen: (p) => !!winFor(resolve(p)), projects: () => [...windows].flatMap((w) => (w.current ? [w.current.path] : [])) });

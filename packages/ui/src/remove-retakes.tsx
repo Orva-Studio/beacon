@@ -51,14 +51,16 @@ const BY = { you: "Chosen by you", openai: "Picked by OpenAI", beacon: "Picked b
 
 /** A group's takes as text, with their lengths: a click keeps one, ▶ plays it alone. */
 function Takes({ group, host, session }: { group: RetakeGroup; host: Host; session: Session }) {
-  const [until, setUntil] = useState<number>();
+  /** The take being played: where it ends, and whether playback has begun (it starts a moment after ▶). */
+  const [until, setUntil] = useState<{ end: number; started: boolean }>();
   useEffect(() => {
-    if (until === undefined) return;
-    if (!session.playing) setUntil(undefined);
-    else if (session.playhead >= until) {
+    if (!until) return;
+    if (!session.playing) {
+      if (until.started) setUntil(undefined);
+    } else if (session.playhead >= until.end) {
       host.run("playback.pause");
       setUntil(undefined);
-    }
+    } else if (!until.started) setUntil({ ...until, started: true });
   }, [session.playhead, session.playing, until]);
   return (
     <div className="mb-3 flex flex-col gap-1" data-retake-takes>
@@ -79,7 +81,7 @@ function Takes({ group, host, session }: { group: RetakeGroup; host: Host; sessi
             onClick={() => {
               host.run("playhead.set", { time: t.start });
               host.run("playback.play");
-              setUntil(t.end);
+              setUntil({ end: t.end, started: false });
             }}
             data-take-play
           >

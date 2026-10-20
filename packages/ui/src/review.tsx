@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { projectDuration, ticksToSeconds, type Project } from "@beacon/model";
 import { Button, Progress } from "./controls";
 import { useQuery } from "./query";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 import type { Host } from "./app";
 import { clock } from "./time";
 
@@ -19,10 +19,12 @@ export function useTranscribing(): number | undefined {
  */
 export function useTranscriptsReady<T extends { waiting: string[]; judging?: string[] }>(host: Host, query: string, args: object, active: boolean, project?: Project): T | undefined {
   const [tick, setTick] = useState(0);
-  // Each edit is a new project: the marks and Apply must describe the timeline as it is now.
+  // Each edit is a new project: the marks and Apply must describe the timeline as it is now; so must a change of
+  // who picks (Best Take), which Apply reads.
   const edits = useRef({ project, n: 0 });
   if (edits.current.project !== project) edits.current = { project, n: edits.current.n + 1 };
-  const found = useQuery<T>(host, active ? query : "", args, `${tick}:${edits.current.n}`);
+  const prefs = useView((v) => v.preferences.map((p) => `${p.id}=${p.value}`).join());
+  const found = useQuery<T>(host, active ? query : "", args, `${tick}:${edits.current.n}:${prefs}`);
   const missing = active ? (found?.waiting.join() ?? "") : "";
   useEffect(() => {
     for (const asset of missing ? missing.split(",") : []) host.analyze("transcript", asset);
@@ -30,6 +32,10 @@ export function useTranscriptsReady<T extends { waiting: string[]; judging?: str
   const failed = useView((v) => v.judgeFailed);
   const asked = useRef(new Set<string>());
   if (!active) asked.current.clear();
+  // Opened again, what OpenAI couldn't judge is asked again (back online, a key corrected).
+  useEffect(() => {
+    if (active) replica.media({ judgeFailed: {} });
+  }, [active]);
   // Those it couldn't judge keep Beacon's own picks: asking again would fail again.
   const judging = active && !missing ? (found?.judging ?? []).filter((a) => !failed[a]).join() : "";
   useEffect(() => {
