@@ -7,6 +7,24 @@ feature lands and when it is checked.
 
 ## Structure (`refactor/structure`, `docs/review-2026-10-17.md` §3)
 
+### Checked by hand
+
+| What | Date | Commit | Notes |
+|---|---|---|---|
+| Unlink Recording unlinks every selected recording, not only the clicked one (`edit.unlink` on the selection; `clip.unlink` takes `clips`) | 2026-10-19 | `c942190` | Core test (two takes, both cameras selected, one Unlink: no links left, one undo restores them; fails without the fix); UI flow (two recordings selected, Unlink by a key: all unlinked, one undo); the user: "I've tested all these things" |
+| **Recording in the app** (`349dbb8` changed how the take and the Record dialog's previews set up capture): a take with screen, system audio, camera and microphone; the Record dialog's camera and screen previews and levels; voice narration; Check Sync. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **The canvas in the app** after the shader changes (`d584f2b`): video, a tilted clip with drop shadow, CRT, round corners, the selection handles and guides drawn by the preview; an MP4 export plays as before. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Settings › General's proxy choices** taking effect at once (video files on/off) and Quiet/Fast, now applied by core. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Panels**: Annotations, Visual Effects and Audio Effects tiles and their names (Corner Rounding…), favourites. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Renaming** a track, a medium and the project in place: Return keeps, Escape drops, clicking away keeps. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **⌘S** shows "Saved automatically"; on the start screen ⌘N and ⌘O. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Dialog corners over the canvas** (Settings, Export, Record…), the toast's and the colour picker's: the dimmed video shows around the rounded corner, no dark square. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Return in dialogs** (Export, Record, New Project, Save As, the speech model sheet) does the default action with any button or checkbox focused, and doesn't also press it. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **New Project with Auto-normalize off**, then Project Settings shows it off. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Context menus in the app** (rebuilt from `actions.json`): clip menu (Cut … Split at Playhead, colour labels, Open Group/Ungroup only on a group, Group otherwise, Remove All Stitches on stitched media, Stitch Selected Media only when the selection can be stitched, shortcuts shown beside items), canvas menu (Project Settings…, Paste, Zoom to Fit), track menus, Media Bin menu (Reveal in Finder now through Finder's own call). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| File menu: New, Open, Open Recent (and Clear Menu), Save As, renaming the project from its name; switching projects keeps the canvas, thumbnails, waveforms and missing-media marks; the start screen's pictures. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Export dialog's last folder and settings; the Media Bin preview (play, seek, close). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+
 ### Checked headless only (still to see by hand)
 
 | What | Date | Commit | How |
@@ -23,33 +41,16 @@ feature lands and when it is checked.
 | Engine: FFI marshalling, common.wgsl and gpu.rs, the scene walk, CoreFoundation, bitmap context, colour matrix; the worker without its raw output | 2026-10-19 | `047f94b`, `d584f2b`, `cdc4240`, `78f941d`, `768e9f3` | 36 PNG frames of three projects (two client projects with CRT, drop shadow, round corners, motion blur, callouts, cursors) byte-identical before and after; FFI smoke (cursor track, cursor image, PNG paste, a bad PNG's error); core export, parity and playback tests; clippy |
 | The desktop imports only core and ui | 2026-10-19 | `8b9718a` | `app.test.ts`; UI flows |
 | The PR review's fixes: bad settings leave no folder; Camtasia shadow defaults; settings reloaded from disk told once (back to defaults too); Return in a dialog is its default action, never also the focused button's click | 2026-10-19 | `2dc92f7`, this commit | Core tests (a standalone copy that fails half way leaves no folder: fails without the fix); features tests (registry's panel-item checks); UI flows (Return on a focused Not Now downloads and doesn't decline: fails without the fix) |
-| Unlink Recording unlinks every selected recording, not only the clicked one (`edit.unlink` on the selection; `clip.unlink` takes `clips`) | 2026-10-19 | this commit | Core test (two takes, both cameras selected, one Unlink: no links left, one undo restores them; fails without the fix); UI flow (two recordings selected, Unlink by a key: all unlinked, one undo). Still to try by hand from the clip menu |
-
-### Not checked yet
-
-- **Recording in the app** (`349dbb8` changed how the take and the Record dialog's previews set up capture): a take
-  with screen, system audio, camera and microphone; the Record dialog's camera and screen previews and levels;
-  voice narration; Check Sync.
-- **The canvas in the app** after the shader changes (`d584f2b`): video, a tilted clip with drop shadow, CRT, round
-  corners, the selection handles and guides drawn by the preview; an MP4 export plays as before.
-- **Settings › General's proxy choices** taking effect at once (video files on/off) and Quiet/Fast, now applied by core.
-- **Panels**: Annotations, Visual Effects and Audio Effects tiles and their names (Corner Rounding…), favourites.
-- **Renaming** a track, a medium and the project in place: Return keeps, Escape drops, clicking away keeps.
-- **⌘S** shows "Saved automatically"; on the start screen ⌘N and ⌘O.
-- **Dialog corners over the canvas** (Settings, Export, Record…), the toast's and the colour picker's: the dimmed
-  video shows around the rounded corner, no dark square.
-- **Return in dialogs** (Export, Record, New Project, Save As, the speech model sheet) does the default action with
-  any button or checkbox focused, and doesn't also press it.
-- **New Project with Auto-normalize off**, then Project Settings shows it off.
-- **Context menus in the app** (rebuilt from `actions.json`): clip menu (Cut … Split at Playhead, colour labels,
-  Open Group/Ungroup only on a group, Group otherwise, Remove All Stitches on stitched media, Stitch Selected Media
-  only when the selection can be stitched, shortcuts shown beside items), canvas menu (Project Settings…, Paste,
-  Zoom to Fit), track menus, Media Bin menu (Reveal in Finder now through Finder's own call).
-- File menu: New, Open, Open Recent (and Clear Menu), Save As, renaming the project from its name; switching
-  projects keeps the canvas, thumbnails, waveforms and missing-media marks; the start screen's pictures.
-- Export dialog's last folder and settings; the Media Bin preview (play, seek, close).
 
 ## Hot paths (`perf/hot-paths`, `docs/review-2026-10-17.md` §2, numbers in `docs/performance.md`)
+
+### Checked by hand
+
+| What | Date | Commit | Notes |
+|---|---|---|---|
+| Dragging on the canvas and sliders on a long timeline in the app: smooth, and Undo puts it back in one step. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Scrubbing and jumping around a `.trec` project from its originals in the app: cursors and captions draw right after they come back on screen. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Waveforms in the app: importing a file again (or one another project analysed) shows its waveform at once (built only: the desktop now sends the waveforms the window doesn't have yet, after jobs and edits). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
 
 ### Checked headless only (still to see by hand)
 
@@ -61,15 +62,18 @@ feature lands and when it is checked.
 | A drag step validates only what it changed | 2026-10-18 | `a4771b4` | 2.2 → 0.16 ms on the 304-clip project; bad values still rejected; undo-exactness tests |
 | The timeline lets go of thumbnails no clip shows | 2026-10-18 | `0c0581b` | UI flows |
 
-### Not checked yet
-
-- Dragging on the canvas and sliders on a long timeline in the app: smooth, and Undo puts it back in one step.
-- Scrubbing and jumping around a `.trec` project from its originals in the app: cursors and captions draw
-  right after they come back on screen.
-- Waveforms in the app: importing a file again (or one another project analysed) shows its waveform at once
-  (built only: the desktop now sends the waveforms the window doesn't have yet, after jobs and edits).
-
 ## Review fixes (`fix/review-bugs`, `docs/review-2026-10-17.md` §1)
+
+### Checked by hand
+
+| What | Date | Commit | Notes |
+|---|---|---|---|
+| GPU memory steady while zooming a tilted clip with a drop shadow (render targets now freed; not measured). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Open Recent, the Export and Record dialogs' last choices still there after the update (their files moved into the config folder through core, same folder for the app). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Forgetting a transcript while Apple's or OpenAI's transcriber runs cancels it (built only). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| A 12.5 fps `.cmproj` imports at 25/2 (built only; export's 12.5 fps test passes). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| The Export dialog in the app opens on Automatic (a saved 6000, the old default, is taken as Automatic), and an export at 1080p30 is about 75 MB a minute; with ProRes the Data rate row is hidden; WebM's says constant quality. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Zoom To on a stitched clip next to another stitched clip zooms only the one asked for (built only). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
 
 ### Checked headless only (still to see by hand)
 
@@ -84,16 +88,7 @@ feature lands and when it is checked.
 ### Not checked yet
 
 - A real camera take recorded by an agent over MCP lines up as one from the Record dialog does.
-- GPU memory steady while zooming a tilted clip with a drop shadow (render targets now freed; not measured).
-- Open Recent, the Export and Record dialogs' last choices still there after the update (their files moved
-  into the config folder through core, same folder for the app).
-- A Quiet proxy build with Beacon's MCP server started with a short PATH; Reveal in Finder and the narration
-  countdown beeps still work (tools now run by their full paths).
-- Forgetting a transcript while Apple's or OpenAI's transcriber runs cancels it (built only).
-- A 12.5 fps `.cmproj` imports at 25/2 (built only; export's 12.5 fps test passes).
-- The Export dialog in the app opens on Automatic (a saved 6000, the old default, is taken as Automatic), and an
-  export at 1080p30 is about 75 MB a minute; with ProRes the Data rate row is hidden; WebM's says constant quality.
-- Zoom To on a stitched clip next to another stitched clip zooms only the one asked for (built only).
+- A Quiet proxy build with Beacon's MCP server started with a short PATH; Reveal in Finder and the narration countdown beeps still work (tools now run by their full paths).
 
 ## Phase 8 (`phase-8`)
 
@@ -109,6 +104,12 @@ feature lands and when it is checked.
 | Resizing on the canvas snaps (sides and corners, to the recording and the canvas) | 2026-10-17 | `2a0c805` | "Snapping works great" |
 | Shortcuts run once (from the keys and the menus), and work with a dialog open | 2026-10-17 | `9e0bd91` | "Shortcuts run once"; "the shortcuts work with dialogs open" |
 | No spelling suggestion bar or corrections over the caption and callout text boxes | 2026-10-17 | `74e0388` | "It's fixed now" |
+| **A real narration take's alignment**: a clap recorded over a click in the timeline lands within a frame of it. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Narrating in the app: the countdown, the timeline playing with and without its sound, ⌘⇧2, Space or a click on the timeline ending it, the take transcribed afterwards. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Offline in the app: turning Wi-Fi off greys the AI tools (with OpenAI's transcriber chosen and new media). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| **Menus showing shortcuts**: ⌘/⌃ keys beside items (File, Edit, View, Tools), others after the name; a rebound key showing in the menu at once; ⌘ keys not acting while typing in a text field (e.g. ⌘D in the project name), and ⌘A, ⌘Z, ⇧⌘Z still editing there. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Settings › General's choices still there after the update (settings now saved by core). | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
+| Settings › Shortcuts and the palette in the app: rebinding to a ⌘ key the menu also has (Export ⌘E), ⌘K over a dialog. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
 
 ### Checked headless only (still to see by hand)
 
@@ -125,18 +126,8 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
-- **A real narration take's alignment**: a clap recorded over a click in the timeline lands within a frame of it.
-- Narrating in the app: the countdown, the timeline playing with and without its sound, ⌘⇧2, Space or a click on
-  the timeline ending it, the take transcribed afterwards.
 - `recorder_start` with `narrate` over MCP with the app open.
 - `settings_set` and `ui_open` over MCP with the app open, checked with `ui_snapshot` (the gate's agent half).
-- Offline in the app: turning Wi-Fi off greys the AI tools (with OpenAI's transcriber chosen and new media).
-- **Menus showing shortcuts**: ⌘/⌃ keys beside items (File, Edit, View, Tools), others after the name; a rebound key
-  showing in the menu at once; ⌘ keys not acting while typing in a text field (e.g. ⌘D in the project name), and ⌘A,
-  ⌘Z, ⇧⌘Z still editing there.
-- Settings › General's choices still there after the update (settings now saved by core).
-- Settings › Shortcuts and the palette in the app: rebinding to a ⌘ key the menu also has (Export ⌘E), ⌘K over a
-  dialog.
 - `favorites_add` over MCP showing in the open window.
 
 ## Phase 7 (`phase-7`)
@@ -153,6 +144,7 @@ feature lands and when it is checked.
 | Caption speed after the style moved onto the track | 2026-10-16 | `55d9400` | "Much much better" |
 | Remove Silences and Remove Filler Words reviews on Test_yeti | 2026-10-16 | `a0b1f86` | "They both work great" |
 | Export of a range with captions burned in, `.srt` beside it (Whisper on this Mac) | 2026-10-16 | `a0b1f86` | "Works perfectly"; frames checked: captions, Round Corners and Border, no CRT (none in the project) |
+| **The Phase 7 gate**, on a real take with each transcriber (Whisper on this Mac, Apple's, OpenAI's, which needs an API key): fillers cut cleanly; captions export burned in with a matching `.srt`; a camera clip with a rounded border looks the same in preview and export. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
 
 ### Checked headless only (still to see by hand)
 
@@ -174,12 +166,6 @@ feature lands and when it is checked.
 | A drag's last value sent before Undo (PR #15 review) | 2026-10-16 | `c34b353` | Deferred replies: drag 1 → drag 3 → Undo → drag 4; UI flows |
 | Cancelling an OpenAI transcription stops its uploads (PR #15 review) | 2026-10-16 | `f7e2cbc` | Mocked fetch, no audio uploaded: 1 request then cancelled (was 8 and stored) |
 | Caption highlight in capitals with words that grow ("Straße") (PR #15 review) | 2026-10-16 | `cb99ec4` | Built only; not rendered |
-
-### Not checked yet
-
-- **The Phase 7 gate**, on a real take with each transcriber (Whisper on this Mac, Apple's, OpenAI's, which
-  needs an API key): fillers cut cleanly; captions export burned in with a matching `.srt`; a camera clip with a
-  rounded border looks the same in preview and export.
 
 ### Known, not fixed
 

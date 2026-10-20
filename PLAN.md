@@ -17,19 +17,18 @@ Yeti and system audio, edited (Remove Silences) and exported in Beacon
 alone). Video is decoded in process (`beacon-decode` over FFmpeg's
 libraries), with frames kept for steps back (`docs/performance.md`). Phase
 6.5 made Beacon one self-contained app with fast export, released as v0.2.1
-and v0.3.0 (its gate run is left). Phase 7, transcript tools, is built and
+and v0.3.0, passed its gate 2026-10-19. Phase 7, transcript tools, is built and
 merged, released as v0.5.0 (2026-10-16; v0.4.0 was cut partway through it),
-with two of its gate checks left (below). Phase 8, faster editing (voice
+and passed its gate 2026-10-19. Phase 8, faster editing (voice
 narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
-(2026-10-18), with its gate run left (below). Next: **Phase 8.5** (everyday
+(2026-10-18), passed its gate 2026-10-19 but for the agent half (MCP
+with the app open, below). The review's three branches were merged
+2026-10-19 (#18, #19, #20). Next: **Phase 8.5** (everyday
 fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
 any drive), then 9 (workspace and film look), 10 (filmstrips and
-backgrounds), 11 (security audit) and 12
-(Camtasia export); an in-app agent preview (§7, decided 2026-10-17) can come before Phase 9. Before
-Phase 9 too (the user, 2026-10-17): the fixes from a review of the whole
-codebase, `docs/review-2026-10-17.md`, in three branches (bugs, hot paths,
-structure).
+backgrounds), 11 (security audit) and 12 (Camtasia export); an in-app
+agent preview (§7, decided 2026-10-17) can come before Phase 9.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -1211,8 +1210,8 @@ unpacked, signed and packed again, since Electrobun writes its version.json
 after postBuild); `scripts/check-release.ts` checks a DMG as a bare Mac would
 see it; `.github/workflows/release.yml` builds, checks and publishes on a tag
 (and builds and checks on pull requests that change it); unsigned for now (see Signing
-below). Released as v0.2.1 and v0.3.0 (in-app updates from 0.4.0). Left: the
-gate run; the transcriber choice below moved to Phase 7 (2026-10-15).
+below). Released as v0.2.1 and v0.3.0 (in-app updates from 0.4.0). The gate
+run passed 2026-10-19; the transcriber choice below moved to Phase 7 (2026-10-15).
 **Transcriber choice (decided 2026-10-15):** Settings › General › Transcripts
 picks the transcriber: Whisper on this Mac (default; the model download as
 now), Apple's on-device transcriber (macOS 26 SpeechTranscriber: no download,
@@ -1241,6 +1240,7 @@ screen, camera and microphone permission after each update. Hardened runtime
 and notarization are added once the user has a Developer ID.
 **Gate:** the app, copied to a Mac without Homebrew or FFmpeg, opens a
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
+**Passed 2026-10-19** (the user, by hand).
 
 ### Phases 7–11 (split 2026-10-15)
 Phase 7 was one list of everything next ("Growth"); the user split it by
@@ -1419,6 +1419,7 @@ Later, maybe: dragging a silence's edges to change how much is cut.
 captions export burned in with a matching `.srt`, with each transcriber; a
 camera clip with a rounded border looks the same in preview and export; and
 Beacon opened without a project offers New Project and its recent projects.
+**Passed 2026-10-19** (the user, by hand, with Apple's transcriber too).
 
 ### Phase 8 — Faster editing
 Getting to everything quicker, by hand or by agent.
@@ -1558,6 +1559,9 @@ check on a real take.
 (the palette for annotations, effects and the AI tools; keys for Record ⌘R,
 Export ⌘E and the editing), with narration recorded over the timeline and
 in step with it; an agent changes settings and opens each dialog.
+**Passed 2026-10-19** by hand (the user, on web-hijack); the agent half
+(`settings_set`, `ui_open`, `recorder_start` with `narrate`, `favorites_add`
+over MCP with the app open) is left until the user has finished editing.
 
 ### Phase 8.5 — Everyday fixes (the user, 2026-10-19)
 What the user hit while editing, ahead of Phase 9.
