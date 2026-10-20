@@ -63,6 +63,8 @@ export interface ProjectBridge {
 export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHooks = {}): ProjectBridge {
   let rev = 0;
   const transcribing: Record<string, number> = {};
+  const judging: Record<string, number> = {};
+  const judgeFailed: Record<string, string> = {};
   const proxies: ProjectBridge["proxies"] = { queued: {}, jobs: {} };
   const sendPreparing = () => send("media", { preparing: { ...proxies.queued, ...proxies.jobs } });
   // The file each asset's waveform in the window is of (the window merges them), so only new or replaced media is sent.
@@ -99,6 +101,14 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
         if (job.state === "running") transcribing[job.asset] = job.progress;
         else delete transcribing[job.asset];
         send("media", { transcribing: { ...transcribing } });
+      }
+      if (job.kind === "retakes" && job.asset) {
+        if (job.state === "running") {
+          judging[job.asset] = job.progress;
+          delete judgeFailed[job.asset];
+        } else delete judging[job.asset];
+        if (job.state === "failed") judgeFailed[job.asset] = job.error ?? "failed";
+        send("media", { judging: { ...judging }, judgeFailed: { ...judgeFailed } });
       }
       if (job.kind === "proxy" && job.asset) {
         if (job.state === "running") proxies.jobs[job.asset] = job.progress;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, PLAIN_TEXT, Select, SettingsRow as Row } from "./controls";
 import type { ResourceInfo } from "./resource";
 import { replica } from "./store";
@@ -17,20 +17,37 @@ export interface TranscriptsHost {
 }
 
 /**
- * Settings › General › Transcripts: who transcribes (Whisper on this Mac, Apple's transcriber, or Whisper through
- * OpenAI's API with the user's key, kept in the Keychain), and Whisper's model when it is the one chosen.
+ * A preference in Settings › General, with the API key its online option needs (kept in the Keychain): who
+ * transcribes (Whisper on this Mac, Apple's transcriber, or Whisper through OpenAI's API), with Whisper's model when
+ * it is the one chosen; who picks the best take. `changed` gets every preference after a change, as a key is shared.
  */
-export function TranscriptsSettings({ pref: initial, model, close, host }: { pref: PreferenceInfo; model?: ResourceInfo; close: () => void; host: TranscriptsHost }) {
-  const [pref, setPref] = useState(initial);
+export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your audio is uploaded to OpenAI to be transcribed", offline, model, close, host, changed }: {
+  pref: PreferenceInfo;
+  label?: string;
+  /** What the online option sends, in the key's hint. */
+  sends?: string;
+  /** What works while offline, after "You're offline: X can't … until you're back online.". */
+  offline?: string;
+  model?: ResourceInfo;
+  close: () => void;
+  host: TranscriptsHost;
+  changed: (prefs: PreferenceInfo[]) => void;
+}) {
   /** Shown, not yet applied: an option whose key isn't set waits for it. */
-  const [choice, setChoice] = useState(initial.value);
+  const [choice, setChoice] = useState(pref.value);
+  // Changed from elsewhere (the shared key removed in another row): shown. Its own changes' replies would undo a newer choice.
+  const applied = useRef(pref.value);
+  useEffect(() => {
+    if (pref.value !== applied.current) setChoice((applied.current = pref.value));
+  }, [pref.value]);
   const [key, setKey] = useState("");
   const [error, setError] = useState<string>();
   const option = pref.options.find((o) => o.id === choice)!;
   const online = useOnline();
   const apply = async (value: string) => {
+    applied.current = value;
     const r = await host.setPreference(pref.id, value);
-    if (r.ok && r.result) setPref(r.result.find((p) => p.id === pref.id)!);
+    if (r.ok && r.result) changed(r.result);
     setError(r.ok ? undefined : r.error);
   };
   const choose = (value: string) => {
@@ -44,7 +61,8 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
     if (!r.ok) return setError(r.error);
     setKey("");
     const now = r.result!.find((p) => p.id === pref.id)!;
-    setPref(now);
+    if (value === null) applied.current = now.value;
+    changed(r.result!);
     if (value !== null) await apply(choice);
     else {
       setChoice(now.value);
@@ -52,10 +70,10 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
     }
   };
   return (
-    <>
-      <Row label="Transcripts" hint={option.description}>
+    <div className="contents" data-preference-row={pref.id}>
+      <Row label={label} hint={option.description}>
         <div className="w-56">
-          <Select data-transcriber value={choice} onChange={(e) => choose(e.target.value)}>
+          <Select data-preference={pref.id} {...(pref.id === "transcriber" ? { "data-transcriber": true } : {})} value={choice} onChange={(e) => choose(e.target.value)}>
             {pref.options.map((o) => (
               <option key={o.id} value={o.id} disabled={!online && !!o.online && o.id !== choice}>
                 {o.title}
@@ -68,7 +86,7 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
       {!online && option.online && (
         <Row label="" hint="">
           <span className="text-caption text-warning" data-offline>
-            You're offline: {option.title} can't transcribe until you're back online. Apple's transcriber works offline, and Whisper on this Mac once its speech model is downloaded.
+            You're offline: {option.title} can't {pref.id === "transcriber" ? "transcribe" : "be asked"} until you're back online.{offline ? ` ${offline}` : ""}
           </span>
         </Row>
       )}
@@ -77,7 +95,7 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
           label="API Key"
           hint={
             <div className="mt-1 text-caption text-text-faint">
-              <span className="text-warning">Your audio is uploaded to OpenAI to be transcribed</span>, and OpenAI charges your account. The key is kept in this Mac's Keychain, never in a
+              <span className="text-warning">{sends}</span>, and OpenAI charges your account. The key is kept in this Mac's Keychain, never in a
               file.
               {error && <div className="mt-1 text-danger">{error}</div>}
             </div>
@@ -123,6 +141,6 @@ export function TranscriptsSettings({ pref: initial, model, close, host }: { pre
           </div>
         </Row>
       )}
-    </>
+    </div>
   );
 }

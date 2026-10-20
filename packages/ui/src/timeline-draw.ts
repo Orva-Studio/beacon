@@ -125,7 +125,8 @@ const STITCH = () => color("stitch");
 export interface TimelineMark {
   start: number;
   end: number;
-  tone: "cut" | "keep";
+  /** To cut (red), kept (grey), or the take kept of a line said more than once (green). */
+  tone: "cut" | "keep" | "take";
   /** The one being looked at, going through them one at a time: outlined. */
   current?: boolean;
 }
@@ -707,7 +708,7 @@ export function drawTimeline(t: TimelineDrawing) {
     for (const m of marks ?? []) {
       const [a, b] = [x(m.start), x(m.end)];
       if (b < HEADER || a > w) continue;
-      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : "silence-keep");
+      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : m.tone === "take" ? "take-kept" : "silence-keep");
       ctx.fillRect(a, RULER, Math.max(1, b - a), h - RULER);
       ctx.fillRect(a, RULER - 4, Math.max(1, b - a), 4);
       if (m.current) {

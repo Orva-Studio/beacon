@@ -408,6 +408,37 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   ui.core.setAutomatic(() => true);
 }, 20000);
 
+test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: OpenAI's waits for the key, which the transcriber's row then shares, and removing it goes back to Beacon's own", async () => {
+  const row = (id: string) => `[data-preference-row="${id}"]`;
+  const pick = (id: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-preference="${id}"]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const value = async (id: string) => (await ui.core.preferences()).find((p) => p.id === id)!.value;
+  ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences() });
+  await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
+  expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("Best Take");
+  await pick("retake-judge", "openai");
+  await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="unset"]')`);
+  expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("not the audio");
+  expect(await value("retake-judge")).toBe("beacon");
+  await page.click(...(await centre(`${row("retake-judge")} [data-api-key="unset"] input`)));
+  await type("sk-test-456");
+  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Save and Use').click()`);
+  await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="set"]')`);
+  expect(await value("retake-judge")).toBe("openai");
+  // The key is the transcriber's too: OpenAI's there is chosen at once, with no key to type.
+  await pick("transcriber", "openai");
+  await page.until(`!!document.querySelector('${row("transcriber")} [data-api-key="set"]')`);
+  expect(await value("transcriber")).toBe("openai");
+  await pick("transcriber", "whisper");
+  await arrived(() => ui.menus.includes("setPreference:transcriber=whisper"));
+  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Remove').click()`);
+  await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
+  expect(await value("retake-judge")).toBe("beacon");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()`);
+  await page.until("!document.querySelector('[data-transcriber]')");
+  ui.core.setAutomatic(() => true);
+}, 20000);
+
 test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey out while OpenAI's transcriber has media to transcribe, Settings marks it and the speech model's download", async () => {
   const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "", bytes: 574_041_195, present: false };
   const offline = (off: boolean) => page.evaluate(`(() => { Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => ${!off} }); window.dispatchEvent(new Event('${off ? "offline" : "online"}')); })()`);
@@ -418,17 +449,17 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 3");
-    expect(await greyed()).toEqual([false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 4");
+    expect(await greyed()).toEqual([false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([true, true, true]);
+    expect(await greyed()).toEqual([true, true, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -446,7 +477,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -1181,7 +1212,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-3)).toEqual(["ai:silences", "ai:fillers", "ai:captions"]);
+  expect(all.slice(-4)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -2087,6 +2118,135 @@ test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler mark
     await p.until("!document.querySelector('[data-filler-review]')");
     expect(length()).toBeCloseTo(before, 3);
   } finally {
+    p.close();
+    await other.close();
+  }
+}, 180_000);
+
+test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the kept one green; a click keeps another; the takes listed with play; OpenAI's picks, or why it couldn't; Apply cuts in one undo step", async () => {
+  // The talk's real audio under a transcript that restarts two lines, in a cache of its own.
+  const cacheDir = join(dir, "retakes-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "retakes.beproj");
+  const h = await core.create({ path });
+  const copy = join(dir, `retakes-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const { assets, jobs } = await core.import(h, [copy]);
+  for (const j of jobs) await core.cancelJob(j).catch(() => {});
+  const asset = core.doc(h).assets[assets[0]!]!;
+  await core.close(h);
+  const words: { text: string; start: number; end: number; p: number }[] = [];
+  let t = 1;
+  for (const w of "Welcome to the video. | So the next step is | um, | so the next step is to open the settings. | Then we click on Bluetooth and | then we click on Bluetooth and pair the keyboard. | That's all for today.".split(" ")) {
+    if (w === "|") t += 0.8;
+    else {
+      words.push({ text: w, start: Number(t.toFixed(3)), end: Number((t + 0.4).toFixed(3)), p: 1 });
+      t += 0.5;
+    }
+  }
+  mkdirSync(join(cacheDir, "derived"), { recursive: true });
+  writeFileSync(
+    new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!),
+    JSON.stringify({ streams: { 0: { model: "test", language: "en", words, speech: words.map((w) => [w.start, w.end]) } } }),
+  );
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  const realFetch = globalThis.fetch;
+  try {
+    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
+    const review = async () => ((await other.core.session(other.handle)).features.transcript as { retakes?: { kept: number[] } } | undefined)?.retakes;
+    type Found = { groups: { start: number; end: number; takes: { start: number; end: number; text: string }[]; best: number; by: string }[]; saved: number };
+    const found = async () => (await other.core.query(other.handle, "transcript.retakes", (await review()) ?? {})) as Found;
+    const summary = () => p.evaluate<string>("document.querySelector('[data-retakes-summary]')?.textContent ?? ''");
+    await go("panel.show", { tool: "ai" });
+    await p.until("!!document.querySelector('[data-ai=retakes]')");
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    await p.until("!!document.querySelector('[data-retake-review]')");
+    await p.until("/shorter\\.$/.test(document.querySelector('[data-retakes-summary]')?.textContent ?? '')", 30_000);
+    expect(await summary()).toStartWith("2 lines said more than once, 2 takes to cut.");
+    const first = await found();
+    expect(first.groups.map((g) => [g.takes.length, g.best, g.by])).toEqual([
+      [2, 1, "beacon"],
+      [2, 1, "beacon"],
+    ]);
+    // On the timeline: the kept take green, the other red.
+    const g = first.groups[0]!;
+    await go("timeline.view", { start: g.start - 1, end: g.end + 1 });
+    const s = await other.core.session(other.handle);
+    const box = await p.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+    const header = headerWidth(other.core.doc(other.handle).tracks);
+    const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+    const rgb = async (t: number) => (await p.evaluate<string>(timelinePixel(xAt(t) - box.x, box.h - 6))).split(",").map(Number) as [number, number, number];
+    const [kept, cut] = [await rgb((g.takes[1]!.start + g.takes[1]!.end) / 2), await rgb((g.takes[0]!.start + g.takes[0]!.end) / 2)];
+    expect(kept[1]).toBeGreaterThan(kept[0]);
+    expect(cut[0]).toBeGreaterThan(cut[1]);
+    // A click on the first take keeps it instead.
+    await p.click(xAt((g.takes[0]!.start + g.takes[0]!.end) / 2), box.y + box.h - 20);
+    for (let i = 0; i < 50 && !(await review())?.kept.length; i++) await Bun.sleep(50);
+    expect((await found()).groups.map((x) => [x.best, x.by])).toEqual([
+      [0, "you"],
+      [1, "beacon"],
+    ]);
+    // One at a time, the group's takes are listed: the kept one marked, a click on the other keeps it, ▶ plays one and stops at its end.
+    await p.evaluate("document.querySelector('[data-one-next]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    await p.until("document.querySelectorAll('[data-retake-takes] [data-take]').length === 2");
+    expect(await p.evaluate<string>("document.querySelector('[data-retake-takes] [data-kept]').dataset.take")).toBe("0");
+    expect(await p.evaluate<string>("document.querySelector('[data-take-by]').textContent")).toBe("Chosen by you");
+    await p.evaluate("document.querySelectorAll('[data-take-keep]')[1].click()");
+    await p.until("document.querySelector('[data-retake-takes] [data-kept]')?.dataset.take === '1'");
+    await p.evaluate("document.querySelectorAll('[data-take-play]')[0].click()");
+    for (let i = 0; i < 50 && !(await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
+    expect((await other.core.session(other.handle)).playhead).toBeCloseTo(g.takes[0]!.start, 1);
+    await go("playhead.set", { time: g.takes[0]!.end + 0.1 });
+    for (let i = 0; i < 100 && (await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
+    expect((await other.core.session(other.handle)).playing).toBe(false);
+
+    // OpenAI as the judge: its picks once it has answered, with why.
+    await other.core.setSecret("openai-api-key", "sk-test");
+    await other.core.setPreference("retake-judge", "openai");
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const groups = (JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages[1]!.content.split("\n\n");
+      const picks = groups.map((x, n) => ({ group: n + 1, best: /Bluetooth/.test(x) ? 1 : 2, reason: "says it all" }));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ picks }) } }] }));
+    }) as typeof fetch;
+    await go("retakes.close");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    for (let i = 0; i < 100 && !(await found()).groups.every((x) => x.by === "openai"); i++) await Bun.sleep(50);
+    expect((await found()).groups.map((x) => [x.best, x.by])).toEqual([
+      [1, "openai"],
+      [0, "openai"],
+    ]);
+    await p.evaluate("document.querySelector('[data-one-next]').click()");
+    await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by OpenAI: says it all'");
+    await p.until("!document.querySelector('[data-retakes-judging]')");
+
+    // Apply All: one undo step, the takes not kept gone from the transcript.
+    const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
+    const before = length();
+    const saved = (await found()).saved;
+    const undo = (await other.core.history(other.handle)).undo.length;
+    await p.evaluate("document.querySelector('[data-retakes-apply]').click()");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    await arrived(() => length() < before);
+    expect(before - length()).toBeCloseTo(saved, 2);
+    expect((await other.core.history(other.handle)).undo.length - undo).toBe(1);
+    const left = ((await other.core.query(other.handle, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).join(" ");
+    expect(left).toBe("Welcome to the video. so the next step is to open the settings. Then we click on Bluetooth and pair the keyboard. That's all for today.");
+    await other.core.undo(other.handle);
+
+    // When OpenAI can't answer (a bad key), the review says why and keeps Beacon's own picks.
+    await other.core.forget(other.handle, "retakes", asset.id);
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: "Incorrect API key provided" } }), { status: 401 })) as unknown as typeof fetch;
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    await p.until("(document.querySelector('[data-retakes-judging]')?.textContent ?? '').includes('Incorrect API key provided')", 10_000);
+    expect((await found()).groups.map((x) => x.by)).toEqual(["beacon", "beacon"]);
+    await p.evaluate("document.querySelector('[data-retakes-cancel]').click()");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    expect(length()).toBeCloseTo(before, 3);
+  } finally {
+    globalThis.fetch = realFetch;
     p.close();
     await other.close();
   }

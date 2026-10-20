@@ -125,6 +125,7 @@
   /* Remove Silences' review: the silences it cuts, and those it keeps */
   --color-silence-cut: rgba(255, 93, 93, 0.32);
   --color-silence-keep: rgba(255, 255, 255, 0.12);
+  --color-take-kept: rgba(62, 230, 141, 0.3);
   /* Animations: keyframe diamonds joined by a band */
   --color-arrow: #c99a1e;
   --color-arrow-selected: var(--color-fx-badge);

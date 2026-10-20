@@ -1700,9 +1700,21 @@ Seeing more at once.
   takes as text with their lengths and a play button each; Apply All cuts
   the losing takes in one undo step, Cut This One one group at a time.
   Agents get `retakes.review`/`apply` (they already cut retakes by word
-  ranges with `transcript_cut`). Open: how close two takes must be to
-  count (a threshold in the review's settings), and a take that runs on
-  past the line it repeats.
+  ranges with `transcript_cut`). Decided (the user, 2026-10-20): the last
+  complete take, scored; 3+ words within 30 s by default (the review's
+  sliders); keeping an earlier take cuts only the later one's repeat, so
+  what it goes on to say stays; and the OpenAI judge now, with the
+  transcriber's key. **Built 2026-10-20**: `transcript.retakes` /
+  `transcript.removeRetakes`, `retakes.review/keep/focus/apply/close`; a take
+  restarts the one before when its first words repeat it and it says 70% of
+  its words again in order. Best Take (Settings › General) is Beacon's own
+  scoring or OpenAI (`gpt-5-mini`, the takes' words only): a `retakes`
+  analysis per medium, run only when the review asks (a new `when: "asked"`
+  in the contract, which also gave analyses the asset's other data and
+  queries and actions the preferences), its picks matched to the timeline's
+  groups by their words; until it answers, or if it can't, Beacon's picks
+  show, with why. On the user's cached transcripts it finds 70 groups, the
+  restarts and redone sentences.
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,

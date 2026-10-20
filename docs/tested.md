@@ -5,6 +5,19 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 9 (`phase-9`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Remove Retakes: the AI panel's tile opens a review; each take marked on the timeline (kept green, the rest red), a click keeps another; one at a time lists the group's takes (click to keep, ▶ plays one and stops at its end); Apply All and Cut This One, one undo step each; keeping an earlier take cuts only the later one's repeat | 2026-10-20 | this commit | Core tests on `audio.m4a` under a transcript with two restarted lines (text after Apply, exact undo, Cut This One); UI flow; the detector over the 105 cached transcripts on this Mac (70 groups, read through) |
+| Best Take: Beacon's own scoring or OpenAI with the transcriber's key; OpenAI asked only when the review opens (once per medium), its picks shown with why, Beacon's while it answers or when it can't (a bad key's message shown) | 2026-10-20 | this commit | Core test and UI flow with OpenAI's API stood in (the request's words, the picks applied, a 401's message); Settings flow (key typed in Best Take, shared with the transcriber's row, removed: back to Beacon's) |
+
+### Not checked yet
+
+- Remove Retakes on a real take of yours, with Beacon's picks and with OpenAI's (a real key): the groups it finds, the takes it keeps, and the cuts sounding clean.
+
 ## Phase 8.5 (`phase-8.5`)
 
 ### Checked headless only (still to see by hand)

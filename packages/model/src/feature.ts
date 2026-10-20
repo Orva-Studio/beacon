@@ -226,17 +226,21 @@ export interface JobAnalyzerDef {
   variant?: (pref: Preferences) => string | undefined;
   /** Assets it applies to; the job is started for these on import, or when shown (`when`). */
   applies: (asset: Asset) => boolean;
-  /** "import" (default): on import, for agents too; "preview": when the app shows the project (e.g. proxies). */
-  when?: "import" | "preview";
+  /**
+   * "import" (default): on import, for agents too; "preview": when the app shows the project (e.g. proxies);
+   * "asked": only when something asks for it (a review that needs it, an agent's analyze).
+   */
+  when?: "import" | "preview" | "asked";
   /**
    * `cacheDir`: where derived files (e.g. proxies) may be written; `quiet`: run tools at background
    * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is;
-   * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set.
+   * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set; `data`: the asset's other
+   * derived data (its transcript), undefined while not made.
    */
   analyze: (
     asset: Asset,
     progress: (fraction: number) => void,
-    env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string; pref: Preferences; secret: (id: string) => Promise<string | undefined> },
+    env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string; pref: Preferences; secret: (id: string) => Promise<string | undefined>; data: <T>(key: string) => T | undefined },
   ) => Promise<unknown>;
   /** Removes files a result points at (e.g. proxies) when the result is deleted. */
   discard?: (result: unknown) => void;
@@ -338,6 +342,8 @@ export interface QueryContext {
   registry: FeatureRegistry;
   /** Derived per-asset data, as in `EvalContext.data`; undefined while a job analyzer has not finished. */
   data<T>(assetId: string, key: string): T | undefined;
+  /** The current preferences (who judges retakes). */
+  pref: Preferences;
 }
 
 /** A read of the document or derived data (PLAN §7), exposed to agents like commands. */
@@ -390,6 +396,7 @@ export interface ActionContext {
   scope: { tracks: Track[]; group?: Clip };
   /** Derived per-asset data, as in `QueryContext.data` (a clip's waveform, its transcript). */
   data<T>(assetId: string, key: string): T | undefined;
+  pref: Preferences;
 }
 
 /**

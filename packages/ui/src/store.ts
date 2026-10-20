@@ -29,6 +29,9 @@ export interface ViewState {
   preparing: Record<string, number>;
   /** Assets whose transcript is being made, and its progress 0-1. */
   transcribing: Record<string, number>;
+  /** Assets whose takes OpenAI is judging (Remove Retakes), and its progress 0-1; and why it failed, for those it couldn't. */
+  judging: Record<string, number>;
+  judgeFailed: Record<string, string>;
   /** Captions asked for before the transcript was there: made when it is. */
   captionsPending?: boolean;
   /** Proxies finished since the current run of them began (the top bar's "N of M"). */
@@ -88,7 +91,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -103,7 +106,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, palette: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -126,7 +129,7 @@ export const replica = {
   session(changes: Partial<Session>) {
     if (state.session) set({ session: { ...state.session, ...changes } });
   },
-  media({ waveforms, thumbs, highlight, preparing, transcribing, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
+  media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
       // Only what came: a new object would redraw the timeline and the Media Bin for a progress message.
       ...(waveforms ? { waveforms: { ...state.waveforms, ...waveforms } } : {}),
@@ -134,6 +137,8 @@ export const replica = {
       ...(highlight ? { binSelected: [highlight] } : {}),
       ...(preparing ? { preparing, prepared: Object.keys(preparing).length ? state.prepared + Object.keys(state.preparing).filter((id) => !(id in preparing)).length : 0 } : {}),
       ...(transcribing ? { transcribing } : {}),
+      ...(judging ? { judging } : {}),
+      ...(judgeFailed ? { judgeFailed } : {}),
       ...(proxies ? { proxies: { ...state.proxies, ...proxies } } : {}),
       ...(missing ? { missing } : {}),
     });

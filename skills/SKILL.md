@@ -86,6 +86,13 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   (settings), `silences_flip` the ones you judge differently (after looking at
   frames), then tell them it is marked on the timeline for Apply; or
   `silences_apply` when they say so.
+- Remove Retakes, the same way: `transcript_retakes` groups each line said
+  more than once (a restart, a sentence said again) into takes, with the one
+  kept and who picked it (the user's Best Take setting: Beacon's own scoring,
+  or OpenAI with their key, which `analyze` with `retakes` asks once the
+  transcript is there). `retakes_review`, `retakes_keep` a take you judge
+  better (read the takes' words), `retakes_apply` when the user says so. Of
+  the takes after the kept one only what repeats the line is cut.
 - `zoom_to` zooms a clip into a region of its content (pixels of the
   recording, top-left origin) and optionally back out (`until`).
 - `clip_move` moves several clips as a block (`by` seconds, `tracks` up or

@@ -23,6 +23,7 @@ import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
+import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
@@ -77,6 +78,7 @@ export function App({ host }: { host: Host }) {
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
   const fillers = useFillers(host, session, project);
+  const retakes = useRetakes(host, session, project);
   useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
@@ -157,6 +159,8 @@ export function App({ host }: { host: Host }) {
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
               <FillerReviewPanel project={project} host={host} found={fillers} />
+            ) : retakeReviewOf(session) ? (
+              <RetakeReviewPanel project={project} session={session} host={host} found={retakes} />
             ) : (
               <Properties project={project} session={session} host={host} init={init} />
             ))}
@@ -175,8 +179,16 @@ export function App({ host }: { host: Host }) {
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
               dropFiles={host.dropFiles}
-              marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
-              markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
+              marks={retakes ? retakeMarks(retakes) : (silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
+              markClick={(m, alt) =>
+                retakes
+                  ? alt
+                    ? goTo(host, "retakes", m)
+                    : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
+                  : alt
+                    ? goTo(host, silences ? "silences" : "fillers", m)
+                    : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start })
+              }
             />
           </div>
         ) : (

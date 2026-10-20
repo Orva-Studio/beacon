@@ -44,7 +44,9 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
     host.setAppSettings(patch);
   };
   const close = () => replica.settings(undefined);
-  const transcriber = preferences?.find((p) => p.id === "transcriber");
+  const [prefs, setPrefs] = useState(preferences);
+  const transcriber = prefs?.find((p) => p.id === "transcriber");
+  const judge = prefs?.find((p) => p.id === "retake-judge");
   const s = project?.settings;
   const tabs = SETTINGS_TABS.map((t) => (
     <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
@@ -101,7 +103,17 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
               </Select>
             </div>
           </Row>
-          {transcriber && <TranscriptsSettings pref={transcriber} model={resources?.find((r) => r.id === "whisper-model")} close={close} host={host} />}
+          {transcriber && (
+            <TranscriptsSettings
+              pref={transcriber}
+              offline="Apple's transcriber works offline, and Whisper on this Mac once its speech model is downloaded."
+              model={resources?.find((r) => r.id === "whisper-model")}
+              close={close}
+              host={host}
+              changed={setPrefs}
+            />
+          )}
+          {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} />}
           <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
             <div className="flex items-center gap-3" data-proxy-space>
               <Button

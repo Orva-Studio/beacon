@@ -420,7 +420,7 @@ export class LocalCore implements BeaconCore {
     const parsed = action.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${action.id}: ${formatIssues(parsed.error)}`);
     const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get });
+    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref });
     const label = opts.label ?? plan.label;
     if (opts.dryRun) {
       const r = plan.steps?.length ? p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {})), { dryRun: true }) : undefined;
@@ -674,7 +674,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {
@@ -749,7 +749,7 @@ export class LocalCore implements BeaconCore {
     const sides = opts.output.endsWith("/")
       ? []
       : [...this.registry.exportFiles.values()].flatMap((f) => {
-          const text = f.write(range, { project, registry: this.registry, data: data.get });
+          const text = f.write(range, { project, registry: this.registry, data: data.get, pref: data.pref });
           return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
         });
     for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
