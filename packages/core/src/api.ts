@@ -1,4 +1,4 @@
-import type { AppSettings, CommandResult, Keys, PanelItemDef, Patch, Session, SettingsChange, SettingsPatch, ShortcutInfo, UiDialog, VideoEncoding } from "@beacon/model";
+import type { AppSettings, CommandResult, EffectPreset, Keys, PanelItemDef, Patch, Session, SettingsChange, SettingsPatch, ShortcutInfo, UiDialog, VideoEncoding } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 
 export type { CommandResult, Session };
@@ -184,7 +184,7 @@ export interface SchemaInfo {
   clipTypes: { id: string; description: string; traits: string[]; props: string[]; effects: string[]; nested?: string }[];
   /** `defaults`: what a clip without its own values has. */
   props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
-  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown> }[];
+  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string } }[];
   /** The Annotations and Audio Effects panels' items (Visual Effects lists `effects`). */
   panelItems: PanelItemDef[];
 }

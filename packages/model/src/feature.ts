@@ -58,6 +58,21 @@ export interface EffectDef {
   apply?: (e: ClipEval & { main: VisualLayer }, params: Record<string, any>, ctx: EvalContext) => void;
   /** Changes the sound of a clip with the effect enabled (the whole clip; `span` is for visual effects). */
   audio?: (params: Record<string, any>) => AudioEffect;
+  /** Named sets of params the inspector offers (Film Look's looks); `notes`: what the preset can't reproduce. */
+  presets?: EffectPreset[];
+  /**
+   * Params read from a file the user picks (a hance `.hlook`): `query` takes `{ path }` and answers
+   * `{ name, params, notReproduced }`, which the inspector applies and reports.
+   */
+  importFile?: { label: string; extensions: string[]; query: string };
+}
+
+export interface EffectPreset {
+  id: string;
+  title: string;
+  description?: string;
+  params: Record<string, unknown>;
+  notes?: string[];
 }
 
 /**

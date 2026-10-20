@@ -94,6 +94,10 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   transcript is there). `retakes_review`, `retakes_keep` a take you judge
   better (read the takes' words), `retakes_apply` when the user says so. Of
   the takes after the kept one only what repeats the line is cut.
+- Film Look (a visual effect) gives clips one of hance's looks:
+  `filmLook_looks` lists them (CineStill 800T, Portra 400…), `filmLook_load`
+  puts one (or a `.hlook` file) on clips and answers what of it Film Look
+  can't reproduce: tell the user.
 - `zoom_to` zooms a clip into a region of its content (pixels of the
   recording, top-left origin) and optionally back out (`until`).
 - `clip_move` moves several clips as a block (`by` seconds, `tracks` up or

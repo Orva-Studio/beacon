@@ -1961,6 +1961,44 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and says what it can't do; Import .hlook… reads a file of your own; each one undo step", async () => {
+  await run("effect.add", { clip: screen.id, type: "film-look" });
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "effects" });
+  const fx = () => clip(screen.id).effects.find((e) => e.type === "film-look")!;
+  // Its defaults are hance's Default look.
+  await page.until("document.querySelector('[data-effect-preset]')?.value === 'default'");
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-effect-preset] option').length")).toBe(42);
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate("(() => { const s = document.querySelector('[data-effect-preset]'); s.value = 'cinestill-800t'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await arrived(() => fx().params.halation === 0.7);
+  expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('bloom 0.45')");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toStartWith("Not in Film Look, from “CineStill 800T”:");
+  // A slider moved: no longer the look, Custom.
+  await run("effect.set", { clip: screen.id, effect: fx().id, params: { fade: 0.5 } });
+  await page.until("document.querySelector('[data-effect-preset]')?.value === ''");
+  // Import .hlook…: Finder picks a file of your own.
+  const file = join(dir, "mine.hlook");
+  writeFileSync(file, JSON.stringify({ name: "Mine", params: { fade: 0.3, "white-balance": 2000 } }));
+  ui.chooseFile(file);
+  await page.evaluate("document.querySelector('[data-effect-import]').click()");
+  await arrived(() => fx().params.fade === 0.3);
+  expect(ui.menus).toContain("chooseFile:hlook");
+  expect(fx().params.warmth).toBe(2);
+  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
+  // Cancelled in Finder, nothing changes.
+  ui.chooseFile(null);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate("document.querySelector('[data-effect-import]').click()");
+  await Bun.sleep(300);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+  for (let i = 0; i < 4; i++) await ui.core.undo(ui.handle);
+  expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
+});
+
 test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });
   await select([screen.id]);

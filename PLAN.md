@@ -1688,7 +1688,20 @@ Seeing more at once.
   dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
   fixes reach both; preview/export parity as for every pass. Open: what a
   `.hlook` holds (values, a LUT, or both) decides whether the renderer
-  needs LUTs.
+  needs LUTs. Answered: a `.hlook` is values only (and an optional input
+  LUT by name), so no LUTs. Decided (the user, 2026-10-20): ported into
+  Beacon rather than through `orva-kit`, which doesn't exist yet
+  (`docs/shared-candidates.md`); about ten sliders; hance's 41 looks as a
+  Look menu. **Built 2026-10-20**: a `film-look` feature: one pass of four
+  steps (graded highlights, per-channel scatter across and down, then the
+  grade, halation ring, grain and vignette in linear light as hance does
+  them), eleven sliders (strength, exposure, warmth, fade, contrast,
+  saturation, grain, grain size, halation, halation size, vignette); the
+  inspector's Look menu and Import .hlook… (effects can now declare
+  `presets` and an `importFile`), with what doesn't map listed under it;
+  `filmLook.load` / `filmLook.read` / `filmLook.looks` for agents. On a frame
+  with CineStill 800T it is 49.5 dB from hance's own render, and adds about 5 ms
+  to a 1080p preview frame (the scatter takes at most 40 taps a side).
 - **Remove Retakes** (the user, 2026-10-19; an AI feature, next to Remove
   Silences and Remove Filler Words): finds the same thing said more than
   once (a line restarted, a sentence said again after a stumble) and keeps

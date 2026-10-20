@@ -53,6 +53,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** The canvas at the playhead as a PNG data URL, at the canvas size (the eyedropper samples it). */
   frameImage(): Promise<string | null>;
   binFrame(asset: string, time: number): Promise<string | null>;
+  /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
+  chooseFile(extensions: string[]): Promise<string | null>;
   /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
   analyze(key: string, asset: string): void;
   /** Stars an item for the Favorites panel (at `index`, else at the end), un-stars it, or moves a favourite to `index`. */

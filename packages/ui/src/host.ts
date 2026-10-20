@@ -52,6 +52,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     shortcutReset: (action) => void shortcuts(request("shortcutReset", action ? { action } : {})),
     app: (action) => void request("appAction", { action }),
     chooseFolder: (start) => request("chooseFolder", { start }),
+    chooseFile: (extensions) => request("chooseFile", { extensions }),
     startExport: (params) => request("startExport", params),
     startRecording: (sources) => request("startRecording", { sources }),
     narrationDevices: () => request("narrationDevices", {}),
