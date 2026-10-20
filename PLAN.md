@@ -1589,9 +1589,16 @@ What the user hit while editing, ahead of Phase 9.
   takes (the Yeti in this room, a camera's mic) against the original; if
   it is good enough it stays, if not the cleaning goes to Auphonic (see
   *Background audio cleaning* in the backlog), with this effect kept for
-  the cases Auphonic doesn't cover. Open: whether a clip with no silent
-  stretch can learn its noise from its quietest moments (the silence
-  analysis already finds them).
+  the cases Auphonic doesn't cover. **Built 2026-10-19**: Audio Effects ›
+  Noise Removal (or `edit.removeNoise`) learns from the in/out range when
+  there is one, else from the clip's quietest half second (its waveform),
+  else follows the noise as it goes; the fx tab has its Strength (dB). The
+  effect contract gained `EffectDef.audio` (a filter chain, a `lead` it
+  hears first and a `delay` it is padded and trimmed for), so the mix runs
+  it for preview, playback and export alike. afftdn hands each block back
+  two blocks late (25 ms) and drops the last two: compensated, so the
+  cleaned sound is in step to the sample and whole. On `recording.trec`:
+  the quietest half second -58.9 → -77.2 dB, speech unchanged.
 - **Shift-drag on empty space moves what comes after** (the user,
   2026-10-19): today Shift-dragging the playhead line inserts space at the
   playhead (`timeline.insertSpace`), rightwards only. The same from any

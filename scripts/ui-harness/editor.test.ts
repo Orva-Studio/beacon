@@ -2373,3 +2373,22 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await run("timeline.zoom", { to: "fit" });
 }, 60_000);
+
+test.skipIf(skip)("Noise Removal from Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const audio = clips().find((c) => c.type === "audio")!;
+  await select([audio.id]);
+  await run("panel.show", { tool: "audioEffects", properties: true });
+  const tile = `[data-item="audio:noise-removal"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  expect(await page.evaluate<string>(`document.querySelector('${tile}').innerText`)).toContain("Noise Removal");
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(audio.id).effects.some((e) => e.type === "noise-removal"));
+  expect(clip(audio.id).effects.map((e) => e.type)).toContain("noise-removal");
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("document.body.innerText.includes('Strength')");
+  await page.screenshot(join(dir, "noise-removal.png"));
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 30_000);

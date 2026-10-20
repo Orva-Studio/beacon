@@ -16,6 +16,7 @@ feature lands and when it is checked.
 | Shift-drag both ways: the playhead dragged left closes empty time (no further than the nearest clip); Shift on a gap opens or closes time from there; ⌥ only that track | 2026-10-19 | this commit | UI flow (all three on the e2e project, each one undo step); undo-exactness test with `timeline.removeSpace` (one track and all, refused over media) |
 | The caption text box (and the annotation's, and the canvas's typing field) keep the caret where it is while deleting or typing | 2026-10-19 | this commit | UI flow: Backspace three times mid-text, caret stays, and the field's default text is never rewritten (what makes WebKit jump the caret to the end; fails without the fix). The jump itself only shows in WebKit, so: by hand |
 | PR #24 review fixes: two dropped files alike in name, size and date import as both; closing all the room before media ending between frames; MP3 from a 96 kHz project (resampled to 48 kHz); a silent range exports as silence; mix delays exact to the sample; LAME in THIRD_PARTY_NOTICES | 2026-10-19 | this commit | Core tests (drops with the drag's paths given; audio export at 96 kHz, muted range, `adelay` of one frame = 33.3333 ms); undo-exactness file: removeSpace over a clip ending a third of a frame past one (fails without the fix) |
+| Noise Removal: Audio Effects tile (double-click or drop), learning from the in/out range, else the clip's quietest half second, else following the noise; Strength in the fx tab; in preview, playback and export | 2026-10-19 | this commit | Core test on `recording.trec` (quietest half second -58.9 → -77.2 dB, loudest unchanged, same length, in step to the sample at 8 kHz); UI flow (tile → effect → Strength slider) |
 
 ### Not checked yet
 
@@ -23,6 +24,7 @@ feature lands and when it is checked.
 - Export Audio Only in the app: a podcast-length export of each format, played in Music or QuickTime.
 - Shift-drag in the app, both ways, on the playhead and on a gap (⌥ for one track).
 - Deleting a caption's text character by character in the app: the cursor stays put.
+- Noise Removal on the user's own takes (the Yeti, a camera's mic): good enough, or Auphonic (the phase's gate).
 
 ## Structure (`refactor/structure`, `docs/review-2026-10-17.md` §3)
 

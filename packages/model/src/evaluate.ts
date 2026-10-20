@@ -176,11 +176,16 @@ export function evaluate(project: Project, registry: FeatureRegistry, t: Ticks, 
 
 /** The timeline's audio mix: every segment the clips on unmuted tracks contribute through their `audio` hooks. */
 export function evaluateAudio(project: Project, registry: FeatureRegistry): AudioSegment[] {
+  // A clip's audio effects reach each of its segments, a group's those of the clips inside it.
+  const withEffects = (c: Clip, segments: AudioSegment[]) => {
+    const fx = c.effects.flatMap((e) => (e.enabled ? (registry.effects.get(e.type)?.audio?.(e.params) ?? []) : []));
+    return fx.length ? segments.map((s) => ({ ...s, effects: [...fx, ...(s.effects ?? [])] })) : segments;
+  };
   const hooks = [...registry.features.values()].flatMap((f) => (f.evaluate?.audio ? [f.evaluate.audio] : []));
   const ctx: AudioContext = {
     project,
     registry,
-    tracks: (tracks) => tracks.filter((t) => !t.muted).flatMap((t) => t.clips.flatMap((c) => hooks.flatMap((h) => h(c, ctx)))),
+    tracks: (tracks) => tracks.filter((t) => !t.muted).flatMap((t) => t.clips.flatMap((c) => withEffects(c, hooks.flatMap((h) => h(c, ctx))))),
   };
   return ctx.tracks(project.tracks);
 }
