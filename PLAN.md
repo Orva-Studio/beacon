@@ -1808,6 +1808,20 @@ they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
 only after the user has made the same choice several times, never from one
 edit.
+- **Built for talking heads, long and short** (the user, 2026-10-19:
+  Beacon is an editor for talking-head videos, long-form and Shorts). So
+  what it learns is how this person tightens their own speech: pauses,
+  fillers, retakes, the breath before a sentence, how hard a cut lands on
+  the next word. And it learns it **per format**, because the same person
+  edits a long video and a Short differently: a Short is cut tighter
+  (shorter pauses kept, more fillers gone, no slow start) where a long
+  video keeps pauses that let a point land. The format comes from the
+  project's shape (9:16 is a Short, 16:9 long-form) and length, so
+  nothing has to be set; each format has its own tallies, and a format
+  with too few decisions yet falls back to the user's overall habits,
+  then Beacon's defaults. Later, the same per-format memory can hold the
+  rest of a talking-head edit the user repeats: caption style and
+  position, punch-in zooms on emphasis, the camera's crop and layout.
 - **What others do** (looked at 2026-10-19). Aftershoot's culling learns
   from the user changing its picks and weighs what they favour (emotion
   over sharpness, say); Imagen builds a Personal AI Profile from finished
@@ -1844,12 +1858,15 @@ edit.
   prepare reviews the user's way.
 - Fits as its own feature folder with session state and a preference
   store; the reviews ask it for defaults rather than knowing about it.
-  Open: per kind of video (a tutorial vs a talking head) or per speaker;
-  how fast old habits fade; whether hand edits outside the reviews are a
-  clear enough signal.
+  Open: per speaker as well as per format (a guest in an interview);
+  whether a long video and its Shorts cut from it share decisions; how
+  fast old habits fade; whether hand edits outside the reviews are a clear
+  enough signal.
 **Gate:** after the user cuts or keeps the same kind of item the same way
-across a few projects, the next review opens that way and says why; one
-choice alone changes nothing; Settings shows and resets what was learned.
+across a few projects, the next review opens that way and says why; a
+Short and a long video each open with their own learned settings; one
+choice alone changes nothing; Settings shows and resets what was learned,
+per format.
 
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
