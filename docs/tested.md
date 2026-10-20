@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 8.5 (`phase-8.5`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Files dropped from Finder are found by the drag's own paths (macOS's drag pasteboard), on any drive: no more home folders or Spotlight | 2026-10-19 | this commit | Cargo test (file URLs on a pasteboard come back as paths); core test (matched by name, size and date among the drag's paths); a copy of `video.mp4` under the scratchpad's `card/DCIM/107_PANA` (not in Spotlight) put on the drag pasteboard as Finder would: `findDropped` returned its path |
+
+### Not checked yet
+
+- Dragging a clip straight off the camera card onto the timeline, the canvas and the Media Bin.
+
 ## Structure (`refactor/structure`, `docs/review-2026-10-17.md` §3)
 
 ### Checked by hand

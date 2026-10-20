@@ -1610,7 +1610,12 @@ What the user hit while editing, ahead of Phase 9.
   `webUtils.getPathForFile`. Electrobun has no drop hook, so the window's
   view registers for file URLs itself (through the engine's FFI, or
   upstream in Electrobun) and the paths go with the drop to the UI, for
-  any drive and any depth. The guessing then goes.
+  any drive and any depth. The guessing then goes. **Built 2026-10-19**,
+  more simply than registering the view: macOS keeps a drag's file URLs on
+  the drag pasteboard until the next drag, so on a drop the engine reads
+  them there (`beacon_drag_files`) and the dropped files are matched to them
+  by name, size and date; the home folders and Spotlight are no longer
+  searched.
 **Gate:** a project exported as `.wav`, `.m4a` and `.mp3` sounds as its
 video export does; noise removal judged by the user on their own takes, and
 Auphonic chosen or not; Shift-drag on a gap or the playhead opens and

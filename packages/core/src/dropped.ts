@@ -1,11 +1,12 @@
-import { findDroppedFile, type DroppedFile } from "@beacon/media";
+import { draggedPaths, findDroppedFile, type DroppedFile } from "@beacon/media";
 import type { ImportResult, BeaconCore, ProjectHandle } from "./api";
 
 /** The paths of files dragged in from Finder; throws naming those it can't find. */
 export async function findDropped(files: DroppedFile[]): Promise<string[]> {
-  const paths = await Promise.all(files.map(findDroppedFile));
+  const dragged = draggedPaths();
+  const paths = files.map((f) => findDroppedFile(f, dragged));
   const lost = files.filter((_, i) => !paths[i]).map((f) => f.name);
-  if (lost.length) throw new Error(`couldn't find ${lost.join(", ")} on disk (not in Spotlight's index); use File > Import Media… instead`);
+  if (lost.length) throw new Error(`couldn't find ${lost.join(", ")} among the dragged files; use File > Import Media… instead`);
   return paths as string[];
 }
 
