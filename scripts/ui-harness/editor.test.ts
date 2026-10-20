@@ -2710,10 +2710,13 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   await run("timeline.zoom", { to: "fit" });
 }, 60_000);
 
-test.skipIf(skip)("Noise Removal from Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
+test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const audio = clips().find((c) => c.type === "audio")!;
   await select([audio.id]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('[data-item="effect:film-look"]')`);
+  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-item="effect:noise-removal"]')`)).toBe(false);
   await run("panel.show", { tool: "audioEffects", properties: true });
   const tile = `[data-item="audio:noise-removal"]`;
   await page.until(`!!document.querySelector('${tile}')`);

@@ -113,7 +113,7 @@ export class AppConfig {
     return this.registry.favorites.filter((i) => this.#favoriteKnown(i));
   }
 
-  /** An item the panels have: one a feature lists, or an effect not only for the cursor. */
+  /** An item the panels have: one a feature lists, or a Visual Effects panel effect. */
   #favoriteKnown(item: string): boolean {
     if (this.registry.panelItems.some((i) => i.id === item)) return true;
     const effect = item.startsWith("effect:") ? this.registry.effects.get(item.slice(7)) : undefined;
