@@ -2301,3 +2301,75 @@ test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key,
   await select([]);
   expect(clips().length).toBe(before);
 }, 30000);
+
+test.skipIf(skip)("deleting a caption's text character by character keeps the cursor where it is (the field's default text isn't rewritten)", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const ids = (await run("captions.create", {})).results[0] as string[];
+  await select([ids[0]!]);
+  await run("panel.show", { properties: true });
+  await page.until("!!document.querySelector('textarea')");
+  await page.evaluate("(() => { const t = document.querySelector('textarea'); t.focus(); t.setSelectionRange(6, 6); })()");
+  const caret = () => page.evaluate<number>("document.querySelector('textarea').selectionStart");
+  // WebKit moves a focused field's caret to the end when its default text is rewritten, as React does to a
+  // controlled one on every key (Chromium doesn't): it must stay as it was.
+  const original = await page.evaluate<string>("document.querySelector('textarea').defaultValue");
+  const first = clip(ids[0]!);
+  for (const at of [5, 4, 3]) {
+    await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
+    // The app keeps changing while one types: the playhead, other edits.
+    await run("playhead.set", { time: ticksToSeconds(first.start) + at / 100 });
+    await run("track.set", { track: ui.core.doc(ui.handle).tracks[0]!.id, name: `T${at}` });
+    await Bun.sleep(150);
+    expect(await caret()).toBe(at);
+    expect(await page.evaluate<string>("document.querySelector('textarea').defaultValue")).toBe(original);
+  }
+  await page.key("Escape", "Escape");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 150_000);
+
+test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead and on a gap; with ⌥ on a gap, only that track", async () => {
+  await select([]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.insertSpace", { at: 2, duration: 3 });
+  await run("timeline.view", { start: 0, end: 10 });
+  await Bun.sleep(300);
+  const screenTrack = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.type === "screen"))!;
+  const startsAt5 = () => ui.core.doc(ui.handle).tracks.map((t) => t.clips.find((c) => Math.abs(ticksToSeconds(c.start) - 5) < 0.05)).filter((c) => c !== undefined);
+  const after = startsAt5().map((c) => c.id);
+  expect(after.length).toBeGreaterThan(1);
+  const startOf = (id: string) => ticksToSeconds(clip(id).start);
+  const piece = clips().find((c) => after.includes(c.id) && screenTrack.clips.some((k) => k.id === c.id))!;
+  const { y, h, xAt, box } = await timelinePlaces(piece.id);
+  const at = (t: number): [number, number] => [box.x + xAt(t), box.y + y + h / 2];
+  const ruler = (t: number): [number, number] => [box.x + xAt(t), box.y + 12];
+  const undoOne = async () => {
+    await ui.core.undo(ui.handle);
+    await Bun.sleep(200);
+  };
+
+  // The playhead dragged left closes the empty time before it, no further than the nearest clip.
+  await run("playhead.set", { time: 5 });
+  await Bun.sleep(200);
+  await page.drag(ruler(5), ruler(0.5), ["shift"]);
+  await arrived(() => after.every((id) => Math.abs(startOf(id) - 2) < 0.05));
+  for (const id of after) expect(startOf(id)).toBeCloseTo(2, 1);
+  await undoOne();
+
+  // Shift on the gap, dragged right, opens time there on every track.
+  await page.drag(at(3), at(4), ["shift"]);
+  await arrived(() => after.every((id) => Math.abs(startOf(id) - 6) < 0.05));
+  for (const id of after) expect(startOf(id)).toBeCloseTo(6, 1);
+  await undoOne();
+
+  // With ⌥, only the track pressed on moves; dragged left it closes time there.
+  await page.drag(at(4.5), at(3.5), ["shift", "alt"]);
+  await arrived(() => Math.abs(startOf(piece.id) - 4) < 0.05);
+  expect(startOf(piece.id)).toBeCloseTo(4, 1);
+  for (const id of after.filter((id) => id !== piece.id)) expect(startOf(id)).toBeCloseTo(5, 1);
+  await undoOne();
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+}, 60_000);

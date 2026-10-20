@@ -59,6 +59,13 @@ test.skipIf(!existsSync(AI_SLOP))("timeline edits from the editor keep tracks in
 
   store.transaction("Edit", (tx) => {
     tx.run("timeline.insertSpace", { at: mid, duration: 2 });
+    // Closing part of that gap again, then a gap on one track only, opened and closed.
+    tx.run("timeline.removeSpace", { at: mid + 2, duration: 1 });
+    expect(() => tx.run("timeline.removeSpace", { at: mid + 1, duration: 2 })).toThrow("only empty time can be closed");
+    const one = store.doc.tracks.find((t) => t.clips.some((c) => c.id === screen.id))!.id;
+    tx.run("timeline.insertSpace", { at: mid + 1, duration: 1, track: one });
+    tx.run("timeline.removeSpace", { at: mid + 2, duration: 1, track: one });
+    tx.run("timeline.insertSpace", { at: mid + 1, duration: 1 });
     const pasted = tx.run<string[]>("clip.paste", { clipboard: board, at: length + 2 });
     tx.run("clip.remove", { clips: pasted, ripple: true });
     tx.run("timeline.deleteRanges", { ranges: [{ start: mid, end: mid + 2 }] });

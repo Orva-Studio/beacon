@@ -1600,9 +1600,12 @@ What the user hit while editing, ahead of Phase 9.
   edit. Locked tracks and an open group refuse it as they refuse the
   playhead's. The playhead's own Shift-drag goes both ways too (the user,
   2026-10-19: right to left did nothing): dragged left it removes the
-  empty time before the playhead, as far as the nearest clip. Open: whether
-  it moves every track (as the playhead's does) or only the track pressed
-  on (⌥ for the other).
+  empty time before the playhead, as far as the nearest clip. Chosen (no
+  answer yet, easy to flip): every unlocked track, ⌥ for only the track
+  pressed on. **Built 2026-10-19**: `timeline.removeSpace` closes empty time
+  (refused over media), and both it and `timeline.insertSpace` take an
+  optional `track`. Shift on a track's gap now moves time instead of adding
+  to the selection with a marquee; ⌘-drag still adds.
 - **Drops carry their paths** (the user, 2026-10-19). The webview gives a
   file dropped from Finder its name, size and date but not its path, so
   `findDroppedFile` guesses: WebKit's URL when it sends one, the home
