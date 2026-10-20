@@ -627,6 +627,27 @@ test.skipIf(skip)("Export's data rate is Automatic by default, by the output's s
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("Export Audio Only writes the mix as .mp3 (or .wav, .m4a) with the video options hidden", async () => {
+  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 } });
+  await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
+  const format = (f: string) =>
+    page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp3')); s.value = '${f}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await format("wav");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
+  const heading = (name: string) => `[...document.querySelectorAll('div.text-text-strong')].some((d) => d.textContent === '${name}')`;
+  const shown = () => page.evaluate<[boolean, boolean, boolean]>(`[${heading("Video")}, document.body.innerText.includes('Encode audio'), !!document.querySelector('input[data-rate]')]`);
+  await page.until(heading("Audio"));
+  // .wav has no data rate; .mp3 has the audio one only.
+  expect(await shown()).toEqual([false, false, false]);
+  await format("mp3");
+  await page.until(`!!document.querySelector('input[data-rate]')`);
+  expect(await shown()).toEqual([false, false, true]);
+  await page.screenshot(join(dir, "export-audio-only.png"));
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Export').click()`);
+  await arrived(() => existsSync(join(dir, "Voice.mp3")), 20000);
+  expect(existsSync(join(dir, "Voice.mp3"))).toBe(true);
+}, 30000);
+
 test.skipIf(skip)("Record lists the sources with their devices, counts down, and asks for what was chosen", async () => {
   const sheet = {
     permissions: { screen: "granted", camera: "denied", microphone: "granted" },

@@ -1573,7 +1573,10 @@ What the user hit while editing, ahead of Phase 9.
   the export's own (track mute, volume points, fades, audio effects and
   noise removal, the in/out range), and loudness normalization applies as
   it does to a video. Agents get it through `export_start` with an audio
-  extension.
+  extension. **Built 2026-10-19**: the dialog's File format lists Export
+  Audio Only (.wav / .m4a / .mp3) and hides the video options (and the
+  data rate for .wav); MP3 needed LAME 3.100 (LGPL, static in libavcodec,
+  its source attached to releases with FFmpeg's).
 - **Remove background noise, with ffmpeg first** (the user, 2026-10-19):
   a "Noise Removal" audio effect, as Audacity's Noise Reduction works:
   select a stretch of the clip with only room noise on the timeline, the

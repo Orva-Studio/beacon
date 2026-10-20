@@ -97,6 +97,7 @@ the app by `scripts/bundle-tools.ts` (FFmpeg libraries found through
 | FFmpeg (ffmpeg, ffprobe, libav*, libsw*) | 7.1.3 | LGPL 2.1+ (no GPL, version3 or non-free parts; the script refuses another licence) | release tarball, signed by FFmpeg's release key FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8 |
 | libvpx (VP9 encoding for WebM, static) | 1.15.2 | BSD 3-Clause | GitHub tag archive, hash pinned as fetched |
 | Opus (WebM audio, static) | 1.5.2 | BSD 3-Clause | Xiph's SHA256SUMS |
+| LAME (MP3 for audio-only export, static) | 3.100 | LGPL 2+ (its source goes with FFmpeg's in a release) | SourceForge tarball, the hash Homebrew and Debian pin |
 | whisper.cpp (whisper-cli, Metal, static) | 1.9.2 | MIT | GitHub tag archive, hash pinned as fetched |
 
 FFmpeg is configured with `--disable-everything` and only the protocols,

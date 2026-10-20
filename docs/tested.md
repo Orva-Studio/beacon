@@ -12,10 +12,12 @@ feature lands and when it is checked.
 | What | Date | Commit | How |
 |---|---|---|---|
 | Files dropped from Finder are found by the drag's own paths (macOS's drag pasteboard), on any drive: no more home folders or Spotlight | 2026-10-19 | `c8a6022` | Cargo test (file URLs on a pasteboard come back as paths); core test (matched by name, size and date among the drag's paths); a copy of `video.mp4` under the scratchpad's `card/DCIM/107_PANA` (not in Spotlight) put on the drag pasteboard as Finder would: `findDropped` returned its path; the same with `P1078391.MP4` on the real camera card (`/Volumes/Canon`, indexing off), the clip that failed before |
+| Export Audio Only: .wav, .m4a, .mp3 from the dialog and `export_start`; the mix alone, no frames rendered; LAME built into Beacon's FFmpeg (still LGPL) | 2026-10-19 | this commit | Core test (a 3 s range of `recording.trec` as each format: no video stream, 3 s long, mean loudness within 0.5 dB of the same range's MP4 export; .wav refused with audio off); UI flow (video options hidden, no data rate for .wav, Voice.mp3 written) |
 
 ### Not checked yet
 
 - Dragging a clip straight off the camera card onto the timeline, the canvas and the Media Bin.
+- Export Audio Only in the app: a podcast-length export of each format, played in Music or QuickTime.
 
 ## Structure (`refactor/structure`, `docs/review-2026-10-17.md` §3)
 

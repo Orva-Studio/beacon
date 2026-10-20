@@ -20,8 +20,13 @@ export function autoBitrate(width: number, height: number, fps: number): number 
 
 /** What an export writes, by the output path's extension. */
 export const VIDEO_FORMATS = ["mp4", "mov", "gif", "webm"] as const;
+/** The timeline's mix alone: no frames rendered. */
+export const AUDIO_FORMATS = ["wav", "m4a", "mp3"] as const;
+export const EXPORT_FORMATS = [...VIDEO_FORMATS, ...AUDIO_FORMATS] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+export const isAudioFormat = (f: ExportFormat): f is (typeof AUDIO_FORMATS)[number] => (AUDIO_FORMATS as readonly string[]).includes(f);
 
-/** How an export encodes, for agents and the app alike; the format is the output path's extension (.mp4, .mov, .gif, .webm). */
+/** How an export encodes, for agents and the app alike; the format is the output path's extension (.mp4, .mov, .gif, .webm; .wav, .m4a, .mp3 for the audio alone). */
 export const VideoEncodingSchema = z.strictObject({
   codec: z.enum(["h264", "hevc", "prores"]).optional().describe(".mp4/.mov; ProRes only in .mov. Default H.264"),
   bitrate: z
@@ -35,7 +40,7 @@ export const VideoEncodingSchema = z.strictObject({
   fps: z.number().positive().max(120).optional().describe("Output frame rate; omitted: the project's"),
   size: z.strictObject({ width: z.int().positive(), height: z.int().positive() }).optional().describe("Fit within this size, keeping the aspect ratio; omitted: the canvas"),
   audio: z.boolean().optional().describe("false: no audio track"),
-  audioBitrate: z.int().min(32).max(512).optional().describe("Audio data rate in kbit/s (default 256)"),
+  audioBitrate: z.int().min(32).max(512).optional().describe("Audio data rate in kbit/s (default 256; .mp3 at most 320; not used by .wav)"),
   colorSpace: z.enum(["bt709", "srgb"]).optional().describe("Export Color Space: bt709 (default) or srgb, which macOS players show as the editor does"),
 });
 

@@ -298,7 +298,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("export_start", {
     description:
-      "Export the project (or `from`-`to` seconds) in the background to a .mp4, .mov, .gif or .webm path (the format), or a folder ending in / for PNG frames. Returns a job id for job_status; job_cancel stops it",
+      "Export the project (or `from`-`to` seconds) in the background to a .mp4, .mov, .gif or .webm path (the format), a .wav, .m4a or .mp3 path for the audio alone (no frames rendered), or a folder ending in / for PNG frames. Returns a job id for job_status; job_cancel stops it",
     schema: VideoEncodingSchema.extend({
       output: z.string(),
       from: Seconds.optional(),

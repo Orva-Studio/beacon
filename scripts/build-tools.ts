@@ -2,7 +2,7 @@
 /**
  * Builds the command-line tools Beacon ships inside the app (PLAN §13, Phase 6.5), from pinned sources:
  * a minimal FFmpeg (ffmpeg, ffprobe and the shared libraries beacon-decode links), LGPL only, with libvpx
- * and Opus for WebM, whisper.cpp's whisper-cli with Metal, and beacon-speech (Apple's on-device transcriber,
+ * and Opus for WebM, LAME for MP3, whisper.cpp's whisper-cli with Metal, and beacon-speech (Apple's on-device transcriber,
  * packages/engine/speech). Output: packages/engine/third-party/out.
  * Needs pkg-config and cmake (`nix shell nixpkgs#pkg-config nixpkgs#cmake`, or Homebrew's).
  *
@@ -20,7 +20,7 @@ import { foreignLinks } from "./macho";
 const ROOT = join(import.meta.dir, "../packages/engine/third-party");
 const SRC = join(ROOT, "src");
 const BUILD = join(ROOT, "build");
-/** Static libvpx and Opus, linked into libavcodec. */
+/** Static libvpx, Opus and LAME, linked into libavcodec. */
 const DEPS = join(ROOT, "deps");
 export const OUT = join(ROOT, "out");
 const MACOS = "14.0";
@@ -32,22 +32,24 @@ interface Source {
   sha256: string;
 }
 // FFmpeg's tarball is signed by its release key (FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8), Opus's
-// hash is Xiph's SHA256SUMS; libvpx and whisper.cpp are GitHub tag archives, pinned as first fetched.
+// hash is Xiph's SHA256SUMS, LAME's the one Homebrew and Debian pin; libvpx and whisper.cpp are GitHub tag
+// archives, pinned as first fetched.
 const FFMPEG: Source = { name: "ffmpeg-7.1.3", url: "https://ffmpeg.org/releases/ffmpeg-7.1.3.tar.xz", sha256: "f0bf043299db9e3caacb435a712fc541fbb07df613c4b893e8b77e67baf3adbe" };
 const VPX: Source = { name: "libvpx-1.15.2", url: "https://github.com/webmproject/libvpx/archive/refs/tags/v1.15.2.tar.gz", sha256: "26fcd3db88045dee380e581862a6ef106f49b74b6396ee95c2993a260b4636aa" };
 const OPUS: Source = { name: "opus-1.5.2", url: "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz", sha256: "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1" };
+const LAME: Source = { name: "lame-3.100", url: "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz", sha256: "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e" };
 const WHISPER: Source = { name: "whisper.cpp-1.9.2", url: "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.2.tar.gz", sha256: "a6abd064fcca8b85e794d205abf328c522e9451db43a3eadc178b883b7d0e9cd" };
 
-/** What Beacon's ffmpeg can do: only what it uses (docs/third-party-tools.md lists why each is here). */
+/** What Beacon's ffmpeg can do: only what it uses (docs/dependencies.md lists the libraries). */
 const ENABLE = {
   protocol: ["file", "pipe", "fd"],
   demuxer: ["mov", "matroska", "avi", "mp3", "aac", "wav", "flac", "ogg", "gif", "image2", "image_png_pipe", "image_jpeg_pipe", "image_webp_pipe", "image_bmp_pipe", "image_tiff_pipe", "rawvideo", "pcm_s16le", "pcm_f32le"],
-  muxer: ["mov", "mp4", "ipod", "matroska", "webm", "gif", "image2", "image2pipe", "rawvideo", "null", "wav", "adts", "pcm_s16le", "pcm_f32le"],
+  muxer: ["mov", "mp4", "ipod", "matroska", "webm", "gif", "image2", "image2pipe", "rawvideo", "null", "wav", "mp3", "adts", "pcm_s16le", "pcm_f32le"],
   decoder: [
     "tscc2", "h264", "hevc", "prores", "mpeg4", "vp8", "vp9", "mjpeg", "png", "gif", "webp", "bmp", "tiff", "rawvideo",
     "aac", "mp3float", "alac", "flac", "opus", "vorbis", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_f32le", "pcm_f32be", "pcm_u8",
   ],
-  encoder: ["wrapped_avframe", "h264_videotoolbox", "hevc_videotoolbox", "prores_videotoolbox", "libvpx_vp9", "png", "gif", "rawvideo", "aac", "libopus", "pcm_s16le", "pcm_f32le"],
+  encoder: ["wrapped_avframe", "h264_videotoolbox", "hevc_videotoolbox", "prores_videotoolbox", "libvpx_vp9", "png", "gif", "rawvideo", "aac", "libopus", "libmp3lame", "pcm_s16le", "pcm_f32le"],
   hwaccel: ["h264_videotoolbox", "hevc_videotoolbox", "prores_videotoolbox", "vp9_videotoolbox"],
   parser: ["h264", "hevc", "aac", "mpegaudio", "opus", "vorbis", "flac", "vp8", "vp9", "png", "mjpeg", "gif", "webp", "bmp"],
   bsf: ["h264_mp4toannexb", "hevc_mp4toannexb", "aac_adtstoasc", "vp9_superframe", "extract_extradata", "null"],
@@ -63,7 +65,7 @@ const FFMPEG_FLAGS = [
   "--disable-everything", "--disable-autodetect", "--disable-doc", "--disable-network", "--disable-debug", "--disable-static", "--enable-shared",
   "--disable-avdevice", "--disable-postproc", "--disable-ffplay", "--enable-ffmpeg", "--enable-ffprobe",
   "--enable-avfilter", "--enable-swresample", "--enable-swscale", "--enable-videotoolbox", "--enable-audiotoolbox", "--enable-zlib",
-  "--enable-libvpx", "--enable-libopus", "--enable-pthreads",
+  "--enable-libvpx", "--enable-libopus", "--enable-libmp3lame", "--enable-pthreads",
   ...Object.entries(ENABLE).map(([kind, list]) => `--enable-${kind}=${list.join(",")}`),
 ];
 
@@ -102,9 +104,10 @@ const configureArgs = (prefix: string) => [
   `--prefix=${prefix}`,
   ...FFMPEG_FLAGS,
   "--pkg-config=pkg-config",
-  `--extra-cflags=${cflags}`,
+  // LAME has no pkg-config file: its static library and headers are found in the prefix.
+  `--extra-cflags=${cflags} -I${join(DEPS, "include")}`,
   // Headers padded so the app's bundling can point the libraries at @rpath (scripts/bundle-tools.ts).
-  `--extra-ldflags=-mmacosx-version-min=${MACOS} -Wl,-headerpad_max_install_names`,
+  `--extra-ldflags=-mmacosx-version-min=${MACOS} -Wl,-headerpad_max_install_names -L${join(DEPS, "lib")}`,
 ];
 
 /** FFmpeg's source as downloaded, the configure change as a patch, and the configure options, into `to`. */
@@ -112,19 +115,22 @@ async function releaseSources(to: string) {
   mkdirSync(to, { recursive: true });
   const ff = await fetchSource(FFMPEG);
   copyFileSync(join(SRC, `${FFMPEG.name}.tar.xz`), join(to, `${FFMPEG.name}.tar.xz`));
+  // LAME is LGPL too and linked into libavcodec: its source as downloaded goes with FFmpeg's.
+  rmSync(await fetchSource(LAME), { recursive: true, force: true });
+  copyFileSync(join(SRC, `${LAME.name}.tar.gz`), join(to, `${LAME.name}.tar.gz`));
   const configure = join(ff, "configure");
   writeFileSync(`${configure}.changed`, changeConfigure(readFileSync(configure, "utf8")));
   // diff exits 1 when the files differ, which they must.
   const patch = await $`diff -u -L a/configure -L b/configure configure configure.changed`.cwd(ff).nothrow().text();
   if (!patch.includes("+enabled metadata_filter")) throw new Error("the configure patch is empty");
   writeFileSync(join(to, `${FFMPEG.name}-configure.patch`), patch);
-  const options = `# ${FFMPEG.name}, configured on macOS ${MACOS}+ (arm64) with static libvpx and Opus in the prefix's pkg-config path:\n./configure \\\n${configureArgs("<prefix>").map((a) => `  '${a}'`).join(" \\\n")}\n`;
+  const options = `# ${FFMPEG.name}, configured on macOS ${MACOS}+ (arm64) with static libvpx, Opus and LAME in the prefix:\n./configure \\\n${configureArgs("<prefix>").map((a) => `  '${a}'`).join(" \\\n")}\n`;
   writeFileSync(join(to, `${FFMPEG.name}-configure-options.txt`), options);
   rmSync(ff, { recursive: true, force: true });
 }
 
 async function buildFfmpeg() {
-  const s = stamp("ffmpeg", FFMPEG, VPX, OPUS, FFMPEG_FLAGS);
+  const s = stamp("ffmpeg", FFMPEG, VPX, OPUS, LAME, FFMPEG_FLAGS);
   if (fresh("ffmpeg", s)) return console.log("ffmpeg: up to date");
   rmSync(DEPS, { recursive: true, force: true });
 
@@ -138,6 +144,11 @@ async function buildFfmpeg() {
   await $`./configure --prefix=${DEPS} --enable-static --disable-shared --with-pic --disable-doc --disable-extra-programs CFLAGS=${cflags}`.cwd(opus).env(env).quiet();
   await $`make -j${JOBS} && make install`.cwd(opus).env(env).quiet();
 
+  const lame = await fetchSource(LAME);
+  console.log(`building ${LAME.name}…`);
+  await $`./configure --prefix=${DEPS} --enable-static --disable-shared --with-pic --disable-frontend --disable-decoder --disable-gtktest CFLAGS=${cflags}`.cwd(lame).env(env).quiet();
+  await $`make -j${JOBS} && make install`.cwd(lame).env(env).quiet();
+
   const ff = await fetchSource(FFMPEG);
   console.log(`building ${FFMPEG.name}…`);
   const configure = join(ff, "configure");
@@ -149,7 +160,7 @@ async function buildFfmpeg() {
   if (license !== "LGPL version 2.1 or later") throw new Error(`ffmpeg would be "${license}", not LGPL 2.1`);
   await $`make -j${JOBS} && make install`.cwd(ff).env(env).quiet();
   // Only what was installed stays: the sources hold other projects' tests, which `bun test` would find.
-  for (const d of [vpx, opus, ff, DEPS]) rmSync(d, { recursive: true, force: true });
+  for (const d of [vpx, opus, lame, ff, DEPS]) rmSync(d, { recursive: true, force: true });
   writeFileSync(stampFile("ffmpeg"), s);
 }
 
@@ -216,7 +227,7 @@ if (import.meta.main && sources > 0) {
   console.log(`FFmpeg's source, configure patch and options in ${to}`);
 } else if (import.meta.main) {
   mkdirSync(OUT, { recursive: true });
-  const ffmpegStamp = stamp("ffmpeg", FFMPEG, VPX, OPUS, FFMPEG_FLAGS);
+  const ffmpegStamp = stamp("ffmpeg", FFMPEG, VPX, OPUS, LAME, FFMPEG_FLAGS);
   if (!fresh("ffmpeg", ffmpegStamp) || !fresh("whisper", whisperStamp())) needTools();
   await buildFfmpeg();
   await buildWhisper();

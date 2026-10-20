@@ -22,7 +22,9 @@ import {
   rationalToNumber,
   fittedSize,
   autoBitrate,
-  VIDEO_FORMATS,
+  EXPORT_FORMATS,
+  isAudioFormat,
+  type ExportFormat,
   type VideoEncoding,
 } from "@beacon/model";
 
@@ -74,9 +76,10 @@ export function sceneAt(project: Project, registry: FeatureRegistry, t: Ticks, d
   return scene;
 }
 
-/** Refuses an encoding the format can't hold: ProRes is only in .mov. */
-export function checkEncoding(format: (typeof VIDEO_FORMATS)[number], o: Pick<VideoEncoding, "codec">) {
+/** Refuses an encoding the format can't hold: ProRes is only in .mov; the audio alone needs audio. */
+export function checkEncoding(format: ExportFormat, o: Pick<VideoEncoding, "codec" | "audio">) {
   if (o.codec === "prores" && format !== "mov") throw new Error(`ProRes exports to .mov, not .${format}`);
+  if (isAudioFormat(format) && o.audio === false) throw new Error(`.${format} is the audio alone; it can't be exported without audio`);
 }
 
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
@@ -100,11 +103,11 @@ function bitrateOf(project: Project, o: Extract<RenderOutput, { kind: "video" }>
 /** A keyframe every 30 frames. */
 const KEYFRAME = 30;
 
-/** The format of a video output, from its extension. */
-export function videoFormat(path: string): (typeof VIDEO_FORMATS)[number] {
+/** The format of an export, from its extension. */
+export function videoFormat(path: string): ExportFormat {
   const ext = extname(path).slice(1).toLowerCase();
-  const f = VIDEO_FORMATS.find((x) => x === ext);
-  if (!f) throw new Error(`can't export ${ext ? `.${ext}` : "without an extension"}: use ${VIDEO_FORMATS.map((x) => `.${x}`).join(", ")}`);
+  const f = EXPORT_FORMATS.find((x) => x === ext);
+  if (!f) throw new Error(`can't export ${ext ? `.${ext}` : "without an extension"}: use ${EXPORT_FORMATS.map((x) => `.${x}`).join(", ")}`);
   return f;
 }
 
@@ -158,6 +161,11 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   const to = opts.to ?? projectDuration(project);
   const frames = opts.frames ?? Array.from({ length: Math.ceil((to - from) / frameTicks) }, (_, i) => Math.round(from / frameTicks) + i);
 
+  if (opts.output.kind === "video" && isAudioFormat(videoFormat(opts.output.path))) {
+    await exportAudio(project, registry, opts.output, ticksToSeconds(from), ticksToSeconds(to - from));
+    opts.onProgress?.(1, 1);
+    return { frames: 0 };
+  }
   const tmp = opts.output.kind === "video" ? mkdtempSync(join(tmpdir(), "beacon-")) : undefined;
   try {
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
@@ -295,6 +303,24 @@ async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<
     throw new Error(`audio mix failed: ${e.message}`);
   });
   return path;
+}
+
+const AUDIO_CODECS: Record<string, (o: Extract<RenderOutput, { kind: "video" }>) => string[]> = {
+  wav: () => ["-c:a", "pcm_s16le"],
+  m4a: (o) => ["-c:a", "aac", "-b:a", `${o.audioBitrate ?? 256}k`],
+  // MP3 tops out at 320 kbit/s.
+  mp3: (o) => ["-c:a", "libmp3lame", "-b:a", `${Math.min(320, o.audioBitrate ?? 256)}k`],
+};
+
+/** The mix of [start, start + length) alone, written straight to the output (.wav, .m4a, .mp3). */
+async function exportAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
+  const { inputs, filter } = audioMix(project, registry, start, length);
+  if (!filter) throw new Error("there is no audio to export in that range");
+  const codec = AUDIO_CODECS[videoFormat(o.path)]!(o);
+  const args = [...ffmpegArgs(), "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-ar", String(project.settings.sampleRate), "-t", length.toFixed(6), o.path];
+  await runTool(args).catch((e: Error) => {
+    throw new Error(`audio export failed: ${e.message}`);
+  });
 }
 
 /** The rendered video with the mixed audio under it, both copied. */
