@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { apply, type Affine } from "@beacon/model";
 import type { CanvasMark } from "./canvas-marks";
 import { rgba } from "./theme";
-import { PLAIN_TEXT } from "./controls";
+import { PLAIN_TEXT, useFieldText } from "./controls";
 
 /** A line of text as the renderer lays it out (box units, y down): the `callout.textLayout` and `captions.layout` queries. */
 import type { TextLine } from "@beacon/media";
@@ -54,6 +54,7 @@ export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | 
   const drag = useRef<number | null>(null);
   const [draft, setDraft] = useState<string>();
   const text = target?.draft && draft !== undefined ? draft : (target?.text ?? "");
+  const fieldText = useFieldText(text, field);
 
   useEffect(() => {
     if (!target) return;
@@ -134,11 +135,10 @@ export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | 
   const element = target ? (
     <textarea
       {...PLAIN_TEXT}
-      ref={field}
+      ref={fieldText}
       aria-label="Text"
       // Unseen: the renderer draws the text; this only takes the keys.
       className="pointer-events-none absolute top-0 left-0 h-px w-px opacity-0"
-      value={text}
       onChange={(e) => {
         if (target!.draft) setDraft(e.target.value);
         target!.set(e.target.value);
