@@ -11,7 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| Files dropped from Finder are found by the drag's own paths (macOS's drag pasteboard), on any drive: no more home folders or Spotlight | 2026-10-19 | this commit | Cargo test (file URLs on a pasteboard come back as paths); core test (matched by name, size and date among the drag's paths); a copy of `video.mp4` under the scratchpad's `card/DCIM/107_PANA` (not in Spotlight) put on the drag pasteboard as Finder would: `findDropped` returned its path |
+| Files dropped from Finder are found by the drag's own paths (macOS's drag pasteboard), on any drive: no more home folders or Spotlight | 2026-10-19 | `c8a6022` | Cargo test (file URLs on a pasteboard come back as paths); core test (matched by name, size and date among the drag's paths); a copy of `video.mp4` under the scratchpad's `card/DCIM/107_PANA` (not in Spotlight) put on the drag pasteboard as Finder would: `findDropped` returned its path; the same with `P1078391.MP4` on the real camera card (`/Volumes/Canon`, indexing off), the clip that failed before |
 
 ### Not checked yet
 
