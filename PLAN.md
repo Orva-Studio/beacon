@@ -1811,6 +1811,13 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   export. Effects can't yet load a table from a file into the renderer, so
   the feature contract grows for it. Mostly creative LUTs: the Cam Link's
   footage is Rec.709, not log.
+- **Images with no file: a screenshot's thumbnail, a copied image** (the
+  user, 2026-10-20): dragging a macOS screenshot from its floating thumbnail
+  onto the timeline does nothing (the drag offers a file promise, not a path,
+  and drops are found by path), nor does ⌘V of an image copied elsewhere (⌘V
+  pastes only Beacon's own clips). The window has the image's bytes either
+  way: write them into the project's folder (a `media` folder, named by the
+  screenshot or by date) and import them, at the drop point or the playhead.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 
