@@ -40,7 +40,7 @@ function transcribed(core: LocalCore, asset: Asset, words: ReturnType<typeof sai
 const TALK =
   "Welcome to the video. | So the next step is | um, | so the next step is to open the settings. | Then we click on Bluetooth and | then we click on Bluetooth and pair the keyboard. | That's all for today.";
 
-type Group = { start: number; end: number; takes: { start: number; end: number; text: string }[]; best: number; by: string; reason?: string };
+type Group = { start: number; end: number; key: string; takes: { start: number; end: number; text: string }[]; best: number; by: string; reason?: string };
 type Found = { waiting: string[]; judging: string[]; judge: string; groups: Group[]; saved: number; current?: number };
 
 async function talk(name: string, secrets = new Map<string, string>()) {
@@ -106,20 +106,28 @@ test.skipIf(!existsSync(AUDIO))("cutting every take of a line keeps none of it (
   await core.run(h, "retakes.review", {});
   const review = async () => ((await core.session(h)).features.transcript as { retakes: object }).retakes;
   const [first, second] = ((await core.query(h, "transcript.retakes", {})) as Found).groups;
-  await core.run(h, "retakes.cutAll", { start: second!.start, end: second!.end });
+  const cutAll = { start: second!.start, end: second!.end, key: second!.key };
+  await core.run(h, "retakes.cutAll", cutAll);
   const none = (await core.query(h, "transcript.retakes", await review())) as Found;
   expect(none.groups.map((g) => [g.best, g.by])).toEqual([
     [1, "beacon"],
     [-1, "you"],
   ]);
-  // Keeping one of its takes again puts it back to keeping one; cut again for Apply.
+  // Keeping one of its takes again puts it back to keeping one; Cut All then Keep One comes back to that same take.
   await core.run(h, "retakes.keep", { at: second!.takes[0]!.start + 0.1 });
   expect(((await core.query(h, "transcript.retakes", await review())) as Found).groups[1]!.best).toBe(0);
-  await core.run(h, "retakes.cutAll", { start: second!.start, end: second!.end });
+  await core.run(h, "retakes.cutAll", cutAll);
+  await core.run(h, "retakes.cutAll", { ...cutAll, on: false });
+  expect(((await core.query(h, "transcript.retakes", await review())) as Found).groups[1]!.best).toBe(0);
+  await core.run(h, "retakes.cutAll", cutAll);
   await core.run(h, "retakes.focus", { at: first!.start });
   // Cut This One on the first group: the second, cut whole, moves with the timeline and stays cut whole.
   await core.run(h, "retakes.apply", { one: true });
   expect(((await core.query(h, "transcript.retakes", await review())) as Found).groups.map((g) => g.best)).toEqual([-1]);
+  // Undone, the review's times stay moved: they must not make the first line lose every take.
+  await core.undo(h);
+  expect(((await core.query(h, "transcript.retakes", await review())) as Found).groups[0]!.best).toBeGreaterThanOrEqual(0);
+  await core.redo(h);
   await core.run(h, "retakes.apply", {});
   expect(await text()).toBe("Welcome to the video. so the next step is to open the settings. pair the keyboard. That's all for today.");
   await core.close(h);

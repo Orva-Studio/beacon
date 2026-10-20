@@ -32,6 +32,8 @@ export interface ViewState {
   /** Assets whose takes OpenAI is judging (Remove Retakes), and its progress 0-1; and why it failed, for those it couldn't. */
   judging: Record<string, number>;
   judgeFailed: Record<string, string>;
+  /** Media whose transcript or proxy failed, and why: the import panel says so rather than Ready. */
+  jobFailed: Record<string, string>;
   /** Captions asked for before the transcript was there: made when it is. */
   captionsPending?: boolean;
   /** Proxies finished since the current run of them began (the top bar's "N of M"). */
@@ -64,6 +66,8 @@ export interface ViewState {
   exportJob?: ExportJob;
   /** Imports under way or just finished, by id, until their panel is dismissed. */
   imports: Record<string, ImportingFiles>;
+  /** Imports whose panel was dismissed while their files were still read: their tiles stay, the panel doesn't come back. */
+  importsHidden: string[];
   /** The Settings window, while open, with the app settings it opened with. */
   settings?: SettingsSheet;
   /** The last Snapshot's file, while its toast shows. */
@@ -95,7 +99,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false }, imports: {} };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -110,7 +114,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {} });
+    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, jobFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -133,7 +137,7 @@ export const replica = {
   session(changes: Partial<Session>) {
     if (state.session) set({ session: { ...state.session, ...changes } });
   },
-  media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
+  media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, jobFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; jobFailed?: ViewState["jobFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
       // Only what came: a new object would redraw the timeline and the Media Bin for a progress message.
       ...(waveforms ? { waveforms: { ...state.waveforms, ...waveforms } } : {}),
@@ -143,6 +147,7 @@ export const replica = {
       ...(transcribing ? { transcribing } : {}),
       ...(judging ? { judging } : {}),
       ...(judgeFailed ? { judgeFailed } : {}),
+      ...(jobFailed ? { jobFailed: { ...state.jobFailed, ...jobFailed } } : {}),
       ...(proxies ? { proxies: { ...state.proxies, ...proxies } } : {}),
       ...(missing ? { missing } : {}),
     });
@@ -206,10 +211,15 @@ export const replica = {
     set({ exportJob });
   },
   importing(i: ImportingFiles) {
+    if (state.importsHidden.includes(i.id) && i.state !== "reading") {
+      const { [i.id]: _, ...imports } = state.imports;
+      return set({ imports, importsHidden: state.importsHidden.filter((id) => id !== i.id) });
+    }
     set({ imports: { ...state.imports, [i.id]: i } });
   },
   importsDismissed() {
-    set({ imports: {} });
+    const reading = Object.values(state.imports).filter((i) => i.state === "reading");
+    set({ imports: Object.fromEntries(reading.map((i) => [i.id, i])), importsHidden: reading.map((i) => i.id) });
   },
   sortBin(binSort: ViewState["binSort"]) {
     set({ binSort });

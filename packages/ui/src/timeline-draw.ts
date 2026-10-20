@@ -274,9 +274,9 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.clip();
     /**
      * A clip from `a` to `b` on row `i`: its colour, waveform or thumbnail, name and outline. `ghost`: where a move
-     * would put it. `origin`: where its media's start is drawn, when only a piece of it is (`a` otherwise).
+     * would put it. `by`: how far it is drawn from where it is, its waveform and volume read where they are in it.
      */
-    const drawClip = (clip: Clip, t: Track, i: number, a: number, b: number, alpha: number, ghost?: { bad: boolean; fresh: boolean }, origin = a) => {
+    const drawClip = (clip: Clip, t: Track, i: number, a: number, b: number, alpha: number, ghost?: { bad: boolean; fresh: boolean }, by = 0) => {
       const { y, h: ch } = clipBox(i, TRACK);
       const audio = clip.type === "audio";
       const x0 = x(a) + 0.5;
@@ -309,11 +309,11 @@ export function drawTimeline(t: TimelineDrawing) {
           const boost = propsOf<{ gain: number }>(clip, "audio").gain;
           for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
             const t = start + (px - HEADER) / pps;
-            const m = media0 + (t - origin) * speed;
+            const m = media0 + (t - by - ticksToSeconds(clip.start)) * speed;
             const k = Math.floor(m * 100);
             let peak = 0;
             for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
-            const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
+            const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t - by)) * (ch - 6);
             ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
           }
         }
@@ -368,16 +368,17 @@ export function drawTimeline(t: TimelineDrawing) {
           else b = d.t;
         }
         // Shift-drag opens or closes time as it goes: what is after the point is drawn moved, a clip across it split.
+        let by = 0;
         if (d?.kind === "space" && d.d !== 0 && (d.track ? d.track === t.id : !t.locked)) {
-          if (a >= d.at) (a += d.d), (b += d.d);
+          if (a >= d.at) (by = d.d), (a += by), (b += by);
           else if (b > d.at) {
             if (a <= end && d.at >= start) drawClip(clip, t, i, a, d.at, 1);
-            if (b + d.d >= start && d.at + d.d <= end) drawClip(clip, t, i, d.at + d.d, b + d.d, 1, undefined, a + d.d);
+            if (b + d.d >= start && d.at + d.d <= end) drawClip(clip, t, i, d.at + d.d, b + d.d, 1, undefined, d.d);
             continue;
           }
         }
         if (b < start || a > end) continue;
-        drawClip(clip, t, i, a, b, d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1);
+        drawClip(clip, t, i, a, b, d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1, undefined, by);
       }
     });
     // Animation arrows across each clip, and the volume line on audio.
@@ -543,7 +544,7 @@ export function drawTimeline(t: TimelineDrawing) {
           if (rows === undefined) continue;
           const a = ticksToSeconds(clip.start) + d.by;
           const row = project.tracks.length - 1 - (ti + rows);
-          drawClip(clip, t, Math.max(0, row), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 });
+          drawClip(clip, t, Math.max(0, row), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 }, d.by);
         }
       });
     } else if (d?.kind === "trim" && d.extend) {

@@ -115,6 +115,8 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
         else delete proxies.jobs[job.asset];
         sendPreparing();
       }
+      // A cancelled job ends as failed, but nothing went wrong.
+      if (job.state === "failed" && job.error !== "cancelled" && job.asset && (job.kind === "transcript" || job.kind === "proxy")) send("media", { jobFailed: { [job.asset]: `${job.kind === "transcript" ? "Transcribing" : "Making a proxy"} failed${job.error ? `: ${job.error}` : ""}` } });
       if (job.state === "done" && job.kind === "waveform") sendWaveforms();
       hooks.other?.(e);
     } else if (e.kind === "importing") {

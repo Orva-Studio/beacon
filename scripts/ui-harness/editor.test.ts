@@ -1576,15 +1576,26 @@ test.skipIf(skip)("importing shows a placeholder tile while a file is read and a
   ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "reading" });
   await page.until("!!document.querySelector('[data-import-progress]')");
   await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
-  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "reading" });
+  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "failed", error: "" });
+  ui.send("importing", { id: "import-shown", files: ["/somewhere/Big Take.mov"], state: "reading" });
   await page.until(`!!document.querySelector('[data-pending-media="Big Take.mov"]')`);
   await page.until(`document.querySelector('[data-import-row="Big Take.mov"]')?.dataset.importStage === 'Reading'`);
   expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("Importing 1 file");
-  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "failed", error: "no feature imports .mov" });
+  ui.send("importing", { id: "import-shown", files: ["/somewhere/Big Take.mov"], state: "failed", error: "no feature imports .mov" });
   await page.until(`document.querySelector('[data-import-row="Big Take.mov"]')?.dataset.importStage === 'Failed'`);
   expect(await has('[data-pending-media]')).toBe(false);
   await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
   await page.until("!document.querySelector('[data-import-progress]')");
+  // Dismissed while still read: its tile stays until it is, and the panel doesn't come back when it is.
+  ui.send("importing", { id: "import-hidden", files: ["/somewhere/Other.mov"], state: "reading" });
+  await page.until("!!document.querySelector('[data-import-progress]')");
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-import-progress]')");
+  expect(await has('[data-pending-media="Other.mov"]')).toBe(true);
+  ui.send("importing", { id: "import-hidden", files: ["/somewhere/Other.mov"], state: "failed", error: "no" });
+  await page.until("!document.querySelector('[data-pending-media]')");
+  await Bun.sleep(200);
+  expect(await has('[data-import-progress]')).toBe(false);
 
   // A real one: its row follows the media until it is ready, then the panel says so.
   const copy = join(dir, `import-voice-${Date.now()}.m4a`);
@@ -1594,6 +1605,10 @@ test.skipIf(skip)("importing shows a placeholder tile while a file is read and a
   await page.until(`!!document.querySelector('[data-import-progress] [data-import-stage]')`);
   await page.until(`[...document.querySelectorAll('[data-import-row]')].some((e) => e.dataset.importStage === 'Ready')`, 30000);
   expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("Imported 1 file");
+  // A transcript that failed says so, rather than Ready, and the panel stays.
+  ui.send("media", { jobFailed: { [r.assets[0]!]: "Transcribing failed: the model is missing" } });
+  await page.until(`[...document.querySelectorAll('[data-import-row]')].some((e) => e.dataset.importStage === 'Failed' && e.textContent.includes('the model is missing'))`);
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("not all of it");
   await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
   await page.until("!document.querySelector('[data-import-progress]')");
   await ui.core.undo(ui.handle);
@@ -1771,6 +1786,25 @@ test.skipIf(skip)("a clip being dragged is drawn where it would land with its wa
   await page.up(x0 + by, y0);
   await Bun.sleep(300);
   expect(colours).toBeGreaterThan(1);
+  await ui.core.undo(ui.handle);
+
+  // Its waveform is drawn at the volume it has where it is in the clip: faded in over its first half, short there.
+  // Rows below the name with bars in them: each bar is 1.5 points wide every 2, so a row through bars alternates.
+  const tall = (from: number) =>
+    page.evaluate<number>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const ctx = c.getContext('2d'); let n = 0; for (let yy = ${y + 22}; yy < ${y + h - 2}; yy++) { const row = ctx.getImageData(Math.round(${from} * k), Math.round(yy * k), Math.round(40 * k), 1).data; let changes = 0; for (let p = 4; p < row.length; p += 4) if (row[p] !== row[p - 4] || row[p + 1] !== row[p - 3]) changes++; if (changes > 6) n++; } return n; })()`);
+  await run("edit.fade", { kind: "in", duration: (b - a) / 2, clip: voice.id });
+  await Bun.sleep(400);
+  // Past its own end, so nothing of the clip where it was shows through.
+  const far = (xAt(b) - xAt(a)) * 1.1;
+  await page.down(x0, y0);
+  for (let i = 1; i <= 10; i++) await page.move(x0 + (far * i) / 10, y0);
+  await Bun.sleep(300);
+  const early = await tall(xAt(a) + far + (xAt(b) - xAt(a)) * 0.08);
+  const late = await tall(xAt(a) + far + (xAt(b) - xAt(a)) * 0.8);
+  await page.up(x0 + far, y0);
+  await Bun.sleep(300);
+  expect(early).toBeLessThan(late * 0.6);
+  await ui.core.undo(ui.handle);
   await ui.core.undo(ui.handle);
   await run("timeline.zoom", { to: "fit" });
 }, 90_000);

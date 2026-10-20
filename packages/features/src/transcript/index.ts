@@ -431,12 +431,19 @@ const fillerSessionCommands: SessionCommandDef[] = [
   ...reviewSteps("fillers", "Remove Filler Words", "filler"),
 ];
 
+/** A group to cut every take of: its span on the timeline, and its takes' words (transcript_retakes' `key`). */
+interface CutAllGroup {
+  start: number;
+  end: number;
+  key?: string;
+}
+
 /** Remove Retakes' settings, and in review (`session.features.transcript.retakes`) the takes chosen by hand. */
 export interface RetakeReview extends RetakeOptions {
   /** Times inside takes chosen to keep: the last inside a group decides it. */
   kept: number[];
   /** Groups (their spans) to cut every take of, keeping none; keeping one of its takes takes it off. */
-  cutAll?: { start: number; end: number }[];
+  cutAll?: CutAllGroup[];
   /** Going through the groups one at a time: a time in the group being looked at, or just before it. */
   current?: number;
 }
@@ -477,7 +484,9 @@ function retakePlan(project: Project, registry: FeatureRegistry, data: Data, pre
     const spans = takes.map((t, k) => ({ start: words[t.first]!.start, end: k + 1 < takes.length ? words[takes[k + 1]!.first]!.start : words[t.last]!.end }));
     const [start, end] = [spans[0]!.start, spans.at(-1)!.end];
     const chosen = o.kept.filter((t) => t >= start - 1e-3 && t <= end + 1e-3).at(-1);
-    const none = (o.cutAll ?? []).some((g) => g.start < end - 1e-3 && g.end > start + 1e-3);
+    const key = takes.map((t) => takeKey(words, t)).join(" / ");
+    // By its words as well as where it is: a span shifted by a cut that was then undone can't land on another line.
+    const none = (o.cutAll ?? []).some((g) => g.start < end - 1e-3 && g.end > start + 1e-3 && (g.key === undefined || g.key === key));
     let best = none ? -1 : chosen === undefined ? -1 : Math.max(0, spans.findLastIndex((s) => chosen >= s.start - 1e-3));
     let by: "you" | "openai" | "beacon" = "you";
     let reason: string | undefined;
@@ -501,6 +510,7 @@ function retakePlan(project: Project, registry: FeatureRegistry, data: Data, pre
       start: roundSeconds(start),
       end: roundSeconds(end),
       takes: spans.map((s, k) => ({ start: roundSeconds(s.start), end: roundSeconds(s.end), text: takeText(words, takes[k]!) })),
+      key,
       best,
       by,
       ...(reason ? { reason } : {}),
@@ -539,13 +549,12 @@ const retakeSessionCommands: SessionCommandDef[] = [
     id: "retakes.cutAll",
     description:
       "In Remove Retakes' review, cut every take of a group, keeping none (or with `on` false, keep one again, the one picked): `start` and `end`, the group's span from transcript_retakes. retakes.keep on one of its takes keeps that one instead",
-    args: z.strictObject({ start: z.number().nonnegative(), end: z.number().nonnegative(), on: z.boolean().default(true) }),
-    apply: (s, { start, end, on }: { start: number; end: number; on: boolean }) => {
+    args: z.strictObject({ start: z.number().nonnegative(), end: z.number().nonnegative(), key: z.string().optional().describe("The group's `key` from transcript_retakes"), on: z.boolean().default(true) }),
+    apply: (s, { start, end, key, on }: CutAllGroup & { on: boolean }) => {
       const r = retakeReview(s);
       if (!r) throw new Error("Remove Retakes' review isn't open: retakes.review opens it");
       const others = (r.cutAll ?? []).filter((g) => g.end <= start + 1e-3 || g.start >= end - 1e-3);
-      r.cutAll = on ? [...others, { start, end }] : others;
-      if (!on) r.kept = r.kept.filter((t) => t < start - 1e-3 || t > end + 1e-3);
+      r.cutAll = on ? [...others, { start, end, ...(key === undefined ? {} : { key }) }] : others;
     },
   },
 ];
@@ -565,13 +574,13 @@ const reviewShift: SessionCommandDef = {
     if (r) {
       // A take kept in a group just cut is gone with it.
       r.kept = r.kept.filter((t) => !ranges.some((x) => t >= x.start && t < x.end)).map((t) => afterCut(t, ranges));
-      if (r.cutAll) r.cutAll = r.cutAll.filter((g) => !ranges.some((x) => g.start >= x.start - 1e-3 && g.end <= x.end + 1e-3)).map((g) => ({ start: afterCut(g.start, ranges), end: afterCut(g.end, ranges) }));
+      if (r.cutAll) r.cutAll = r.cutAll.filter((g) => !ranges.some((x) => g.start >= x.start - 1e-3 && g.end <= x.end + 1e-3)).map((g) => ({ ...g, start: afterCut(g.start, ranges), end: afterCut(g.end, ranges) }));
       if (r.current !== undefined) r.current = afterCut(r.current, ranges);
     }
   },
 };
 
-const CutAll = z.array(z.strictObject({ start: z.number(), end: z.number() })).describe("Groups (their spans) to cut every take of, as retakes.cutAll sets");
+const CutAll = z.array(z.strictObject({ start: z.number(), end: z.number(), key: z.string().optional() })).describe("Groups (their spans, and `key`s) to cut every take of, as retakes.cutAll sets");
 
 const Only = z.number().nonnegative().optional().describe("Cut only the one holding this time, or else the next after it, whether or not it is marked to cut");
 
@@ -733,7 +742,7 @@ export const transcript = defineFeature({
     defineQuery({
       id: "transcript.retakes",
       description:
-        "What Remove Retakes would cut: each line said more than once (a restart, a sentence said again after a stumble) as a group of takes, each take's times (timeline seconds) and words, the take kept (`best`, from 0; -1 when every take is cut, by retakes.cutAll) and who picked it (`by`: you, OpenAI or Beacon's own scoring), and the seconds saved. Of the takes after the kept one only what repeats the line is cut, so what the last goes on to say stays. `waiting`: media with no transcript yet; `judging`: media OpenAI hasn't judged yet (when Best take is OpenAI: the analyze tool with `retakes` asks)",
+        "What Remove Retakes would cut: each line said more than once (a restart, a sentence said again after a stumble) as a group of takes, each take's times (timeline seconds) and words, the take kept (`best`, from 0; -1 when every take is cut, by retakes.cutAll), its takes' words as one `key` and who picked it (`by`: you, OpenAI or Beacon's own scoring), and the seconds saved. Of the takes after the kept one only what repeats the line is cut, so what the last goes on to say stays. `waiting`: media with no transcript yet; `judging`: media OpenAI hasn't judged yet (when Best take is OpenAI: the analyze tool with `retakes` asks)",
       args: z.strictObject({
         minWords: RetakeSettings.minWords.optional(),
         within: RetakeSettings.within.optional(),
@@ -790,7 +799,7 @@ export const transcript = defineFeature({
         // The takes as the review shows them, OpenAI's picks included, named by a time inside each.
         const plan = retakePlan(project, registry, data, pref, r);
         const kept = plan.groups.flatMap((g) => (g.best < 0 ? [] : [(g.takes[g.best]!.start + g.takes[g.best]!.end) / 2]));
-        const cutAll = plan.groups.filter((g) => g.best < 0).map((g) => ({ start: g.start, end: g.end }));
+        const cutAll = plan.groups.filter((g) => g.best < 0).map((g) => ({ start: g.start, end: g.end, key: g.key }));
         const args = { minWords: r.minWords, within: r.within, kept, cutAll };
         if (!one) return { label: "Remove Retakes", steps: [{ command: "transcript.removeRetakes", args }], after: () => [{ command: "retakes.close" }] };
         if (r.current === undefined) throw new Error("no retake to cut: retakes.focus goes to one");

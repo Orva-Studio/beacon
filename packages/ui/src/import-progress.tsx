@@ -6,7 +6,8 @@ import type { ImportingFiles } from "./rpc";
 const fileName = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
 
 /** What an imported file still waits for, as the Media Bin will show it: `undefined` once it is ready. */
-function stage(a: Asset, v: { transcribing: Record<string, number>; preparing: Record<string, number> }): { label: string; progress?: number } | undefined {
+function stage(a: Asset, v: { transcribing: Record<string, number>; preparing: Record<string, number>; jobFailed: Record<string, string> }): { label: string; progress?: number; error?: string } | undefined {
+  if (v.jobFailed[a.id]) return { label: "Failed", error: v.jobFailed[a.id] };
   if (v.transcribing[a.id] !== undefined) return { label: "Transcribing", progress: v.transcribing[a.id] };
   if (v.preparing[a.id] !== undefined) return { label: "Making a proxy", progress: v.preparing[a.id] };
   return undefined;
@@ -32,19 +33,21 @@ export function ImportProgress({ project }: { project?: Project }) {
   const imports = useView((v) => v.imports);
   const transcribing = useView((v) => v.transcribing);
   const preparing = useView((v) => v.preparing);
-  const jobs = { transcribing, preparing };
-  const all = Object.values(imports);
+  const jobFailed = useView((v) => v.jobFailed);
+  const hidden = useView((v) => v.importsHidden);
+  const jobs = { transcribing, preparing, jobFailed };
+  const all = Object.values(imports).filter((i) => !hidden.includes(i.id));
   if (!all.length) return null;
   const rows = all.flatMap((i) => rowsOf(i, project, jobs));
-  const failed = all.some((i) => i.state === "failed");
+  const failed = rows.some((r) => r.label === "Failed");
   const busy = rows.some((r) => r.label !== "Ready" && r.label !== "Failed");
   const count = all.reduce((n, i) => n + i.files.length, 0);
   const files = `${count} file${count === 1 ? "" : "s"}`;
   return (
-    <Toast title={busy ? `Importing ${files}` : failed ? `Import failed` : `Imported ${files}`} done={!busy && !failed} onDismiss={() => replica.importsDismissed()}>
+    <Toast title={busy ? `Importing ${files}` : failed ? `Imported ${files}, not all of it` : `Imported ${files}`} done={!busy && !failed} onDismiss={() => replica.importsDismissed()}>
       <div className="flex max-h-48 flex-col gap-1.5 overflow-y-auto" data-import-progress>
         {rows.map((r) => (
-          <div key={r.key} className="flex items-center gap-2" data-import-row={r.name} data-import-stage={r.label}>
+          <div key={r.key} className="flex flex-wrap items-center gap-x-2" data-import-row={r.name} data-import-stage={r.label}>
             <span className="min-w-0 flex-1 truncate text-label text-text">{r.name}</span>
             {r.label === "Ready" ? (
               <Icon name="check" size={14} className="text-accent" />
@@ -54,6 +57,7 @@ export function ImportProgress({ project }: { project?: Project }) {
                 {r.progress !== undefined && ` ${Math.round(r.progress * 100)}%`}
               </span>
             )}
+            {r.error && <div className="w-full truncate text-caption text-danger" title={r.error}>{r.error}</div>}
           </div>
         ))}
         {busy && <Progress value={rows.filter((r) => r.label === "Ready").length / rows.length} className="mt-1" />}
@@ -69,6 +73,6 @@ function rowsOf(i: ImportingFiles, project: Project | undefined, jobs: Parameter
     const a = project?.assets[id];
     if (!a) return [];
     const s = stage(a, jobs);
-    return [{ key: `${i.id}:${id}`, name: assetName(a), label: s?.label ?? "Ready", progress: s?.progress, error: undefined }];
+    return [{ key: `${i.id}:${id}`, name: assetName(a), label: s?.label ?? "Ready", progress: s?.progress, error: s?.error }];
   });
 }

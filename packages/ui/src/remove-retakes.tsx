@@ -18,6 +18,8 @@ export interface RetakeGroup {
   start: number;
   end: number;
   takes: { start: number; end: number; text: string }[];
+  /** Its takes' words, naming it to retakes.cutAll. */
+  key: string;
   /** The take kept, from 0; -1 when every take is cut. */
   best: number;
   by: "you" | "openai" | "beacon";
@@ -100,7 +102,7 @@ function Takes({ group, host, session }: { group: RetakeGroup; host: Host; sessi
         <Button
           look="quiet"
           title={group.best < 0 ? "Keep one take again: the one picked" : "Cut every take of this line, keeping none"}
-          onClick={() => host.run("retakes.cutAll", { start: group.start, end: group.end, on: group.best >= 0 })}
+          onClick={() => host.run("retakes.cutAll", { start: group.start, end: group.end, key: group.key, on: group.best >= 0 })}
           data-take-cut
           data-take-cut-all={group.best < 0 || undefined}
         >

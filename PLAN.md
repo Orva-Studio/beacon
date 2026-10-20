@@ -1773,6 +1773,23 @@ preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.
 
 ### Phase 10 — Filmstrips and backgrounds
+- **First: drops that fail, and images with no file** (the user, 2026-10-20;
+  first in the phase, at their ask): dragging from Finder's Recents bounces
+  back with no message, whatever the file (⌘I always works: the Open dialog
+  gives real paths); a screenshot already saved, dragged from Finder, bounced
+  too; and dragging a macOS screenshot from its floating thumbnail
+  onto the timeline does nothing (the drag offers a file promise, not a path,
+  and drops are found by path), nor does ⌘V of an image copied elsewhere (⌘V
+  pastes only Beacon's own clips). The window has the image's bytes either
+  way: write them into the project's folder (a `media` folder, named by the
+  screenshot or by date) and import them, at the drop point or the playhead.
+  Found 2026-10-20: the thumbnail's drag is a file promise that also offers a
+  `public.file-url` in `TemporaryItems/NSIRD_screencaptureui_*` and the PNG
+  itself (`public.png`); the drop fails "couldn't find … among the dragged
+  files" because that file's size or date isn't the webview's, and the folder
+  is cleared once the drag ends, so it must be copied in, not used in place.
+  Read the drag pasteboard (`beacon_drag_files`) of a Recents drag first: what
+  it offers (file reference URLs, `/.file/id=`?) decides the fix.
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
@@ -1811,18 +1828,10 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   export. Effects can't yet load a table from a file into the renderer, so
   the feature contract grows for it. Mostly creative LUTs: the Cam Link's
   footage is Rec.709, not log.
-- **Images with no file: a screenshot's thumbnail, a copied image** (the
-  user, 2026-10-20): dragging a macOS screenshot from its floating thumbnail
-  onto the timeline does nothing (the drag offers a file promise, not a path,
-  and drops are found by path), nor does ⌘V of an image copied elsewhere (⌘V
-  pastes only Beacon's own clips). The window has the image's bytes either
-  way: write them into the project's folder (a `media` folder, named by the
-  screenshot or by date) and import them, at the drop point or the playhead.
-  Found 2026-10-20: the thumbnail's drag is a file promise that also offers a
-  `public.file-url` in `TemporaryItems/NSIRD_screencaptureui_*` and the PNG
-  itself (`public.png`); the drop fails "couldn't find … among the dragged
-  files" because that file's size or date isn't the webview's, and the folder
-  is cleared once the drag ends, so it must be copied in, not used in place.
+- **An animation from end to end of a clip** (the user, 2026-10-20): a key
+  (and the clip's menu) that adds an animation block spanning the whole
+  selected clip, start to end, rather than from the playhead; or, simplest,
+  double-clicking an animation stretches it to the clip's ends.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 
