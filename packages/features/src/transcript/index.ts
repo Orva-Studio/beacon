@@ -629,11 +629,11 @@ export const transcript = defineFeature({
       applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
       when: "asked",
       async analyze(_asset, progress, env) {
-        if (!judgedByOpenAI(env.pref)) throw new Error("Best take is Beacon's own scoring: OpenAI isn't asked (Settings › General › Best Take)");
+        if (!judgedByOpenAI(env.pref)) throw new Error("Best take is Beacon's own scoring: OpenAI isn't asked (Settings › Transcripts › Best Take)");
         const transcript = env.data<TranscriptData>("transcript");
         if (!transcript) throw new Error("no transcript yet: the takes are judged from it");
         const apiKey = await env.secret("openai-api-key");
-        if (!apiKey) throw new Error("no OpenAI API key: add one in Settings › General › Best Take");
+        if (!apiKey) throw new Error("no OpenAI API key: add one in Settings › Transcripts");
         const found = new Map<string, { takes: string[]; said: string[]; then: string }>();
         for (const t of Object.values(transcript.streams)) {
           for (const o of JUDGED) {

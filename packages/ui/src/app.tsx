@@ -25,6 +25,7 @@ import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
 import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
+import { ProjectSettingsUi } from "./project-settings";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
@@ -207,6 +208,7 @@ export function App({ host }: { host: Host }) {
         <RecordUi host={host} />
         <SnapshotSaved host={host} />
         <SettingsUi host={host} />
+        <ProjectSettingsUi host={host} />
         <StartScreen host={host} />
         <NewProjectUi host={host} />
         <SaveAsUi host={host} />

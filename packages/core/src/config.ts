@@ -90,7 +90,7 @@ export class AppConfig {
     const option = def.options.find((o) => o.id === value);
     if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);
     if (option.secret && (await this.secrets.get(option.secret)) === undefined) {
-      throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add (Settings › General)`);
+      throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add (Settings › Transcripts)`);
     }
     if (this.pref(id) === value) return false;
     this.#prefs = { ...this.#prefs, [id]: value };

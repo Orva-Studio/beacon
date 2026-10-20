@@ -63,6 +63,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     const doc = core.doc(h);
     if (dialog === null) return sendAll("closeDialogs", {});
     if (dialog === "settings") return sendAll("settingsSheet", await settingsSheet(core, tab ? { tab } : {}));
+    if (dialog === "projectSettings") return sendAll("projectSettings", {});
     if (dialog === "export" || dialog === "exportSelection") {
       const range = (await core.session(h)).range;
       if (dialog === "exportSelection" && !range) return;

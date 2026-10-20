@@ -17,7 +17,7 @@ export interface TranscriptsHost {
 }
 
 /**
- * A preference in Settings › General, with the API key its online option needs (kept in the Keychain): who
+ * A preference in Settings › Transcripts, with the API key its online option needs (kept in the Keychain): who
  * transcribes (Whisper on this Mac, Apple's transcriber, or Whisper through OpenAI's API), with Whisper's model when
  * it is the one chosen; who picks the best take. `changed` gets every preference after a change, as a key is shared.
  */

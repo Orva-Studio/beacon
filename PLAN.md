@@ -1662,7 +1662,13 @@ Seeing more at once.
   Settings becomes a fixed-size window with a sidebar (General, Recording,
   Transcripts, Shortcuts, later Appearance), each section scrolling inside
   it, so switching sections never changes its height; a search over every
-  setting once there are enough to need it.
+  setting once there are enough to need it. Decided (the user, 2026-10-20):
+  a fixed-size sheet in the editor's window, not a window of its own; ⌥⌘,
+  for Project Settings. **Built 2026-10-20**: Project Settings is its own
+  dialog (Edit › Project Settings…, ⌥⌘,, the canvas's right-click, `ui_open
+  projectSettings`; Settings' `project` tab is gone and asking for it says
+  so); Settings is 500 points tall with General, Recording, Transcripts (the
+  transcriber and Best Take) and Shortcuts down a sidebar. No search yet.
 - **Copying into a standalone project shows its progress** (the user,
   2026-10-19). Today an import into a standalone project (and turning
   standalone on) copies the media in before the clips appear, with nothing on
@@ -1707,7 +1713,7 @@ Seeing more at once.
   transcriber's key. **Built 2026-10-20**: `transcript.retakes` /
   `transcript.removeRetakes`, `retakes.review/keep/focus/apply/close`; a take
   restarts the one before when its first words repeat it and it says 70% of
-  its words again in order. Best Take (Settings › General) is Beacon's own
+  its words again in order. Best Take (Settings › Transcripts) is Beacon's own
   scoring or OpenAI (`gpt-5-mini`, the takes' words only): a `retakes`
   analysis per medium, run only when the review asks (a new `when: "asked"`
   in the contract, which also gave analyses the asset's other data and

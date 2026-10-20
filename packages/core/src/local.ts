@@ -529,6 +529,7 @@ export class LocalCore implements BeaconCore {
     this.#get(h);
     if (!this.#uiOpener) throw new Error("no window shows this project: dialogs open only with the project open in the Beacon app");
     if (tab !== undefined && dialog !== "settings") throw new Error(`\`tab\` is Settings' (${SETTINGS_TABS.join(", ")})`);
+    if (tab === "project") throw new Error("Project Settings is a dialog of its own: dialog projectSettings");
     if (tab !== undefined && !(SETTINGS_TABS as readonly string[]).includes(tab)) throw new Error(`Settings has no "${tab}" tab: ${SETTINGS_TABS.join(", ")}`);
     this.#uiOpener(h, dialog, tab as SettingsTab | undefined);
   }

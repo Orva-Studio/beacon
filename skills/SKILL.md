@@ -48,8 +48,9 @@ The app's settings are the user's, app-wide: `settings_get` reads them (the
 export colour space `export_start` uses, which media get proxies, where
 `frame_capture` saves); `settings_set` changes them, only when the user asks.
 With the app open, `ui_open` shows a dialog as its menus do (Settings on a
-tab, Export, New Project, Record) so `ui_snapshot` can see it; it changes
-nothing by itself.
+tab, Project Settings, Export, New Project, Record) so `ui_snapshot` can see
+it; it changes nothing by itself (`project_settings_set` changes the
+project's settings).
 
 Keyboard shortcuts are the user's too, app-wide: `shortcuts_list` lists every
 action of the menus, keys and command palette with its keys; `shortcuts_set`

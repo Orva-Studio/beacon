@@ -348,7 +348,7 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   expect(ui.menus).not.toContain("fetchResource:whisper-model");
 
   // Settings › General offers it again; downloading shows progress, Cancel stops it, Hide leaves it running.
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
   await page.until(`!!${button("Download Speech Model…")}`);
   await page.evaluate(`${button("Download Speech Model…")}.click()`);
   await page.until("!!document.querySelector('[data-resource]')");
@@ -378,7 +378,7 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   const value = async () => (await ui.core.preferences()).find((p) => p.id === "transcriber")!.value;
   // Changing the transcriber transcribes the project's media again: not here (OpenAI's would be sent the test key).
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
   await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
   expect(await has("[data-resource-row]")).toBe(true);
   // Apple's needs nothing: chosen at once, and the model isn't offered.
@@ -413,7 +413,7 @@ test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: 
   const pick = (id: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-preference="${id}"]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   const value = async (id: string) => (await ui.core.preferences()).find((p) => p.id === id)!.value;
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences() });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences(), tab: "transcripts" });
   await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
   expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("Best Take");
   await pick("retake-judge", "openai");
@@ -463,7 +463,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
-    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
     await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
     expect(await page.evaluate<string>("document.querySelector('[data-offline]').textContent")).toContain("can't transcribe until you're back online");
     await page.evaluate("(() => { const s = document.querySelector('[data-transcriber]'); s.value = 'whisper'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
@@ -1801,7 +1801,7 @@ test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the d
   await run("timeline.zoom", { to: "fit" });
 });
 
-test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens on the Project tab", async () => {
+test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens in its own dialog", async () => {
   await run("selection.clear");
   await run("playhead.set", { time: 10 });
   await Bun.sleep(300);
@@ -1820,9 +1820,9 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
   await arrived(() => ui.menus.at(-1) === "canvas");
   expect(ui.menus.at(-1)).toBe("canvas");
   await run("canvas.zoom", { zoom: "fit" });
-  // What Project Settings… does in the app.
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "project" });
-  await page.until(`!!document.querySelector('[data-canvas-settings]')`);
+  // What Project Settings… does in the app: its own dialog.
+  ui.send("projectSettings", {});
+  await page.until(`!!document.querySelector('[data-project-settings] [data-canvas-settings]')`);
   await page.key("Escape", "Escape");
   await run("selection.clear");
 });
@@ -1830,7 +1830,7 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
 test.skipIf(skip)("Canvas Color shows a background with alpha, as a Camtasia import keeps it", async () => {
   const before = ui.core.doc(ui.handle).settings.background;
   await run("project.settings.set", { background: "#ff336680" });
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "project" });
+  ui.send("projectSettings", {});
   const swatch = `document.querySelector('[data-canvas-settings] button[title="The canvas colour behind the media"] span')`;
   await page.until(`!!${swatch}`);
   expect(await page.evaluate<string>(`getComputedStyle(${swatch}).backgroundColor`)).toBe("rgb(255, 51, 102)");
@@ -1866,6 +1866,42 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
   await Bun.sleep(300);
   expect(ui.core.doc(ui.handle).assets[id]).toBeDefined();
   await ui.core.undo(ui.handle);
+});
+
+test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
+  await page.until("!!document.querySelector('[data-settings-nav]')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Shortcuts"]);
+  const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
+  const first = await size();
+  for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
+    await page.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
+    await page.until(`document.querySelector('[data-settings-section]')?.dataset.settingsSection === '${section}'`);
+    expect(await size()).toBe(first);
+  }
+  // The long section scrolls inside it.
+  await page.evaluate("document.querySelector('[data-section=\"shortcuts\"]').click()");
+  await page.until("!!document.querySelector('[data-shortcut]')");
+  expect(await page.evaluate<boolean>("(() => { const l = document.querySelector('[data-shortcut]').parentElement; return l.scrollHeight > l.clientHeight; })()")).toBe(true);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-settings-nav]')");
+
+  // ⌥⌘, opens Project Settings; a change there is one undo step.
+  await page.key(",", "Comma", ["alt", "meta"]);
+  await page.until("!!document.querySelector('[data-project-settings]')");
+  const before = ui.core.doc(ui.handle).settings.background;
+  await run("project.settings.set", { background: "#123456" });
+  await page.until(`getComputedStyle(document.querySelector('[data-project-settings] button[title="The canvas colour behind the media"] span')).backgroundColor === 'rgb(18, 52, 86)'`);
+  await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle).settings.background).toBe(before);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-project-settings]')");
+  // Agents open it by name; Settings has no Project tab any more.
+  await ui.core.uiOpen(ui.handle, "projectSettings");
+  await page.until("!!document.querySelector('[data-project-settings]')");
+  await ui.core.uiOpen(ui.handle, null);
+  await page.until("!document.querySelector('[data-project-settings]')");
+  await expect(ui.core.uiOpen(ui.handle, "settings", "project")).rejects.toThrow(/dialog projectSettings/);
 });
 
 test.skipIf(skip)("Settings keeps focus where it is while the editor re-renders (an open dropdown stays open)", async () => {

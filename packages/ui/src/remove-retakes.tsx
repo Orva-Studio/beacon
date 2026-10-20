@@ -136,7 +136,7 @@ export function RetakeReviewPanel({ project, session, host, found }: { project: 
     >
       <Slider label="Repeats" title="Words in a row a take must say again to count as a retake" value={review.minWords} unit=" words" digits={0} step={1} min={2} max={8} onChange={(v) => set({ minWords: Math.round(v) })} />
       <Slider label="Within" title="Seconds between the starts of two takes, at most" value={review.within} unit=" s" digits={0} step={5} min={5} max={120} onChange={(v) => set({ within: Math.round(v) })} />
-      <div className="mb-4 text-label text-text-faint">Lines restarted or said again, found in the transcript. {found?.judge === "openai" ? "OpenAI picks the take to keep" : "The last take that says the whole line is kept, unless an earlier one has noticeably fewer fillers and stumbles"}; Best Take in Settings › General chooses who picks.</div>
+      <div className="mb-4 text-label text-text-faint">Lines restarted or said again, found in the transcript. {found?.judge === "openai" ? "OpenAI picks the take to keep" : "The last take that says the whole line is kept, unless an earlier one has noticeably fewer fillers and stumbles"}; Best Take in Settings › Transcripts chooses who picks.</div>
     </ReviewPanel>
   );
 }

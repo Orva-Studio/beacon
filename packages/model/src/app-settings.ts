@@ -41,11 +41,11 @@ export function withPatch(settings: AppSettings, { snapshotFolder, ...rest }: Se
 }
 
 /** Settings' tabs, in order. */
-export const SETTINGS_TABS = ["general", "recording", "shortcuts", "project"] as const;
+export const SETTINGS_TABS = ["general", "recording", "transcripts", "shortcuts"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /** The dialogs an agent can open in the app's window (`uiOpen`). */
-export const UI_DIALOGS = ["settings", "export", "exportSelection", "newProject", "record"] as const;
+export const UI_DIALOGS = ["settings", "projectSettings", "export", "exportSelection", "newProject", "record"] as const;
 export type UiDialog = (typeof UI_DIALOGS)[number];
 
 /** Proxies are off until turned on: the preview reads originals in process, and a proxy is one more copy to build. */

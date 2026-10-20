@@ -209,7 +209,7 @@ function AiPanel({ host }: { host: Host }) {
       <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
       {offline && (
         <div className="mb-3 rounded-md bg-chip px-3 py-2 text-caption text-warning" data-ai-offline>
-          You're offline, and {offline} transcribes over the internet: media here has no transcript yet, so these can't work until you're back online. Apple's transcriber works offline (Settings › General).
+          You're offline, and {offline} transcribes over the internet: media here has no transcript yet, so these can't work until you're back online. Apple's transcriber works offline (Settings › Transcripts).
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">

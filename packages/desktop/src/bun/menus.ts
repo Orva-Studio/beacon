@@ -142,6 +142,8 @@ export function createMenus(app: MenusApp) {
           { label: "Playhead", submenu: [item("edit.trimToPlayhead:start"), item("edit.trimToPlayhead:end")] },
           SEPARATOR,
           item("edit.addMarker"),
+          SEPARATOR,
+          item("app.projectSettings", { enabled: open }),
         ],
       },
       {

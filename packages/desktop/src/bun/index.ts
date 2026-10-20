@@ -104,7 +104,7 @@ const offered = new Set<string>();
 async function offerResource(r: import("@beacon/core").ResourceInfo) {
   if (r.present || r.job || offered.has(r.id)) return;
   offered.add(r.id);
-  if ((await core.settings()).declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › General)`);
+  if ((await core.settings()).declinedResources?.includes(r.id)) return status(`No transcript: the ${r.title} isn't downloaded (Settings › Transcripts)`);
   send().resourceSheet(r);
 }
 /** A download's progress, for the resource dialog and the status line. */
@@ -182,7 +182,7 @@ function appAction(id: string): void {
   if (id === "app.reveal") return void (current && core.reveal(current.path).catch(report));
   if (id === "app.settings") return void openSettings();
   if (id === "app.shortcuts") return void openSettings("shortcuts");
-  if (id === "app.projectSettings") return void openSettings("project");
+  if (id === "app.projectSettings") return void send().projectSettings({});
   if (id === "app.checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
   if (id === "app.palette") return void send().palette({});
 }
@@ -351,6 +351,7 @@ const server = serveCore(core, { path: socket, canOpen: (p) => current?.path ===
 core.setUiOpener((_, dialog, tab) => {
   if (dialog === null) send().closeDialogs({});
   else if (dialog === "settings") void openSettings(tab);
+  else if (dialog === "projectSettings") send().projectSettings({});
   else if (dialog === "export") void exports.exportDialog().catch(report);
   else if (dialog === "exportSelection") void exports.exportDialog(true).catch(report);
   else if (dialog === "newProject") projects.newProject();

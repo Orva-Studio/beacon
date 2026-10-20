@@ -50,6 +50,8 @@ export interface ViewState {
   shortcuts: import("@beacon/model").ShortcutInfo[];
   /** The command palette, while open. */
   palette?: boolean;
+  /** Project Settings, while open. */
+  projectSettings?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
   dragging?: { item: PanelItem; x: number; y: number };
   /** The Export dialog, while open. */
@@ -106,7 +108,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -168,13 +170,16 @@ export const replica = {
   palette(palette: boolean) {
     set({ palette: palette && !!state.opened });
   },
+  projectSettings(open: boolean) {
+    set({ projectSettings: open && !!state.opened });
+  },
   /** Settings changed elsewhere: an open Settings window takes them. */
   appSettings(next: import("./rpc").AppSettings) {
     if (state.settings) set({ settings: { ...state.settings, ...next } });
   },
   /** The dialogs an agent can open (`ui_open`), closed. */
   closeDialogs() {
-    set({ settings: undefined, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
+    set({ settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
   },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });

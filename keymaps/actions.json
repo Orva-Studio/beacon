@@ -8,7 +8,7 @@
     {
       "id": "app.settings",
       "name": "Settings…",
-      "description": "Beacon's settings: General, Recording, Shortcuts and the open project's"
+      "description": "Beacon's settings: General, Recording, Transcripts and Shortcuts"
     },
     {
       "id": "app.shortcuts",

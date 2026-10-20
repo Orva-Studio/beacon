@@ -319,7 +319,7 @@ export type AppRPC = {
       /** Download a resource (the speech model): replies with its job id. */
       fetchResource: { params: { id: string }; response: RunReply & { result?: string } };
       declineResource: { params: { id: string }; response: void };
-      /** Settings › General › Transcripts: replies with the preferences as they now are. */
+      /** Settings › Transcripts: replies with the preferences as they now are. */
       setPreference: { params: { id: string; value: string }; response: RunReply & { result?: PreferenceInfo[] } };
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
@@ -402,6 +402,8 @@ export type AppRPC = {
       preferences: PreferenceInfo[];
       /** Tools › Command Palette…: open it. */
       palette: {};
+      /** Edit › Project Settings… (or ui_open): the project's own settings, in a dialog of their own. */
+      projectSettings: {};
       /** Keyboard shortcuts changed (in Settings or by an agent). */
       shortcuts: { shortcuts: ShortcutInfo[] };
       /** Snapshot saved a frame: shown with Show in Finder. */
