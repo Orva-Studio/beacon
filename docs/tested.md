@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | Notes |
 |---|---|---|---|
+| Shortcuts work straight after switching back from another app, with no click (the page takes the keys back from the canvas's native view) | 2026-10-19 | `12c6909` | The user: "just tested the app switching and it works" |
 | Unlink Recording unlinks every selected recording, not only the clicked one (`edit.unlink` on the selection; `clip.unlink` takes `clips`) | 2026-10-19 | `c942190` | Core test (two takes, both cameras selected, one Unlink: no links left, one undo restores them; fails without the fix); UI flow (two recordings selected, Unlink by a key: all unlinked, one undo); the user: "I've tested all these things" |
 | **Recording in the app** (`349dbb8` changed how the take and the Record dialog's previews set up capture): a take with screen, system audio, camera and microphone; the Record dialog's camera and screen previews and levels; voice narration; Check Sync. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
 | **The canvas in the app** after the shader changes (`d584f2b`): video, a tilted clip with drop shadow, CRT, round corners, the selection handles and guides drawn by the preview; an MP4 export plays as before. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
@@ -29,7 +30,6 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| Shortcuts work straight after switching back from another app (Electrobun gave the keys to the canvas's native view as the window became key; the page takes them back) | 2026-10-19 | this commit | Found in Electrobun's `-[WindowDelegate windowDidBecomeKey:]` (libNativeWrapper); built and typechecked, no headless check possible (the harness has no native window). To try by hand: switch away and back, then press Space |
 | Core split (analyses, recording, thumbnails, registry info) behaves as before | 2026-10-18 | `dc4ae1c` | core, features, mcp, camtasia tests; UI flows |
 | Desktop split: boot, open, MCP over the socket | 2026-10-18 | `6235adc` | `app.test.ts` (passes on this Mac now); UI flows |
 | Proxies follow Settings › General in core; a settings.json written by another process is told and followed; the desktop keeps no settings copy | 2026-10-18 | `7d3faab` | Core test (no proxy for a video until an agent's core turns video proxies on); UI flow (a video file gets no proxy with video off); `app.test.ts` |
