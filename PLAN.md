@@ -1790,6 +1790,12 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   is cleared once the drag ends, so it must be copied in, not used in place.
   Read the drag pasteboard (`beacon_drag_files`) of a Recents drag first: what
   it offers (file reference URLs, `/.file/id=`?) decides the fix.
+  Later the same day the user found those bounced drops do arrive, only late:
+  the clip appears on the timeline after a while. So the bounce is Finder's
+  animation (the drop reported as not taken), and the time goes somewhere
+  before the clip is placed: time each step (WebKit handing over the file,
+  finding its path, reading it) and make the drop show at once (the import
+  panel's placeholder, and the drop reported as taken).
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
