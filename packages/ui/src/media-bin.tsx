@@ -4,6 +4,7 @@ import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
 import { replica, useView, type BinKind, type BinSort } from "./store";
 import { Icon, MediaTile, Progress, RenameField, TextInput, Waveform, type IconName } from "./controls";
+import { PendingTiles } from "./import-progress";
 import { openPreview } from "./media-preview";
 import { clock } from "./time";
 
@@ -238,6 +239,7 @@ export function MediaBin({
         }}
       >
         <ImportTile list={list} host={host} empty={!all.length} />
+        <PendingTiles list={list} />
         {assets.map((a) => (
           <BinItem key={a.id} asset={a} list={list} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
         ))}

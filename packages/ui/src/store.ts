@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, ImportingFiles, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
 
 enablePatches();
 
@@ -62,6 +62,8 @@ export interface ViewState {
   narrating?: Narrating;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
+  /** Imports under way or just finished, by id, until their panel is dismissed. */
+  imports: Record<string, ImportingFiles>;
   /** The Settings window, while open, with the app settings it opened with. */
   settings?: SettingsSheet;
   /** The last Snapshot's file, while its toast shows. */
@@ -93,7 +95,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false }, imports: {} };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -108,7 +110,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {} });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -202,6 +204,12 @@ export const replica = {
   },
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });
+  },
+  importing(i: ImportingFiles) {
+    set({ imports: { ...state.imports, [i.id]: i } });
+  },
+  importsDismissed() {
+    set({ imports: {} });
   },
   sortBin(binSort: ViewState["binSort"]) {
     set({ binSort });

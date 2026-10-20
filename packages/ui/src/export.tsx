@@ -285,14 +285,14 @@ export function SnapshotSaved({ host }: { host: ExportHost }) {
   );
 }
 
-/** Both, from the view store. */
+/** The Export dialog, from the view store. */
 export function ExportUi({ host, muted, unmute }: { host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const sheet = useView((v) => v.exportSheet);
+  return sheet ? <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} muted={muted} unmute={unmute} /> : null;
+}
+
+/** The running export's toast, from the view store. */
+export function ExportToast({ host }: { host: ExportHost }) {
   const job = useView((v) => v.exportJob);
-  return (
-    <>
-      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} muted={muted} unmute={unmute} />}
-      {job && <ExportProgress job={job} host={host} />}
-    </>
-  );
+  return job ? <ExportProgress job={job} host={host} /> : null;
 }

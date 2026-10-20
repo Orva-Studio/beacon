@@ -1,7 +1,7 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
-import type { SchemaInfo } from "@beacon/core";
+import type { CoreEvent, SchemaInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export type { RecorderLive } from "@beacon/media";
@@ -204,6 +204,9 @@ export interface Narrating {
 }
 
 /** An export running or finished, for the window's progress panel. */
+/** Files being imported (core's `importing`): read, then their media made. */
+export type ImportingFiles = Omit<Extract<CoreEvent, { kind: "importing" }>, "kind">;
+
 export interface ExportJob {
   id: string;
   output: string;
@@ -396,6 +399,7 @@ export type AppRPC = {
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;
       exportJob: ExportJob;
+      importing: ImportingFiles;
       /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
       favorites: { items: string[] };
       /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */

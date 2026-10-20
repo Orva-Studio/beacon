@@ -117,6 +117,9 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
       }
       if (job.state === "done" && job.kind === "waveform") sendWaveforms();
       hooks.other?.(e);
+    } else if (e.kind === "importing") {
+      const { kind: _, ...files } = e;
+      send("importing", files);
     } else hooks.other?.(e);
   });
   return { unwatch, rev: () => rev, sendWaveforms, proxies };

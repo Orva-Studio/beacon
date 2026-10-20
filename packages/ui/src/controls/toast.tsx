@@ -4,8 +4,7 @@ import { RoundedMask } from "./rounded-mask";
 import { Button } from "./buttons";
 
 /**
- * A panel in the window's bottom-right corner reporting something done in the background (an export, a
- * snapshot). Once `done`, it goes after 5 s unless the pointer is on it; `onDismiss` adds a close button.
+ * A panel reporting something done in the background (an export, a snapshot, an import), in `Toasts`. Once `done`, it goes after 5 s unless the pointer is on it; `onDismiss` adds a close button.
  */
 export function Toast({ title, hint, done, onDismiss, children }: { title: ReactNode; hint?: string; done: boolean; onDismiss?: () => void; children?: ReactNode }) {
   const [hovered, setHovered] = useState(false);
@@ -25,7 +24,7 @@ export function Toast({ title, hint, done, onDismiss, children }: { title: React
   }, [done, hovered, dismissable]);
   return (
     <div
-      className={`fixed right-4 bottom-4 z-40 w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl`}
+      className="relative w-80 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl"
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       data-toast
@@ -44,4 +43,9 @@ export function Toast({ title, hint, done, onDismiss, children }: { title: React
       {children}
     </div>
   );
+}
+
+/** The window's bottom-right corner, where toasts stack. */
+export function Toasts({ children }: { children: ReactNode }) {
+  return <div className="fixed right-4 bottom-4 z-40 flex flex-col items-end gap-2">{children}</div>;
 }

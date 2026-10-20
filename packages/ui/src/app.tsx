@@ -17,7 +17,8 @@ import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project
 import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
-import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
+import { ExportToast, ExportUi, SnapshotSaved, type ExportHost } from "./export";
+import { ImportProgress } from "./import-progress";
 import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
@@ -29,7 +30,7 @@ import { ProjectSettingsUi } from "./project-settings";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, type Eyedropper, type IconName, type NativeTag } from "./controls";
+import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -208,7 +209,11 @@ export function App({ host }: { host: Host }) {
           }}
         />
         <RecordUi host={host} />
-        <SnapshotSaved host={host} />
+        <Toasts>
+          <ExportToast host={host} />
+          <SnapshotSaved host={host} />
+          <ImportProgress project={project} />
+        </Toasts>
         <SettingsUi host={host} />
         <ProjectSettingsUi host={host} />
         <StartScreen host={host} />

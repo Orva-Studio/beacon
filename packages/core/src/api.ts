@@ -231,6 +231,8 @@ export type CoreEvent =
   | { kind: "derived"; asset: string; key: string; present: boolean }
   /** A narration ended (stopped, or it reached the end of its range) and was placed, or was discarded. */
   | { kind: "narrated"; result: RecordResult }
+  /** Files being imported: `reading` while they are probed (before their media exist), then `done` with the media made, or `failed`. */
+  | { kind: "importing"; id: string; files: string[]; state: "reading" | "done" | "failed"; assets?: string[]; error?: string }
   /** Something went wrong outside any call, e.g. the save after a drag: show it, the caller has already returned. */
   | { kind: "error"; message: string }
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */

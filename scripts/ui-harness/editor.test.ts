@@ -1570,6 +1570,35 @@ test.skipIf(skip)("an audio file in the Media Bin shows its waveform", async () 
   await ui.core.undo(ui.handle);
 }, 90000);
 
+test.skipIf(skip)("importing shows a placeholder tile while a file is read and a dismissable panel of each file's stage until it is ready", async () => {
+  await run("panel.show", { tool: "media" });
+  // While read, before its media exist: a placeholder tile, and the file Reading in the panel.
+  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "reading" });
+  await page.until("!!document.querySelector('[data-import-progress]')");
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "reading" });
+  await page.until(`!!document.querySelector('[data-pending-media="Big Take.mov"]')`);
+  await page.until(`document.querySelector('[data-import-row="Big Take.mov"]')?.dataset.importStage === 'Reading'`);
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("Importing 1 file");
+  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "failed", error: "no feature imports .mov" });
+  await page.until(`document.querySelector('[data-import-row="Big Take.mov"]')?.dataset.importStage === 'Failed'`);
+  expect(await has('[data-pending-media]')).toBe(false);
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-import-progress]')");
+
+  // A real one: its row follows the media until it is ready, then the panel says so.
+  const copy = join(dir, `import-voice-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const r = await ui.core.import(ui.handle, [copy]);
+  for (const j of r.jobs) await ui.core.cancelJob(j).catch(() => {});
+  await page.until(`!!document.querySelector('[data-import-progress] [data-import-stage]')`);
+  await page.until(`[...document.querySelectorAll('[data-import-row]')].some((e) => e.dataset.importStage === 'Ready')`, 30000);
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("Imported 1 file");
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-import-progress]')");
+  await ui.core.undo(ui.handle);
+}, 60_000);
+
 test.skipIf(skip)("Settings choose which media get proxies on their own (the rest wait for Create Proxy Video) and how quietly they are built", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
   await page.until(`!!document.querySelector('[data-auto-proxy]')`);
@@ -1597,7 +1626,7 @@ test.skipIf(skip)("a dialog is cut out of the native canvas with its rounded cor
   await page.until("!!document.querySelector('[tabindex=\"-1\"] .ot-mask')");
   // Whether a point is cut out: inside any masked element's rectangle, as the native view takes them.
   const cut = await page.evaluate<boolean[]>(`(() => {
-    const sheet = document.querySelector('.ot-mask').closest('[tabindex="-1"]').getBoundingClientRect();
+    const sheet = document.querySelector('[tabindex="-1"] .ot-mask').closest('[tabindex="-1"]').getBoundingClientRect();
     const rects = [...document.querySelectorAll('.ot-mask')].map((m) => m.getBoundingClientRect());
     const inside = (x, y) => rects.some((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
     const { left: l, top: t, right: r, bottom: b } = sheet;

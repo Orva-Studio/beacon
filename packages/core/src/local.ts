@@ -128,6 +128,7 @@ export class LocalCore implements BeaconCore {
   });
   /** The last copies in any project, so they paste into the next one opened. */
   #shared: SharedSession = { clipboard: null, properties: null };
+  #imports = 0;
 
   /** Preferences, favourites, settings and keys, and the secrets. */
   readonly #config: AppConfig;
@@ -799,8 +800,22 @@ export class LocalCore implements BeaconCore {
   /** All or nothing: every file is probed first, then they are added in one undo step. */
   async import(h: ProjectHandle, files: string[], opts: ImportOptions = {}): Promise<ImportResult> {
     const p = this.#get(h);
+    const id = `import-${++this.#imports}`;
+    const paths = files.map((f) => resolve(f));
+    this.#emit(p, { kind: "importing", id, files: paths, state: "reading" });
+    try {
+      const result = await this.#import(p, paths, opts);
+      this.#emit(p, { kind: "importing", id, files: paths, state: "done", assets: result.assets });
+      return result;
+    } catch (e) {
+      this.#emit(p, { kind: "importing", id, files: paths, state: "failed", error: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  }
+
+  async #import(p: OpenProject, files: string[], opts: ImportOptions): Promise<ImportResult> {
     const result: ImportResult = { assets: [], clips: [], jobs: [] };
-    const todo = files.map((f) => resolve(f)).map((file) => {
+    const todo = files.map((file) => {
       const importer = this.registry.importerFor(extname(file));
       if (!importer) throw new Error(`no feature imports ${extname(file) || "files without an extension"} (${file})`);
       return { file, importer };
