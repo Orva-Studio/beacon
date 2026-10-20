@@ -24,6 +24,7 @@ import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
+import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
@@ -145,7 +146,7 @@ export function App({ host }: { host: Host }) {
   return (
     <EyedropperContext.Provider value={EYEDROPPER}>
       <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
-        <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
+        <TopBar name={opened?.name} project={project} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
         <div className="flex min-h-0 flex-1 gap-gutter">
           <ToolRail session={session} host={host} />
           {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
@@ -282,8 +283,9 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
   );
 }
 
-function TopBar({ name, session, host, status, saved, preparing }: { name?: string; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
+function TopBar({ name, project, session, host, status, saved, preparing }: { name?: string; project?: Project; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
   const zoom = session?.canvas.zoom ?? "fit";
+  const { layouts } = useSafeAreas(host, project, session);
   const narrating = useView((v) => v.narrating);
   // ⌘S out of habit (`app.save`): no dialog, the label confirms the project is already saved.
   const asked = useView((v) => v.confirmSaved);
@@ -308,6 +310,7 @@ function TopBar({ name, session, host, status, saved, preparing }: { name?: stri
         </span>
       )}
       <span className="truncate text-xs text-text-faint">{status}</span>
+      {project && session && <SafeAreaPicker host={host} project={project} session={session} layouts={layouts} />}
       {session && (
         <Select
           look="bar"

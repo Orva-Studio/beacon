@@ -121,6 +121,12 @@ screenshot of the app window (with the canvas at the playhead drawn in) and
 what the window reports it has drawn. These don't change the project and
 aren't undone.
 
+Vertical videos (TikTok, Reels, Shorts) and YouTube: `safeAreas_check` lists
+every caption and callout the platform's own UI would cover (caption band,
+username, the like/comment rail), with when; one call, before exporting. The
+layouts are `safeAreas_layouts` (canvas pixels); `safeAreas_show` draws one
+over the canvas for the user (kept with the project, never exported).
+
 ## Look at the result
 Judge edits by looking, not by numbers alone:
 - `frame_at` renders the canvas at a time (default 960 px wide).

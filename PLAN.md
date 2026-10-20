@@ -1725,7 +1725,18 @@ Seeing more at once.
   them. A query flags text, captions and callouts that overlap an unsafe
   zone anywhere on the timeline ("nothing under the TikTok buttons", one
   tool call for an agent); snapping to safe-area edges comes cheap. Face
-  detection for the head guide is later, if wanted.
+  detection for the head guide is later, if wanted. Decided (the user,
+  2026-10-20): the platforms' ads numbers (measured from their templates,
+  `features/src/safe-areas/layouts.json` with their sources); for 16:9, the
+  player's title bar and controls, the 90% title-safe frame and end screens
+  over the last 20 s; View › Safe Areas and a picker by the canvas zoom,
+  kept with the project. **Built 2026-10-20**: a `safe-areas` feature
+  (`safeAreas.show`, `safeAreas.layouts`, `safeAreas.check`); the zones as
+  bands and edges in the preview's marks, the headroom band and a dashed eye
+  line; the top bar counts the captions and callouts under a zone and goes to
+  the first; boxes snap to the zones' edges. The contract gained
+  `Feature.sessionSaved` (editor state kept in the project's `editor.json`,
+  never an undo step) and the session in queries.
 **Gate:** two projects open side by side, the film look matches between
 preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.

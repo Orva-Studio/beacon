@@ -11,12 +11,14 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| Remove Retakes: the AI panel's tile opens a review; each take marked on the timeline (kept green, the rest red), a click keeps another; one at a time lists the group's takes (click to keep, ▶ plays one and stops at its end); Apply All and Cut This One, one undo step each; keeping an earlier take cuts only the later one's repeat | 2026-10-20 | this commit | Core tests on `audio.m4a` under a transcript with two restarted lines (text after Apply, exact undo, Cut This One); UI flow; the detector over the 105 cached transcripts on this Mac (70 groups, read through) |
-| Best Take: Beacon's own scoring or OpenAI with the transcriber's key; OpenAI asked only when the review opens (once per medium), its picks shown with why, Beacon's while it answers or when it can't (a bad key's message shown) | 2026-10-20 | this commit | Core test and UI flow with OpenAI's API stood in (the request's words, the picks applied, a 401's message); Settings flow (key typed in Best Take, shared with the transcriber's row, removed: back to Beacon's) |
+| Remove Retakes: the AI panel's tile opens a review; each take marked on the timeline (kept green, the rest red), a click keeps another; one at a time lists the group's takes (click to keep, ▶ plays one and stops at its end); Apply All and Cut This One, one undo step each; keeping an earlier take cuts only the later one's repeat | 2026-10-20 | `5fff4a6` | Core tests on `audio.m4a` under a transcript with two restarted lines (text after Apply, exact undo, Cut This One); UI flow; the detector over the 105 cached transcripts on this Mac (70 groups, read through) |
+| Best Take: Beacon's own scoring or OpenAI with the transcriber's key; OpenAI asked only when the review opens (once per medium), its picks shown with why, Beacon's while it answers or when it can't (a bad key's message shown) | 2026-10-20 | `5fff4a6` | Core test and UI flow with OpenAI's API stood in (the request's words, the picks applied, a 401's message); Settings flow (key typed in Best Take, shared with the transcriber's row, removed: back to Beacon's) |
+| Safe areas: the top bar's picker offers TikTok, Reels and Shorts on 9:16 (YouTube on 16:9), the zones drawn over the canvas, the captions under TikTok's caption band counted and the first gone to; clear once moved; a box's side snaps to a zone's edge; None hides them; kept with the project in `editor.json`, not as an edit | 2026-10-20 | this commit | Core test on a 1080×1920 project with `audio.m4a` and captions (default captions flagged in the caption band, centred ones in the action rail, clean higher; a text box under the rail; the layout back after reopening, `editor.json` gone with None); UI flow |
 
 ### Not checked yet
 
 - Remove Retakes on a real take of yours, with Beacon's picks and with OpenAI's (a real key): the groups it finds, the takes it keeps, and the cuts sounding clean.
+- Safe areas in the app: the zones drawn by the native preview over a real Short (and a 16:9 project with YouTube's), View › Safe Areas, and whether the zones match what TikTok, Reels and Shorts cover on your phone.
 
 ## Phase 8.5 (`phase-8.5`)
 

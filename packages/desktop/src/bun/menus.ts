@@ -150,6 +150,18 @@ export function createMenus(app: MenusApp) {
           item("timeline.snapping", { label: "Enable Timeline Snapping" }),
           item("canvas.snapping", { label: "Enable Canvas Snapping" }),
           SEPARATOR,
+          {
+            label: "Safe Areas",
+            submenu: [
+              item("safeAreas.show:none", { label: "None", enabled: open }),
+              SEPARATOR,
+              item("safeAreas.show:tiktok", { label: "TikTok", enabled: open }),
+              item("safeAreas.show:reels", { label: "Instagram Reels", enabled: open }),
+              item("safeAreas.show:shorts", { label: "YouTube Shorts", enabled: open }),
+              item("safeAreas.show:youtube", { label: "YouTube (16:9)", enabled: open }),
+            ],
+          },
+          SEPARATOR,
           item("timeline.zoom:in"),
           item("timeline.zoom:out"),
           item("timeline.zoom:fit"),

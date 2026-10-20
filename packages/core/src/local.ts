@@ -74,7 +74,7 @@ import { AppConfig } from "./config";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
-import { lock, projectName, readProject, unlock, writeProject } from "./persist";
+import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject } from "./persist";
 import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
@@ -187,9 +187,22 @@ export class LocalCore implements BeaconCore {
       p.session.reconcile(e.doc);
       p.view?.refresh();
     });
+    const kept = readEditor(path);
+    p.session.reopen(Object.fromEntries([...this.registry.features.values()].filter((f) => f.sessionSaved && kept[f.id] !== undefined).map((f) => [f.id, kept[f.id]])));
+    p.editorSaved = JSON.stringify(this.#editorState(p.session.state));
     p.session.subscribe((c) => this.#sessionChanged(p, c));
     this.#projects.set(path, p);
     return path;
+  }
+
+  /** What the features keep of the editor's state with the project (the safe areas shown), by feature id. */
+  #editorState(s: Session): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const f of this.registry.features.values()) {
+      const v = f.sessionSaved?.(s.features[f.id]);
+      if (v !== undefined) out[f.id] = v;
+    }
+    return out;
   }
 
   #emit(p: OpenProject, e: CoreEvent) {
@@ -469,6 +482,18 @@ export class LocalCore implements BeaconCore {
   }
 
   #sessionChanged(p: OpenProject, { session, changed }: SessionChange) {
+    if (changed.includes("features")) {
+      const kept = this.#editorState(session);
+      const json = JSON.stringify(kept);
+      if (json !== p.editorSaved) {
+        try {
+          writeEditor(p.path, kept);
+          p.editorSaved = json;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
     if (changed.includes("clipboard") || changed.includes("properties")) {
       this.#shared = { clipboard: session.clipboard, properties: session.properties };
       for (const other of this.#projects.values()) if (other !== p) other.session.share(this.#shared);
@@ -674,7 +699,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {

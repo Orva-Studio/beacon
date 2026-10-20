@@ -16,6 +16,7 @@ import { timeline } from "./timeline";
 import { transcript } from "./transcript";
 import { transform } from "./transform";
 import { noise } from "./noise";
+import { safeAreas } from "./safe-areas";
 import { volume } from "./volume";
 import { zoom } from "./zoom";
 
@@ -32,13 +33,14 @@ export * from "./groups";
 export * from "./stitching";
 export * from "./captions";
 export * from "./labels";
+export * from "./safe-areas";
 
 /**
  * Every feature, in evaluation order: clip content and cursor are drawn in
  * content space, `transform` maps them to the canvas, then effects.
  * Editing-only features come last.
  */
-export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, transform, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, zoom, transcript, labels];
+export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, transform, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, zoom, transcript, labels, safeAreas];
 
 export function createRegistry(): FeatureRegistry {
   return new FeatureRegistry(FEATURES);

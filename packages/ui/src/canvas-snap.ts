@@ -23,7 +23,7 @@ export interface Guide {
  * Snapping on the canvas for one render: `placed` clips drawn at `k` points per canvas pixel from (`ox`, `oy`) in the
  * overlay, on a `width` × `height` canvas; `on`, the session's snapping; `moving`, the clips a move drags.
  */
-export function canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on, moving }: { placed: Placed[]; ox: number; oy: number; k: number; width: number; height: number; on: boolean; moving: Set<string> }) {
+export function canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on, moving, extra }: { placed: Placed[]; ox: number; oy: number; k: number; width: number; height: number; on: boolean; moving: Set<string>; extra?: { x: Line[]; y: Line[] } }) {
   /** Lines a box can align on along axis `i`: its two edges (spanning its extent on the other axis) and its centre (a point). */
   const lines = (a: number, b: number, c0: number, c1: number): Line[] => [
     { at: a, span: [c0, c1] },
@@ -39,9 +39,9 @@ export function canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on, m
     return { c, lo, hi };
   };
 
-  /** What a box snaps to along axis `i` (canvas pixels): the canvas's edges and centre, and other clips' edges. */
+  /** What a box snaps to along axis `i` (canvas pixels): the canvas's edges and centre, `extra` (safe-area edges), and other clips' edges. */
   const snapTargets = (i: 0 | 1, skip: Set<string>): Line[] => {
-    const out = i === 0 ? lines(0, CW, 0, CH) : lines(0, CH, 0, CW);
+    const out = [...(i === 0 ? lines(0, CW, 0, CH) : lines(0, CH, 0, CW)), ...((i === 0 ? extra?.x : extra?.y) ?? [])];
     for (const p of placed) {
       if (skip.has(p.clip.id)) continue;
       const { lo, hi } = canvasBox(p);

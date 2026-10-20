@@ -344,6 +344,8 @@ export interface QueryContext {
   data<T>(assetId: string, key: string): T | undefined;
   /** The current preferences (who judges retakes). */
   pref: Preferences;
+  /** The editor's state, when the query is about an open project (the safe areas shown). */
+  session?: Session;
 }
 
 /** A read of the document or derived data (PLAN §7), exposed to agents like commands. */
@@ -477,6 +479,11 @@ export interface Feature {
   annotations?: Record<string, AnnotationDef>;
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
+  /**
+   * What of that state is kept with the project (its `editor.json`, never an undo step), restored when it is
+   * opened; undefined keeps nothing. The safe areas shown are; a review isn't.
+   */
+  sessionSaved?: (state: unknown) => unknown;
   migrations?: Migration[];
   /**
    * Runs at the end of every transaction that changed something, before

@@ -14,6 +14,8 @@ export interface OpenProject {
   ticking: boolean;
   listeners: Set<(e: CoreEvent) => void>;
   saveTimer?: ReturnType<typeof setTimeout>;
+  /** The features' editor state last written to the project's `editor.json`, as JSON. */
+  editorSaved?: string;
 }
 
 /** What core's parts (analyses, recording) are given of it: its open projects, telling their watchers, saving and jobs. */

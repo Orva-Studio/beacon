@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { migrateProject, SCHEMA_VERSION, type FeatureRegistry, type Project } from "@beacon/model";
 
 const PROJECT_FILE = "project.json";
+const EDITOR_FILE = "editor.json";
 const LOCK_FILE = "lock";
 
 type Assets = Record<string, { path: string }>;
@@ -40,6 +41,22 @@ export function writeProject(dir: string, doc: Project) {
     closeSync(fd);
   }
   renameSync(tmp, join(dir, PROJECT_FILE));
+}
+
+/** The editor state features keep with the project (`Feature.sessionSaved`), by feature id; none if it can't be read. */
+export function readEditor(dir: string): Record<string, unknown> {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, EDITOR_FILE), "utf8")) as { features?: Record<string, unknown> };
+    return raw.features && typeof raw.features === "object" ? raw.features : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeEditor(dir: string, features: Record<string, unknown>) {
+  const file = join(dir, EDITOR_FILE);
+  if (!Object.keys(features).length) return rmSync(file, { force: true });
+  writeFileSync(file, `${JSON.stringify({ features }, null, 2)}\n`);
 }
 
 /** A name typed for a project's folder, without `.beproj`; throws when it can't be one (empty, hidden, or with / or :). */

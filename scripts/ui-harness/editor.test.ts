@@ -2252,6 +2252,77 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
   }
 }, 180_000);
 
+test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms for its shape, draws TikTok's zones, counts the captions under them and goes to the first; clear once moved; a box snaps to a zone's edge; None hides them", async () => {
+  const cacheDir = join(dir, "safe-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "short-safe.beproj");
+  const h = await core.create({ path, settings: { width: 1080, height: 1920 } });
+  const copy = join(dir, `safe-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const { assets, jobs } = await core.import(h, [copy], { at: 0 });
+  for (const j of jobs) await core.cancelJob(j).catch(() => {});
+  const asset = core.doc(h).assets[assets[0]!]!;
+  const words = "So this is a short about safe areas and where captions should go".split(" ").map((text, i) => ({ text, start: 1 + i * 0.5, end: 1.4 + i * 0.5, p: 1 }));
+  mkdirSync(join(cacheDir, "derived"), { recursive: true });
+  writeFileSync(new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify({ streams: { 0: { model: "test", language: "en", words, speech: [[1, 8]] } } }));
+  await core.run(h, "captions.create", {});
+  await core.close(h);
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
+    const shownNow = async () => (await other.core.session(other.handle)).features["safe-areas"];
+    const bands = () => p.evaluate<number[][]>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).map((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')])");
+    await p.until("!!document.querySelector('[data-safe-area-select]')");
+    expect(await p.evaluate<string[]>("[...document.querySelectorAll('[data-safe-area-select] option')].map((o) => o.value)")).toEqual(["", "tiktok", "reels", "shorts"]);
+    expect(await bands()).toEqual([]);
+    await p.evaluate("(() => { const s = document.querySelector('[data-safe-area-select]'); s.value = 'tiktok'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).length === 6");
+    expect(await shownNow()).toEqual({ layout: "tiktok" });
+    // Every caption sits under TikTok's caption band: counted, and a click goes to the first, selected.
+    const captions = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption").sort((a, b) => a.start - b.start);
+    await p.until(`document.querySelector('[data-safe-issues]')?.dataset.safeIssues === '${captions.length}'`);
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-issues]').textContent")).toBe(`⚠ ${captions.length} under TikTok's UI`);
+    await p.evaluate("document.querySelector('[data-safe-issues]').click()");
+    await arrived(() => false, 300);
+    const s = await other.core.session(other.handle);
+    expect(s.selection).toEqual([captions[0]!.id]);
+    expect(s.playhead).toBeCloseTo(ticksToSeconds(captions[0]!.start), 2);
+    await go("captions.style", { style: { anchorY: "middle", offsetY: -300 } });
+    await p.until("!!document.querySelector('[data-safe-clean]') && !document.querySelector('[data-safe-issues]')");
+    // A text box's right side, dragged three points short of the right edge's zone, lands on it.
+    await go("edit.addAnnotation", { preset: "text", time: 1 });
+    const callout = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).find((c) => c.type === "callout")!;
+    const handle = `[data-handle="e"][data-clip="${callout.id}"]`;
+    await p.until(`!!document.querySelector('${handle}')`);
+    const wide = await p.evaluate<number>(`document.querySelector('${handle}').getBoundingClientRect().x`);
+    // Narrower than the canvas, wide enough on screen that the rotate dot isn't over the side handle.
+    await go("clip.set", { clips: [callout.id], props: { callout: { width: 700 } } });
+    await p.until(`document.querySelector('${handle}').getBoundingClientRect().x < ${wide - 20}`);
+    const overlay = await p.evaluate<number>("document.querySelector('[data-canvas-overlay]').getBoundingClientRect().x");
+    const edge = overlay + Math.max(...(await bands()).map((b) => b[0]!));
+    const [x0, y] = await p.evaluate<[number, number]>(`(() => { const r = document.querySelector('${handle}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    expect(Math.abs(x0 - edge)).toBeGreaterThan(10);
+    await p.down(x0, y);
+    for (let i = 1; i <= 8; i++) {
+      await p.move(x0 + ((edge - 3 - x0) * i) / 8, y);
+      await Bun.sleep(16);
+    }
+    await p.up(edge - 3, y);
+    await Bun.sleep(300);
+    const after = await p.evaluate<number>(`(() => { const r = document.querySelector('${handle}').getBoundingClientRect(); return r.x + r.width / 2; })()`);
+    expect(after).toBeCloseTo(edge, 0);
+    // None hides them, and the project no longer keeps one.
+    await p.evaluate("(() => { const s = document.querySelector('[data-safe-area-select]'); s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].every((l) => +l.getAttribute('stroke-width') <= 10)");
+    expect(await shownNow()).toBeUndefined();
+    expect(existsSync(join(path, "editor.json"))).toBe(false);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 60_000);
+
 test.skipIf(skip)("Captions makes caption clips from the transcript and shows the first; its text is edited in place and a style change restyles every caption, each one undo step", async () => {
   await select([]);
   await run("panel.show", { tool: "ai" });

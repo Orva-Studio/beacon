@@ -134,6 +134,11 @@ function captionGeometry(words: CaptionWord[], style: CaptionStyle, canvas: { wi
   return { text, spec, lines, box: { x, y, width: size[0], height: size[1] }, origin: [x + pad[0] - left, y + pad[1] - top] as [number, number], height: Math.ceil(bottom) + 2 };
 }
 
+/** A caption clip's box on the canvas (canvas pixels, y down) on `track`, or undefined when it shows no words. */
+export function captionBox(clip: Clip, track: Track | undefined, canvas: { width: number; height: number }) {
+  return captionGeometry(shownWords(clip), clipStyle(clip, track, canvas.height), canvas)?.box;
+}
+
 function evaluateCaption(e: ClipEval, ctx: EvalContext) {
   const words = shownWords(e.clip);
   const style = clipStyle(e.clip, e.track, ctx.canvas.height);

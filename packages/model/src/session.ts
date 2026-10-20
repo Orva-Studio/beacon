@@ -638,6 +638,11 @@ export class SessionStore {
     return this.#state;
   }
 
+  /** Features' state kept with the project (`Feature.sessionSaved`), put back when it is opened. */
+  reopen(features: Record<string, unknown>) {
+    this.#state = produce(this.#state, (d) => void Object.assign(d.features, features));
+  }
+
   has(id: string): boolean {
     return this.commands.has(id);
   }

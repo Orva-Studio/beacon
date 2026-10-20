@@ -1,0 +1,62 @@
+{
+  "about": "Where each platform draws its own UI over a video, as fractions of the frame (x0, y0, x1, y1; y down). The 9:16 numbers are the platforms' own for ads (a call-to-action button makes the bottom band a little deeper than an ordinary post's), measured from their templates by Solid Labs (https://www.solidlabs.com/social-safe-zones), checked 2026-08-07. YouTube's 16:9 player publishes none: its zones are the player's own title and controls, with the 90% title-safe frame. The apps move: update this file, not the code.",
+  "layouts": [
+    {
+      "id": "tiktok",
+      "title": "TikTok",
+      "aspect": [9, 16],
+      "source": "TikTok's In-Feed template (April 2025), 240 / 660 / 120 px at 1080×1920, the action rail 300 px below the middle",
+      "zones": [
+        { "id": "top", "label": "Following, For You and search", "rect": [0, 0, 1, 0.125] },
+        { "id": "bottom", "label": "Username, caption and sound", "rect": [0, 0.65625, 1, 1] },
+        { "id": "left", "label": "Left edge, cropped on some phones", "rect": [0, 0.125, 0.11111, 0.65625] },
+        { "id": "right", "label": "Right edge, cropped on some phones", "rect": [0.88889, 0.125, 1, 0.5] },
+        { "id": "rail", "label": "Profile, like, comment, save and share", "rect": [0.72222, 0.5, 1, 0.65625] }
+      ],
+      "headroom": [0.125, 0.18],
+      "eyeLine": 0.3
+    },
+    {
+      "id": "reels",
+      "title": "Instagram Reels",
+      "aspect": [9, 16],
+      "source": "Meta's Reels and Stories safe zone: 14% top, 35% bottom, 6% sides; the action rail, the right 21% up to 40% from the bottom, from Meta's diagram",
+      "zones": [
+        { "id": "top", "label": "Reels header and camera", "rect": [0, 0, 1, 0.14] },
+        { "id": "bottom", "label": "Username, caption and audio", "rect": [0, 0.65, 1, 1] },
+        { "id": "left", "label": "Left edge", "rect": [0, 0.14, 0.06, 0.65] },
+        { "id": "right", "label": "Right edge", "rect": [0.94, 0.14, 1, 0.6] },
+        { "id": "rail", "label": "Like, comment, share and more", "rect": [0.79, 0.6, 1, 0.65] }
+      ],
+      "headroom": [0.14, 0.195],
+      "eyeLine": 0.32
+    },
+    {
+      "id": "shorts",
+      "title": "YouTube Shorts",
+      "aspect": [9, 16],
+      "source": "Google's Shorts safe zone: 10% top, 25% bottom, 10% right, no left margin",
+      "zones": [
+        { "id": "top", "label": "Search and menu", "rect": [0, 0, 1, 0.1] },
+        { "id": "bottom", "label": "Title, channel and subscribe", "rect": [0, 0.75, 1, 1] },
+        { "id": "rail", "label": "Like, dislike, comment, share and remix", "rect": [0.9, 0.1, 1, 0.75] }
+      ],
+      "headroom": [0.1, 0.155],
+      "eyeLine": 0.3
+    },
+    {
+      "id": "youtube",
+      "title": "YouTube",
+      "aspect": [16, 9],
+      "source": "The player's title bar and its controls and captions while hovered; the 90% title-safe frame; end screens over the last 20 s",
+      "zones": [
+        { "id": "top", "label": "Title and channel (on hover)", "rect": [0, 0, 1, 0.12] },
+        { "id": "bottom", "label": "Player controls and captions", "rect": [0, 0.85, 1, 1] }
+      ],
+      "titleSafe": 0.9,
+      "endScreen": 20,
+      "headroom": [0.05, 0.12],
+      "eyeLine": 0.3333
+    }
+  ]
+}
