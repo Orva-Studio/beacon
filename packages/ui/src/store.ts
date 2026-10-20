@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, ImportingFiles, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
 
 enablePatches();
 
@@ -29,6 +29,11 @@ export interface ViewState {
   preparing: Record<string, number>;
   /** Assets whose transcript is being made, and its progress 0-1. */
   transcribing: Record<string, number>;
+  /** Assets whose takes OpenAI is judging (Remove Retakes), and its progress 0-1; and why it failed, for those it couldn't. */
+  judging: Record<string, number>;
+  judgeFailed: Record<string, string>;
+  /** Media whose transcript or proxy failed, and why: the import panel says so rather than Ready. */
+  jobFailed: Record<string, string>;
   /** Captions asked for before the transcript was there: made when it is. */
   captionsPending?: boolean;
   /** Proxies finished since the current run of them began (the top bar's "N of M"). */
@@ -47,6 +52,8 @@ export interface ViewState {
   shortcuts: import("@beacon/model").ShortcutInfo[];
   /** The command palette, while open. */
   palette?: boolean;
+  /** Project Settings, while open. */
+  projectSettings?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
   dragging?: { item: PanelItem; x: number; y: number };
   /** The Export dialog, while open. */
@@ -57,6 +64,10 @@ export interface ViewState {
   narrating?: Narrating;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
+  /** Imports under way or just finished, by id, until their panel is dismissed. */
+  imports: Record<string, ImportingFiles>;
+  /** Imports whose panel was dismissed while their files were still read: their tiles stay, the panel doesn't come back. */
+  importsHidden: string[];
   /** The Settings window, while open, with the app settings it opened with. */
   settings?: SettingsSheet;
   /** The last Snapshot's file, while its toast shows. */
@@ -88,7 +99,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false } };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -103,7 +114,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [] });
+    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, jobFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -126,7 +137,7 @@ export const replica = {
   session(changes: Partial<Session>) {
     if (state.session) set({ session: { ...state.session, ...changes } });
   },
-  media({ waveforms, thumbs, highlight, preparing, transcribing, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
+  media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, jobFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; jobFailed?: ViewState["jobFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
       // Only what came: a new object would redraw the timeline and the Media Bin for a progress message.
       ...(waveforms ? { waveforms: { ...state.waveforms, ...waveforms } } : {}),
@@ -134,6 +145,9 @@ export const replica = {
       ...(highlight ? { binSelected: [highlight] } : {}),
       ...(preparing ? { preparing, prepared: Object.keys(preparing).length ? state.prepared + Object.keys(state.preparing).filter((id) => !(id in preparing)).length : 0 } : {}),
       ...(transcribing ? { transcribing } : {}),
+      ...(judging ? { judging } : {}),
+      ...(judgeFailed ? { judgeFailed } : {}),
+      ...(jobFailed ? { jobFailed: { ...state.jobFailed, ...jobFailed } } : {}),
       ...(proxies ? { proxies: { ...state.proxies, ...proxies } } : {}),
       ...(missing ? { missing } : {}),
     });
@@ -163,13 +177,16 @@ export const replica = {
   palette(palette: boolean) {
     set({ palette: palette && !!state.opened });
   },
+  projectSettings(open: boolean) {
+    set({ projectSettings: open && !!state.opened });
+  },
   /** Settings changed elsewhere: an open Settings window takes them. */
   appSettings(next: import("./rpc").AppSettings) {
     if (state.settings) set({ settings: { ...state.settings, ...next } });
   },
   /** The dialogs an agent can open (`ui_open`), closed. */
   closeDialogs() {
-    set({ settings: undefined, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
+    set({ settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
   },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });
@@ -192,6 +209,17 @@ export const replica = {
   },
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });
+  },
+  importing(i: ImportingFiles) {
+    if (state.importsHidden.includes(i.id) && i.state !== "reading") {
+      const { [i.id]: _, ...imports } = state.imports;
+      return set({ imports, importsHidden: state.importsHidden.filter((id) => id !== i.id) });
+    }
+    set({ imports: { ...state.imports, [i.id]: i } });
+  },
+  importsDismissed() {
+    const reading = Object.values(state.imports).filter((i) => i.state === "reading");
+    set({ imports: Object.fromEntries(reading.map((i) => [i.id, i])), importsHidden: reading.map((i) => i.id) });
   },
   sortBin(binSort: ViewState["binSort"]) {
     set({ binSort });

@@ -211,6 +211,7 @@ export class Analyses {
           resource: (id) => this.#resourcePath(this.parts.registry.resources.get(id)!),
           pref,
           secret: (id) => this.config.secrets.get(id),
+          data: (key) => p.data.get(assetId, key),
         });
         // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
         if (def.variant?.(pref) !== variant) throw new Error(`${key} was for a setting since changed`);

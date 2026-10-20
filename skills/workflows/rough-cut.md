@@ -21,6 +21,9 @@ Goal: a tight, watchable first cut of `{{recording}}` in a new project at
    viewer would: no idea should be said twice in a row.
    Also cut false starts, filler-only lines, and talk to yourself before or
    after the real content ("ok", "let me try that again").
+   `transcript_retakes` lists the lines said more than once that it finds
+   (word for word, a restart or a line said again): a start, not the whole
+   list; reworded retakes are yours to find.
 3. Cut all the bad takes in **one** `transcript_cut` call (indices refer to
    the transcript you just read). Re-read `transcript_get` and check every
    sentence now reads once, in order, with nothing missing.

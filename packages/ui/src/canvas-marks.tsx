@@ -26,6 +26,18 @@ export const COLOR = {
   get ring() {
     return rgba("canvas-ring");
   },
+  get safeZone() {
+    return rgba("safe-zone");
+  },
+  get safeEdge() {
+    return rgba("safe-edge");
+  },
+  get safeGuide() {
+    return rgba("safe-guide");
+  },
+  get safeHeadroom() {
+    return rgba("safe-headroom");
+  },
 };
 
 /**

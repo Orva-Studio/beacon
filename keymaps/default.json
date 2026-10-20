@@ -867,6 +867,15 @@
     },
     {
       "keys": {
+        "key": "l",
+        "modifiers": [
+          "command"
+        ]
+      },
+      "command": "edit.unlink"
+    },
+    {
+      "keys": {
         "key": "z",
         "modifiers": [
           "command"
@@ -973,6 +982,16 @@
         ]
       },
       "command": "app.settings"
+    },
+    {
+      "keys": {
+        "key": ",",
+        "modifiers": [
+          "option",
+          "command"
+        ]
+      },
+      "command": "app.projectSettings"
     },
     {
       "keys": {

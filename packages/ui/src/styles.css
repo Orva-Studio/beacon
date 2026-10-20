@@ -112,7 +112,6 @@
   --color-group-lane: rgba(150, 176, 164, 0.4);
   --color-locked-hatch: rgba(0, 0, 0, 0.35);
   --color-grip: rgba(0, 0, 0, 0.35);
-  --color-insert-space: rgba(62, 230, 141, 0.2);
   --color-range-edge: var(--color-accent);
   /* Something to check before going on (a muted track's audio left out of an export) */
   --color-warning: var(--color-wave);
@@ -125,6 +124,11 @@
   /* Remove Silences' review: the silences it cuts, and those it keeps */
   --color-silence-cut: rgba(255, 93, 93, 0.32);
   --color-silence-keep: rgba(255, 255, 255, 0.12);
+  --color-take-kept: rgba(62, 230, 141, 0.3);
+  --color-safe-zone: rgba(255, 93, 93, 0.2);
+  --color-safe-edge: rgba(255, 93, 93, 0.7);
+  --color-safe-guide: rgba(255, 255, 255, 0.55);
+  --color-safe-headroom: rgba(255, 255, 255, 0.1);
   /* Animations: keyframe diamonds joined by a band */
   --color-arrow: #c99a1e;
   --color-arrow-selected: var(--color-fx-badge);

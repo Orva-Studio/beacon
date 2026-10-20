@@ -52,6 +52,7 @@ export interface ActionHost {
 /** Runs an action as its key or menu item would: the app's own through the main process, the rest as commands. */
 export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "args">) {
   if (a.command === "app.palette") replica.palette(true);
+  else if (a.command === "app.projectSettings") replica.projectSettings(true);
   else if (a.command === "app.save") replica.confirmSaved();
   else if (a.command === "app.open") host.openDialog();
   else if (a.command.startsWith("app.")) host.app(a.command);

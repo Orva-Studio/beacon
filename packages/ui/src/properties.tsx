@@ -435,13 +435,30 @@ function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: numbe
   );
 }
 
-type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
+/** Every hue at full saturation, 0° to 360°, as a hue parameter's slider groove. */
+const HUES = "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
+
+type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; hue?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
 /** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
 function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: EffectInstance; host: Host; def?: Init["effects"][number]; selected: boolean }) {
   const fields = (def?.schema as JsonSchema | undefined)?.properties ?? {};
   const name = def?.title ?? effect.type;
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
+  /** What the last look chosen or imported couldn't reproduce, said under its menu. */
+  const [report, setReport] = useState<{ name: string; notes: string[] }>();
+  const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
+  const importLook = async () => {
+    const path = await host.chooseFile(def!.importFile!.extensions);
+    if (!path) return;
+    try {
+      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown>; notReproduced: string[] };
+      host.run("effect.set", { clip: clip.id, effect: effect.id, params: look.params }, `Import ${look.name}`);
+      setReport({ name: look.name, notes: look.notReproduced });
+    } catch (e) {
+      setReport({ name: path.split("/").pop()!, notes: [(e as Error).message] });
+    }
+  };
   return (
     <FoldSection
       title={name}
@@ -452,7 +469,44 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
       enabled={effect.enabled}
       onEnable={(on) => host.run("effect.set", { clip: clip.id, effect: effect.id, enabled: on }, on ? `Enable ${name}` : `Disable ${name}`)}
     >
-          {Object.entries(effect.params).map(([k, v]) => {
+          {(def?.presets || def?.importFile) && (
+            <Row label="Look">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {def.presets && (
+                  <Select
+                    value={preset?.id ?? ""}
+                    title={preset?.description}
+                    onChange={(e) => {
+                      const p = def.presets!.find((x) => x.id === e.target.value);
+                      if (!p) return;
+                      host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
+                      setReport({ name: p.title, notes: p.notes ?? [] });
+                    }}
+                    data-effect-preset
+                  >
+                    <option value="">Custom</option>
+                    {def.presets.map((p) => (
+                      <option key={p.id} value={p.id} title={p.description}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                {def.importFile && (
+                  <Button look="quiet" title={`Read a look from a .${def.importFile.extensions[0]} file onto these sliders`} onClick={() => void importLook()} data-effect-import>
+                    {def.importFile.label}
+                  </Button>
+                )}
+              </div>
+            </Row>
+          )}
+          {report && !!report.notes.length && (
+            <div className="mb-2 ml-[92px] text-label text-text-faint" data-effect-report>
+              Not in {name}, from “{report.name}”: {report.notes.join("; ")}.
+            </div>
+          )}
+          {[...Object.keys(fields).filter((k) => k in effect.params), ...Object.keys(effect.params).filter((k) => !(k in fields))].map((k) => {
+            const v = effect.params[k];
             const f = fields[k] ?? {};
             const label = k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
             if (typeof v === "boolean") return <div key={k} className="mb-2 ml-[92px]"><Check label={label} checked={v} onChange={(on) => set({ [k]: on })} /></div>;
@@ -463,6 +517,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
                 const deg = (((v * 180) / Math.PI) % 360 + 360) % 360;
                 return <Slider key={k} label={label} value={Math.round(deg)} max={360} unit="°" onChange={(x, key) => set({ [k]: (x * Math.PI) / 180 }, key)} />;
               }
+              if (f.hue) return <Slider key={k} label={label} value={Math.round(v)} max={360} unit="°" digits={0} groove={HUES} onChange={(x, key) => set({ [k]: x }, key)} />;
               if (max !== undefined && f.percent) return <Slider key={k} label={label} value={v * 100} min={min * 100} max={max * 100} unit="%" onChange={(x, key) => set({ [k]: x / 100 }, key)} />;
               if (max !== undefined) {
                 const whole = f.type === "integer";

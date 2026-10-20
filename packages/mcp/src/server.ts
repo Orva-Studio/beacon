@@ -393,7 +393,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("ui_open", {
     description:
-      "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, shortcuts or project), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
+      "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, transcripts or shortcuts), projectSettings (the project's canvas, frame rate, background, loudness), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
     schema: z.strictObject({ dialog: z.enum(UI_DIALOGS).nullable(), tab: z.enum(SETTINGS_TABS).optional() }),
     run: async ({ dialog, tab }) => (await core.uiOpen(project(), dialog, tab), dialog ? `${dialog} is open` : "closed"),
   });

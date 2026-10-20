@@ -3,7 +3,7 @@ import type { ProjectBridge, Send } from "@beacon/ui";
 
 export type Rect = { x: number; y: number; width: number; height: number };
 
-/** The project the window shows. */
+/** The project a window shows. */
 export interface Current {
   path: string;
   /** The native view core draws the canvas in (`core.view`); `rect`, its place in the window, in points. */
@@ -14,12 +14,20 @@ export interface Current {
   closed?: boolean;
 }
 
-/** What the main process's parts share: core, the window's messages, the status line and the open project. */
+/** What a window's parts share: core, the window's messages, its status line and the project it shows. */
 export interface App {
   core: LocalCore;
   message: Send;
   status(text: string): void;
   current(): Current | undefined;
+}
+
+/** One editor window: the project it shows (none on the start screen), its messages and status line. */
+export interface ProjectWindow {
+  current?: Current;
+  message: Send;
+  status(text: string): void;
+  activate(): void;
 }
 
 /** An error as the status line shows it. */

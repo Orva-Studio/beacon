@@ -1650,6 +1650,15 @@ Seeing more at once.
   view, thumbnails, proxy progress, RPC) moves to a per-window record, and
   menus and keys go to the focused window. Playing in one window pauses the
   others. Mostly `packages/desktop`; the UI and core are unchanged.
+  **Built 2026-10-20**: the main process keeps a record per window (its
+  project, native canvas, Media Bin pictures, exports, messages and status
+  line); a project opens in the focused window while it shows the start
+  screen, else in a new one (cascaded), and one already open is brought
+  forward; Save As and renaming keep their window; closing a window saves
+  and releases its project (Window › Close Window, ⌘W); menus, keys and
+  dialogs act on the focused window, agents' `ui_open` and `ui_snapshot` on
+  the window showing their project; playing in one pauses the others; a take
+  hides every window. Merge All Windows is macOS's own, not checked yet.
 - **Project Settings apart from Settings, and a Settings window like
   System Settings** (the user, 2026-10-19). Project Settings (canvas size,
   frame rate, background, loudness, standalone) is the project's, with
@@ -1662,7 +1671,13 @@ Seeing more at once.
   Settings becomes a fixed-size window with a sidebar (General, Recording,
   Transcripts, Shortcuts, later Appearance), each section scrolling inside
   it, so switching sections never changes its height; a search over every
-  setting once there are enough to need it.
+  setting once there are enough to need it. Decided (the user, 2026-10-20):
+  a fixed-size sheet in the editor's window, not a window of its own; ⌥⌘,
+  for Project Settings. **Built 2026-10-20**: Project Settings is its own
+  dialog (Edit › Project Settings…, ⌥⌘,, the canvas's right-click, `ui_open
+  projectSettings`; Settings' `project` tab is gone and asking for it says
+  so); Settings is 500 points tall with General, Recording, Transcripts (the
+  transcriber and Best Take) and Shortcuts down a sidebar. No search yet.
 - **Copying into a standalone project shows its progress** (the user,
   2026-10-19). Today an import into a standalone project (and turning
   standalone on) copies the media in before the clips appear, with nothing on
@@ -1682,7 +1697,23 @@ Seeing more at once.
   dropped. The shader comes through `orva-kit` (§4.1) rather than a copy, so
   fixes reach both; preview/export parity as for every pass. Open: what a
   `.hlook` holds (values, a LUT, or both) decides whether the renderer
-  needs LUTs.
+  needs LUTs. Answered: a `.hlook` is values only (and an optional input
+  LUT by name), so no LUTs. Decided (the user, 2026-10-20): ported into
+  Beacon rather than through `orva-kit`, which doesn't exist yet
+  (`docs/shared-candidates.md`); about ten sliders; hance's 41 looks as a
+  Look menu. **Built 2026-10-20**: a `film-look` feature: one pass of four
+  steps (graded highlights, per-channel scatter across and down, then the
+  grade, halation ring, grain and vignette in linear light as hance does
+  them), eleven sliders (strength, exposure, warmth, fade, contrast,
+  saturation, grain, grain size, halation, halation size, vignette); the
+  inspector's Look menu and Import .hlook… (effects can now declare
+  `presets` and an `importFile`), with what doesn't map listed under it;
+  `filmLook.load` / `filmLook.read` / `filmLook.looks` for agents. Split tone and Tint added
+  (the user, 2026-10-20): hance's split tone (shadow and highlight hues, a
+  highlight strength; its pivot fixed at hance's 0.3) and tint, on hue
+  sliders; 58.3 dB from hance's own render with just those on. On a frame
+  with CineStill 800T it is 49.5 dB from hance's own render, and adds about 5 ms
+  to a 1080p preview frame (the scatter takes at most 40 taps a side).
 - **Remove Retakes** (the user, 2026-10-19; an AI feature, next to Remove
   Silences and Remove Filler Words): finds the same thing said more than
   once (a line restarted, a sentence said again after a stumble) and keeps
@@ -1700,9 +1731,21 @@ Seeing more at once.
   takes as text with their lengths and a play button each; Apply All cuts
   the losing takes in one undo step, Cut This One one group at a time.
   Agents get `retakes.review`/`apply` (they already cut retakes by word
-  ranges with `transcript_cut`). Open: how close two takes must be to
-  count (a threshold in the review's settings), and a take that runs on
-  past the line it repeats.
+  ranges with `transcript_cut`). Decided (the user, 2026-10-20): the last
+  complete take, scored; 3+ words within 30 s by default (the review's
+  sliders); keeping an earlier take cuts only the later one's repeat, so
+  what it goes on to say stays; and the OpenAI judge now, with the
+  transcriber's key. **Built 2026-10-20**: `transcript.retakes` /
+  `transcript.removeRetakes`, `retakes.review/keep/focus/apply/close`; a take
+  restarts the one before when its first words repeat it and it says 70% of
+  its words again in order. Best Take (Settings › Transcripts) is Beacon's own
+  scoring or OpenAI (`gpt-5-mini`, the takes' words only): a `retakes`
+  analysis per medium, run only when the review asks (a new `when: "asked"`
+  in the contract, which also gave analyses the asset's other data and
+  queries and actions the preferences), its picks matched to the timeline's
+  groups by their words; until it answers, or if it can't, Beacon's picks
+  show, with why. On the user's cached transcripts it finds 70 groups, the
+  restarts and redone sentences.
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,
@@ -1713,12 +1756,40 @@ Seeing more at once.
   them. A query flags text, captions and callouts that overlap an unsafe
   zone anywhere on the timeline ("nothing under the TikTok buttons", one
   tool call for an agent); snapping to safe-area edges comes cheap. Face
-  detection for the head guide is later, if wanted.
+  detection for the head guide is later, if wanted. Decided (the user,
+  2026-10-20): the platforms' ads numbers (measured from their templates,
+  `features/src/safe-areas/layouts.json` with their sources); for 16:9, the
+  player's title bar and controls, the 90% title-safe frame and end screens
+  over the last 20 s; View › Safe Areas and a picker by the canvas zoom,
+  kept with the project. **Built 2026-10-20**: a `safe-areas` feature
+  (`safeAreas.show`, `safeAreas.layouts`, `safeAreas.check`); the zones as
+  bands and edges in the preview's marks, the headroom band and a dashed eye
+  line; the top bar counts the captions and callouts under a zone and goes to
+  the first; boxes snap to the zones' edges. The contract gained
+  `Feature.sessionSaved` (editor state kept in the project's `editor.json`,
+  never an undo step) and the session in queries.
 **Gate:** two projects open side by side, the film look matches between
 preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.
 
 ### Phase 10 — Filmstrips and backgrounds
+- **First: drops that fail, and images with no file** (the user, 2026-10-20;
+  first in the phase, at their ask): dragging from Finder's Recents bounces
+  back with no message, whatever the file (⌘I always works: the Open dialog
+  gives real paths); a screenshot already saved, dragged from Finder, bounced
+  too; and dragging a macOS screenshot from its floating thumbnail
+  onto the timeline does nothing (the drag offers a file promise, not a path,
+  and drops are found by path), nor does ⌘V of an image copied elsewhere (⌘V
+  pastes only Beacon's own clips). The window has the image's bytes either
+  way: write them into the project's folder (a `media` folder, named by the
+  screenshot or by date) and import them, at the drop point or the playhead.
+  Found 2026-10-20: the thumbnail's drag is a file promise that also offers a
+  `public.file-url` in `TemporaryItems/NSIRD_screencaptureui_*` and the PNG
+  itself (`public.png`); the drop fails "couldn't find … among the dragged
+  files" because that file's size or date isn't the webview's, and the folder
+  is cleared once the drag ends, so it must be copied in, not used in place.
+  Read the drag pasteboard (`beacon_drag_files`) of a Recents drag first: what
+  it offers (file reference URLs, `/.file/id=`?) decides the fix.
 - **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
@@ -1750,6 +1821,17 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
+- **LUT import** (the user, 2026-10-20): a LUT effect of its own, not part
+  of Film Look (a LUT usually goes first, a look on top): a `.cube` file
+  (what nearly every LUT is sold as) copied into the project so it travels
+  with it, drawn by a 3D texture with an Intensity slider, preview equal to
+  export. Effects can't yet load a table from a file into the renderer, so
+  the feature contract grows for it. Mostly creative LUTs: the Cam Link's
+  footage is Rec.709, not log.
+- **An animation from end to end of a clip** (the user, 2026-10-20): a key
+  (and the clip's menu) that adds an animation block spanning the whole
+  selected clip, start to end, rather than from the playhead; or, simplest,
+  double-clicking an animation stretches it to the clip's ends.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 

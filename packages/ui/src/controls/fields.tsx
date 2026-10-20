@@ -151,6 +151,7 @@ export function SliderTrack({
   step = 1,
   name,
   onChange,
+  groove,
 }: {
   value: number;
   min?: number;
@@ -159,6 +160,8 @@ export function SliderTrack({
   /** Names the drag's key. */
   name: string;
   onChange?: (v: number, key: string) => void;
+  /** The groove's own background (a hue gradient), drawn instead of the fill. */
+  groove?: string;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const key = useRef("");
@@ -176,7 +179,8 @@ export function SliderTrack({
   return (
     <div
       ref={track}
-      className={`relative h-1 min-w-16 flex-1 rounded-full bg-groove ${onChange ? "cursor-pointer" : ""}`}
+      className={`relative min-w-16 flex-1 rounded-full ${groove ? "h-1.5" : "h-1 bg-groove"} ${onChange ? "cursor-pointer" : ""}`}
+      style={groove ? { background: groove } : undefined}
       onPointerDown={(e) => {
         if (!onChange) return;
         key.current = `slider-${name}-${Date.now()}`;
@@ -186,7 +190,7 @@ export function SliderTrack({
       onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && send(at(e.clientX))}
       onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
     >
-      <div className="absolute inset-y-0 left-0 rounded-full bg-slider-fill" style={{ width: `${f * 100}%` }} />
+      {!groove && <div className="absolute inset-y-0 left-0 rounded-full bg-slider-fill" style={{ width: `${f * 100}%` }} />}
       <div className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slider-thumb shadow" style={{ left: `${f * 100}%` }} />
     </div>
   );
@@ -204,9 +208,11 @@ export function Slider({
   onChange,
   reset,
   title,
+  groove,
 }: {
   label: string;
   title?: string;
+  groove?: string;
   value: number;
   min?: number;
   max: number;
@@ -219,7 +225,7 @@ export function Slider({
   return (
     <Row label={label} title={title}>
       <div className="mr-3 flex flex-1">
-        <SliderTrack value={value} min={min} max={max} step={step} name={label} onChange={onChange} />
+        <SliderTrack value={value} min={min} max={max} step={step} name={label} onChange={onChange} groove={groove} />
       </div>
       <NumberBox value={value} unit={unit} digits={digits} min={min} max={max} step={unit === "%" || step >= 1 ? 1 : 0.1} onCommit={onChange ? (v) => onChange(v) : undefined} />
       {reset && (

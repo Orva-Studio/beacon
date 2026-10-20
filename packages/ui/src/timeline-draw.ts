@@ -125,7 +125,8 @@ const STITCH = () => color("stitch");
 export interface TimelineMark {
   start: number;
   end: number;
-  tone: "cut" | "keep";
+  /** To cut (red), kept (grey), or the take kept of a line said more than once (green). */
+  tone: "cut" | "keep" | "take";
   /** The one being looked at, going through them one at a time: outlined. */
   current?: boolean;
 }
@@ -271,8 +272,94 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.beginPath();
     ctx.rect(HEADER, RULER, width, h - RULER);
     ctx.clip();
-    tracks.forEach((t, i) => {
+    /**
+     * A clip from `a` to `b` on row `i`: its colour, waveform or thumbnail, name and outline. `ghost`: where a move
+     * would put it. `by`: how far it is drawn from where it is, its waveform and volume read where they are in it.
+     */
+    const drawClip = (clip: Clip, t: Track, i: number, a: number, b: number, alpha: number, ghost?: { bad: boolean; fresh: boolean }, by = 0) => {
       const { y, h: ch } = clipBox(i, TRACK);
+      const audio = clip.type === "audio";
+      const x0 = x(a) + 0.5;
+      const cw = Math.max(1, (b - a) * pps - 1.5);
+      const selected = session.selection.includes(clip.id);
+      const teal = audio && selected;
+      // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
+      const silent = audio && !!t.muted;
+      ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * alpha * (t.locked ? 0.6 : 1);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
+      const kind = kindColor(clip, nested, project);
+      ctx.fillStyle = teal ? AUDIO_SELECTED.fill() : color(kind);
+      ctx.fill();
+      ctx.clip();
+      let textX = x0 + 10;
+      const tag = (clip.props.label as { color?: string | null } | undefined)?.color;
+      if (audio) {
+        if (teal && !tag) {
+          ctx.fillStyle = AUDIO_SELECTED.top();
+          ctx.fillRect(x0, y, cw, 2);
+        }
+        const peaks = clip.assetId ? waveforms[clip.assetId]?.[propsOf<{ stream: number }>(clip, "media").stream] : undefined;
+        if (peaks) {
+          ctx.fillStyle = teal ? AUDIO_SELECTED.wave() : CLIP.wave();
+          const media0 = ticksToSeconds(clip.mediaStart ?? 0);
+          const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
+          // Drawn at the level it plays: boost times the volume line, so fades taper and a quiet clip looks quiet.
+          const boost = propsOf<{ gain: number }>(clip, "audio").gain;
+          for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
+            const t = start + (px - HEADER) / pps;
+            const m = media0 + (t - by - ticksToSeconds(clip.start)) * speed;
+            const k = Math.floor(m * 100);
+            let peak = 0;
+            for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
+            const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t - by)) * (ch - 6);
+            ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
+          }
+        }
+      } else {
+        const url = thumbs[clip.id];
+        const img = url ? image(url, () => (loaded.current++, drawRef.current())) : undefined;
+        if (img && cw > 40) {
+          const th = ch - 10;
+          const tw = (img.naturalWidth / img.naturalHeight) * th;
+          ctx.drawImage(img, x0 + 6, y + 5, tw, th);
+          textX = x0 + 6 + tw + 10;
+        }
+      }
+      if (tag) {
+        ctx.fillStyle = color(`label-${tag}`);
+        ctx.fillRect(x0, y, cw, LABEL_H);
+      }
+      // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
+      // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.
+      if (clip.linkId && cw > 40) {
+        ctx.fillStyle = CLIP.badge();
+        ctx.beginPath();
+        ctx.roundRect(x0 + 4, y + 4, 20, 18, 4);
+        ctx.fill();
+        ctx.fillStyle = CLIP.text();
+        drawIcon(ctx, "link-simple-horizontal", x0 + 14, y + 13, 14);
+        textX = Math.max(textX, x0 + 30);
+      }
+      if (cw > 24) {
+        ctx.fillStyle = CLIP.text();
+        ctx.font = font(13);
+        ctx.textBaseline = audio ? "top" : "middle";
+        ctx.fillText(label(clip), textX, audio ? y + 5 : y + ch / 2);
+        ctx.textBaseline = "alphabetic";
+      }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
+      if (ghost?.fresh) ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = ghost ? (ghost.bad ? INVALID() : SELECTED()) : selected ? SELECTED() : color(`${kind}-edge`);
+      ctx.lineWidth = selected || ghost ? 2 : 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    };
+    tracks.forEach((t, i) => {
       for (const clip of t.clips) {
         let a = ticksToSeconds(clip.start);
         let b = ticksToSeconds(clip.start + clip.duration);
@@ -280,85 +367,18 @@ export function drawTimeline(t: TimelineDrawing) {
           if (d.edge === "start") a = d.t;
           else b = d.t;
         }
+        // Shift-drag opens or closes time as it goes: what is after the point is drawn moved, a clip across it split.
+        let by = 0;
+        if (d?.kind === "space" && d.d !== 0 && (d.track ? d.track === t.id : !t.locked)) {
+          if (a >= d.at) (by = d.d), (a += by), (b += by);
+          else if (b > d.at) {
+            if (a <= end && d.at >= start) drawClip(clip, t, i, a, d.at, 1);
+            if (b + d.d >= start && d.at + d.d <= end) drawClip(clip, t, i, d.at + d.d, b + d.d, 1, undefined, d.d);
+            continue;
+          }
+        }
         if (b < start || a > end) continue;
-        const audio = clip.type === "audio";
-        const x0 = x(a) + 0.5;
-        const cw = Math.max(1, (b - a) * pps - 1.5);
-        const selected = session.selection.includes(clip.id);
-        const teal = audio && selected;
-        // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
-        const silent = audio && !!t.muted;
-        ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * (d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1) * (t.locked ? 0.6 : 1);
-        ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
-        const kind = kindColor(clip, nested, project);
-        ctx.fillStyle = teal ? AUDIO_SELECTED.fill() : color(kind);
-        ctx.fill();
-        ctx.clip();
-        let textX = x0 + 10;
-        const tag = (clip.props.label as { color?: string | null } | undefined)?.color;
-        if (audio) {
-          if (teal && !tag) {
-            ctx.fillStyle = AUDIO_SELECTED.top();
-            ctx.fillRect(x0, y, cw, 2);
-          }
-          const peaks = clip.assetId ? waveforms[clip.assetId]?.[propsOf<{ stream: number }>(clip, "media").stream] : undefined;
-          if (peaks) {
-            ctx.fillStyle = teal ? AUDIO_SELECTED.wave() : CLIP.wave();
-            const media0 = ticksToSeconds(clip.mediaStart ?? 0);
-            const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
-            // Drawn at the level it plays: boost times the volume line, so fades taper and a quiet clip looks quiet.
-            const boost = propsOf<{ gain: number }>(clip, "audio").gain;
-            for (let px = Math.max(x0, HEADER); px < Math.min(x0 + cw, w); px += 2) {
-              const t = start + (px - HEADER) / pps;
-              const m = media0 + (t - a) * speed;
-              const k = Math.floor(m * 100);
-              let peak = 0;
-              for (let j = k; j < k + Math.max(1, Math.ceil((2 / pps) * 100 * speed)); j++) peak = Math.max(peak, peaks[j] ?? 0);
-              const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t)) * (ch - 6);
-              ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
-            }
-          }
-        } else {
-          const url = thumbs[clip.id];
-          const img = url ? image(url, () => (loaded.current++, drawRef.current())) : undefined;
-          if (img && cw > 40) {
-            const th = ch - 10;
-            const tw = (img.naturalWidth / img.naturalHeight) * th;
-            ctx.drawImage(img, x0 + 6, y + 5, tw, th);
-            textX = x0 + 6 + tw + 10;
-          }
-        }
-        if (tag) {
-          ctx.fillStyle = color(`label-${tag}`);
-          ctx.fillRect(x0, y, cw, LABEL_H);
-        }
-        // Linked clips (a recording's screen, camera and audio) move and cut together: a chain says so, in the
-        // top-left corner of each (over a video's thumbnail) so a recording's clips show it in the same place.
-        if (clip.linkId && cw > 40) {
-          ctx.fillStyle = CLIP.badge();
-          ctx.beginPath();
-          ctx.roundRect(x0 + 4, y + 4, 20, 18, 4);
-          ctx.fill();
-          ctx.fillStyle = CLIP.text();
-          drawIcon(ctx, "link-simple-horizontal", x0 + 14, y + 13, 14);
-          textX = Math.max(textX, x0 + 30);
-        }
-        if (cw > 24) {
-          ctx.fillStyle = CLIP.text();
-          ctx.font = font(13);
-          ctx.textBaseline = audio ? "top" : "middle";
-          ctx.fillText(label(clip), textX, audio ? y + 5 : y + ch / 2);
-          ctx.textBaseline = "alphabetic";
-        }
-        ctx.restore();
-        ctx.beginPath();
-        ctx.roundRect(x0, y, cw, ch, CLIP_RADIUS);
-        ctx.strokeStyle = selected ? SELECTED() : color(`${kind}-edge`);
-        ctx.lineWidth = selected ? 2 : 1;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+        drawClip(clip, t, i, a, b, d?.kind === "move" && d.moves.has(clip.id) ? 0.35 : 1, undefined, by);
       }
     });
     // Animation arrows across each clip, and the volume line on audio.
@@ -367,12 +387,17 @@ export function drawTimeline(t: TimelineDrawing) {
       for (const clip of t.clips) {
         const cs = ticksToSeconds(clip.start);
         const ce = ticksToSeconds(clip.start + clip.duration);
-        if (ce < start || cs > end) continue;
+        const shifted = d?.kind === "space" && d.d !== 0 && (d.track ? d.track === t.id : !t.locked) ? d : undefined;
+        // Drawn split while a shift-drag opens time across it: its marks wait for the drop.
+        if (shifted && cs < shifted.at && ce > shifted.at) continue;
+        const by = shifted && cs >= shifted.at ? shifted.d : 0;
+        if (ce + by < start || cs + by > end) continue;
         // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
         const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
         const left = trim?.edge === "start" ? trim.t : cs;
         const right = trim && trim.edge !== "start" ? trim.t : ce;
         ctx.save();
+        ctx.translate(by * pps, 0);
         ctx.beginPath();
         ctx.rect(x(left), y, (right - left) * pps, ch);
         ctx.clip();
@@ -512,12 +537,14 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.textBaseline = "alphabetic";
     };
     if (d?.kind === "move") {
+      // The clips themselves where they would land, waveforms and all, so they can be lined up by eye.
       project.tracks.forEach((t, ti) => {
         for (const clip of t.clips) {
           const rows = d.moves.get(clip.id);
           if (rows === undefined) continue;
           const a = ticksToSeconds(clip.start) + d.by;
-          ghost(a, a + ticksToSeconds(clip.duration), project.tracks.length - 1 - (ti + rows), label(clip), !!d.error);
+          const row = project.tracks.length - 1 - (ti + rows);
+          drawClip(clip, t, Math.max(0, row), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 }, d.by);
         }
       });
     } else if (d?.kind === "trim" && d.extend) {
@@ -555,10 +582,6 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.min(d.x0, d.x1) + 0.5, Math.min(d.y0, d.y1) + 0.5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
       ctx.setLineDash([]);
-    } else if (d?.kind === "space" && d.d !== 0) {
-      const band = d.row === undefined ? { y: RULER, h: h - RULER } : clipBox(d.row, TRACK);
-      ctx.fillStyle = color("insert-space");
-      ctx.fillRect(x(Math.min(d.at, d.at + d.d)), band.y, Math.abs(d.d) * pps, band.h);
     }
     ctx.restore();
 
@@ -707,7 +730,7 @@ export function drawTimeline(t: TimelineDrawing) {
     for (const m of marks ?? []) {
       const [a, b] = [x(m.start), x(m.end)];
       if (b < HEADER || a > w) continue;
-      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : "silence-keep");
+      ctx.fillStyle = color(m.tone === "cut" ? "silence-cut" : m.tone === "take" ? "take-kept" : "silence-keep");
       ctx.fillRect(a, RULER, Math.max(1, b - a), h - RULER);
       ctx.fillRect(a, RULER - 4, Math.max(1, b - a), 4);
       if (m.current) {

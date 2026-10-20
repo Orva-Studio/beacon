@@ -47,7 +47,7 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
     else host.shortcutSet(s.id, [keys]);
   };
   return (
-    <div className="flex flex-col gap-3" data-shortcuts>
+    <div className="flex h-full min-h-0 flex-col gap-3" data-shortcuts>
       <div className="relative">
         <Icon name="magnifying-glass" size={14} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-text-muted" />
         <TextInput value={query} placeholder="Search actions or keys" className="w-full pl-7" data-shortcuts-search onChange={(e) => setQuery(e.target.value)} />
@@ -73,7 +73,7 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
           <Button onClick={() => setClash(undefined)}>Cancel</Button>
         </div>
       )}
-      <div className="-mx-1 max-h-[46vh] overflow-y-auto">
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto">
         {shown.map((s) => (
           <div key={s.id} className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-item-hover" title={s.description} data-shortcut={s.id}>
             <span className="min-w-0 flex-1 truncate text-text">{s.name}</span>

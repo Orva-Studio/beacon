@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { transcribe, type Transcriber, type Transcription } from "@beacon/media";
+import { jobSignal, transcribe, type Transcriber, type Transcription } from "@beacon/media";
 import {
   defineAction,
   defineCommand,
@@ -14,6 +14,7 @@ import {
   type CommandContext,
   type FeatureRegistry,
   type Project,
+  type Preferences,
   type Session,
   type SessionCommandDef,
   mergeSpans,
@@ -23,6 +24,7 @@ import {
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
 import type { CursorData } from "../cursor";
+import { RETAKE_DEFAULTS, bestTake, findRetakes, isFiller, judgeTakes, retakeCuts, takeKey, takeText, type Judgment, type RetakeOptions, type Take, type Word } from "./retakes";
 
 /** `Asset.derived.transcript` / the `transcript` analyzer: one transcription per audio stream index. */
 export interface TranscriptData {
@@ -159,6 +161,16 @@ function cutRanges(doc: Project, ranges: { start: number; end: number }[]) {
   ).map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
 }
 
+/**
+ * The time words `a`..`b` take: from the first's start to just before the next word, so the pause after them goes
+ * too, keeping `lead` seconds of it before the next word when there is a real pause.
+ */
+function wordSpan(words: Word[], a: number, b: number, lead = 0.1) {
+  const [first, last, next] = [words[a]!, words[b]!, words[b + 1]];
+  const end = !next ? last.end : next.start - last.end > 2 * lead ? next.start - lead : Math.max(last.end, next.start - (next.start - last.end) / 4);
+  return { start: first.start, end };
+}
+
 function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: number }[]) {
   const outward = cutRanges(doc, ranges);
   rippleDeleteRanges(doc, outward, ctx);
@@ -281,21 +293,38 @@ const SilenceSettings = {
   keepActive: z.boolean().describe("Keep silences where the recording's cursor moves or clicks (screen action)"),
 };
 
-/** A review's flip, focus and close: Remove Silences' and Remove Filler Words' differ only in what they name. */
-function reviewSteps(key: "silences" | "fillers", title: string, item: string): SessionCommandDef[] {
+type ReviewKey = "silences" | "fillers" | "retakes";
+type Reviews = { silences?: SilenceReview; fillers?: FillerReview; retakes?: RetakeReview };
+
+/** A review's flip, focus and close: the reviews differ only in what they name. Remove Retakes keeps a take rather than flipping one. */
+function reviewSteps(key: ReviewKey, title: string, item: string): SessionCommandDef[] {
   const open = (s: Session) => {
-    const r = (s.features.transcript as { silences?: SilenceReview; fillers?: FillerReview } | undefined)?.[key];
+    const r = (s.features.transcript as Reviews | undefined)?.[key];
     if (!r) throw new Error(`${title}' review isn't open: ${key}.review opens it`);
     return r;
   };
   const At = z.strictObject({ at: z.number().nonnegative() });
+  const flip: SessionCommandDef =
+    key === "retakes"
+      ? {
+          id: "retakes.keep",
+          description:
+            "In Remove Retakes' review, keep this take of its group instead of the one picked, cutting the group's others (clicking it on the timeline does): `at`, a time inside the take, e.g. its start from transcript_retakes",
+          args: At,
+          apply: (s, { at }: { at: number }) => {
+            const r = open(s) as RetakeReview;
+            r.kept.push(at);
+            if (r.cutAll) r.cutAll = r.cutAll.filter((g) => at < g.start - 1e-3 || at > g.end + 1e-3);
+          },
+        }
+      : {
+          id: `${key}.flip`,
+          description: `In ${title}' review, keep a ${item} it would cut, or cut one it would keep (clicking it on the timeline does): \`at\`, a time inside it, e.g. its start from transcript_${key}`,
+          args: At,
+          apply: (s, { at }: { at: number }) => void (open(s) as SilenceReview | FillerReview).flipped.push(at),
+        };
   return [
-    {
-      id: `${key}.flip`,
-      description: `In ${title}' review, keep a ${item} it would cut, or cut one it would keep (clicking it on the timeline does): \`at\`, a time inside it, e.g. its start from transcript_${key}`,
-      args: At,
-      apply: (s, { at }: { at: number }) => void open(s).flipped.push(at),
-    },
+    flip,
     {
       id: `${key}.focus`,
       description: `In ${title}' review, go to one ${item} to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): \`at\`, a time inside it, e.g. its start from transcript_${key}. ${key}.apply with \`one\` then cuts only that one`,
@@ -307,7 +336,7 @@ function reviewSteps(key: "silences" | "fillers", title: string, item: string): 
       description: `Close ${title}' review without cutting anything`,
       args: z.strictObject({}),
       apply: (s) => {
-        const t = s.features.transcript as { silences?: SilenceReview; fillers?: FillerReview } | undefined;
+        const t = s.features.transcript as Reviews | undefined;
         if (t?.[key]) delete t[key];
       },
     },
@@ -327,13 +356,6 @@ const silenceSessionCommands: SessionCommandDef[] = [
   },
   ...reviewSteps("silences", "Remove Silences", "silence"),
 ];
-
-/**
- * Hesitation sounds as transcribers write them ("Um...", "uh,", "Hmmm", "Er"), not words that can be meant ("ah",
- * "oh": "Ah crap") nor "mm-hmm"/"uh-huh", which answer something.
- */
-const FILLER = /^(u+h*m+|u+h+|e+r+m*|h+m+|m{2,}|a+h+m+)$/;
-const isFiller = (text: string) => FILLER.test(text.toLowerCase().replace(/[^a-z-]/g, ""));
 
 /** Remove Filler Words' review (`session.features.transcript.fillers`): the fillers flipped by hand. */
 export interface FillerReview {
@@ -389,11 +411,12 @@ function fillerPlan(project: Project, registry: FeatureRegistry, data: Data, o: 
   };
 }
 
-/** Opening one review closes the other: the properties panel and the timeline's marks show one at a time. */
-function openReview(s: Session, key: "silences" | "fillers", review: SilenceReview | FillerReview) {
-  const t = { ...(s.features.transcript as object | undefined) } as { silences?: SilenceReview; fillers?: FillerReview };
+/** Opening one review closes the others: the properties panel and the timeline's marks show one at a time. */
+function openReview(s: Session, key: ReviewKey, review: SilenceReview | FillerReview | RetakeReview) {
+  const t = { ...(s.features.transcript as object | undefined) } as Reviews;
   delete t.silences;
   delete t.fillers;
+  delete t.retakes;
   s.features.transcript = { ...t, [key]: review };
 }
 
@@ -408,10 +431,138 @@ const fillerSessionCommands: SessionCommandDef[] = [
   ...reviewSteps("fillers", "Remove Filler Words", "filler"),
 ];
 
+/** A group to cut every take of: its span on the timeline, and its takes' words (transcript_retakes' `key`). */
+interface CutAllGroup {
+  start: number;
+  end: number;
+  key?: string;
+}
+
+/** Remove Retakes' settings, and in review (`session.features.transcript.retakes`) the takes chosen by hand. */
+export interface RetakeReview extends RetakeOptions {
+  /** Times inside takes chosen to keep: the last inside a group decides it. */
+  kept: number[];
+  /** Groups (their spans) to cut every take of, keeping none; keeping one of its takes takes it off. */
+  cutAll?: CutAllGroup[];
+  /** Going through the groups one at a time: a time in the group being looked at, or just before it. */
+  current?: number;
+}
+
+const retakeReview = (s: Session) => (s.features.transcript as Reviews | undefined)?.retakes;
+
+/** `Asset.derived.retakes`: what OpenAI picked for each group of takes found in the asset's transcript. */
+export interface RetakeJudgments {
+  groups: Judgment[];
+}
+
+/** Who picks the take to keep: the preference's id and its options. */
+const JUDGE = "retake-judge";
+const judgedByOpenAI = (pref: Preferences) => pref(JUDGE) === "openai";
+
+/** Settings the judge asks about: the defaults and the loosest the review allows, so most groups the review finds were judged. */
+const JUDGED: RetakeOptions[] = [RETAKE_DEFAULTS, { minWords: 2, within: 120 }];
+
+/** The words that follow a group, for the judge to tell whether a take leads on. */
+const after = (words: Word[], takes: Take[]) =>
+  words
+    .slice(takes.at(-1)!.last + 1, takes.at(-1)!.last + 9)
+    .map((w) => w.text)
+    .join(" ");
+
+/**
+ * What Remove Retakes does with `o`: each group of takes of one line (`findRetakes`) on the timeline, the take kept
+ * (chosen by hand, else OpenAI's pick when it is the judge and has judged it, else `bestTake`), and the ranges cut:
+ * the other takes, of those after the kept one only what repeats the line.
+ */
+function retakePlan(project: Project, registry: FeatureRegistry, data: Data, pref: Preferences, o: RetakeReview) {
+  const waiting = untranscribed(project, registry, data);
+  const words = timelineWords(project, registry, data);
+  const assetOf = new Map(project.tracks.flatMap((t) => t.clips).map((c) => [c.id, c.assetId]));
+  const openai = judgedByOpenAI(pref);
+  const judging = new Set<string>();
+  const groups = findRetakes(words, o).map((takes) => {
+    const spans = takes.map((t, k) => ({ start: words[t.first]!.start, end: k + 1 < takes.length ? words[takes[k + 1]!.first]!.start : words[t.last]!.end }));
+    const [start, end] = [spans[0]!.start, spans.at(-1)!.end];
+    const chosen = o.kept.filter((t) => t >= start - 1e-3 && t <= end + 1e-3).at(-1);
+    const key = takes.map((t) => takeKey(words, t)).join(" / ");
+    // By its words as well as where it is: a span shifted by a cut that was then undone can't land on another line.
+    const none = (o.cutAll ?? []).some((g) => g.start < end - 1e-3 && g.end > start + 1e-3 && (g.key === undefined || g.key === key));
+    let best = none ? -1 : chosen === undefined ? -1 : Math.max(0, spans.findLastIndex((s) => chosen >= s.start - 1e-3));
+    let by: "you" | "openai" | "beacon" = "you";
+    let reason: string | undefined;
+    if (best < 0 && !none && openai) {
+      const asset = assetOf.get(words[takes[0]!.first]!.clip);
+      const judged = asset ? data<RetakeJudgments>(asset, "retakes") : undefined;
+      if (asset && !judged) judging.add(asset);
+      // Matched by the takes' words, in order (takes said alike are told apart by where they are): the group judged,
+      // or one it is part of whose pick is among these takes.
+      const keys = takes.map((t) => takeKey(words, t));
+      for (const g of judged?.groups ?? []) {
+        const at = g.takes.findIndex((_, o) => keys.every((k, n) => g.takes[o + n] === k));
+        if (at >= 0 && g.best >= at && g.best < at + keys.length) {
+          [best, by, reason] = [g.best - at, "openai", g.reason];
+          break;
+        }
+      }
+    }
+    if (best < 0 && !none) [best, by] = [bestTake(words, takes), "beacon"];
+    return {
+      start: roundSeconds(start),
+      end: roundSeconds(end),
+      takes: spans.map((s, k) => ({ start: roundSeconds(s.start), end: roundSeconds(s.end), text: takeText(words, takes[k]!) })),
+      key,
+      best,
+      by,
+      ...(reason ? { reason } : {}),
+      cuts: (none ? ([[takes[0]!.first, takes.at(-1)!.last]] as [number, number][]) : retakeCuts(takes, best)).map(([a, b]) => wordSpan(words, a, b)),
+    };
+  });
+  return {
+    waiting,
+    judging: [...judging],
+    words: words.length,
+    groups: groups.map(({ cuts: _, ...g }) => g),
+    ranges: groups.flatMap((g) => g.cuts),
+    all: groups.map((g) => g.cuts),
+    current: currentOf(groups, o.current),
+  };
+}
+
+const RetakeSettings = {
+  minWords: z.int().min(2).max(8).describe("Words in a row a take must repeat from the one before to count as a retake of it"),
+  within: z.number().positive().max(120).describe("Seconds between the starts of two takes, at most"),
+};
+
+const retakeSessionCommands: SessionCommandDef[] = [
+  {
+    id: "retakes.review",
+    description:
+      "Open Remove Retakes' review (the AI panel's tile does): the timeline marks each line said more than once, the take kept green and the others red, and the properties panel lists each group's takes, until retakes.apply or retakes.close; with settings, change them. The user sees it, so an agent can prepare the cuts for them to look over",
+    args: z.strictObject({ minWords: RetakeSettings.minWords.optional(), within: RetakeSettings.within.optional() }),
+    apply: (s, a: Partial<RetakeOptions>) => {
+      const r = retakeReview(s) ?? { ...RETAKE_DEFAULTS, kept: [] };
+      openReview(s, "retakes", { ...r, ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) });
+    },
+  },
+  ...reviewSteps("retakes", "Remove Retakes", "group of takes"),
+  {
+    id: "retakes.cutAll",
+    description:
+      "In Remove Retakes' review, cut every take of a group, keeping none (or with `on` false, keep one again, the one picked): `start` and `end`, the group's span from transcript_retakes. retakes.keep on one of its takes keeps that one instead",
+    args: z.strictObject({ start: z.number().nonnegative(), end: z.number().nonnegative(), key: z.string().optional().describe("The group's `key` from transcript_retakes"), on: z.boolean().default(true) }),
+    apply: (s, { start, end, key, on }: CutAllGroup & { on: boolean }) => {
+      const r = retakeReview(s);
+      if (!r) throw new Error("Remove Retakes' review isn't open: retakes.review opens it");
+      const others = (r.cutAll ?? []).filter((g) => g.end <= start + 1e-3 || g.start >= end - 1e-3);
+      r.cutAll = on ? [...others, { start, end, ...(key === undefined ? {} : { key }) }] : others;
+    },
+  },
+];
+
 /** After one item is cut from an open review, its flips and its place move with the timeline. */
 const reviewShift: SessionCommandDef = {
   id: "reviews.shift",
-  description: "Move the open review's flipped times and the one it is on to match ranges just cut (timeline seconds, read before the cut); silences.apply and fillers.apply with `one` run it",
+  description: "Move the open review's flipped (or kept) times and the one it is on to match ranges just cut (timeline seconds, read before the cut); silences.apply, fillers.apply and retakes.apply with `one` run it",
   args: z.strictObject({ ranges: z.array(z.strictObject({ start: z.number(), end: z.number() })) }),
   apply: (s, { ranges }: { ranges: { start: number; end: number }[] }) => {
     for (const r of [silenceReview(s), fillerReview(s)]) {
@@ -419,8 +570,17 @@ const reviewShift: SessionCommandDef = {
       r.flipped = r.flipped.map((t) => afterCut(t, ranges));
       if (r.current !== undefined) r.current = afterCut(r.current, ranges);
     }
+    const r = retakeReview(s);
+    if (r) {
+      // A take kept in a group just cut is gone with it.
+      r.kept = r.kept.filter((t) => !ranges.some((x) => t >= x.start && t < x.end)).map((t) => afterCut(t, ranges));
+      if (r.cutAll) r.cutAll = r.cutAll.filter((g) => !ranges.some((x) => g.start >= x.start - 1e-3 && g.end <= x.end + 1e-3)).map((g) => ({ ...g, start: afterCut(g.start, ranges), end: afterCut(g.end, ranges) }));
+      if (r.current !== undefined) r.current = afterCut(r.current, ranges);
+    }
   },
 };
+
+const CutAll = z.array(z.strictObject({ start: z.number(), end: z.number(), key: z.string().optional() })).describe("Groups (their spans, and `key`s) to cut every take of, as retakes.cutAll sets");
 
 const Only = z.number().nonnegative().optional().describe("Cut only the one holding this time, or else the next after it, whether or not it is marked to cut");
 
@@ -444,6 +604,16 @@ export const transcript = defineFeature({
         { id: "openai", title: "Whisper through OpenAI", description: "OpenAI's Whisper over its API with your own API key: the audio is uploaded to OpenAI to be transcribed, and OpenAI charges your account for it", secret: "openai-api-key", online: true },
       ],
       default: "whisper",
+    },
+    {
+      id: JUDGE,
+      title: "Best take",
+      description: "Who picks the take to keep of a line said more than once (Remove Retakes)",
+      options: [
+        { id: "beacon", title: "Beacon's own scoring", description: "On this Mac: the last take that says the whole line, unless an earlier one has noticeably fewer fillers and stumbles" },
+        { id: "openai", title: "OpenAI", description: "OpenAI's API with your own API key reads each line's takes and picks one: their words are sent to OpenAI (not the audio), and OpenAI charges your account for it", secret: "openai-api-key", online: true },
+      ],
+      default: "beacon",
     },
   ],
   secrets: [{ id: "openai-api-key", title: "OpenAI API key" }],
@@ -480,6 +650,34 @@ export const transcript = defineFeature({
           streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
+      },
+    },
+    {
+      id: "retakes",
+      description: "Which take OpenAI keeps of each line said more than once in the transcript (only when Best take is OpenAI, and only when asked: Remove Retakes' review asks)",
+      version: 1,
+      // Judged from one transcriber's words: another's are judged again.
+      variant: (pref) => (judgedByOpenAI(pref) ? ["openai", transcriber(pref) === "whisper" ? undefined : transcriber(pref)].filter(Boolean).join("-") : undefined),
+      applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
+      when: "asked",
+      async analyze(_asset, progress, env) {
+        if (!judgedByOpenAI(env.pref)) throw new Error("Best take is Beacon's own scoring: OpenAI isn't asked (Settings › Transcripts › Best Take)");
+        const transcript = env.data<TranscriptData>("transcript");
+        if (!transcript) throw new Error("no transcript yet: the takes are judged from it");
+        const apiKey = await env.secret("openai-api-key");
+        if (!apiKey) throw new Error("no OpenAI API key: add one in Settings › Transcripts");
+        const found = new Map<string, { takes: string[]; said: string[]; then: string }>();
+        for (const t of Object.values(transcript.streams)) {
+          for (const o of JUDGED) {
+            for (const takes of findRetakes(t.words, o)) {
+              const keys = takes.map((x) => takeKey(t.words, x));
+              found.set(keys.join("\n"), { takes: keys, said: takes.map((x) => takeText(t.words, x)), then: after(t.words, takes) });
+            }
+          }
+        }
+        const groups = [...found.values()];
+        const picks = groups.length ? await judgeTakes(groups.map((g) => ({ takes: g.said, then: g.then })), apiKey, progress, jobSignal()) : [];
+        return { groups: groups.map((g, k) => ({ takes: g.takes, best: picks[k]!.best, reason: picks[k]!.reason })) } satisfies RetakeJudgments;
       },
     },
   ],
@@ -542,6 +740,31 @@ export const transcript = defineFeature({
       },
     }),
     defineQuery({
+      id: "transcript.retakes",
+      description:
+        "What Remove Retakes would cut: each line said more than once (a restart, a sentence said again after a stumble) as a group of takes, each take's times (timeline seconds) and words, the take kept (`best`, from 0; -1 when every take is cut, by retakes.cutAll), its takes' words as one `key` and who picked it (`by`: you, OpenAI or Beacon's own scoring), and the seconds saved. Of the takes after the kept one only what repeats the line is cut, so what the last goes on to say stays. `waiting`: media with no transcript yet; `judging`: media OpenAI hasn't judged yet (when Best take is OpenAI: the analyze tool with `retakes` asks)",
+      args: z.strictObject({
+        minWords: RetakeSettings.minWords.optional(),
+        within: RetakeSettings.within.optional(),
+        kept: z.array(z.number()).optional().describe("Times inside takes to keep instead, as retakes.keep sets"),
+        cutAll: CutAll.optional(),
+        current: z.number().optional().describe("A time in the group being looked at, as retakes.focus sets: `current` answers its index"),
+      }),
+      run({ minWords, within, kept, cutAll, current }, { project, registry, data, pref }) {
+        const plan = retakePlan(project, registry, data, pref, { minWords: minWords ?? RETAKE_DEFAULTS.minWords, within: within ?? RETAKE_DEFAULTS.within, kept: kept ?? [], cutAll: cutAll ?? [], ...(current === undefined ? {} : { current }) });
+        const removed = cutRanges(project, plan.ranges);
+        return {
+          waiting: plan.waiting,
+          judging: plan.judging,
+          judge: judgedByOpenAI(pref) ? "openai" : "beacon",
+          groups: plan.groups,
+          cuts: removed.length,
+          saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)),
+          ...(plan.current === undefined ? {} : { current: plan.current }),
+        };
+      },
+    }),
+    defineQuery({
       id: "transcript.joins",
       description:
         "Every point where an audio clip starts or ends, in timeline seconds, flagged `chopped` when it falls inside a word, or inside speech the transcript has no words for, in its source: an audible skip. Joins between two words of continuous speech are fine. Check after any cut made by hand with timeline_rippleDelete",
@@ -563,8 +786,26 @@ export const transcript = defineFeature({
       },
     }),
   ],
-  sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands, reviewShift],
+  sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands, ...retakeSessionCommands, reviewShift],
   actions: [
+    defineAction({
+      id: "retakes.apply",
+      description:
+        "Cut what Remove Retakes' open review marks to cut (its Apply All button): of each group the takes not kept, one undo step, and close the review. With `one`, cut only the group retakes.focus is on (Cut This One) and stay open on the next",
+      args: z.strictObject({ one: z.boolean().default(false) }),
+      resolve: ({ one }, { project, registry, session, data, pref }) => {
+        const r = retakeReview(session);
+        if (!r) throw new Error("Remove Retakes' review isn't open: retakes.review opens it");
+        // The takes as the review shows them, OpenAI's picks included, named by a time inside each.
+        const plan = retakePlan(project, registry, data, pref, r);
+        const kept = plan.groups.flatMap((g) => (g.best < 0 ? [] : [(g.takes[g.best]!.start + g.takes[g.best]!.end) / 2]));
+        const cutAll = plan.groups.filter((g) => g.best < 0).map((g) => ({ start: g.start, end: g.end, key: g.key }));
+        const args = { minWords: r.minWords, within: r.within, kept, cutAll };
+        if (!one) return { label: "Remove Retakes", steps: [{ command: "transcript.removeRetakes", args }], after: () => [{ command: "retakes.close" }] };
+        if (r.current === undefined) throw new Error("no retake to cut: retakes.focus goes to one");
+        return { label: "Remove Retake", steps: [{ command: "transcript.removeRetakes", args: { ...args, only: r.current } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }] };
+      },
+    }),
     defineAction({
       id: "silences.apply",
       description:
@@ -594,6 +835,20 @@ export const transcript = defineFeature({
     }),
   ],
   commands: [
+    defineCommand({
+      id: "transcript.removeRetakes",
+      description:
+        "Remove Retakes: of each line said more than once, keep one take and cut the others (of those after it only what repeats the line), as transcript_retakes shows; one undo step. The take kept is the one `kept` names, else Beacon's own pick; groups `cutAll` names lose every take; retakes.apply runs it from the open review with OpenAI's picks too",
+      args: z.strictObject({ ...RetakeSettings, kept: z.array(z.number()).default([]), cutAll: CutAll.default([]), only: Only }),
+      apply(doc, { only, ...o }, ctx) {
+        const plan = retakePlan(doc, ctx.registry, ctx.data, () => "beacon", { ...o, ...(only === undefined ? {} : { current: only }) });
+        if (!plan.words) throw new Error("no transcript on the timeline yet");
+        refuseUntranscribed(doc, ctx.registry, ctx.data);
+        if (only === undefined) return cut(doc, ctx, plan.ranges);
+        if (plan.current === undefined) throw new Error(`no retake at or after ${only} s`);
+        return cut(doc, ctx, plan.all[plan.current]!);
+      },
+    }),
     defineCommand({
       id: "transcript.removeFillers",
       description:
@@ -637,13 +892,8 @@ export const transcript = defineFeature({
           doc,
           ctx,
           ranges.map(([a, b]) => {
-            const first = words[Math.min(a, b)];
-            const last = words[Math.max(a, b)];
-            if (!first || !last) throw new Error(`word range [${a}, ${b}] is outside 0-${words.length - 1}`);
-            const next = words[last.i + 1];
-            // `lead` is silence kept before the next word; without a real pause, cut right up to it.
-            const end = !next ? last.end : next.start - last.end > 2 * lead ? next.start - lead : Math.max(last.end, next.start - (next.start - last.end) / 4);
-            return { start: first.start, end };
+            if (!words[Math.min(a, b)] || !words[Math.max(a, b)]) throw new Error(`word range [${a}, ${b}] is outside 0-${words.length - 1}`);
+            return wordSpan(words, Math.min(a, b), Math.max(a, b), lead);
           }),
         );
       },

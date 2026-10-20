@@ -13,15 +13,15 @@ export interface ExportHost {
   showFile(path: string, open?: boolean): void;
 }
 
-/** The File format menu. */
+/** The File format menu: the video formats, or with Audio only ticked the audio ones. */
 const FORMATS: [ExportSettings["format"], string][] = [
   ["mp4", "Export to MP4 (.mp4)"],
   ["mov", "Export to QuickTime Movie (.mov)"],
   ["gif", "Export to Animated GIF (.gif)"],
   ["webm", "Export to WebM (.webm)"],
-  ["wav", "Export Audio Only (.wav)"],
-  ["m4a", "Export Audio Only (.m4a)"],
-  ["mp3", "Export Audio Only (.mp3)"],
+  ["wav", "Export to WAV (.wav)"],
+  ["m4a", "Export to AAC (.m4a)"],
+  ["mp3", "Export to MP3 (.mp3)"],
 ];
 
 const FRAME_RATES = [10, 15, 24, 25, 30, 50, 60];
@@ -70,7 +70,10 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
   const [exists, setExists] = useState(false);
   // A range on the timeline is what gets exported unless unticked.
   const [selectionOnly, setSelectionOnly] = useState(!!sheet.range);
+  // The format last picked on the other side of Audio only, to come back to.
+  const [other, setOther] = useState<ExportSettings["format"]>(isAudioFormat(sheet.settings.format) ? DEFAULT_EXPORT.format : "wav");
   const set = (patch: Partial<ExportSettings>) => setS((x) => ({ ...x, ...patch }));
+  const pick = (format: ExportSettings["format"]) => set({ format, ...(format !== "mov" && s.codec === "prores" ? { codec: "h264" } : {}), ...(isAudioFormat(format) ? { audio: true } : {}) });
   const close = () => replica.exportSheet(undefined);
   const start = async (overwrite = false) => {
     const r = await host.startExport({ name: name.trim(), folder, settings: s, ...(sheet.range && selectionOnly ? { range: sheet.range } : {}), overwrite });
@@ -109,14 +112,8 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
         )}
         <Row label="File format">
           <div className="w-72">
-            <Select
-              value={s.format}
-              onChange={(e) => {
-                const format = e.target.value as ExportSettings["format"];
-                set({ format, ...(format !== "mov" && s.codec === "prores" ? { codec: "h264" } : {}), ...(isAudioFormat(format) ? { audio: true } : {}) });
-              }}
-            >
-              {FORMATS.map(([f, label]) => (
+            <Select value={s.format} onChange={(e) => pick(e.target.value as ExportSettings["format"])}>
+              {FORMATS.filter(([f]) => isAudioFormat(f) === audioOnly).map(([f, label]) => (
                 <option key={f} value={f}>
                   {label}
                 </option>
@@ -124,6 +121,9 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
             </Select>
           </div>
           <Button onClick={() => setAdvanced((a) => !a)}>{advanced ? "Hide Options" : "Options…"}</Button>
+        </Row>
+        <Row label="">
+          <Check label="Audio only" checked={audioOnly} onChange={() => (setOther(s.format), pick(other))} />
         </Row>
       </div>
       {advanced && (
@@ -285,14 +285,14 @@ export function SnapshotSaved({ host }: { host: ExportHost }) {
   );
 }
 
-/** Both, from the view store. */
+/** The Export dialog, from the view store. */
 export function ExportUi({ host, muted, unmute }: { host: ExportHost; muted?: string[]; unmute?: () => void }) {
   const sheet = useView((v) => v.exportSheet);
+  return sheet ? <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} muted={muted} unmute={unmute} /> : null;
+}
+
+/** The running export's toast, from the view store. */
+export function ExportToast({ host }: { host: ExportHost }) {
   const job = useView((v) => v.exportJob);
-  return (
-    <>
-      {sheet && <ExportDialog key={sheet.name + sheet.folder} sheet={sheet} host={host} muted={muted} unmute={unmute} />}
-      {job && <ExportProgress job={job} host={host} />}
-    </>
-  );
+  return job ? <ExportProgress job={job} host={host} /> : null;
 }

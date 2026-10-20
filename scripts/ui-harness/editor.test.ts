@@ -7,7 +7,7 @@ import { DerivedData } from "@beacon/render";
 import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
-import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth } from "@beacon/ui";
+import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -348,7 +348,7 @@ test.skipIf(skip)("the speech model is downloaded only when the user agrees, wit
   expect(ui.menus).not.toContain("fetchResource:whisper-model");
 
   // Settings › General offers it again; downloading shows progress, Cancel stops it, Hide leaves it running.
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
   await page.until(`!!${button("Download Speech Model…")}`);
   await page.evaluate(`${button("Download Speech Model…")}.click()`);
   await page.until("!!document.querySelector('[data-resource]')");
@@ -378,7 +378,7 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   const value = async () => (await ui.core.preferences()).find((p) => p.id === "transcriber")!.value;
   // Changing the transcriber transcribes the project's media again: not here (OpenAI's would be sent the test key).
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
   await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
   expect(await has("[data-resource-row]")).toBe(true);
   // Apple's needs nothing: chosen at once, and the model isn't offered.
@@ -408,6 +408,37 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   ui.core.setAutomatic(() => true);
 }, 20000);
 
+test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: OpenAI's waits for the key, which the transcriber's row then shares, and removing it goes back to Beacon's own", async () => {
+  const row = (id: string) => `[data-preference-row="${id}"]`;
+  const pick = (id: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-preference="${id}"]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const value = async (id: string) => (await ui.core.preferences()).find((p) => p.id === id)!.value;
+  ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences(), tab: "transcripts" });
+  await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
+  expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("Best Take");
+  await pick("retake-judge", "openai");
+  await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="unset"]')`);
+  expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("not the audio");
+  expect(await value("retake-judge")).toBe("beacon");
+  await page.click(...(await centre(`${row("retake-judge")} [data-api-key="unset"] input`)));
+  await type("sk-test-456");
+  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Save and Use').click()`);
+  await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="set"]')`);
+  expect(await value("retake-judge")).toBe("openai");
+  // The key is the transcriber's too: OpenAI's there is chosen at once, with no key to type.
+  await pick("transcriber", "openai");
+  await page.until(`!!document.querySelector('${row("transcriber")} [data-api-key="set"]')`);
+  expect(await value("transcriber")).toBe("openai");
+  await pick("transcriber", "whisper");
+  await arrived(() => ui.menus.includes("setPreference:transcriber=whisper"));
+  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Remove').click()`);
+  await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
+  expect(await value("retake-judge")).toBe("beacon");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()`);
+  await page.until("!document.querySelector('[data-transcriber]')");
+  ui.core.setAutomatic(() => true);
+}, 20000);
+
 test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey out while OpenAI's transcriber has media to transcribe, Settings marks it and the speech model's download", async () => {
   const model = { id: "whisper-model", title: "Whisper large-v3-turbo speech model", description: "", bytes: 574_041_195, present: false };
   const offline = (off: boolean) => page.evaluate(`(() => { Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => ${!off} }); window.dispatchEvent(new Event('${off ? "offline" : "online"}')); })()`);
@@ -418,21 +449,21 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 3");
-    expect(await greyed()).toEqual([false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 4");
+    expect(await greyed()).toEqual([false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([true, true, true]);
+    expect(await greyed()).toEqual([true, true, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
-    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences() });
+    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
     await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
     expect(await page.evaluate<string>("document.querySelector('[data-offline]').textContent")).toContain("can't transcribe until you're back online");
     await page.evaluate("(() => { const s = document.querySelector('[data-transcriber]'); s.value = 'whisper'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
@@ -446,7 +477,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -627,11 +658,23 @@ test.skipIf(skip)("Export's data rate is Automatic by default, by the output's s
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("Export Audio Only writes the mix as .mp3 (or .wav, .m4a) with the video options hidden", async () => {
+test.skipIf(skip)("Audio only lists just .wav, .m4a and .mp3, comes back to each side's last pick, and writes the mix with the video options hidden", async () => {
   ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 } });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
-  const format = (f: string) =>
-    page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp3')); s.value = '${f}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const menu = `[...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp4' || o.value === 'mp3'))`;
+  const listed = () => page.evaluate<string>(`(() => { const s = ${menu}; return s.value + ':' + [...s.options].map((o) => o.value).join(','); })()`);
+  const audioOnly = () => page.evaluate(`document.querySelector('[role=checkbox][aria-label="Audio only"]').click()`);
+  const format = (f: string) => page.evaluate(`(() => { const s = ${menu}; s.value = '${f}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  expect(await listed()).toBe("mp4:mp4,mov,gif,webm");
+  await format("webm");
+  await audioOnly();
+  await page.until(`${menu}.value === 'wav'`);
+  expect(await listed()).toBe("wav:wav,m4a,mp3");
+  await format("m4a");
+  await audioOnly();
+  await page.until(`${menu}.value === 'webm'`);
+  await audioOnly();
+  await page.until(`${menu}.value === 'm4a'`);
   await format("wav");
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
   const heading = (name: string) => `[...document.querySelectorAll('div.text-text-strong')].some((d) => d.textContent === '${name}')`;
@@ -954,9 +997,16 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   await arrived(() => ui.core.doc(ui.handle).assets[take.id]!.name === "Intro take");
   expect(ui.core.doc(ui.handle).assets[take.id]!.name).toBe("Intro take");
   await ui.core.undo(ui.handle);
+
+  // A source the recorder couldn't save is said, not only logged.
+  ui.send("recordedSheet", { asset: take.id, name: "2026-10-20 12.37.32", duration: 748, problems: ["microphone: The operation could not be completed"] });
+  await page.until("!!document.querySelector('[data-recorded-problem]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-recorded-problem]').textContent")).toBe("The microphone stopped saving (The operation could not be completed): the take has no microphone after that.");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-recorded]')");
 });
 
-test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels; – hides it, Stop stops", async () => {
+test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels (Not saving for a stopped one); – hides it, Stop stops", async () => {
   const panel = await openPage(`${ui.url}?panel=screen,camera,microphone,systemAudio`);
   try {
     await panel.until("!!document.querySelector('[data-record-panel]')");
@@ -972,6 +1022,15 @@ test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source
     ui.send("recordPreview", { microphone: { db: -20, peak: -6 }, live: { screen: true, camera: false, microphone: true, systemAudio: true } });
     await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'stopped'");
     expect(await chips()).toBe("Screen:live Camera:stopped Mic:live System:live");
+    // A microphone whose file stopped being written still has a level: its waveform gives way to "Not saving".
+    ui.send("recordPreview", { microphone: { db: -20, peak: -6 }, live: { screen: true, camera: true, microphone: false, systemAudio: true } });
+    await panel.until("document.querySelector('[data-source=microphone]')?.dataset.sourceLive === 'stopped'");
+    expect(await chips()).toBe("Screen:live Camera:live Mic:stopped System:live");
+    expect(await panel.evaluate<string>("document.querySelector('[data-not-saving]')?.dataset.notSaving")).toBe("microphone");
+    expect(await panel.evaluate<string[]>("[...document.querySelectorAll('canvas[data-history]')].map((c) => c.getAttribute('aria-label'))")).toEqual(["System level"]);
+    // The menu-bar item says it too, for when the panel is hidden.
+    expect(recordingTitle(83, { screen: true, camera: true, microphone: false, systemAudio: true })).toBe("● 1:23 · Mic not saving");
+    expect(recordingTitle(83, { screen: true })).toBe("● 1:23");
     // Frames coming, but black: amber, and back to green when the picture returns.
     ui.send("recordPreview", { live: { screen: true, camera: true, microphone: true, systemAudio: true }, picture: { camera: "black" } });
     await panel.until("document.querySelector('[data-source=camera]')?.dataset.sourceLive === 'black'");
@@ -1181,7 +1240,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-3)).toEqual(["ai:silences", "ai:fillers", "ai:captions"]);
+  expect(all.slice(-4)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -1511,6 +1570,50 @@ test.skipIf(skip)("an audio file in the Media Bin shows its waveform", async () 
   await ui.core.undo(ui.handle);
 }, 90000);
 
+test.skipIf(skip)("importing shows a placeholder tile while a file is read and a dismissable panel of each file's stage until it is ready", async () => {
+  await run("panel.show", { tool: "media" });
+  // While read, before its media exist: a placeholder tile, and the file Reading in the panel.
+  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "reading" });
+  await page.until("!!document.querySelector('[data-import-progress]')");
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  ui.send("importing", { id: "import-test", files: ["/somewhere/Big Take.mov"], state: "failed", error: "" });
+  ui.send("importing", { id: "import-shown", files: ["/somewhere/Big Take.mov"], state: "reading" });
+  await page.until(`!!document.querySelector('[data-pending-media="Big Take.mov"]')`);
+  await page.until(`document.querySelector('[data-import-row="Big Take.mov"]')?.dataset.importStage === 'Reading'`);
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("Importing 1 file");
+  ui.send("importing", { id: "import-shown", files: ["/somewhere/Big Take.mov"], state: "failed", error: "no feature imports .mov" });
+  await page.until(`document.querySelector('[data-import-row="Big Take.mov"]')?.dataset.importStage === 'Failed'`);
+  expect(await has('[data-pending-media]')).toBe(false);
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-import-progress]')");
+  // Dismissed while still read: its tile stays until it is, and the panel doesn't come back when it is.
+  ui.send("importing", { id: "import-hidden", files: ["/somewhere/Other.mov"], state: "reading" });
+  await page.until("!!document.querySelector('[data-import-progress]')");
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-import-progress]')");
+  expect(await has('[data-pending-media="Other.mov"]')).toBe(true);
+  ui.send("importing", { id: "import-hidden", files: ["/somewhere/Other.mov"], state: "failed", error: "no" });
+  await page.until("!document.querySelector('[data-pending-media]')");
+  await Bun.sleep(200);
+  expect(await has('[data-import-progress]')).toBe(false);
+
+  // A real one: its row follows the media until it is ready, then the panel says so.
+  const copy = join(dir, `import-voice-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const r = await ui.core.import(ui.handle, [copy]);
+  for (const j of r.jobs) await ui.core.cancelJob(j).catch(() => {});
+  await page.until(`!!document.querySelector('[data-import-progress] [data-import-stage]')`);
+  await page.until(`[...document.querySelectorAll('[data-import-row]')].some((e) => e.dataset.importStage === 'Ready')`, 30000);
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("Imported 1 file");
+  // A transcript that failed says so, rather than Ready, and the panel stays.
+  ui.send("media", { jobFailed: { [r.assets[0]!]: "Transcribing failed: the model is missing" } });
+  await page.until(`[...document.querySelectorAll('[data-import-row]')].some((e) => e.dataset.importStage === 'Failed' && e.textContent.includes('the model is missing'))`);
+  expect(await page.evaluate<string>("document.querySelector('[data-toast]').textContent")).toContain("not all of it");
+  await page.evaluate("document.querySelector('[data-toast] button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-import-progress]')");
+  await ui.core.undo(ui.handle);
+}, 60_000);
+
 test.skipIf(skip)("Settings choose which media get proxies on their own (the rest wait for Create Proxy Video) and how quietly they are built", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet" });
   await page.until(`!!document.querySelector('[data-auto-proxy]')`);
@@ -1538,7 +1641,7 @@ test.skipIf(skip)("a dialog is cut out of the native canvas with its rounded cor
   await page.until("!!document.querySelector('[tabindex=\"-1\"] .ot-mask')");
   // Whether a point is cut out: inside any masked element's rectangle, as the native view takes them.
   const cut = await page.evaluate<boolean[]>(`(() => {
-    const sheet = document.querySelector('.ot-mask').closest('[tabindex="-1"]').getBoundingClientRect();
+    const sheet = document.querySelector('[tabindex="-1"] .ot-mask').closest('[tabindex="-1"]').getBoundingClientRect();
     const rects = [...document.querySelectorAll('.ot-mask')].map((m) => m.getBoundingClientRect());
     const inside = (x, y) => rects.some((r) => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
     const { left: l, top: t, right: r, bottom: b } = sheet;
@@ -1660,6 +1763,52 @@ test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top
   await expect(run("edit.label", { color: "blue" })).rejects.toThrow("select clips first");
 });
 
+test.skipIf(skip)("a clip being dragged is drawn where it would land with its waveform, so it can be lined up by eye", async () => {
+  await select([]);
+  const voice = clips().find((c) => c.type === "audio" && c.assetId)!;
+  const job = await ui.core.analyze(ui.handle, "waveform", voice.assetId!);
+  for (let j = await ui.core.job(job.id); j.state === "running"; j = await ui.core.job(job.id)) await Bun.sleep(100);
+  const [a, b] = [ticksToSeconds(voice.start), ticksToSeconds(voice.start + voice.duration)];
+  await run("timeline.view", { start: Math.max(0, a - 1), end: b + (b - a) + 1 });
+  await page.until(`!!document.querySelector('canvas[data-timeline]')`);
+  await Bun.sleep(500);
+  const { y, h, xAt, box } = await timelinePlaces(voice.id);
+  const by = (xAt(b) - xAt(a)) * 0.6;
+  const bars = (from: number, to: number) =>
+    `new Set((() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const out = []; for (let x = ${from}; x < ${to}; x += 1) out.push([...c.getContext('2d').getImageData(Math.round(x * k), Math.round(${y + h - 4} * k), 1, 1).data].slice(0, 3).join()); return out; })()).size`;
+  await page.until(`${bars(xAt(a) + 6, xAt(b) - 6)} > 1`, 60000);
+  const [x0, y0] = [box.x + (xAt(a) + xAt(b)) / 2, box.y + y + h / 2];
+  await page.down(x0, y0);
+  for (let i = 1; i <= 10; i++) await page.move(x0 + (by * i) / 10, y0);
+  await Bun.sleep(300);
+  // Past the clip's own end only the dragged one is drawn: bars of its waveform, not one flat fill.
+  const colours = await page.evaluate<number>(bars(xAt(b) + 6, xAt(b) + by - 6));
+  await page.up(x0 + by, y0);
+  await Bun.sleep(300);
+  expect(colours).toBeGreaterThan(1);
+  await ui.core.undo(ui.handle);
+
+  // Its waveform is drawn at the volume it has where it is in the clip: faded in over its first half, short there.
+  // Rows below the name with bars in them: each bar is 1.5 points wide every 2, so a row through bars alternates.
+  const tall = (from: number) =>
+    page.evaluate<number>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const ctx = c.getContext('2d'); let n = 0; for (let yy = ${y + 22}; yy < ${y + h - 2}; yy++) { const row = ctx.getImageData(Math.round(${from} * k), Math.round(yy * k), Math.round(40 * k), 1).data; let changes = 0; for (let p = 4; p < row.length; p += 4) if (row[p] !== row[p - 4] || row[p + 1] !== row[p - 3]) changes++; if (changes > 6) n++; } return n; })()`);
+  await run("edit.fade", { kind: "in", duration: (b - a) / 2, clip: voice.id });
+  await Bun.sleep(400);
+  // Past its own end, so nothing of the clip where it was shows through.
+  const far = (xAt(b) - xAt(a)) * 1.1;
+  await page.down(x0, y0);
+  for (let i = 1; i <= 10; i++) await page.move(x0 + (far * i) / 10, y0);
+  await Bun.sleep(300);
+  const early = await tall(xAt(a) + far + (xAt(b) - xAt(a)) * 0.08);
+  const late = await tall(xAt(a) + far + (xAt(b) - xAt(a)) * 0.8);
+  await page.up(x0 + far, y0);
+  await Bun.sleep(300);
+  expect(early).toBeLessThan(late * 0.6);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+}, 90_000);
+
 test.skipIf(skip)("a clip dropped after a drag stays where it was dropped while the move is applied, never back where it was for a frame", async () => {
   await select([]);
   await run("timeline.view", { start: 0, end: 20 });
@@ -1770,7 +1919,7 @@ test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the d
   await run("timeline.zoom", { to: "fit" });
 });
 
-test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens on the Project tab", async () => {
+test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens in its own dialog", async () => {
   await run("selection.clear");
   await run("playhead.set", { time: 10 });
   await Bun.sleep(300);
@@ -1789,9 +1938,9 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
   await arrived(() => ui.menus.at(-1) === "canvas");
   expect(ui.menus.at(-1)).toBe("canvas");
   await run("canvas.zoom", { zoom: "fit" });
-  // What Project Settings… does in the app.
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "project" });
-  await page.until(`!!document.querySelector('[data-canvas-settings]')`);
+  // What Project Settings… does in the app: its own dialog.
+  ui.send("projectSettings", {});
+  await page.until(`!!document.querySelector('[data-project-settings] [data-canvas-settings]')`);
   await page.key("Escape", "Escape");
   await run("selection.clear");
 });
@@ -1799,7 +1948,7 @@ test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the can
 test.skipIf(skip)("Canvas Color shows a background with alpha, as a Camtasia import keeps it", async () => {
   const before = ui.core.doc(ui.handle).settings.background;
   await run("project.settings.set", { background: "#ff336680" });
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "project" });
+  ui.send("projectSettings", {});
   const swatch = `document.querySelector('[data-canvas-settings] button[title="The canvas colour behind the media"] span')`;
   await page.until(`!!${swatch}`);
   expect(await page.evaluate<string>(`getComputedStyle(${swatch}).backgroundColor`)).toBe("rgb(255, 51, 102)");
@@ -1835,6 +1984,42 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
   await Bun.sleep(300);
   expect(ui.core.doc(ui.handle).assets[id]).toBeDefined();
   await ui.core.undo(ui.handle);
+});
+
+test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
+  await page.until("!!document.querySelector('[data-settings-nav]')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Shortcuts"]);
+  const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
+  const first = await size();
+  for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
+    await page.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
+    await page.until(`document.querySelector('[data-settings-section]')?.dataset.settingsSection === '${section}'`);
+    expect(await size()).toBe(first);
+  }
+  // The long section scrolls inside it.
+  await page.evaluate("document.querySelector('[data-section=\"shortcuts\"]').click()");
+  await page.until("!!document.querySelector('[data-shortcut]')");
+  expect(await page.evaluate<boolean>("(() => { const l = document.querySelector('[data-shortcut]').parentElement; return l.scrollHeight > l.clientHeight; })()")).toBe(true);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-settings-nav]')");
+
+  // ⌥⌘, opens Project Settings; a change there is one undo step.
+  await page.key(",", "Comma", ["alt", "meta"]);
+  await page.until("!!document.querySelector('[data-project-settings]')");
+  const before = ui.core.doc(ui.handle).settings.background;
+  await run("project.settings.set", { background: "#123456" });
+  await page.until(`getComputedStyle(document.querySelector('[data-project-settings] button[title="The canvas colour behind the media"] span')).backgroundColor === 'rgb(18, 52, 86)'`);
+  await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle).settings.background).toBe(before);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-project-settings]')");
+  // Agents open it by name; Settings has no Project tab any more.
+  await ui.core.uiOpen(ui.handle, "projectSettings");
+  await page.until("!!document.querySelector('[data-project-settings]')");
+  await ui.core.uiOpen(ui.handle, null);
+  await page.until("!document.querySelector('[data-project-settings]')");
+  await expect(ui.core.uiOpen(ui.handle, "settings", "project")).rejects.toThrow(/dialog projectSettings/);
 });
 
 test.skipIf(skip)("Settings keeps focus where it is while the editor re-renders (an open dropdown stays open)", async () => {
@@ -1893,6 +2078,55 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await page.until(`[...document.querySelectorAll('button[title]')].some((b) => /^colou?r$/i.test(b.title))`);
   await ui.core.undo(ui.handle);
 });
+
+test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and says what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
+  await run("effect.add", { clip: screen.id, type: "film-look" });
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "effects" });
+  const fx = () => clip(screen.id).effects.find((e) => e.type === "film-look")!;
+  // Its defaults are hance's Default look.
+  await page.until("document.querySelector('[data-effect-preset]')?.value === 'default'");
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-effect-preset] option').length")).toBe(42);
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate("(() => { const s = document.querySelector('[data-effect-preset]'); s.value = 'cinestill-800t'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await arrived(() => fx().params.halation === 0.7);
+  expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('bloom 0.45')");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toStartWith("Not in Film Look, from “CineStill 800T”:");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).not.toContain("split tone");
+  // Its split tone on two hue sliders, the hues along their grooves; Tint just under Warmth.
+  expect(fx().params).toMatchObject({ tint: 0.02, splitTone: 0.25, shadowHue: 220, highlightHue: 40 });
+  const labels = await page.evaluate<string[]>("[...document.querySelectorAll('label, span, div')].filter((e) => e.children.length === 0).map((e) => e.textContent)");
+  expect(labels.indexOf("Warmth")).toBeLessThan(labels.indexOf("Tint"));
+  expect(labels.indexOf("Tint")).toBeLessThan(labels.indexOf("Fade"));
+  const grooves = "[...document.querySelectorAll('div')].filter((d) => d.style.background.includes('linear-gradient'))";
+  expect(await page.evaluate<number>(`${grooves}.length`)).toBe(2);
+  const at = await page.evaluate<[number, number]>(`(() => { const g = ${grooves}[0]; g.scrollIntoView({ block: "center" }); const r = g.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+  await page.click(...at);
+  await arrived(() => Math.abs(fx().params.shadowHue as number - 180) <= 2);
+  // A slider moved: no longer the look, Custom.
+  await run("effect.set", { clip: screen.id, effect: fx().id, params: { fade: 0.5 } });
+  await page.until("document.querySelector('[data-effect-preset]')?.value === ''");
+  // Import .hlook…: Finder picks a file of your own.
+  const file = join(dir, "mine.hlook");
+  writeFileSync(file, JSON.stringify({ name: "Mine", params: { fade: 0.3, "white-balance": 2000 } }));
+  ui.chooseFile(file);
+  await page.evaluate("document.querySelector('[data-effect-import]').click()");
+  await arrived(() => fx().params.fade === 0.3);
+  expect(ui.menus).toContain("chooseFile:hlook");
+  expect(fx().params.warmth).toBe(2);
+  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
+  // Cancelled in Finder, nothing changes.
+  ui.chooseFile(null);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate("document.querySelector('[data-effect-import]').click()");
+  await Bun.sleep(300);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+  for (let i = 0; i < 5; i++) await ui.core.undo(ui.handle);
+  expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
+}, 30_000);
 
 test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {
   await run("effect.add", { clip: screen.id, type: "drop-shadow" });
@@ -2092,6 +2326,277 @@ test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler mark
   }
 }, 180_000);
 
+test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the kept one green; a click picks a line (or the list does), another keeps a take; Cut All keeps none; the takes listed with play; OpenAI's picks, or why it couldn't; Apply cuts in one undo step", async () => {
+  // The talk's real audio under a transcript that restarts two lines, in a cache of its own.
+  const cacheDir = join(dir, "retakes-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "retakes.beproj");
+  const h = await core.create({ path });
+  const copy = join(dir, `retakes-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const { assets, jobs } = await core.import(h, [copy]);
+  for (const j of jobs) await core.cancelJob(j).catch(() => {});
+  const asset = core.doc(h).assets[assets[0]!]!;
+  await core.close(h);
+  const words: { text: string; start: number; end: number; p: number }[] = [];
+  let t = 1;
+  for (const w of "Welcome to the video. | So the next step is | um, | so the next step is to open the settings. | Then we click on Bluetooth and | then we click on Bluetooth and pair the keyboard. | That's all for today.".split(" ")) {
+    if (w === "|") t += 0.8;
+    else {
+      words.push({ text: w, start: Number(t.toFixed(3)), end: Number((t + 0.4).toFixed(3)), p: 1 });
+      t += 0.5;
+    }
+  }
+  mkdirSync(join(cacheDir, "derived"), { recursive: true });
+  writeFileSync(
+    new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!),
+    JSON.stringify({ streams: { 0: { model: "test", language: "en", words, speech: words.map((w) => [w.start, w.end]) } } }),
+  );
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  const realFetch = globalThis.fetch;
+  try {
+    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
+    const review = async () => ((await other.core.session(other.handle)).features.transcript as { retakes?: { kept: number[] } } | undefined)?.retakes;
+    type Found = { groups: { start: number; end: number; takes: { start: number; end: number; text: string }[]; best: number; by: string }[]; saved: number };
+    const found = async () => (await other.core.query(other.handle, "transcript.retakes", (await review()) ?? {})) as Found;
+    const summary = () => p.evaluate<string>("document.querySelector('[data-retakes-summary]')?.textContent ?? ''");
+    await go("panel.show", { tool: "ai" });
+    await p.until("!!document.querySelector('[data-ai=retakes]')");
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    await p.until("!!document.querySelector('[data-retake-review]')");
+    await p.until("/shorter\\.$/.test(document.querySelector('[data-retakes-summary]')?.textContent ?? '')", 30_000);
+    expect(await summary()).toStartWith("2 lines said more than once, 2 takes to cut.");
+    const first = await found();
+    expect(first.groups.map((g) => [g.takes.length, g.best, g.by])).toEqual([
+      [2, 1, "beacon"],
+      [2, 1, "beacon"],
+    ]);
+    // On the timeline: the kept take green, the other red.
+    const g = first.groups[0]!;
+    await go("timeline.view", { start: g.start - 1, end: g.end + 1 });
+    const s = await other.core.session(other.handle);
+    const box = await p.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+    const header = headerWidth(other.core.doc(other.handle).tracks);
+    const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+    const rgb = async (t: number) => (await p.evaluate<string>(timelinePixel(xAt(t) - box.x, box.h - 6))).split(",").map(Number) as [number, number, number];
+    const [kept, cut] = [await rgb((g.takes[1]!.start + g.takes[1]!.end) / 2), await rgb((g.takes[0]!.start + g.takes[0]!.end) / 2)];
+    expect(kept[1]).toBeGreaterThan(kept[0]);
+    expect(cut[0]).toBeGreaterThan(cut[1]);
+    // A click on a line picks it to look at, keeping what was kept; a click on one of its takes then keeps that one.
+    const curr = async () => ((await other.core.session(other.handle)).features.transcript as { retakes?: { current?: number } }).retakes?.current;
+    await p.click(xAt((g.takes[0]!.start + g.takes[0]!.end) / 2), box.y + box.h - 20);
+    for (let i = 0; i < 50 && (await curr()) === undefined; i++) await Bun.sleep(50);
+    expect((await found()).groups[0]!.best).toBe(1);
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    await go("timeline.view", { start: g.start - 1, end: g.end + 1 });
+    await Bun.sleep(200);
+    await p.click(xAt((g.takes[0]!.start + g.takes[0]!.end) / 2), box.y + box.h - 20);
+    for (let i = 0; i < 50 && !(await review())?.kept.length; i++) await Bun.sleep(50);
+    expect((await found()).groups.map((x) => [x.best, x.by])).toEqual([
+      [0, "you"],
+      [1, "beacon"],
+    ]);
+    // One at a time, the group's takes are listed: the kept one marked, a click on the other keeps it, ▶ plays one and stops at its end.
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    await p.until("document.querySelectorAll('[data-retake-takes] [data-take]').length === 2");
+    // Every line listed: a click on one goes to it.
+    expect(await p.evaluate<number>("document.querySelectorAll('[data-review-item]').length")).toBe(2);
+    await p.evaluate("document.querySelector('[data-review-item=\"1\"]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 2') && !!document.querySelector('[data-review-item=\"1\"][data-current]')");
+    // Cut All: neither take kept, both red on the timeline; Keep One puts the pick back.
+    await p.evaluate("document.querySelector('[data-take-cut]').click()");
+    await p.until("!!document.querySelector('[data-take-cut-all]') && !document.querySelector('[data-retake-takes] [data-kept]')");
+    expect((await found()).groups[1]!.best).toBe(-1);
+    expect(await summary()).toStartWith("2 lines said more than once, 3 takes to cut.");
+    const g1 = (await found()).groups[1]!;
+    await go("timeline.view", { start: g1.start - 1, end: g1.end + 1 });
+    await Bun.sleep(200);
+    const s1 = await other.core.session(other.handle);
+    const xAt1 = (t: number) => header + ((t - s1.timeline.start) / (s1.timeline.end - s1.timeline.start)) * (box.w - header);
+    for (const take of g1.takes) await p.until(`(([r, g]) => r > g)(${timelinePixel(xAt1((take.start + take.end) / 2), box.h - 6)}.split(',').map(Number))`);
+    await p.evaluate("document.querySelector('[data-take-cut-all]').click()");
+    await p.until("!document.querySelector('[data-take-cut-all]') && !!document.querySelector('[data-retake-takes] [data-kept]')");
+    expect((await found()).groups[1]!.best).toBe(1);
+    await p.evaluate("document.querySelector('[data-review-item=\"0\"]').click()");
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    expect(await p.evaluate<string>("document.querySelector('[data-retake-takes] [data-kept]').dataset.take")).toBe("0");
+    expect(await p.evaluate<string>("document.querySelector('[data-take-by]').textContent")).toBe("Chosen by you");
+    await p.evaluate("document.querySelectorAll('[data-take-keep]')[1].click()");
+    await p.until("document.querySelector('[data-retake-takes] [data-kept]')?.dataset.take === '1'");
+    // Playback plays in a preview: an offscreen one here.
+    other.core.attachView(other.handle, { offscreen: { width: 320, height: 180 } }, { silent: true });
+    await p.evaluate("document.querySelectorAll('[data-take-play]')[0].click()");
+    for (let i = 0; i < 50 && !(await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
+    // Playing starts a moment after the click: the take's end is kept until it has, then stops it.
+    expect((await other.core.session(other.handle)).playing).toBe(true);
+    expect((await other.core.session(other.handle)).playhead).toBeCloseTo(g.takes[0]!.start, 1);
+    await go("playhead.set", { time: g.takes[0]!.end + 0.1 });
+    for (let i = 0; i < 100 && (await other.core.session(other.handle)).playing; i++) await Bun.sleep(20);
+    expect((await other.core.session(other.handle)).playing).toBe(false);
+    other.core.detachView(other.handle);
+
+    // Cut This One: the clips close up, and the marks of the group left move with them.
+    const second = (await found()).groups[1]!;
+    await go("timeline.view", { start: 0, end: second.end + 2 });
+    await go("retakes.focus", { at: g.start });
+    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 2')");
+    await p.evaluate("document.querySelector('[data-one-cut]').click()");
+    for (let i = 0; i < 100 && (await found()).groups.length !== 1; i++) await Bun.sleep(50);
+    const moved = (await found()).groups[0]!;
+    expect(moved.start).toBeLessThan(second.start - 0.5);
+    const s2 = await other.core.session(other.handle);
+    const xAt2 = (t: number) => header + ((t - s2.timeline.start) / (s2.timeline.end - s2.timeline.start)) * (box.w - header);
+    const keptAt = (moved.takes[moved.best]!.start + moved.takes[moved.best]!.end) / 2;
+    await p.until(`(([r, g]) => g > r)(${timelinePixel(xAt2(keptAt), box.h - 6)}.split(',').map(Number))`);
+    // Where the group was, past the end of the take now kept, no mark is left behind.
+    const gone = (second.takes[1]!.start + second.takes[1]!.end) / 2;
+    if (gone > moved.end + 0.2) {
+      const [r2, g2, b2] = (await p.evaluate<string>(timelinePixel(xAt2(gone), box.h - 6))).split(",").map(Number);
+      expect(g2! > r2! + 20).toBe(false);
+      void b2;
+    }
+    await other.core.undo(other.handle);
+    await go("retakes.close");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    await p.until("!!document.querySelector('[data-retake-review]')");
+
+    // OpenAI as the judge: its picks once it has answered, with why.
+    await other.core.setSecret("openai-api-key", "sk-test");
+    await other.core.setPreference("retake-judge", "openai");
+    const judge = (async (_url: string, init: RequestInit) => {
+      const groups = (JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages[1]!.content.split("\n\n");
+      const picks = groups.map((x, n) => ({ group: n + 1, best: /Bluetooth/.test(x) ? 1 : 2, reason: "says it all" }));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ picks }) } }] }));
+    }) as typeof fetch;
+    globalThis.fetch = judge;
+    await go("retakes.close");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    for (let i = 0; i < 100 && !(await found()).groups.every((x) => x.by === "openai"); i++) await Bun.sleep(50);
+    expect((await found()).groups.map((x) => [x.best, x.by])).toEqual([
+      [1, "openai"],
+      [0, "openai"],
+    ]);
+    await p.evaluate("document.querySelector('[data-one-next]').click()");
+    await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by OpenAI: says it all'");
+    await p.until("!document.querySelector('[data-retakes-judging]')");
+    // Best Take changed with the review open: it shows (and Apply would cut) the new judge's picks at once.
+    await other.core.setPreference("retake-judge", "beacon");
+    await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by Beacon'");
+    await other.core.setPreference("retake-judge", "openai");
+    await p.until("(document.querySelector('[data-take-by]')?.textContent ?? '') === 'Picked by OpenAI: says it all'");
+
+    // Apply All: one undo step, the takes not kept gone from the transcript.
+    const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
+    const before = length();
+    const saved = (await found()).saved;
+    const undo = (await other.core.history(other.handle)).undo.length;
+    await p.evaluate("document.querySelector('[data-retakes-apply]').click()");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    await arrived(() => length() < before);
+    expect(before - length()).toBeCloseTo(saved, 2);
+    expect((await other.core.history(other.handle)).undo.length - undo).toBe(1);
+    const left = ((await other.core.query(other.handle, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).join(" ");
+    expect(left).toBe("Welcome to the video. so the next step is to open the settings. Then we click on Bluetooth and pair the keyboard. That's all for today.");
+    await other.core.undo(other.handle);
+
+    // When OpenAI can't answer (a bad key), the review says why and keeps Beacon's own picks.
+    await other.core.forget(other.handle, "retakes", asset.id);
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: "Incorrect API key provided" } }), { status: 401 })) as unknown as typeof fetch;
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    await p.until("(document.querySelector('[data-retakes-judging]')?.textContent ?? '').includes('Incorrect API key provided')", 10_000);
+    expect((await found()).groups.map((x) => x.by)).toEqual(["beacon", "beacon"]);
+    await p.evaluate("document.querySelector('[data-retakes-cancel]').click()");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    // The key put right, the review opened again asks again.
+    globalThis.fetch = judge;
+    await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
+    for (let i = 0; i < 100 && !(await found()).groups.every((x) => x.by === "openai"); i++) await Bun.sleep(50);
+    expect((await found()).groups.map((x) => x.by)).toEqual(["openai", "openai"]);
+    await p.until("!document.querySelector('[data-retakes-judging]')");
+    await p.evaluate("document.querySelector('[data-retakes-cancel]').click()");
+    await p.until("!document.querySelector('[data-retake-review]')");
+    expect(length()).toBeCloseTo(before, 3);
+  } finally {
+    globalThis.fetch = realFetch;
+    p.close();
+    await other.close();
+  }
+}, 180_000);
+
+test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms for its shape, draws TikTok's zones, counts the captions under them and goes to the first; clear once moved; a box snaps to a zone's edge; None hides them", async () => {
+  const cacheDir = join(dir, "safe-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "short-safe.beproj");
+  const h = await core.create({ path, settings: { width: 1080, height: 1920 } });
+  const copy = join(dir, `safe-${Date.now()}.m4a`);
+  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
+  const { assets, jobs } = await core.import(h, [copy], { at: 0 });
+  for (const j of jobs) await core.cancelJob(j).catch(() => {});
+  const asset = core.doc(h).assets[assets[0]!]!;
+  const words = "So this is a short about safe areas and where captions should go".split(" ").map((text, i) => ({ text, start: 1 + i * 0.5, end: 1.4 + i * 0.5, p: 1 }));
+  mkdirSync(join(cacheDir, "derived"), { recursive: true });
+  writeFileSync(new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify({ streams: { 0: { model: "test", language: "en", words, speech: [[1, 8]] } } }));
+  await core.run(h, "captions.create", {});
+  await core.close(h);
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
+    const shownNow = async () => (await other.core.session(other.handle)).features["safe-areas"];
+    const bands = () => p.evaluate<number[][]>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).map((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')])");
+    await p.until("!!document.querySelector('[data-safe-area-select]')");
+    expect(await p.evaluate<string[]>("[...document.querySelectorAll('[data-safe-area-select] option')].map((o) => o.value)")).toEqual(["", "tiktok", "reels", "shorts"]);
+    expect(await bands()).toEqual([]);
+    await p.evaluate("(() => { const s = document.querySelector('[data-safe-area-select]'); s.value = 'tiktok'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).length === 6");
+    expect(await shownNow()).toEqual({ layout: "tiktok" });
+    // Every caption sits under TikTok's caption band: counted, and a click goes to the first, selected.
+    const captions = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption").sort((a, b) => a.start - b.start);
+    await p.until(`document.querySelector('[data-safe-issues]')?.dataset.safeIssues === '${captions.length}'`);
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-issues]').textContent")).toBe(`⚠ ${captions.length} under TikTok's UI`);
+    await p.evaluate("document.querySelector('[data-safe-issues]').click()");
+    await arrived(() => false, 300);
+    const s = await other.core.session(other.handle);
+    expect(s.selection).toEqual([captions[0]!.id]);
+    expect(s.playhead).toBeCloseTo(ticksToSeconds(captions[0]!.start), 2);
+    await go("captions.style", { style: { anchorY: "middle", offsetY: -300 } });
+    await p.until("!!document.querySelector('[data-safe-clean]') && !document.querySelector('[data-safe-issues]')");
+    // A text box's right side, dragged three points short of the right edge's zone, lands on it.
+    await go("edit.addAnnotation", { preset: "text", time: 1 });
+    const callout = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).find((c) => c.type === "callout")!;
+    const handle = `[data-handle="e"][data-clip="${callout.id}"]`;
+    await p.until(`!!document.querySelector('${handle}')`);
+    const wide = await p.evaluate<number>(`document.querySelector('${handle}').getBoundingClientRect().x`);
+    // Narrower than the canvas, wide enough on screen that the rotate dot isn't over the side handle.
+    await go("clip.set", { clips: [callout.id], props: { callout: { width: 700 } } });
+    await p.until(`document.querySelector('${handle}').getBoundingClientRect().x < ${wide - 20}`);
+    const overlay = await p.evaluate<number>("document.querySelector('[data-canvas-overlay]').getBoundingClientRect().x");
+    const edge = overlay + Math.max(...(await bands()).map((b) => b[0]!));
+    const [x0, y] = await p.evaluate<[number, number]>(`(() => { const r = document.querySelector('${handle}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    expect(Math.abs(x0 - edge)).toBeGreaterThan(10);
+    await p.down(x0, y);
+    for (let i = 1; i <= 8; i++) {
+      await p.move(x0 + ((edge - 3 - x0) * i) / 8, y);
+      await Bun.sleep(16);
+    }
+    await p.up(edge - 3, y);
+    await Bun.sleep(300);
+    const after = await p.evaluate<number>(`(() => { const r = document.querySelector('${handle}').getBoundingClientRect(); return r.x + r.width / 2; })()`);
+    expect(after).toBeCloseTo(edge, 0);
+    // None hides them, and the project no longer keeps one.
+    await p.evaluate("(() => { const s = document.querySelector('[data-safe-area-select]'); s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].every((l) => +l.getAttribute('stroke-width') <= 10)");
+    expect(await shownNow()).toBeUndefined();
+    expect(existsSync(join(path, "editor.json"))).toBe(false);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 60_000);
+
 test.skipIf(skip)("Captions makes caption clips from the transcript and shows the first; its text is edited in place and a style change restyles every caption, each one undo step", async () => {
   await select([]);
   await run("panel.show", { tool: "ai" });
@@ -2283,11 +2788,16 @@ test.skipIf(skip)("Delete acts on what was selected last: a range made after a c
   expect(clips().length).toBe(before);
 });
 
-test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key, in one undo", async () => {
+test.skipIf(skip)("Unlink Recording unlinks every selected recording by its key (⌘L), in one undo", async () => {
   const before = clips().length;
   await ui.core.import(ui.handle, [RECORDING]);
   const linked = clips().filter((c) => c.linkId);
   expect(new Set(linked.map((c) => c.linkId)).size).toBe(2);
+  await select(linked.map((c) => c.id));
+  await page.key("l", "KeyL", ["meta"]);
+  await arrived(() => !clips().some((c) => c.linkId));
+  expect(clips().filter((c) => c.linkId)).toEqual([]);
+  await ui.core.undo(ui.handle);
   await ui.core.shortcutSet("edit.unlink", [{ key: "u", modifiers: ["control", "option"] }]);
   await select(linked.map((c) => c.id));
   await page.key("u", "KeyU", ["ctrl", "alt"]);
@@ -2329,7 +2839,7 @@ test.skipIf(skip)("deleting a caption's text character by character keeps the cu
   await select([]);
 }, 150_000);
 
-test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead and on a gap; with ⌥ on a gap, only that track", async () => {
+test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead and on a gap, the clips moving as it drags; with ⌥ on a gap, only that track", async () => {
   await select([]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.insertSpace", { at: 2, duration: 3 });
@@ -2357,7 +2867,19 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   for (const id of after) expect(startOf(id)).toBeCloseTo(2, 1);
   await undoOne();
 
-  // Shift on the gap, dragged right, opens time there on every track.
+  // Shift on the gap, dragged right, opens time there on every track, the clips after it moving as it goes.
+  const empty = await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2));
+  await page.down(...at(3), ["shift"]);
+  for (let i = 1; i <= 8; i++) await page.move(box.x + xAt(3 + i / 8), at(3)[1], ["shift"]);
+  await Bun.sleep(200);
+  expect(await page.evaluate<string>(timelinePixel(xAt(5.5), y + h / 2))).toBe(empty);
+  expect(await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2))).toBe(empty);
+  expect(await page.evaluate<string>(timelinePixel(xAt(6.5), y + h / 2))).not.toBe(empty);
+  await page.up(...at(4), ["shift"]);
+  await arrived(() => after.every((id) => Math.abs(startOf(id) - 6) < 0.05));
+  for (const id of after) expect(startOf(id)).toBeCloseTo(6, 1);
+  await undoOne();
+
   await page.drag(at(3), at(4), ["shift"]);
   await arrived(() => after.every((id) => Math.abs(startOf(id) - 6) < 0.05));
   for (const id of after) expect(startOf(id)).toBeCloseTo(6, 1);
@@ -2374,10 +2896,13 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   await run("timeline.zoom", { to: "fit" });
 }, 60_000);
 
-test.skipIf(skip)("Noise Removal from Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
+test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const audio = clips().find((c) => c.type === "audio")!;
   await select([audio.id]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('[data-item="effect:film-look"]')`);
+  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-item="effect:noise-removal"]')`)).toBe(false);
   await run("panel.show", { tool: "audioEffects", properties: true });
   const tile = `[data-item="audio:noise-removal"]`;
   await page.until(`!!document.querySelector('${tile}')`);

@@ -50,6 +50,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     frames.at[source] = ++frames.seq;
     for (const wake of frameWaiters.splice(0)) wake();
   };
+  let chosenFile: string | null = null;
   let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
   /** The app's own handlers for what is core's alone. */
   // Not cancelJob: the harness's downloads are stand-ins, so it only records it.
@@ -63,6 +64,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     const doc = core.doc(h);
     if (dialog === null) return sendAll("closeDialogs", {});
     if (dialog === "settings") return sendAll("settingsSheet", await settingsSheet(core, tab ? { tab } : {}));
+    if (dialog === "projectSettings") return sendAll("projectSettings", {});
     if (dialog === "export" || dialog === "exportSelection") {
       const range = (await core.session(h)).range;
       if (dialog === "exportSelection" && !range) return;
@@ -204,6 +206,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           result = p.name === "Taken" ? { ok: false, error: "Taken.beproj already exists" } : { ok: true };
         }
         else if (msg.type === "chooseFolder") result = "/Users/someone/Shared";
+        else if (msg.type === "chooseFile") {
+          menus.push(`chooseFile:${p.extensions.join(",")}`);
+          result = chosenFile;
+        }
         // A stand-in download: the test sends its progress as the app forwards a real one's.
         else if (msg.type === "fetchResource") {
           menus.push(`fetchResource:${p.id}`);
@@ -228,6 +234,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,
     faults,
+    /** The file Finder's open dialog picks next (Import .hlook…); null cancels. */
+    chooseFile(path: string | null) {
+      chosenFile = path;
+    },
     /** What the Narration panel is told the microphones and last choices are. */
     setNarrationDevices(d: unknown) {
       narrationDevices = d;

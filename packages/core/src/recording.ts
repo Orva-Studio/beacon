@@ -166,6 +166,7 @@ export class Recording {
     }
     const take = await this.#recorder.stop();
     if (take.errors.length) console.warn(`recording ${basename(rec.dir)}: ${take.errors.join("; ")}`);
+    const problems = take.errors.length ? { problems: take.errors } : {};
     let result: RecordResult;
     if (opts.discard) {
       rmSync(rec.dir, { recursive: true, force: true });
@@ -178,8 +179,8 @@ export class Recording {
       }
       // The timeline second the file's first sample is under: where it was heard, or (nothing played) the playhead.
       const at = heard ? narrationStart(rec.dir, heard) : n.from;
-      result = { ...(await this.#placeNarration(this.parts.get(rec.h), rec.dir, at, n.from)), take: rec.dir, duration: take.duration };
-    } else return { ...(await this.importFiles(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration };
+      result = { ...(await this.#placeNarration(this.parts.get(rec.h), rec.dir, at, n.from)), take: rec.dir, duration: take.duration, ...problems };
+    } else return { ...(await this.importFiles(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration, ...problems };
     if (n && p) {
       this.#lastNarration = result;
       this.parts.emit(p, { kind: "narrated", result });

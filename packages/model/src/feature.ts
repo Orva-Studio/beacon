@@ -58,6 +58,21 @@ export interface EffectDef {
   apply?: (e: ClipEval & { main: VisualLayer }, params: Record<string, any>, ctx: EvalContext) => void;
   /** Changes the sound of a clip with the effect enabled (the whole clip; `span` is for visual effects). */
   audio?: (params: Record<string, any>) => AudioEffect;
+  /** Named sets of params the inspector offers (Film Look's looks); `notes`: what the preset can't reproduce. */
+  presets?: EffectPreset[];
+  /**
+   * Params read from a file the user picks (a hance `.hlook`): `query` takes `{ path }` and answers
+   * `{ name, params, notReproduced }`, which the inspector applies and reports.
+   */
+  importFile?: { label: string; extensions: string[]; query: string };
+}
+
+export interface EffectPreset {
+  id: string;
+  title: string;
+  description?: string;
+  params: Record<string, unknown>;
+  notes?: string[];
 }
 
 /**
@@ -226,17 +241,21 @@ export interface JobAnalyzerDef {
   variant?: (pref: Preferences) => string | undefined;
   /** Assets it applies to; the job is started for these on import, or when shown (`when`). */
   applies: (asset: Asset) => boolean;
-  /** "import" (default): on import, for agents too; "preview": when the app shows the project (e.g. proxies). */
-  when?: "import" | "preview";
+  /**
+   * "import" (default): on import, for agents too; "preview": when the app shows the project (e.g. proxies);
+   * "asked": only when something asks for it (a review that needs it, an agent's analyze).
+   */
+  when?: "import" | "preview" | "asked";
   /**
    * `cacheDir`: where derived files (e.g. proxies) may be written; `quiet`: run tools at background
    * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is;
-   * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set.
+   * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set; `data`: the asset's other
+   * derived data (its transcript), undefined while not made.
    */
   analyze: (
     asset: Asset,
     progress: (fraction: number) => void,
-    env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string; pref: Preferences; secret: (id: string) => Promise<string | undefined> },
+    env: { cacheDir: string; quiet?: boolean; resource: (id: string) => string; pref: Preferences; secret: (id: string) => Promise<string | undefined>; data: <T>(key: string) => T | undefined },
   ) => Promise<unknown>;
   /** Removes files a result points at (e.g. proxies) when the result is deleted. */
   discard?: (result: unknown) => void;
@@ -338,6 +357,10 @@ export interface QueryContext {
   registry: FeatureRegistry;
   /** Derived per-asset data, as in `EvalContext.data`; undefined while a job analyzer has not finished. */
   data<T>(assetId: string, key: string): T | undefined;
+  /** The current preferences (who judges retakes). */
+  pref: Preferences;
+  /** The editor's state, when the query is about an open project (the safe areas shown). */
+  session?: Session;
 }
 
 /** A read of the document or derived data (PLAN §7), exposed to agents like commands. */
@@ -390,6 +413,7 @@ export interface ActionContext {
   scope: { tracks: Track[]; group?: Clip };
   /** Derived per-asset data, as in `QueryContext.data` (a clip's waveform, its transcript). */
   data<T>(assetId: string, key: string): T | undefined;
+  pref: Preferences;
 }
 
 /**
@@ -470,6 +494,11 @@ export interface Feature {
   annotations?: Record<string, AnnotationDef>;
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
+  /**
+   * What of that state is kept with the project (its `editor.json`, never an undo step), restored when it is
+   * opened; undefined keeps nothing. The safe areas shown are; a review isn't.
+   */
+  sessionSaved?: (state: unknown) => unknown;
   migrations?: Migration[];
   /**
    * Runs at the end of every transaction that changed something, before

@@ -27,6 +27,7 @@ import { rgba } from "./theme";
 import { useTextEdit, type TextLine, type TextTarget } from "./text-edit";
 import { useQuery } from "./query";
 import { isFormField, useDialogsOpen } from "./controls";
+import { safeAreaLines, safeAreaMarks, useSafeAreas } from "./safe-areas";
 import { canvasSnapping, type Guide } from "./canvas-snap";
 import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
@@ -261,6 +262,7 @@ export function CanvasOverlay({
   const captionAt = caption ? where.get(caption.clip) : undefined;
   const captionClip = captionAt?.clip;
   const placed = placedClips(project, session, view, (c) => clipTypes[c.type]?.includes("visual") ?? false);
+  const safe = useSafeAreas(host, project, session);
   if (caption && captionClip) {
     const { x, y, width, height } = caption.box;
     const t = { x: x + width / 2 - CW / 2, y: CH / 2 - (y + height / 2), scaleX: 1, scaleY: 1, rotation: 0 };
@@ -320,6 +322,7 @@ export function CanvasOverlay({
 
   const at = (x: number, y: number): [number, number] => [ox + x * k, oy + y * k];
   const marks: CanvasMark[] = [
+    ...(safe.shown ? safeAreaMarks(safe.shown, at, k, CW) : []),
     ...text.marks,
     // The canvas's thin grey border, just outside it.
     ...(() => {
@@ -362,7 +365,7 @@ export function CanvasOverlay({
     });
   };
 
-  const { snapResize, snapMove } = canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on: session.canvas.snapping, moving: new Set(selected.map((p) => p.clip.id)) });
+  const { snapResize, snapMove } = canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on: session.canvas.snapping, moving: new Set(selected.map((p) => p.clip.id)), ...(safe.shown ? { extra: safeAreaLines(safe.shown) } : {}) });
 
   return (
     <div

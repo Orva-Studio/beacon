@@ -74,7 +74,7 @@ import { AppConfig } from "./config";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
-import { lock, projectName, readProject, unlock, writeProject } from "./persist";
+import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject } from "./persist";
 import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
@@ -128,6 +128,7 @@ export class LocalCore implements BeaconCore {
   });
   /** The last copies in any project, so they paste into the next one opened. */
   #shared: SharedSession = { clipboard: null, properties: null };
+  #imports = 0;
 
   /** Preferences, favourites, settings and keys, and the secrets. */
   readonly #config: AppConfig;
@@ -187,9 +188,22 @@ export class LocalCore implements BeaconCore {
       p.session.reconcile(e.doc);
       p.view?.refresh();
     });
+    const kept = readEditor(path);
+    p.session.reopen(Object.fromEntries([...this.registry.features.values()].filter((f) => f.sessionSaved && kept[f.id] !== undefined).map((f) => [f.id, kept[f.id]])));
+    p.editorSaved = JSON.stringify(this.#editorState(p.session.state));
     p.session.subscribe((c) => this.#sessionChanged(p, c));
     this.#projects.set(path, p);
     return path;
+  }
+
+  /** What the features keep of the editor's state with the project (the safe areas shown), by feature id. */
+  #editorState(s: Session): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const f of this.registry.features.values()) {
+      const v = f.sessionSaved?.(s.features[f.id]);
+      if (v !== undefined) out[f.id] = v;
+    }
+    return out;
   }
 
   #emit(p: OpenProject, e: CoreEvent) {
@@ -420,7 +434,7 @@ export class LocalCore implements BeaconCore {
     const parsed = action.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${action.id}: ${formatIssues(parsed.error)}`);
     const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get });
+    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref });
     const label = opts.label ?? plan.label;
     if (opts.dryRun) {
       const r = plan.steps?.length ? p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {})), { dryRun: true }) : undefined;
@@ -469,6 +483,18 @@ export class LocalCore implements BeaconCore {
   }
 
   #sessionChanged(p: OpenProject, { session, changed }: SessionChange) {
+    if (changed.includes("features")) {
+      const kept = this.#editorState(session);
+      const json = JSON.stringify(kept);
+      if (json !== p.editorSaved) {
+        try {
+          writeEditor(p.path, kept);
+          p.editorSaved = json;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
     if (changed.includes("clipboard") || changed.includes("properties")) {
       this.#shared = { clipboard: session.clipboard, properties: session.properties };
       for (const other of this.#projects.values()) if (other !== p) other.session.share(this.#shared);
@@ -504,6 +530,7 @@ export class LocalCore implements BeaconCore {
     this.#get(h);
     if (!this.#uiOpener) throw new Error("no window shows this project: dialogs open only with the project open in the Beacon app");
     if (tab !== undefined && dialog !== "settings") throw new Error(`\`tab\` is Settings' (${SETTINGS_TABS.join(", ")})`);
+    if (tab === "project") throw new Error("Project Settings is a dialog of its own: dialog projectSettings");
     if (tab !== undefined && !(SETTINGS_TABS as readonly string[]).includes(tab)) throw new Error(`Settings has no "${tab}" tab: ${SETTINGS_TABS.join(", ")}`);
     this.#uiOpener(h, dialog, tab as SettingsTab | undefined);
   }
@@ -674,7 +701,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {
@@ -749,7 +776,7 @@ export class LocalCore implements BeaconCore {
     const sides = opts.output.endsWith("/")
       ? []
       : [...this.registry.exportFiles.values()].flatMap((f) => {
-          const text = f.write(range, { project, registry: this.registry, data: data.get });
+          const text = f.write(range, { project, registry: this.registry, data: data.get, pref: data.pref });
           return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
         });
     for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
@@ -773,8 +800,22 @@ export class LocalCore implements BeaconCore {
   /** All or nothing: every file is probed first, then they are added in one undo step. */
   async import(h: ProjectHandle, files: string[], opts: ImportOptions = {}): Promise<ImportResult> {
     const p = this.#get(h);
+    const id = `import-${++this.#imports}`;
+    const paths = files.map((f) => resolve(f));
+    this.#emit(p, { kind: "importing", id, files: paths, state: "reading" });
+    try {
+      const result = await this.#import(p, paths, opts);
+      this.#emit(p, { kind: "importing", id, files: paths, state: "done", assets: result.assets });
+      return result;
+    } catch (e) {
+      this.#emit(p, { kind: "importing", id, files: paths, state: "failed", error: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  }
+
+  async #import(p: OpenProject, files: string[], opts: ImportOptions): Promise<ImportResult> {
     const result: ImportResult = { assets: [], clips: [], jobs: [] };
-    const todo = files.map((f) => resolve(f)).map((file) => {
+    const todo = files.map((file) => {
       const importer = this.registry.importerFor(extname(file));
       if (!importer) throw new Error(`no feature imports ${extname(file) || "files without an extension"} (${file})`);
       return { file, importer };

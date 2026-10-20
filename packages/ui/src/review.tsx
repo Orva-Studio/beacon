@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { projectDuration, ticksToSeconds, type Project } from "@beacon/model";
 import { Button, Progress } from "./controls";
 import { useQuery } from "./query";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 import type { Host } from "./app";
 import { clock } from "./time";
 
@@ -13,35 +13,54 @@ export function useTranscribing(): number | undefined {
 }
 
 /**
- * A transcript query (`transcript.silences`, `.fillers`) asked while `active`: again after each edit, and each second
- * while media is still being transcribed, whose missing transcripts (an import whose app quit first) are started.
+ * A transcript query (`transcript.silences`, `.fillers`, `.retakes`) asked while `active`: again after each edit, and
+ * each second while media is still being transcribed, whose missing transcripts (an import whose app quit first) are
+ * started; likewise media whose takes OpenAI is to judge (`judging`), asked for once each while the review is open.
  */
-export function useTranscriptsReady<T extends { waiting: string[] }>(host: Host, query: string, args: object, active: boolean, project?: Project): T | undefined {
+export function useTranscriptsReady<T extends { waiting: string[]; judging?: string[] }>(host: Host, query: string, args: object, active: boolean, project?: Project): T | undefined {
   const [tick, setTick] = useState(0);
-  // Each edit is a new project: the marks and Apply must describe the timeline as it is now.
+  // Each edit is a new project: the marks and Apply must describe the timeline as it is now; so must a change of
+  // who picks (Best Take), which Apply reads.
   const edits = useRef({ project, n: 0 });
   if (edits.current.project !== project) edits.current = { project, n: edits.current.n + 1 };
-  const found = useQuery<T>(host, active ? query : "", args, `${tick}:${edits.current.n}`);
+  const prefs = useView((v) => v.preferences.map((p) => `${p.id}=${p.value}`).join());
+  const found = useQuery<T>(host, active ? query : "", args, `${tick}:${edits.current.n}:${prefs}`);
   const missing = active ? (found?.waiting.join() ?? "") : "";
   useEffect(() => {
     for (const asset of missing ? missing.split(",") : []) host.analyze("transcript", asset);
   }, [missing]);
+  const failed = useView((v) => v.judgeFailed);
+  const asked = useRef(new Set<string>());
+  if (!active) asked.current.clear();
+  // Opened again, what OpenAI couldn't judge is asked again (back online, a key corrected).
   useEffect(() => {
-    if (!missing) return;
+    if (active) replica.media({ judgeFailed: {} });
+  }, [active]);
+  // Those it couldn't judge keep Beacon's own picks: asking again would fail again.
+  const judging = active && !missing ? (found?.judging ?? []).filter((a) => !failed[a]).join() : "";
+  useEffect(() => {
+    for (const asset of judging ? judging.split(",") : []) {
+      if (asked.current.has(asset)) continue;
+      asked.current.add(asset);
+      host.analyze("retakes", asset);
+    }
+  }, [judging]);
+  useEffect(() => {
+    if (!missing && !judging) return;
     const t = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
-  }, [missing]);
+  }, [missing, judging]);
   return active ? found : undefined;
 }
 
 /** What an open review (`review`, its query's args) finds, for the timeline's marks and the review panel. */
-export const useReviewed = <T extends { waiting: string[] }>(host: Host, query: string, review: object | undefined, project: Project | undefined) =>
+export const useReviewed = <T extends { waiting: string[]; judging?: string[] }>(host: Host, query: string, review: object | undefined, project: Project | undefined) =>
   useTranscriptsReady<T>(host, query, review ?? {}, !!review, project);
 
-type Review = "silences" | "fillers";
+type Review = "silences" | "fillers" | "retakes";
 type Item = { start: number; end: number; cut: boolean };
 
-/** Goes to one silence or filler, with the playhead a second before it to play across it. */
+/** Goes to one silence, filler or group of takes, with the playhead a second before it to play across it. */
 export function goTo(host: Host, review: Review, item: { start: number }) {
   host.run(`${review}.focus`, { at: item.start });
   host.run("playhead.set", { time: Math.max(0, item.start - 1) });
@@ -51,7 +70,7 @@ export function goTo(host: Host, review: Review, item: { start: number }) {
  * Going through a review's silences or fillers one at a time: ‹ › step between them (⌥-click one on the timeline
  * goes to it), Skip moves on, Cut This One cuts only it (one undo step) and moves on.
  */
-function OneByOne<T extends Item>({ review, items, current, host, describe }: { review: Review; items: T[]; current: number | undefined; host: Host; describe: (item: T) => string }) {
+function OneByOne<T extends Item>({ review, items, current, host, describe, detail }: { review: Review; items: T[]; current: number | undefined; host: Host; describe: (item: T) => string; detail?: (item: T) => ReactNode }) {
   if (!items.length) return null;
   const item = current === undefined ? undefined : items[current];
   const step = (by: 1 | -1) => {
@@ -76,6 +95,7 @@ function OneByOne<T extends Item>({ review, items, current, host, describe }: { 
           <div className="mb-2 text-text" data-one-item>
             {describe(item)}
           </div>
+          {detail?.(item)}
           <div className="flex justify-end gap-2">
             <Button title="Leave it as it is and go to the next" onClick={() => step(1)} data-one-skip>
               Skip
@@ -118,8 +138,18 @@ export function ReviewPanel<T extends Item>(props: {
   /** Data attributes' names: `data-<one>-review`, `data-<review>-summary`. */
   one: string;
   children: ReactNode;
+  /** What it found, in place of "N silences: X to cut, Y kept.". */
+  tally?: (items: T[]) => string;
+  /** The colours on the timeline and what a click there does, in place of to cut / kept. */
+  legend?: ReactNode;
+  /** More about the one being looked at, one at a time (a group's takes). */
+  detail?: (item: T) => ReactNode;
+  /** A line under the summary while it is still being worked out (OpenAI judging). */
+  note?: ReactNode;
+  /** Every one listed, a click going to it, for reviews with few (a talk's retakes, not its silences). */
+  list?: boolean;
 }) {
-  const { review, title, noun, project, host, found, items = [], none, describe, one, children } = props;
+  const { review, title, noun, project, host, found, items = [], none, describe, one, children, tally, legend, detail, note, list } = props;
   const length = ticksToSeconds(projectDuration(project));
   const cut = items.filter((s) => s.cut).length;
   const kept = items.length - cut;
@@ -131,7 +161,7 @@ export function ReviewPanel<T extends Item>(props: {
       ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}: ${noun} are found in the transcript.`
       : !items.length
         ? none
-        : `${items.length} ${noun}: ${cut} to cut, ${kept} kept. ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
+        : `${tally ? tally(items) : `${items.length} ${noun}: ${cut} to cut, ${kept} kept.`} ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
   return (
     <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" {...{ [`data-${one}-review`]: true }}>
       <div className="mb-4 text-title font-semibold text-text-strong">{title}</div>
@@ -140,14 +170,34 @@ export function ReviewPanel<T extends Item>(props: {
         {summary}
         {!!found?.waiting.length && <Progress value={progress ?? 0} className="mt-2" />}
       </div>
+      {note}
       <div className="mb-4 flex flex-col gap-1 text-label text-text-muted">
-        <span className="flex items-center gap-2">
-          <span className="h-2.5 w-4 rounded-sm bg-silence-cut" /> To cut
-          <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-keep" /> Kept
-        </span>
-        <span>Click one on the timeline to keep or cut it.</span>
+        {legend ?? (
+          <>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-4 rounded-sm bg-silence-cut" /> To cut
+              <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-keep" /> Kept
+            </span>
+            <span>Click one on the timeline to keep or cut it.</span>
+          </>
+        )}
       </div>
-      <OneByOne review={review} items={found?.waiting.length ? [] : items} current={found?.current} host={host} describe={describe} />
+      {list && !found?.waiting.length && items.length > 0 && (
+        <div className="mb-3 flex flex-col gap-0.5" data-review-list>
+          {items.map((item, i) => (
+            <button
+              key={`${item.start}`}
+              className={`truncate rounded-md px-2 py-1 text-left text-label ${i === found?.current ? "bg-accent-wash text-text-strong" : "text-text-muted hover:bg-groove"}`}
+              onClick={() => goTo(host, review, item)}
+              data-review-item={i}
+              data-current={i === found?.current || undefined}
+            >
+              {describe(item)}
+            </button>
+          ))}
+        </div>
+      )}
+      <OneByOne review={review} items={found?.waiting.length ? [] : items} current={found?.current} host={host} describe={describe} {...(detail ? { detail } : {})} />
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={() => host.run(`${review}.close`)} {...{ [`data-${review}-cancel`]: true }}>
           Cancel

@@ -136,12 +136,15 @@ export function createMenus(app: MenusApp) {
           SEPARATOR,
           item("edit.split"),
           item("edit.splitAll"),
+          item("edit.unlink"),
           SEPARATOR,
           { label: "Select", submenu: [item("selection.all"), item("selection.side:left", { label: "All Timeline to Left" }), item("selection.side:right", { label: "All Timeline to Right" })] },
           item("selection.clear"),
           { label: "Playhead", submenu: [item("edit.trimToPlayhead:start"), item("edit.trimToPlayhead:end")] },
           SEPARATOR,
           item("edit.addMarker"),
+          SEPARATOR,
+          item("app.projectSettings", { enabled: open }),
         ],
       },
       {
@@ -149,6 +152,18 @@ export function createMenus(app: MenusApp) {
         submenu: [
           item("timeline.snapping", { label: "Enable Timeline Snapping" }),
           item("canvas.snapping", { label: "Enable Canvas Snapping" }),
+          SEPARATOR,
+          {
+            label: "Safe Areas",
+            submenu: [
+              item("safeAreas.show:none", { label: "None", enabled: open }),
+              SEPARATOR,
+              item("safeAreas.show:tiktok", { label: "TikTok", enabled: open }),
+              item("safeAreas.show:reels", { label: "Instagram Reels", enabled: open }),
+              item("safeAreas.show:shorts", { label: "YouTube Shorts", enabled: open }),
+              item("safeAreas.show:youtube", { label: "YouTube (16:9)", enabled: open }),
+            ],
+          },
           SEPARATOR,
           item("timeline.zoom:in"),
           item("timeline.zoom:out"),
@@ -161,6 +176,7 @@ export function createMenus(app: MenusApp) {
         submenu: [
           { role: "minimize", accelerator: "command+m" },
           { role: "zoom" },
+          { role: "close", accelerator: "command+w" },
           SEPARATOR,
           { role: "toggleFullScreen", accelerator: "control+command+f" },
           { role: "bringAllToFront" },

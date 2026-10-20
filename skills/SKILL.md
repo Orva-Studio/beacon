@@ -48,8 +48,9 @@ The app's settings are the user's, app-wide: `settings_get` reads them (the
 export colour space `export_start` uses, which media get proxies, where
 `frame_capture` saves); `settings_set` changes them, only when the user asks.
 With the app open, `ui_open` shows a dialog as its menus do (Settings on a
-tab, Export, New Project, Record) so `ui_snapshot` can see it; it changes
-nothing by itself.
+tab, Project Settings, Export, New Project, Record) so `ui_snapshot` can see
+it; it changes nothing by itself (`project_settings_set` changes the
+project's settings).
 
 Keyboard shortcuts are the user's too, app-wide: `shortcuts_list` lists every
 action of the menus, keys and command palette with its keys; `shortcuts_set`
@@ -86,6 +87,17 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   (settings), `silences_flip` the ones you judge differently (after looking at
   frames), then tell them it is marked on the timeline for Apply; or
   `silences_apply` when they say so.
+- Remove Retakes, the same way: `transcript_retakes` groups each line said
+  more than once (a restart, a sentence said again) into takes, with the one
+  kept and who picked it (the user's Best Take setting: Beacon's own scoring,
+  or OpenAI with their key, which `analyze` with `retakes` asks once the
+  transcript is there). `retakes_review`, `retakes_keep` a take you judge
+  better (read the takes' words), `retakes_apply` when the user says so. Of
+  the takes after the kept one only what repeats the line is cut.
+- Film Look (a visual effect) gives clips one of hance's looks:
+  `filmLook_looks` lists them (CineStill 800T, Portra 400…), `filmLook_load`
+  puts one (or a `.hlook` file) on clips and answers what of it Film Look
+  can't reproduce: tell the user.
 - `zoom_to` zooms a clip into a region of its content (pixels of the
   recording, top-left origin) and optionally back out (`until`).
 - `clip_move` moves several clips as a block (`by` seconds, `tracks` up or
@@ -113,6 +125,12 @@ app: `playhead_set` / `playhead_step` / `playhead_jump`, `selection_set` /
 screenshot of the app window (with the canvas at the playhead drawn in) and
 what the window reports it has drawn. These don't change the project and
 aren't undone.
+
+Vertical videos (TikTok, Reels, Shorts) and YouTube: `safeAreas_check` lists
+every caption and callout the platform's own UI would cover (caption band,
+username, the like/comment rail), with when; one call, before exporting. The
+layouts are `safeAreas_layouts` (canvas pixels); `safeAreas_show` draws one
+over the canvas for the user (kept with the project, never exported).
 
 ## Look at the result
 Judge edits by looking, not by numbers alone:

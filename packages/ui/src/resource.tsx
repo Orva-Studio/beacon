@@ -12,7 +12,7 @@ export type ResourceJob = Pick<JobInfo, "id" | "state" | "progress" | "error">;
 export interface ResourceHost {
   /** Starts the download; replies with its job. */
   fetchResource(id: string): Promise<{ ok: boolean; error?: string; result?: string }>;
-  /** Not Now: not offered again on its own (Settings › General still offers it). */
+  /** Not Now: not offered again on its own (Settings › Transcripts still offers it). */
   declineResource(id: string): void;
   cancelJob(id: string): void;
 }

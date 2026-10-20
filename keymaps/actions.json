@@ -8,7 +8,7 @@
     {
       "id": "app.settings",
       "name": "Settings…",
-      "description": "Beacon's settings: General, Recording, Shortcuts and the open project's"
+      "description": "Beacon's settings: General, Recording, Transcripts and Shortcuts"
     },
     {
       "id": "app.shortcuts",
@@ -464,6 +464,51 @@
       "id": "canvas.snapping",
       "name": "Canvas Snapping",
       "command": "canvas.snapping"
+    },
+    {
+      "id": "safeAreas.show:none",
+      "name": "No Safe Areas",
+      "command": "safeAreas.show",
+      "args": {
+        "layout": null
+      },
+      "description": "Hide the safe areas"
+    },
+    {
+      "id": "safeAreas.show:tiktok",
+      "name": "TikTok Safe Areas",
+      "command": "safeAreas.show",
+      "args": {
+        "layout": "tiktok"
+      },
+      "description": "Show where TikTok's own UI sits over a 9:16 video"
+    },
+    {
+      "id": "safeAreas.show:reels",
+      "name": "Instagram Reels Safe Areas",
+      "command": "safeAreas.show",
+      "args": {
+        "layout": "reels"
+      },
+      "description": "Show where Instagram Reels' own UI sits over a 9:16 video"
+    },
+    {
+      "id": "safeAreas.show:shorts",
+      "name": "YouTube Shorts Safe Areas",
+      "command": "safeAreas.show",
+      "args": {
+        "layout": "shorts"
+      },
+      "description": "Show where YouTube Shorts' own UI sits over a 9:16 video"
+    },
+    {
+      "id": "safeAreas.show:youtube",
+      "name": "YouTube Safe Areas",
+      "command": "safeAreas.show",
+      "args": {
+        "layout": "youtube"
+      },
+      "description": "Show where YouTube's player draws over a 16:9 video, and its title-safe frame"
     },
     {
       "id": "timeline.zoom:in",

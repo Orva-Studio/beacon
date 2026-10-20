@@ -17,16 +17,20 @@ import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project
 import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
 import { rgba } from "./theme";
-import { ExportUi, SnapshotSaved, type ExportHost } from "./export";
+import { ExportToast, ExportUi, SnapshotSaved, type ExportHost } from "./export";
+import { ImportProgress } from "./import-progress";
 import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
+import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
+import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
+import { ProjectSettingsUi } from "./project-settings";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, type Eyedropper, type IconName, type NativeTag } from "./controls";
+import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -50,6 +54,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** The canvas at the playhead as a PNG data URL, at the canvas size (the eyedropper samples it). */
   frameImage(): Promise<string | null>;
   binFrame(asset: string, time: number): Promise<string | null>;
+  /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
+  chooseFile(extensions: string[]): Promise<string | null>;
   /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
   analyze(key: string, asset: string): void;
   /** Stars an item for the Favorites panel (at `index`, else at the end), un-stars it, or moves a favourite to `index`. */
@@ -77,6 +83,7 @@ export function App({ host }: { host: Host }) {
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
   const fillers = useFillers(host, session, project);
+  const retakes = useRetakes(host, session, project);
   useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
@@ -143,7 +150,7 @@ export function App({ host }: { host: Host }) {
   return (
     <EyedropperContext.Provider value={EYEDROPPER}>
       <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
-        <TopBar name={opened?.name} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
+        <TopBar name={opened?.name} project={project} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
         <div className="flex min-h-0 flex-1 gap-gutter">
           <ToolRail session={session} host={host} />
           {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
@@ -157,6 +164,8 @@ export function App({ host }: { host: Host }) {
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
               <FillerReviewPanel project={project} host={host} found={fillers} />
+            ) : retakeReviewOf(session) ? (
+              <RetakeReviewPanel project={project} session={session} host={host} found={retakes} />
             ) : (
               <Properties project={project} session={session} host={host} init={init} />
             ))}
@@ -175,8 +184,17 @@ export function App({ host }: { host: Host }) {
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
               dropFiles={host.dropFiles}
-              marks={(silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
-              markClick={(m, alt) => (alt ? goTo(host, silences ? "silences" : "fillers", m) : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start }))}
+              marks={retakes ? retakeMarks(retakes) : (silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
+              markClick={(m, alt) =>
+                retakes
+                  ? // A click picks the line to look at; a click on one of its takes then keeps that one.
+                    alt || !m.current
+                    ? goTo(host, "retakes", m)
+                    : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
+                  : alt
+                    ? goTo(host, silences ? "silences" : "fillers", m)
+                    : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start })
+              }
             />
           </div>
         ) : (
@@ -192,8 +210,13 @@ export function App({ host }: { host: Host }) {
           }}
         />
         <RecordUi host={host} />
-        <SnapshotSaved host={host} />
+        <Toasts>
+          <ExportToast host={host} />
+          <SnapshotSaved host={host} />
+          <ImportProgress project={project} />
+        </Toasts>
         <SettingsUi host={host} />
+        <ProjectSettingsUi host={host} />
         <StartScreen host={host} />
         <NewProjectUi host={host} />
         <SaveAsUi host={host} />
@@ -270,8 +293,9 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
   );
 }
 
-function TopBar({ name, session, host, status, saved, preparing }: { name?: string; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
+function TopBar({ name, project, session, host, status, saved, preparing }: { name?: string; project?: Project; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
   const zoom = session?.canvas.zoom ?? "fit";
+  const { layouts } = useSafeAreas(host, project, session);
   const narrating = useView((v) => v.narrating);
   // ⌘S out of habit (`app.save`): no dialog, the label confirms the project is already saved.
   const asked = useView((v) => v.confirmSaved);
@@ -296,6 +320,7 @@ function TopBar({ name, session, host, status, saved, preparing }: { name?: stri
         </span>
       )}
       <span className="truncate text-xs text-text-faint">{status}</span>
+      {project && session && <SafeAreaPicker host={host} project={project} session={session} layouts={layouts} />}
       {session && (
         <Select
           look="bar"

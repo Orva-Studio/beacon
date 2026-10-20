@@ -1,9 +1,10 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
-import type { SchemaInfo } from "@beacon/core";
+import type { CoreEvent, SchemaInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
+export type { RecorderLive } from "@beacon/media";
 export { syncKey, withPatch } from "@beacon/model";
 
 import type { CanvasMark } from "./canvas-marks";
@@ -97,7 +98,7 @@ export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
 export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
-export { panelHeight } from "./record-panel-size";
+export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
 // The timeline's geometry, for the UI harness's clicks.
 export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
@@ -173,6 +174,8 @@ export interface RecordedSheet {
   asset: string;
   name: string;
   duration: number;
+  /** What the recorder couldn't save, by source ("microphone: …"). */
+  problems?: string[];
 }
 
 /** What File > Record… opens the dialog with: what the recorder can use, and the sources last recorded. */
@@ -201,6 +204,9 @@ export interface Narrating {
 }
 
 /** An export running or finished, for the window's progress panel. */
+/** Files being imported (core's `importing`): read, then their media made. */
+export type ImportingFiles = Omit<Extract<CoreEvent, { kind: "importing" }>, "kind">;
+
 export interface ExportJob {
   id: string;
   output: string;
@@ -283,6 +289,7 @@ export type AppRPC = {
       analyze: { params: { key: string; asset: string }; response: void };
       /** A folder picked in the Finder dialog, starting at `start`. */
       chooseFolder: { params: { start: string }; response: string | null };
+      chooseFile: { params: { extensions: string[] }; response: string | null };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
@@ -319,7 +326,7 @@ export type AppRPC = {
       /** Download a resource (the speech model): replies with its job id. */
       fetchResource: { params: { id: string }; response: RunReply & { result?: string } };
       declineResource: { params: { id: string }; response: void };
-      /** Settings › General › Transcripts: replies with the preferences as they now are. */
+      /** Settings › Transcripts: replies with the preferences as they now are. */
       setPreference: { params: { id: string; value: string }; response: RunReply & { result?: PreferenceInfo[] } };
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
@@ -392,6 +399,7 @@ export type AppRPC = {
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;
       exportJob: ExportJob;
+      importing: ImportingFiles;
       /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
       favorites: { items: string[] };
       /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */
@@ -402,6 +410,8 @@ export type AppRPC = {
       preferences: PreferenceInfo[];
       /** Tools › Command Palette…: open it. */
       palette: {};
+      /** Edit › Project Settings… (or ui_open): the project's own settings, in a dialog of their own. */
+      projectSettings: {};
       /** Keyboard shortcuts changed (in Settings or by an agent). */
       shortcuts: { shortcuts: ShortcutInfo[] };
       /** Snapshot saved a frame: shown with Show in Finder. */
@@ -412,7 +422,7 @@ export type AppRPC = {
       /** Timeline pictures: waveforms by asset and audio stream, first-frame thumbnails (data URLs) by clip. */
       /** `preparing`: every asset whose proxy is being made, its progress 0-1 (replaces the last); `proxies`: whether assets have one (merged). */
       /** `missing`: media whose file is gone (replaces the last). */
-      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; proxies?: Record<string, boolean>; missing?: string[] };
+      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
     };
   };
 };

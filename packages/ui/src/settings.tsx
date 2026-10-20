@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
-import { SETTINGS_TABS, type Project } from "@beacon/model";
 import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
-import { CanvasSettings } from "./canvas-settings";
-import { canvasChange, canvasValues } from "./canvas-values";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
@@ -24,11 +21,22 @@ const space = (bytes: number) =>
 /** The app settings in a Settings sheet, without what it opened with (tab, devices…). */
 const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }: SettingsSheet): AppSettings => app;
 
+/** Settings' sections, down its sidebar. */
+const SECTIONS: { id: SettingsTab; title: string }[] = [
+  { id: "general", title: "General" },
+  { id: "recording", title: "Recording" },
+  { id: "transcripts", title: "Transcripts" },
+  { id: "shortcuts", title: "Shortcuts" },
+];
+
+/** Settings' height: the same for every section, which scrolls inside it, so switching never resizes the window. */
+const HEIGHT = 500;
+
 /**
- * Beacon > Settings… (⌘,). General is app-wide; Project changes the open project through
- * `project.settings.set`, so it is undoable and agents can do the same.
+ * Beacon > Settings… (⌘,): app-wide, in sections down a sidebar as System Settings has them. The project's own
+ * settings are Project Settings (`project-settings.tsx`).
  */
-function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, project, host }: { app: SettingsSheet; project?: Project; host: SettingsHost }) {
+function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, host }: { app: SettingsSheet; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   // Changed elsewhere while open (an agent, Check Sync): shown here.
@@ -44,91 +52,104 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
     host.setAppSettings(patch);
   };
   const close = () => replica.settings(undefined);
-  const transcriber = preferences?.find((p) => p.id === "transcriber");
-  const s = project?.settings;
-  const tabs = SETTINGS_TABS.map((t) => (
-    <button key={t} className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-control text-text-strong" : "text-text-muted hover:text-text-strong"}`} onClick={() => setTab(t)}>
-      {t}
-    </button>
-  ));
+  const [prefs, setPrefs] = useState(preferences);
+  const transcriber = prefs?.find((p) => p.id === "transcriber");
+  const judge = prefs?.find((p) => p.id === "retake-judge");
   return (
-    <Modal title="Settings" header={tabs} width={580} onClose={close}>
-      {tab === "general" && (
-        <div className="flex flex-col gap-3">
-          <Row label="Export Color Space" hint="BT.709 is the video standard; with sRGB, QuickTime shows it as the editor does.">
-            <div className="w-56">
-              <Select value={settings.exportColorSpace} onChange={(e) => update({ exportColorSpace: e.target.value as AppSettings["exportColorSpace"] })}>
-                <option value="bt709">BT.709</option>
-                <option value="srgb">sRGB</option>
-              </Select>
+    <Modal title="Settings" width={760} onClose={close}>
+      <div className="flex gap-4" style={{ height: HEIGHT }} data-settings-window>
+        <nav className="flex w-36 shrink-0 flex-col gap-0.5 border-r border-divider pr-3" data-settings-nav>
+          {SECTIONS.map((x) => (
+            <button key={x.id} className={`rounded-md px-3 py-1.5 text-left ${tab === x.id ? "bg-control text-text-strong" : "text-text-muted hover:bg-item-hover hover:text-text-strong"}`} onClick={() => setTab(x.id)} data-section={x.id}>
+              {x.title}
+            </button>
+          ))}
+        </nav>
+        <div className={`min-w-0 flex-1 pr-1 ${tab === "shortcuts" ? "flex flex-col" : "overflow-y-auto"}`} data-settings-section={tab}>
+          {tab === "general" && (
+            <div className="flex flex-col gap-3">
+              <Row label="Export Color Space" hint="BT.709 is the video standard; with sRGB, QuickTime shows it as the editor does.">
+                <div className="w-56">
+                  <Select value={settings.exportColorSpace} onChange={(e) => update({ exportColorSpace: e.target.value as AppSettings["exportColorSpace"] })}>
+                    <option value="bt709">BT.709</option>
+                    <option value="srgb">sRGB</option>
+                  </Select>
+                </div>
+              </Row>
+              <Row label="Save Snapshots To" hint="Snapshot (the camera in the timeline's toolbar) saves the frame at the playhead as a PNG here and adds it to the Media Bin.">
+                <div className="flex min-w-0 items-center gap-2" data-snapshot-folder>
+                  <span className="min-w-0 flex-1 truncate text-text" title={settings.snapshotFolder ?? "The project's media folder"}>
+                    {settings.snapshotFolder ? settings.snapshotFolder.replace(/^\/Users\/[^/]+/, "~") : "The project's media folder"}
+                  </span>
+                  <Button onClick={async () => {
+                    const folder = await host.chooseFolder(settings.snapshotFolder ?? "~/Pictures");
+                    if (folder) update({ snapshotFolder: folder });
+                  }}>
+                    Choose…
+                  </Button>
+                  {settings.snapshotFolder && (
+                    <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: null })}>
+                      Use Project
+                    </Button>
+                  )}
+                </div>
+              </Row>
+              <Row label="Make Proxies For" hint="Quick-to-seek copies made in the background, so scrubbing is fast. Unticked: only from Proxy Video in Media's menu.">
+                <div className="flex flex-col gap-1.5" data-auto-proxy>
+                  {(
+                    [
+                      ["recording", "Screen recordings"],
+                      ["video", "Video files"],
+                    ] as const
+                  ).map(([kind, label]) => (
+                    <Check key={kind} label={label} checked={settings.autoProxy[kind]} onChange={(on) => update({ autoProxy: { ...settings.autoProxy, [kind]: on } })} />
+                  ))}
+                </div>
+              </Row>
+              <Row label="Build Proxies" hint="Quietly: one at a time at background priority, so the fans stay off. Fast: two at once.">
+                <div className="w-56">
+                  <Select data-proxy-mode value={settings.proxyMode} onChange={(e) => update({ proxyMode: e.target.value as AppSettings["proxyMode"] })}>
+                    <option value="quiet">Quietly</option>
+                    <option value="fast">Fast</option>
+                  </Select>
+                </div>
+              </Row>
+              <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
+                <div className="flex items-center gap-3" data-proxy-space>
+                  <Button
+                    disabled={proxySpace === "deleting" || !proxySpace}
+                    onClick={() => {
+                      setProxySpace("deleting");
+                      void host.deleteAllProxies().then(setProxySpace);
+                    }}
+                  >
+                    Delete All Proxy Videos
+                  </Button>
+                  <span className="text-text-muted">{proxySpace === undefined ? "" : proxySpace === "deleting" ? "Deleting…" : space(proxySpace)}</span>
+                </div>
+              </Row>
             </div>
-          </Row>
-          <Row label="Save Snapshots To" hint="Snapshot (the camera in the timeline's toolbar) saves the frame at the playhead as a PNG here and adds it to the Media Bin.">
-            <div className="flex min-w-0 items-center gap-2" data-snapshot-folder>
-              <span className="min-w-0 flex-1 truncate text-text" title={settings.snapshotFolder ?? "The project's media folder"}>
-                {settings.snapshotFolder ? settings.snapshotFolder.replace(/^\/Users\/[^/]+/, "~") : "The project's media folder"}
-              </span>
-              <Button onClick={async () => {
-                const folder = await host.chooseFolder(settings.snapshotFolder ?? "~/Pictures");
-                if (folder) update({ snapshotFolder: folder });
-              }}>
-                Choose…
-              </Button>
-              {settings.snapshotFolder && (
-                <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: null })}>
-                  Use Project
-                </Button>
+          )}
+          {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
+          {tab === "transcripts" && (
+            <div className="flex flex-col gap-3">
+              {transcriber && (
+                <TranscriptsSettings
+                  pref={transcriber}
+                  label="Transcriber"
+                  offline="Apple's transcriber works offline, and Whisper on this Mac once its speech model is downloaded."
+                  model={resources?.find((r) => r.id === "whisper-model")}
+                  close={close}
+                  host={host}
+                  changed={setPrefs}
+                />
               )}
+              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} />}
             </div>
-          </Row>
-          <Row label="Make Proxies For" hint="Quick-to-seek copies made in the background, so scrubbing is fast. Unticked: only from Proxy Video in Media's menu.">
-            <div className="flex flex-col gap-1.5" data-auto-proxy>
-              {(
-                [
-                  ["recording", "Screen recordings"],
-                  ["video", "Video files"],
-                ] as const
-              ).map(([kind, label]) => (
-                <Check key={kind} label={label} checked={settings.autoProxy[kind]} onChange={(on) => update({ autoProxy: { ...settings.autoProxy, [kind]: on } })} />
-              ))}
-            </div>
-          </Row>
-          <Row label="Build Proxies" hint="Quietly: one at a time at background priority, so the fans stay off. Fast: two at once.">
-            <div className="w-56">
-              <Select data-proxy-mode value={settings.proxyMode} onChange={(e) => update({ proxyMode: e.target.value as AppSettings["proxyMode"] })}>
-                <option value="quiet">Quietly</option>
-                <option value="fast">Fast</option>
-              </Select>
-            </div>
-          </Row>
-          {transcriber && <TranscriptsSettings pref={transcriber} model={resources?.find((r) => r.id === "whisper-model")} close={close} host={host} />}
-          <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
-            <div className="flex items-center gap-3" data-proxy-space>
-              <Button
-                disabled={proxySpace === "deleting" || !proxySpace}
-                onClick={() => {
-                  setProxySpace("deleting");
-                  void host.deleteAllProxies().then(setProxySpace);
-                }}
-              >
-                Delete All Proxy Videos
-              </Button>
-              <span className="text-text-muted">{proxySpace === undefined ? "" : proxySpace === "deleting" ? "Deleting…" : space(proxySpace)}</span>
-            </div>
-          </Row>
+          )}
+          {tab === "shortcuts" && <ShortcutsSettings host={host} />}
         </div>
-      )}
-      {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
-      {tab === "shortcuts" && <ShortcutsSettings host={host} />}
-      {tab === "project" &&
-        (s ? (
-          <CanvasSettings
-            value={canvasValues(s)}
-            onChange={(change, label) => host.run("project.settings.set", canvasChange(change), label)}
-          />
-        ) : (
-          <p className="text-text-faint">Open a project to change its settings.</p>
-        ))}
+      </div>
       <div className="mt-5 flex justify-end">
         <Button look="primary" onClick={close}>
           Done
@@ -140,8 +161,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
 
 export function SettingsUi({ host }: { host: SettingsHost }) {
   const app = useView((v) => v.settings);
-  const project = useView((v) => v.project);
-  return app ? <SettingsWindow app={app} project={project} host={host} /> : null;
+  return app ? <SettingsWindow app={app} host={host} /> : null;
 }
 
 /**

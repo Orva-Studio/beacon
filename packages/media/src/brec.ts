@@ -17,6 +17,9 @@ export interface RecordingJson {
 /** Streams in the order a take's clips are stacked: screen, camera, then the microphone above system audio. */
 const ORDER: NonNullable<StreamInfo["role"]>[] = ["screen", "camera", "microphone", "systemAudio"];
 
+/** Shorter than a frame at any rate a project has: what a writer that failed at once leaves, and no clip can show. */
+const MIN_STREAM = 0.1;
+
 /** A take's `recording.json`, refused when written by a newer recorder. */
 export function recording(path: string): RecordingJson {
   const data = JSON.parse(readFileSync(join(path, "recording.json"), "utf8")) as RecordingJson;
@@ -26,7 +29,7 @@ export function recording(path: string): RecordingJson {
 
 /**
  * A take's streams, each with its file and where in the take that file starts (plus any measured device
- * offset). A take the recorder never finished lasts as long as its longest stream.
+ * offset). A take the recorder never finished lasts as long as its longest stream; a stream that barely began is left out.
  */
 export async function probeBrec(path: string): Promise<MediaInfo> {
   const rec = recording(path);
@@ -35,7 +38,7 @@ export async function probeBrec(path: string): Promise<MediaInfo> {
     const s = rec.streams[role];
     if (!s || s.start === null) continue;
     const [first] = (await probeMedia(join(path, s.file))).streams;
-    if (!first) continue;
+    if (!first || first.duration < MIN_STREAM) continue;
     streams.push({ ...first, file: s.file, start: s.start + (s.offset ?? 0), role });
   }
   if (!streams.length) throw new Error(`${path}: the take recorded nothing`);
