@@ -27,7 +27,8 @@ with the app open, below). The review's three branches were merged
 2026-10-19 (#18, #19, #20). Next: **Phase 8.5** (everyday
 fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
 any drive), then 9 (workspace and film look), 10 (filmstrips and
-backgrounds), 11 (security audit) and 12 (Camtasia export); an in-app
+backgrounds), 11 (security audit), 12 (Camtasia export) and 13 (Beacon
+learns how you edit); an in-app
 agent preview (§7, decided 2026-10-17) can come before Phase 9.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
@@ -1268,7 +1269,7 @@ Making the transcript do the editing.
   and which screen frames changed, so silences with that activity are kept by
   default (a tick box), the cheap stand-in for an agent looking at frames.
   Waits for the transcript job if it is still running. Retakes and filler words
-  stay with agents (MCP), where judgement is needed. As built: an **AI** panel
+  stay with agents (MCP; retakes get their own review in Phase 9), where judgement is needed. As built: an **AI** panel
   in the left sidebar, not the Edit menu (the user's choice: it is the home for
   later AI features), nor Audio Effects (those are dragged onto one clip; this
   edits the whole timeline). Its tile opens a **review**, not a dialog (the
@@ -1573,7 +1574,10 @@ What the user hit while editing, ahead of Phase 9.
   the export's own (track mute, volume points, fades, audio effects and
   noise removal, the in/out range), and loudness normalization applies as
   it does to a video. Agents get it through `export_start` with an audio
-  extension.
+  extension. **Built 2026-10-19**: the dialog's File format lists Export
+  Audio Only (.wav / .m4a / .mp3) and hides the video options (and the
+  data rate for .wav); MP3 needed LAME 3.100 (LGPL, static in libavcodec,
+  its source attached to releases with FFmpeg's).
 - **Remove background noise, with ffmpeg first** (the user, 2026-10-19):
   a "Noise Removal" audio effect, as Audacity's Noise Reduction works:
   select a stretch of the clip with only room noise on the timeline, the
@@ -1585,9 +1589,16 @@ What the user hit while editing, ahead of Phase 9.
   takes (the Yeti in this room, a camera's mic) against the original; if
   it is good enough it stays, if not the cleaning goes to Auphonic (see
   *Background audio cleaning* in the backlog), with this effect kept for
-  the cases Auphonic doesn't cover. Open: whether a clip with no silent
-  stretch can learn its noise from its quietest moments (the silence
-  analysis already finds them).
+  the cases Auphonic doesn't cover. **Built 2026-10-19**: Audio Effects ›
+  Noise Removal (or `edit.removeNoise`) learns from the in/out range when
+  there is one, else from the clip's quietest half second (its waveform),
+  else follows the noise as it goes; the fx tab has its Strength (dB). The
+  effect contract gained `EffectDef.audio` (a filter chain, a `lead` it
+  hears first and a `delay` it is padded and trimmed for), so the mix runs
+  it for preview, playback and export alike. afftdn hands each block back
+  two blocks late (25 ms) and drops the last two: compensated, so the
+  cleaned sound is in step to the sample and whole. On `recording.trec`:
+  the quietest half second -58.9 → -77.2 dB, speech unchanged.
 - **Shift-drag on empty space moves what comes after** (the user,
   2026-10-19): today Shift-dragging the playhead line inserts space at the
   playhead (`timeline.insertSpace`), rightwards only. The same from any
@@ -1597,9 +1608,16 @@ What the user hit while editing, ahead of Phase 9.
   edit. Locked tracks and an open group refuse it as they refuse the
   playhead's. The playhead's own Shift-drag goes both ways too (the user,
   2026-10-19: right to left did nothing): dragged left it removes the
-  empty time before the playhead, as far as the nearest clip. Open: whether
-  it moves every track (as the playhead's does) or only the track pressed
-  on (⌥ for the other).
+  empty time before the playhead, as far as the nearest clip. Chosen (no
+  answer yet, easy to flip): every unlocked track, ⌥ for only the track
+  pressed on. **Built 2026-10-19**: `timeline.removeSpace` closes empty time
+  (refused over media), and both it and `timeline.insertSpace` take an
+  optional `track`. Shift on a track's gap now moves time instead of adding
+  to the selection with a marquee; ⌘-drag still adds. Known, from the PR
+  review (2026-10-19), older than this: a magnetic track packs its clips
+  again at once, so space opened across tracks closes on it while linked
+  clips on ordinary tracks move; decide whether space edits skip magnetic
+  tracks or move their linked partners with them.
 - **Drops carry their paths** (the user, 2026-10-19). The webview gives a
   file dropped from Finder its name, size and date but not its path, so
   `findDroppedFile` guesses: WebKit's URL when it sends one, the home
@@ -1610,7 +1628,12 @@ What the user hit while editing, ahead of Phase 9.
   `webUtils.getPathForFile`. Electrobun has no drop hook, so the window's
   view registers for file URLs itself (through the engine's FFI, or
   upstream in Electrobun) and the paths go with the drop to the UI, for
-  any drive and any depth. The guessing then goes.
+  any drive and any depth. The guessing then goes. **Built 2026-10-19**,
+  more simply than registering the view: macOS keeps a drag's file URLs on
+  the drag pasteboard until the next drag, so on a drop the engine reads
+  them there (`beacon_drag_files`) and the dropped files are matched to them
+  by name, size and date; the home folders and Spotlight are no longer
+  searched.
 **Gate:** a project exported as `.wav`, `.m4a` and `.mp3` sounds as its
 video export does; noise removal judged by the user on their own takes, and
 Auphonic chosen or not; Shift-drag on a gap or the playhead opens and
@@ -1660,6 +1683,26 @@ Seeing more at once.
   fixes reach both; preview/export parity as for every pass. Open: what a
   `.hlook` holds (values, a LUT, or both) decides whether the renderer
   needs LUTs.
+- **Remove Retakes** (the user, 2026-10-19; an AI feature, next to Remove
+  Silences and Remove Filler Words): finds the same thing said more than
+  once (a line restarted, a sentence said again after a stumble) and keeps
+  the best take. Detection from the transcript: runs of words that repeat
+  closely within a short span (aligned word by word, so "so the next step
+  is… so the next step is to open" groups as two takes of one line),
+  ending where the takes agree again. The best is the last complete one
+  by default (people redo until it's right), scored too for fewer
+  fillers, no cut-off ending and fluency; an LLM judging the takes is an
+  option behind the AI setting, as the transcriber is. UI as the other
+  reviews: its AI panel tile opens a review; each group is one mark on the
+  timeline spanning its takes, the kept take green and the others red;
+  ‹ › step through the groups (playhead on the group), clicking a take
+  keeps that one instead, and the properties panel lists the group's
+  takes as text with their lengths and a play button each; Apply All cuts
+  the losing takes in one undo step, Cut This One one group at a time.
+  Agents get `retakes.review`/`apply` (they already cut retakes by word
+  ranges with `transcript_cut`). Open: how close two takes must be to
+  count (a threshold in the review's settings), and a take that runs on
+  past the line it repeats.
 - **Safe-area guides and layout checks** (the user, 2026-10-13): canvas
   overlays (drawn by the native preview like the snap guides, never
   exported), chosen per platform for the project's shape: 9:16 TikTok,
@@ -1765,6 +1808,72 @@ finished videos: MP4 and `.srt` export already covers those.
 **Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
 captions opens in Camtasia with its edit intact, and the report lists what
 didn't carry over.
+
+### Phase 13 — Beacon learns how you edit (the user, 2026-10-19)
+The AI tools start from what the user tends to do, not fixed settings: if
+they always keep short silences but cut long ones, or keep "so" and "like"
+but always cut "um", the next review opens that way. A preference changes
+only after the user has made the same choice several times, never from one
+edit.
+- **Built for talking heads, long and short** (the user, 2026-10-19:
+  Beacon is an editor for talking-head videos, long-form and Shorts). So
+  what it learns is how this person tightens their own speech: pauses,
+  fillers, retakes, the breath before a sentence, how hard a cut lands on
+  the next word. And it learns it **per format**, because the same person
+  edits a long video and a Short differently: a Short is cut tighter
+  (shorter pauses kept, more fillers gone, no slow start) where a long
+  video keeps pauses that let a point land. The format comes from the
+  project's shape (9:16 is a Short, 16:9 long-form) and length, so
+  nothing has to be set; each format has its own tallies, and a format
+  with too few decisions yet falls back to the user's overall habits,
+  then Beacon's defaults. Later, the same per-format memory can hold the
+  rest of a talking-head edit the user repeats: caption style and
+  position, punch-in zooms on emphasis, the camera's crop and layout.
+- **What others do** (looked at 2026-10-19). Aftershoot's culling learns
+  from the user changing its picks and weighs what they favour (emotion
+  over sharpness, say); Imagen builds a Personal AI Profile from finished
+  edits, fine-tunes it as more come in, and lets the user see and adjust
+  what it learned (Profile Adjustments). Both need many examples: Imagen
+  asks for 2,000–3,000 edited photos. Descript's Remove Filler Words sets
+  each instance to Delete or Ignore but, as far as found, doesn't remember
+  the choices. Beacon has far fewer decisions than a photographer has
+  photos, so it should learn simple, readable rules rather than train a
+  model.
+- **What it learns from.** Every decision in a review (Remove Silences,
+  Remove Filler Words, Remove Retakes): each item cut or kept, flipped from
+  what Beacon proposed or not, with what describes it (a silence's length,
+  screen action, where it falls in a take; a filler's word, the words
+  around it, sentence start or middle). Later, edits made by hand after
+  Apply (undoing an AI cut, cutting a filler the review kept) count too.
+  Stored in the config folder, app-wide and local, never uploaded.
+- **How it decides.** Counts per rule, not a black box: per filler word a
+  keep/cut tally; for silences, where the user's keeps and cuts divide by
+  length (the "shortest silence to cut" and "pause to keep" settings move
+  to that point). A rule changes a default only with enough evidence: at
+  least 5 decisions over at least 2 projects, about 80% one way (a Beta
+  prior over the tally, so one or two choices never tip it), recent ones
+  counting more than old ones. Adaptive thresholds from accept/reject
+  feedback are well studied (Robertson and Walker on adaptive filtering;
+  BPR for preferences from implicit signals), but simple tallies are
+  enough to start.
+- **What the user sees.** A review opens with the learned defaults and
+  says so where they apply ("Kept: you usually keep 'so' (9 of 11)"), so a
+  surprise can be traced and flipped; Settings gets a Learned section
+  listing every learned preference with its evidence, each resettable, a
+  Reset All, and a switch to turn learning off (as Imagen lets its profile
+  be adjusted). Agents read the same list through the preferences, so they
+  prepare reviews the user's way.
+- Fits as its own feature folder with session state and a preference
+  store; the reviews ask it for defaults rather than knowing about it.
+  Open: per speaker as well as per format (a guest in an interview);
+  whether a long video and its Shorts cut from it share decisions; how
+  fast old habits fade; whether hand edits outside the reviews are a clear
+  enough signal.
+**Gate:** after the user cuts or keeps the same kind of item the same way
+across a few projects, the next review opens that way and says why; a
+Short and a long video each open with their own learned settings; one
+choice alone changes nothing; Settings shows and resets what was learned,
+per format.
 
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to

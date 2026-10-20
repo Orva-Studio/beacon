@@ -1,7 +1,6 @@
 import { statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { runTool } from "./tool";
+import { basename } from "node:path";
+import { loadEngine, takeString } from "./engine";
 
 /** What a webview knows about a file dropped on it: no path, unless WebKit passed its URL. */
 export interface DroppedFile {
@@ -23,20 +22,20 @@ const same = (path: string, f: DroppedFile) => {
   }
 };
 
+/** The files of the last drag, as macOS keeps them (the drop just received, until another drag starts). */
+export function draggedPaths(): string[] {
+  const e = loadEngine();
+  return JSON.parse(takeString(e, e.beacon_drag_files())) as string[];
+}
+
 /**
- * The path of a file dropped from Finder onto the window: its URL when WebKit
- * gives one, else the file of that name, size and modification time in the
- * usual folders or Spotlight's index. Undefined when it can't be found.
+ * The path of a file dropped from Finder onto the window: its URL when WebKit gives one, else the file of
+ * that name, size and modification time among the drag's own (`draggedPaths`). Undefined when it isn't there.
  */
-export async function findDroppedFile(f: DroppedFile): Promise<string | undefined> {
+export function findDroppedFile(f: DroppedFile, dragged: string[]): string | undefined {
   if (f.uri?.startsWith("file://")) {
     const path = decodeURIComponent(new URL(f.uri).pathname);
     if (same(path, f)) return path;
   }
-  for (const dir of ["Desktop", "Downloads", "Movies", "Documents", "Music", "Pictures"]) {
-    const path = join(homedir(), dir, f.name);
-    if (same(path, f)) return path;
-  }
-  const found = await runTool(["/usr/bin/mdfind", "-name", f.name]).catch(() => "");
-  return found.split("\n").find((p) => p.endsWith(`/${f.name}`) && same(p, f));
+  return dragged.find((p) => basename(p) === f.name && same(p, f));
 }

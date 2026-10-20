@@ -27,7 +27,16 @@ Copyright (c) 2010, The WebM Project authors, BSD 3-Clause License) and
 Opus 1.5.2 (https://opus-codec.org, Copyright 2001-2023 Xiph.Org, Skype
 Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory
 Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon, BSD 3-Clause
-License), both built statically from their release sources.
+License), both built statically from their release sources, and with LAME
+3.100 (https://lame.sourceforge.io, Copyright 1999-2017 The LAME Project,
+Mike Cheng, Mark Taylor and others), for MP3 export, built statically from its
+unmodified release source
+(https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz,
+SHA-256 ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e)
+into libavcodec. LAME is licensed under the GNU Library General Public License
+version 2 or later (https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html);
+its source is attached to every Beacon release with FFmpeg's, and replacing
+the bundled libavcodec replaces it.
 
 whisper.cpp
 -----------

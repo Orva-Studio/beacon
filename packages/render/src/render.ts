@@ -22,7 +22,9 @@ import {
   rationalToNumber,
   fittedSize,
   autoBitrate,
-  VIDEO_FORMATS,
+  EXPORT_FORMATS,
+  isAudioFormat,
+  type ExportFormat,
   type VideoEncoding,
 } from "@beacon/model";
 
@@ -74,9 +76,10 @@ export function sceneAt(project: Project, registry: FeatureRegistry, t: Ticks, d
   return scene;
 }
 
-/** Refuses an encoding the format can't hold: ProRes is only in .mov. */
-export function checkEncoding(format: (typeof VIDEO_FORMATS)[number], o: Pick<VideoEncoding, "codec">) {
+/** Refuses an encoding the format can't hold: ProRes is only in .mov; the audio alone needs audio. */
+export function checkEncoding(format: ExportFormat, o: Pick<VideoEncoding, "codec" | "audio">) {
   if (o.codec === "prores" && format !== "mov") throw new Error(`ProRes exports to .mov, not .${format}`);
+  if (isAudioFormat(format) && o.audio === false) throw new Error(`.${format} is the audio alone; it can't be exported without audio`);
 }
 
 const ENCODERS: Record<NonNullable<VideoEncoding["codec"]>, string[]> = {
@@ -100,11 +103,11 @@ function bitrateOf(project: Project, o: Extract<RenderOutput, { kind: "video" }>
 /** A keyframe every 30 frames. */
 const KEYFRAME = 30;
 
-/** The format of a video output, from its extension. */
-export function videoFormat(path: string): (typeof VIDEO_FORMATS)[number] {
+/** The format of an export, from its extension. */
+export function videoFormat(path: string): ExportFormat {
   const ext = extname(path).slice(1).toLowerCase();
-  const f = VIDEO_FORMATS.find((x) => x === ext);
-  if (!f) throw new Error(`can't export ${ext ? `.${ext}` : "without an extension"}: use ${VIDEO_FORMATS.map((x) => `.${x}`).join(", ")}`);
+  const f = EXPORT_FORMATS.find((x) => x === ext);
+  if (!f) throw new Error(`can't export ${ext ? `.${ext}` : "without an extension"}: use ${EXPORT_FORMATS.map((x) => `.${x}`).join(", ")}`);
   return f;
 }
 
@@ -156,8 +159,12 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   const frameTicks = ticksPerFrame(project.settings.fps);
   const from = opts.from ?? 0;
   const to = opts.to ?? projectDuration(project);
+  if (opts.output.kind === "video" && isAudioFormat(videoFormat(opts.output.path))) {
+    await exportAudio(project, registry, opts.output, ticksToSeconds(from), ticksToSeconds(to - from));
+    opts.onProgress?.(1, 1);
+    return { frames: 0 };
+  }
   const frames = opts.frames ?? Array.from({ length: Math.ceil((to - from) / frameTicks) }, (_, i) => Math.round(from / frameTicks) + i);
-
   const tmp = opts.output.kind === "video" ? mkdtempSync(join(tmpdir(), "beacon-")) : undefined;
   try {
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
@@ -260,11 +267,32 @@ function audioMix(project: Project, registry: FeatureRegistry, start: number, le
     const until = Math.min(s.start + s.duration, start + length);
     if (until <= from) continue;
     const media = s.mediaStart + (from - s.start) * s.speed;
-    const input = firstInput + n++;
     const src = source?.(s) ?? { path: s.path, stream: s.stream };
+    const input = firstInput + inputs.filter((x) => x === "-i").length;
     inputs.push("-ss", media.toFixed(6), "-t", ((until - from) * s.speed).toFixed(6), ...ffmpegInput(src.path));
+    let at = `[${input}:a:${src.stream}]`;
+    // Each effect is a stage of its own: its lead played in first, its delay padded on, both trimmed away after.
+    for (const [k, e] of (s.effects ?? []).entries()) {
+      const id = `s${n}e${k}`;
+      let head = at;
+      if (e.lead) {
+        const length = (e.lead.end - e.lead.start).toFixed(6);
+        const lead = firstInput + inputs.filter((x) => x === "-i").length;
+        inputs.push("-ss", e.lead.start.toFixed(6), "-t", length, ...ffmpegInput(src.path));
+        // Exactly its length (decoded, it can fall a few samples short), so trimming it takes none of the clip.
+        filters.push(`[${lead}:a:${src.stream}]apad=whole_dur=${length},atrim=end=${length},asetpts=PTS-STARTPTS[${id}lead]`);
+        head = `[${id}lead]${at}concat=n=2:v=0:a=1,`;
+      }
+      const cut = (e.lead ? e.lead.end - e.lead.start : 0) + (e.delay ?? 0);
+      const pad = e.delay ? `apad=pad_dur=${e.delay.toFixed(6)},` : "";
+      const trim = cut ? `,atrim=start=${cut.toFixed(6)},asetpts=PTS-STARTPTS` : "";
+      // `{id}` names the effect's filters apart from every other segment's, so commands reach the right one.
+      filters.push(`${head}${pad}${e.filter.replaceAll("{id}", id)}${trim}[${id}]`);
+      at = `[${id}]`;
+    }
     const volume = s.gain.ramps.length ? `volume='${gainExpr(s.gain, media)}':eval=frame` : `volume=${s.gain.base.toFixed(5)}`;
-    filters.push(`[${input}:a:${src.stream}]${volume}${atempo(s.speed)},adelay=delays=${Math.round((from - start) * 1000)}:all=1[a${n}]`);
+    n++;
+    filters.push(`${at}${volume}${atempo(s.speed)},adelay=delays=${((from - start) * 1000).toFixed(4)}:all=1[a${n}]`);
   }
   if (!n) return { inputs };
   return { inputs, filter: `${filters.join(";")};${Array.from({ length: n }, (_, i) => `[a${i + 1}]`).join("")}amix=inputs=${n}:normalize=0:duration=longest,apad[aout]` };
@@ -295,6 +323,27 @@ async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<
     throw new Error(`audio mix failed: ${e.message}`);
   });
   return path;
+}
+
+const AUDIO_CODECS: Record<string, (o: Extract<RenderOutput, { kind: "video" }>) => string[]> = {
+  wav: () => ["-c:a", "pcm_s16le"],
+  m4a: (o) => ["-c:a", "aac", "-b:a", `${o.audioBitrate ?? 256}k`],
+  // MP3 tops out at 320 kbit/s.
+  mp3: (o) => ["-c:a", "libmp3lame", "-b:a", `${Math.min(320, o.audioBitrate ?? 256)}k`],
+};
+
+/** The mix of [start, start + length) alone, written straight to the output (.wav, .m4a, .mp3). */
+async function exportAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
+  const format = videoFormat(o.path);
+  // MP3 stops at 48 kHz; a project at 96 kHz is resampled for it.
+  const rate = format === "mp3" ? Math.min(48000, project.settings.sampleRate) : project.settings.sampleRate;
+  const mix = audioMix(project, registry, start, length);
+  // Nothing audible in the range: that much silence, as a range with some sound keeps its quiet parts.
+  const filter = mix.filter ?? `anullsrc=r=${rate}:cl=stereo[aout]`;
+  const args = [...ffmpegArgs(), "-y", ...mix.inputs, "-filter_complex", filter, "-map", "[aout]", ...AUDIO_CODECS[format]!(o), "-ar", String(rate), "-t", length.toFixed(6), o.path];
+  await runTool(args).catch((e: Error) => {
+    throw new Error(`audio export failed: ${e.message}`);
+  });
 }
 
 /** The rendered video with the mixed audio under it, both copied. */

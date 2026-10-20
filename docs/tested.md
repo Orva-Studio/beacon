@@ -5,6 +5,28 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 8.5 (`phase-8.5`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Files dropped from Finder are found by the drag's own paths (macOS's drag pasteboard), on any drive: no more home folders or Spotlight | 2026-10-19 | `c8a6022` | Cargo test (file URLs on a pasteboard come back as paths); core test (matched by name, size and date among the drag's paths); a copy of `video.mp4` under the scratchpad's `card/DCIM/107_PANA` (not in Spotlight) put on the drag pasteboard as Finder would: `findDropped` returned its path; the same with `P1078391.MP4` on the real camera card (`/Volumes/Canon`, indexing off), the clip that failed before |
+| Export Audio Only: .wav, .m4a, .mp3 from the dialog and `export_start`; the mix alone, no frames rendered; LAME built into Beacon's FFmpeg (still LGPL) | 2026-10-19 | this commit | Core test (a 3 s range of `recording.trec` as each format: no video stream, 3 s long, mean loudness within 0.5 dB of the same range's MP4 export; .wav refused with audio off); UI flow (video options hidden, no data rate for .wav, Voice.mp3 written) |
+| Shift-drag both ways: the playhead dragged left closes empty time (no further than the nearest clip); Shift on a gap opens or closes time from there; ⌥ only that track | 2026-10-19 | this commit | UI flow (all three on the e2e project, each one undo step); undo-exactness test with `timeline.removeSpace` (one track and all, refused over media) |
+| The caption text box (and the annotation's, and the canvas's typing field) keep the caret where it is while deleting or typing | 2026-10-19 | this commit | UI flow: Backspace three times mid-text, caret stays, and the field's default text is never rewritten (what makes WebKit jump the caret to the end; fails without the fix). The jump itself only shows in WebKit, so: by hand |
+| PR #24 review fixes: two dropped files alike in name, size and date import as both; closing all the room before media ending between frames; MP3 from a 96 kHz project (resampled to 48 kHz); a silent range exports as silence; mix delays exact to the sample; LAME in THIRD_PARTY_NOTICES | 2026-10-19 | this commit | Core tests (drops with the drag's paths given; audio export at 96 kHz, muted range, `adelay` of one frame = 33.3333 ms); undo-exactness file: removeSpace over a clip ending a third of a frame past one (fails without the fix) |
+| Noise Removal: Audio Effects tile (double-click or drop), learning from the in/out range, else the clip's quietest half second, else following the noise; Strength in the fx tab; in preview, playback and export | 2026-10-19 | this commit | Core test on `recording.trec` (quietest half second -58.9 → -77.2 dB, loudest unchanged, same length, in step to the sample at 8 kHz); UI flow (tile → effect → Strength slider) |
+| Noise Removal review fixes: each cleaned clip's filter has its own name, so each learns its own noise in one mix; stacked effects each learn their own stretch; a range drawn up to a cut takes only the clips it covers | 2026-10-19 | this commit | Core test on two copies of `recording.trec`: unique `afftdn@` names, the second copy's quiet half second down by more than 6 dB, a range ending at the cut cleans only the first copy, two stacked effects keep length and timing to the sample |
+
+### Not checked yet
+
+- Dragging a clip straight off the camera card onto the timeline, the canvas and the Media Bin.
+- Export Audio Only in the app: a podcast-length export of each format, played in Music or QuickTime.
+- Shift-drag in the app, both ways, on the playhead and on a gap (⌥ for one track).
+- Deleting a caption's text character by character in the app: the cursor stays put.
+- Noise Removal on the user's own takes (the Yeti, a camera's mic): good enough, or Auphonic (the phase's gate).
+
 ## Structure (`refactor/structure`, `docs/review-2026-10-17.md` §3)
 
 ### Checked by hand

@@ -152,6 +152,16 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     return Math.max(0, start + ((clientX - r.left - HEADER) / Math.max(1, r.width - HEADER)) * (end - start));
   };
 
+  /** Empty time just before `at` (seconds) on the tracks a Shift-drag moves: `track`, or every unlocked one. */
+  const roomBefore = (at: number, track?: string) => {
+    let last = 0;
+    for (const t of latest.current.project.tracks) {
+      if (track ? t.id !== track : t.locked) continue;
+      for (const c of t.clips) if (ticksToSeconds(c.start) < at) last = Math.max(last, Math.min(at, ticksToSeconds(c.start + c.duration)));
+    }
+    return Math.max(0, at - last);
+  };
+
   /** Seconds per screen point. */
   const spp = () => {
     const { start, end } = latest.current.session.timeline;
@@ -409,7 +419,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: true, ripple: d.ripple }, "Trim Media");
       }
     } else if (d.kind === "space") {
-      if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d }, "Ripple Split");
+      const track = d.track ? { track: d.track } : {};
+      if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d, ...track }, "Ripple Split");
+      else if (d.d < 0) run("timeline.removeSpace", { at: d.at, duration: -d.d, ...track }, "Close Space");
     } else if (d.kind === "range" || d.kind === "rangeEdge") {
       if (!session.range) run("range.clear");
     }
@@ -482,7 +494,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             capture();
             if (e.metaKey) dragState.current = { kind: "range", anchor: session.playhead };
             else if (e.shiftKey && session.group) status("Close the group (⌃⇧U) to insert space");
-            else if (e.shiftKey) dragState.current = { kind: "space", at: session.playhead, d: 0 };
+            else if (e.shiftKey) dragState.current = { kind: "space", at: session.playhead, d: 0, room: roomBefore(session.playhead) };
             else {
               dragState.current = { kind: "playhead" };
               scrub(e.clientX);
@@ -518,8 +530,16 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const toggle = e.metaKey || e.shiftKey;
             if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
             dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey };
+          } else if (e.shiftKey && !e.metaKey && rowUnder(y) !== undefined) {
+            // Shift on a gap moves what comes after it, as Shift on the playhead does; ⌥ only this track.
+            if (session.group) return status("Close the group (⌃⇧U) to insert space");
+            const row = rowUnder(y)!;
+            let at = timeAt(e.clientX);
+            at += snapped([at], new Set(), e.ctrlKey);
+            const track = e.altKey ? tracks[row]!.id : undefined;
+            dragState.current = { kind: "space", at, d: 0, room: roomBefore(at, track), ...(track ? { track, row } : {}) };
           } else {
-            const base = e.shiftKey || e.metaKey ? session.selection : [];
+            const base = e.metaKey ? session.selection : [];
             if (!base.length && session.selection.length) run("selection.clear");
             dragState.current = { kind: "marquee", x0: x, y0: y, x1: x, y1: y, base };
           }
@@ -616,7 +636,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           if (d.kind === "range") return throttled("range.set", { in: d.anchor, out: t, playhead: t });
           if (d.kind === "rangeEdge") return throttled("range.set", { in: d.other, out: t });
           if (d.kind === "space") {
-            dragState.current = { ...d, d: Math.max(0, t - d.at) };
+            dragState.current = { ...d, d: Math.max(-d.room, t - d.at) };
             return draw();
           }
         }}

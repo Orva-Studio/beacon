@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
-import { copyClips, createProject, projectDuration, ProjectStore, ticksToSeconds, type Clip } from "@beacon/model";
+import { copyClips, createProject, projectDuration, ProjectStore, ticksPerFrame, ticksToSeconds, type Clip } from "@beacon/model";
 import { createRegistry } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -59,6 +59,13 @@ test.skipIf(!existsSync(AI_SLOP))("timeline edits from the editor keep tracks in
 
   store.transaction("Edit", (tx) => {
     tx.run("timeline.insertSpace", { at: mid, duration: 2 });
+    // Closing part of that gap again, then a gap on one track only, opened and closed.
+    tx.run("timeline.removeSpace", { at: mid + 2, duration: 1 });
+    expect(() => tx.run("timeline.removeSpace", { at: mid + 1, duration: 2 })).toThrow("only empty time can be closed");
+    const one = store.doc.tracks.find((t) => t.clips.some((c) => c.id === screen.id))!.id;
+    tx.run("timeline.insertSpace", { at: mid + 1, duration: 1, track: one });
+    tx.run("timeline.removeSpace", { at: mid + 2, duration: 1, track: one });
+    tx.run("timeline.insertSpace", { at: mid + 1, duration: 1 });
     const pasted = tx.run<string[]>("clip.paste", { clipboard: board, at: length + 2 });
     tx.run("clip.remove", { clips: pasted, ripple: true });
     tx.run("timeline.deleteRanges", { ranges: [{ start: mid, end: mid + 2 }] });
@@ -140,4 +147,21 @@ test.skipIf(!existsSync(AI_SLOP))("groups and stitched media come apart as they 
 
   while (store.canUndo) store.undo();
   expect(JSON.stringify(store.doc)).toBe(before);
+});
+
+test.skipIf(!existsSync(AI_SLOP))("closing all the empty time before a point works when the media before it ends between frames", async () => {
+  const registry = createRegistry();
+  const { project } = await importCmproj(AI_SLOP, registry);
+  const frame = ticksPerFrame(project.settings.fps);
+  // The last clip on a track, made to end a third of a frame past one, as imported media can.
+  const track = project.tracks.find((t) => t.clips.length)!;
+  const last = track.clips.reduce((a, b) => (b.start > a.start ? b : a));
+  last.duration += Math.round(frame / 3);
+  const end = last.start + last.duration;
+  const store = new ProjectStore(registry, project);
+  const at = (Math.ceil(end / frame) + 30) * frame;
+  // The timeline offers all the room there is; rounded to frames it was a third of a frame too much.
+  store.run("timeline.removeSpace", { at: ticksToSeconds(at), duration: ticksToSeconds(at - end), track: track.id });
+  expect(store.doc.tracks.find((t) => t.id === track.id)!.clips.every((c) => c.start + c.duration <= end)).toBe(true);
+  expect(() => store.run("timeline.removeSpace", { at: ticksToSeconds(at), duration: 2, track: track.id })).toThrow("only empty time can be closed");
 });

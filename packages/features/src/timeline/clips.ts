@@ -147,6 +147,15 @@ export function rippleDeleteRanges(doc: Project, ranges: { start: number; end: n
 }
 
 /** Moves every clip on `track` starting at or after `from` (other than `except`) by `by`. */
+/** The main timeline's tracks a space edit moves: one, or every unlocked one. */
+function spaceTracks(doc: Project, track?: string): Track[] {
+  if (!track) return doc.tracks.filter((t) => !t.locked);
+  const one = doc.tracks.find((t) => t.id === track);
+  if (!one) throw new Error(`no track "${track}" on the main timeline`);
+  unlocked(one);
+  return [one];
+}
+
 function shiftLater(track: Track, from: Ticks, by: Ticks, except?: Clip) {
   for (const c of track.clips) if (c !== except && c.start >= from) c.start += by;
 }
@@ -443,19 +452,36 @@ export const clipCommands = [
   defineCommand({
     id: "timeline.insertSpace",
     description:
-      "Open a gap of `duration` seconds at a timeline time on every unlocked track, splitting clips there and moving everything after it, markers too (Shift-drag of the playhead)",
-    args: z.strictObject({ at: Seconds, duration: z.number().positive() }),
-    apply(doc, { at, duration }, ctx) {
+      "Open a gap of `duration` seconds at a timeline time on every unlocked track (or only `track`), splitting clips there and moving everything after it, markers too unless only one track moves (Shift-drag right of the playhead or a gap)",
+    args: z.strictObject({ at: Seconds, duration: z.number().positive(), track: Id.optional() }),
+    apply(doc, { at, duration, track }, ctx) {
       const t = snapSeconds(at, doc.settings.fps);
       const d = snapSeconds(duration, doc.settings.fps);
       if (!d) return;
       const links = new Map<string, string>();
-      for (const track of doc.tracks) {
-        if (track.locked) continue;
-        for (const c of [...track.clips]) if (c.start < t && clipEnd(c) > t) splitAt(track, c, t, ctx, links);
-        shiftLater(track, t, d);
+      for (const tr of spaceTracks(doc, track)) {
+        for (const c of [...tr.clips]) if (c.start < t && clipEnd(c) > t) splitAt(tr, c, t, ctx, links);
+        shiftLater(tr, t, d);
       }
-      for (const m of doc.markers) if (m.time >= t) m.time += d;
+      if (!track) for (const m of doc.markers) if (m.time >= t) m.time += d;
+    },
+  }),
+  defineCommand({
+    id: "timeline.removeSpace",
+    description:
+      "Close `duration` seconds of empty time just before a timeline time on every unlocked track (or only `track`), moving everything after it back, markers too unless only one track moves (Shift-drag left of the playhead or a gap). Refused where media is in that time",
+    args: z.strictObject({ at: Seconds, duration: z.number().positive(), track: Id.optional() }),
+    apply(doc, { at, duration, track }) {
+      const t = snapSeconds(at, doc.settings.fps);
+      const tracks = spaceTracks(doc, track);
+      const room = t - Math.max(0, ...tracks.flatMap((tr) => tr.clips.filter((c) => c.start < t).map((c) => Math.min(clipEnd(c), t))));
+      let d = Math.min(snapSeconds(duration, doc.settings.fps), t);
+      // All the room asked for, rounded to a frame past media that ends between frames: as far as the media.
+      if (d > room && d - room < ticksPerFrame(doc.settings.fps)) d = room;
+      if (d <= 0) return;
+      if (d > room) throw new Error("there is media in that time; only empty time can be closed");
+      for (const tr of tracks) shiftLater(tr, t, -d);
+      if (!track) for (const m of doc.markers) if (m.time >= t - d) m.time = Math.max(t - d, m.time - d);
     },
   }),
 ];

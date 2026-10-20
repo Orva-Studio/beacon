@@ -420,7 +420,7 @@ export class LocalCore implements BeaconCore {
     const parsed = action.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${action.id}: ${formatIssues(parsed.error)}`);
     const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group } });
+    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get });
     const label = opts.label ?? plan.label;
     if (opts.dryRun) {
       const r = plan.steps?.length ? p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {})), { dryRun: true }) : undefined;

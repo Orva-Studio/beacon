@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { autoBitrate, fittedSize, MAX_BITRATE } from "@beacon/model";
+import { autoBitrate, fittedSize, isAudioFormat, MAX_BITRATE } from "@beacon/model";
 import { Button, Check, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
@@ -19,6 +19,9 @@ const FORMATS: [ExportSettings["format"], string][] = [
   ["mov", "Export to QuickTime Movie (.mov)"],
   ["gif", "Export to Animated GIF (.gif)"],
   ["webm", "Export to WebM (.webm)"],
+  ["wav", "Export Audio Only (.wav)"],
+  ["m4a", "Export Audio Only (.m4a)"],
+  ["mp3", "Export Audio Only (.mp3)"],
 ];
 
 const FRAME_RATES = [10, 15, 24, 25, 30, 50, 60];
@@ -76,6 +79,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
     setError(r.error);
   };
   const video = s.format === "mp4" || s.format === "mov";
+  const audioOnly = isAudioFormat(s.format);
   const sizeKey = s.size ? `${s.size.width}x${s.size.height}` : "";
   const fitted = fittedSize(sheet.canvas, s.size);
   const autoRate = autoBitrate(fitted.width, fitted.height, s.fps ?? sheet.canvas.fps);
@@ -105,7 +109,13 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
         )}
         <Row label="File format">
           <div className="w-72">
-            <Select value={s.format} onChange={(e) => set({ format: e.target.value as ExportSettings["format"], ...(e.target.value !== "mov" && s.codec === "prores" ? { codec: "h264" } : {}) })}>
+            <Select
+              value={s.format}
+              onChange={(e) => {
+                const format = e.target.value as ExportSettings["format"];
+                set({ format, ...(format !== "mov" && s.codec === "prores" ? { codec: "h264" } : {}), ...(isAudioFormat(format) ? { audio: true } : {}) });
+              }}
+            >
               {FORMATS.map(([f, label]) => (
                 <option key={f} value={f}>
                   {label}
@@ -118,79 +128,85 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
       </div>
       {advanced && (
         <div className="mt-4 flex flex-col gap-3 rounded-md bg-well/60 p-4">
-          <div className="text-text-strong">Video</div>
-          <Row label="Frame rate">
-            <div className="w-40">
-              <Select value={s.fps ?? ""} onChange={(e) => set({ fps: e.target.value ? Number(e.target.value) : null })}>
-                <option value="">Automatic ({sheet.canvas.fps})</option>
-                {FRAME_RATES.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </Row>
-          <Row label="Dimensions">
-            <div className="w-56">
-              <Select
-                value={sizeKey}
-                onChange={(e) => {
-                  const [w, h] = e.target.value.split("x").map(Number);
-                  set({ size: w && h ? { width: w, height: h } : null });
-                }}
-              >
-                <option value="">
-                  Current ({sheet.canvas.width}×{sheet.canvas.height})
-                </option>
-                {SIZES.map(([w, h]) => (
-                  <option key={w} value={`${w}x${h}`}>
-                    Fit within {w}×{h}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </Row>
-          {s.format !== "gif" && !(video && s.codec === "prores") && (
-            <Row label="Data rate">
-              <DataRate value={s.bitrate} min={64} max={MAX_BITRATE} auto={autoRate} autoLabel={s.format === "webm" ? "Automatic (constant quality)" : "Automatic"} onChange={(bitrate) => set({ bitrate })} />
-            </Row>
-          )}
-          {video && (
-            <Row label="Compression type">
-              <div className="w-40">
-                <Select value={s.codec} onChange={(e) => set({ codec: e.target.value as ExportSettings["codec"] })}>
-                  <option value="h264">H.264</option>
-                  <option value="hevc">HEVC (H.265)</option>
-                  {s.format === "mov" && <option value="prores">ProRes 422 HQ</option>}
-                </Select>
-              </div>
-            </Row>
-          )}
-          {s.format !== "gif" && s.codec !== "prores" && (
-            <Row label="Keyframe every">
-              <TextInput type="number" min={1} className="w-20 text-right" value={s.keyframe} onChange={(e) => set({ keyframe: Math.max(1, Number(e.target.value) || 1) })} />
-              <span className="text-text-dim">frames</span>
-            </Row>
-          )}
-          {video && s.codec === "h264" && (
-            <Row label="Profile">
-              <div className="w-72">
-                <Select value={s.profile} onChange={(e) => set({ profile: e.target.value as ExportSettings["profile"] })}>
-                  <option value="baseline">Baseline (Largest file, plays everywhere)</option>
-                  <option value="main">Main</option>
-                  <option value="high">High (Smallest file, playback on recent devices)</option>
-                </Select>
-              </div>
-            </Row>
+          {!audioOnly && (
+            <>
+              <div className="text-text-strong">Video</div>
+              <Row label="Frame rate">
+                <div className="w-40">
+                  <Select value={s.fps ?? ""} onChange={(e) => set({ fps: e.target.value ? Number(e.target.value) : null })}>
+                    <option value="">Automatic ({sheet.canvas.fps})</option>
+                    {FRAME_RATES.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </Row>
+              <Row label="Dimensions">
+                <div className="w-56">
+                  <Select
+                    value={sizeKey}
+                    onChange={(e) => {
+                      const [w, h] = e.target.value.split("x").map(Number);
+                      set({ size: w && h ? { width: w, height: h } : null });
+                    }}
+                  >
+                    <option value="">
+                      Current ({sheet.canvas.width}×{sheet.canvas.height})
+                    </option>
+                    {SIZES.map(([w, h]) => (
+                      <option key={w} value={`${w}x${h}`}>
+                        Fit within {w}×{h}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </Row>
+              {s.format !== "gif" && !(video && s.codec === "prores") && (
+                <Row label="Data rate">
+                  <DataRate value={s.bitrate} min={64} max={MAX_BITRATE} auto={autoRate} autoLabel={s.format === "webm" ? "Automatic (constant quality)" : "Automatic"} onChange={(bitrate) => set({ bitrate })} />
+                </Row>
+              )}
+              {video && (
+                <Row label="Compression type">
+                  <div className="w-40">
+                    <Select value={s.codec} onChange={(e) => set({ codec: e.target.value as ExportSettings["codec"] })}>
+                      <option value="h264">H.264</option>
+                      <option value="hevc">HEVC (H.265)</option>
+                      {s.format === "mov" && <option value="prores">ProRes 422 HQ</option>}
+                    </Select>
+                  </div>
+                </Row>
+              )}
+              {s.format !== "gif" && s.codec !== "prores" && (
+                <Row label="Keyframe every">
+                  <TextInput type="number" min={1} className="w-20 text-right" value={s.keyframe} onChange={(e) => set({ keyframe: Math.max(1, Number(e.target.value) || 1) })} />
+                  <span className="text-text-dim">frames</span>
+                </Row>
+              )}
+              {video && s.codec === "h264" && (
+                <Row label="Profile">
+                  <div className="w-72">
+                    <Select value={s.profile} onChange={(e) => set({ profile: e.target.value as ExportSettings["profile"] })}>
+                      <option value="baseline">Baseline (Largest file, plays everywhere)</option>
+                      <option value="main">Main</option>
+                      <option value="high">High (Smallest file, playback on recent devices)</option>
+                    </Select>
+                  </div>
+                </Row>
+              )}
+            </>
           )}
           {s.format !== "gif" && (
             <>
               <div className="mt-1 text-text-strong">Audio</div>
-              <Row label="">
-                <Check label="Encode audio" checked={s.audio} onChange={(audio) => set({ audio })} />
-              </Row>
-              {s.audio && (
+              {!audioOnly && (
+                <Row label="">
+                  <Check label="Encode audio" checked={s.audio} onChange={(audio) => set({ audio })} />
+                </Row>
+              )}
+              {s.audio && s.format !== "wav" && (
                 <Row label="Data rate">
                   <DataRate value={s.audioBitrate} min={64} max={320} auto={256} onChange={(audioBitrate) => set({ audioBitrate })} />
                 </Row>

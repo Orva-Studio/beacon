@@ -56,6 +56,20 @@ export interface EffectDef {
    * content is visual. Effects other features draw (the cursor's) leave it out.
    */
   apply?: (e: ClipEval & { main: VisualLayer }, params: Record<string, any>, ctx: EvalContext) => void;
+  /** Changes the sound of a clip with the effect enabled (the whole clip; `span` is for visual effects). */
+  audio?: (params: Record<string, any>) => AudioEffect;
+}
+
+/**
+ * An ffmpeg audio filter chain run on each of a clip's segments, before its volume; `{id}` in it becomes a name of
+ * its own in the mix (for `afftdn@{id}` and commands sent to it). `lead`: seconds of the clip's own media the chain
+ * hears first, trimmed away after it (what a noise filter learns from). `delay`: seconds the chain's output lags its
+ * input, padded on and trimmed away so the sound stays in step and whole.
+ */
+export interface AudioEffect {
+  filter: string;
+  lead?: { start: number; end: number };
+  delay?: number;
 }
 
 /** WGSL fragment entry points run in order by the renderer (see beacon-render's prelude.wgsl). */
@@ -115,6 +129,8 @@ export interface AudioSegment {
   speed: number;
   /** Linear gain over media time: `base`, then each ramp moves it to `to` between `start` and `end`. */
   gain: { base: number; ramps: { start: number; end: number; to: number; easing: Easing }[] };
+  /** The clip's audio effects, in order. */
+  effects?: AudioEffect[];
 }
 
 export interface AudioContext {
@@ -372,6 +388,8 @@ export interface ActionContext {
    * every command's times), so actions never convert.
    */
   scope: { tracks: Track[]; group?: Clip };
+  /** Derived per-asset data, as in `QueryContext.data` (a clip's waveform, its transcript). */
+  data<T>(assetId: string, key: string): T | undefined;
 }
 
 /**

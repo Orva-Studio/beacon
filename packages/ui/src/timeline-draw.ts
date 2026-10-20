@@ -39,7 +39,8 @@ export type Drag =
   | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
   | { kind: "range"; anchor: number }
   | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
-  | { kind: "space"; at: number; d: number }
+  /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`). */
+  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
   | PressDrag
   | MoveDrag
@@ -554,9 +555,10 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.min(d.x0, d.x1) + 0.5, Math.min(d.y0, d.y1) + 0.5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
       ctx.setLineDash([]);
-    } else if (d?.kind === "space" && d.d > 0) {
+    } else if (d?.kind === "space" && d.d !== 0) {
+      const band = d.row === undefined ? { y: RULER, h: h - RULER } : clipBox(d.row, TRACK);
       ctx.fillStyle = color("insert-space");
-      ctx.fillRect(x(d.at), RULER, d.d * pps, h - RULER);
+      ctx.fillRect(x(Math.min(d.at, d.at + d.d)), band.y, Math.abs(d.d) * pps, band.h);
     }
     ctx.restore();
 

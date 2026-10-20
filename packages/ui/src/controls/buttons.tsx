@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ComponentProps, HTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { type ButtonHTMLAttributes, type ComponentProps, type HTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, useLayoutEffect, useRef } from "react";
 import { Icon } from "./icons";
 
 /**
@@ -66,8 +66,27 @@ export function TextInput({ className = "", ...props }: ComponentProps<"input">)
   return <input {...PLAIN_TEXT} {...props} className={`${FIELD} ${className}`} />;
 }
 
-export function TextArea({ className = "", ...props }: ComponentProps<"textarea">) {
-  return <textarea {...PLAIN_TEXT} {...props} className={`${FIELD} resize-none ${className}`} />;
+/**
+ * A text area showing `value` without React controlling it: React rewrites a controlled one's default text on
+ * every key, and WebKit then moves the caret to the end. The text is written only when it differs from what the
+ * field already holds (a change from elsewhere, or Escape putting it back).
+ */
+export function useFieldText(value: string | undefined, ref?: Ref<HTMLTextAreaElement>) {
+  const field = useRef<HTMLTextAreaElement | null>(null);
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (el && value !== undefined && el.value !== value) el.value = value;
+  }, [value]);
+  return (el: HTMLTextAreaElement | null) => {
+    field.current = el;
+    if (typeof ref === "function") ref(el);
+    else if (ref) ref.current = el;
+  };
+}
+
+export function TextArea({ className = "", value, ref, ...props }: ComponentProps<"textarea">) {
+  const field = useFieldText(value === undefined ? undefined : String(value), ref);
+  return <textarea {...PLAIN_TEXT} {...props} ref={field} className={`${FIELD} resize-none ${className}`} />;
 }
 
 /** A tab of icons over a panel (the properties panel's Visual, Cursor, Audio). */
