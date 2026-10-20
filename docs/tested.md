@@ -32,10 +32,10 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
-- Remove Retakes on a real take of yours
+- Remove Retakes on a real take of yours, with Beacon's picks and with OpenAI's (a real key): the groups it finds, the takes it keeps, and the cuts sounding clean.
 - A window per project in the app (the phase's gate): two projects side by side, ⌘W, File › Open of one already open, menus and keys going to the focused window, playing in one stopping the other, a take hiding every window, Window › Merge All Windows (macOS's tabs), an agent's `ui_open` and `ui_snapshot` on the window with its project; and one `app.test.ts` run with `electrobun dev` closed.
 - Film Look in the app: the looks on your own footage (camera and screen), the sliders, Import .hlook… from hance, and playback speed with halation on a 4K clip.
-- Settings and Project Settings in the app: the sidebar, each section's look at 500 points, Edit › Project Settings… and ⌥⌘, (and the menu showing the key), the canvas's right-click., with Beacon's picks and with OpenAI's (a real key): the groups it finds, the takes it keeps, and the cuts sounding clean.
+- Settings and Project Settings in the app: the sidebar, each section's look at 500 points, Edit › Project Settings… and ⌥⌘, (and the menu showing the key), the canvas's right-click.
 - Export's Audio only tick in the app.
 - Film Look's split tone and Tint on your own footage, and the hue sliders.
 - ⌘L and Edit › Unlink Recording in the app; lining up waveforms by dragging a clip; Shift-drag moving clips live.
