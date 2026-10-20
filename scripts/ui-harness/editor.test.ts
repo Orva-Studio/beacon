@@ -658,11 +658,23 @@ test.skipIf(skip)("Export's data rate is Automatic by default, by the output's s
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("Export Audio Only writes the mix as .mp3 (or .wav, .m4a) with the video options hidden", async () => {
+test.skipIf(skip)("Audio only lists just .wav, .m4a and .mp3, comes back to each side's last pick, and writes the mix with the video options hidden", async () => {
   ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 } });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
-  const format = (f: string) =>
-    page.evaluate(`(() => { const s = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp3')); s.value = '${f}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const menu = `[...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp4' || o.value === 'mp3'))`;
+  const listed = () => page.evaluate<string>(`(() => { const s = ${menu}; return s.value + ':' + [...s.options].map((o) => o.value).join(','); })()`);
+  const audioOnly = () => page.evaluate(`document.querySelector('[role=checkbox][aria-label="Audio only"]').click()`);
+  const format = (f: string) => page.evaluate(`(() => { const s = ${menu}; s.value = '${f}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  expect(await listed()).toBe("mp4:mp4,mov,gif,webm");
+  await format("webm");
+  await audioOnly();
+  await page.until(`${menu}.value === 'wav'`);
+  expect(await listed()).toBe("wav:wav,m4a,mp3");
+  await format("m4a");
+  await audioOnly();
+  await page.until(`${menu}.value === 'webm'`);
+  await audioOnly();
+  await page.until(`${menu}.value === 'm4a'`);
   await format("wav");
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
   const heading = (name: string) => `[...document.querySelectorAll('div.text-text-strong')].some((d) => d.textContent === '${name}')`;

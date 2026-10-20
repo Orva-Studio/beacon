@@ -1801,12 +1801,6 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
 - **Device frame** (the user, 2026-10-17; details to come): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
-- **Audio only toggle in Export** (the user, 2026-10-20): an "Audio only"
-  switch at the top of the Export dialog instead of three "Export Audio
-  Only" entries mixed into the File format menu. On, the menu lists just
-  .wav / .m4a / .mp3 (and the video options are hidden, as now); off, just
-  the video formats. Switching keeps the last format picked on each side,
-  and the dialog remembers the switch with the other export defaults.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 
