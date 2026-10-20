@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | Notes |
 |---|---|---|---|
+| Shortcuts work straight after switching back from another app, with no click (the page takes the keys back from the canvas's native view) | 2026-10-19 | `12c6909` | The user: "just tested the app switching and it works" |
 | Unlink Recording unlinks every selected recording, not only the clicked one (`edit.unlink` on the selection; `clip.unlink` takes `clips`) | 2026-10-19 | `c942190` | Core test (two takes, both cameras selected, one Unlink: no links left, one undo restores them; fails without the fix); UI flow (two recordings selected, Unlink by a key: all unlinked, one undo); the user: "I've tested all these things" |
 | **Recording in the app** (`349dbb8` changed how the take and the Record dialog's previews set up capture): a take with screen, system audio, camera and microphone; the Record dialog's camera and screen previews and levels; voice narration; Check Sync. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |
 | **The canvas in the app** after the shader changes (`d584f2b`): video, a tilted clip with drop shadow, CRT, round corners, the selection handles and guides drawn by the preview; an MP4 export plays as before. | 2026-10-19 | `5d76110` | The user: "I've tested all these things" (the gates' run, on web-hijack) |

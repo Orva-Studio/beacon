@@ -23,6 +23,7 @@ const symbols = {
   beacon_renderer_frame: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i64 },
   beacon_renderer_sheet: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.u32], returns: FFIType.i64 },
   beacon_renderer_result_copy: { args: [FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
+  beacon_focus_page: { args: [FFIType.ptr], returns: FFIType.void },
   beacon_png_paste: { args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.i32, FFIType.i32], returns: FFIType.i64 },
   beacon_png_result_copy: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
   beacon_preview_new: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.ptr },

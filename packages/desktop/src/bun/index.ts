@@ -23,7 +23,7 @@ if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
   Bun.spawnSync(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", bundle]);
 }
 
-const { captureWindow, DEFAULT_SOCKET, LocalCore, serveCore, windowNumber } = await import("@beacon/core");
+const { captureWindow, DEFAULT_SOCKET, focusPage, LocalCore, serveCore, windowNumber } = await import("@beacon/core");
 const { initPayload, appBridge, coreRequests, projectBridge, settingsSheet } = await import("@beacon/ui");
 const { createRecording } = await import("./recording");
 const { createMenus } = await import("./menus");
@@ -330,6 +330,8 @@ const win = new BrowserWindow({
   // Agents and tests can start the app without taking focus from the user.
   activate: process.env.BEACON_BACKGROUND !== "1",
 });
+// Coming back from another app, Electrobun gives the keys to the canvas's native view: shortcuts waited for a click.
+win.on("focus", () => focusPage(win.ptr as Pointer));
 // App-wide changes reach the window and the menus whether or not a project is open.
 appBridge(core, message, {
   shortcuts: (list) => void shortcutsChanged(list),

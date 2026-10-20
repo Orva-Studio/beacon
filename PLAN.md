@@ -1595,8 +1595,11 @@ What the user hit while editing, ahead of Phase 9.
   after that point moves with the pointer, right to open space, left to
   close it (no further than the gap, so nothing overlaps), as one undoable
   edit. Locked tracks and an open group refuse it as they refuse the
-  playhead's. Open: whether it moves every track (as the playhead's does)
-  or only the track pressed on (⌥ for the other).
+  playhead's. The playhead's own Shift-drag goes both ways too (the user,
+  2026-10-19: right to left did nothing): dragged left it removes the
+  empty time before the playhead, as far as the nearest clip. Open: whether
+  it moves every track (as the playhead's does) or only the track pressed
+  on (⌥ for the other).
 - **Drops carry their paths** (the user, 2026-10-19). The webview gives a
   file dropped from Finder its name, size and date but not its path, so
   `findDroppedFile` guesses: WebKit's URL when it sends one, the home
@@ -1610,7 +1613,8 @@ What the user hit while editing, ahead of Phase 9.
   any drive and any depth. The guessing then goes.
 **Gate:** a project exported as `.wav`, `.m4a` and `.mp3` sounds as its
 video export does; noise removal judged by the user on their own takes, and
-Auphonic chosen or not; Shift-drag on a gap opens and closes space; a clip
+Auphonic chosen or not; Shift-drag on a gap or the playhead opens and
+closes space; a clip
 dragged straight off a camera card imports.
 
 ### Phase 9 — Workspace and film look
