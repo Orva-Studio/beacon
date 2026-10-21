@@ -1243,7 +1243,7 @@ and notarization are added once the user has a Developer ID.
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 **Passed 2026-10-19** (the user, by hand).
 
-### Phases 7–11 (split 2026-10-15)
+### Phases 7 and on (split 2026-10-15)
 Phase 7 was one list of everything next ("Growth"); the user split it by
 theme, each with a gate, as the earlier phases had. Each feature is a folder
 in `packages/features` where it can be (§6: the checklist passes with no core
@@ -1880,7 +1880,41 @@ Research and agree the design with them first; nothing is built before.
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
 
-### Phase 11 — Security audit (the user, 2026-10-16)
+### Phase 11 — Silence and filler-word fixes (the user, 2026-10-21)
+Fixes to Remove Silences and Remove Filler Words (Phase 7), first in the
+new order as Phase 10's drop fixes were. The issues are the user's, to be
+listed by them before anything is built; each gets a test on real data that
+fails without its fix.
+- Issues: _to be listed by the user_.
+**Gate:** each issue fixed on the user's own takes, checked by hand.
+
+### Phase 12 — AI B-roll (the user, 2026-10-21; moved up from the backlog)
+Generated cutaways over the talk, through the user's own API keys, as jobs
+that make media assets reviewed in the AI panel before they are placed
+(as Remove Silences is: agents prepare, the user applies). Researched
+2026-10-15:
+- **B-roll from the transcript** (low risk, first): an LLM picks 2-6 s
+  cutaways from the word-timed transcript and writes shot prompts with one
+  style sheet; text-to-video with audio off (Veo 3.1 Fast/Lite, Kling 3.0,
+  FLUX 3 Video's draft mode; about $0.05-0.17/s), placed on a B-roll track
+  over the word range. Good for generic shots; weak on real UIs, logos, text.
+- **Where it goes, drawn on the canvas** (the user, 2026-10-17): drag a
+  rectangle over the canvas for the area the generated video fills (a
+  vertical video: the face in the bottom half, B-roll generated for the top
+  half), so it is generated at that shape and placed there. Seedance 2.5 or
+  whatever model is best then. Later, to be fleshed out by the user: motion
+  graphics made with HyperFrames, and the user's own skills as presets.
+- Shape: a generation job per provider (fal and Runway cover many models with
+  one key), results as candidates with their prompt, model and cost, a cost
+  estimate before running, then one undoable command to place a take; the
+  original audio kept. MCP tools follow the same suggest/generate/apply path.
+- To decide with the user first: the provider and model (fal covers many
+  with one key), a spending limit, and whether the drawn region comes in
+  this phase or after transcript B-roll.
+**Gate:** B-roll suggested from one of the user's takes, generated,
+reviewed and placed in one undo step, with its cost shown before it runs.
+
+### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
@@ -1908,7 +1942,7 @@ with each finding fixed or written down as an accepted risk in
 **Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
 and a fuzzing run of the file readers finds no crash.
 
-### Phase 12 — Camtasia export (the user, 2026-10-16)
+### Phase 14 — Camtasia export (the user, 2026-10-16)
 Handing a Beacon project to someone who keeps editing in Camtasia: File ›
 Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
 media beside it), one way and best effort, as import is (§11). Not for
@@ -1936,7 +1970,7 @@ finished videos: MP4 and `.srt` export already covers those.
 captions opens in Camtasia with its edit intact, and the report lists what
 didn't carry over.
 
-### Phase 13 — Beacon learns how you edit (the user, 2026-10-19)
+### Phase 15 — Beacon learns how you edit (the user, 2026-10-19)
 The AI tools start from what the user tends to do, not fixed settings: if
 they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
@@ -2037,15 +2071,10 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 
 ## 16. Backlog (ideas parked, not scheduled)
 
-### AI B-roll and camera angles (the user, 2026-10-15; Phase 10 or later)
-Generated video, through the user's own API keys, as jobs that make media
-assets reviewed before they are placed (as Remove Silences is). Researched
-2026-10-15:
-- **B-roll from the transcript** (low risk, first): an LLM picks 2-6 s
-  cutaways from the word-timed transcript and writes shot prompts with one
-  style sheet; text-to-video with audio off (Veo 3.1 Fast/Lite, Kling 3.0,
-  FLUX 3 Video's draft mode; about $0.05-0.17/s), placed on a B-roll track
-  over the word range. Good for generic shots; weak on real UIs, logos, text.
+### AI camera angles (the user, 2026-10-15)
+Generated video, through the user's own API keys, reviewed before it is
+placed. AI B-roll, researched with it on 2026-10-15, moved to Phase 12
+(the user, 2026-10-21); this follows the same job shape.
 - **A new camera angle of the presenter**: (1) no generation first: a
   punch-in crop of the 4K source and a small depth-parallax move (±5°), in
   Beacon's renderer; (2) video-to-video re-angling in 3-10 s pieces with
@@ -2056,16 +2085,6 @@ assets reviewed before they are placed (as Remove Silences is). Researched
   original's motion, then lip-sync to the original audio (sync.so sync-3).
   No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
   lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
-- **Where it goes, drawn on the canvas** (the user, 2026-10-17): drag a
-  rectangle over the canvas for the area the generated video fills (a
-  vertical video: the face in the bottom half, B-roll generated for the top
-  half), so it is generated at that shape and placed there. Seedance 2.5 or
-  whatever model is best then. Later, to be fleshed out by the user: motion
-  graphics made with HyperFrames, and the user's own skills as presets.
-- Shape: a generation job per provider (fal and Runway cover many models with
-  one key), results as candidates with their prompt, model and cost, a cost
-  estimate before running, then one undoable command to place a take; the
-  original audio kept. MCP tools follow the same suggest/generate/apply path.
 
 ### Background audio cleaning (tuneup / Auphonic)
 Clean each source recording's audio in the background while editing and swap
