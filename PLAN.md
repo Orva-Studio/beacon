@@ -1945,10 +1945,8 @@ come first.**
    `media` folder, each asset remembering its prompt, model and cost.
 
 **Kinds.**
-- **Footage** (first): text-to-video with audio off. Researched 2026-10-15:
-  Veo 3.1 Fast/Lite, Kling 3.0, FLUX 3 Video's draft mode at about
-  $0.05-0.17/s (a 20 s range ≈ $1-3.50 a try); Seedance 2.5 best for shaped
-  regions, at more. Good for generic shots; weak on real UIs, logos and
+- **Footage** (first): text-to-video with audio off, through Replicate
+  (below): a 20 s range is about $3 a try with Veo 3.1 Fast. Good for generic shots; weak on real UIs, logos and
   text, which is where research and the Guide help least.
 - **Animation** (second): motion graphics made from the words (a title, a
   number, a list, a diagram) with HyperFrames (the user's pick, to be
@@ -1959,13 +1957,24 @@ come first.**
 kind, research, region) prepares the review, `broll.generate` runs it,
 `broll.apply` only when the user asks.
 
-**Open decisions (with the user, before building).**
-- Provider for footage: fal (one key, many models) or Runway; which model by
-  default; a spending limit per generation and per project.
-- Who plans and researches: OpenAI with the key Beacon already keeps (its
-  web search), or Anthropic's API with a new key.
-- Order: footage first, the drawn region in this phase, animation after?
-- How many candidates per shot (each costs): one, re-rolled on request?
+**Decided (the user, 2026-10-21).**
+- **Footage through Replicate**, the user's own API token (kept in the
+  Keychain as the OpenAI key is; Settings says the prompts and region shape
+  are sent to Replicate and it charges the user's account). Default model
+  Veo 3.1 Fast, with Seedance 2.0 and Kling v3 Pro to choose from in
+  Settings. Prices seen in Aug-Sep 2026 comparisons, to check on
+  replicate.com/pricing before relying on them: Veo 3.1 Fast about $0.15/s,
+  Seedance 2.0 about $0.18/s (720p), Kling v3 Pro about $0.22/s, Veo 3.1
+  $0.40/s. Remove Background's Replicate option (Phase 10) would share the
+  token.
+- **Planning and research by OpenAI**, with the key Beacon already keeps
+  (its web search for research); the range's words and the Guide are sent,
+  not the audio.
+- **First slice: footage with the drawn region**; animation (HyperFrames)
+  after it.
+- **One candidate per shot**, re-rolled on request.
+- Still to settle while building: a spending limit (per generation, asked
+  before it runs, and per project).
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
