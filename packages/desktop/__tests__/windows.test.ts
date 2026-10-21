@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
@@ -57,6 +57,10 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
     leaving: () => {},
     recentChanged: () => {},
     openFileDialog: async () => [],
+    confirmTrash: async () => false,
+    moveToTrash: () => {
+      throw new Error("not in this test");
+    },
   });
 
   // The start screen's window takes the first; the next opens beside it, and both stay open in core.
@@ -130,3 +134,58 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
   for (const w of windows) await projects.closeWindow(w);
   core.closeAll();
 }, 120_000);
+
+test("the start screen's right-click: a project taken off the recent list stays on disk; one moved to the Trash goes after asking, never while open", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-r"), configDir: join(dir, "config-r") });
+  const [D, E] = ["D", "E"].map((n) => join(dir, `${n}.beproj`)) as [string, string];
+  for (const p of [D, E]) await core.close(await core.create({ path: p }));
+  const trash = join(dir, "Trash");
+  mkdirSync(trash);
+  const windows: FakeWindow[] = [new FakeWindow()];
+  let agree = false;
+  const asked: string[] = [];
+  const projects = createProjects({
+    core,
+    focused: () => windows[0],
+    windows: () => windows,
+    newWindow: () => {
+      const w = new FakeWindow();
+      windows.push(w);
+      return w;
+    },
+    watch: () => bridge,
+    shown: async () => {},
+    leaving: () => {},
+    recentChanged: () => {},
+    openFileDialog: async () => [],
+    confirmTrash: async (name) => (asked.push(name), agree),
+    moveToTrash: (path) => renameSync(path, join(trash, path.split("/").at(-1)!)),
+  });
+  await projects.open(D);
+  await projects.open(E);
+  const listed = () => projects.recent().map((r) => r.path);
+  expect(listed()).toEqual([E, D]);
+
+  // Open in a window: refused, without asking.
+  await expect(projects.trashProject(E)).rejects.toThrow("“E” is open: close it before moving it to the Trash");
+  expect(asked).toEqual([]);
+  for (const w of windows) await projects.closeWindow(w);
+
+  // Asked and declined: nothing happens.
+  await projects.trashProject(E);
+  expect(asked).toEqual(["E"]);
+  expect(existsSync(E)).toBe(true);
+  expect(listed()).toEqual([E, D]);
+  // Agreed: the folder goes to the Trash, and off the list.
+  agree = true;
+  await projects.trashProject(E);
+  expect(existsSync(E)).toBe(false);
+  expect(existsSync(join(trash, "E.beproj"))).toBe(true);
+  expect(listed()).toEqual([D]);
+
+  // Off the list only: the project stays where it is.
+  projects.removeRecent(D);
+  expect(listed()).toEqual([]);
+  expect(existsSync(D)).toBe(true);
+  core.closeAll();
+});

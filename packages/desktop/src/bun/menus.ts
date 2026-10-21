@@ -12,6 +12,9 @@ export interface MenusApp extends App {
   recent(): { path: string }[];
   openRecent(path: string): void;
   clearRecent(): void;
+  /** The start screen's right-click: off the list, or to the Trash after asking. */
+  removeRecent(path: string): void;
+  trashProject(path: string): Promise<void>;
   /** The app's own actions ("app.export"), from menus, the palette or keys. */
   appAction(id: string): void;
   /** ⌘Q: close everything before Electrobun exits. */
@@ -434,9 +437,33 @@ export function createMenus(app: MenusApp) {
     ContextMenu.showContextMenu(tileMenuItems(t).map(([label, choice]) => ({ label, action: `tile:${choice}`, enabled: choice !== "add" || adds })));
   }
 
+  /** The recent project whose menu is shown, kept here as a path may have colons. */
+  let recentShown: string | undefined;
+
+  /** A recent project's menu on the start screen, where no project is open. */
+  function recentMenu(path: string) {
+    recentShown = path;
+    ContextMenu.showContextMenu([
+      { label: "Open", action: "recent-menu:open" },
+      { label: "Show in Finder", action: "recent-menu:reveal" },
+      SEPARATOR,
+      { label: "Remove from Recent Projects", action: "recent-menu:remove" },
+      { label: "Move to Trash…", action: "recent-menu:trash" },
+    ]);
+  }
+
   ContextMenu.on("context-menu-clicked", (e) => {
     const chosen = String((e as { data?: { action?: string } }).data?.action ?? "");
     if (chosen.startsWith("act:")) return runAction(chosen.slice(4));
+    if (chosen.startsWith("recent-menu:") && recentShown) {
+      const path = recentShown;
+      const op = chosen.slice(12);
+      if (op === "open") return app.openRecent(path);
+      if (op === "reveal") return Utils.showItemInFolder(path);
+      if (op === "remove") return app.removeRecent(path);
+      if (op === "trash") return void app.trashProject(path).catch(fail);
+      return;
+    }
     const current = app.current();
     if (!current) return;
     if (chosen.startsWith("tile:") && tile) return void tileChoice(core, current.path, tile, chosen.slice(5)).catch(fail);
@@ -446,5 +473,5 @@ export function createMenus(app: MenusApp) {
     else if (kind === "clip") clipAction(current.path, op, id);
   });
 
-  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, tileMenu };
+  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, tileMenu, recentMenu };
 }

@@ -267,6 +267,11 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
     expect(await view.evaluate<boolean[]>(`[...document.querySelectorAll('[data-recent]')].map((r) => !!r.querySelector('img'))`)).toEqual([false, true, false, false]);
     // Older ones by date, in the Mac's format.
     expect(shown[3]).toMatch(/^Old .*\b3\b.*2025$/);
+    // A right-click asks for the project's menu (Open, Show in Finder, Remove from Recent Projects, Move to Trash…).
+    const [lx, ly] = await view.evaluate<[number, number]>(`(() => { const r = document.querySelectorAll('[data-recent]')[1].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    await view.rightClick(lx, ly);
+    await arrived(() => start.menus.at(-1) === `recent:${recent[1]!.path}`);
+    expect(start.menus.at(-1)).toBe(`recent:${recent[1]!.path}`);
     // Nothing to go back to: Escape leaves it open.
     await view.key("Escape", "Escape");
     await Bun.sleep(100);

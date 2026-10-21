@@ -24,6 +24,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| The start screen's right-click on a recent project: Open, Show in Finder, Remove from Recent Projects (the files stay) and Move to Trash… (asks first; the whole `.beproj` with its recordings and copied media, linked media left where it is; Finder's Put Back restores it), refused while the project is open in a window or by an agent | 2026-10-21 | this commit | Desktop test (refused while open, without asking; declined leaves it; agreed moves the folder and takes it off the list; Remove leaves it on disk); UI flow (a right-click on a card asks for its menu). The native menu and the confirmation only by reading |
 | The safe areas' key toggles: a click on Platform UI, Headroom or Eye line hides it on the canvas (dimmed in the key; hidden zones aren't snapped to), another shows it; kept with the project and across platforms; `safeAreas.toggle` for agents | 2026-10-21 | this commit | Core test (hidden kept across Reels and TikTok, in `editor.json`, back on reopen, gone once all shown; refused with none shown); UI flow (Eye line's dashes gone and back, `aria-pressed`) |
 | Name the Recording has Delete: a false start goes with its clips in one undo step ("Delete Recording"), its files kept in the recordings folder for Undo | 2026-10-21 | this commit | UI flow (Delete removes the take's media and clips, one undo restores the document) |
 | Safe areas: the headroom band blue with an edge (a framing guide, not the platform's UI), a key beside the picker while one is shown (Platform UI, Headroom, Eye line, each explained on hover); the "✓ Clear" label that read like a button removed (the warning stays) | 2026-10-21 | `29b8e06`, this commit | UI flow (the key while shown and gone with None, no label once clean); a harness screenshot looked at; the user found safe areas much better by hand 2026-10-21 |
@@ -38,6 +39,7 @@ feature lands and when it is checked.
 
 - Locked tracks on the timeline: clicking, dragging, trimming and right-clicking their clips.
 - Remove Background's progress in the top bar while a camera's matte is made.
+- The start screen's right-click on a recent project: each item, and Move to Trash then Finder's Put Back.
 - Delete on Name the Recording after a real take.
 - The safe areas' key: clicking Platform UI, Headroom and Eye line to hide and show them.
 - LUT in the app with a LUT of yours on your own footage, and with Film Look on top.

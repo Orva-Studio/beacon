@@ -287,6 +287,8 @@ export type AppRPC = {
       binMenu: { params: { asset: string }; response: void };
       /** The right-click menu for a tool panel's tile (an effect, annotation or audio effect). */
       tileMenu: { params: TileMenu; response: void };
+      /** A recent project's right-click on the start screen: Open, Show in Finder, Remove from Recent Projects, Move to Trash…. */
+      recentMenu: { params: { path: string }; response: void };
       /** Import Media…'s file picker (the Media Bin's Import tile). */
       importMedia: { params: {}; response: void };
       /** Files dragged in from Finder: imported at `time` on `track` (a drop on the timeline), else after the last clip. */

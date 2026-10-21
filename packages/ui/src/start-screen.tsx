@@ -6,6 +6,8 @@ import { replica, useView } from "./store";
 export interface StartHost {
   openDialog(): void;
   openRecent(path: string): void;
+  /** Its right-click menu: Open, Show in Finder, Remove from Recent Projects, Move to Trash…. */
+  recentMenu(path: string): void;
 }
 
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
@@ -27,6 +29,10 @@ function RecentCard({ project, host }: { project: RecentProject; host: StartHost
       className="group flex min-w-0 flex-col gap-1.5 rounded-lg p-1.5 text-left hover:bg-control"
       title={project.path.replace(/^\/Users\/[^/]+/, "~")}
       onClick={() => host.openRecent(project.path)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        host.recentMenu(project.path);
+      }}
       data-recent={project.path}
     >
       <div className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-md border border-field-edge bg-app text-text-faint">

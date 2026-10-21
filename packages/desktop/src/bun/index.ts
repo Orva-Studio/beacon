@@ -146,6 +146,19 @@ const projects = createProjects({
   windows: () => windows,
   newWindow: () => openWindow(),
   openFileDialog: (opts) => Utils.openFileDialog(opts),
+  confirmTrash: async (name) => {
+    const { response } = await Utils.showMessageBox({
+      type: "warning",
+      title: "Move to Trash",
+      message: `Move “${name}” to the Trash?`,
+      detail: "The project folder goes to the Trash with everything inside it: its recordings, snapshots and copied media. Media it only links to stays where it is. Finder's Put Back restores it.",
+      buttons: ["Move to Trash", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    return response === 0;
+  },
+  moveToTrash: (path) => Utils.moveToTrash(path),
   watch: (target, h) => {
     const w = target as Win;
     return projectBridge(core, h, w.message, {
@@ -228,6 +241,8 @@ const menus = createMenus({
   recent: projects.recent,
   openRecent: projects.openRecent,
   clearRecent: projects.clearRecent,
+  removeRecent: projects.removeRecent,
+  trashProject: projects.trashProject,
   appAction: (id) => appAction(id),
   quit: () => {
     quitLog("⌘Q");
@@ -352,6 +367,7 @@ function openWindow(): Win {
         importMedia: () => void projects.importMedia(w).catch((e: unknown) => w.status(errorText(e))),
         binMenu: (params) => menus.binMenu(params),
         tileMenu: (params) => void menus.tileMenu(params),
+        recentMenu: ({ path }) => void menus.recentMenu(path),
         dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(w, files, { time, track })),
         trackMenu: (params) => menus.trackMenu(params),
         captureFrame: () =>

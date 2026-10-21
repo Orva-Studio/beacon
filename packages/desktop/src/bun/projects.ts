@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { findDropped, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
 import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
 import type { LocalCore } from "@beacon/core";
@@ -24,6 +24,10 @@ export interface ProjectsApp {
   recentChanged(): void;
   /** Finder's open dialog (Electrobun's `Utils.openFileDialog`): the paths picked, none if cancelled. */
   openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string }): Promise<string[]>;
+  /** Asks before a project goes to the Trash: whether the user agreed. */
+  confirmTrash(name: string): Promise<boolean>;
+  /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`). */
+  moveToTrash(path: string): void;
 }
 
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
@@ -111,6 +115,33 @@ export function createProjects(app: ProjectsApp) {
     if (existsSync(path)) return void open(path).catch((err: unknown) => status(errorText(err)));
     setRecent(recent.filter((r) => r.path !== path));
     status(`${path} no longer exists`);
+  }
+
+  /** The start screen's right-click: off the list, the project left where it is. */
+  function removeRecent(path: string) {
+    setRecent(recent.filter((r) => r.path !== path));
+  }
+
+  /**
+   * The start screen's right-click: the project folder to the Trash, after asking, and off the list. Refused while it
+   * is open, in a window or by an agent.
+   */
+  async function trashProject(path: string) {
+    const name = basename(path, extname(path));
+    const shown = [...app.windows()].some((w) => w.current?.path === path && !w.current.closed);
+    const open = shown || (() => {
+      try {
+        return !!core.doc(path);
+      } catch {
+        return false;
+      }
+    })();
+    if (open) throw new Error(`“${name}” is open: close it before moving it to the Trash`);
+    if (!existsSync(path)) return removeRecent(path);
+    if (!(await app.confirmTrash(name))) return;
+    app.moveToTrash(path);
+    removeRecent(path);
+    status(`Moved “${name}” to the Trash`);
   }
 
   /** Opens, Save As and renames run one at a time: two at once would both pass the "already open" check and interleave the switch. */
@@ -288,6 +319,8 @@ export function createProjects(app: ProjectsApp) {
     recent: () => recent,
     recentProjects,
     clearRecent: () => setRecent([]),
+    removeRecent,
+    trashProject,
     openRecent,
     open,
     openDialog,
