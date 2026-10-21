@@ -2313,6 +2313,41 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await run("panel.show", { tool: null });
 }, 150_000);
 
+test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the buttons: ⎋ closes it cutting nothing, ↩ applies it in one undo step; with none open ⎋ still deselects and clears the range", async () => {
+  await run("panel.show", { tool: "ai" });
+  const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const before = length();
+  const open = async () => {
+    await page.until("!!document.querySelector('[data-ai=silences]')");
+    await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+    // The recording's transcript may still be being made in the background.
+    await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
+  };
+  await open();
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (⎋)");
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply All (↩)");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  expect(length()).toBeCloseTo(before, 3);
+  await open();
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => length() < before);
+  expect(length()).toBeLessThan(before);
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // No review open: ⎋ is Deselect All and Clear the Range, as it was.
+  await select([callout.id]);
+  await run("range.set", { in: 1, out: 2 });
+  await page.key("Escape", "Escape");
+  await arrived(() => false, 300);
+  expect((await session()).selection).toEqual([]);
+  expect((await session()).range).toBeNull();
+  await run("panel.show", { tool: null });
+}, 120_000);
+
 test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; one at a time, Cut This One cuts only one; Cancel cuts nothing; one review at a time", async () => {
   // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
   // in a cache of its own.

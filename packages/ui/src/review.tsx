@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { projectDuration, ticksToSeconds, type Project } from "@beacon/model";
 import { Button, Progress } from "./controls";
+import { useShortcutTip } from "./keymap";
 import { useQuery } from "./query";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
@@ -155,6 +156,7 @@ export function ReviewPanel<T extends Item>(props: {
   const kept = items.length - cut;
   const ready = !!found && !found.waiting.length && cut > 0;
   const progress = useTranscribing();
+  const tip = useShortcutTip();
   const summary = !found
     ? `Finding ${noun}…`
     : found.waiting.length
@@ -200,10 +202,10 @@ export function ReviewPanel<T extends Item>(props: {
       <OneByOne review={review} items={found?.waiting.length ? [] : items} current={found?.current} host={host} describe={describe} {...(detail ? { detail } : {})} />
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={() => host.run(`${review}.close`)} {...{ [`data-${review}-cancel`]: true }}>
-          Cancel
+          Cancel{tip("reviews.cancel")}
         </Button>
         <Button look="primary" disabled={!ready} onClick={() => host.run(`${review}.apply`)} {...{ [`data-${review}-apply`]: true }}>
-          Apply All
+          Apply All{tip("reviews.apply")}
         </Button>
       </div>
     </div>

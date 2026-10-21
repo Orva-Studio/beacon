@@ -10,6 +10,7 @@ const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures
 const AUDIO = join(FIXTURES, "audio.m4a");
 const TAKE = join(FIXTURES, "take.brec");
 const IMAGE = join(FIXTURES, "image.png");
+const VIDEO = join(FIXTURES, "video-3.mp4");
 const dir = mkdtempSync(join(tmpdir(), "beacon-silences-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -54,7 +55,7 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences cuts nothing while audio heard 
   await core.close(h);
 }, 60_000);
 
-test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE))("Remove Silences keeps time that shows a picture put there (an image over a pause, a card after the talk), cutting the silence around it", async () => {
+test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE) || !existsSync(VIDEO))("Remove Silences keeps time that shows a picture put there (an image over a pause, a card after the talk), cutting the silence around it; a camera from another file across the talk is cut as usual", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache-p") });
   const h = await core.create({ path: join(dir, "pictures.beproj") });
   const audio = join(dir, "talk.m4a");
@@ -70,6 +71,14 @@ test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE))("Remove Silences keeps tim
   // A still over the pause, and a card after the talk, each on screen for 5 s.
   await core.import(h, [IMAGE], { at: 3, track });
   await core.import(h, [IMAGE], { at: talkEnd, track });
+  // The talk's picture from a camera recorded apart from the microphone: another file, its own sound left out.
+  await core.run(h, "track.add", { name: "Camera" });
+  const camera = core.doc(h).tracks.find((t) => t.name === "Camera")!.id;
+  const rv = await core.import(h, [VIDEO], { at: 0, track: camera });
+  for (const j of rv.jobs) await core.cancelJob(j).catch(() => {});
+  const own = clips().filter((c) => c.assetId === rv.assets[0] && c.type === "audio").map((c) => c.id);
+  if (own.length) await core.run(h, "clip.remove", { clips: own, linked: false });
+  expect(seconds(clips().find((c) => c.assetId === rv.assets[0])!.duration)).toBeGreaterThan(10);
   const images = () => clips().filter((c) => c.type === "image");
   expect(images().map((c) => seconds(c.duration))).toEqual([5, 5]);
   await core.run(h, "transcript.removeSilences", SETTINGS);

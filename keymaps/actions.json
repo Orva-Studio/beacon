@@ -889,6 +889,16 @@
       "command": "fillers.review"
     },
     {
+      "id": "reviews.apply",
+      "name": "Apply Review",
+      "command": "reviews.apply"
+    },
+    {
+      "id": "reviews.cancel",
+      "name": "Cancel Review or Deselect",
+      "command": "reviews.cancel"
+    },
+    {
       "id": "captions.add",
       "name": "Captions",
       "command": "captions.add"

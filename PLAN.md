@@ -1884,7 +1884,24 @@ Each fix gets a test on real data that fails without it.
     another video, a group or a held frame where no audio clip played (time
     with no audio clip counted as silence). **Fixed:** time showing a picture
     that isn't the talk's own isn't silence; the recording's own screen and
-    camera are cut with their silences as before.
+    camera are cut with their silences as before. **Then (the user,
+    2026-10-21):** on 3-shorts it found 3 silences where there were dozens:
+    the camera was another file (the Lumix, synced to the mic's recording),
+    so it counted as a picture put there. Narrowed: a picture where no
+    audio plays, and an image, held frame or group wholly inside a pause,
+    are kept; a video across the talk is cut with it (3-shorts: 58
+    silences, 3:37 shorter).
+  - **Apply and Cancel by keys** (the user, 2026-10-21): ↩ applies the open
+    review (Silences, Filler Words, Retakes) and ⎋ cancels it, shown on the
+    buttons ("Apply All (↩)"); ⎋ with no review open still deselects and
+    clears the range. In Settings › Shortcuts as Apply Review and Cancel
+    Review or Deselect.
+  - **Fillers missing from the user's takes** (the user, 2026-10-21): on
+    3-shorts Remove Filler Words finds none, as its transcript has none (0 in
+    703 words of 11.50.02). Whisper primed with fillers (with `-mc 0` off, or
+    the prompt is ignored) found none in its first 4 minutes either. Waiting
+    on a time where the user hears one, to see whether it is in a pause or
+    inside a word's time.
   - Remove Filler Words clipped 3–14 ms of the word next to a filler (8
     places in 3 takes: "uh," touching "padding?" lost its "p"): edges were
     rounded to the nearest or outward frame. **Fixed:** an edge goes to the
