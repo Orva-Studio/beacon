@@ -1929,7 +1929,7 @@ Research and agree the design with them first; nothing is built before.
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
 
-### Phase 12 — AI B-roll and animations (the user, 2026-10-21; moved up from the backlog)
+### Phase 12 — AI B-roll and animations, and Auphonic cleaning (the user, 2026-10-21; moved up from the backlog)
 Generated footage or animation over a stretch of the talk, made from what is
 said there, through the user's own API keys, reviewed in the AI panel before
 it is placed (as Remove Silences is: agents prepare, the user applies).
@@ -2000,6 +2000,70 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
+
+#### Auphonic cleaning through tuneup (the user, 2026-10-21; in Phase 12 beside B-roll)
+Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too,
+through their own `tuneup` CLI (`~/tuneup`, v0.3.0: Auphonic preset in the
+cloud, then a local de-click, de-clip and de-ess pass). They do it by hand
+today (3-shorts' `coffee.cleaned.m4a`). **Plan only; nothing built.**
+
+**The flow.**
+1. **Pick it:** an **Auphonic** tile in Audio Effects, dragged onto an audio
+   clip or double-clicked with audio clips selected (as Noise Removal is),
+   or a clip's right-click (Clean with Auphonic…), or the command palette.
+   It works on clips, not an effect drawn live: it makes new audio.
+2. **Set it, in the properties panel** (a review, as Remove Silences opens:
+   settings in the sidebar, Start and Cancel at the foot, ↩ and Esc):
+   - **Preset:** the user's Auphonic presets (as `--list-presets` gives them),
+     their tuneup default first.
+   - **Polish:** de-click, de-clip and de-ess on or off (`--post-process`),
+     with **De-esser** 0-1 (`--deesser`, 0.2).
+   - **What is cleaned:** **Only the selected part** (default, the user's
+     choice: the clips' audio as heard, bounced to WAV: fewer Auphonic
+     minutes, one baked file) or **Whole recording** (the clips' source
+     cleaned once, every clip of it switched over, edits kept and still
+     re-cuttable).
+   - **Before it runs:** the minutes to upload (Auphonic bills by length) and
+     that the audio is sent to Auphonic on the user's account.
+3. **Start:** a background job, its stage in the top bar and the import
+   panel (Uploading, Auphonic: its status line, Downloading, Polishing, %);
+   Esc or Cancel stops it. Editing carries on meanwhile.
+4. **Done:** the cleaned file goes into the project's `media` folder as a new
+   asset (named `<source>.cleaned.wav`, remembering preset and settings) and
+   onto the timeline in one undo step:
+   - Selected part (default): the cleaned audio on a new track under the
+     range, the original clips muted (not deleted), so it can be undone or
+     compared.
+   - Whole recording: the source's clips switch to the cleaned medium (as
+     Replace Media does, same length, every cut and fade kept); the original
+     stays in the Media Bin, and a clip's **Original / Cleaned** switch in
+     the audio tab flips back for a listen (A/B).
+
+**How it runs.**
+- **tuneup as a library**, not a CLI on PATH (Beacon runs no tools from
+  PATH): a `process(file, { preset, postProcess, deesser, ffmpeg, signal,
+  onProgress })` entry in tuneup that returns the files' paths and throws
+  rather than printing and calling `process.exit`; Beacon depends on it at an
+  exact version. The polish pass is given Beacon's own FFmpeg, which needs
+  `adeclick`, `adeclip` and `deesser` enabled in `scripts/build-tools.ts`
+  (all LGPL; today it has only `afftdn`).
+- **The Auphonic key** in the Keychain as the OpenAI key is (Settings ›
+  Audio), handed to tuneup, never written to logs or the project; offline,
+  the tile greys out with why (as the online AI tools do).
+- **Alignment is the main risk:** a swapped medium must line up to the
+  sample. The preset must not cut silences or fillers or change speed
+  (checked before starting: refused with which option to turn off), the
+  output must be WAV or FLAC (no MP3/AAC padding), and the result is checked
+  against the original (length within a frame, offset by cross-correlation)
+  before it is used; a mismatch is refused with why, the file kept.
+- **Agents:** `audio.clean` prepares it (clips, preset, polish, scope),
+  `audio.cleanStart` runs it (the user's money: only when asked),
+  `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
+
+**Decided (the user, 2026-10-21):** built in Phase 12 beside B-roll (both
+are paid cloud jobs reviewed in the sidebar); the selected part by default.
+**Open:** whether audio already cleaned is reused when exactly the same
+audio is sent again (asked). Later: clean only what is kept, at export.
 
 ### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -2172,70 +2236,6 @@ placed. AI B-roll, researched with it on 2026-10-15, moved to Phase 12
   original's motion, then lip-sync to the original audio (sync.so sync-3).
   No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
   lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
-
-### Auphonic cleaning through tuneup (the user, 2026-10-21; planned, not scheduled)
-Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too,
-through their own `tuneup` CLI (`~/tuneup`, v0.3.0: Auphonic preset in the
-cloud, then a local de-click, de-clip and de-ess pass). They do it by hand
-today (3-shorts' `coffee.cleaned.m4a`). **Plan only; nothing built.**
-
-**The flow.**
-1. **Pick it:** an **Auphonic** tile in Audio Effects, dragged onto an audio
-   clip or double-clicked with audio clips selected (as Noise Removal is),
-   or a clip's right-click (Clean with Auphonic…), or the command palette.
-   It works on clips, not an effect drawn live: it makes new audio.
-2. **Set it, in the properties panel** (a review, as Remove Silences opens:
-   settings in the sidebar, Start and Cancel at the foot, ↩ and Esc):
-   - **Preset:** the user's Auphonic presets (as `--list-presets` gives them),
-     their tuneup default first.
-   - **Polish:** de-click, de-clip and de-ess on or off (`--post-process`),
-     with **De-esser** 0-1 (`--deesser`, 0.2).
-   - **What is cleaned:** **Whole recording** (default: the clips' source
-     cleaned once, every clip of it switched over, edits kept and still
-     re-cuttable) or **Only the selected part** (the clips' audio as heard,
-     bounced to WAV: fewer Auphonic minutes, but one baked file).
-   - **Before it runs:** the minutes to upload (Auphonic bills by length) and
-     that the audio is sent to Auphonic on the user's account.
-3. **Start:** a background job, its stage in the top bar and the import
-   panel (Uploading, Auphonic: its status line, Downloading, Polishing, %);
-   Esc or Cancel stops it. Editing carries on meanwhile.
-4. **Done:** the cleaned file goes into the project's `media` folder as a new
-   asset (named `<source>.cleaned.wav`, remembering preset and settings) and
-   onto the timeline in one undo step:
-   - Whole recording: the source's clips switch to the cleaned medium (as
-     Replace Media does, same length, every cut and fade kept); the original
-     stays in the Media Bin, and a clip's **Original / Cleaned** switch in
-     the audio tab flips back for a listen (A/B).
-   - Selected part: the cleaned audio on a new track under the range, the
-     original clips muted (not deleted), so it can be undone or compared.
-
-**How it runs.**
-- **tuneup as a library**, not a CLI on PATH (Beacon runs no tools from
-  PATH): a `process(file, { preset, postProcess, deesser, ffmpeg, signal,
-  onProgress })` entry in tuneup that returns the files' paths and throws
-  rather than printing and calling `process.exit`; Beacon depends on it at an
-  exact version. The polish pass is given Beacon's own FFmpeg, which needs
-  `adeclick`, `adeclip` and `deesser` enabled in `scripts/build-tools.ts`
-  (all LGPL; today it has only `afftdn`).
-- **The Auphonic key** in the Keychain as the OpenAI key is (Settings ›
-  Audio), handed to tuneup, never written to logs or the project; offline,
-  the tile greys out with why (as the online AI tools do).
-- **Alignment is the main risk:** a swapped medium must line up to the
-  sample. The preset must not cut silences or fillers or change speed
-  (checked before starting: refused with which option to turn off), the
-  output must be WAV or FLAC (no MP3/AAC padding), and the result is checked
-  against the original (length within a frame, offset by cross-correlation)
-  before it is used; a mismatch is refused with why, the file kept.
-- **Agents:** `audio.clean` prepares it (clips, preset, polish, scope),
-  `audio.cleanStart` runs it (the user's money: only when asked),
-  `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
-
-**Open (with the user, when it is scheduled).**
-- Default scope: whole recording (keeps edits) or selected part (cheaper)?
-- Whole-recording results cached per source, so a second project using the
-  same take reuses them (no second bill)?
-- Later: clean only what is kept, at export, so only the final cut's minutes
-  are billed.
 
 ### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own
