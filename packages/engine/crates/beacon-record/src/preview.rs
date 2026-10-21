@@ -149,7 +149,7 @@ impl Preview {
         let mut stream = None;
         if sources.screen.is_some() || sources.system_audio {
             let want = sources.screen.as_ref();
-            let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude.as_deref()))?;
+            let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude))?;
             // System audio alone still needs a video stream: the smallest one.
             let (w, h) = match sources.screen {
                 Some(_) => {
