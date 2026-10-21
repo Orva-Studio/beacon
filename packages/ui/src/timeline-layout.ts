@@ -30,12 +30,15 @@ export const EDGE = 6;
 /** Dragged clips and edges snap from this many points away. */
 export const SNAP = 12;
 
-/** The top of display row `i` (top track first) for tracks `track` points tall. */
-export const rowTop = (i: number, track: number) => RULER + i * track;
+/** The top of display row `i` (top track first) for tracks `track` points tall, with the tracks scrolled up by `top`. */
+export const rowTop = (i: number, track: number, top = 0) => RULER + i * track - top;
+
+/** How far the tracks scroll up: as far as shows the bottom track at the timeline's foot, `height` points tall. */
+export const maxTop = (rows: number, track: number, height: number) => Math.max(0, rows * track - (height - RULER));
 
 /** The row under `y`, of `rows` (display order: top first), if any. */
-export const rowAt = (y: number, track: number, rows: number): number | undefined => {
-  const i = Math.floor((y - RULER) / track);
+export const rowAt = (y: number, track: number, rows: number, top = 0): number | undefined => {
+  const i = Math.floor((y - RULER + top) / track);
   return y > RULER && i >= 0 && i < rows ? i : undefined;
 };
 
@@ -61,11 +64,11 @@ export function shownSpan(a: number, b: number, others: readonly (readonly [numb
 }
 
 /** A clip's box in its row: 3 points in from the row's edges. */
-export const clipBox = (i: number, track: number) => ({ y: rowTop(i, track) + 3, h: track - 6 });
+export const clipBox = (i: number, track: number, top = 0) => ({ y: rowTop(i, track, top) + 3, h: track - 6 });
 
 /** The volume line's height for a gain (0–1 shown) on a clip in row `i`. */
-export const volumeY = (i: number, track: number, v: number) => {
-  const { y, h } = clipBox(i, track);
+export const volumeY = (i: number, track: number, v: number, top = 0) => {
+  const { y, h } = clipBox(i, track, top);
   return y + 3 + (1 - Math.min(1, Math.max(0, v))) * (h - 6);
 };
 
@@ -73,9 +76,8 @@ export const volumeY = (i: number, track: number, v: number) => {
 const MAGNET_TRACK = 62;
 
 /** A track header's icon centres: mute, lock and eye, and on tall tracks the magnet below them. */
-export function headerIcons(i: number, track: number, header: number): { mute: [number, number]; eye: [number, number]; lock: [number, number]; magnet?: [number, number] } {
-  const top = rowTop(i, track);
-  const mid = top + track / 2;
+export function headerIcons(i: number, track: number, header: number, top = 0): { mute: [number, number]; eye: [number, number]; lock: [number, number]; magnet?: [number, number] } {
+  const mid = rowTop(i, track, top) + track / 2;
   // Mute, lock and eye side by side on every track; taller tracks add the magnet below them.
   const tall = track >= MAGNET_TRACK;
   const y = tall ? mid - 10 : mid;

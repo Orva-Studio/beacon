@@ -1895,7 +1895,11 @@ Each fix gets a test on real data that fails without it.
     review (Silences, Filler Words, Retakes) and ⎋ cancels it, shown on the
     buttons ("Apply All (↩)"); ⎋ with no review open still deselects and
     clears the range. In Settings › Shortcuts as Apply Review and Cancel
-    Review or Deselect.
+    Review or Deselect. Escape is shown as "Esc" (the user didn't read "⎋").
+  - **The timeline didn't scroll vertically** (the user, 2026-10-21): with
+    more tracks than fit, the bottom ones were out of reach (the wheel only
+    moved through time). Now up and down move through the tracks when they
+    overflow, sideways through time.
   - **Fillers missing from the user's takes** (the user, 2026-10-21): on
     3-shorts Remove Filler Words finds none, as its transcript has none (0 in
     703 words of 11.50.02). Whisper primed with fillers (with `-mc 0` off, or

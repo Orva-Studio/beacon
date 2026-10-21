@@ -133,7 +133,9 @@ export function keysLabel(keys: Keys): string {
   const sym: Record<string, string> = { control: "⌃", option: "⌥", shift: "⇧", command: "⌘" };
   const mods = new Set(chordOf(keys)?.mods.split("+").filter(Boolean) ?? keys.modifiers);
   if (SHIFTED[keys.key]) mods.delete("shift");
-  return MODIFIERS.filter((m) => mods.has(m)).map((m) => sym[m]).join("") + (keys.key.length === 1 ? keys.key.toUpperCase() : keys.key);
+  // ⎋ is macOS's own symbol for Escape, but few recognise it.
+  const key = keys.key === "⎋" ? "Esc" : keys.key.length === 1 ? keys.key.toUpperCase() : keys.key;
+  return MODIFIERS.filter((m) => mods.has(m)).map((m) => sym[m]).join("") + key;
 }
 
 /** Whether `args` are the same as an action's (key order aside). */

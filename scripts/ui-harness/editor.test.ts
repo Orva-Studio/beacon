@@ -42,7 +42,7 @@ const timelinePlaces = async (clipId: string) => {
   const tracks = ui.core.doc(ui.handle).tracks;
   const row = tracks.length - 1 - tracks.findIndex((t) => t.clips.some((k) => k.id === clipId));
   const [box, header] = [await timelineBox(), headerWidth(tracks)];
-  return { ...clipBox(row, s.timeline.trackHeight), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
+  return { ...clipBox(row, s.timeline.trackHeight, s.timeline.top ?? 0), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
 };
 /** Page code reading a timeline canvas pixel's RGB (canvas points) as "r,g,b". */
 const timelinePixel = (x: number, y: number) =>
@@ -2324,7 +2324,7 @@ test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the b
     await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
   };
   await open();
-  expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (⎋)");
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (Esc)");
   expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply All (↩)");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-silence-review]')");
@@ -3129,6 +3129,43 @@ test.skipIf(skip)("a clip of one frame is drawn and grabbed at least 40 points w
   expect((await session()).selection).toEqual([sliver.id]);
   await page.screenshot(join(dir, "one-frame-clip.png"));
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("with more tracks than fit, scrolling up and down moves through them (the bottom track's clips reachable), sideways still through time", async () => {
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  const height = (await session()).timeline.trackHeight;
+  await run("timeline.trackHeight", { height: 120 });
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const doc = () => ui.core.doc(ui.handle);
+  const had = new Set(doc().tracks.map((t) => t.id));
+  // Empty tracks until they don't all fit.
+  while (doc().tracks.length * 120 <= box.h - 40) await run("track.add", {});
+  const added = doc().tracks.filter((t) => !had.has(t.id)).map((t) => t.id);
+  const bottom = doc().tracks[0]!.clips[0]!;
+  await Bun.sleep(300);
+  const x = box.x + box.w * 0.6;
+  await page.wheel(x, box.y + box.h / 2, 0, 2000);
+  await arrived(() => false, 300);
+  const s = await session();
+  expect(s.timeline.top).toBe(Math.round(doc().tracks.length * 120 - (box.h - 40)));
+  expect(s.timeline.start).toBe(0);
+  // The bottom track's row is at the timeline's foot now: a click there picks its clip.
+  const p = await timelinePlaces(bottom.id);
+  expect(p.y + p.h).toBeLessThanOrEqual(box.h);
+  await page.click(box.x + p.xAt((bottom.start + bottom.duration / 2) / 705_600_000), box.y + p.y + p.h / 2);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toContain(bottom.id);
+  // Sideways still moves through time.
+  await run("timeline.zoom", { to: "in" });
+  const start = (await session()).timeline.start;
+  await page.wheel(x, box.y + box.h / 2, 300, 0);
+  await arrived(() => false, 300);
+  expect((await session()).timeline.start).toBeGreaterThan(start);
+  await run("timeline.scroll", { start: 0, top: 0 });
+  for (const t of added) await run("track.remove", { track: t });
+  await run("timeline.trackHeight", { height });
   await select([]);
 }, 30_000);
 

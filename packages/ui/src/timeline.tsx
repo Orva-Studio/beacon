@@ -17,7 +17,7 @@ import {
 import { acceptFiles, addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
-import { arrowHalfHeight, clipBox, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, maxTop, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
 import { propsOf } from "./props";
@@ -82,6 +82,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
+  const TOP = Math.min(session.timeline.top ?? 0, maxTop(tracks.length, TRACK, size.current.h));
 
   const draw = () =>
     drawTimeline({ canvas, latest, size, staticLayer, dragState, settling, snapLine, pickedDiamond, loaded, flashes, HEADER, nested, clipTypes, label, redraw: () => drawRef.current(), dropHit, mediaHit });
@@ -180,7 +181,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const clipAt = (clientX: number, clientY: number): Clip | undefined => {
     const r = canvas.current!.getBoundingClientRect();
-    const i = rowAt(clientY - r.top, TRACK, tracks.length);
+    const i = rowAt(clientY - r.top, TRACK, tracks.length, TOP);
     const t = i === undefined ? undefined : tracks[i];
     // A locked track's clips can't be picked, moved, trimmed or opened: the pointer sees empty time there.
     if (!t || t.locked) return undefined;
@@ -218,11 +219,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   useEffect(() => addDropTarget((...a) => dropRef.current!(...a)), []);
 
   /** The track row under a point (display order: top first), if any. */
-  const rowUnder = (y: number) => rowAt(y, TRACK, tracks.length);
+  const rowUnder = (y: number) => rowAt(y, TRACK, tracks.length, TOP);
 
   /** The header icon under a point: mute, lock and eye, and on tall tracks the magnet (see the drawing). */
   const headerIcon = (x: number, y: number, i: number): "eye" | "magnet" | "lock" | "mute" | undefined => {
-    const icons = headerIcons(i, TRACK, HEADER);
+    const icons = headerIcons(i, TRACK, HEADER, TOP);
     const near = ([ix, iy]: [number, number]) => Math.abs(x - ix) <= 9 && Math.abs(y - iy) <= 8;
     if (near(icons.eye)) return "eye";
     if (near(icons.lock)) return "lock";
@@ -237,7 +238,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     const [px, py] = [clientX - r.left, clientY - r.top];
     const i = rowUnder(py);
     if (i === undefined || tracks[i]!.locked) return undefined;
-    const box = clipBox(i, TRACK);
+    const box = clipBox(i, TRACK, TOP);
     const ay = box.y + box.h / 2;
     for (const clip of tracks[i]!.clips) {
       // Only the part of an arrow inside its clip is drawn, so only that part is grabbed.
@@ -262,7 +263,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     const r = canvas.current!.getBoundingClientRect();
     const [px, py] = [clientX - r.left, clientY - r.top];
     const i = rowUnder(py)!;
-    const vy = (v: number) => volumeY(i, TRACK, v);
+    const vy = (v: number) => volumeY(i, TRACK, v, TOP);
     // Points beyond the clip's edges aren't drawn, so they aren't grabbed either.
     const [cs, ce] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
     const pts = volumePoints(clip);
@@ -630,7 +631,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const [x0, x1] = [Math.min(d.x0, x), Math.max(d.x0, x)];
             const [y0, y1] = [Math.min(d.y0, y), Math.max(d.y0, y)];
             const hit = tracks.flatMap((t, i) => {
-              const ty = rowTop(i, TRACK);
+              const ty = rowTop(i, TRACK, TOP);
               if (t.locked || ty + TRACK < y0 || ty > y1) return [];
               return t.clips.filter((c) => xOf(shown(t, c)[0]) < x1 && xOf(shown(t, c)[1]) > x0).map((c) => c.id);
             });
@@ -693,6 +694,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const at = timeAt(e.clientX);
             const f = Math.exp(e.deltaY * 0.01);
             run("timeline.view", { start: Math.max(0, at - (at - start) * f), end: at + (end - at) * f });
+          } else if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && maxTop(tracks.length, TRACK, size.current.h) > 0) {
+            // More tracks than fit: up and down move through them; sideways still moves through time.
+            const most = maxTop(tracks.length, TRACK, size.current.h);
+            run("timeline.scroll", { top: Math.min(most, Math.max(0, TOP + e.deltaY)) });
           } else {
             const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * (span / Math.max(1, size.current.w - HEADER));
             run("timeline.scroll", { start: Math.max(0, start + d) });
@@ -704,7 +709,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           key={renaming}
           value={((i) => trackName(tracks[i]!, tracks.length - 1 - i))(tracks.findIndex((t) => t.id === renaming))}
           className="absolute text-body font-semibold"
-          style={{ left: 8, top: rowTop(tracks.findIndex((t) => t.id === renaming), TRACK) + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}
+          style={{ left: 8, top: rowTop(tracks.findIndex((t) => t.id === renaming), TRACK, TOP) + TRACK / 2 - 11, width: HEADER - 40, height: 22 }}
           onDone={(name) => {
             const t = tracks.find((x) => x.id === renaming);
             if (t && name !== null && name !== t.name && name !== trackName(t, tracks.length - 1 - tracks.indexOf(t))) run("track.set", { track: t.id, name }, "Rename Track");

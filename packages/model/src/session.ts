@@ -36,7 +36,8 @@ export interface Session {
   group: string | null;
   range: { in: number; out: number } | null;
   /** The timeline's visible span in seconds, and every track's height in points. */
-  timeline: { start: number; end: number; trackHeight: number };
+  /** `top`: points the tracks are scrolled up by, when there are more than fit (none: the top track under the ruler). */
+  timeline: { start: number; end: number; trackHeight: number; top?: number };
   /** Left tool panel shown (null: collapsed) and whether the properties panel is open. */
   panels: { tool: string | null; properties: boolean };
   /** Properties panel tab: a prop group id, "effects" or "audio". */
@@ -159,7 +160,7 @@ function setView(s: Session, project: Project, start: number, endAt: number) {
   const span = Math.max(MIN_SPAN_FRAMES * frame(project), endAt - start);
   const limit = Math.max(duration(project) * 1.05, span, s.playhead);
   const from = Math.min(Math.max(0, start), limit - span);
-  s.timeline = { start: roundSeconds(from), end: roundSeconds(from + span), trackHeight: s.timeline.trackHeight };
+  s.timeline = { ...s.timeline, start: roundSeconds(from), end: roundSeconds(from + span) };
 }
 
 /** Zooms by `factor` (< 1 zooms in) around the playhead when it is visible, else the centre. */
@@ -454,9 +455,14 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
   }),
   sessionCommand({
     id: "timeline.scroll",
-    description: "Scroll the timeline so its visible span starts at a time, keeping the zoom",
-    args: z.strictObject({ start: Time }),
-    apply: (s, { start }, { project, full }) => setView(s, full, start, start + (s.timeline.end - s.timeline.start)),
+    description: "Scroll the timeline so its visible span starts at a time, keeping the zoom, and/or its tracks up by `top` points when there are more than fit (the timeline keeps it within them)",
+    args: z
+      .strictObject({ start: Time.optional(), top: z.number().nonnegative().optional() })
+      .refine((a) => a.start !== undefined || a.top !== undefined, { message: "give `start` or `top`" }),
+    apply: (s, { start, top }, { full }) => {
+      if (start !== undefined) setView(s, full, start, start + (s.timeline.end - s.timeline.start));
+      if (top !== undefined) s.timeline = { ...s.timeline, top: Math.round(top) };
+    },
   }),
   sessionCommand({
     id: "timeline.trackHeight",

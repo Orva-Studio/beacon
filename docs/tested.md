@@ -12,13 +12,15 @@ feature lands and when it is checked.
 | What | Date | Commit | How |
 |---|---|---|---|
 | Remove Silences keeps what was put there to be seen: a picture where no audio plays (an image or card after the talk was cut whole) and an image, held frame or group wholly inside a pause (one over a pause was cut down with it); a video across the talk is cut with its silences, from the same take or another file (the first fix kept a separately recorded camera whole: 3 silences found on 3-shorts) | 2026-10-21 | `5377cbd`, this commit | Core test on `audio.m4a` with a stand-in transcript, two 5 s images (over the pause, after the talk) and `video-3.mp4` across the talk with its sound removed: both images 5 s after Remove Silences, the pause around the first and the tail cut (fails with no fix, and with the first); a copy of 3-shorts with the fix: 58 silences, 3:37 shorter; the probe over 29 of the user's takes: no word lost |
-| A review's Apply All and Cancel by keys: ↩ applies the open one (Remove Silences, Filler Words, Retakes) in one undo step, ⎋ closes it cutting nothing; the buttons say "Apply All (↩)" and "Cancel (⎋)" with the user's own keys; with none open ⎋ still deselects and clears the range | 2026-10-21 | this commit | UI flow (the labels, ⎋ then ↩ on Remove Silences, one undo step, ⎋ deselecting with no review; fails without the change) |
+| A review's Apply All and Cancel by keys: ↩ applies the open one (Remove Silences, Filler Words, Retakes) in one undo step, ⎋ closes it cutting nothing; the buttons say "Apply All (↩)" and "Cancel (Esc)" with the user's own keys (Escape is written "Esc" wherever Beacon shows keys: "⎋" wasn't recognised); with none open ⎋ still deselects and clears the range | 2026-10-21 | this commit | UI flow (the labels, ⎋ then ↩ on Remove Silences, one undo step, ⎋ deselecting with no review; fails without the change) |
 | Remove Filler Words never cuts into a kept word: an edge that rounding to whole frames would take into a neighbour goes to the filler's side (it took 3–14 ms of one in 8 places on 3 of the user's takes, e.g. the "p" of "padding?") | 2026-10-21 | this commit | Core test (a touching "uh," and an "um" a few ms from each neighbour at 30 fps: no cut overlaps a kept word, one undo exact; fails without the fix); the probe over the user's takes: no filler cut into a kept word |
 
+| The timeline scrolls up and down when there are more tracks than fit: a vertical swipe or wheel moves through them (the bottom tracks were out of reach), a sideways one still moves through time, and with every track in view vertical still moves through time as before; rows under the ruler are hidden; `timeline.scroll` takes `top` for agents | 2026-10-21 | this commit | UI flow (tracks 120 points tall until they overflow: a wheel down scrolls to the last, a click there selects the bottom track's clip, a sideways wheel moves time; fails without the change) |
 ### Not checked yet
 
 - Remove Silences on 3-shorts (a camera from another file): dozens of silences found again; and on a project with an image or title card after the talk, and a picture over a pause: both kept.
-- ↩ and ⎋ in a review, and the buttons' labels; ⎋ with no review still deselecting.
+- ↩ and Esc in a review, and the buttons' labels; Esc with no review still deselecting.
+- Scrolling up and down through the tracks on 3-shorts (8 tracks), and sideways through time.
 - Remove Filler Words on your Yeti take (2026-10-14 18.22.21): "Is it top, uh, padding?" at 57 s keeps the "p".
 
 ## Phase 10 (`phase-10`)
