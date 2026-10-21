@@ -24,6 +24,8 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Name the Recording has Delete: a false start goes with its clips in one undo step ("Delete Recording"), its files kept in the recordings folder for Undo | 2026-10-21 | this commit | UI flow (Delete removes the take's media and clips, one undo restores the document) |
+| Safe areas: the headroom band blue with an edge (a framing guide, not the platform's UI), a key beside the picker while one is shown (Platform UI, Headroom, Eye line, each explained on hover), and "✓ No text under TikTok's UI" for what read like a Clear button | 2026-10-21 | this commit | UI flow (the label, the key while shown and gone with None); a harness screenshot looked at |
 | Closing a window no longer tells its last save to the window's page, which was already gone (the dev console's "undefined is not an object (evaluating 'win.webview.rpc')" on close; core logged it and the save went through); the app's window also drops anything sent after it closed | 2026-10-21 | this commit | Desktop windows test (a window edited, then closed: its save isn't told to it; fails without the fix) |
 | A locked track's clips can't be touched on the timeline either: a click, a drag, a trim, a right-click, an animation arrow, a volume point or a marquee treat them as empty time | 2026-10-21 | this commit | UI flow (the screen's track locked: a click and a drag leave it unselected and unmoved, its edge isn't trimmed, no clip menu; fails without the fix) |
 | Remove Background's progress in the top bar too ("Remove Background: Finding the person… 42%"), whatever the inspector shows: the clip looks unchanged until its matte is made | 2026-10-21 | this commit | UI flow (the line beside the inspector's, gone once the matte job stops) |
@@ -35,7 +37,8 @@ feature lands and when it is checked.
 
 - Locked tracks on the timeline: clicking, dragging, trimming and right-clicking their clips.
 - Remove Background's progress in the top bar while a camera's matte is made.
-- Safe areas going out of the canvas: a screenshot when it happens (not reproduced).
+- Delete on Name the Recording after a real take.
+- The safe areas' blue headroom band and the key beside the picker.
 - LUT in the app with a LUT of yours on your own footage, and with Film Look on top.
 - Media with sound getting proxies again (the Media Bin's proxy mark on a new recording).
 - The recording panel on AeroSpace: still left behind on a workspace switch (2026-10-21); a stand-in window is ignored as intended, the real one isn't, not pursued further at the user's word.

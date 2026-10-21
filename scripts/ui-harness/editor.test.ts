@@ -1004,6 +1004,19 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   expect(await page.evaluate<string>("document.querySelector('[data-recorded-problem]').textContent")).toBe("The microphone stopped saving (The operation could not be completed): the take has no microphone after that.");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-recorded]')");
+
+  // A false start is deleted from the dialog: its media and clips in one step, back with one undo.
+  const before = structuredClone(ui.core.doc(ui.handle));
+  ui.send("recordedSheet", { asset: take.id, name: "2026-10-21 05.58.12", duration: 34 });
+  await page.until("!!document.querySelector('[data-recorded-delete]')");
+  await page.evaluate("document.querySelector('[data-recorded-delete]').click()");
+  await page.until("!document.querySelector('[data-recorded]')");
+  await arrived(() => !ui.core.doc(ui.handle).assets[take.id]);
+  expect(ui.core.doc(ui.handle).assets[take.id]).toBeUndefined();
+  expect(clips().some((c) => c.assetId === take.id)).toBe(false);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Recording");
+  await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle)).toEqual(before);
 });
 
 test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels (Not saving for a stopped one); – hides it, Stop stops", async () => {
@@ -2658,6 +2671,9 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     expect(s.playhead).toBeCloseTo(ticksToSeconds(captions[0]!.start), 2);
     await go("captions.style", { style: { anchorY: "middle", offsetY: -300 } });
     await p.until("!!document.querySelector('[data-safe-clean]') && !document.querySelector('[data-safe-issues]')");
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-clean]').textContent")).toBe("✓ No text under TikTok's UI");
+    // A key says what the colours are while a layout is shown.
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-key]')?.textContent ?? ''")).toBe("Platform UIHeadroomEye line");
     // A text box's right side, dragged three points short of the right edge's zone, lands on it.
     await go("edit.addAnnotation", { preset: "text", time: 1 });
     const callout = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).find((c) => c.type === "callout")!;
@@ -2685,6 +2701,7 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].every((l) => +l.getAttribute('stroke-width') <= 10)");
     expect(await shownNow()).toBeUndefined();
     expect(existsSync(join(path, "editor.json"))).toBe(false);
+    expect(await p.evaluate<boolean>("!!document.querySelector('[data-safe-key]')")).toBe(false);
   } finally {
     p.close();
     await other.close();

@@ -44,7 +44,7 @@ export function useSafeAreas(host: QueryHost, project: Project | undefined, sess
 /** A filled band: a square-ended line `width` points thick. */
 const band = (from: [number, number], to: [number, number], color: RGBA, width: number): CanvasMark => ({ kind: "line", from, to, width, color, butt: true });
 
-/** The canvas's safe-area marks: each zone a red band with an edge, the title-safe frame, the headroom band and a dashed eye line. */
+/** The canvas's safe-area marks: each zone a red band with an edge, the title-safe frame, the blue headroom band and a dashed eye line. */
 export function safeAreaMarks(l: SafeLayout, at: (x: number, y: number) => [number, number], k: number, width: number): CanvasMark[] {
   const out: CanvasMark[] = [];
   const box = ([x0, y0, x1, y1]: Rect, color: RGBA) => [
@@ -62,6 +62,7 @@ export function safeAreaMarks(l: SafeLayout, at: (x: number, y: number) => [numb
   if (l.titleSafe) out.push(...box(l.titleSafe, COLOR.safeGuide));
   const [h0, h1] = l.headroom;
   out.push(band(at(0, (h0 + h1) / 2), at(width, (h0 + h1) / 2), COLOR.safeHeadroom, (h1 - h0) * k));
+  out.push(...box([0, h0, width, h1], COLOR.safeHeadroomEdge));
   const dash = 24;
   for (let x = 0; x < width; x += dash * 2) out.push(line(at(x, l.eyeLine), at(Math.min(width, x + dash), l.eyeLine), COLOR.safeGuide, 1.5));
   return out;
@@ -108,9 +109,10 @@ export function SafeAreaPicker({ host, project, session, layouts }: { host: Quer
       )}
       {check?.clean && (
         <span className="text-xs text-accent" data-safe-clean title="No caption or callout is under the platform's UI">
-          ✓ Clear
+          ✓ No text under {fitting.find((l) => l.id === id)?.title}'s UI
         </span>
       )}
+      {id && <SafeAreaKey />}
       <Select look="bar" value={id ?? ""} title="Safe areas: where the platform's own UI sits over the video" onChange={(e) => host.run("safeAreas.show", { layout: e.target.value || null })} data-safe-area-select>
         <option value="">No Safe Areas</option>
         {fitting.map((l) => (
@@ -120,5 +122,22 @@ export function SafeAreaPicker({ host, project, session, layouts }: { host: Quer
         ))}
       </Select>
     </div>
+  );
+}
+
+/** What the colours on the canvas mean, beside the picker while a layout is shown. */
+function SafeAreaKey() {
+  const item = (swatch: string, label: string, title: string) => (
+    <span className="flex items-center gap-1" title={title}>
+      <span className={swatch} />
+      {label}
+    </span>
+  );
+  return (
+    <span className="flex items-center gap-2.5 text-xs text-text-faint" data-safe-key>
+      {item("size-2.5 rounded-[2px] border border-safe-edge bg-safe-zone", "Platform UI", "Where the app draws its own buttons, captions and tabs over the video: keep text and faces out")}
+      {item("size-2.5 rounded-[2px] border border-safe-headroom-edge bg-safe-headroom", "Headroom", "Where the top of a head sits in a well-framed shot")}
+      {item("w-3 border-t-2 border-dashed border-safe-guide", "Eye line", "Where the eyes sit in a well-framed shot")}
+    </span>
   );
 }

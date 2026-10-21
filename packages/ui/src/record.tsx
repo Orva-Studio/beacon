@@ -317,6 +317,11 @@ function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHos
     if (n && n !== sheet.name) host.run("asset.rename", { asset: sheet.asset, name: n }, "Rename Recording");
     close();
   };
+  // A false start goes with its clips, one undo step; its files stay in the recordings folder for Undo.
+  const remove = () => {
+    host.run("edit.deleteMedia", { asset: sheet.asset }, "Delete Recording");
+    close();
+  };
   return (
     <Modal title="Name the Recording" width={420} onClose={close} onEnter={save}>
       <div className="flex flex-col gap-2" data-recorded>
@@ -336,6 +341,10 @@ function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHos
         ))}
       </div>
       <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={remove} title="Remove this take and its clips from the project (⌘Z brings it back)" data-recorded-delete>
+          Delete
+        </Button>
+        <span className="flex-1" />
         <Button onClick={close}>Skip</Button>
         <Button look="primary" onClick={save} data-recorded-save>
           Save
