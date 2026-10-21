@@ -93,6 +93,7 @@ export function App({ host }: { host: Host }) {
   const making = useView((s) => Object.keys(s.preparing).length);
   const prepared = useView((s) => s.prepared);
   const waveforms = useView((s) => s.waveforms);
+  const filmstrips = useView((s) => s.filmstrips);
   const mutedAudio = (project?.tracks ?? []).flatMap((t, i) => (t.muted && t.clips.some((c) => init?.clipTypes[c.type]?.includes("audio")) ? [{ t, i }] : []));
   const thumbs = useView((s) => s.thumbs);
   const dragging = useView((s) => s.dragging);
@@ -184,6 +185,7 @@ export function App({ host }: { host: Host }) {
               project={project}
               session={session}
               waveforms={waveforms}
+              filmstrips={filmstrips}
               thumbs={thumbs}
               clipTypes={init?.clipTypes ?? {}}
               nested={init?.nested ?? NO_NESTED}

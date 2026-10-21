@@ -28,7 +28,7 @@ test.skipIf(!existsSync(VIDEO))("core starts proxies by the settings, and a chan
   try {
     const configDir = join(dir, "config");
     const core = new LocalCore({ configDir, cacheDir: join(dir, "cache") });
-    core.setAutomatic((analyzer) => analyzer !== "transcript");
+    core.setAutomatic((analyzer) => analyzer !== "transcript" && analyzer !== "filmstrip");
     const told: unknown[] = [];
     core.watchApp((e) => e.kind === "settings" && told.push(e.settings));
     const h = await core.create({ path: join(dir, "p.beproj") });

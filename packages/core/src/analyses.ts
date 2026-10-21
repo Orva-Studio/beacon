@@ -14,7 +14,7 @@ const PREVIEW_JOBS_AT_ONCE = { quiet: 1, fast: 2 } as const;
 
 /** A project's queue of preview jobs, and the media it has prepared or is preparing. */
 interface PreviewQueue {
-  todo: { asset: Asset; def: { id: string } }[];
+  todo: { asset: Asset; def: Pick<JobAnalyzerDef, "id" | "after"> }[];
   running: Map<string, number>;
   /** Running job id → its asset. */
   jobs: Map<string, string>;
@@ -104,8 +104,24 @@ export class Analyses {
       if (e.kind === "job" && e.job.state === "running" && state.jobs.has(e.job.id)) this.#preparing(p, state);
     });
     let workers = 0;
+    /** A job of an analysis it waits for (`after`) on the same medium, while one is running. */
+    const runningBefore = (item: PreviewQueue["todo"][number]) => {
+      for (const key of item.def.after ?? []) {
+        const def = registry.jobAnalyzers.get(key);
+        const job = def && this.jobs.running(this.#subject(def, item.asset));
+        if (job) return job;
+      }
+      return undefined;
+    };
+    const queuedBefore = (item: PreviewQueue["todo"][number]) => todo.some((o) => o.asset.id === item.asset.id && item.def.after?.includes(o.def.id));
     const next = (): Promise<void> | undefined => {
-      const item = todo.shift();
+      const at = todo.findIndex((i) => !queuedBefore(i) && !runningBefore(i));
+      // Everything left waits for a job under way (its own queued ones would have been picked): wait with it.
+      if (at < 0 && todo.length && this.parts.find(p.path) === p && p.view) {
+        const waiting = todo.map(runningBefore).find((j) => j);
+        if (waiting) return waiting.done.then(next, next);
+      }
+      const item = at < 0 ? undefined : todo.splice(at, 1)[0];
       if (!item || this.parts.find(p.path) !== p || !p.view) {
         if (--workers === 0) {
           this.#previewQueues.delete(p);

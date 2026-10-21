@@ -254,6 +254,11 @@ export interface JobAnalyzerDef {
    */
   when?: "import" | "preview" | "asked";
   /**
+   * Analyses of the same medium to wait for when both are queued or one is running (a filmstrip reads the
+   * proxy): it starts once they are done or have failed, and without them when they aren't made at all.
+   */
+  after?: string[];
+  /**
    * `cacheDir`: where derived files (e.g. proxies) may be written; `quiet`: run tools at background
    * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is;
    * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set; `data`: the asset's other

@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isScreenCodec } from "./probe";
 import { decodeAudio, ffmpegArgs, ffmpegInput, runTool, spawn } from "./tool";
 
@@ -116,4 +116,52 @@ export async function thumbnailPng(path: string, stream: number, time: number, h
     ).stdout,
   ).arrayBuffer();
   return new Uint8Array(out);
+}
+
+/** One density of a filmstrip: a frame every `every` seconds of the stream, `cols`×`rows` of them to a JPEG. */
+export interface FilmstripStrip {
+  every: number;
+  files: string[];
+}
+
+/** Frames along a video stream for the timeline, `width`×`height` pixels each, laid out in sprites a row at a time. */
+export interface Filmstrip {
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+  /** A frame a second, for a clip zoomed in. */
+  fine: FilmstripStrip;
+  /** A frame every 10 s, so a whole long take in view decodes a sprite or two rather than one a minute. */
+  coarse: FilmstripStrip;
+}
+
+const STRIP = { height: 72, cols: 10, rows: 6, fine: 1, coarse: 10 };
+
+/**
+ * A stream's filmstrip in one ffmpeg pass reading only keyframes (a proxy has one every few frames, so each
+ * thumb is within a fraction of a second of its time): the k-th frame of a strip is the one shown `k × every`
+ * seconds into the stream. Written to `dir`, replaced whole.
+ */
+export async function makeFilmstrip(path: string, stream: number, source: { width: number; height: number }, dir: string, opts: { quiet?: boolean } = {}): Promise<Filmstrip> {
+  const width = Math.max(2, Math.round((STRIP.height * source.width) / Math.max(1, source.height) / 2) * 2);
+  const tmp = `${dir}.${process.pid}.tmp`;
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  // Media shorter than a step still gets its first frame (eof_action=pass).
+  const strip = (every: number) => `fps=1/${every}:start_time=0:eof_action=pass,scale=${width}:${STRIP.height}:flags=area,tile=${STRIP.cols}x${STRIP.rows}`;
+  const out = (label: string, name: string) => ["-map", `[${label}]`, "-c:v", "mjpeg", "-q:v", "5", "-fps_mode", "passthrough", join(tmp, `${name}-%04d.jpg`)];
+  try {
+    await runTool([
+      ...(opts.quiet ? ["/usr/sbin/taskpolicy", "-b"] : []), ...ffmpegArgs(), "-y", "-skip_frame", "nokey", ...ffmpegInput(path),
+      "-filter_complex", `[0:v:${stream}]split=2[a][b];[a]${strip(STRIP.fine)}[fine];[b]${strip(STRIP.coarse)}[coarse]`,
+      ...out("fine", "fine"), ...out("coarse", "coarse"),
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+    renameSync(tmp, dir);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  const files = (name: string) => readdirSync(dir).filter((f) => f.startsWith(`${name}-`)).sort().map((f) => join(dir, f));
+  return { width, height: STRIP.height, cols: STRIP.cols, rows: STRIP.rows, fine: { every: STRIP.fine, files: files("fine") }, coarse: { every: STRIP.coarse, files: files("coarse") } };
 }

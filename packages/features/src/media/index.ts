@@ -19,11 +19,16 @@ import {
   type FeatureRegistry,
 } from "@beacon/model";
 import { basename, join } from "node:path";
-import { isScreenCodec, makeAudioProxy, makeProxies, streamSource, waveformPeaks, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
+import { isScreenCodec, makeAudioProxy, makeFilmstrip, makeProxies, streamSource, waveformPeaks, type Filmstrip, type MediaInfo, type Proxy, type StreamInfo } from "@beacon/media";
 
 /** `waveform` job data: peak level per 10 ms, 0–255, by audio stream index. */
 export interface WaveformData {
   streams: Record<number, number[]>;
+}
+
+/** `filmstrip` job data: frames along each video stream for the timeline, by video stream index. */
+export interface FilmstripData {
+  streams: Record<number, Filmstrip>;
 }
 
 /** `proxy` job data: a seek-friendly copy of each video stream and a quick-to-open copy of each audio stream, by stream index. */
@@ -280,6 +285,43 @@ export const media = defineFeature({
           streams[i] = await waveformPeaks(src.path, src.stream);
         }
         return { streams } satisfies WaveformData;
+      },
+    },
+    {
+      id: "filmstrip",
+      description: "Frames along each video stream (one a second, and one every 10 s) as JPEG sprites, for timeline filmstrips",
+      version: 1,
+      when: "preview",
+      folder: "filmstrips",
+      // Read from the proxy when there is one: its keyframes are a few frames apart, a camera original's seconds.
+      after: ["proxy"],
+      applies: (asset) => asset.kind !== "image" && !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "video"),
+      async analyze(asset, progress, { cacheDir, quiet, data }) {
+        const video = mediaInfo(asset).streams.filter((s) => s.kind === "video");
+        const proxy = data<ProxyData>("proxy");
+        const key = new Bun.CryptoHasher("sha256").update(`${asset.path}\0${asset.fingerprint}`).digest("hex").slice(0, 16);
+        const streams: FilmstripData["streams"] = {};
+        for (const [i, s] of video.entries()) {
+          const p = proxy?.streams[i];
+          const src = p && existsSync(p.path) ? { path: p.path, stream: 0 } : sourceOf(asset, "video", i);
+          streams[i] = await makeFilmstrip(src.path, src.stream, { width: s.width ?? 16, height: s.height ?? 9 }, join(cacheDir, "filmstrips", `${key}-v${i}`), { quiet });
+          progress((i + 1) / video.length);
+        }
+        return { streams } satisfies FilmstripData;
+      },
+      revive(result, { cacheDir }) {
+        const data = result as FilmstripData;
+        const streams: FilmstripData["streams"] = {};
+        let moved = false;
+        for (const [i, f] of Object.entries(data.streams ?? {})) {
+          const find = (path: string) => (existsSync(path) ? path : join(cacheDir, "filmstrips", basename(join(path, "..")), basename(path)));
+          const strip = (s: Filmstrip["fine"]) => ({ ...s, files: s.files.map(find) });
+          const revived = { ...f, fine: strip(f.fine), coarse: strip(f.coarse) };
+          if ([...revived.fine.files, ...revived.coarse.files].some((path) => !existsSync(path))) return undefined;
+          moved ||= revived.fine.files.some((path, k) => path !== f.fine.files[k]) || revived.coarse.files.some((path, k) => path !== f.coarse.files[k]);
+          streams[Number(i)] = revived;
+        }
+        return moved ? ({ streams } satisfies FilmstripData) : result;
       },
     },
   ],

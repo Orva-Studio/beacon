@@ -170,6 +170,19 @@ export interface ExportSheet {
 }
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
+/**
+ * A video stream's frames along the timeline: `width`×`height` each, `cols`×`rows` to a sprite (a JPEG data URL),
+ * the k-th of a strip the frame `k × every` seconds into the stream.
+ */
+export interface FilmstripView {
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+  fine: { every: number; sprites: string[] };
+  coarse: { every: number; sprites: string[] };
+}
+
 export type RecordSources = Pick<RecorderSources, "systemAudio" | "camera" | "microphone"> & { screen?: Omit<NonNullable<RecorderSources["screen"]>, "exclude"> };
 
 /** An audio level in dBFS: the average and the recent peak. */
@@ -433,10 +446,10 @@ export type AppRPC = {
       /** Beacon > Settings… (⌘,). */
       /** `tab`: the one to open on (Project Settings… opens "project"). */
       settingsSheet: SettingsSheet;
-      /** Timeline pictures: waveforms by asset and audio stream, first-frame thumbnails (data URLs) by clip. */
+      /** Timeline pictures: waveforms by asset and audio stream, filmstrips by asset and video stream, first-frame thumbnails (data URLs) by clip. */
       /** `preparing`: every asset whose proxy is being made, its progress 0-1 (replaces the last); `proxies`: whether assets have one (merged). */
       /** `missing`: media whose file is gone (replaces the last). */
-      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; analyzing?: Record<string, number>; analysisFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
+      media: { waveforms?: Record<string, Record<number, number[]>>; filmstrips?: Record<string, Record<number, FilmstripView>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; analyzing?: Record<string, number>; analysisFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
     };
   };
 };

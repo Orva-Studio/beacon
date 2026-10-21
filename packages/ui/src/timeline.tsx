@@ -15,7 +15,7 @@ import {
   type Session,
 } from "@beacon/model";
 import { acceptFiles, addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
-import type { DroppedFile } from "./rpc";
+import type { DroppedFile, FilmstripView } from "./rpc";
 import { RenameField } from "./controls";
 import { arrowHalfHeight, clipBox, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
@@ -28,6 +28,7 @@ interface Props {
   project: Project;
   session: Session;
   waveforms: Record<string, Record<number, number[]>>;
+  filmstrips: Record<string, Record<number, FilmstripView>>;
   thumbs: Record<string, string>;
   clipTypes: Record<string, string[]>;
   /** Clip type → the prop group holding its own tracks. */
@@ -45,7 +46,7 @@ interface Props {
   markClick?: (mark: TimelineMark, alt: boolean) => void;
 }
 
-export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
+export function Timeline({ project: full, session, waveforms, filmstrips, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
@@ -70,7 +71,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   }, [session.animation?.id]);
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
-  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
+  const latest = useRef({ project, session, waveforms, filmstrips, thumbs, dragging, marks });
   useEffect(() => keepImages(full, thumbs), [full, thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
@@ -78,7 +79,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   /** When each clip last had an effect added, for its badge's flash. */
   const flashes = useRef(new Map<string, number>());
   const effectCounts = useRef<Map<string, number> | null>(null);
-  latest.current = { project, session, waveforms, thumbs, dragging, marks };
+  latest.current = { project, session, waveforms, filmstrips, thumbs, dragging, marks };
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;

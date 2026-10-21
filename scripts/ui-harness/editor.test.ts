@@ -1559,6 +1559,35 @@ test.skipIf(skip)("a stitched clip has a thumbnail: what its first frame shows",
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("a recording's screen clip shows its frames along it once its filmstrip is made, a frame a second zoomed in and every 10 s zoomed out; deleted, back to its first frame", async () => {
+  await select([]);
+  const s = clip(screen.id);
+  await ui.core.forget(ui.handle, "filmstrip", s.assetId!);
+  const [a, b] = [ticksToSeconds(s.start), ticksToSeconds(s.start + s.duration)];
+  await run("timeline.view", { start: a, end: a + 30 });
+  await Bun.sleep(500);
+  const { y, h, xAt } = await timelinePlaces(s.id);
+  // Colours along a line through the clip, right of its first-frame thumbnail and name.
+  const colours = (to: number) =>
+    page.evaluate<number>(`new Set((() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; const out = []; for (let x = ${xAt(a) + 200}; x < ${to}; x += 1) out.push([...c.getContext('2d').getImageData(Math.round(x * k), Math.round(${y + h * 0.8} * k), 1, 1).data].slice(0, 3).join()); return out; })()).size`);
+  const plain = await colours(xAt(a + 30) - 10);
+  expect(plain).toBeLessThan(6);
+  await (await ui.core.analyze(ui.handle, "filmstrip", s.assetId!)).done;
+  for (let i = 0; i < 100 && (await colours(xAt(a + 30) - 10)) < 40; i++) await Bun.sleep(100);
+  expect(await colours(xAt(a + 30) - 10)).toBeGreaterThan(40);
+
+  // The whole take in view: a frame every 10 s.
+  await run("timeline.view", { start: a, end: b });
+  await Bun.sleep(300);
+  const whole = await timelinePlaces(s.id);
+  for (let i = 0; i < 100 && (await colours(whole.xAt(b) - 10)) < 40; i++) await Bun.sleep(100);
+  expect(await colours(whole.xAt(b) - 10)).toBeGreaterThan(40);
+
+  await ui.core.forget(ui.handle, "filmstrip", s.assetId!);
+  for (let i = 0; i < 50 && (await colours(whole.xAt(b) - 10)) >= 6; i++) await Bun.sleep(100);
+  expect(await colours(whole.xAt(b) - 10)).toBeLessThan(6);
+}, 90000);
+
 test.skipIf(skip)("an audio file in the Media Bin shows its waveform", async () => {
   const copy = join(dir, `voice-${Date.now()}.m4a`);
   copyFileSync(join(FIXTURES, "audio.m4a"), copy);
