@@ -20,7 +20,7 @@ import {
 } from "@beacon/model";
 import type { PanelItem } from "./drop";
 import { drawIcon, type IconName } from "./controls";
-import { clipBox, cornerButtons, rowTop, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, volumeY } from "./timeline-layout";
+import { clipBox, cornerButtons, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, volumeY } from "./timeline-layout";
 import type { ViewState } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -228,6 +228,8 @@ export function drawTimeline(t: TimelineDrawing) {
     const width = Math.max(1, w - HEADER);
     const pps = width / (end - start);
     const x = (t: number) => HEADER + (t - start) * pps;
+    const shown = (t: Track, clip: Clip) =>
+      shownSpan(ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration), t.clips.filter((c) => c !== clip).map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const), 1 / pps);
 
     // Everything but the playhead is drawn into a cached layer, redrawn only when what it shows changes:
     // a playback tick then costs a copy and the playhead.
@@ -361,15 +363,16 @@ export function drawTimeline(t: TimelineDrawing) {
     };
     tracks.forEach((t, i) => {
       for (const clip of t.clips) {
-        let a = ticksToSeconds(clip.start);
-        let b = ticksToSeconds(clip.start + clip.duration);
+        let [a, b] = shown(t, clip);
         if (d?.kind === "trim" && d.clip === clip.id && !d.extend) {
+          [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
           if (d.edge === "start") a = d.t;
           else b = d.t;
         }
         // Shift-drag opens or closes time as it goes: what is after the point is drawn moved, a clip across it split.
         let by = 0;
         if (d?.kind === "space" && d.d !== 0 && (d.track ? d.track === t.id : !t.locked)) {
+          [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
           if (a >= d.at) (by = d.d), (a += by), (b += by);
           else if (b > d.at) {
             if (a <= end && d.at >= start) drawClip(clip, t, i, a, d.at, 1);
@@ -394,8 +397,9 @@ export function drawTimeline(t: TimelineDrawing) {
         if (ce + by < start || cs + by > end) continue;
         // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
         const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
-        const left = trim?.edge === "start" ? trim.t : cs;
-        const right = trim && trim.edge !== "start" ? trim.t : ce;
+        const [sa, sb] = shifted ? [cs, ce] : shown(t, clip);
+        const left = trim?.edge === "start" ? trim.t : trim ? cs : sa;
+        const right = trim && trim.edge !== "start" ? trim.t : trim ? ce : sb;
         ctx.save();
         ctx.translate(by * pps, 0);
         ctx.beginPath();

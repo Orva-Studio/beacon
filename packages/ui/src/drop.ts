@@ -75,6 +75,17 @@ export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: 
   window.addEventListener("pointercancel", cancel);
 }
 
+/**
+ * Takes a drag of files from Finder as a copy. Left at "none", WebKit reports the drop as refused and Finder animates
+ * the files back, though the drop still arrives.
+ */
+export function acceptFiles(e: { dataTransfer: DataTransfer | null; preventDefault(): void }): boolean {
+  if (!e.dataTransfer?.types.includes("Files")) return false;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+  return true;
+}
+
 /** Files dragged in from Finder: what the webview knows of them, with their URLs when WebKit passes them. */
 export function droppedFiles(dt: DataTransfer): DroppedFile[] {
   const uris = dt.getData("text/uri-list").split(/\r?\n/).filter((u) => u.startsWith("file://"));

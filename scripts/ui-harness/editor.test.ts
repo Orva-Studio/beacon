@@ -2931,3 +2931,55 @@ test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audi
   await run("panel.show", { tool: null });
   await select([]);
 }, 30_000);
+
+test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
+  await page.evaluate(`(() => {
+    window.__effects = [];
+    // WebKit starts a drag from Finder at "none" (what the app's own drops logged); Chromium starts it at "copy".
+    window.__webkit = (e) => { e.dataTransfer.dropEffect = "none"; };
+    window.__seen = (e) => window.__effects.push(e.dataTransfer.dropEffect);
+    window.addEventListener("dragover", window.__webkit, { capture: true });
+    // Only the drag is looked at: the drop itself would import, and the harness has no Finder drag to find the file in.
+    window.__stop = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+    window.addEventListener("dragover", window.__seen);
+    window.addEventListener("drop", window.__stop, { capture: true });
+  })()`);
+  const file = join(FIXTURES, "video.mp4");
+  const box = await timelineBox();
+  const over = async (x: number, y: number) => {
+    await page.evaluate("window.__effects = []");
+    await page.dropFiles(x, y, [file]);
+    return [...new Set(await page.evaluate<string[]>("window.__effects"))];
+  };
+  expect(await over(box.x + box.w / 2, box.y + 60)).toEqual(["copy"]);
+  expect(await over(...(await centre("[data-asset]")))).toEqual(["copy"]);
+  await page.evaluate(`(() => { window.removeEventListener("dragover", window.__webkit, { capture: true }); window.removeEventListener("dragover", window.__seen); window.removeEventListener("drop", window.__stop, { capture: true }); })()`);
+}, 30_000);
+
+test.skipIf(skip)("a clip of one frame is drawn and grabbed at least 40 points wide where there is room, and stays to scale between two clips", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.zoom", { to: "fit" });
+  const frame = 1 / 30;
+  await run("clip.split", { at: 2, clips: [screen.id], linked: false });
+  const piece = () => clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - 2) < 1e-6)!;
+  await run("clip.split", { at: 2 + frame, clips: [piece().id], linked: false });
+  const sliver = piece();
+  const next = clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - 2 - frame) < 1e-6)!;
+  expect(sliver.duration / 705_600_000).toBeCloseTo(frame, 6);
+  await Bun.sleep(300);
+  const p = await timelinePlaces(sliver.id);
+  const [x, y] = [p.box.x + p.xAt(2 + frame) + 12, p.box.y + p.y + p.h / 2];
+  // Between two clips there is no room: 12 points past its end is the next clip.
+  await page.click(x, y);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toContain(next.id);
+  expect((await session()).selection).not.toContain(sliver.id);
+  await run("clip.remove", { clips: [next.id], linked: false });
+  await select([]);
+  await page.click(x, y);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toEqual([sliver.id]);
+  await page.screenshot(join(dir, "one-frame-clip.png"));
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);

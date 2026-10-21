@@ -10,13 +10,14 @@ import {
   trackName,
   trimBounds,
   type Clip,
+  type Track,
   type Project,
   type Session,
 } from "@beacon/model";
-import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
+import { acceptFiles, addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
 import { propsOf } from "./props";
@@ -173,13 +174,20 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     return HEADER + (t - start) / spp();
   };
 
+  /** Where `clip` on `t` is drawn, in seconds: at least `MIN_CLIP` wide where there is room. */
+  const shown = (t: Track, clip: Clip) =>
+    shownSpan(ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration), t.clips.filter((c) => c !== clip).map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const), spp());
+
   const clipAt = (clientX: number, clientY: number): Clip | undefined => {
     const r = canvas.current!.getBoundingClientRect();
     const i = rowAt(clientY - r.top, TRACK, tracks.length);
     const t = i === undefined ? undefined : tracks[i];
     if (!t) return undefined;
-    const ticks = timeAt(clientX);
-    return t.clips.find((c) => ticksToSeconds(c.start) <= ticks && ticks < ticksToSeconds(c.start + c.duration));
+    const time = timeAt(clientX);
+    return t.clips.find((c) => {
+      const [a, b] = shown(t, c);
+      return a <= time && time < b;
+    });
   };
 
   /** The clip a panel item dropped at a point would go on: one that takes it, on an unlocked track. */
@@ -434,9 +442,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ref={canvas}
         data-timeline
         className="absolute inset-0"
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-        }}
+        onDragOver={acceptFiles}
         onDrop={(e) => {
           const files = droppedFiles(e.dataTransfer);
           if (!files.length || latest.current.session.group) return;
@@ -625,7 +631,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const hit = tracks.flatMap((t, i) => {
               const ty = rowTop(i, TRACK);
               if (ty + TRACK < y0 || ty > y1) return [];
-              return t.clips.filter((c) => xOf(ticksToSeconds(c.start)) < x1 && xOf(ticksToSeconds(c.start + c.duration)) > x0).map((c) => c.id);
+              return t.clips.filter((c) => xOf(shown(t, c)[0]) < x1 && xOf(shown(t, c)[1]) > x0).map((c) => c.id);
             });
             const next = [...new Set([...d.base, ...hit])];
             if (next.join() !== session.selection.join()) throttled("selection.set", { clips: next, linked: true });

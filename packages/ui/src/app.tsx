@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
-import { droppedFiles } from "./drop";
+import { acceptFiles, droppedFiles } from "./drop";
 import type { DroppedFile, Narrating } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
@@ -97,7 +97,7 @@ export function App({ host }: { host: Host }) {
   // Files dragged in from Finder: dropped on the timeline they go where dropped (its own handler), elsewhere after the last clip.
   // Without this the webview would open the file in place of the editor.
   useEffect(() => {
-    const over = (e: DragEvent) => e.dataTransfer?.types.includes("Files") && e.preventDefault();
+    const over = (e: DragEvent) => acceptFiles(e);
     const drop = (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("Files")) return;
       e.preventDefault();

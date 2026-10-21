@@ -5,6 +5,20 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 10 (`phase-10`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Drops from Finder's Recents: its drag gives a file reference URL (`/.file/id=…`), which the drag pasteboard reader already turns into the real path; the drop is taken as a copy, so Finder no longer animates the files back (WebKit started the drag at "none") | 2026-10-20 | this commit | The user's own Recents drags (an image, a 35 s video) read off the drag pasteboard, and timed in the dev app: 30–130 ms from release to imported, the path found in about 1 ms; UI flow (a drag started at "none" as WebKit does, taken as "copy" over the timeline and the Media Bin; fails without the fix) |
+| A clip narrower than 40 points (a frame left by a cut) is drawn, clicked and marquee-selected 40 points wide, grown into empty time on either side but never over its neighbours (between two clips it stays to scale); its length and trim edges are its own | 2026-10-20 | this commit | UI flow (a one-frame piece of the screen: between its neighbours a click past it picks the next clip; with the next removed, the same click picks it; fails without the change) |
+
+### Not checked yet
+
+- Drops from Recents in the app: no bounce, and the clip there at once.
+- A one-frame clip in the app: drawn wider and easy to grab and drag.
+
 ## Phase 9 (`phase-9`)
 
 ### Checked headless only (still to see by hand)
