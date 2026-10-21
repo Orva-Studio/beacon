@@ -5,6 +5,7 @@ pub use beacon_decode::{set_tools_dir, tool};
 pub mod preview;
 mod cursor;
 mod gpu;
+pub mod lut;
 mod render;
 pub mod scene;
 pub mod sources;

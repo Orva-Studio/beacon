@@ -290,6 +290,8 @@ export type AppRPC = {
       /** A folder picked in the Finder dialog, starting at `start`. */
       chooseFolder: { params: { start: string }; response: string | null };
       chooseFile: { params: { extensions: string[] }; response: string | null };
+      /** A file picked for an effect (a LUT) imported into the project, placing no clips: its asset id. */
+      importFile: { params: { path: string }; response: RunReply & { result?: string } };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };

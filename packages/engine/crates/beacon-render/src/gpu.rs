@@ -25,6 +25,16 @@ pub(crate) fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+/// A 3D texture (a pass's `.cube` table).
+pub(crate) fn lut_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D3, multisampled: false },
+        count: None,
+    }
+}
+
 pub(crate) fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None }
 }

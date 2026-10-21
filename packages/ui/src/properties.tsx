@@ -442,6 +442,8 @@ type JsonSchema = {
   type?: string | string[];
   /** A medium of the project of this kind (an image), by asset id; null for none. */
   asset?: string;
+  /** For a file asset: the extensions it takes, and a Choose… button that imports one. */
+  extensions?: string[];
   /** Shown only while the other params named have these values (Remove Background's blur with background "blur"). */
   when?: Record<string, unknown>;
   slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; hue?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
@@ -453,6 +455,8 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
   /** What the last look chosen or imported couldn't reproduce, said under its menu. */
   const [report, setReport] = useState<{ name: string; notes: string[] }>();
+  /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
+  const [chooseError, setChooseError] = useState<string>();
   const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
   const assets = useView((s) => s.project?.assets);
   // What the effect needs of the clip's media (a matte) while it is made, or why it couldn't be.
@@ -515,6 +519,11 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               Not in {name}, from “{report.name}”: {report.notes.join("; ")}.
             </div>
           )}
+          {chooseError && (
+            <div className="mb-2 ml-[92px] text-label text-danger" data-effect-choose-error>
+              {chooseError}
+            </div>
+          )}
           {making !== undefined && (
             <div className="mb-2 ml-[92px] text-label text-text-faint" data-effect-preparing>
               {def?.preparing ?? "Preparing"}… {Math.round(making * 100)}%
@@ -565,17 +574,32 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               );
             }
             if (f.asset) {
-              const choices = Object.values(assets ?? {}).filter((a) => a.kind === f.asset);
+              const exts = f.extensions;
+              const choices = Object.values(assets ?? {}).filter((a) => a.kind === f.asset && (!exts || exts.some((x) => a.path.toLowerCase().endsWith(`.${x}`))));
+              const choose = async () => {
+                const path = await host.chooseFile(exts!);
+                if (!path) return;
+                const r = await host.importFile(path);
+                if (r.ok && r.result) set({ [k]: r.result });
+                setChooseError(r.ok ? undefined : (r.error ?? `${path.split("/").pop()} couldn't be read`));
+              };
               return (
                 <Row key={k} label={label}>
-                  <Select value={typeof v === "string" ? v : ""} onChange={(e) => set({ [k]: e.target.value || null })} data-effect-param={k}>
-                    <option value="">{choices.length ? "None" : `No ${f.asset}s in the Media Bin`}</option>
-                    {choices.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {assetName(a)}
-                      </option>
-                    ))}
-                  </Select>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <Select value={typeof v === "string" ? v : ""} onChange={(e) => set({ [k]: e.target.value || null })} data-effect-param={k}>
+                      <option value="">{choices.length ? "None" : exts ? "None chosen" : `No ${f.asset}s in the Media Bin`}</option>
+                      {choices.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {assetName(a)}
+                        </option>
+                      ))}
+                    </Select>
+                    {exts && (
+                      <Button look="quiet" title={`Pick a .${exts[0]} file; it is copied into the project`} onClick={() => void choose()} data-effect-choose={k}>
+                        Choose…
+                      </Button>
+                    )}
+                  </div>
                 </Row>
               );
             }

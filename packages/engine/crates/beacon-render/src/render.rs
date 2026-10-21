@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use wgpu::util::DeviceExt;
 
-use crate::gpu::{linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
+use crate::gpu::{lut_entry, linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
 use crate::scene::{Affine, Backdrop, Content, Job, Layer, PassUse, Scene, Source, Visual};
 use crate::sources::{self, Frame, VideoDecoder};
 use crate::{Error, Result};
@@ -89,6 +89,9 @@ pub struct Renderer {
     /// (`BEACON_DECODE_FFMPEG` or `BEACON_NO_ZERO_COPY`).
     surfaces: Option<crate::surface::TextureCache>,
     passes: HashMap<String, Vec<wgpu::RenderPipeline>>,
+    /// `.cube` tables passes have named, by path; `no_lut` for those that name none.
+    luts: HashMap<String, wgpu::Texture>,
+    no_lut: wgpu::Texture,
     sources: HashMap<String, Source>,
     /// Keyed by source id and its occurrence in the scene, so one recording
     /// shown twice at different times decodes twice.
@@ -192,7 +195,7 @@ impl Renderer {
         });
         let pass_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pass"),
-            entries: &[uniform(0), uniform(1), texture(2), texture(3), sampler_entry(4)],
+            entries: &[uniform(0), uniform(1), texture(2), texture(3), sampler_entry(4), lut_entry(5)],
         });
 
         let additive = wgpu::BlendState {
@@ -237,6 +240,7 @@ impl Renderer {
             &[255; 4],
         );
         let output = device.create_texture(&tex_desc(job.width, job.height, 1, rt_usage()));
+        let no_lut = lut_texture(&device, &queue, &crate::lut::Cube { size: 1, rgb: vec![1.0; 3] });
         Ok(Self {
             adapter,
             device,
@@ -256,6 +260,8 @@ impl Renderer {
             yuv_pipe,
             surfaces,
             passes,
+            luts: HashMap::new(),
+            no_lut,
             sources: job.sources.clone(),
             textures: HashMap::new(),
             frame: 0,
@@ -813,6 +819,13 @@ impl Renderer {
             let mut params = [0f32; MAX_PARAMS];
             params[..p.params.len()].copy_from_slice(&p.params);
             let params_buf = self.uniform(bytemuck::cast_slice(&params));
+            if let Some(path) = &p.lut
+                && !self.luts.contains_key(path)
+            {
+                let cube = crate::lut::read(path)?;
+                self.luts.insert(path.clone(), lut_texture(&self.device, &self.queue, &cube));
+            }
+            let lut_view = p.lut.as_ref().map_or(&self.no_lut, |path| &self.luts[path]).create_view(&Default::default());
             let orig = current;
             let orig_view = orig.create_view(&Default::default());
             let mut prev: Option<wgpu::Texture> = None;
@@ -830,6 +843,7 @@ impl Renderer {
                         wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&src_view) },
                         wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&orig_view) },
                         wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                        wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&lut_view) },
                     ],
                 });
                 run_fullscreen(enc, &out.create_view(&Default::default()), None, step, &bg);
@@ -936,6 +950,27 @@ impl Renderer {
             ],
         })
     }
+}
+
+/// A `.cube` table as a 3D half-float texture, filtered between its entries.
+fn lut_texture(device: &wgpu::Device, queue: &wgpu::Queue, cube: &crate::lut::Cube) -> wgpu::Texture {
+    let n = cube.size;
+    let data: Vec<u16> = cube.rgb.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 1.0]).map(crate::lut::half).collect();
+    device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("lut"),
+            size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: n },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        bytemuck::cast_slice(&data),
+    )
 }
 
 /// The key of a source's next use in a frame, in drawing order: a source drawn twice (a stitched clip's repeats) gets a

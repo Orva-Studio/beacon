@@ -3072,3 +3072,42 @@ test.skipIf(skip)("Remove Background from its tile on the camera: the inspector 
   await run("panel.show", { tool: null });
   await select([]);
 }, 60_000);
+
+test.skipIf(skip)("LUT from its tile: Choose… imports a .cube into the project (not into the Media Bin) and sets it; a broken one says why", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const rows: string[] = [];
+  for (let b = 0; b < 2; b++) for (let g = 0; g < 2; g++) for (let r = 0; r < 2; r++) rows.push(`${1 - r} ${1 - g} ${1 - b}`);
+  const good = join(dir, "Teal Orange.cube");
+  writeFileSync(good, `LUT_3D_SIZE 2\n${rows.join("\n")}\n`);
+  const broken = join(dir, "Broken.cube");
+  writeFileSync(broken, "LUT_3D_SIZE 2\n0 0 0\n");
+  await select([screen.id]);
+  await run("panel.show", { tool: "visualEffects", properties: true });
+  const tile = `[data-item="effect:lut"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(screen.id).effects.some((e) => e.type === "lut"));
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("!!document.querySelector('[data-effect-choose=lut]')");
+
+  ui.chooseFile(broken);
+  await page.click(...(await centre("[data-effect-choose=lut]")));
+  await page.until("!!document.querySelector('[data-effect-choose-error]')");
+  expect(ui.menus).toContain("chooseFile:cube");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-choose-error]').textContent")).toContain("it has 1 entries for a 2³ table");
+
+  ui.chooseFile(good);
+  await page.click(...(await centre("[data-effect-choose=lut]")));
+  await arrived(() => typeof clip(screen.id).effects.find((e) => e.type === "lut")?.params.lut === "string");
+  const id = clip(screen.id).effects.find((e) => e.type === "lut")!.params.lut as string;
+  expect(ui.core.doc(ui.handle).assets[id]!.path).toBe(join(dir, "e2e.beproj", "media", "Teal Orange.cube"));
+  await page.until("!document.querySelector('[data-effect-choose-error]')");
+  expect(await page.evaluate<string>("(() => { const s = document.querySelector('[data-effect-param=lut]'); return s.options[s.selectedIndex].textContent; })()")).toBe("Teal Orange");
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-asset]')");
+  expect(await has(`[data-asset="${id}"]`)).toBe(false);
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 60_000);

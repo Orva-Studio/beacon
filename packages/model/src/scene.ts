@@ -12,6 +12,8 @@ export type Affine = [a: number, b: number, c: number, d: number, e: number, f: 
 export interface PassUse {
   pass: string;
   params: number[];
+  /** A `.cube` file the pass reads as its `lut` texture. */
+  lut?: string;
 }
 
 export type Content =

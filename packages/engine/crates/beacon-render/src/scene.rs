@@ -226,6 +226,9 @@ pub struct PassUse {
     /// Up to 32 floats, in the order the pass's WGSL reads them.
     #[serde(default)]
     pub params: Vec<f32>,
+    /// A `.cube` file the pass reads as `lut` (a 3D texture; a 1×1×1 stand-in when none).
+    #[serde(default)]
+    pub lut: Option<String>,
 }
 
 fn one() -> f32 {

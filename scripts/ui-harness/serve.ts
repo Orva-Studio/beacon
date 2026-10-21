@@ -205,6 +205,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           menus.push(`saveAs:${p.folder}/${p.name}${p.standalone ? " (standalone)" : ""}`);
           result = p.name === "Taken" ? { ok: false, error: "Taken.beproj already exists" } : { ok: true };
         }
+        else if (msg.type === "importFile") result = await reply(async () => (await core.import(h, [p.path])).assets[0]);
         else if (msg.type === "chooseFolder") result = "/Users/someone/Shared";
         else if (msg.type === "chooseFile") {
           menus.push(`chooseFile:${p.extensions.join(",")}`);

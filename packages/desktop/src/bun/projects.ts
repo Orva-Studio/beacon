@@ -229,6 +229,12 @@ export function createProjects(app: ProjectsApp) {
     if (files.filter(Boolean).length) await importPaths(w, files.filter(Boolean));
   }
 
+  /** A file an effect reads (a LUT), picked in its inspector: imported into `w`'s project, its asset id. */
+  async function importFile(w: ProjectWindow, path: string) {
+    if (!w.current) throw new Error("Open or create a project first");
+    return (await core.import(w.current.path, [path])).assets[0];
+  }
+
   /** Files dropped or pasted on `w`, as Finder or the clipboard gave them; those with only their bytes saved into its project. */
   const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) =>
     importPaths(w, await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {}), at);
@@ -288,6 +294,7 @@ export function createProjects(app: ProjectsApp) {
     playing,
     importMedia,
     dropFiles,
+    importFile,
     newProject,
     createProject,
     saveAsDialog,

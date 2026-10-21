@@ -71,7 +71,8 @@ export const TrackSchema = z.strictObject({
 
 export const AssetSchema = z.strictObject({
   id: IdSchema,
-  kind: z.enum(["recording", "video", "image", "audio"]),
+  /** `file`: not media but a file an effect reads (a LUT), kept with the project and out of the Media Bin. */
+  kind: z.enum(["recording", "video", "image", "audio", "file"]),
   /**
    * Absolute: paths reach ffmpeg, so relative paths and URLs are refused. On disk, files inside the
    * project folder are stored relative to it (schema 2), and resolved again when it is read.

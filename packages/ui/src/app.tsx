@@ -3,7 +3,7 @@ import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session
 import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
 import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
-import type { DroppedFile, Narrating } from "./rpc";
+import type { DroppedFile, Narrating, RunReply } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
@@ -56,6 +56,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   binFrame(asset: string, time: number): Promise<string | null>;
   /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
   chooseFile(extensions: string[]): Promise<string | null>;
+  /** Imports a picked file an effect reads (a LUT): its asset id, or why it couldn't be. */
+  importFile(path: string): Promise<RunReply & { result?: string }>;
   /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
   analyze(key: string, asset: string): void;
   /** Stars an item for the Favorites panel (at `index`, else at the end), un-stars it, or moves a favourite to `index`. */

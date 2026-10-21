@@ -311,6 +311,7 @@ function openWindow(): Win {
         openDialog: () => reply(projects.openDialog),
         openRecent: ({ path }) => projects.openRecent(path),
         chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
+        importFile: ({ path }) => replyWith(async () => (await projects.importFile(w, path))!),
         chooseFile: async ({ extensions }) => (await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: extensions.join(",") }))[0] || null,
         startExport: (params) => reply(() => w.exports.startExport(params)),
         startRecording: (params) => (recordFor(w), reply(() => recorder.startRecording(params))),

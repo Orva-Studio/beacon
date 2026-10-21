@@ -53,6 +53,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     app: (action) => void request("appAction", { action }),
     chooseFolder: (start) => request("chooseFolder", { start }),
     chooseFile: (extensions) => request("chooseFile", { extensions }),
+    importFile: (path) => request("importFile", { path }),
     startExport: (params) => request("startExport", params),
     startRecording: (sources) => request("startRecording", { sources }),
     narrationDevices: () => request("narrationDevices", {}),

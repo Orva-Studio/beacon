@@ -357,6 +357,10 @@ export interface MediaImporterDef {
   kind: Asset["kind"];
   /** The clips for one asset; core adds them linked, starting together. */
   clips: (asset: Asset, project: Project) => ImportClipSpec[];
+  /** What is known of a file that isn't media (a LUT's size), checked as it is read; media is probed with ffprobe. */
+  probe?: (path: string) => Promise<Asset["derived"]>;
+  /** Copied into the project's folder on import, standalone or not: a small file an effect needs to travel with it. */
+  copyIn?: boolean;
 }
 
 export interface QueryContext {
