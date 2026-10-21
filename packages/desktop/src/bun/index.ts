@@ -57,6 +57,8 @@ interface Win extends ProjectWindow {
  */
 const windows = new Set<Win>();
 let focused: Win | undefined;
+/** The safe areas each window last showed, so the menu is rebuilt only when they change. */
+const safeAreas = new WeakMap<Win, string | undefined>();
 
 const winFor = (h: string) => [...windows].find((w) => w.current?.path === h);
 /** Messages for every window: what concerns the app (keys, favourites, settings, recent projects). */
@@ -154,6 +156,12 @@ const projects = createProjects({
       },
       session: (changes) => {
         if (changes.canvas) w.views.place(changes.canvas);
+        // The menu ticks the safe areas shown: rebuilt when they change, not for every review click.
+        const safeArea = changes.features && (changes.features["safe-areas"] as { layout?: string } | undefined)?.layout;
+        if (changes.features && safeArea !== safeAreas.get(w)) {
+          safeAreas.set(w, safeArea);
+          if (w === focused) menus.setMenu();
+        }
         if (changes.playing) void projects.playing(w);
       },
       other: (e) => {

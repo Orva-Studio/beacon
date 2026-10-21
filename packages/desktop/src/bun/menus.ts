@@ -72,7 +72,17 @@ export function createMenus(app: MenusApp) {
     else if (s) core.run(h, s.command, s.args ?? {}).catch(fail);
   }
 
+  /** The menu bar, for the focused project: the safe areas it shows are read from its session first. */
   function setMenu() {
+    const current = app.current();
+    if (!current) return buildMenu(undefined);
+    core.session(current.path).then(
+      (s) => buildMenu((s.features["safe-areas"] as { layout?: string } | undefined)?.layout),
+      () => buildMenu(undefined),
+    );
+  }
+
+  function buildMenu(safeArea: string | undefined) {
     const open = !!app.current();
     const recent = app.recent();
     ApplicationMenu.setApplicationMenu([
@@ -156,12 +166,16 @@ export function createMenus(app: MenusApp) {
           {
             label: "Safe Areas",
             submenu: [
-              item("safeAreas.show:none", { label: "None", enabled: open }),
+              { ...item("safeAreas.show:none", { label: "None", enabled: open }), checked: open && !safeArea },
               SEPARATOR,
-              item("safeAreas.show:tiktok", { label: "TikTok", enabled: open }),
-              item("safeAreas.show:reels", { label: "Instagram Reels", enabled: open }),
-              item("safeAreas.show:shorts", { label: "YouTube Shorts", enabled: open }),
-              item("safeAreas.show:youtube", { label: "YouTube (16:9)", enabled: open }),
+              ...(
+                [
+                  ["tiktok", "TikTok"],
+                  ["reels", "Instagram Reels"],
+                  ["shorts", "YouTube Shorts"],
+                  ["youtube", "YouTube (16:9)"],
+                ] as const
+              ).map(([id, label]) => ({ ...item(`safeAreas.show:${id}`, { label, enabled: open }), checked: safeArea === id })),
             ],
           },
           SEPARATOR,

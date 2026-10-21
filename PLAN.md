@@ -1838,6 +1838,23 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   (and the clip's menu) that adds an animation block spanning the whole
   selected clip, start to end, rather than from the playhead; or, simplest,
   double-clicking an animation stretches it to the clip's ends.
+- **Right-click an effect to add it** (the user, 2026-10-20): the effect,
+  annotation and audio tiles get a menu (Add to Selected Media, Add to
+  Favorites), as double-click, dragging and ⌘K add them now; there never was
+  one.
+- **Instagram Reels' safe areas for ordinary posts** (the user, 2026-10-20):
+  the Reels guide draws Meta's numbers for ads (14% top, 35% bottom, 6%
+  sides), whose call-to-action makes the bottom band far deeper than a
+  post's; guides measure ordinary Reels at about 13% top, 17% bottom, 8%
+  left, 11% right, and disagree. Measure them from the user's own phone
+  (screenshots of Reels with long captions; a 19.5:9 screen shows a 9:16
+  Reel under its own bars), and offer Reels and Reels (ad) as two layouts.
+- **The recording panel follows you between desktops** (the user, 2026-10-20;
+  not yet): the panel (camera, time, levels, Stop) stays on the desktop it
+  opened on. The user switches with AeroSpace, which hides windows by moving
+  them off-screen rather than using macOS's Spaces, so the panel joining all
+  Spaces (`canJoinAllSpaces`) may not be enough: check what AeroSpace allows
+  (a floating or sticky rule for the panel's window) as well.
 **Gate:** clips show their frames; a camera take's background removed by
 each provider, with the same matte in preview and export.
 

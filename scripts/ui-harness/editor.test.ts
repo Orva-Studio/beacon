@@ -2462,6 +2462,20 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
     await p.until("!!document.querySelector('[data-retake-review]')");
 
+    // A take cut by hand (a ripple delete on the timeline) with the review open: the marks left move too.
+    {
+      const before = (await found()).groups;
+      await go("timeline.view", { start: 0, end: before[1]!.end + 2 });
+      await go("timeline.rippleDelete", { ranges: [{ start: before[0]!.takes[0]!.start, end: before[0]!.takes[1]!.start }] });
+      for (let i = 0; i < 100 && (await found()).groups.at(-1)?.start === before[1]!.start; i++) await Bun.sleep(50);
+      const g2 = (await found()).groups.at(-1)!;
+      expect(g2.start).toBeLessThan(before[1]!.start - 1);
+      const s3 = await other.core.session(other.handle);
+      const xAt3 = (t: number) => header + ((t - s3.timeline.start) / (s3.timeline.end - s3.timeline.start)) * (box.w - header);
+      await p.until(`(([r, g]) => g > r + 20)(${timelinePixel(xAt3((g2.takes[g2.best]!.start + g2.takes[g2.best]!.end) / 2), box.h - 6)}.split(',').map(Number))`);
+      await other.core.undo(other.handle);
+    }
+
     // OpenAI as the judge: its picks once it has answered, with why.
     await other.core.setSecret("openai-api-key", "sk-test");
     await other.core.setPreference("retake-judge", "openai");
