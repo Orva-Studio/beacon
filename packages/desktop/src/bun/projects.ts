@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { findDropped, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
+import { findDropped, lockOwner, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
 import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
 import type { LocalCore } from "@beacon/core";
 import { errorText, type ProjectWindow, type Current } from "./app";
@@ -26,8 +26,8 @@ export interface ProjectsApp {
   openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string }): Promise<string[]>;
   /** Asks before a project goes to the Trash: whether the user agreed. */
   confirmTrash(name: string): Promise<boolean>;
-  /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`). */
-  moveToTrash(path: string): void;
+  /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`): whether it went. */
+  moveToTrash(path: string): boolean;
 }
 
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
@@ -124,22 +124,19 @@ export function createProjects(app: ProjectsApp) {
 
   /**
    * The start screen's right-click: the project folder to the Trash, after asking, and off the list. Refused while it
-   * is open, in a window or by an agent.
+   * is open, in a window or by an agent (this app's core or an MCP server's, by the project's lock), checked again after
+   * asking as one may open it meanwhile. Only a .beproj on the list: the path comes from the page.
    */
   async function trashProject(path: string) {
     const name = basename(path, extname(path));
-    const shown = [...app.windows()].some((w) => w.current?.path === path && !w.current.closed);
-    const open = shown || (() => {
-      try {
-        return !!core.doc(path);
-      } catch {
-        return false;
-      }
-    })();
-    if (open) throw new Error(`“${name}” is open: close it before moving it to the Trash`);
+    if (!path.endsWith(".beproj") || !recent.some((r) => r.path === path)) throw new Error(`${path} isn't a recent Beacon project`);
+    const open = () => [...app.windows()].some((w) => w.current?.path === path && !w.current.closed) || !!lockOwner(path);
+    const refuse = () => new Error(`“${name}” is open: close it before moving it to the Trash`);
+    if (open()) throw refuse();
     if (!existsSync(path)) return removeRecent(path);
     if (!(await app.confirmTrash(name))) return;
-    app.moveToTrash(path);
+    if (open()) throw refuse();
+    if (!app.moveToTrash(path)) throw new Error(`“${name}” couldn't be moved to the Trash`);
     removeRecent(path);
     status(`Moved “${name}” to the Trash`);
   }

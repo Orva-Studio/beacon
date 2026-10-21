@@ -2,7 +2,7 @@ export * from "./api";
 export * from "./local";
 export * from "./remote";
 export { findDropped, importDropped } from "./dropped";
-export { projectName, readProject, writeProject } from "./persist";
+export { lockOwner, projectName, readProject, writeProject } from "./persist";
 export { summarizeReport } from "@beacon/camtasia";
 export { DEFAULT_SOCKET, serveCore, type CoreServer } from "./socket";
 export {

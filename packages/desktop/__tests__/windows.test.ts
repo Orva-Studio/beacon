@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import type { ProjectBridge } from "@beacon/ui";
@@ -143,6 +143,8 @@ test("the start screen's right-click: a project taken off the recent list stays 
   mkdirSync(trash);
   const windows: FakeWindow[] = [new FakeWindow()];
   let agree = false;
+  let trashWorks = true;
+  let whileAsked = () => {};
   const asked: string[] = [];
   const projects = createProjects({
     core,
@@ -158,8 +160,12 @@ test("the start screen's right-click: a project taken off the recent list stays 
     leaving: () => {},
     recentChanged: () => {},
     openFileDialog: async () => [],
-    confirmTrash: async (name) => (asked.push(name), agree),
-    moveToTrash: (path) => renameSync(path, join(trash, path.split("/").at(-1)!)),
+    confirmTrash: async (name) => (asked.push(name), whileAsked(), agree),
+    moveToTrash: (path) => {
+      if (!trashWorks) return false;
+      renameSync(path, join(trash, path.split("/").at(-1)!));
+      return true;
+    },
   });
   await projects.open(D);
   await projects.open(E);
@@ -170,6 +176,31 @@ test("the start screen's right-click: a project taken off the recent list stays 
   await expect(projects.trashProject(E)).rejects.toThrow("“E” is open: close it before moving it to the Trash");
   expect(asked).toEqual([]);
   for (const w of windows) await projects.closeWindow(w);
+
+  // Held by an agent in another process (an MCP server's lock): refused too.
+  const lockFile = join(E, "lock");
+  writeFileSync(lockFile, JSON.stringify({ pid: process.ppid, host: hostname() }));
+  await expect(projects.trashProject(E)).rejects.toThrow("is open");
+  expect(asked).toEqual([]);
+  rmSync(lockFile);
+  // Only a Beacon project on the list: the path comes from the page.
+  await expect(projects.trashProject(dir)).rejects.toThrow("isn't a recent Beacon project");
+
+  // Opened by an agent while the dialog was up: refused once agreed.
+  agree = true;
+  whileAsked = () => writeFileSync(lockFile, JSON.stringify({ pid: process.ppid, host: hostname() }));
+  await expect(projects.trashProject(E)).rejects.toThrow("is open");
+  expect(existsSync(E)).toBe(true);
+  rmSync(lockFile);
+  whileAsked = () => {};
+  // The Trash refused it: said so, and still listed.
+  trashWorks = false;
+  await expect(projects.trashProject(E)).rejects.toThrow("couldn't be moved to the Trash");
+  expect(existsSync(E)).toBe(true);
+  expect(listed()).toEqual([E, D]);
+  trashWorks = true;
+  agree = false;
+  asked.length = 0;
 
   // Asked and declined: nothing happens.
   await projects.trashProject(E);

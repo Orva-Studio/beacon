@@ -1846,12 +1846,15 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   blue with an edge, and a key beside the picker says what each colour is.
   Still to measure: the Reels tab's header, an iPhone, and YouTube Shorts
   (Google's numbers until then).
-- **The recording panel follows you between desktops** (the user, 2026-10-20;
-  not yet): the panel (camera, time, levels, Stop) stays on the desktop it
+- **The recording panel follows you between desktops** (the user, 2026-10-20): the panel (camera, time, levels, Stop) stays on the desktop it
   opened on. The user switches with AeroSpace, which hides windows by moving
   them off-screen rather than using macOS's Spaces, so the panel joining all
   Spaces (`canJoinAllSpaces`) may not be enough: check what AeroSpace allows
   (a floating or sticky rule for the panel's window) as well.
+  **Built, not working yet** (2026-10-21): the panel opens untitled, which
+  AeroSpace ignores in a stand-in window, but the real panel is still left
+  behind on a workspace switch. Set aside at the user's word; next step, if
+  they raise it, is `aerospace debug-windows` during a recording.
 - **Filmstrip thumbnails** (the user, 2026-10-12; **dropped** 2026-10-20: built,
   then removed at the user's ask, who didn't think it worked; not to be
   built again unless they ask): video and screen clips
