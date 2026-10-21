@@ -189,7 +189,7 @@ const projects = createProjects({
     w.win.setTitle(`${basename(h)} — Beacon`);
     w.message("opened", await openedPayload(w, h));
     if (canvas) await w.views.canvasView(canvas.id, canvas.rect, canvas.scale);
-    w.current?.bridge.sendTimelineMedia(true);
+    w.current?.bridge.sendWaveforms(true);
     w.media.resend();
     if (w === focused) menus.setMenu();
   },
@@ -297,7 +297,7 @@ function openWindow(): Win {
         init: async () => {
           // The webview may load after the project opened: send its pictures again once it asks.
           setTimeout(() => {
-            w.current?.bridge.sendTimelineMedia(true);
+            w.current?.bridge.sendWaveforms(true);
             w.media.resendThumbs();
           }, 50);
           return {

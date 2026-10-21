@@ -1843,8 +1843,9 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   them off-screen rather than using macOS's Spaces, so the panel joining all
   Spaces (`canJoinAllSpaces`) may not be enough: check what AeroSpace allows
   (a floating or sticky rule for the panel's window) as well.
-- **Filmstrip thumbnails** (the user, 2026-10-12; last in the phase, as the
-  user may not like it): video and screen clips
+- **Filmstrip thumbnails** (the user, 2026-10-12; **dropped** 2026-10-20: built,
+  then removed at the user's ask, who didn't think it worked; not to be
+  built again unless they ask): video and screen clips
   show frames along their length, not only the first. Measured on demo_1
   (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
   stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
@@ -1857,8 +1858,7 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   for what is in view, or keep two densities (1 s, 10 s).
 **Gate:** anything dragged in (Recents, a saved screenshot, a screenshot's
 thumbnail) or pasted lands at once; a camera take's background removed by
-each provider, with the same matte in preview and export; clips show their
-frames, if the user keeps filmstrips.
+each provider, with the same matte in preview and export.
 
 ### Phase 10.5 — Device frames (research first)
 The user will bring a lot of information before any work starts: which

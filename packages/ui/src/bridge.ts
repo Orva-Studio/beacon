@@ -1,7 +1,7 @@
 import type { CoreEvent, JobInfo, LocalCore } from "@beacon/core";
 import type { AppSettings, Session, ShortcutInfo } from "@beacon/model";
 import { appWideMessage } from "./payloads";
-import type { AppRPC, FilmstripView, TileMenu } from "./rpc";
+import type { AppRPC, TileMenu } from "./rpc";
 
 /**
  * What a project's core events tell the window, for the app's main process and for the UI harness that stands
@@ -54,8 +54,8 @@ export interface ProjectBridge {
   unwatch(): void;
   /** The revision the window's document is at: patches number on from it. */
   rev(): number;
-  /** Waveforms and filmstrips the window doesn't have yet; `all`, every one (a window starting afresh). */
-  sendTimelineMedia(all?: boolean): void;
+  /** Waveforms the window doesn't have yet; `all`, every one (a window starting afresh). */
+  sendWaveforms(all?: boolean): void;
   /** Media whose proxy is being made: waiting (`queued`) or under way (`jobs`), by asset, 0-1. */
   readonly proxies: { queued: Record<string, number>; jobs: Record<string, number> };
 }
@@ -82,37 +82,12 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
     }
     if (Object.keys(waveforms).length) send("media", { waveforms });
   };
-  const filmstripsSent = new Map<string, string>();
-  const sendFilmstrips = async (all = false) => {
-    if (all) filmstripsSent.clear();
-    const filmstrips: Record<string, Record<number, FilmstripView>> = {};
-    const sprite = async (path: string) => `data:image/jpeg;base64,${Buffer.from(await Bun.file(path).bytes()).toString("base64")}`;
-    const strip = async (s: { every: number; files: string[] }) => ({ every: s.every, sprites: await Promise.all(s.files.map(sprite)) });
-    for (const [id, asset] of Object.entries(core.doc(h).assets)) {
-      const file = `${asset.path}\0${asset.fingerprint}`;
-      if (filmstripsSent.get(id) === file) continue;
-      const f = core.derived<{ streams: Record<number, Omit<FilmstripView, "fine" | "coarse"> & Record<"fine" | "coarse", { every: number; files: string[] }>> }>(h, id, "filmstrip");
-      if (!f) continue;
-      filmstripsSent.set(id, file);
-      try {
-        filmstrips[id] = Object.fromEntries(await Promise.all(Object.entries(f.streams).map(async ([i, s]) => [i, { width: s.width, height: s.height, cols: s.cols, rows: s.rows, fine: await strip(s.fine), coarse: await strip(s.coarse) }] as const)));
-      } catch {
-        // Its files went with the cache: the medium keeps its first-frame thumbnail.
-        filmstripsSent.delete(id);
-      }
-    }
-    if (Object.keys(filmstrips).length) send("media", { filmstrips });
-  };
-  const sendTimelineMedia = (all = false) => {
-    sendWaveforms(all);
-    void sendFilmstrips(all);
-  };
   const unwatch = core.watch(h, (e) => {
     hooks.every?.(e);
     if (e.kind === "apply" || e.kind === "undo" || e.kind === "redo") {
       send("patches", { patches: e.patches, label: e.label, kind: e.kind, rev: ++rev });
       // Media added, replaced or relinked may have its waveform cached already, with no job to say so.
-      if (e.patches.some((p) => p.path[0] === "assets")) sendTimelineMedia();
+      if (e.patches.some((p) => p.path[0] === "assets")) sendWaveforms();
       hooks.changed?.(e);
     } else if (e.kind === "session") {
       send("session", { changes: e.changes });
@@ -122,10 +97,6 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
       sendPreparing();
     } else if (e.kind === "derived" && e.key === "proxy") {
       send("media", { proxies: { [e.asset]: e.present } });
-    } else if (e.kind === "derived" && e.key === "filmstrip" && !e.present) {
-      // Deleted (Settings' analyses, an agent): the clips go back to their first frame.
-      filmstripsSent.delete(e.asset);
-      send("media", { filmstrips: { [e.asset]: {} } });
     } else if (e.kind === "job") {
       const { job } = e;
       if (job.kind === "transcript" && job.asset) {
@@ -158,14 +129,13 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
         send("media", { analyzing: { ...analyzing }, analysisFailed: { ...analysisFailed } });
       }
       if (job.state === "done" && job.kind === "waveform") sendWaveforms();
-      if (job.state === "done" && job.kind === "filmstrip") void sendFilmstrips();
       hooks.other?.(e);
     } else if (e.kind === "importing") {
       const { kind: _, ...files } = e;
       send("importing", files);
     } else hooks.other?.(e);
   });
-  return { unwatch, rev: () => rev, sendTimelineMedia, proxies };
+  return { unwatch, rev: () => rev, sendWaveforms, proxies };
 }
 
 type Requests = AppRPC["bun"]["requests"];

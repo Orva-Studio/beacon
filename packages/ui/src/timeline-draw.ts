@@ -19,7 +19,6 @@ import {
   type Track,
 } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { FilmstripView } from "./rpc";
 import { drawIcon, type IconName } from "./controls";
 import { clipBox, cornerButtons, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, volumeY } from "./timeline-layout";
 import type { ViewState } from "./store";
@@ -152,32 +151,6 @@ function image(url: string, onLoad: () => void): HTMLImageElement | undefined {
   return img.complete && img.naturalWidth ? img : undefined;
 }
 
-/**
- * Decoded filmstrip sprites, the most recently drawn last: a minute of one stream is ~2 MB decoded, so only the
- * last few are kept, but never one the current drawing uses (it would decode again on every redraw).
- */
-const sprites = new Map<string, HTMLImageElement>();
-const SPRITES_KEPT = 16;
-
-function sprite(url: string, onLoad: () => void): HTMLImageElement | undefined {
-  let img = sprites.get(url);
-  if (img) sprites.delete(url);
-  else {
-    img = new Image();
-    img.onload = onLoad;
-    img.src = url;
-  }
-  sprites.set(url, img);
-  return img.complete && img.naturalWidth ? img : undefined;
-}
-
-function keepSprites(used: Set<string>) {
-  for (const url of sprites.keys()) {
-    if (sprites.size <= SPRITES_KEPT) break;
-    if (!used.has(url)) sprites.delete(url);
-  }
-}
-
 /** Points per frame from which the ruler ticks each frame, numbers them, and shades the playhead's frame. */
 const FRAME_TICKS = 5;
 const FRAME_LABELS = 36;
@@ -220,7 +193,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
 /** What drawing the timeline reads: the component's latest render, its refs and its hit tests. */
 export interface TimelineDrawing {
   canvas: RefObject<HTMLCanvasElement | null>;
-  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; filmstrips: Record<string, Record<number, FilmstripView>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[] }>;
+  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[] }>;
   size: RefObject<{ w: number; h: number }>;
   staticLayer: RefObject<{ canvas?: HTMLCanvasElement; key: unknown[] }>;
   dragState: RefObject<Drag | null>;
@@ -245,7 +218,7 @@ export function drawTimeline(t: TimelineDrawing) {
   const drawRef = { current: t.redraw };
     const c = canvas.current;
     if (!c) return;
-    const { project, session, waveforms, filmstrips, thumbs, marks } = latest.current;
+    const { project, session, waveforms, thumbs, marks } = latest.current;
     const tracks = [...project.tracks].reverse();
     const TRACK = session.timeline.trackHeight;
     const fps = rationalToNumber(project.settings.fps);
@@ -262,7 +235,7 @@ export function drawTimeline(t: TimelineDrawing) {
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, filmstrips, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -270,11 +243,9 @@ export function drawTimeline(t: TimelineDrawing) {
       layer.canvas.height = c.height;
       layer.key = [];
     }
-    const spritesUsed = new Set<string>();
     if (layer.key.length !== key.length || key.some((k, i) => k !== layer.key[i])) {
       layer.key = key;
       drawStatic(layer.canvas.getContext("2d")!);
-      keepSprites(spritesUsed);
     }
     const ctx = c.getContext("2d")!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -326,7 +297,6 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.clip();
       let textX = x0 + 10;
       const tag = (clip.props.label as { color?: string | null } | undefined)?.color;
-      const strip = !audio && clip.assetId ? filmstrips[clip.assetId]?.[propsOf<{ stream: number }>(clip, "media").stream] : undefined;
       if (audio) {
         if (teal && !tag) {
           ctx.fillStyle = AUDIO_SELECTED.top();
@@ -348,24 +318,6 @@ export function drawTimeline(t: TimelineDrawing) {
             const hgt = silent ? 1 : Math.min(1, (peak / 255) * boost * volumeAt(clip, t - by)) * (ch - 6);
             ctx.fillRect(px, y + ch - hgt, 1.5, hgt);
           }
-        }
-      } else if (strip) {
-        // Frames along the clip from its first, each the one at (or just before) its left edge.
-        const th = ch;
-        const tw = (strip.width / strip.height) * th;
-        const media0 = ticksToSeconds(clip.mediaStart ?? 0);
-        const speed = clip.speed ? clip.speed.num / clip.speed.den : 1;
-        const xs = x(ticksToSeconds(clip.start) + by);
-        const { every, sprites: urls } = (tw / pps) * speed >= strip.coarse.every ? strip.coarse : strip.fine;
-        const per = strip.cols * strip.rows;
-        for (let k = Math.max(0, Math.floor((Math.max(x0, HEADER) - xs) / tw)); xs + k * tw < Math.min(x0 + cw, w); k++) {
-          const n = Math.floor((media0 + ((k * tw) / pps) * speed) / every + 1e-6);
-          const url = urls[Math.floor(n / per)];
-          const img = url ? sprite(url, () => (loaded.current++, drawRef.current())) : undefined;
-          if (url) spritesUsed.add(url);
-          if (!img) continue;
-          const cell = n % per;
-          ctx.drawImage(img, (cell % strip.cols) * strip.width, Math.floor(cell / strip.cols) * strip.height, strip.width, strip.height, xs + k * tw, y, tw, th);
         }
       } else {
         const url = thumbs[clip.id];
@@ -393,15 +345,8 @@ export function drawTimeline(t: TimelineDrawing) {
         textX = Math.max(textX, x0 + 30);
       }
       if (cw > 24) {
-        ctx.font = font(13);
-        // Over frames the name sits on a badge, as the link does.
-        if (strip) {
-          ctx.fillStyle = CLIP.badge();
-          ctx.beginPath();
-          ctx.roundRect(textX - 5, y + ch / 2 - 10, Math.min(ctx.measureText(label(clip)).width + 10, x0 + cw - textX), 20, 4);
-          ctx.fill();
-        }
         ctx.fillStyle = CLIP.text();
+        ctx.font = font(13);
         ctx.textBaseline = audio ? "top" : "middle";
         ctx.fillText(label(clip), textX, audio ? y + 5 : y + ch / 2);
         ctx.textBaseline = "alphabetic";
