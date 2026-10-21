@@ -1,7 +1,7 @@
 import type { CoreEvent, JobInfo, LocalCore } from "@beacon/core";
 import type { AppSettings, Session, ShortcutInfo } from "@beacon/model";
 import { appWideMessage } from "./payloads";
-import type { AppRPC } from "./rpc";
+import type { AppRPC, TileMenu } from "./rpc";
 
 /**
  * What a project's core events tell the window, for the app's main process and for the UI harness that stands
@@ -140,6 +140,16 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
 
 type Requests = AppRPC["bun"]["requests"];
 type Handlers = { [K in keyof Requests]: (params: Requests[K]["params"]) => Promise<Requests[K]["response"]> };
+/** A choice from a tile's right-click menu: added to the selection (or at the playhead), or starred or unstarred. */
+export async function tileChoice(core: Pick<LocalCore, "run" | "favoriteAdd" | "favoriteRemove">, h: string, tile: TileMenu, choice: string): Promise<void> {
+  if (choice === "add") await core.run(h, tile.command, tile.args);
+  else if (choice === "favorite") await core.favoriteAdd(tile.item);
+  else if (choice === "unfavorite") await core.favoriteRemove(tile.item);
+}
+
+/** The items of a tile's right-click menu, as [label, choice]. */
+export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"], tile.favorite ? ["Remove from Favorites", "unfavorite"] : ["Add to Favorites", "favorite"]];
+
 type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage";
 type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session">;
 

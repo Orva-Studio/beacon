@@ -3145,3 +3145,34 @@ test.skipIf(skip)("⌥⇧A animates a clip from its start to its end, wherever t
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await select([]);
 }, 30_000);
+
+test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the selection, or an annotation at the playhead) and to star or unstar it", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const starred = await ui.core.favorites();
+  await select([screen.id]);
+  await run("panel.show", { tool: "visualEffects" });
+  const shadow = `[data-item="effect:drop-shadow"]`;
+  await page.until(`!!document.querySelector('${shadow}')`);
+  const before = clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length;
+  await page.rightClick(...(await centre(shadow)));
+  await arrived(() => ui.menus.some((m) => m.startsWith("tile:")));
+  expect(ui.menus.at(-1)).toBe(`tile:Add to Selected Media|${starred.includes("effect:drop-shadow") ? "Remove from Favorites" : "Add to Favorites"}`);
+  await ui.chooseTile("add");
+  expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(before + 1);
+  await ui.chooseTile(starred.includes("effect:drop-shadow") ? "unfavorite" : "favorite");
+  expect((await ui.core.favorites()).includes("effect:drop-shadow")).toBe(!starred.includes("effect:drop-shadow"));
+
+  await run("panel.show", { tool: "annotations" });
+  const text = `[data-item="annotation:text"]`;
+  await page.until(`!!document.querySelector('${text}')`);
+  await page.rightClick(...(await centre(text)));
+  await arrived(() => ui.menus.at(-1)!.startsWith("tile:Add at Playhead"));
+  expect(ui.menus.at(-1)!.startsWith("tile:Add at Playhead|")).toBe(true);
+
+  if (starred.includes("effect:drop-shadow")) await ui.core.favoriteAdd("effect:drop-shadow", starred.indexOf("effect:drop-shadow"));
+  else await ui.core.favoriteRemove("effect:drop-shadow");
+  expect(await ui.core.favorites()).toEqual(starred);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 30_000);

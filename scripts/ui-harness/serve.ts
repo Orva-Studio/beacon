@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { importDropped, LocalCore } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { appBridge, coreRequests, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
+import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
@@ -51,6 +51,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     for (const wake of frameWaiters.splice(0)) wake();
   };
   let chosenFile: string | null = null;
+  let tile: TileMenu | undefined;
   let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
   /** The app's own handlers for what is core's alone. */
   // Not cancelJob: the harness's downloads are stand-ins, so it only records it.
@@ -133,6 +134,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
         else if (msg.type === "binMenu") menus.push(`asset:${p.asset}`);
+        else if (msg.type === "tileMenu") {
+          tile = p;
+          menus.push(`tile:${tileMenuItems(p).map(([label]) => label).join("|")}`);
+        }
         else if (msg.type === "importMedia") menus.push("import");
         else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, p.files, p, join(project, "media")));
         else if (msg.type === "captureFrame")
@@ -235,6 +240,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,
     faults,
+    /** Picks a choice ("add", "favorite", "unfavorite") from the tile menu shown last, as the app's native menu does. */
+    chooseTile(choice: string) {
+      return tileChoice(core, h, tile!, choice);
+    },
     /** The file Finder's open dialog picks next (Import .hlook…); null cancels. */
     chooseFile(path: string | null) {
       chosenFile = path;

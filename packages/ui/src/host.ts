@@ -39,6 +39,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     canvasMenu: () => void request("canvasMenu", {}),
     trackMenu: (track) => void request("trackMenu", { track }),
     binMenu: (asset) => void request("binMenu", { asset }),
+    tileMenu: (tile) => void request("tileMenu", tile),
     importMedia: () => void request("importMedia", {}),
     dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at })),
     captureFrame: () => commands.send(() => request("captureFrame", {})),

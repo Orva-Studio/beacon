@@ -94,9 +94,19 @@ export interface RunReply {
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */
 export type { DroppedFile };
 
+/** A tile's right-click menu: what its Add item runs (the tile's own double-click) and whether it is a favourite. */
+export interface TileMenu {
+  item: string;
+  /** "Add to Selected Media", or "Add at Playhead" for an annotation. */
+  add: string;
+  command: string;
+  args: Record<string, unknown>;
+  favorite: boolean;
+}
+
 export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
-export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
+export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
@@ -275,6 +285,8 @@ export type AppRPC = {
       canvasMenu: { params: {}; response: void };
       /** The right-click menu for a Media Bin item. */
       binMenu: { params: { asset: string }; response: void };
+      /** The right-click menu for a tool panel's tile (an effect, annotation or audio effect). */
+      tileMenu: { params: TileMenu; response: void };
       /** Import Media…'s file picker (the Media Bin's Import tile). */
       importMedia: { params: {}; response: void };
       /** Files dragged in from Finder: imported at `time` on `track` (a drop on the timeline), else after the last clip. */

@@ -351,6 +351,7 @@ function openWindow(): Win {
         clipMenu: (params) => menus.clipMenu(params),
         importMedia: () => void projects.importMedia(w).catch((e: unknown) => w.status(errorText(e))),
         binMenu: (params) => menus.binMenu(params),
+        tileMenu: (params) => void menus.tileMenu(params),
         dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(w, files, { time, track })),
         trackMenu: (params) => menus.trackMenu(params),
         captureFrame: () =>

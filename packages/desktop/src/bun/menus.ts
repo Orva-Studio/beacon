@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { ApplicationMenu, ContextMenu, Utils } from "electrobun/main";
 import { chordOf, keyOfCode, keysLabel, LABEL_COLORS, locateTrack, menuKey, MODIFIERS, walkClips, type Keys, type ShortcutInfo } from "@beacon/core";
+import { tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
 import { errorText, type App } from "./app";
 
 export interface MenusApp extends App {
@@ -421,16 +422,29 @@ export function createMenus(app: MenusApp) {
     }
   }
 
+  /** The tile whose menu is shown: its item ids have colons, so the click names only the choice. */
+  let tile: TileMenu | undefined;
+
+  /** A tool panel tile's menu: add it as its double-click does, or star it. */
+  async function tileMenu(t: TileMenu) {
+    const current = app.current();
+    if (!current) return;
+    tile = t;
+    const adds = await applies(current.path, t.command, t.args);
+    ContextMenu.showContextMenu(tileMenuItems(t).map(([label, choice]) => ({ label, action: `tile:${choice}`, enabled: choice !== "add" || adds })));
+  }
+
   ContextMenu.on("context-menu-clicked", (e) => {
     const chosen = String((e as { data?: { action?: string } }).data?.action ?? "");
     if (chosen.startsWith("act:")) return runAction(chosen.slice(4));
     const current = app.current();
     if (!current) return;
+    if (chosen.startsWith("tile:") && tile) return void tileChoice(core, current.path, tile, chosen.slice(5)).catch(fail);
     const [kind, op, id] = chosen.split(":") as [string, string, string];
     if (kind === "track") trackAction(current.path, op, id);
     else if (kind === "media") mediaAction(current.path, op, id);
     else if (kind === "clip") clipAction(current.path, op, id);
   });
 
-  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu };
+  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, tileMenu };
 }

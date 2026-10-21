@@ -3,7 +3,7 @@ import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session
 import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
 import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
-import type { DroppedFile, Narrating, RunReply } from "./rpc";
+import type { DroppedFile, Narrating, RunReply, TileMenu } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
@@ -47,6 +47,7 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   canvasMenu(): void;
   trackMenu(track: string | null): void;
   binMenu(asset: string): void;
+  tileMenu(tile: TileMenu): void;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
