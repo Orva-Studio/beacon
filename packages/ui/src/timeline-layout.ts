@@ -39,6 +39,27 @@ export const rowAt = (y: number, track: number, rows: number): number | undefine
   return y > RULER && i >= 0 && i < rows ? i : undefined;
 };
 
+/** A clip narrower than this is drawn, clicked and marquee-selected this wide, so a frame left by a cut can still be grabbed. */
+export const MIN_CLIP = 40;
+
+/**
+ * Where a clip from `a` to `b` (seconds) is shown, at `spp` seconds a point: at least `MIN_CLIP` wide, grown into the
+ * empty time on either side and never over its neighbours (`others`, the track's other clips as [start, end]), so a
+ * sliver between two clips stays to scale. Its length and its trim edges are its own.
+ */
+export function shownSpan(a: number, b: number, others: readonly (readonly [number, number])[], spp: number): [number, number] {
+  const grow = MIN_CLIP * spp - (b - a);
+  if (grow <= 0) return [a, b];
+  const prev = others.reduce<readonly [number, number] | undefined>((m, o) => (o[1] <= a && (!m || o[1] > m[1]) ? o : m), undefined);
+  const next = others.reduce<readonly [number, number] | undefined>((m, o) => (o[0] >= b && (!m || o[0] < m[0]) ? o : m), undefined);
+  // A short neighbour grows into the same gap, so each takes half of it.
+  const share = (o: readonly [number, number] | undefined, gap: number) => (o && o[1] - o[0] < MIN_CLIP * spp ? gap / 2 : gap);
+  const before = share(prev, Math.max(0, a - (prev?.[1] ?? -Infinity)));
+  const after = share(next, Math.max(0, (next?.[0] ?? Infinity) - b));
+  const left = Math.min(before, Math.max(grow / 2, grow - after));
+  return [a - left, b + Math.min(after, grow - left)];
+}
+
 /** A clip's box in its row: 3 points in from the row's edges. */
 export const clipBox = (i: number, track: number) => ({ y: rowTop(i, track) + 3, h: track - 6 });
 

@@ -12,6 +12,8 @@ export type Affine = [a: number, b: number, c: number, d: number, e: number, f: 
 export interface PassUse {
   pass: string;
   params: number[];
+  /** A `.cube` file the pass reads as its `lut` texture. */
+  lut?: string;
 }
 
 export type Content =
@@ -37,6 +39,11 @@ export interface VisualLayer {
   radius?: [number, number, number, number];
   opacity?: number;
   passes?: PassUse[];
+  /**
+   * The layer's alpha from another source's brightness at the same content point (Remove Background's person matte):
+   * `time` in its media, `range` the brightness drawn clear and the one drawn opaque (0 and 1 when absent).
+   */
+  matte?: { source: string; time?: number; range?: [number, number] };
 }
 
 export interface BackdropLayer {

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
-import { findDropped, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
+import { basename, dirname, extname, join, resolve } from "node:path";
+import { findDropped, lockOwner, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
 import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
 import type { LocalCore } from "@beacon/core";
 import { errorText, type ProjectWindow, type Current } from "./app";
@@ -24,6 +24,10 @@ export interface ProjectsApp {
   recentChanged(): void;
   /** Finder's open dialog (Electrobun's `Utils.openFileDialog`): the paths picked, none if cancelled. */
   openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string }): Promise<string[]>;
+  /** Asks before a project goes to the Trash: whether the user agreed. */
+  confirmTrash(name: string): Promise<boolean>;
+  /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`): whether it went. */
+  moveToTrash(path: string): boolean;
 }
 
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
@@ -113,6 +117,30 @@ export function createProjects(app: ProjectsApp) {
     status(`${path} no longer exists`);
   }
 
+  /** The start screen's right-click: off the list, the project left where it is. */
+  function removeRecent(path: string) {
+    setRecent(recent.filter((r) => r.path !== path));
+  }
+
+  /**
+   * The start screen's right-click: the project folder to the Trash, after asking, and off the list. Refused while it
+   * is open, in a window or by an agent (this app's core or an MCP server's, by the project's lock), checked again after
+   * asking as one may open it meanwhile. Only a .beproj on the list: the path comes from the page.
+   */
+  async function trashProject(path: string) {
+    const name = basename(path, extname(path));
+    if (!path.endsWith(".beproj") || !recent.some((r) => r.path === path)) throw new Error(`${path} isn't a recent Beacon project`);
+    const open = () => [...app.windows()].some((w) => w.current?.path === path && !w.current.closed) || !!lockOwner(path);
+    const refuse = () => new Error(`“${name}” is open: close it before moving it to the Trash`);
+    if (open()) throw refuse();
+    if (!existsSync(path)) return removeRecent(path);
+    if (!(await app.confirmTrash(name))) return;
+    if (open()) throw refuse();
+    if (!app.moveToTrash(path)) throw new Error(`“${name}” couldn't be moved to the Trash`);
+    removeRecent(path);
+    status(`Moved “${name}” to the Trash`);
+  }
+
   /** Opens, Save As and renames run one at a time: two at once would both pass the "already open" check and interleave the switch. */
   let opening: Promise<unknown> = Promise.resolve();
   function queued(fn: () => Promise<void>): Promise<void> {
@@ -167,11 +195,12 @@ export function createProjects(app: ProjectsApp) {
   const closeWindow = (w: ProjectWindow) =>
     queued(async () => {
       const current = w.current;
+      // Gone from the screen already: its last save has no page to tell.
+      current?.bridge.unwatch();
       if (current && !current.closed) {
         try {
           await core.save(current.path);
         } catch (e) {
-          current.bridge.unwatch();
           app.leaving(w);
           w.current = undefined;
           const name = basename(current.path, ".beproj");
@@ -229,8 +258,15 @@ export function createProjects(app: ProjectsApp) {
     if (files.filter(Boolean).length) await importPaths(w, files.filter(Boolean));
   }
 
-  /** Files dropped on `w`, as Finder gave them. */
-  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) => importPaths(w, await findDropped(files), at);
+  /** A file an effect reads (a LUT), picked in its inspector: imported into `w`'s project, its asset id. */
+  async function importFile(w: ProjectWindow, path: string) {
+    if (!w.current) throw new Error("Open or create a project first");
+    return (await core.import(w.current.path, [path])).assets[0];
+  }
+
+  /** Files dropped or pasted on `w`, as Finder or the clipboard gave them; those with only their bytes saved into its project. */
+  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) =>
+    importPaths(w, await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {}), at);
 
   /** File > New Project: `w` asks for the name, then `createProject`. */
   function newProject(w: ProjectWindow) {
@@ -280,6 +316,8 @@ export function createProjects(app: ProjectsApp) {
     recent: () => recent,
     recentProjects,
     clearRecent: () => setRecent([]),
+    removeRecent,
+    trashProject,
     openRecent,
     open,
     openDialog,
@@ -287,6 +325,7 @@ export function createProjects(app: ProjectsApp) {
     playing,
     importMedia,
     dropFiles,
+    importFile,
     newProject,
     createProject,
     saveAsDialog,

@@ -57,6 +57,8 @@ interface Win extends ProjectWindow {
  */
 const windows = new Set<Win>();
 let focused: Win | undefined;
+/** The safe areas each window last showed, so the menu is rebuilt only when they change. */
+const safeAreas = new WeakMap<Win, string | undefined>();
 
 const winFor = (h: string) => [...windows].find((w) => w.current?.path === h);
 /** Messages for every window: what concerns the app (keys, favourites, settings, recent projects). */
@@ -144,6 +146,19 @@ const projects = createProjects({
   windows: () => windows,
   newWindow: () => openWindow(),
   openFileDialog: (opts) => Utils.openFileDialog(opts),
+  confirmTrash: async (name) => {
+    const { response } = await Utils.showMessageBox({
+      type: "warning",
+      title: "Move to Trash",
+      message: `Move “${name}” to the Trash?`,
+      detail: "The project folder goes to the Trash with everything inside it: its recordings, snapshots and copied media. Media it only links to stays where it is. Finder's Put Back restores it.",
+      buttons: ["Move to Trash", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    return response === 0;
+  },
+  moveToTrash: (path) => Utils.moveToTrash(path),
   watch: (target, h) => {
     const w = target as Win;
     return projectBridge(core, h, w.message, {
@@ -154,6 +169,12 @@ const projects = createProjects({
       },
       session: (changes) => {
         if (changes.canvas) w.views.place(changes.canvas);
+        // The menu ticks the safe areas shown: rebuilt when they change, not for every review click.
+        const safeArea = changes.features && (changes.features["safe-areas"] as { layout?: string } | undefined)?.layout;
+        if (changes.features && safeArea !== safeAreas.get(w)) {
+          safeAreas.set(w, safeArea);
+          if (w === focused) menus.setMenu();
+        }
         if (changes.playing) void projects.playing(w);
       },
       other: (e) => {
@@ -220,6 +241,8 @@ const menus = createMenus({
   recent: projects.recent,
   openRecent: projects.openRecent,
   clearRecent: projects.clearRecent,
+  removeRecent: projects.removeRecent,
+  trashProject: projects.trashProject,
   appAction: (id) => appAction(id),
   quit: () => {
     quitLog("⌘Q");
@@ -303,6 +326,7 @@ function openWindow(): Win {
         openDialog: () => reply(projects.openDialog),
         openRecent: ({ path }) => projects.openRecent(path),
         chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
+        importFile: ({ path }) => replyWith(async () => (await projects.importFile(w, path))!),
         chooseFile: async ({ extensions }) => (await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: extensions.join(",") }))[0] || null,
         startExport: (params) => reply(() => w.exports.startExport(params)),
         startRecording: (params) => (recordFor(w), reply(() => recorder.startRecording(params))),
@@ -342,6 +366,8 @@ function openWindow(): Win {
         clipMenu: (params) => menus.clipMenu(params),
         importMedia: () => void projects.importMedia(w).catch((e: unknown) => w.status(errorText(e))),
         binMenu: (params) => menus.binMenu(params),
+        tileMenu: (params) => void menus.tileMenu(params),
+        recentMenu: ({ path }) => void menus.recentMenu(path),
         dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(w, files, { time, track })),
         trackMenu: (params) => menus.trackMenu(params),
         captureFrame: () =>
@@ -373,7 +399,12 @@ function openWindow(): Win {
     // Agents and tests can start the app without taking focus from the user.
     activate: process.env.BEACON_BACKGROUND !== "1",
   });
-  const message: Send = (type, data) => (win.webview.rpc!.send[type] as (d: typeof data) => void)(data);
+  let shut = false;
+  // A closed window's project is still saved and closed after it, and tells it so: its page is gone, so that goes nowhere.
+  const message: Send = (type, data) => {
+    const send = shut ? undefined : win.webview?.rpc?.send;
+    if (send) (send[type] as (d: typeof data) => void)(data);
+  };
   const part = { core, message, status: (text: string) => message("status", { text }), current: () => w.current };
   Object.assign(w, { win, message, status: part.status, activate: () => win.activate(), views: createViews(part), media: createWindowMedia(part), exports: createExports(part) });
   windows.add(w);
@@ -386,6 +417,7 @@ function openWindow(): Win {
     menus.setMenu();
   });
   win.on("close", () => {
+    shut = true;
     windows.delete(w);
     if (focused === w) focused = [...windows].at(-1);
     void projects.closeWindow(w).catch(report);

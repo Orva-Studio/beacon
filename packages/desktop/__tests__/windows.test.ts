@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import type { ProjectBridge } from "@beacon/ui";
@@ -17,7 +17,10 @@ class FakeWindow implements ProjectWindow {
   current?: Current;
   messages: [string, unknown][] = [];
   activated = 0;
-  message = ((type: string, data: unknown) => void this.messages.push([type, data])) as ProjectWindow["message"];
+  /** Closed on screen: its page is gone, so whatever it is told then would throw in the app (core logs it). */
+  shut = false;
+  late: string[] = [];
+  message = ((type: string, data: unknown) => void (this.shut ? this.late.push(type) : this.messages.push([type, data]))) as ProjectWindow["message"];
   status = (text: string) => void this.messages.push(["status", text]);
   activate = () => void this.activated++;
 }
@@ -48,11 +51,16 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
       windows.push(w);
       return w;
     },
-    watch: () => bridge,
+    // As the app's bridge does: a save is told to the window showing the project.
+    watch: (w, h) => ({ ...bridge, unwatch: core.watch(h, (e) => e.kind === "saved" && w.message("saved", { ok: true })) }) as ProjectBridge,
     shown: async (w, h) => void shown.push(`${windows.indexOf(w as FakeWindow)}:${h}`),
     leaving: () => {},
     recentChanged: () => {},
     openFileDialog: async () => [],
+    confirmTrash: async () => false,
+    moveToTrash: () => {
+      throw new Error("not in this test");
+    },
   });
 
   // The start screen's window takes the first; the next opens beside it, and both stay open in core.
@@ -91,8 +99,13 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
   expect(windows[0]!.current?.path).toBe(copy);
   expect(() => core.doc(A)).toThrow();
 
-  // A window closed: its project saved and released, the others untouched.
+  // A window closed: its project saved and released, the others untouched. It is gone from the screen first, so
+  // its last save isn't told to it.
+  await core.run(B, "track.add", { name: "Last edit" });
+  windows[1]!.shut = true;
   await projects.closeWindow(windows[1]!);
+  windows[1]!.shut = false;
+  expect(windows[1]!.late).toEqual([]);
   expect(windows[1]!.current).toBeUndefined();
   expect(() => core.doc(B)).toThrow();
   expect(core.doc(copy).tracks.some((t) => t.name === "Only in A")).toBe(true);
@@ -121,3 +134,89 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
   for (const w of windows) await projects.closeWindow(w);
   core.closeAll();
 }, 120_000);
+
+test("the start screen's right-click: a project taken off the recent list stays on disk; one moved to the Trash goes after asking, never while open", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-r"), configDir: join(dir, "config-r") });
+  const [D, E] = ["D", "E"].map((n) => join(dir, `${n}.beproj`)) as [string, string];
+  for (const p of [D, E]) await core.close(await core.create({ path: p }));
+  const trash = join(dir, "Trash");
+  mkdirSync(trash);
+  const windows: FakeWindow[] = [new FakeWindow()];
+  let agree = false;
+  let trashWorks = true;
+  let whileAsked = () => {};
+  const asked: string[] = [];
+  const projects = createProjects({
+    core,
+    focused: () => windows[0],
+    windows: () => windows,
+    newWindow: () => {
+      const w = new FakeWindow();
+      windows.push(w);
+      return w;
+    },
+    watch: () => bridge,
+    shown: async () => {},
+    leaving: () => {},
+    recentChanged: () => {},
+    openFileDialog: async () => [],
+    confirmTrash: async (name) => (asked.push(name), whileAsked(), agree),
+    moveToTrash: (path) => {
+      if (!trashWorks) return false;
+      renameSync(path, join(trash, path.split("/").at(-1)!));
+      return true;
+    },
+  });
+  await projects.open(D);
+  await projects.open(E);
+  const listed = () => projects.recent().map((r) => r.path);
+  expect(listed()).toEqual([E, D]);
+
+  // Open in a window: refused, without asking.
+  await expect(projects.trashProject(E)).rejects.toThrow("“E” is open: close it before moving it to the Trash");
+  expect(asked).toEqual([]);
+  for (const w of windows) await projects.closeWindow(w);
+
+  // Held by an agent in another process (an MCP server's lock): refused too.
+  const lockFile = join(E, "lock");
+  writeFileSync(lockFile, JSON.stringify({ pid: process.ppid, host: hostname() }));
+  await expect(projects.trashProject(E)).rejects.toThrow("is open");
+  expect(asked).toEqual([]);
+  rmSync(lockFile);
+  // Only a Beacon project on the list: the path comes from the page.
+  await expect(projects.trashProject(dir)).rejects.toThrow("isn't a recent Beacon project");
+
+  // Opened by an agent while the dialog was up: refused once agreed.
+  agree = true;
+  whileAsked = () => writeFileSync(lockFile, JSON.stringify({ pid: process.ppid, host: hostname() }));
+  await expect(projects.trashProject(E)).rejects.toThrow("is open");
+  expect(existsSync(E)).toBe(true);
+  rmSync(lockFile);
+  whileAsked = () => {};
+  // The Trash refused it: said so, and still listed.
+  trashWorks = false;
+  await expect(projects.trashProject(E)).rejects.toThrow("couldn't be moved to the Trash");
+  expect(existsSync(E)).toBe(true);
+  expect(listed()).toEqual([E, D]);
+  trashWorks = true;
+  agree = false;
+  asked.length = 0;
+
+  // Asked and declined: nothing happens.
+  await projects.trashProject(E);
+  expect(asked).toEqual(["E"]);
+  expect(existsSync(E)).toBe(true);
+  expect(listed()).toEqual([E, D]);
+  // Agreed: the folder goes to the Trash, and off the list.
+  agree = true;
+  await projects.trashProject(E);
+  expect(existsSync(E)).toBe(false);
+  expect(existsSync(join(trash, "E.beproj"))).toBe(true);
+  expect(listed()).toEqual([D]);
+
+  // Off the list only: the project stays where it is.
+  projects.removeRecent(D);
+  expect(listed()).toEqual([]);
+  expect(existsSync(D)).toBe(true);
+  core.closeAll();
+});

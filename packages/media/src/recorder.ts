@@ -17,8 +17,8 @@ export interface RecorderDevices {
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
 export interface RecorderSources {
-  /** `exclude`: leave out windows with this title (Beacon's recording panel). */
-  screen?: { display?: number; fps?: number; exclude?: string };
+  /** `exclude`: leave out the window with this number (Beacon's recording panel). */
+  screen?: { display?: number; fps?: number; exclude?: number };
   systemAudio?: boolean;
   camera?: { id?: string };
   microphone?: { id?: string };

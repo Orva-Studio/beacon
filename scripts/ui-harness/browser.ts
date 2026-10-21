@@ -89,7 +89,8 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
     },
     /** Files dragged in from outside the page (Finder) and dropped at a point. */
     async dropFiles(x: number, y: number, files: string[]) {
-      const data = { items: [], files, dragOperationsMask: 1 };
+      // Copy, link and move, as Finder offers them.
+      const data = { items: [], files, dragOperationsMask: 1 | 2 | 16 };
       for (const type of ["dragEnter", "dragOver", "drop"] as const) await send("Input.dispatchDragEvent", { type, x, y, data });
     },
     /** A right-click (the page's contextmenu event). */

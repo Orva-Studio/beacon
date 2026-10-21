@@ -5,7 +5,7 @@
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_WHISPER_MODEL, transcribe } from "@beacon/media";
+import { DEFAULT_WHISPER_MODEL, makeAudioProxy, transcribe } from "@beacon/media";
 import { LocalCore } from "../../src";
 
 const [recording, video, speech] = process.argv.slice(2) as [string, string, string | undefined];
@@ -24,6 +24,8 @@ try {
     sizes[ext] = statSync(output).size;
   }
   await core.close(h);
+  // A proxy's audio copy: a muxer left out of the build failed every proxy of media with sound.
+  sizes.mka = statSync(await makeAudioProxy(recording, 0, join(dir, "audio.mka"))).size;
   // whisper-cli too, when this Mac has the model (it isn't part of Beacon's download).
   const words = speech && existsSync(DEFAULT_WHISPER_MODEL) ? (await transcribe(speech, { model: DEFAULT_WHISPER_MODEL })).words.length : undefined;
   console.log(JSON.stringify({ frame: frame.png.length, sizes, words }));

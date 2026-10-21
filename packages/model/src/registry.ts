@@ -17,7 +17,7 @@ function zodIssues(path: string, error: z.ZodError): string[] {
 }
 
 /** An effect the Visual Effects panel shows (and favourites can name): one for what is seen, not the cursor's or the audio's (those have their own tab and panel items). */
-export const isPanelEffect = (traits: string[]) => traits.includes("visual");
+export const isPanelEffect = (traits: string[]) => traits.includes("visual") || traits.includes("video");
 
 export class FeatureRegistry {
   readonly features = new Map<string, Feature>();

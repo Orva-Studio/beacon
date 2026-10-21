@@ -1,35 +1,35 @@
 {
-  "about": "Where each platform draws its own UI over a video, as fractions of the frame (x0, y0, x1, y1; y down). The 9:16 numbers are the platforms' own for ads (a call-to-action button makes the bottom band a little deeper than an ordinary post's), measured from their templates by Solid Labs (https://www.solidlabs.com/social-safe-zones), checked 2026-08-07. YouTube's 16:9 player publishes none: its zones are the player's own title and controls, with the 90% title-safe frame. The apps move: update this file, not the code.",
+  "about": "Where each platform draws its own UI over a video, as fractions of the frame (x0, y0, x1, y1; y down). TikTok and Reels are ordinary posts (not ads, whose call-to-action makes the bottom band about twice as deep), measured from the user's own phone (2026-10-20) and widened to what guides measure on iPhones. Shorts are Google's numbers, not yet measured. YouTube's 16:9 player publishes none: its zones are the player's own title and controls, with the 90% title-safe frame. The apps move: update this file, not the code.",
   "layouts": [
     {
       "id": "tiktok",
       "title": "TikTok",
       "aspect": [9, 16],
-      "source": "TikTok's In-Feed template (April 2025), 240 / 660 / 120 px at 1080×1920, the action rail 300 px below the middle",
+      "source": "Measured 2026-10-20 on the user's Android (1080×2400, 20:9): the video fills the height and loses about 4% each side; tabs to 7% down, the rail the right 15% from halfway, username and caption the bottom 13-16% (with the Ask bar). Widened to what guides measure on iPhones (the video runs under the status bar there; caption band about 17%)",
       "zones": [
-        { "id": "top", "label": "Following, For You and search", "rect": [0, 0, 1, 0.125] },
-        { "id": "bottom", "label": "Username, caption and sound", "rect": [0, 0.65625, 1, 1] },
-        { "id": "left", "label": "Left edge, cropped on some phones", "rect": [0, 0.125, 0.11111, 0.65625] },
-        { "id": "right", "label": "Right edge, cropped on some phones", "rect": [0.88889, 0.125, 1, 0.5] },
-        { "id": "rail", "label": "Profile, like, comment, save and share", "rect": [0.72222, 0.5, 1, 0.65625] }
+        { "id": "top", "label": "Following, For You and search", "rect": [0, 0, 1, 0.1] },
+        { "id": "bottom", "label": "Username, caption and sound (deeper with a long caption)", "rect": [0, 0.82, 1, 1] },
+        { "id": "left", "label": "Left edge, cropped on taller phones", "rect": [0, 0.1, 0.05, 0.82] },
+        { "id": "right", "label": "Right edge, cropped on taller phones", "rect": [0.95, 0.1, 1, 0.46] },
+        { "id": "rail", "label": "Profile, like, comment, save and share", "rect": [0.83, 0.46, 1, 0.82] }
       ],
-      "headroom": [0.125, 0.18],
+      "headroom": [0.1, 0.155],
       "eyeLine": 0.3
     },
     {
       "id": "reels",
       "title": "Instagram Reels",
       "aspect": [9, 16],
-      "source": "Meta's Reels and Stories safe zone: 14% top, 35% bottom, 6% sides; the action rail, the right 21% up to 40% from the bottom, from Meta's diagram",
+      "source": "Measured 2026-10-20 on the user's Android (1080×2400, 20:9): the video fills the height and loses about 3.5% each side; the rail the right 13% from 47% down, username and caption the bottom 12-16% (with the Made with Edits pill). The Reels tab's header and the bottom widened to a guide's measurement of the app (13% top, 16.6% bottom)",
       "zones": [
-        { "id": "top", "label": "Reels header and camera", "rect": [0, 0, 1, 0.14] },
-        { "id": "bottom", "label": "Username, caption and audio", "rect": [0, 0.65, 1, 1] },
-        { "id": "left", "label": "Left edge", "rect": [0, 0.14, 0.06, 0.65] },
-        { "id": "right", "label": "Right edge", "rect": [0.94, 0.14, 1, 0.6] },
-        { "id": "rail", "label": "Like, comment, share and more", "rect": [0.79, 0.6, 1, 0.65] }
+        { "id": "top", "label": "Reels header and camera", "rect": [0, 0, 1, 0.1] },
+        { "id": "bottom", "label": "Username, caption and audio", "rect": [0, 0.82, 1, 1] },
+        { "id": "left", "label": "Left edge, cropped on taller phones", "rect": [0, 0.1, 0.04, 0.82] },
+        { "id": "right", "label": "Right edge, cropped on taller phones", "rect": [0.96, 0.1, 1, 0.46] },
+        { "id": "rail", "label": "Like, comment, share, save and more", "rect": [0.85, 0.46, 1, 0.82] }
       ],
-      "headroom": [0.14, 0.195],
-      "eyeLine": 0.32
+      "headroom": [0.1, 0.155],
+      "eyeLine": 0.3
     },
     {
       "id": "shorts",

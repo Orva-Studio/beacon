@@ -105,6 +105,10 @@ function ItemsPanel({ title, items, host, ordered }: { title: string; items: Ite
                 })
               }
               onDoubleClick={() => host.run(it.command, it.args)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                host.tileMenu({ item: it.favorite, add: it.command === "edit.addAnnotation" ? "Add at Playhead" : "Add to Selected Media", command: it.command, args: it.args, favorite });
+              }}
             >
               {it.label}
             </ItemTile>

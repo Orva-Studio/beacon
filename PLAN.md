@@ -1772,7 +1772,7 @@ Seeing more at once.
 preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.
 
-### Phase 10 — Filmstrips and backgrounds
+### Phase 10 — Drops, backgrounds and filmstrips
 - **First: drops that fail, and images with no file** (the user, 2026-10-20;
   first in the phase, at their ask): dragging from Finder's Recents bounces
   back with no message, whatever the file (⌘I always works: the Open dialog
@@ -1790,17 +1790,12 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   is cleared once the drag ends, so it must be copied in, not used in place.
   Read the drag pasteboard (`beacon_drag_files`) of a Recents drag first: what
   it offers (file reference URLs, `/.file/id=`?) decides the fix.
-- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
-  show frames along their length, not only the first. Measured on demo_1
-  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
-  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
-  (camera), ~3 s of CPU, about 4% of building the proxies; from the
-  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
-  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
-  the proxy, cached like waveforms; the timeline draws slices of the sprite
-  (its clips layer is redrawn only on zoom, scroll and edits). Design for
-  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
-  for what is in view, or keep two densities (1 s, 10 s).
+  Later the same day the user found those bounced drops do arrive, only late:
+  the clip appears on the timeline after a while. So the bounce is Finder's
+  animation (the drop reported as not taken), and the time goes somewhere
+  before the clip is placed: time each step (WebKit handing over the file,
+  finding its path, reading it) and make the drop show at once (the import
+  panel's placeholder, and the drop reported as taken).
 - **Remove background** (the user, 2026-10-16): a camera or video clip's
   background removed, as Camtasia's Remove Color does for green screens
   but with no green screen. It is person segmentation (a matte per frame),
@@ -1815,12 +1810,11 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   proxies, so a take is segmented once), and a "Remove Background" effect
   on visual clips draws it in a pass: transparent (the clips below show
   through), blurred, a colour or an image, with a feather for the edge.
-  Preview and export read the same matte. Open: which is the default, and
-  whether Replicate's models are good enough on a talking head to be worth
-  the upload.
-- **Device frame** (the user, 2026-10-17; details to come): footage
-  superimposed on a device (a phone, a laptop, a monitor), fitted into its
-  screen.
+  Preview and export read the same matte. **Decided (the user,
+  2026-10-20):** Vision only for now (a frame of `take.brec` came out clean
+  at balanced and accurate quality: no hair to lose); a local model and
+  Replicate wait until its edges disappoint. A new Remove Background is
+  transparent; blur, a colour or an image are options in the effect.
 - **LUT import** (the user, 2026-10-20): a LUT effect of its own, not part
   of Film Look (a LUT usually goes first, a look on top): a `.cube` file
   (what nearly every LUT is sold as) copied into the project so it travels
@@ -1832,8 +1826,59 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   (and the clip's menu) that adds an animation block spanning the whole
   selected clip, start to end, rather than from the playhead; or, simplest,
   double-clicking an animation stretches it to the clip's ends.
-**Gate:** clips show their frames; a camera take's background removed by
+- **Right-click an effect to add it** (the user, 2026-10-20): the effect,
+  annotation and audio tiles get a menu (Add to Selected Media, Add to
+  Favorites), as double-click, dragging and ⌘K add them now; there never was
+  one.
+- **Instagram Reels' safe areas for ordinary posts** (the user, 2026-10-20):
+  the Reels guide draws Meta's numbers for ads (14% top, 35% bottom, 6%
+  sides), whose call-to-action makes the bottom band far deeper than a
+  post's; guides measure ordinary Reels at about 13% top, 17% bottom, 8%
+  left, 11% right, and disagree. Measure them from the user's own phone
+  (screenshots of Reels with long captions; a 19.5:9 screen shows a 9:16
+  Reel under its own bars), and offer Reels and Reels (ad) as two layouts.
+  **Done 2026-10-20** from the user's Android (1080×2400; TikTok and Reels
+  fill the height and crop the sides, about 4%): ordinary TikTok and Reels
+  posts, their bottom bands 18% rather than 34-35%, widened to guides'
+  iPhone measurements. The ad layouts were offered too, then removed at
+  the user's ask (2026-10-21): Beacon is for ordinary posts. What looked
+  like zones outside the canvas was the unlabelled grey headroom band: now
+  blue with an edge, and a key beside the picker says what each colour is.
+  Still to measure: the Reels tab's header, an iPhone, and YouTube Shorts
+  (Google's numbers until then).
+- **The recording panel follows you between desktops** (the user, 2026-10-20): the panel (camera, time, levels, Stop) stays on the desktop it
+  opened on. The user switches with AeroSpace, which hides windows by moving
+  them off-screen rather than using macOS's Spaces, so the panel joining all
+  Spaces (`canJoinAllSpaces`) may not be enough: check what AeroSpace allows
+  (a floating or sticky rule for the panel's window) as well.
+  **Built, not working yet** (2026-10-21): the panel opens untitled, which
+  AeroSpace ignores in a stand-in window, but the real panel is still left
+  behind on a workspace switch. Set aside at the user's word; next step, if
+  they raise it, is `aerospace debug-windows` during a recording.
+- **Filmstrip thumbnails** (the user, 2026-10-12; **dropped** 2026-10-20: built,
+  then removed at the user's ask, who didn't think it worked; not to be
+  built again unless they ask): video and screen clips
+  show frames along their length, not only the first. Measured on demo_1
+  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
+  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
+  (camera), ~3 s of CPU, about 4% of building the proxies; from the
+  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
+  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
+  the proxy, cached like waveforms; the timeline draws slices of the sprite
+  (its clips layer is redrawn only on zoom, scroll and edits). Design for
+  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
+  for what is in view, or keep two densities (1 s, 10 s).
+**Gate:** anything dragged in (Recents, a saved screenshot, a screenshot's
+thumbnail) or pasted lands at once; a camera take's background removed by
 each provider, with the same matte in preview and export.
+
+### Phase 10.5 — Device frames (research first)
+The user will bring a lot of information before any work starts: which
+devices, how each frame looks and where its screen sits, what it's for.
+Research and agree the design with them first; nothing is built before.
+- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -2045,6 +2090,18 @@ Notes for when it is picked up:
     local noise-reduction model (e.g. DeepFilterNet). Could run in the
     background on whole sources at no cost, with Auphonic kept for final
     export.
+
+### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
+- **A custom look as a favourite:** sliders moved into a look of one's own
+  (Custom in the Look menu) saved under a name, starred into Favorites like
+  the effect tiles, and applied from there in one undo step. App-wide, as
+  favourites are, and readable by agents (`favorites_list`).
+- **Hovering a look previews it on the canvas:** moving over the Look
+  menu's entries (hance's looks and saved ones) shows each on the clip at
+  the playhead, back as it was when the pointer leaves or the menu closes;
+  nothing is applied or added to the undo history until a look is chosen.
+  A native menu reports no hover, so the menu may need to become Beacon's
+  own list.
 
 ### Recording metadata features
 `.trec` files also log clicks, keyboard shortcuts, scrolling, the focused app

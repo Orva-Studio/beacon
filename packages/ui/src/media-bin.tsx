@@ -45,7 +45,7 @@ function sortAssets(assets: Asset[], { by, desc }: { by: BinSort; desc: boolean 
   return desc ? sorted.reverse() : sorted;
 }
 
-const KIND_ICON: Record<Asset["kind"], IconName> = { recording: "monitor-play", image: "image", audio: "music-note", video: "video-camera" };
+const KIND_ICON: Record<Exclude<Asset["kind"], "file">, IconName> = { recording: "monitor-play", image: "image", audio: "music-note", video: "video-camera" };
 
 /** Frames across a video for scrubbing its tile: one per few pixels of a grid tile. */
 const SCRUB_FRAMES = 30;
@@ -143,7 +143,8 @@ export function MediaBin({
     return [e.clientX - r.left + grid.current!.scrollLeft, e.clientY - r.top + grid.current!.scrollTop] as const;
   };
   const bin = useView((s) => s.bin);
-  const all = Object.values(project.assets);
+  // A file an effect reads (a LUT) is the effect's, not media to place.
+  const all = Object.values(project.assets).filter((a) => a.kind !== "file");
   const query = bin.query.trim().toLowerCase();
   const assets = sortAssets(all, sort).filter((a) => ofKind(a, bin.kind) && (!query || assetName(a).toLowerCase().includes(query)));
   const list = bin.view === "list";
@@ -291,12 +292,12 @@ function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Ass
       ) : a.kind === "audio" && peaks ? (
         <Waveform peaks={peaks} className="h-full w-full" />
       ) : (
-        <Icon name={KIND_ICON[a.kind]} size={list ? 14 : 20} className="text-text-disabled" />
+        <Icon name={KIND_ICON[a.kind as Exclude<Asset["kind"], "file">]} size={list ? 14 : 20} className="text-text-disabled" />
       )}
       {!list && (
         <>
           <span className="absolute bottom-1 left-1 flex size-4 items-center justify-center rounded-[3px] bg-black/60 text-white" title={a.kind}>
-            <Icon name={KIND_ICON[a.kind]} size={11} />
+            <Icon name={KIND_ICON[a.kind as Exclude<Asset["kind"], "file">]} size={11} />
           </span>
           {seconds > 0 && (
             <span className="absolute right-1 bottom-1 rounded-[3px] bg-black/60 px-1 text-[10px] leading-4 font-medium text-white tabular-nums" data-scrub-time>

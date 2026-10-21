@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { enginePath, ffmpegArgs, ffmpegInput, readLines, runTool, spawn, toolsDir } from "@beacon/media";
+import { ffmpegArgs, workerPath, ffmpegInput, readLines, runTool, spawn, toolsDir } from "@beacon/media";
 import { DEFAULT_CACHE_DIR, DerivedData } from "./derived";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -44,12 +44,6 @@ export interface RenderOptions {
   onProgress?: (frame: number, total: number) => void;
   /** Derived asset data; defaults to the registered analyzers and the shared cache. */
   data?: <T>(assetId: string, key: string) => T | undefined;
-}
-
-function workerPath(): string {
-  const path = process.env.BEACON_WORKER_PATH ?? enginePath("beacon-worker");
-  if (!existsSync(path)) throw new Error(`beacon-worker not found at ${path}; run \`bun run build:engine\``);
-  return path;
 }
 
 /** The worker/renderer job header: canvas, every registered pass, where to cache frame indexes and (for the export worker) what it writes. */

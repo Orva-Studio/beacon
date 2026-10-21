@@ -596,6 +596,7 @@ export class LocalCore implements BeaconCore {
       // Transcripts an import started but a quit cancelled: made now, not when Remove Silences or Captions needs one.
       this.#analyses.importAnalyses(p, Object.keys(p.store.doc.assets));
     }
+    this.#analyses.effectJobs(p);
     return view;
   }
 
@@ -684,6 +685,7 @@ export class LocalCore implements BeaconCore {
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
   #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T {
     if (!change || change.dryRun || !change.patches.length) return change;
+    this.#analyses.effectJobs(p);
     try {
       writeProject(p.path, p.store.doc);
       this.#emit(p, { kind: "saved", path: p.path });
@@ -781,7 +783,10 @@ export class LocalCore implements BeaconCore {
         });
     for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
     mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
+    // What effects need (a matte) is made first: the export never draws a clip without it.
+    const needed = this.#analyses.effectJobs(p, true);
     return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
+      await Promise.all(needed.map((j) => j.done));
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {
@@ -827,7 +832,7 @@ export class LocalCore implements BeaconCore {
       for (let i = next++; i < todo.length; i = next++) {
         const { file, importer } = todo[i]!;
         try {
-          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await probeAsset(file) } };
+          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await (importer.probe ?? probeAsset)(file) } };
         } catch (e) {
           // The import fails: the others stop rather than decode the rest for nothing.
           next = todo.length;
@@ -838,7 +843,8 @@ export class LocalCore implements BeaconCore {
     await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
     let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
     const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
-    const copies = p.store.doc.settings.standalone ? await this.#copyIn(p.path, probed.map(({ asset }, i) => ({ id: String(i), ...asset }))) : [];
+    const copied = probed.flatMap(({ asset, importer }, i) => (p.store.doc.settings.standalone || importer.copyIn ? [{ id: String(i), ...asset }] : []));
+    const copies = copied.length ? await this.#copyIn(p.path, copied) : [];
     for (const { id, path, fingerprint } of copies) Object.assign(probed[Number(id)]!.asset, { path, fingerprint });
     try {
       this.#saved(p, p.store.transaction(label, (tx) => {
@@ -914,14 +920,21 @@ export class LocalCore implements BeaconCore {
     if (!asset) throw new Error(`no asset "${assetId}"`);
     const file = resolve(path);
     if (!existsSync(file)) throw new Error(`${file} doesn't exist`);
-    if (this.registry.importerFor(extname(file))?.kind !== asset.kind) throw new Error(`${basename(file)} isn't the same kind of media as ${basename(asset.path)}`);
-    const was = asset.derived.media as Awaited<ReturnType<typeof probeMedia>> | undefined;
-    const now = await probeMedia(file);
-    const shape = (m: typeof now) => m.streams.map((s) => `${s.kind}:${s.width ?? ""}x${s.height ?? ""}`).join(",");
-    if (was && (shape(was) !== shape(now) || Math.abs(was.duration - now.duration) > 0.1)) {
-      throw new Error(`${basename(file)} isn't the same media as ${basename(asset.path)}: its streams or length differ`);
+    const importer = this.registry.importerFor(extname(file));
+    if (importer?.kind !== asset.kind) throw new Error(`${basename(file)} isn't the same kind of media as ${basename(asset.path)}`);
+    let derived: Record<string, unknown> | undefined;
+    if (importer.probe) {
+      // A file an effect reads is checked by reading it, as on import; what it holds now (a LUT's domain) replaces what the old file held.
+      derived = await importer.probe(file);
+    } else {
+      const was = asset.derived.media as Awaited<ReturnType<typeof probeMedia>> | undefined;
+      const now = await probeMedia(file);
+      const shape = (m: typeof now) => m.streams.map((s) => `${s.kind}:${s.width ?? ""}x${s.height ?? ""}`).join(",");
+      if (was && (shape(was) !== shape(now) || Math.abs(was.duration - now.duration) > 0.1)) {
+        throw new Error(`${basename(file)} isn't the same media as ${basename(asset.path)}: its streams or length differ`);
+      }
     }
-    this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file) }, { label: `Locate ${basename(file)}` }));
+    this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file), ...(derived ? { derived } : {}) }, { label: `Locate ${basename(file)}` }));
     if (p.view) this.#analyses.previewJobs(p);
   }
 
@@ -931,11 +944,12 @@ export class LocalCore implements BeaconCore {
     if (!asset) throw new Error(`no asset "${assetId}"`);
     const file = resolve(path);
     if (!existsSync(file)) throw new Error(`${file} doesn't exist`);
-    const kind = this.registry.importerFor(extname(file))?.kind;
+    const importer = this.registry.importerFor(extname(file));
+    const kind = importer?.kind;
     if (asset.kind === "recording") throw new Error(`${assetName(asset)} is a recording: it can't be replaced`);
-    const like = { video: "video", image: "image", audio: "audio file" }[asset.kind];
-    if (kind !== asset.kind) throw new Error(`${assetName(asset)} can only be replaced with another ${like}`);
-    const derived = await probeAsset(file);
+    const like = { video: "video", image: "image", audio: "audio file", file: `${extname(asset.path)} file` }[asset.kind];
+    if (kind !== asset.kind || (kind === "file" && extname(file).toLowerCase() !== extname(asset.path).toLowerCase())) throw new Error(`${assetName(asset)} can only be replaced with another ${like}`);
+    const derived = await (importer!.probe ?? probeAsset)(file);
     this.#saved(p, p.store.run("asset.replace", { asset: assetId, path: file, fingerprint: fileFingerprint(file), derived }, { label: `Replace with ${basename(file)}` }));
     if (p.view) this.#analyses.previewJobs(p);
     return this.#analyses.importAnalyses(p, [assetId]);

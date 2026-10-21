@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use wgpu::util::DeviceExt;
 
-use crate::gpu::{linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
+use crate::gpu::{lut_entry, linear_sampler, pipeline, sampler_entry, shader, texture_entry, uniform_entry};
 use crate::scene::{Affine, Backdrop, Content, Job, Layer, PassUse, Scene, Source, Visual};
 use crate::sources::{self, Frame, VideoDecoder};
 use crate::{Error, Result};
@@ -78,6 +78,8 @@ pub struct Renderer {
     builtin_bgl: wgpu::BindGroupLayout,
     pass_bgl: wgpu::BindGroupLayout,
     draw_pipe: wgpu::RenderPipeline,
+    matte_bgl: wgpu::BindGroupLayout,
+    matte_pipe: wgpu::RenderPipeline,
     comp_pipe: wgpu::RenderPipeline,
     mip_pipe: wgpu::RenderPipeline,
     mask_pipe: wgpu::RenderPipeline,
@@ -87,6 +89,9 @@ pub struct Renderer {
     /// (`BEACON_DECODE_FFMPEG` or `BEACON_NO_ZERO_COPY`).
     surfaces: Option<crate::surface::TextureCache>,
     passes: HashMap<String, Vec<wgpu::RenderPipeline>>,
+    /// `.cube` tables passes have named, by path; `no_lut` for those that name none.
+    luts: HashMap<String, wgpu::Texture>,
+    no_lut: wgpu::Texture,
     sources: HashMap<String, Source>,
     /// Keyed by source id and its occurrence in the scene, so one recording
     /// shown twice at different times decodes twice.
@@ -190,7 +195,7 @@ impl Renderer {
         });
         let pass_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pass"),
-            entries: &[uniform(0), uniform(1), texture(2), texture(3), sampler_entry(4)],
+            entries: &[uniform(0), uniform(1), texture(2), texture(3), sampler_entry(4), lut_entry(5)],
         });
 
         let additive = wgpu::BlendState {
@@ -199,6 +204,11 @@ impl Renderer {
         };
         let over = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
         let draw_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", FMT, Some(additive));
+        let matte_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("matte"),
+            entries: &[uniform(0), texture(1), sampler_entry(2), texture(3)],
+        });
+        let matte_pipe = pipeline(&device, &builtin, &matte_bgl, "vs_draw", "fs_draw_matte", FMT, Some(additive));
         let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", FMT, Some(over));
         let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", FMT, None);
         let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", FMT, Some(over));
@@ -230,6 +240,7 @@ impl Renderer {
             &[255; 4],
         );
         let output = device.create_texture(&tex_desc(job.width, job.height, 1, rt_usage()));
+        let no_lut = lut_texture(&device, &queue, &crate::lut::Cube { size: 1, rgb: vec![1.0; 3] });
         Ok(Self {
             adapter,
             device,
@@ -240,6 +251,8 @@ impl Renderer {
             builtin_bgl,
             pass_bgl,
             draw_pipe,
+            matte_bgl,
+            matte_pipe,
             comp_pipe,
             mip_pipe,
             mask_pipe,
@@ -247,6 +260,8 @@ impl Renderer {
             yuv_pipe,
             surfaces,
             passes,
+            luts: HashMap::new(),
+            no_lut,
             sources: job.sources.clone(),
             textures: HashMap::new(),
             frame: 0,
@@ -615,6 +630,8 @@ impl Renderer {
             }
         };
 
+        // Taken after the content, as `collect_videos` prepared them.
+        let matte = v.matte.as_ref().map(|m| (self.textures[&source_key(seen, &m.source)].tex.create_view(&Default::default()), m.range));
         let local = [v.size[0] - v.crop[0] - v.crop[2], v.size[1] - v.crop[1] - v.crop[3]];
         let inv = inverse(&v.transform);
         let Some(inv) = inv.filter(|_| local[0] > 0.0 && local[1] > 0.0) else {
@@ -624,7 +641,7 @@ impl Renderer {
             return Ok(());
         };
         if !v.passes.is_empty() && (0..=v.motion.len()).any(|i| v.perspective_of(i) != [0.0, 0.0]) {
-            let r = self.draw_tilted(enc, target, w, h, v, &content, color, local);
+            let r = self.draw_tilted(enc, target, w, h, v, &content, color, local, matte.as_ref());
             if let Some(g) = group_tex {
                 self.give(g);
             }
@@ -649,10 +666,7 @@ impl Renderer {
                     color,
                     margin: [2.0 / scale_of(m).max(1e-3), p[0], p[1], 0.0],
                 };
-                let bg = self.builtin_group(bytemuck::bytes_of(&u), &content_view);
-                rp.set_pipeline(&self.draw_pipe);
-                rp.set_bind_group(0, Some(&bg), &[]);
-                rp.draw(0..6, 0..1);
+                self.draw_content(&mut rp, u, &content_view, matte.as_ref());
             }
         }
         if let Some(g) = group_tex {
@@ -675,7 +689,18 @@ impl Renderer {
     /// draw outside, like a shadow), which is then drawn in perspective. Passes map canvas pixels to the
     /// layer through its 2D transform, which a tilt doesn't follow.
     #[allow(clippy::too_many_arguments)]
-    fn draw_tilted(&mut self, enc: &mut wgpu::CommandEncoder, target: &wgpu::Texture, w: u32, h: u32, v: &Visual, content: &wgpu::Texture, color: [f32; 4], local: [f32; 2]) -> Result<()> {
+    fn draw_tilted(
+        &mut self,
+        enc: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        w: u32,
+        h: u32,
+        v: &Visual,
+        content: &wgpu::Texture,
+        color: [f32; 4],
+        local: [f32; 2],
+        matte: Option<&(wgpu::TextureView, [f32; 2])>,
+    ) -> Result<()> {
         let m = &v.transform;
         let longest = local[0].max(local[1]);
         // Small enough that the padded corners stay in front of the camera (W > 0.5 there).
@@ -699,12 +724,9 @@ impl Renderer {
                 color,
                 margin: [2.0 / s, 0.0, 0.0, 0.0],
             };
-            let bg = self.builtin_group(bytemuck::bytes_of(&u), &content_view);
             let view = flat.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
-            rp.set_pipeline(&self.draw_pipe);
-            rp.set_bind_group(0, Some(&bg), &[]);
-            rp.draw(0..6, 0..1);
+            self.draw_content(&mut rp, u, &content_view, matte);
         }
         let frame = PassFrameU {
             inv0: [1.0 / s, 0.0, 0.0, 1.0 / s],
@@ -797,6 +819,13 @@ impl Renderer {
             let mut params = [0f32; MAX_PARAMS];
             params[..p.params.len()].copy_from_slice(&p.params);
             let params_buf = self.uniform(bytemuck::cast_slice(&params));
+            if let Some(path) = &p.lut
+                && !self.luts.contains_key(path)
+            {
+                let cube = crate::lut::read(path)?;
+                self.luts.insert(path.clone(), lut_texture(&self.device, &self.queue, &cube));
+            }
+            let lut_view = p.lut.as_ref().map_or(&self.no_lut, |path| &self.luts[path]).create_view(&Default::default());
             let orig = current;
             let orig_view = orig.create_view(&Default::default());
             let mut prev: Option<wgpu::Texture> = None;
@@ -814,6 +843,7 @@ impl Renderer {
                         wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&src_view) },
                         wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&orig_view) },
                         wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                        wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&lut_view) },
                     ],
                 });
                 run_fullscreen(enc, &out.create_view(&Default::default()), None, step, &bg);
@@ -883,6 +913,31 @@ impl Renderer {
         self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: data, usage: wgpu::BufferUsages::UNIFORM })
     }
 
+    /// Draws a layer's content as `u` places it, through its matte when it has one.
+    fn draw_content(&self, rp: &mut wgpu::RenderPass, mut u: DrawU, content: &wgpu::TextureView, matte: Option<&(wgpu::TextureView, [f32; 2])>) {
+        let Some((view, [clear, opaque])) = matte else {
+            let bg = self.builtin_group(bytemuck::bytes_of(&u), content);
+            rp.set_pipeline(&self.draw_pipe);
+            rp.set_bind_group(0, Some(&bg), &[]);
+            return rp.draw(0..6, 0..1);
+        };
+        (u.content[3], u.margin[3]) = (*clear, *opaque);
+        let buf = self.uniform(bytemuck::bytes_of(&u));
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.matte_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(content) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(view) },
+            ],
+        });
+        rp.set_pipeline(&self.matte_pipe);
+        rp.set_bind_group(0, Some(&bg), &[]);
+        rp.draw(0..6, 0..1);
+    }
+
     fn builtin_group(&self, uniform: &[u8], view: &wgpu::TextureView) -> wgpu::BindGroup {
         let buf = self.uniform(uniform);
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -895,6 +950,27 @@ impl Renderer {
             ],
         })
     }
+}
+
+/// A `.cube` table as a 3D half-float texture, filtered between its entries.
+fn lut_texture(device: &wgpu::Device, queue: &wgpu::Queue, cube: &crate::lut::Cube) -> wgpu::Texture {
+    let n = cube.size;
+    let data: Vec<u16> = cube.rgb.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 1.0]).map(crate::lut::half).collect();
+    device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("lut"),
+            size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: n },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        bytemuck::cast_slice(&data),
+    )
 }
 
 /// The key of a source's next use in a frame, in drawing order: a source drawn twice (a stitched clip's repeats) gets a
@@ -915,6 +991,9 @@ fn collect_videos(layers: &[Layer], parent: f32, out: &mut Vec<(String, f64, f32
             Content::Source { source, time } => out.push((source.clone(), *time, scale)),
             Content::Group { layers, .. } => collect_videos(layers, scale, out),
             Content::Solid { .. } => {}
+        }
+        if let Some(m) = &v.matte {
+            out.push((m.source.clone(), m.time, scale));
         }
     }
 }

@@ -16,6 +16,8 @@ struct PassParams { v: array<vec4<f32>, 8> };
 @group(0) @binding(2) var src: texture_2d<f32>;
 @group(0) @binding(3) var orig: texture_2d<f32>;
 @group(0) @binding(4) var samp: sampler;
+// The pass's `.cube` table, when it names one (`PassUse.lut`): red along x, green y, blue z.
+@group(0) @binding(5) var lut: texture_3d<f32>;
 
 struct VOut {
   @builtin(position) pos: vec4<f32>,

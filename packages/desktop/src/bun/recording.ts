@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import type { Pointer } from "bun:ffi";
 import { basename, dirname, join } from "node:path";
 import { BrowserView, BrowserWindow, GlobalShortcut, Tray } from "electrobun/main";
-import { syncKey, type LocalCore, type RecordResult } from "@beacon/core";
+import { syncKey, windowNumber, type LocalCore, type RecordResult } from "@beacon/core";
 import { clock, panelHeight, recordingTitle, type PanelState, type RecorderLive, type RecordSources, type Send, type SettingsPatch } from "@beacon/ui";
 
 /** What recording needs of the app: its core and the window it records for. */
@@ -221,8 +222,6 @@ export function createRecording({ core, message, status, project, window, setSet
     delete frames.screen;
   }
 
-  /** The recording panel's title: the recorder leaves the window with it out of the take. */
-  const PANEL_TITLE = "Beacon Recording Panel";
   const PANEL_WIDTH = 300;
   let panelState: PanelState | undefined;
   /** The panel's webview, once it has loaded: the take's frames and levels go to it. */
@@ -252,16 +251,20 @@ export function createRecording({ core, message, status, project, window, setSet
     });
     const height = Math.round(panelHeight(state));
     const panel = new BrowserWindow({
-      title: PANEL_TITLE,
       url: "views://recordpanel/index.html",
       rpc,
       frame: { x: Math.max(0, (display?.width ?? 1440) - PANEL_WIDTH - 24), y: 48, width: PANEL_WIDTH, height },
       titleBarStyle: "hidden",
       transparent: true,
+      hidden: true,
       activate: false,
     });
+    // Untitled before it shows, so AeroSpace takes it for a popup and leaves it on every workspace (a titled one
+    // is a dialog it parks off-screen with the workspace it opened on); Electrobun can't create one untitled.
+    panel.setTitle("");
     panel.setAlwaysOnTop(true);
     panel.setVisibleOnAllWorkspaces(true);
+    panel.showInactive();
     panelSend = (e) => panel.webview.rpc?.send.recordPreview(e);
     await Promise.race([ready, Bun.sleep(2000)]);
     return panel;
@@ -283,14 +286,14 @@ export function createRecording({ core, message, status, project, window, setSet
     } catch {}
     window.hide();
     const panelSources = { screen: !!sources.screen, camera: !!sources.camera, microphone: !!sources.microphone, systemAudio: !!sources.systemAudio };
-    // Opened first, so the recorder can leave it out of the take by its title.
+    // Opened first, so the recorder can leave it out of the take by its window number.
     const display = devices.displays.find((d) => d.id === sources.screen?.display) ?? devices.displays[0];
     clearFrames();
     live = {};
     const panel = await openPanel({ started: Date.now(), ...panelSources }, display);
     try {
       await core.recordStart(project()!, {
-        sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: PANEL_TITLE } } : sources,
+        sources: sources.screen ? { ...sources, screen: { ...sources.screen, exclude: windowNumber(panel.ptr as Pointer) } } : sources,
         monitor: (e) => {
           if ("devicesChanged" in e) return;
           if ("live" in e && e.live) live = e.live;

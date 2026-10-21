@@ -38,6 +38,9 @@ export const COLOR = {
   get safeHeadroom() {
     return rgba("safe-headroom");
   },
+  get safeHeadroomEdge() {
+    return rgba("safe-headroom-edge");
+  },
 };
 
 /**

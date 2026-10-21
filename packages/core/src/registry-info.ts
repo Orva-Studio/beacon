@@ -66,7 +66,7 @@ function schema(r: FeatureRegistry): SchemaInfo {
       ...((g) => (g ? { nested: g.id } : {}))(r.groupsFor(t.id).find((g) => g.nested)),
     })),
     props: [...r.propGroups.values()].map((g) => ({ id: g.id, description: g.description, animatable: g.animatable ?? [], schema: jsonSchemaOf(g.schema), defaults: g.defaults() })),
-    effects: [...r.effects.values()].map((e) => ({ id: e.id, title: e.title, description: e.description, traits: e.traits, schema: jsonSchemaOf(e.params), ...(e.presets ? { presets: e.presets } : {}), ...(e.importFile ? { importFile: e.importFile } : {}) })),
+    effects: [...r.effects.values()].map((e) => ({ id: e.id, title: e.title, description: e.description, traits: e.traits, schema: jsonSchemaOf(e.params), ...(e.presets ? { presets: e.presets } : {}), ...(e.importFile ? { importFile: e.importFile } : {}), ...(e.needs ? { needs: e.needs, preparing: e.preparing } : {}) })),
     panelItems: r.panelItems,
   };
 }

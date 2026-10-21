@@ -75,8 +75,45 @@ export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: 
   window.addEventListener("pointercancel", cancel);
 }
 
-/** Files dragged in from Finder: what the webview knows of them, with their URLs when WebKit passes them. */
-export function droppedFiles(dt: DataTransfer): DroppedFile[] {
-  const uris = dt.getData("text/uri-list").split(/\r?\n/).filter((u) => u.startsWith("file://"));
-  return [...dt.files].map((f, i) => ({ name: f.name, size: f.size, lastModified: f.lastModified, ...(uris[i] ? { uri: uris[i] } : {}) }));
+/**
+ * Takes a drag of files from Finder as a copy. Left at "none", WebKit reports the drop as refused and Finder animates
+ * the files back, though the drop still arrives.
+ */
+export function acceptFiles(e: { dataTransfer: DataTransfer | null; preventDefault(): void }): boolean {
+  if (!e.dataTransfer?.types.includes("Files")) return false;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+  return true;
 }
+
+/** Images up to this size travel with their bytes, for when they have no path to be found by (`DroppedFile.data`). */
+const CARRIED = 64 * 1024 * 1024;
+
+const base64 = (f: Blob) =>
+  new Promise<string | undefined>((done) => {
+    const r = new FileReader();
+    r.onload = () => done(String(r.result).slice(String(r.result).indexOf(",") + 1));
+    // A screenshot's temporary file can be gone already: it is then found by path or not at all.
+    r.onerror = () => done(undefined);
+    r.readAsDataURL(f);
+  });
+
+/**
+ * Files dragged in from Finder or pasted: what the webview knows of them, with their URLs when WebKit passes them and
+ * an image's bytes. Their list is taken at once: the event's `DataTransfer` is emptied once it is handled.
+ */
+export function droppedFiles(dt: DataTransfer): Promise<DroppedFile[]> {
+  const uris = dt.getData("text/uri-list").split(/\r?\n/).filter((u) => u.startsWith("file://"));
+  return Promise.all(
+    [...dt.files].map(async (f, i) => {
+      const data = f.type.startsWith("image/") && f.size <= CARRIED ? await base64(f) : undefined;
+      return { name: f.name, size: f.size, lastModified: f.lastModified, ...(uris[i] ? { uri: uris[i] } : {}), ...(data !== undefined ? { data } : {}) };
+    }),
+  );
+}
+
+/** What Beacon puts on the system clipboard when it copies clips, so a later ⌘V knows an image copied since is newer. */
+export const BEACON_CLIPS = "application/x-beacon-clips";
+
+/** A paste of an image copied in another app (not Beacon's own clips, copied after it). */
+export const pastedImage = (dt: DataTransfer | null) => !!dt && !dt.types.includes(BEACON_CLIPS) && [...dt.files].some((f) => f.type.startsWith("image/"));

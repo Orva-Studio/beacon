@@ -154,6 +154,41 @@ export class Analyses {
     this.parts.emit(p, { kind: "preparing", assets });
   }
 
+  /**
+   * The analyses enabled effects need of their clips' media (Remove Background's matte), started unless made or
+   * running: after each edit, when the project is shown, and before an export, which waits for them. `strict`: a job
+   * that can't start throws (export) rather than being left for the next edit.
+   */
+  effectJobs(p: OpenProject, strict = false): Job[] {
+    const { registry } = this.parts;
+    const doc = p.store.doc;
+    const wanted = new Map<string, { key: string; asset: Asset }>();
+    for (const { clip } of walkClips(doc.tracks, registry)) {
+      const asset = clip.assetId ? doc.assets[clip.assetId] : undefined;
+      if (!asset) continue;
+      for (const fx of clip.effects) {
+        if (!fx.enabled) continue;
+        for (const key of registry.effects.get(fx.type)?.needs ?? []) {
+          if (registry.jobAnalyzers.get(key)?.applies(asset) && !p.data.has(asset, key)) wanted.set(`${key}\0${asset.id}`, { key, asset });
+        }
+      }
+    }
+    return [...wanted.values()].flatMap(({ key, asset }) => {
+      let job: Job;
+      try {
+        job = this.analyze(p, key, asset.id);
+      } catch (e) {
+        if (strict) throw e;
+        return [];
+      }
+      void job.done.then(
+        () => p.view && !p.view.playing && p.view.show(p.session.state.playhead),
+        () => {},
+      );
+      return [job];
+    });
+  }
+
   /** After media is added: the app's view makes its proxies and waveforms, and its analyses (transcripts) start. */
   imported(p: OpenProject, result: ImportResult): ImportResult {
     if (p.view) this.previewJobs(p);

@@ -44,9 +44,14 @@ export const SAFE_LAYOUTS = LAYOUTS.layouts as SafeLayout[];
 /** Whether a layout is for the canvas's shape (a 1080×1920 canvas and a 720×1280 one alike). */
 const fits = (l: SafeLayout, s: { width: number; height: number }) => Math.abs(l.aspect[0] / l.aspect[1] - s.width / s.height) < 0.01;
 
-/** `session.features["safe-areas"]`: the layout shown over the canvas. */
+/** The parts of a layout the key can hide: the platform's zones, the headroom band, the eye line. */
+const PARTS = ["zones", "headroom", "eyeLine"] as const;
+type Part = (typeof PARTS)[number];
+
+/** `session.features["safe-areas"]`: the layout shown over the canvas, and the parts of it hidden. */
 interface Shown {
   layout: string;
+  hidden?: Part[];
 }
 
 const shown = (s: Session) => (s.features["safe-areas"] as Shown | undefined)?.layout;
@@ -208,8 +213,8 @@ export const safeAreas = defineFeature({
   id: "safe-areas",
   version: 1,
   sessionSaved: (state) => {
-    const layout = (state as Shown | undefined)?.layout;
-    return layout ? { layout } : undefined;
+    const { layout, hidden } = (state as Shown | undefined) ?? {};
+    return layout ? { layout, ...(hidden?.length ? { hidden } : {}) } : undefined;
   },
   sessionCommands: [
     {
@@ -221,7 +226,22 @@ export const safeAreas = defineFeature({
         const l = layoutOf(layout);
         const { width, height } = full.settings;
         if (!fits(l, full.settings)) throw new Error(`${l.title}'s safe areas are for a ${l.aspect.join(":")} canvas; this one is ${aspectText(width, height)} (${width}×${height})`);
-        s.features["safe-areas"] = { layout } satisfies Shown;
+        // Another platform keeps what the key hid.
+        const hidden = (s.features["safe-areas"] as Shown | undefined)?.hidden;
+        s.features["safe-areas"] = { layout, ...(hidden?.length ? { hidden } : {}) } satisfies Shown;
+      },
+    },
+    {
+      id: "safeAreas.toggle",
+      description: "Hide or show one part of the safe areas shown (a click on it in the key beside the picker): `part` \"zones\" (where the platform's UI sits), \"headroom\" or \"eyeLine\"; `shown` sets it rather than flipping it. Kept with the project",
+      args: z.strictObject({ part: z.enum(PARTS), shown: z.boolean().optional() }),
+      apply: (s, { part, shown: want }: { part: Part; shown?: boolean }) => {
+        const state = s.features["safe-areas"] as Shown | undefined;
+        if (!state) throw new Error("no safe areas are shown (safeAreas.show first)");
+        const hidden = new Set(state.hidden);
+        if (want ?? hidden.has(part)) hidden.delete(part);
+        else hidden.add(part);
+        s.features["safe-areas"] = { layout: state.layout, ...(hidden.size ? { hidden: PARTS.filter((x) => hidden.has(x)) } : {}) } satisfies Shown;
       },
     },
   ],

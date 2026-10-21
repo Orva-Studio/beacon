@@ -60,9 +60,9 @@ pub fn displays() -> Result<Vec<Retained<SCDisplay>>, String> {
     Ok(unsafe { content()?.displays() }.to_vec())
 }
 
-/// A display to capture (the main one when `display` is None), leaving out windows titled `exclude` (Beacon's
+/// A display to capture (the main one when `display` is None), leaving out the window numbered `exclude` (Beacon's
 /// recording panel, which floats over what is recorded).
-pub fn display_filter(display: Option<u32>, exclude: Option<&str>) -> Result<(Retained<SCContentFilter>, Retained<SCDisplay>), String> {
+pub fn display_filter(display: Option<u32>, exclude: Option<u32>) -> Result<(Retained<SCContentFilter>, Retained<SCDisplay>), String> {
     let content = content()?;
     let displays = unsafe { content.displays() };
     let display = match display {
@@ -70,7 +70,7 @@ pub fn display_filter(display: Option<u32>, exclude: Option<&str>) -> Result<(Re
         None => displays.iter().next().ok_or("no display to capture (is the screen asleep?)")?,
     };
     let windows: Vec<Retained<SCWindow>> = match exclude {
-        Some(title) => unsafe { content.windows() }.iter().filter(|w| unsafe { w.title() }.is_some_and(|t| t.to_string() == title)).collect(),
+        Some(id) => unsafe { content.windows() }.iter().filter(|w| unsafe { w.windowID() } == id).collect(),
         None => Vec::new(),
     };
     let filter = unsafe { SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &display, &NSArray::from_retained_slice(&windows)) };

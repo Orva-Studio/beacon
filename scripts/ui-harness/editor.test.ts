@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
@@ -267,6 +267,11 @@ test.skipIf(skip)("opened without a project, the start screen offers New Project
     expect(await view.evaluate<boolean[]>(`[...document.querySelectorAll('[data-recent]')].map((r) => !!r.querySelector('img'))`)).toEqual([false, true, false, false]);
     // Older ones by date, in the Mac's format.
     expect(shown[3]).toMatch(/^Old .*\b3\b.*2025$/);
+    // A right-click asks for the project's menu (Open, Show in Finder, Remove from Recent Projects, Move to Trash…).
+    const [lx, ly] = await view.evaluate<[number, number]>(`(() => { const r = document.querySelectorAll('[data-recent]')[1].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    await view.rightClick(lx, ly);
+    await arrived(() => start.menus.at(-1) === `recent:${recent[1]!.path}`);
+    expect(start.menus.at(-1)).toBe(`recent:${recent[1]!.path}`);
     // Nothing to go back to: Escape leaves it open.
     await view.key("Escape", "Escape");
     await Bun.sleep(100);
@@ -1004,6 +1009,19 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   expect(await page.evaluate<string>("document.querySelector('[data-recorded-problem]').textContent")).toBe("The microphone stopped saving (The operation could not be completed): the take has no microphone after that.");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-recorded]')");
+
+  // A false start is deleted from the dialog: its media and clips in one step, back with one undo.
+  const before = structuredClone(ui.core.doc(ui.handle));
+  ui.send("recordedSheet", { asset: take.id, name: "2026-10-21 05.58.12", duration: 34 });
+  await page.until("!!document.querySelector('[data-recorded-delete]')");
+  await page.evaluate("document.querySelector('[data-recorded-delete]').click()");
+  await page.until("!document.querySelector('[data-recorded]')");
+  await arrived(() => !ui.core.doc(ui.handle).assets[take.id]);
+  expect(ui.core.doc(ui.handle).assets[take.id]).toBeUndefined();
+  expect(clips().some((c) => c.assetId === take.id)).toBe(false);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Recording");
+  await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle)).toEqual(before);
 });
 
 test.skipIf(skip)("the recording panel shows a grip, the time, a chip per source (red once it stops, the camera amber while black or frozen), and rolling waveforms of both levels (Not saving for a stopped one); – hides it, Stop stops", async () => {
@@ -1919,6 +1937,86 @@ test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the d
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("a locked track's clips can't be picked on the canvas: a click goes to the clip under them, and one selected on the timeline has no handles and doesn't move", async () => {
+  await run("selection.clear");
+  await run("playhead.set", { time: 10 });
+  await Bun.sleep(300);
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const [x, y] = [box.x + box.w / 2, box.y + box.h / 2];
+  await page.click(x, y);
+  await Bun.sleep(300);
+  const top = clip((await session()).selection[0]!);
+  expect(top).toBeDefined();
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === top.id))!;
+  await run("selection.clear");
+  await run("track.set", { track: track.id, locked: true });
+  try {
+    await Bun.sleep(300);
+    await page.click(x, y);
+    await Bun.sleep(300);
+    expect((await session()).selection).not.toContain(top.id);
+
+    await run("selection.set", { clips: [top.id], linked: false });
+    await Bun.sleep(300);
+    expect(await has(`[data-handle][data-clip="${top.id}"]`)).toBe(false);
+    const before = JSON.stringify(clip(top.id).props.transform);
+    const tracks = JSON.stringify(ui.core.doc(ui.handle).tracks);
+    await page.down(x, y);
+    for (let i = 1; i <= 5; i++) await page.move(x + i * 20, y + i * 10);
+    await page.up(x + 100, y + 50);
+    await Bun.sleep(300);
+    expect(JSON.stringify(clip(top.id).props.transform)).toBe(before);
+    // The drag went to the clip under it, if any: moved in one undo step.
+    if (JSON.stringify(ui.core.doc(ui.handle).tracks) !== tracks) {
+      expect((await session()).selection).not.toContain(top.id);
+      await ui.core.undo(ui.handle);
+    }
+    expect(JSON.stringify(ui.core.doc(ui.handle).tracks)).toBe(tracks);
+  } finally {
+    await run("track.set", { track: track.id, locked: false });
+    await run("selection.clear");
+  }
+});
+
+test.skipIf(skip)("a locked track's clips can't be touched on the timeline: a click, a drag, a right-click and a marquee leave them be", async () => {
+  await run("selection.clear");
+  const s = clip(screen.id);
+  const [a, b] = [ticksToSeconds(s.start), ticksToSeconds(s.start + s.duration)];
+  await run("timeline.view", { start: Math.max(0, a - 2), end: b + 2 });
+  await Bun.sleep(300);
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === s.id))!;
+  await run("track.set", { track: track.id, locked: true });
+  try {
+    await Bun.sleep(300);
+    const { y, h, xAt, box } = await timelinePlaces(s.id);
+    const [cx, cy] = [box.x + xAt((a + b) / 2), box.y + y + h / 2];
+    const before = JSON.stringify(ui.core.doc(ui.handle).tracks);
+    await page.click(cx, cy);
+    await Bun.sleep(200);
+    expect((await session()).selection).not.toContain(s.id);
+    await page.down(cx, cy);
+    for (let i = 1; i <= 5; i++) await page.move(cx + i * 30, cy);
+    await page.up(cx + 150, cy);
+    await Bun.sleep(300);
+    expect(JSON.stringify(ui.core.doc(ui.handle).tracks)).toBe(before);
+    expect((await session()).selection).not.toContain(s.id);
+    // Its start edge isn't trimmed either.
+    await page.down(box.x + xAt(a) + 1, cy);
+    for (let i = 1; i <= 5; i++) await page.move(box.x + xAt(a) + 1 + i * 20, cy);
+    await page.up(box.x + xAt(a) + 101, cy);
+    await Bun.sleep(300);
+    expect(JSON.stringify(ui.core.doc(ui.handle).tracks)).toBe(before);
+    const menus = ui.menus.length;
+    await page.rightClick(cx, cy);
+    await Bun.sleep(300);
+    expect(ui.menus.slice(menus)).not.toContain(s.id);
+    expect((await session()).selection).not.toContain(s.id);
+  } finally {
+    await run("track.set", { track: track.id, locked: false });
+    await run("selection.clear");
+  }
+});
+
 test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens in its own dialog", async () => {
   await run("selection.clear");
   await run("playhead.set", { time: 10 });
@@ -2462,6 +2560,20 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
     await p.until("!!document.querySelector('[data-retake-review]')");
 
+    // A take cut by hand (a ripple delete on the timeline) with the review open: the marks left move too.
+    {
+      const before = (await found()).groups;
+      await go("timeline.view", { start: 0, end: before[1]!.end + 2 });
+      await go("timeline.rippleDelete", { ranges: [{ start: before[0]!.takes[0]!.start, end: before[0]!.takes[1]!.start }] });
+      for (let i = 0; i < 100 && (await found()).groups.at(-1)?.start === before[1]!.start; i++) await Bun.sleep(50);
+      const g2 = (await found()).groups.at(-1)!;
+      expect(g2.start).toBeLessThan(before[1]!.start - 1);
+      const s3 = await other.core.session(other.handle);
+      const xAt3 = (t: number) => header + ((t - s3.timeline.start) / (s3.timeline.end - s3.timeline.start)) * (box.w - header);
+      await p.until(`(([r, g]) => g > r + 20)(${timelinePixel(xAt3((g2.takes[g2.best]!.start + g2.takes[g2.best]!.end) / 2), box.h - 6)}.split(',').map(Number))`);
+      await other.core.undo(other.handle);
+    }
+
     // OpenAI as the judge: its picks once it has answered, with why.
     await other.core.setSecret("openai-api-key", "sk-test");
     await other.core.setPreference("retake-judge", "openai");
@@ -2563,7 +2675,19 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     expect(s.selection).toEqual([captions[0]!.id]);
     expect(s.playhead).toBeCloseTo(ticksToSeconds(captions[0]!.start), 2);
     await go("captions.style", { style: { anchorY: "middle", offsetY: -300 } });
-    await p.until("!!document.querySelector('[data-safe-clean]') && !document.querySelector('[data-safe-issues]')");
+    await p.until("!document.querySelector('[data-safe-issues]')");
+    // A key says what the colours are while a layout is shown.
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-key]')?.textContent ?? ''")).toBe("Platform UIHeadroomEye line");
+    // A click on one in the key hides it on the canvas, and another shows it again.
+    const dashes = "[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => l.getAttribute('stroke-width') === '1.5').length";
+    const shownDashes = await p.evaluate<number>(dashes);
+    expect(shownDashes).toBeGreaterThan(5);
+    await p.evaluate("document.querySelector('[data-safe-key-part=eyeLine]').click()");
+    await p.until(`${dashes} === 0`);
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-key-part=eyeLine]').getAttribute('aria-pressed')")).toBe("false");
+    expect(await shownNow()).toEqual({ layout: "tiktok", hidden: ["eyeLine"] });
+    await p.evaluate("document.querySelector('[data-safe-key-part=eyeLine]').click()");
+    await p.until(`${dashes} === ${shownDashes}`);
     // A text box's right side, dragged three points short of the right edge's zone, lands on it.
     await go("edit.addAnnotation", { preset: "text", time: 1 });
     const callout = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).find((c) => c.type === "callout")!;
@@ -2591,6 +2715,7 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].every((l) => +l.getAttribute('stroke-width') <= 10)");
     expect(await shownNow()).toBeUndefined();
     expect(existsSync(join(path, "editor.json"))).toBe(false);
+    expect(await p.evaluate<boolean>("!!document.querySelector('[data-safe-key]')")).toBe(false);
   } finally {
     p.close();
     await other.close();
@@ -2913,6 +3038,281 @@ test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audi
   await run("inspector.tab", { tab: "effects" });
   await page.until("document.body.innerText.includes('Strength')");
   await page.screenshot(join(dir, "noise-removal.png"));
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
+  await page.evaluate(`(() => {
+    window.__effects = [];
+    // WebKit starts a drag from Finder at "none" (what the app's own drops logged); Chromium starts it at "copy".
+    window.__webkit = (e) => { e.dataTransfer.dropEffect = "none"; };
+    window.__seen = (e) => window.__effects.push(e.dataTransfer.dropEffect);
+    window.addEventListener("dragover", window.__webkit, { capture: true });
+    // Only the drag is looked at: the drop itself would import, and the harness has no Finder drag to find the file in.
+    window.__stop = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+    window.addEventListener("dragover", window.__seen);
+    window.addEventListener("drop", window.__stop, { capture: true });
+  })()`);
+  const file = join(FIXTURES, "video.mp4");
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-asset]')");
+  const box = await timelineBox();
+  const over = async (x: number, y: number) => {
+    await page.evaluate("window.__effects = []");
+    await page.dropFiles(x, y, [file]);
+    return [...new Set(await page.evaluate<string[]>("window.__effects"))];
+  };
+  expect(await over(box.x + box.w / 2, box.y + 60)).toEqual(["copy"]);
+  expect(await over(...(await centre("[data-asset]")))).toEqual(["copy"]);
+  await page.evaluate(`(() => { window.removeEventListener("dragover", window.__webkit, { capture: true }); window.removeEventListener("dragover", window.__seen); window.removeEventListener("drop", window.__stop, { capture: true }); })()`);
+}, 30_000);
+
+test.skipIf(skip)("a clip of one frame is drawn and grabbed at least 40 points wide where there is room, and stays to scale between two clips", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.zoom", { to: "fit" });
+  const frame = 1 / 30;
+  await run("clip.split", { at: 2, clips: [screen.id], linked: false });
+  const piece = () => clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - 2) < 1e-6)!;
+  await run("clip.split", { at: 2 + frame, clips: [piece().id], linked: false });
+  const sliver = piece();
+  const next = clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - 2 - frame) < 1e-6)!;
+  expect(sliver.duration / 705_600_000).toBeCloseTo(frame, 6);
+  await Bun.sleep(300);
+  const p = await timelinePlaces(sliver.id);
+  const [x, y] = [p.box.x + p.xAt(2 + frame) + 12, p.box.y + p.y + p.h / 2];
+  // Between two clips there is no room: 12 points past its end is the next clip.
+  await page.click(x, y);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toContain(next.id);
+  expect((await session()).selection).not.toContain(sliver.id);
+  await run("clip.remove", { clips: [next.id], linked: false });
+  await select([]);
+  await page.click(x, y);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toEqual([sliver.id]);
+  await page.screenshot(join(dir, "one-frame-clip.png"));
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("two one-frame clips a little apart share the gap between them: a click in the later one's half picks it", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.zoom", { to: "fit" });
+  const frame = 1 / 30;
+  const at = (t: number) => clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - t) < 1e-6)!;
+  await run("clip.split", { at: 2, clips: [screen.id], linked: false });
+  await run("clip.split", { at: 2 + frame, clips: [at(2).id], linked: false });
+  const first = at(2);
+  const p0 = await timelinePlaces(first.id);
+  const gap = Math.round((24 / (p0.xAt(1) - p0.xAt(0))) * 30) / 30;
+  const b = 2 + frame + gap;
+  await run("clip.split", { at: b, clips: [at(2 + frame).id], linked: false });
+  await run("clip.split", { at: b + frame, clips: [at(b).id], linked: false });
+  const second = at(b);
+  await run("clip.remove", { clips: [at(2 + frame).id, at(b + frame).id, clips().find((c) => c.type === "screen" && c.start + c.duration === first.start)!.id], linked: false });
+  await select([]);
+  // The playhead out of the way, so the click doesn't grab it.
+  await run("playhead.set", { time: 60 });
+  await Bun.sleep(300);
+  const p = await timelinePlaces(second.id);
+  await page.click(p.box.x + p.xAt(2 + frame + gap * 0.7), p.box.y + p.y + p.h / 2);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toEqual([second.id]);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("a screenshot dropped from its thumbnail (no path to find) and an image pasted with ⌘V are saved into the project's media folder and imported, at the drop point and the playhead; ⌘V after copying clips in Beacon still pastes the clips", async () => {
+  const image = join(FIXTURES, "image.png");
+  if (!existsSync(image)) return;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const media = join(dir, "e2e.beproj", "media");
+  const images = () => clips().filter((c) => c.type === "image");
+  const before = images().length;
+  // The thumbnail's temporary file is a name WebKit has bytes for but Finder's drag doesn't list: only its bytes import.
+  const shot = join(dir, "Screenshot 2026-10-20 at 16.14.53.png");
+  copyFileSync(image, shot);
+  await run("timeline.zoom", { to: "fit" });
+  const box = await timelineBox();
+  // Below the last track: on a new one, clear of other media.
+  const bottom = await page.evaluate<number>("document.querySelector('canvas[data-timeline]').getBoundingClientRect().bottom");
+  await page.dropFiles(box.x + box.w * 0.6, bottom - 6, [shot]);
+  await arrived(() => images().length > before, 10_000);
+  expect(images().length).toBe(before + 1);
+  expect(existsSync(join(media, "Screenshot 2026-10-20 at 16.14.53.png"))).toBe(true);
+  const dropped = images().at(-1)!;
+  expect(dropped.start).toBeGreaterThan(0);
+
+  // ⌘V of an image copied in another app: WebKit names it image.png; it lands at the playhead, saved by date.
+  await run("playhead.set", { time: 3 });
+  await Bun.sleep(300);
+  const b64 = readFileSync(image).toString("base64");
+  const paste = (marked: boolean) =>
+    page.evaluate(`(() => {
+      const dt = new DataTransfer();
+      const bytes = Uint8Array.from(atob(${JSON.stringify(b64)}), (c) => c.charCodeAt(0));
+      dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
+      if (${marked}) dt.setData("application/x-beacon-clips", "1");
+      document.body.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    })()`);
+  await paste(false);
+  await arrived(() => images().length > before + 1, 10_000);
+  expect(images().filter((c) => c.id !== dropped.id && c.start === 3 * 705_600_000).length).toBe(1);
+  expect(readdirSync(media).some((n) => /^Pasted \d{4}-\d\d-\d\d at [\d.]+\.png$/.test(n))).toBe(true);
+
+  // Copying clips in Beacon marks the clipboard, so the image copied before it doesn't win the next ⌘V.
+  await select([callout.id]);
+  const marked = await page.evaluate<string[]>(`(() => {
+    const dt = new DataTransfer();
+    document.body.dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+    return [...dt.types];
+  })()`);
+  expect(marked).toContain("application/x-beacon-clips");
+  await arrived(() => false, 300);
+  const count = clips().length;
+  await paste(true);
+  await arrived(() => clips().length > count, 5000);
+  expect(clips().filter((c) => c.type === "callout").length).toBeGreaterThan(1);
+  expect(images().length).toBe(before + 2);
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 60_000);
+
+test.skipIf(skip)("Remove Background from its tile on the camera: the inspector says it is finding the person while the matte is made; Background shows only its own rows, Image lists the project's images", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const camera = clips().find((c) => c.type === "video")!;
+  await select([camera.id]);
+  await run("panel.show", { tool: "visualEffects", properties: true });
+  const tile = `[data-item="effect:remove-background"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(camera.id).effects.some((e) => e.type === "remove-background"));
+  const fx = clip(camera.id).effects.find((e) => e.type === "remove-background")!;
+  await run("inspector.tab", { tab: "effects" });
+  // The matte job started with the effect: its progress under it.
+  await page.until("!!document.querySelector('[data-effect-preparing]')", 15_000);
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-preparing]').textContent")).toMatch(/^Finding the person… \d+%$/);
+  // And in the top bar, seen whatever the inspector shows: nothing is drawn differently until the matte is made.
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-preparing-bar]')?.textContent ?? ''")).toMatch(/^Remove Background: Finding the person… \d+%$/);
+  const rows = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-effect-param]')].map((e) => e.dataset.effectParam)");
+  expect(await rows()).toEqual(["background"]);
+  expect(await page.evaluate<string[]>("[...document.querySelector('[data-effect-param=background]').options].map((o) => o.textContent)")).toEqual(["Transparent", "Blur", "Color", "Image"]);
+  await run("effect.set", { clip: camera.id, effect: fx.id, params: { background: "image" } });
+  await page.until("[...document.querySelectorAll('[data-effect-param]')].length === 2");
+  expect(await rows()).toEqual(["background", "image"]);
+  // The project's snapshot is its one image.
+  expect(await page.evaluate<string[]>("[...document.querySelector('[data-effect-param=image]').options].map((o) => o.textContent)")).toEqual(["None", expect.stringMatching(/^Snapshot/) as unknown as string]);
+  await page.screenshot(join(dir, "remove-background.png"));
+
+  for (const j of await ui.core.jobs()) if (j.kind === "matte" && j.state === "running") await ui.core.cancelJob(j.id).catch(() => {});
+  await page.until("!document.querySelector('[data-effect-preparing-bar]')");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 60_000);
+
+test.skipIf(skip)("LUT from its tile: Choose… imports a .cube into the project (not into the Media Bin) and sets it; a broken one says why", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const rows: string[] = [];
+  for (let b = 0; b < 2; b++) for (let g = 0; g < 2; g++) for (let r = 0; r < 2; r++) rows.push(`${1 - r} ${1 - g} ${1 - b}`);
+  const good = join(dir, "Teal Orange.cube");
+  writeFileSync(good, `LUT_3D_SIZE 2\n${rows.join("\n")}\n`);
+  const broken = join(dir, "Broken.cube");
+  writeFileSync(broken, "LUT_3D_SIZE 2\n0 0 0\n");
+  await select([screen.id]);
+  await run("panel.show", { tool: "visualEffects", properties: true });
+  const tile = `[data-item="effect:lut"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(screen.id).effects.some((e) => e.type === "lut"));
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("!!document.querySelector('[data-effect-choose=lut]')");
+
+  ui.chooseFile(broken);
+  await page.click(...(await centre("[data-effect-choose=lut]")));
+  await page.until("!!document.querySelector('[data-effect-choose-error]')");
+  expect(ui.menus).toContain("chooseFile:cube");
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-choose-error]').textContent")).toContain("it has 1 entries for a 2³ table");
+
+  ui.chooseFile(good);
+  await page.click(...(await centre("[data-effect-choose=lut]")));
+  await arrived(() => typeof clip(screen.id).effects.find((e) => e.type === "lut")?.params.lut === "string");
+  const id = clip(screen.id).effects.find((e) => e.type === "lut")!.params.lut as string;
+  expect(ui.core.doc(ui.handle).assets[id]!.path).toBe(join(dir, "e2e.beproj", "media", "Teal Orange.cube"));
+  await page.until("!document.querySelector('[data-effect-choose-error]')");
+  expect(await page.evaluate<string>("(() => { const s = document.querySelector('[data-effect-param=lut]'); return s.options[s.selectedIndex].textContent; })()")).toBe("Teal Orange");
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-asset]')");
+  expect(await has(`[data-asset="${id}"]`)).toBe(false);
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 60_000);
+
+test.skipIf(skip)("⌥⇧A animates a clip from its start to its end, wherever the playhead is; double-clicking an animation stretches it across its clip", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.zoom", { to: "fit" });
+  await run("playhead.set", { time: 2 });
+  await select([screen.id]);
+  const across = (id: string) => {
+    const c = clip(id);
+    const a = c.animations.at(-1)!;
+    return a && a.end === (c.mediaStart ?? 0) + c.duration && a.duration === c.duration;
+  };
+  await page.key("A", "KeyA", ["alt", "shift"]);
+  await arrived(() => clip(screen.id).animations.length === 1);
+  expect(across(screen.id)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Animation Across Clip");
+  await ui.core.undo(ui.handle);
+
+  // A second-long one from the playhead (⇧A), then double-clicked.
+  await run("playhead.set", { time: 2 });
+  await Bun.sleep(300);
+  await page.key("A", "KeyA", ["shift"]);
+  await arrived(() => clip(screen.id).animations.length === 1);
+  expect(across(screen.id)).toBe(false);
+  await run("timeline.zoom", { to: "fit" });
+  await Bun.sleep(300);
+  const p = await timelinePlaces(screen.id);
+  await page.dblclick(p.box.x + p.xAt(2.5), p.box.y + p.y + p.h / 2);
+  await arrived(() => across(screen.id));
+  expect(across(screen.id)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Stretch Animation Across Clip");
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the selection, or an annotation at the playhead) and to star or unstar it", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const starred = await ui.core.favorites();
+  await select([screen.id]);
+  await run("panel.show", { tool: "visualEffects" });
+  const shadow = `[data-item="effect:drop-shadow"]`;
+  await page.until(`!!document.querySelector('${shadow}')`);
+  const before = clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length;
+  await page.rightClick(...(await centre(shadow)));
+  await arrived(() => ui.menus.some((m) => m.startsWith("tile:")));
+  expect(ui.menus.at(-1)).toBe(`tile:Add to Selected Media|${starred.includes("effect:drop-shadow") ? "Remove from Favorites" : "Add to Favorites"}`);
+  await ui.chooseTile("add");
+  expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(before + 1);
+  await ui.chooseTile(starred.includes("effect:drop-shadow") ? "unfavorite" : "favorite");
+  expect((await ui.core.favorites()).includes("effect:drop-shadow")).toBe(!starred.includes("effect:drop-shadow"));
+
+  await run("panel.show", { tool: "annotations" });
+  const text = `[data-item="annotation:text"]`;
+  await page.until(`!!document.querySelector('${text}')`);
+  await page.rightClick(...(await centre(text)));
+  await arrived(() => ui.menus.at(-1)!.startsWith("tile:Add at Playhead"));
+  expect(ui.menus.at(-1)!.startsWith("tile:Add at Playhead|")).toBe(true);
+
+  if (starred.includes("effect:drop-shadow")) await ui.core.favoriteAdd("effect:drop-shadow", starred.indexOf("effect:drop-shadow"));
+  else await ui.core.favoriteRemove("effect:drop-shadow");
+  expect(await ui.core.favorites()).toEqual(starred);
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await run("panel.show", { tool: null });
   await select([]);

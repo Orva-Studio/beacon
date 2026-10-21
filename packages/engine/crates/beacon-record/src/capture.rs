@@ -46,8 +46,8 @@ pub struct Screen {
     pub display: Option<u32>,
     #[serde(default = "sixty")]
     pub fps: u32,
-    /// Leaves out windows with this title (Beacon's recording panel).
-    pub exclude: Option<String>,
+    /// Leaves out the window with this number (Beacon's recording panel).
+    pub exclude: Option<u32>,
 }
 
 fn sixty() -> u32 {
@@ -427,7 +427,7 @@ impl Take {
         let mut cursor = None;
         if sources.screen.is_some() || sources.system_audio {
             let want = sources.screen.as_ref();
-            let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude.as_deref()))?;
+            let (filter, display) = crate::devices::display_filter(want.and_then(|s| s.display), want.and_then(|s| s.exclude))?;
             let fps = sources.screen.as_ref().map_or(1, |s| s.fps.clamp(1, 60));
             // Audio alone still needs a video stream: the smallest one.
             let (pw, ph) = match sources.screen {
@@ -723,6 +723,13 @@ mod tests {
         assert!(checkpoint_due(&[false, false], &[true, false], 0.1));
         assert!(!checkpoint_due(&[true, true], &[true, true], 4.9));
         assert!(checkpoint_due(&[true, true], &[true, true], 5.0));
+    }
+
+    #[test]
+    fn the_panel_is_left_out_of_a_take_by_its_window_number_not_its_title() {
+        let s: Sources = serde_json::from_str(r#"{"screen":{"display":1,"exclude":8635}}"#).unwrap();
+        assert_eq!(s.screen.unwrap().exclude, Some(8635));
+        assert!(serde_json::from_str::<Sources>(r#"{"screen":{"exclude":"Beacon Recording Panel"}}"#).is_err());
     }
 
     #[test]

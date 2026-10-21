@@ -31,15 +31,15 @@ test.skipIf(!existsSync(AUDIO))("a 9:16 Short's captions under TikTok's caption 
   await core.run(h, "safeAreas.show", { layout: "tiktok" });
   const layouts = (await core.query(h, "safeAreas.layouts", {})) as { id: string; fits: boolean; zones: { id: string; rect: number[] }[] }[];
   expect(layouts.filter((l) => l.fits).map((l) => l.id)).toEqual(["tiktok", "reels", "shorts"]);
-  expect(layouts.find((l) => l.id === "tiktok")!.zones.find((z) => z.id === "bottom")!.rect).toEqual([0, 1260, 1080, 1920]);
+  expect(layouts.find((l) => l.id === "tiktok")!.zones.find((z) => z.id === "bottom")!.rect.map(Math.round)).toEqual([0, 1574, 1080, 1920]);
 
-  // The default captions sit low, under TikTok's username and caption: every caption, for as long as it shows.
+  // The default captions sit low, under TikTok's username and caption and beside its rail, which reaches down to them: every caption, for as long as it shows.
   const captions = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption");
   expect(captions.length).toBeGreaterThan(2);
   const low = (await core.query(h, "safeAreas.check", {})) as Check;
   expect([low.layout, low.clean]).toEqual(["tiktok", false]);
-  expect(new Set(low.issues.map((i) => `${i.type}:${i.zone}`))).toEqual(new Set(["caption:bottom"]));
-  expect(low.issues.map((i) => i.clip).sort()).toEqual(captions.map((c) => c.id).sort());
+  expect(new Set(low.issues.map((i) => `${i.type}:${i.zone}`))).toEqual(new Set(["caption:bottom", "caption:rail"]));
+  expect([...new Set(low.issues.filter((i) => i.zone === "bottom").map((i) => i.clip))].sort()).toEqual(captions.map((c) => c.id).sort());
   const first = captions.sort((a, b) => a.start - b.start)[0]!;
   const issue = low.issues.find((i) => i.clip === first.id)!;
   expect(issue.from).toBeCloseTo(first.start / 705_600_000, 2);
@@ -112,4 +112,25 @@ test("the safe areas kept with a project replace a link left where editor.json g
   expect(lstatSync(join(path, "editor.json")).isSymbolicLink()).toBe(false);
   expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels" } } });
   await core.close(h);
+});
+
+test("the key hides parts of the safe areas: kept with the project and across platforms, one at a time, back with another click", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-k") });
+  const path = join(dir, "key.beproj");
+  const h = await core.create({ path, settings: { width: 1080, height: 1920 } });
+  await expect(core.run(h, "safeAreas.toggle", { part: "eyeLine" })).rejects.toThrow("no safe areas are shown");
+  await core.run(h, "safeAreas.show", { layout: "tiktok" });
+  await core.run(h, "safeAreas.toggle", { part: "eyeLine" });
+  await core.run(h, "safeAreas.toggle", { part: "headroom" });
+  await core.run(h, "safeAreas.show", { layout: "reels" });
+  expect((await core.session(h)).features["safe-areas"]).toEqual({ layout: "reels", hidden: ["headroom", "eyeLine"] });
+  await core.run(h, "safeAreas.toggle", { part: "headroom" });
+  await core.run(h, "safeAreas.toggle", { part: "eyeLine", shown: false });
+  expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels", hidden: ["eyeLine"] } } });
+  await core.close(h);
+  const again = await core.open(path);
+  expect((await core.session(again)).features["safe-areas"]).toEqual({ layout: "reels", hidden: ["eyeLine"] });
+  await core.run(again, "safeAreas.toggle", { part: "eyeLine" });
+  expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels" } } });
+  await core.close(again);
 });

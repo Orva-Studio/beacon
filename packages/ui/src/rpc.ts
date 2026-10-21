@@ -94,9 +94,19 @@ export interface RunReply {
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */
 export type { DroppedFile };
 
+/** A tile's right-click menu: what its Add item runs (the tile's own double-click) and whether it is a favourite. */
+export interface TileMenu {
+  item: string;
+  /** "Add to Selected Media", or "Add at Playhead" for an annotation. */
+  add: string;
+  command: string;
+  args: Record<string, unknown>;
+  favorite: boolean;
+}
+
 export { exportOptions } from "./export-options";
 export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
-export { appBridge, coreRequests, projectBridge, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
+export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
@@ -275,6 +285,10 @@ export type AppRPC = {
       canvasMenu: { params: {}; response: void };
       /** The right-click menu for a Media Bin item. */
       binMenu: { params: { asset: string }; response: void };
+      /** The right-click menu for a tool panel's tile (an effect, annotation or audio effect). */
+      tileMenu: { params: TileMenu; response: void };
+      /** A recent project's right-click on the start screen: Open, Show in Finder, Remove from Recent Projects, Move to Trash…. */
+      recentMenu: { params: { path: string }; response: void };
       /** Import Media…'s file picker (the Media Bin's Import tile). */
       importMedia: { params: {}; response: void };
       /** Files dragged in from Finder: imported at `time` on `track` (a drop on the timeline), else after the last clip. */
@@ -290,6 +304,8 @@ export type AppRPC = {
       /** A folder picked in the Finder dialog, starting at `start`. */
       chooseFolder: { params: { start: string }; response: string | null };
       chooseFile: { params: { extensions: string[] }; response: string | null };
+      /** A file picked for an effect (a LUT) imported into the project, placing no clips: its asset id. */
+      importFile: { params: { path: string }; response: RunReply & { result?: string } };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
@@ -422,7 +438,7 @@ export type AppRPC = {
       /** Timeline pictures: waveforms by asset and audio stream, first-frame thumbnails (data URLs) by clip. */
       /** `preparing`: every asset whose proxy is being made, its progress 0-1 (replaces the last); `proxies`: whether assets have one (merged). */
       /** `missing`: media whose file is gone (replaces the last). */
-      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
+      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; analyzing?: Record<string, number>; analysisFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
     };
   };
 };

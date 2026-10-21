@@ -1,6 +1,9 @@
 //! Export sidecar. stdin: one `Job` JSON line, then one `Scene` JSON line per
 //! frame. stdout: JSON-lines progress (`{"frame":n}`, then `{"done":n}` or
 //! `{"error":"..."}`).
+//!
+//! `beacon-worker matte <input> <stream> <output>`: Remove Background's matte of a video stream instead
+//! (`beacon_render::matte`); stdout: `{"time":seconds}` as it goes, then `{"done":[width,height]}` or `{"error":"..."}`.
 
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -107,7 +110,33 @@ fn run() -> Result<u64, String> {
     Ok(n)
 }
 
+#[cfg(target_os = "macos")]
+fn matte(args: &[String]) -> Result<(u32, u32), String> {
+    let [input, stream, output] = args else { return Err("usage: beacon-worker matte <input> <stream> <output>".into()) };
+    let stream = stream.parse().map_err(|_| format!("stream: {stream}"))?;
+    let mut reported = f64::NEG_INFINITY;
+    beacon_render::matte::make(input, stream, output, |t| {
+        if t - reported >= 1.0 {
+            reported = t;
+            report(serde_json::json!({ "time": t }));
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(target_os = "macos")]
+    if args.first().map(String::as_str) == Some("matte") {
+        match matte(&args[1..]) {
+            Ok((w, h)) => report(serde_json::json!({ "done": [w, h] })),
+            Err(e) => {
+                report(serde_json::json!({ "error": e }));
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     match run() {
         Ok(n) => report(serde_json::json!({ "done": n })),
         Err(e) => {

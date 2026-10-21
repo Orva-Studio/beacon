@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { ApplicationMenu, ContextMenu, Utils } from "electrobun/main";
 import { chordOf, keyOfCode, keysLabel, LABEL_COLORS, locateTrack, menuKey, MODIFIERS, walkClips, type Keys, type ShortcutInfo } from "@beacon/core";
+import { tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
 import { errorText, type App } from "./app";
 
 export interface MenusApp extends App {
@@ -11,6 +12,9 @@ export interface MenusApp extends App {
   recent(): { path: string }[];
   openRecent(path: string): void;
   clearRecent(): void;
+  /** The start screen's right-click: off the list, or to the Trash after asking. */
+  removeRecent(path: string): void;
+  trashProject(path: string): Promise<void>;
   /** The app's own actions ("app.export"), from menus, the palette or keys. */
   appAction(id: string): void;
   /** ⌘Q: close everything before Electrobun exits. */
@@ -72,7 +76,17 @@ export function createMenus(app: MenusApp) {
     else if (s) core.run(h, s.command, s.args ?? {}).catch(fail);
   }
 
+  /** The menu bar, for the focused project: the safe areas it shows are read from its session first. */
   function setMenu() {
+    const current = app.current();
+    if (!current) return buildMenu(undefined);
+    core.session(current.path).then(
+      (s) => buildMenu((s.features["safe-areas"] as { layout?: string } | undefined)?.layout),
+      () => buildMenu(undefined),
+    );
+  }
+
+  function buildMenu(safeArea: string | undefined) {
     const open = !!app.current();
     const recent = app.recent();
     ApplicationMenu.setApplicationMenu([
@@ -156,12 +170,16 @@ export function createMenus(app: MenusApp) {
           {
             label: "Safe Areas",
             submenu: [
-              item("safeAreas.show:none", { label: "None", enabled: open }),
+              { ...item("safeAreas.show:none", { label: "None", enabled: open }), checked: open && !safeArea },
               SEPARATOR,
-              item("safeAreas.show:tiktok", { label: "TikTok", enabled: open }),
-              item("safeAreas.show:reels", { label: "Instagram Reels", enabled: open }),
-              item("safeAreas.show:shorts", { label: "YouTube Shorts", enabled: open }),
-              item("safeAreas.show:youtube", { label: "YouTube (16:9)", enabled: open }),
+              ...(
+                [
+                  ["tiktok", "TikTok"],
+                  ["reels", "Instagram Reels"],
+                  ["shorts", "YouTube Shorts"],
+                  ["youtube", "YouTube (16:9)"],
+                ] as const
+              ).map(([id, label]) => ({ ...item(`safeAreas.show:${id}`, { label, enabled: open }), checked: safeArea === id })),
             ],
           },
           SEPARATOR,
@@ -238,6 +256,7 @@ export function createMenus(app: MenusApp) {
       action("edit.rippleCut"),
       action("edit.rippleDelete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
+      ...(target && core.registry.hasTrait(target.type, "visual") ? [SEPARATOR, action("edit.addAnimationAcross")] : []),
       SEPARATOR,
       own("Hide Properties", "hideProperties"),
       SEPARATOR,
@@ -406,16 +425,53 @@ export function createMenus(app: MenusApp) {
     }
   }
 
+  /** The tile whose menu is shown: its item ids have colons, so the click names only the choice. */
+  let tile: TileMenu | undefined;
+
+  /** A tool panel tile's menu: add it as its double-click does, or star it. */
+  async function tileMenu(t: TileMenu) {
+    const current = app.current();
+    if (!current) return;
+    tile = t;
+    const adds = await applies(current.path, t.command, t.args);
+    ContextMenu.showContextMenu(tileMenuItems(t).map(([label, choice]) => ({ label, action: `tile:${choice}`, enabled: choice !== "add" || adds })));
+  }
+
+  /** The recent project whose menu is shown, kept here as a path may have colons. */
+  let recentShown: string | undefined;
+
+  /** A recent project's menu on the start screen, where no project is open. */
+  function recentMenu(path: string) {
+    recentShown = path;
+    ContextMenu.showContextMenu([
+      { label: "Open", action: "recent-menu:open" },
+      { label: "Show in Finder", action: "recent-menu:reveal" },
+      SEPARATOR,
+      { label: "Remove from Recent Projects", action: "recent-menu:remove" },
+      { label: "Move to Trash…", action: "recent-menu:trash" },
+    ]);
+  }
+
   ContextMenu.on("context-menu-clicked", (e) => {
     const chosen = String((e as { data?: { action?: string } }).data?.action ?? "");
     if (chosen.startsWith("act:")) return runAction(chosen.slice(4));
+    if (chosen.startsWith("recent-menu:") && recentShown) {
+      const path = recentShown;
+      const op = chosen.slice(12);
+      if (op === "open") return app.openRecent(path);
+      if (op === "reveal") return Utils.showItemInFolder(path);
+      if (op === "remove") return app.removeRecent(path);
+      if (op === "trash") return void app.trashProject(path).catch(fail);
+      return;
+    }
     const current = app.current();
     if (!current) return;
+    if (chosen.startsWith("tile:") && tile) return void tileChoice(core, current.path, tile, chosen.slice(5)).catch(fail);
     const [kind, op, id] = chosen.split(":") as [string, string, string];
     if (kind === "track") trackAction(current.path, op, id);
     else if (kind === "media") mediaAction(current.path, op, id);
     else if (kind === "clip") clipAction(current.path, op, id);
   });
 
-  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu };
+  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, tileMenu, recentMenu };
 }

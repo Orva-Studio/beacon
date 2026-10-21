@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { clipSpeed, formatColor, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
+import { assetName, clipSpeed, formatColor, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
@@ -438,7 +438,15 @@ function Cursor({ value, clip, edit }: { value: (g: string, f: string, d?: numbe
 /** Every hue at full saturation, 0° to 360°, as a hue parameter's slider groove. */
 const HUES = "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
 
-type JsonSchema = { type?: string; slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; hue?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
+type JsonSchema = {
+  type?: string | string[];
+  /** A medium of the project of this kind (an image), by asset id; null for none. */
+  asset?: string;
+  /** For a file asset: the extensions it takes, and a Choose… button that imports one. */
+  extensions?: string[];
+  /** Shown only while the other params named have these values (Remove Background's blur with background "blur"). */
+  when?: Record<string, unknown>;
+  slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; hue?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
 /** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
 function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: EffectInstance; host: Host; def?: Init["effects"][number]; selected: boolean }) {
@@ -447,7 +455,13 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
   /** What the last look chosen or imported couldn't reproduce, said under its menu. */
   const [report, setReport] = useState<{ name: string; notes: string[] }>();
+  /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
+  const [chooseError, setChooseError] = useState<string>();
   const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
+  const assets = useView((s) => s.project?.assets);
+  // What the effect needs of the clip's media (a matte) while it is made, or why it couldn't be.
+  const making = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analyzing[`${n}:${clip.assetId}`]).find((p) => p !== undefined) : undefined));
+  const failed = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analysisFailed[`${n}:${clip.assetId}`]).find(Boolean) : undefined));
   const importLook = async () => {
     const path = await host.chooseFile(def!.importFile!.extensions);
     if (!path) return;
@@ -505,9 +519,25 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               Not in {name}, from “{report.name}”: {report.notes.join("; ")}.
             </div>
           )}
+          {chooseError && (
+            <div className="mb-2 ml-[92px] text-label text-danger" data-effect-choose-error>
+              {chooseError}
+            </div>
+          )}
+          {making !== undefined && (
+            <div className="mb-2 ml-[92px] text-label text-text-faint" data-effect-preparing>
+              {def?.preparing ?? "Preparing"}… {Math.round(making * 100)}%
+            </div>
+          )}
+          {failed && making === undefined && (
+            <div className="mb-2 ml-[92px] text-label text-danger" data-effect-failed>
+              {def?.preparing ?? "Preparing"} failed: {failed}
+            </div>
+          )}
           {[...Object.keys(fields).filter((k) => k in effect.params), ...Object.keys(effect.params).filter((k) => !(k in fields))].map((k) => {
             const v = effect.params[k];
             const f = fields[k] ?? {};
+            if (f.when && Object.entries(f.when).some(([o, want]) => effect.params[o] !== want)) return null;
             const label = k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
             if (typeof v === "boolean") return <div key={k} className="mb-2 ml-[92px]"><Check label={label} checked={v} onChange={(on) => set({ [k]: on })} /></div>;
             if (typeof v === "number") {
@@ -533,9 +563,43 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             if (f.enum) {
               return (
                 <Row key={k} label={label}>
-                  <Select value={String(v)} onChange={(e) => set({ [k]: e.target.value })}>
-                    {f.enum.map((o) => <option key={String(o)}>{String(o)}</option>)}
+                  <Select value={String(v)} onChange={(e) => set({ [k]: e.target.value })} data-effect-param={k}>
+                    {f.enum.map((o) => (
+                      <option key={String(o)} value={String(o)}>
+                        {String(o).replace(/^./, (c) => c.toUpperCase())}
+                      </option>
+                    ))}
                   </Select>
+                </Row>
+              );
+            }
+            if (f.asset) {
+              const exts = f.extensions;
+              const choices = Object.values(assets ?? {}).filter((a) => a.kind === f.asset && (!exts || exts.some((x) => a.path.toLowerCase().endsWith(`.${x}`))));
+              const choose = async () => {
+                const path = await host.chooseFile(exts!);
+                if (!path) return;
+                const r = await host.importFile(path);
+                if (r.ok && r.result) set({ [k]: r.result });
+                setChooseError(r.ok ? undefined : (r.error ?? `${path.split("/").pop()} couldn't be read`));
+              };
+              return (
+                <Row key={k} label={label}>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <Select value={typeof v === "string" ? v : ""} onChange={(e) => set({ [k]: e.target.value || null })} data-effect-param={k}>
+                      <option value="">{choices.length ? "None" : exts ? "None chosen" : `No ${f.asset}s in the Media Bin`}</option>
+                      {choices.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {assetName(a)}
+                        </option>
+                      ))}
+                    </Select>
+                    {exts && (
+                      <Button look="quiet" title={`Pick a .${exts[0]} file; it is copied into the project`} onClick={() => void choose()} data-effect-choose={k}>
+                        Choose…
+                      </Button>
+                    )}
+                  </div>
                 </Row>
               );
             }

@@ -10,13 +10,14 @@ import {
   trackName,
   trimBounds,
   type Clip,
+  type Track,
   type Project,
   type Session,
 } from "@beacon/model";
-import { addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
+import { acceptFiles, addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
-import { arrowHalfHeight, clipBox, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
 import { replica, useView } from "./store";
 import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
 import { propsOf } from "./props";
@@ -173,13 +174,21 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     return HEADER + (t - start) / spp();
   };
 
+  /** Where `clip` on `t` is drawn, in seconds: at least `MIN_CLIP` wide where there is room. */
+  const shown = (t: Track, clip: Clip) =>
+    shownSpan(ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration), t.clips.filter((c) => c !== clip).map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const), spp());
+
   const clipAt = (clientX: number, clientY: number): Clip | undefined => {
     const r = canvas.current!.getBoundingClientRect();
     const i = rowAt(clientY - r.top, TRACK, tracks.length);
     const t = i === undefined ? undefined : tracks[i];
-    if (!t) return undefined;
-    const ticks = timeAt(clientX);
-    return t.clips.find((c) => ticksToSeconds(c.start) <= ticks && ticks < ticksToSeconds(c.start + c.duration));
+    // A locked track's clips can't be picked, moved, trimmed or opened: the pointer sees empty time there.
+    if (!t || t.locked) return undefined;
+    const time = timeAt(clientX);
+    return t.clips.find((c) => {
+      const [a, b] = shown(t, c);
+      return a <= time && time < b;
+    });
   };
 
   /** The clip a panel item dropped at a point would go on: one that takes it, on an unlocked track. */
@@ -227,7 +236,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     const r = canvas.current!.getBoundingClientRect();
     const [px, py] = [clientX - r.left, clientY - r.top];
     const i = rowUnder(py);
-    if (i === undefined) return undefined;
+    if (i === undefined || tracks[i]!.locked) return undefined;
     const box = clipBox(i, TRACK);
     const ay = box.y + box.h / 2;
     for (const clip of tracks[i]!.clips) {
@@ -434,18 +443,16 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         ref={canvas}
         data-timeline
         className="absolute inset-0"
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-        }}
+        onDragOver={acceptFiles}
         onDrop={(e) => {
-          const files = droppedFiles(e.dataTransfer);
-          if (!files.length || latest.current.session.group) return;
+          if (!e.dataTransfer.files.length || latest.current.session.group) return;
           e.preventDefault();
           e.stopPropagation();
           const r = canvas.current!.getBoundingClientRect();
           const row = rowUnder(e.clientY - r.top);
           const t = row === undefined ? undefined : tracks[row];
-          dropFiles(files, { time: timeAt(Math.max(e.clientX, r.left + HEADER)), ...(t && !t.locked ? { track: t.id } : {}) });
+          const at = { time: timeAt(Math.max(e.clientX, r.left + HEADER)), ...(t && !t.locked ? { track: t.id } : {}) };
+          void droppedFiles(e.dataTransfer).then((files) => dropFiles(files, at));
         }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
@@ -624,8 +631,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const [y0, y1] = [Math.min(d.y0, y), Math.max(d.y0, y)];
             const hit = tracks.flatMap((t, i) => {
               const ty = rowTop(i, TRACK);
-              if (ty + TRACK < y0 || ty > y1) return [];
-              return t.clips.filter((c) => xOf(ticksToSeconds(c.start)) < x1 && xOf(ticksToSeconds(c.start + c.duration)) > x0).map((c) => c.id);
+              if (t.locked || ty + TRACK < y0 || ty > y1) return [];
+              return t.clips.filter((c) => xOf(shown(t, c)[0]) < x1 && xOf(shown(t, c)[1]) > x0).map((c) => c.id);
             });
             const next = [...new Set([...d.base, ...hit])];
             if (next.join() !== session.selection.join()) throttled("selection.set", { clips: next, linked: true });
@@ -648,6 +655,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           const i = rowUnder(y);
           if (x < HEADER && i !== undefined && !headerIcon(x, y, i)) replica.rename(tracks[i]!.id);
           if (x < HEADER || i === undefined) return;
+          // An animation stretched across its whole clip.
+          const arrow = arrowAt(e.clientX, e.clientY);
+          if (arrow) {
+            const [a, b] = [ticksToSeconds(arrow.clip.start), ticksToSeconds(arrow.clip.start + arrow.clip.duration)];
+            return run("animation.set", { clip: arrow.clip.id, animation: arrow.anim.id, end: b, duration: b - a }, "Stretch Animation Across Clip");
+          }
           // On a selected audio clip's volume line: add a point there, or remove the one double-clicked.
           const clip = clipAt(e.clientX, e.clientY);
           if (clip && clipTypes[clip.type]?.includes("group") && !latest.current.session.group) return run("group.open", { clip: clip.id });
