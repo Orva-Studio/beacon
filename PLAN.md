@@ -1908,31 +1908,68 @@ Research and agree the design with them first; nothing is built before.
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
 
-### Phase 12 — AI B-roll (the user, 2026-10-21; moved up from the backlog)
-Generated cutaways over the talk, through the user's own API keys, as jobs
-that make media assets reviewed in the AI panel before they are placed
-(as Remove Silences is: agents prepare, the user applies). Researched
-2026-10-15:
-- **B-roll from the transcript** (low risk, first): an LLM picks 2-6 s
-  cutaways from the word-timed transcript and writes shot prompts with one
-  style sheet; text-to-video with audio off (Veo 3.1 Fast/Lite, Kling 3.0,
-  FLUX 3 Video's draft mode; about $0.05-0.17/s), placed on a B-roll track
-  over the word range. Good for generic shots; weak on real UIs, logos, text.
-- **Where it goes, drawn on the canvas** (the user, 2026-10-17): drag a
-  rectangle over the canvas for the area the generated video fills (a
-  vertical video: the face in the bottom half, B-roll generated for the top
-  half), so it is generated at that shape and placed there. Seedance 2.5 or
-  whatever model is best then. Later, to be fleshed out by the user: motion
-  graphics made with HyperFrames, and the user's own skills as presets.
-- Shape: a generation job per provider (fal and Runway cover many models with
-  one key), results as candidates with their prompt, model and cost, a cost
-  estimate before running, then one undoable command to place a take; the
-  original audio kept. MCP tools follow the same suggest/generate/apply path.
-- To decide with the user first: the provider and model (fal covers many
-  with one key), a spending limit, and whether the drawn region comes in
-  this phase or after transcript B-roll.
-**Gate:** B-roll suggested from one of the user's takes, generated,
-reviewed and placed in one undo step, with its cost shown before it runs.
+### Phase 12 — AI B-roll and animations (the user, 2026-10-21; moved up from the backlog)
+Generated footage or animation over a stretch of the talk, made from what is
+said there, through the user's own API keys, reviewed in the AI panel before
+it is placed (as Remove Silences is: agents prepare, the user applies).
+**Draft spec (2026-10-21), from the user's flow; the open decisions below
+come first.**
+
+**The flow.**
+1. **How long:** drag the in/out range on the ruler over the words it should
+   cover (the range Beacon already has). The range's length is the footage's
+   length; a range longer than one shot (models make 4-10 s) becomes several
+   shots, cut on the transcript's sentence ends.
+2. **Open it:** the AI panel's B-roll tile (or the range's right-click menu,
+   or an agent) opens a review in the right sidebar: the range and the words
+   said in it, a **Guide** box (optional: "show a city at night", "keep it
+   abstract"), a **Kind** (Footage, or Animation), **Research the topic**
+   (on or off), and **Where** (Full canvas, or Draw on canvas).
+3. **Where (optional):** Draw on canvas drags a rectangle over the canvas
+   with handles, snapping to the canvas's halves and thirds and to the safe
+   areas (a vertical Short: the face in the bottom half, B-roll in the top).
+   The footage is made at that shape (the nearest aspect the model offers,
+   then cropped to fill) and placed there.
+4. **Plan:** an LLM reads the range's words (and a little before and after,
+   for context), researches the topic on the web when asked (names, products,
+   places in what is said, so the shots show the right thing), and writes a
+   shot list: each shot's span on the timeline, its prompt and why. Shown as
+   marks over the range on the timeline, each prompt editable, with the
+   cost estimate (model × seconds) before anything is generated.
+5. **Generate:** a job per shot (progress in the top bar, as Remove
+   Background's), each a candidate with its prompt, model and cost; re-roll
+   one shot, or edit its prompt and make it again.
+6. **Apply:** one undo step places the picked candidates on a B-roll track
+   above the talk, over their spans, fitted to the region; the talk's audio
+   kept (footage is generated silent). The files are copied into the project's
+   `media` folder, each asset remembering its prompt, model and cost.
+
+**Kinds.**
+- **Footage** (first): text-to-video with audio off. Researched 2026-10-15:
+  Veo 3.1 Fast/Lite, Kling 3.0, FLUX 3 Video's draft mode at about
+  $0.05-0.17/s (a 20 s range ≈ $1-3.50 a try); Seedance 2.5 best for shaped
+  regions, at more. Good for generic shots; weak on real UIs, logos and
+  text, which is where research and the Guide help least.
+- **Animation** (second): motion graphics made from the words (a title, a
+  number, a list, a diagram) with HyperFrames (the user's pick, to be
+  looked at), drawn locally rather than generated: sharp text, no per-second
+  cost, editable afterwards. Later: the user's own skills as presets.
+
+**Agents.** MCP tools follow the same path: `broll.plan` (the range, guide,
+kind, research, region) prepares the review, `broll.generate` runs it,
+`broll.apply` only when the user asks.
+
+**Open decisions (with the user, before building).**
+- Provider for footage: fal (one key, many models) or Runway; which model by
+  default; a spending limit per generation and per project.
+- Who plans and researches: OpenAI with the key Beacon already keeps (its
+  web search), or Anthropic's API with a new key.
+- Order: footage first, the drawn region in this phase, animation after?
+- How many candidates per shot (each costs): one, re-rolled on request?
+
+**Gate:** a range of one of the user's takes planned (with research),
+generated, reviewed and placed in one undo step, in a drawn region, with
+its cost shown before it runs.
 
 ### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
 A review of what an attacker could reach, before Beacon is shared more widely,
