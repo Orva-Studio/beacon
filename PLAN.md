@@ -2001,11 +2001,13 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
 
-#### Auphonic cleaning through tuneup (the user, 2026-10-21; in Phase 12 beside B-roll)
-Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too,
-through their own `tuneup` CLI (`~/tuneup`, v0.3.0: Auphonic preset in the
-cloud, then a local de-click, de-clip and de-ess pass). They do it by hand
-today (3-shorts' `coffee.cleaned.m4a`). **Plan only; nothing built.**
+#### Auphonic cleaning, built in (the user, 2026-10-21; in Phase 12 beside B-roll)
+Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too:
+what their `tuneup` CLI does (`~/tuneup`, v0.3.0, MIT, theirs: an Auphonic
+preset in the cloud, then a local de-click, de-clip and de-ess pass), built
+into Beacon, so audio is never edited outside it and nobody installs tuneup
+(the user, 2026-10-21). They do it by hand today (3-shorts'
+`coffee.cleaned.m4a`). **Plan only; nothing built.**
 
 **The flow.**
 1. **Pick it:** an **Auphonic** tile in Audio Effects, dragged onto an audio
@@ -2040,13 +2042,19 @@ today (3-shorts' `coffee.cleaned.m4a`). **Plan only; nothing built.**
      the audio tab flips back for a listen (A/B).
 
 **How it runs.**
-- **tuneup as a library**, not a CLI on PATH (Beacon runs no tools from
-  PATH): a `process(file, { preset, postProcess, deesser, ffmpeg, signal,
-  onProgress })` entry in tuneup that returns the files' paths and throws
-  rather than printing and calling `process.exit`; Beacon depends on it at an
-  exact version. The polish pass is given Beacon's own FFmpeg, which needs
-  `adeclick`, `adeclip` and `deesser` enabled in `scripts/build-tools.ts`
-  (all LGPL; today it has only `afftdn`).
+- **Beacon talks to Auphonic itself**, as tuneup does (its code ported, not
+  depended on; no tuneup, no CLI): `GET /presets.json` for the preset list,
+  `POST /simple/productions.json` with the WAV and the preset's uuid, `POST
+  /production/<uuid>/start.json`, `GET /production/<uuid>/status.json` until
+  done (status 3) or failed (2, with its message), then the output files
+  from `/production/<uuid>.json`, downloaded into the project's `media`
+  folder. A job in core (as the OpenAI transcriber's requests are), with
+  progress and cancel; the upload streamed, not read into memory.
+- **The polish pass with Beacon's own FFmpeg** (`adeclick,adeclip,deesser=
+  i=<de-esser>`, as tuneup runs it), which needs `adeclick`, `adeclip` and
+  `deesser` enabled in `scripts/build-tools.ts` (all LGPL; today it has only
+  `afftdn`). It can also run alone, with no Auphonic, free and offline: a
+  **Polish only** choice beside the presets.
 - **The Auphonic key** in the Keychain as the OpenAI key is (Settings ›
   Audio), handed to tuneup, never written to logs or the project; offline,
   the tile greys out with why (as the online AI tools do).
@@ -2057,7 +2065,8 @@ today (3-shorts' `coffee.cleaned.m4a`). **Plan only; nothing built.**
   against the original (length within a frame, offset by cross-correlation)
   before it is used; a mismatch is refused with why, the file kept.
 - **Agents:** `audio.clean` prepares it (clips, preset, polish, scope),
-  `audio.cleanStart` runs it (the user's money: only when asked),
+  `audio.cleanStart` runs it (the user's money: only when asked; Polish
+  only costs nothing),
   `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
 
 **Decided (the user, 2026-10-21):** built in Phase 12 beside B-roll (both
