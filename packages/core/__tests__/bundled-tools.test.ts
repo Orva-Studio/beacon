@@ -7,7 +7,7 @@ const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures
 const [RECORDING, VIDEO, AUDIO] = ["recording.trec", "video.mp4", "audio.m4a"].map((f) => join(FIXTURES, f)) as [string, string, string];
 const SYSTEM_ONLY = "/usr/bin:/bin:/usr/sbin:/sbin";
 
-test.skipIf(![RECORDING, VIDEO, AUDIO].every(existsSync))("with no ffmpeg or whisper on PATH, Beacon imports, draws, transcribes and exports MP4, GIF and WebM with its own", () => {
+test.skipIf(![RECORDING, VIDEO, AUDIO].every(existsSync))("with no ffmpeg or whisper on PATH, Beacon imports, draws, transcribes and exports MP4, GIF and WebM and copies out audio for proxies with its own", () => {
   expect(Bun.which("ffmpeg", { PATH: SYSTEM_ONLY })).toBeNull();
   expect(Bun.which("whisper-cli", { PATH: SYSTEM_ONLY })).toBeNull();
   const { BEACON_TOOLS_DIR: _, ...env } = process.env;
@@ -15,7 +15,7 @@ test.skipIf(![RECORDING, VIDEO, AUDIO].every(existsSync))("with no ffmpeg or whi
   expect(r.exitCode, r.stderr.toString()).toBe(0);
   const out = JSON.parse(r.stdout.toString().trim().split("\n").at(-1)!);
   expect(out.frame).toBeGreaterThan(1000);
-  for (const ext of ["mp4", "gif", "webm"]) expect(out.sizes[ext]).toBeGreaterThan(1000);
+  for (const ext of ["mp4", "gif", "webm", "mka"]) expect(out.sizes[ext]).toBeGreaterThan(1000);
   if (out.words !== undefined) expect(out.words).toBeGreaterThan(5);
 }, 180_000);
 

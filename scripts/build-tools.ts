@@ -44,7 +44,7 @@ const WHISPER: Source = { name: "whisper.cpp-1.9.2", url: "https://github.com/gg
 const ENABLE = {
   protocol: ["file", "pipe", "fd"],
   demuxer: ["mov", "matroska", "avi", "mp3", "aac", "wav", "flac", "ogg", "gif", "image2", "image_png_pipe", "image_jpeg_pipe", "image_webp_pipe", "image_bmp_pipe", "image_tiff_pipe", "rawvideo", "pcm_s16le", "pcm_f32le"],
-  muxer: ["mov", "mp4", "ipod", "matroska", "webm", "gif", "image2", "image2pipe", "rawvideo", "null", "wav", "mp3", "adts", "pcm_s16le", "pcm_f32le"],
+  muxer: ["mov", "mp4", "ipod", "matroska", "matroska_audio", "webm", "gif", "image2", "image2pipe", "rawvideo", "null", "wav", "mp3", "adts", "pcm_s16le", "pcm_f32le"],
   decoder: [
     "tscc2", "h264", "hevc", "prores", "mpeg4", "vp8", "vp9", "mjpeg", "png", "gif", "webp", "bmp", "tiff", "rawvideo",
     "aac", "mp3float", "alac", "flac", "opus", "vorbis", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_f32le", "pcm_f32be", "pcm_u8",
