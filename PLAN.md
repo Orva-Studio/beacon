@@ -2246,12 +2246,6 @@ placed. AI B-roll, researched with it on 2026-10-15, moved to Phase 12
   No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
   lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
 
-### The playhead follows a Shift-drag (the user, 2026-10-21; not yet)
-Shift-dragging the playhead line (or a gap) opens or closes time live, but
-the playhead stays where the drag began while the clips after it move: it
-should follow the pointer, so it sits where the space ends and the drag
-reads as moving it. Not needed now (the user's word).
-
 ### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own
   (Custom in the Look menu) saved under a name, starred into Favorites like

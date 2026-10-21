@@ -432,6 +432,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       const track = d.track ? { track: d.track } : {};
       if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d, ...track }, "Ripple Split");
       else if (d.d < 0) run("timeline.removeSpace", { at: d.at, duration: -d.d, ...track }, "Close Space");
+      if (d.playhead && d.d) run("playhead.set", { time: d.at + d.d });
     } else if (d.kind === "range" || d.kind === "rangeEdge") {
       if (!session.range) run("range.clear");
     }
@@ -502,7 +503,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             capture();
             if (e.metaKey) dragState.current = { kind: "range", anchor: session.playhead };
             else if (e.shiftKey && session.group) status("Close the group (⌃⇧U) to insert space");
-            else if (e.shiftKey) dragState.current = { kind: "space", at: session.playhead, d: 0, room: roomBefore(session.playhead) };
+            else if (e.shiftKey) dragState.current = { kind: "space", at: session.playhead, d: 0, room: roomBefore(session.playhead), playhead: true };
             else {
               dragState.current = { kind: "playhead" };
               scrub(e.clientX);

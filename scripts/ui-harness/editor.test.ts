@@ -3025,7 +3025,24 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   await page.drag(ruler(5), ruler(0.5), ["shift"]);
   await arrived(() => after.every((id) => Math.abs(startOf(id) - 2) < 0.05));
   for (const id of after) expect(startOf(id)).toBeCloseTo(2, 1);
+  expect((await session()).playhead).toBeCloseTo(2, 1);
   await undoOne();
+
+  // The playhead dragged right opens time and follows the pointer, ending where the space does.
+  await run("playhead.set", { time: 5 });
+  await Bun.sleep(200);
+  const line = Math.round(xAt(5.5)) + 0.5;
+  const gap = await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2));
+  await page.down(...ruler(5), ["shift"]);
+  for (let i = 1; i <= 8; i++) await page.move(box.x + xAt(5 + i / 16), ruler(5)[1], ["shift"]);
+  await Bun.sleep(200);
+  expect(await page.evaluate<string>(timelinePixel(line, y + h / 2))).not.toBe(gap);
+  await page.up(...ruler(5.5), ["shift"]);
+  await arrived(() => after.every((id) => Math.abs(startOf(id) - 5.5) < 0.05));
+  for (const id of after) expect(startOf(id)).toBeCloseTo(5.5, 1);
+  expect((await session()).playhead).toBeCloseTo(5.5, 1);
+  await undoOne();
+  await run("playhead.set", { time: 9 });
 
   // Shift on the gap, dragged right, opens time there on every track, the clips after it moving as it goes.
   const empty = await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2));

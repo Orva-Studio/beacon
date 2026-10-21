@@ -39,8 +39,8 @@ export type Drag =
   | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
   | { kind: "range"; anchor: number }
   | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
-  /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`). */
-  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number }
+  /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`); `playhead`: begun on it, which follows. */
+  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number; playhead?: boolean }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
   | PressDrag
   | MoveDrag
@@ -707,7 +707,9 @@ export function drawTimeline(t: TimelineDrawing) {
 
     function drawPlayhead(ctx: CanvasRenderingContext2D) {
     // One colour, as CapCut, Premiere and Resolve: a pin-shaped head on the ruler over a thin line, its timecode beside it.
-    const ph = x(session.playhead);
+    const space = dragState.current?.kind === "space" && dragState.current.playhead ? dragState.current : undefined;
+    const playhead = space ? space.at + space.d : session.playhead;
+    const ph = x(playhead);
     // Zoomed in, the frame on show is a band from the playhead to the next frame.
     if (pps / fps >= FRAME_SHADE) {
       ctx.fillStyle = color("frame-shade");
@@ -772,7 +774,7 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.closePath();
       ctx.fill();
       // White on the ruler's own colour, as Camtasia's: the ruler's labels underneath don't run into it.
-      const text = timecode(session.playhead, fps);
+      const text = timecode(playhead, fps);
       ctx.font = font(12, 600);
       const tw = ctx.measureText(text).width;
       ctx.fillStyle = color("ruler");
