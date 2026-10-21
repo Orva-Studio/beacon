@@ -3097,6 +3097,33 @@ test.skipIf(skip)("a clip of one frame is drawn and grabbed at least 40 points w
   await select([]);
 }, 30_000);
 
+test.skipIf(skip)("two one-frame clips a little apart share the gap between them: a click in the later one's half picks it", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.zoom", { to: "fit" });
+  const frame = 1 / 30;
+  const at = (t: number) => clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - t) < 1e-6)!;
+  await run("clip.split", { at: 2, clips: [screen.id], linked: false });
+  await run("clip.split", { at: 2 + frame, clips: [at(2).id], linked: false });
+  const first = at(2);
+  const p0 = await timelinePlaces(first.id);
+  const gap = Math.round((24 / (p0.xAt(1) - p0.xAt(0))) * 30) / 30;
+  const b = 2 + frame + gap;
+  await run("clip.split", { at: b, clips: [at(2 + frame).id], linked: false });
+  await run("clip.split", { at: b + frame, clips: [at(b).id], linked: false });
+  const second = at(b);
+  await run("clip.remove", { clips: [at(2 + frame).id, at(b + frame).id, clips().find((c) => c.type === "screen" && c.start + c.duration === first.start)!.id], linked: false });
+  await select([]);
+  // The playhead out of the way, so the click doesn't grab it.
+  await run("playhead.set", { time: 60 });
+  await Bun.sleep(300);
+  const p = await timelinePlaces(second.id);
+  await page.click(p.box.x + p.xAt(2 + frame + gap * 0.7), p.box.y + p.y + p.h / 2);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toEqual([second.id]);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);
+
 test.skipIf(skip)("a screenshot dropped from its thumbnail (no path to find) and an image pasted with ⌘V are saved into the project's media folder and imported, at the drop point and the playhead; ⌘V after copying clips in Beacon still pastes the clips", async () => {
   const image = join(FIXTURES, "image.png");
   if (!existsSync(image)) return;

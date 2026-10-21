@@ -223,12 +223,13 @@ export const CORE_COMMANDS: CommandDef[] = [
   defineCommand({
     id: "asset.relink",
     description: "Point media at its file's new place after it was moved (Locate… on missing media); agents use media_relink, which checks the file is the same media",
-    args: z.strictObject({ asset: Id, path: AssetSchema.shape.path, fingerprint: z.string() }),
-    apply(doc, { asset, path, fingerprint }) {
+    args: z.strictObject({ asset: Id, path: AssetSchema.shape.path, fingerprint: z.string(), derived: AssetSchema.shape.derived.optional().describe("What the new file was read as (a LUT's size and domain), replacing those keys") }),
+    apply(doc, { asset, path, fingerprint, derived }) {
       const a = doc.assets[asset];
       if (!a) throw new Error(`no asset "${asset}"`);
       a.path = path;
       a.fingerprint = fingerprint;
+      if (derived) Object.assign(a.derived, derived);
     },
   }),
 

@@ -922,9 +922,10 @@ export class LocalCore implements BeaconCore {
     if (!existsSync(file)) throw new Error(`${file} doesn't exist`);
     const importer = this.registry.importerFor(extname(file));
     if (importer?.kind !== asset.kind) throw new Error(`${basename(file)} isn't the same kind of media as ${basename(asset.path)}`);
+    let derived: Record<string, unknown> | undefined;
     if (importer.probe) {
-      // A file an effect reads is checked by reading it, as on import.
-      await importer.probe(file);
+      // A file an effect reads is checked by reading it, as on import; what it holds now (a LUT's domain) replaces what the old file held.
+      derived = await importer.probe(file);
     } else {
       const was = asset.derived.media as Awaited<ReturnType<typeof probeMedia>> | undefined;
       const now = await probeMedia(file);
@@ -933,7 +934,7 @@ export class LocalCore implements BeaconCore {
         throw new Error(`${basename(file)} isn't the same media as ${basename(asset.path)}: its streams or length differ`);
       }
     }
-    this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file) }, { label: `Locate ${basename(file)}` }));
+    this.#saved(p, p.store.run("asset.relink", { asset: assetId, path: file, fingerprint: fileFingerprint(file), ...(derived ? { derived } : {}) }, { label: `Locate ${basename(file)}` }));
     if (p.view) this.#analyses.previewJobs(p);
   }
 

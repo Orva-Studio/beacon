@@ -57,6 +57,17 @@ test.skipIf(!existsSync(IMAGE))("a screenshot dropped from its thumbnail, or an 
   // WebKit names a pasted image "image.png": it is saved by date instead.
   await findDropped([{ ...shot, name: "image.png" }], { dragged: [], folder: media });
   expect(readdirSync(media).filter((n) => /^Pasted \d{4}-\d\d-\d\d at \d\d\.\d\d\.\d\d\.png$/.test(n)).length).toBe(1);
+  // Found by its temporary file (a thumbnail's, under TemporaryItems, gone once the drag ends): copied in, not linked.
+  // macOS won't let a TemporaryItems folder under /var/folders be removed, so this one is made in /private/tmp.
+  const drag = mkdtempSync("/private/tmp/beacon-drag-");
+  const temp = join(drag, "TemporaryItems", "NSIRD_screencaptureui_1", "Screenshot 2026-10-21 at 09.00.00.png");
+  mkdirSync(join(temp, ".."), { recursive: true });
+  writeFileSync(temp, bytes);
+  const t = statSync(temp);
+  const [kept] = await findDropped([{ name: "Screenshot 2026-10-21 at 09.00.00.png", size: t.size, lastModified: t.mtimeMs }], { dragged: [temp], folder: media });
+  rmSync(drag, { recursive: true, force: true });
+  expect(kept).toBe(join(media, "Screenshot 2026-10-21 at 09.00.00.png"));
+  expect(readFileSync(kept!).equals(bytes)).toBe(true);
   // Without a folder, a file with no path is still lost.
   await expect(findDropped([shot], { dragged: [] })).rejects.toThrow("couldn't find Screenshot");
   await core.close(h);

@@ -95,3 +95,35 @@ test.skipIf(!existsSync(VIDEO))("a .cube LUT on a clip: copied into the project 
   expect(worst(await rgba(join(dir, "moved-frame", "f000030.png")), plain, () => 127.5)).toBeLessThanOrEqual(2);
   await core.close(h2);
 }, 120_000);
+
+test.skipIf(!existsSync(VIDEO))("a .cube whose rows are signed (+0.5) renders as it imports; relinked to another LUT, the new one's domain is what's drawn, undoably", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-signed") });
+  const h = await core.create({ path: join(dir, "signed.beproj") });
+  const video = join(dir, "video-signed.mp4");
+  copyFileSync(VIDEO, video);
+  const r = await core.import(h, [video], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const clip = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "video")!;
+  const frame = async (name: string) => {
+    await renderProject(core.doc(h), core.registry, { output: { kind: "png", dir: join(dir, name) }, frames: [30], cacheDir: core.cacheDir });
+    return rgba(join(dir, name, "f000030.png"));
+  };
+  const plain = await frame("signed-plain");
+
+  const signed = join(dir, "Signed.cube");
+  cube(signed, 9, (r, g, b) => [1 - r, 1 - g, 1 - b]);
+  writeFileSync(signed, (await Bun.file(signed).text()).replace(/^(\d)/gm, "+$1"));
+  const asset = (await core.import(h, [signed])).assets[0]!;
+  await core.run(h, "effect.add", { clip: clip.id, type: "lut" });
+  const fx = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === clip.id)!.effects[0]!;
+  await core.run(h, "effect.set", { clip: clip.id, effect: fx.id, params: { lut: asset } });
+  expect(worst(await frame("signed"), plain, (v) => 255 - v)).toBeLessThanOrEqual(2);
+
+  const wide = join(dir, "Wide.cube");
+  cube(wide, 9, (r, g, b) => [1 - r, 1 - g, 1 - b], "DOMAIN_MIN 0 0 0\nDOMAIN_MAX 2 2 2\n");
+  await core.relink(h, asset, wide);
+  expect(core.doc(h).assets[asset]!.derived.lut).toMatchObject({ domainMax: [2, 2, 2] });
+  await core.undo(h);
+  expect(core.doc(h).assets[asset]!.derived.lut).toMatchObject({ domainMax: [1, 1, 1] });
+  await core.close(h);
+}, 120_000);

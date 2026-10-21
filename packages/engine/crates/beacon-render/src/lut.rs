@@ -22,7 +22,7 @@ pub fn read(path: &str) -> Result<Cube> {
             "LUT_3D_SIZE" => size = words.next().and_then(|n| n.parse().ok()).filter(|n| (2..=256).contains(n)).ok_or_else(|| bad(format!("bad size: {line}")))?,
             "LUT_1D_SIZE" => return Err(bad("a 1D LUT; only 3D LUTs are read".into())),
             "TITLE" | "DOMAIN_MIN" | "DOMAIN_MAX" | "LUT_3D_INPUT_RANGE" => {}
-            _ if first.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.') => {
+            _ if first.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '+' || c == '.') => {
                 for word in std::iter::once(first).chain(words) {
                     rgb.push(word.parse::<f32>().map_err(|_| bad(format!("not a number: {line}")))?);
                 }

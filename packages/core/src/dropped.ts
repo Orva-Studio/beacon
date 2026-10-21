@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { draggedPaths, findDroppedFile, type DroppedFile } from "@beacon/media";
 import type { ImportResult, BeaconCore, ProjectHandle } from "./api";
@@ -10,27 +10,33 @@ function savedName(f: DroppedFile, now: Date): string {
   return `Pasted ${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} at ${two(now.getHours())}.${two(now.getMinutes())}.${two(now.getSeconds())}${extname(f.name)}`;
 }
 
-function save(f: DroppedFile & { data: string }, folder: string): string {
+function save(f: DroppedFile, bytes: Buffer, folder: string): string {
   mkdirSync(folder, { recursive: true });
   const name = savedName(f, new Date());
   const [stem, ext] = [name.slice(0, name.length - extname(name).length), extname(name)];
   let path = join(folder, name);
   for (let n = 2; existsSync(path); n++) path = join(folder, `${stem} ${n}${ext}`);
-  writeFileSync(path, Buffer.from(f.data, "base64"));
+  writeFileSync(path, bytes);
   return path;
 }
 
+/** A file macOS hands over for one drag only (a screenshot thumbnail's, under `TemporaryItems`), gone once it ends. */
+const temporary = (path: string) => path.includes("/TemporaryItems/");
+
 /**
  * The paths of files dragged in from Finder or pasted; throws naming those it can't find. One with no path but its
- * bytes is written into `folder` (the project's media folder) first.
+ * bytes, or whose path is the drag's temporary file, is written into `folder` (the project's media folder) first.
  */
 export async function findDropped(files: DroppedFile[], opts: { dragged?: string[]; folder?: string } = {}): Promise<string[]> {
   // Each of the drag's paths answers one dropped file: two files alike in name, size and date are two paths.
   const left = [...(opts.dragged ?? draggedPaths())];
   const paths = files.map((f) => {
     const path = findDroppedFile(f, left);
-    if (path) left.splice(left.indexOf(path), 1);
-    else if (f.data !== undefined && opts.folder) return save({ ...f, data: f.data }, opts.folder);
+    if (path) {
+      left.splice(left.indexOf(path), 1);
+      return opts.folder && temporary(path) ? save(f, readFileSync(path), opts.folder) : path;
+    }
+    if (f.data !== undefined && opts.folder) return save(f, Buffer.from(f.data, "base64"), opts.folder);
     return path;
   });
   const lost = files.filter((_, i) => !paths[i]).map((f) => f.name);
