@@ -1772,7 +1772,7 @@ Seeing more at once.
 preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.
 
-### Phase 10 — Filmstrips and backgrounds
+### Phase 10 — Drops, backgrounds and filmstrips
 - **First: drops that fail, and images with no file** (the user, 2026-10-20;
   first in the phase, at their ask): dragging from Finder's Recents bounces
   back with no message, whatever the file (⌘I always works: the Open dialog
@@ -1796,17 +1796,6 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   before the clip is placed: time each step (WebKit handing over the file,
   finding its path, reading it) and make the drop show at once (the import
   panel's placeholder, and the drop reported as taken).
-- **Filmstrip thumbnails** (the user, 2026-10-12): video and screen clips
-  show frames along their length, not only the first. Measured on demo_1
-  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
-  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
-  (camera), ~3 s of CPU, about 4% of building the proxies; from the
-  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
-  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
-  the proxy, cached like waveforms; the timeline draws slices of the sprite
-  (its clips layer is redrawn only on zoom, scroll and edits). Design for
-  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
-  for what is in view, or keep two densities (1 s, 10 s).
 - **Remove background** (the user, 2026-10-16): a camera or video clip's
   background removed, as Camtasia's Remove Color does for green screens
   but with no green screen. It is person segmentation (a matte per frame),
@@ -1824,9 +1813,6 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   Preview and export read the same matte. Open: which is the default, and
   whether Replicate's models are good enough on a talking head to be worth
   the upload.
-- **Device frame** (the user, 2026-10-17; details to come): footage
-  superimposed on a device (a phone, a laptop, a monitor), fitted into its
-  screen.
 - **LUT import** (the user, 2026-10-20): a LUT effect of its own, not part
   of Film Look (a LUT usually goes first, a look on top): a `.cube` file
   (what nearly every LUT is sold as) copied into the project so it travels
@@ -1855,8 +1841,30 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   them off-screen rather than using macOS's Spaces, so the panel joining all
   Spaces (`canJoinAllSpaces`) may not be enough: check what AeroSpace allows
   (a floating or sticky rule for the panel's window) as well.
-**Gate:** clips show their frames; a camera take's background removed by
-each provider, with the same matte in preview and export.
+- **Filmstrip thumbnails** (the user, 2026-10-12; last in the phase, as the
+  user may not like it): video and screen clips
+  show frames along their length, not only the first. Measured on demo_1
+  (626 s, one thumb a second, 48 px tall, keyframes only, one ffmpeg pass per
+  stream into a JPEG sprite): from the proxies 1.1 s (screen) and 5.7 s
+  (camera), ~3 s of CPU, about 4% of building the proxies; from the
+  originals ~12 s of CPU (tscc2 can't skip to keyframes); decoding every
+  frame would be 109 s. ~0.5-0.8 MB a stream on disk. A background job after
+  the proxy, cached like waveforms; the timeline draws slices of the sprite
+  (its clips layer is redrawn only on zoom, scroll and edits). Design for
+  memory: one sprite is ~10 MB decoded, so load it in chunks (a minute each)
+  for what is in view, or keep two densities (1 s, 10 s).
+**Gate:** anything dragged in (Recents, a saved screenshot, a screenshot's
+thumbnail) or pasted lands at once; a camera take's background removed by
+each provider, with the same matte in preview and export; clips show their
+frames, if the user keeps filmstrips.
+
+### Phase 10.5 — Device frames (research first)
+The user will bring a lot of information before any work starts: which
+devices, how each frame looks and where its screen sits, what it's for.
+Research and agree the design with them first; nothing is built before.
+- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
 
 ### Phase 11 — Security audit (the user, 2026-10-16)
 A review of what an attacker could reach, before Beacon is shared more widely,
