@@ -182,7 +182,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     const r = canvas.current!.getBoundingClientRect();
     const i = rowAt(clientY - r.top, TRACK, tracks.length);
     const t = i === undefined ? undefined : tracks[i];
-    if (!t) return undefined;
+    // A locked track's clips can't be picked, moved, trimmed or opened: the pointer sees empty time there.
+    if (!t || t.locked) return undefined;
     const time = timeAt(clientX);
     return t.clips.find((c) => {
       const [a, b] = shown(t, c);
@@ -235,7 +236,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     const r = canvas.current!.getBoundingClientRect();
     const [px, py] = [clientX - r.left, clientY - r.top];
     const i = rowUnder(py);
-    if (i === undefined) return undefined;
+    if (i === undefined || tracks[i]!.locked) return undefined;
     const box = clipBox(i, TRACK);
     const ay = box.y + box.h / 2;
     for (const clip of tracks[i]!.clips) {
@@ -630,7 +631,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const [y0, y1] = [Math.min(d.y0, y), Math.max(d.y0, y)];
             const hit = tracks.flatMap((t, i) => {
               const ty = rowTop(i, TRACK);
-              if (ty + TRACK < y0 || ty > y1) return [];
+              if (t.locked || ty + TRACK < y0 || ty > y1) return [];
               return t.clips.filter((c) => xOf(shown(t, c)[0]) < x1 && xOf(shown(t, c)[1]) > x0).map((c) => c.id);
             });
             const next = [...new Set([...d.base, ...hit])];

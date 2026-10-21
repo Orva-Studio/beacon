@@ -1840,7 +1840,10 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   **Done 2026-10-20** from the user's Android (1080×2400; TikTok and Reels
   fill the height and crop the sides, about 4%): ordinary TikTok and Reels
   posts, their bottom bands 18% rather than 34-35%, widened to guides'
-  iPhone measurements; the ad numbers kept as TikTok (ad) and Reels (ad).
+  iPhone measurements. The ad layouts were offered too, then removed at
+  the user's ask (2026-10-21): Beacon is for ordinary posts. Open: the user
+  saw zones run outside the canvas at times (not reproduced; a screenshot
+  when it happens).
   Still to measure: the Reels tab's header, an iPhone, and YouTube Shorts
   (Google's numbers until then).
 - **The recording panel follows you between desktops** (the user, 2026-10-20;

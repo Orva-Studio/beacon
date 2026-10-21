@@ -91,6 +91,17 @@ export function App({ host }: { host: Host }) {
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);
+  // An effect waiting on its clip's media (Remove Background's matte): it shows nothing until then, so say so here.
+  const effectPreparing = useView((s) => {
+    for (const t of s.project?.tracks ?? [])
+      for (const c of t.clips)
+        for (const fx of c.effects) {
+          const def = fx.enabled && c.assetId ? s.init?.effects.find((x) => x.id === fx.type) : undefined;
+          const p = def?.needs?.map((n) => s.analyzing[`${n}:${c.assetId}`]).find((x) => x !== undefined);
+          if (p !== undefined) return `${def!.title}: ${def!.preparing ?? "Preparing"}… ${Math.round(p * 100)}%`;
+        }
+    return undefined;
+  });
   const prepared = useView((s) => s.prepared);
   const waveforms = useView((s) => s.waveforms);
   const mutedAudio = (project?.tracks ?? []).flatMap((t, i) => (t.muted && t.clips.some((c) => init?.clipTypes[c.type]?.includes("audio")) ? [{ t, i }] : []));
@@ -157,7 +168,7 @@ export function App({ host }: { host: Host }) {
   return (
     <EyedropperContext.Provider value={EYEDROPPER}>
       <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
-        <TopBar name={opened?.name} project={project} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} />
+        <TopBar name={opened?.name} project={project} session={session} host={host} status={status} saved={saved} preparing={making ? { done: prepared, total: prepared + making } : undefined} effectPreparing={effectPreparing} />
         <div className="flex min-h-0 flex-1 gap-gutter">
           <ToolRail session={session} host={host} />
           {session?.panels.tool && project && <ToolPanel tool={session.panels.tool} project={project} init={init} thumbs={thumbs} waveforms={waveforms} host={host} />}
@@ -300,7 +311,7 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
   );
 }
 
-function TopBar({ name, project, session, host, status, saved, preparing }: { name?: string; project?: Project; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number } }) {
+function TopBar({ name, project, session, host, status, saved, preparing, effectPreparing }: { name?: string; project?: Project; session?: Session; host: Host; status: string; saved?: boolean; preparing?: { done: number; total: number }; effectPreparing?: string }) {
   const zoom = session?.canvas.zoom ?? "fit";
   const { layouts } = useSafeAreas(host, project, session);
   const narrating = useView((v) => v.narrating);
@@ -324,6 +335,11 @@ function TopBar({ name, project, session, host, status, saved, preparing }: { na
       {preparing && (
         <span className="text-xs text-text-faint" data-preparing title="Making proxies: copies of the media that seek quickly; each item's progress is on its Media Bin tile">
           Preparing media for scrubbing {preparing.done + 1} of {preparing.total}
+        </span>
+      )}
+      {effectPreparing && (
+        <span className="text-xs text-accent" data-effect-preparing-bar>
+          {effectPreparing}
         </span>
       )}
       <span className="truncate text-xs text-text-faint">{status}</span>

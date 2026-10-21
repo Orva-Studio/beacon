@@ -1960,6 +1960,45 @@ test.skipIf(skip)("a locked track's clips can't be picked on the canvas: a click
   }
 });
 
+test.skipIf(skip)("a locked track's clips can't be touched on the timeline: a click, a drag, a right-click and a marquee leave them be", async () => {
+  await run("selection.clear");
+  const s = clip(screen.id);
+  const [a, b] = [ticksToSeconds(s.start), ticksToSeconds(s.start + s.duration)];
+  await run("timeline.view", { start: Math.max(0, a - 2), end: b + 2 });
+  await Bun.sleep(300);
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === s.id))!;
+  await run("track.set", { track: track.id, locked: true });
+  try {
+    await Bun.sleep(300);
+    const { y, h, xAt, box } = await timelinePlaces(s.id);
+    const [cx, cy] = [box.x + xAt((a + b) / 2), box.y + y + h / 2];
+    const before = JSON.stringify(ui.core.doc(ui.handle).tracks);
+    await page.click(cx, cy);
+    await Bun.sleep(200);
+    expect((await session()).selection).not.toContain(s.id);
+    await page.down(cx, cy);
+    for (let i = 1; i <= 5; i++) await page.move(cx + i * 30, cy);
+    await page.up(cx + 150, cy);
+    await Bun.sleep(300);
+    expect(JSON.stringify(ui.core.doc(ui.handle).tracks)).toBe(before);
+    expect((await session()).selection).not.toContain(s.id);
+    // Its start edge isn't trimmed either.
+    await page.down(box.x + xAt(a) + 1, cy);
+    for (let i = 1; i <= 5; i++) await page.move(box.x + xAt(a) + 1 + i * 20, cy);
+    await page.up(box.x + xAt(a) + 101, cy);
+    await Bun.sleep(300);
+    expect(JSON.stringify(ui.core.doc(ui.handle).tracks)).toBe(before);
+    const menus = ui.menus.length;
+    await page.rightClick(cx, cy);
+    await Bun.sleep(300);
+    expect(ui.menus.slice(menus)).not.toContain(s.id);
+    expect((await session()).selection).not.toContain(s.id);
+  } finally {
+    await run("track.set", { track: track.id, locked: false });
+    await run("selection.clear");
+  }
+});
+
 test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens in its own dialog", async () => {
   await run("selection.clear");
   await run("playhead.set", { time: 10 });
@@ -2603,7 +2642,7 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     const shownNow = async () => (await other.core.session(other.handle)).features["safe-areas"];
     const bands = () => p.evaluate<number[][]>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).map((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')])");
     await p.until("!!document.querySelector('[data-safe-area-select]')");
-    expect(await p.evaluate<string[]>("[...document.querySelectorAll('[data-safe-area-select] option')].map((o) => o.value)")).toEqual(["", "tiktok", "tiktok-ad", "reels", "reels-ad", "shorts"]);
+    expect(await p.evaluate<string[]>("[...document.querySelectorAll('[data-safe-area-select] option')].map((o) => o.value)")).toEqual(["", "tiktok", "reels", "shorts"]);
     expect(await bands()).toEqual([]);
     await p.evaluate("(() => { const s = document.querySelector('[data-safe-area-select]'); s.value = 'tiktok'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).length === 6");
@@ -3098,6 +3137,8 @@ test.skipIf(skip)("Remove Background from its tile on the camera: the inspector 
   // The matte job started with the effect: its progress under it.
   await page.until("!!document.querySelector('[data-effect-preparing]')", 15_000);
   expect(await page.evaluate<string>("document.querySelector('[data-effect-preparing]').textContent")).toMatch(/^Finding the person… \d+%$/);
+  // And in the top bar, seen whatever the inspector shows: nothing is drawn differently until the matte is made.
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-preparing-bar]')?.textContent ?? ''")).toMatch(/^Remove Background: Finding the person… \d+%$/);
   const rows = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-effect-param]')].map((e) => e.dataset.effectParam)");
   expect(await rows()).toEqual(["background"]);
   expect(await page.evaluate<string[]>("[...document.querySelector('[data-effect-param=background]').options].map((o) => o.textContent)")).toEqual(["Transparent", "Blur", "Color", "Image"]);
@@ -3109,6 +3150,7 @@ test.skipIf(skip)("Remove Background from its tile on the camera: the inspector 
   await page.screenshot(join(dir, "remove-background.png"));
 
   for (const j of await ui.core.jobs()) if (j.kind === "matte" && j.state === "running") await ui.core.cancelJob(j.id).catch(() => {});
+  await page.until("!document.querySelector('[data-effect-preparing-bar]')");
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await run("panel.show", { tool: null });
   await select([]);
