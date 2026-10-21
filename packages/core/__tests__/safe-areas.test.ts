@@ -113,3 +113,24 @@ test("the safe areas kept with a project replace a link left where editor.json g
   expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels" } } });
   await core.close(h);
 });
+
+test("the key hides parts of the safe areas: kept with the project and across platforms, one at a time, back with another click", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-k") });
+  const path = join(dir, "key.beproj");
+  const h = await core.create({ path, settings: { width: 1080, height: 1920 } });
+  await expect(core.run(h, "safeAreas.toggle", { part: "eyeLine" })).rejects.toThrow("no safe areas are shown");
+  await core.run(h, "safeAreas.show", { layout: "tiktok" });
+  await core.run(h, "safeAreas.toggle", { part: "eyeLine" });
+  await core.run(h, "safeAreas.toggle", { part: "headroom" });
+  await core.run(h, "safeAreas.show", { layout: "reels" });
+  expect((await core.session(h)).features["safe-areas"]).toEqual({ layout: "reels", hidden: ["headroom", "eyeLine"] });
+  await core.run(h, "safeAreas.toggle", { part: "headroom" });
+  await core.run(h, "safeAreas.toggle", { part: "eyeLine", shown: false });
+  expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels", hidden: ["eyeLine"] } } });
+  await core.close(h);
+  const again = await core.open(path);
+  expect((await core.session(again)).features["safe-areas"]).toEqual({ layout: "reels", hidden: ["eyeLine"] });
+  await core.run(again, "safeAreas.toggle", { part: "eyeLine" });
+  expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels" } } });
+  await core.close(again);
+});

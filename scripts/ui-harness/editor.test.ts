@@ -2670,10 +2670,19 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     expect(s.selection).toEqual([captions[0]!.id]);
     expect(s.playhead).toBeCloseTo(ticksToSeconds(captions[0]!.start), 2);
     await go("captions.style", { style: { anchorY: "middle", offsetY: -300 } });
-    await p.until("!!document.querySelector('[data-safe-clean]') && !document.querySelector('[data-safe-issues]')");
-    expect(await p.evaluate<string>("document.querySelector('[data-safe-clean]').textContent")).toBe("✓ No text under TikTok's UI");
+    await p.until("!document.querySelector('[data-safe-issues]')");
     // A key says what the colours are while a layout is shown.
     expect(await p.evaluate<string>("document.querySelector('[data-safe-key]')?.textContent ?? ''")).toBe("Platform UIHeadroomEye line");
+    // A click on one in the key hides it on the canvas, and another shows it again.
+    const dashes = "[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => l.getAttribute('stroke-width') === '1.5').length";
+    const shownDashes = await p.evaluate<number>(dashes);
+    expect(shownDashes).toBeGreaterThan(5);
+    await p.evaluate("document.querySelector('[data-safe-key-part=eyeLine]').click()");
+    await p.until(`${dashes} === 0`);
+    expect(await p.evaluate<string>("document.querySelector('[data-safe-key-part=eyeLine]').getAttribute('aria-pressed')")).toBe("false");
+    expect(await shownNow()).toEqual({ layout: "tiktok", hidden: ["eyeLine"] });
+    await p.evaluate("document.querySelector('[data-safe-key-part=eyeLine]').click()");
+    await p.until(`${dashes} === ${shownDashes}`);
     // A text box's right side, dragged three points short of the right edge's zone, lands on it.
     await go("edit.addAnnotation", { preset: "text", time: 1 });
     const callout = other.core.doc(other.handle).tracks.flatMap((t) => t.clips).find((c) => c.type === "callout")!;

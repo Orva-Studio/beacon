@@ -324,7 +324,7 @@ export function CanvasOverlay({
 
   const at = (x: number, y: number): [number, number] => [ox + x * k, oy + y * k];
   const marks: CanvasMark[] = [
-    ...(safe.shown ? safeAreaMarks(safe.shown, at, k, CW) : []),
+    ...(safe.shown ? safeAreaMarks(safe.shown, at, k, CW, safe.hidden) : []),
     ...text.marks,
     // The canvas's thin grey border, just outside it.
     ...(() => {
@@ -367,7 +367,7 @@ export function CanvasOverlay({
     });
   };
 
-  const { snapResize, snapMove } = canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on: session.canvas.snapping, moving: new Set(selected.map((p) => p.clip.id)), ...(safe.shown ? { extra: safeAreaLines(safe.shown) } : {}) });
+  const { snapResize, snapMove } = canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on: session.canvas.snapping, moving: new Set(selected.map((p) => p.clip.id)), ...(safe.shown && !safe.hidden.includes("zones") ? { extra: safeAreaLines(safe.shown) } : {}) });
 
   return (
     <div

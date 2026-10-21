@@ -24,8 +24,9 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| The safe areas' key toggles: a click on Platform UI, Headroom or Eye line hides it on the canvas (dimmed in the key; hidden zones aren't snapped to), another shows it; kept with the project and across platforms; `safeAreas.toggle` for agents | 2026-10-21 | this commit | Core test (hidden kept across Reels and TikTok, in `editor.json`, back on reopen, gone once all shown; refused with none shown); UI flow (Eye line's dashes gone and back, `aria-pressed`) |
 | Name the Recording has Delete: a false start goes with its clips in one undo step ("Delete Recording"), its files kept in the recordings folder for Undo | 2026-10-21 | this commit | UI flow (Delete removes the take's media and clips, one undo restores the document) |
-| Safe areas: the headroom band blue with an edge (a framing guide, not the platform's UI), a key beside the picker while one is shown (Platform UI, Headroom, Eye line, each explained on hover), and "✓ No text under TikTok's UI" for what read like a Clear button | 2026-10-21 | this commit | UI flow (the label, the key while shown and gone with None); a harness screenshot looked at |
+| Safe areas: the headroom band blue with an edge (a framing guide, not the platform's UI), a key beside the picker while one is shown (Platform UI, Headroom, Eye line, each explained on hover); the "✓ Clear" label that read like a button removed (the warning stays) | 2026-10-21 | `29b8e06`, this commit | UI flow (the key while shown and gone with None, no label once clean); a harness screenshot looked at; the user found safe areas much better by hand 2026-10-21 |
 | Closing a window no longer tells its last save to the window's page, which was already gone (the dev console's "undefined is not an object (evaluating 'win.webview.rpc')" on close; core logged it and the save went through); the app's window also drops anything sent after it closed | 2026-10-21 | this commit | Desktop windows test (a window edited, then closed: its save isn't told to it; fails without the fix) |
 | A locked track's clips can't be touched on the timeline either: a click, a drag, a trim, a right-click, an animation arrow, a volume point or a marquee treat them as empty time | 2026-10-21 | this commit | UI flow (the screen's track locked: a click and a drag leave it unselected and unmoved, its edge isn't trimmed, no clip menu; fails without the fix) |
 | Remove Background's progress in the top bar too ("Remove Background: Finding the person… 42%"), whatever the inspector shows: the clip looks unchanged until its matte is made | 2026-10-21 | this commit | UI flow (the line beside the inspector's, gone once the matte job stops) |
@@ -38,7 +39,7 @@ feature lands and when it is checked.
 - Locked tracks on the timeline: clicking, dragging, trimming and right-clicking their clips.
 - Remove Background's progress in the top bar while a camera's matte is made.
 - Delete on Name the Recording after a real take.
-- The safe areas' blue headroom band and the key beside the picker.
+- The safe areas' key: clicking Platform UI, Headroom and Eye line to hide and show them.
 - LUT in the app with a LUT of yours on your own footage, and with Film Look on top.
 - Media with sound getting proxies again (the Media Bin's proxy mark on a new recording).
 - The recording panel on AeroSpace: still left behind on a workspace switch (2026-10-21); a stand-in window is ignored as intended, the real one isn't, not pursued further at the user's word.
