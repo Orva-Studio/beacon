@@ -19,6 +19,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| A locked track's clips can't be picked on the canvas: a click (or right-click, or a dropped effect) goes to the clip under them; one selected on the timeline shows no handles and a drag doesn't move it; still drawn and snapped to | 2026-10-20 | this commit | UI flow (the top clip at the canvas's middle, its track locked: a click there doesn't select it, selected from the timeline no handles, a drag leaves its transform; fails without the fix) |
 | Proxies of media with sound: Beacon's FFmpeg lacked the `matroska_audio` muxer, so since 2026-10-15 every proxy of a medium with audio failed copying its sound out (the user's cache has no `.mka` after 13 Oct) | 2026-10-20 | `e45cbb1` | Bundled-tools test makes a `.mka` with Beacon's own FFmpeg (fails without the fix) |
 | The recording panel on every AeroSpace workspace: it opens untitled (hidden until its title is cleared, as Electrobun can't create a window without one), so AeroSpace takes it for a popup and never parks it off-screen with the workspace it opened on (a titled one was a floating dialog); still on every Space for macOS's own. The recorder leaves it out of the take by its window number instead of its title | 2026-10-20 | this commit | AeroSpace 0.21.3's `debug-windows` on a stand-in window with the panel's style: titled "Beacon Recording Panel" it is a `dialog` listed on a workspace, untitled a `popup` not listed (read against AeroSpace's `isWindowHeuristic`); recorder test (a window number parsed, the old title refused). The app's own panel and a take not seen yet |
 | Right-clicking a tile in Visual Effects, Annotations, Audio Effects or Favorites: a menu to add it as its double-click does (Add to Selected Media; Add at Playhead for an annotation; dimmed when it wouldn't apply) and to Add to or Remove from Favorites | 2026-10-20 | this commit | UI flow (Drop Shadow's menu, Add puts one on the selected screen clip, unstarred and starred back; Text's menu says Add at Playhead). The native menu itself only by reading: the harness records it and picks from it with the app's own `tileChoice` |
@@ -31,6 +32,7 @@ feature lands and when it is checked.
 - Right-clicking effect, annotation and audio tiles in the app.
 - ⌥⇧A, the clip menu's Add Animation Across Clip and double-clicking an arrow in the app.
 - LUT in the app with a LUT of yours on your own footage, and with Film Look on top.
+- Locking a track and clicking its clips on the canvas.
 - Media with sound getting proxies again (the Media Bin's proxy mark on a new recording).
 - The recording panel while recording: switch AeroSpace workspaces (it should stay with you), and check it isn't in the take.
 - Remove Background in the app on a real take: the edges on your hair-free head and shoulders, hands moving in front, each background, playback speed on a 4K camera, and how long a long take's matte takes.

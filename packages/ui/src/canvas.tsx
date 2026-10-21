@@ -273,7 +273,9 @@ export function CanvasOverlay({
     placed.splice(at < 0 ? placed.length : at, 0, p);
   }
   const captionPlace = (): CaptionPlace => ({ anchorX: "center", offsetX: 0, anchorY: "bottom", offsetY: 0, size: 54, maxWidth: 0.8, ...(captionAt ? (project.tracks[captionAt.track]!.props?.captionStyle as Partial<CaptionPlace> | undefined) : undefined), ...(captionClip?.props.captionPlace as Partial<CaptionPlace>) });
-  const selected = placed.filter((p) => session.selection.includes(p.clip.id));
+  // A locked track's clips are drawn and snapped to, but not picked, moved or dropped on: a click goes to what is under them.
+  const pickable = placed.filter((p) => !project.tracks[where.get(p.clip.id)?.track ?? -1]?.locked);
+  const selected = pickable.filter((p) => session.selection.includes(p.clip.id));
 
   // Panel items dropped on media on the canvas apply to the top clip there that takes them, at the playhead.
   const dropRef = useRef<DropTarget>(undefined);
@@ -282,7 +284,7 @@ export function CanvasOverlay({
     if (!r || cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return undefined;
     // Media dropped on the canvas goes on the timeline at the playhead.
     if (item.media) return { time: session.playhead };
-    const hit = placed.find((p) => inside([cx - r.left, cy - r.top], p.corners) && takes(item, clipTypes[p.clip.type]));
+    const hit = pickable.find((p) => inside([cx - r.left, cy - r.top], p.corners) && takes(item, clipTypes[p.clip.type]));
     return hit && { clip: hit.clip.id, time: session.playhead };
   };
   useEffect(() => addDropTarget((...a) => dropRef.current!(...a)), []);
@@ -387,7 +389,7 @@ export function CanvasOverlay({
       }}
       onContextMenu={(e) => {
         e.preventDefault();
-        const hit = placed.find((p) => inside(local(e), p.corners));
+        const hit = pickable.find((p) => inside(local(e), p.corners));
         if (!hit) return host.canvasMenu();
         if (!session.selection.includes(hit.clip.id)) host.run("selection.set", { clips: [hit.clip.id], linked: true });
         host.clipMenu(hit.clip.id, "canvas");
@@ -437,7 +439,7 @@ export function CanvasOverlay({
           drag.current = { kind: "text" };
           return;
         }
-        const hit = placed.find((p) => inside(pt, p.corners));
+        const hit = pickable.find((p) => inside(pt, p.corners));
         // A callout's or a caption's text is typed in place after a double-click.
         if (hit && e.detail === 2 && (isCaption(hit) || (hit.clip.props.callout as { text?: unknown } | undefined)?.text)) {
           host.run("inspector.tab", { tab: isCaption(hit) ? "caption" : "callout" });
@@ -465,7 +467,7 @@ export function CanvasOverlay({
           ids = [hit.clip.id];
           host.run("selection.set", { clips: ids, linked: true });
         }
-        const start = placed.filter((p) => ids.includes(p.clip.id)).map((p) => ({ id: p.clip.id, x: p.t.x, y: p.t.y, sx: p.stored.t.x, sy: p.stored.t.y }));
+        const start = pickable.filter((p) => ids.includes(p.clip.id)).map((p) => ({ id: p.clip.id, x: p.t.x, y: p.t.y, sx: p.stored.t.x, sy: p.stored.t.y }));
         drag.current = { kind: "move", key, x0: pt[0], y0: pt[1], start };
       }}
       onPointerMove={(e) => {

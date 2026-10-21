@@ -1919,6 +1919,47 @@ test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the d
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("a locked track's clips can't be picked on the canvas: a click goes to the clip under them, and one selected on the timeline has no handles and doesn't move", async () => {
+  await run("selection.clear");
+  await run("playhead.set", { time: 10 });
+  await Bun.sleep(300);
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const [x, y] = [box.x + box.w / 2, box.y + box.h / 2];
+  await page.click(x, y);
+  await Bun.sleep(300);
+  const top = clip((await session()).selection[0]!);
+  expect(top).toBeDefined();
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === top.id))!;
+  await run("selection.clear");
+  await run("track.set", { track: track.id, locked: true });
+  try {
+    await Bun.sleep(300);
+    await page.click(x, y);
+    await Bun.sleep(300);
+    expect((await session()).selection).not.toContain(top.id);
+
+    await run("selection.set", { clips: [top.id], linked: false });
+    await Bun.sleep(300);
+    expect(await has(`[data-handle][data-clip="${top.id}"]`)).toBe(false);
+    const before = JSON.stringify(clip(top.id).props.transform);
+    const tracks = JSON.stringify(ui.core.doc(ui.handle).tracks);
+    await page.down(x, y);
+    for (let i = 1; i <= 5; i++) await page.move(x + i * 20, y + i * 10);
+    await page.up(x + 100, y + 50);
+    await Bun.sleep(300);
+    expect(JSON.stringify(clip(top.id).props.transform)).toBe(before);
+    // The drag went to the clip under it, if any: moved in one undo step.
+    if (JSON.stringify(ui.core.doc(ui.handle).tracks) !== tracks) {
+      expect((await session()).selection).not.toContain(top.id);
+      await ui.core.undo(ui.handle);
+    }
+    expect(JSON.stringify(ui.core.doc(ui.handle).tracks)).toBe(tracks);
+  } finally {
+    await run("track.set", { track: track.id, locked: false });
+    await run("selection.clear");
+  }
+});
+
 test.skipIf(skip)("right-click on the canvas: a clip's menu over a clip, the canvas menu elsewhere; Project Settings opens in its own dialog", async () => {
   await run("selection.clear");
   await run("playhead.set", { time: 10 });
