@@ -172,7 +172,9 @@ export function createMenus(app: MenusApp) {
               ...(
                 [
                   ["tiktok", "TikTok"],
+                  ["tiktok-ad", "TikTok (ad)"],
                   ["reels", "Instagram Reels"],
+                  ["reels-ad", "Instagram Reels (ad)"],
                   ["shorts", "YouTube Shorts"],
                   ["youtube", "YouTube (16:9)"],
                 ] as const

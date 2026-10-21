@@ -1837,6 +1837,12 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   left, 11% right, and disagree. Measure them from the user's own phone
   (screenshots of Reels with long captions; a 19.5:9 screen shows a 9:16
   Reel under its own bars), and offer Reels and Reels (ad) as two layouts.
+  **Done 2026-10-20** from the user's Android (1080×2400; TikTok and Reels
+  fill the height and crop the sides, about 4%): ordinary TikTok and Reels
+  posts, their bottom bands 18% rather than 34-35%, widened to guides'
+  iPhone measurements; the ad numbers kept as TikTok (ad) and Reels (ad).
+  Still to measure: the Reels tab's header, an iPhone, and YouTube Shorts
+  (Google's numbers until then).
 - **The recording panel follows you between desktops** (the user, 2026-10-20;
   not yet): the panel (camera, time, levels, Stop) stays on the desktop it
   opened on. The user switches with AeroSpace, which hides windows by moving

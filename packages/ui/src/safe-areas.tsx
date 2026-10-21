@@ -89,6 +89,8 @@ export function SafeAreaPicker({ host, project, session, layouts }: { host: Quer
   if (!fitting.length && !id) return null;
   const issues = check?.issues ?? [];
   const first = issues[0];
+  // A caption under the band and beside the rail is one thing to move.
+  const clips = new Set(issues.map((i) => i.clip)).size;
   return (
     <div className="flex items-center gap-2" data-safe-areas>
       {!!issues.length && first && (
@@ -99,9 +101,9 @@ export function SafeAreaPicker({ host, project, session, layouts }: { host: Quer
             host.run("playhead.set", { time: first.from });
             host.run("selection.set", { clips: [first.clip] });
           }}
-          data-safe-issues={issues.length}
+          data-safe-issues={clips}
         >
-          ⚠ {issues.length} under {fitting.find((l) => l.id === id)?.title}'s UI
+          ⚠ {clips} under {fitting.find((l) => l.id === id)?.title}'s UI
         </button>
       )}
       {check?.clean && (

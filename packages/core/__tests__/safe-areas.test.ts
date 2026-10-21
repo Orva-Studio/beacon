@@ -30,16 +30,18 @@ test.skipIf(!existsSync(AUDIO))("a 9:16 Short's captions under TikTok's caption 
   await expect(core.run(h, "safeAreas.show", { layout: "youtube" })).rejects.toThrow(/16:9 canvas; this one is 9:16/);
   await core.run(h, "safeAreas.show", { layout: "tiktok" });
   const layouts = (await core.query(h, "safeAreas.layouts", {})) as { id: string; fits: boolean; zones: { id: string; rect: number[] }[] }[];
-  expect(layouts.filter((l) => l.fits).map((l) => l.id)).toEqual(["tiktok", "reels", "shorts"]);
-  expect(layouts.find((l) => l.id === "tiktok")!.zones.find((z) => z.id === "bottom")!.rect).toEqual([0, 1260, 1080, 1920]);
+  expect(layouts.filter((l) => l.fits).map((l) => l.id)).toEqual(["tiktok", "tiktok-ad", "reels", "reels-ad", "shorts"]);
+  expect(layouts.find((l) => l.id === "tiktok")!.zones.find((z) => z.id === "bottom")!.rect.map(Math.round)).toEqual([0, 1574, 1080, 1920]);
+  // An ad's caption band is twice as deep: its call-to-action sits above the caption.
+  expect(layouts.find((l) => l.id === "tiktok-ad")!.zones.find((z) => z.id === "bottom")!.rect).toEqual([0, 1260, 1080, 1920]);
 
-  // The default captions sit low, under TikTok's username and caption: every caption, for as long as it shows.
+  // The default captions sit low, under TikTok's username and caption and beside its rail, which reaches down to them: every caption, for as long as it shows.
   const captions = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption");
   expect(captions.length).toBeGreaterThan(2);
   const low = (await core.query(h, "safeAreas.check", {})) as Check;
   expect([low.layout, low.clean]).toEqual(["tiktok", false]);
-  expect(new Set(low.issues.map((i) => `${i.type}:${i.zone}`))).toEqual(new Set(["caption:bottom"]));
-  expect(low.issues.map((i) => i.clip).sort()).toEqual(captions.map((c) => c.id).sort());
+  expect(new Set(low.issues.map((i) => `${i.type}:${i.zone}`))).toEqual(new Set(["caption:bottom", "caption:rail"]));
+  expect([...new Set(low.issues.filter((i) => i.zone === "bottom").map((i) => i.clip))].sort()).toEqual(captions.map((c) => c.id).sort());
   const first = captions.sort((a, b) => a.start - b.start)[0]!;
   const issue = low.issues.find((i) => i.clip === first.id)!;
   expect(issue.from).toBeCloseTo(first.start / 705_600_000, 2);

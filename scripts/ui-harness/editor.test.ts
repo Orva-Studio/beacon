@@ -2603,7 +2603,7 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     const shownNow = async () => (await other.core.session(other.handle)).features["safe-areas"];
     const bands = () => p.evaluate<number[][]>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).map((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')])");
     await p.until("!!document.querySelector('[data-safe-area-select]')");
-    expect(await p.evaluate<string[]>("[...document.querySelectorAll('[data-safe-area-select] option')].map((o) => o.value)")).toEqual(["", "tiktok", "reels", "shorts"]);
+    expect(await p.evaluate<string[]>("[...document.querySelectorAll('[data-safe-area-select] option')].map((o) => o.value)")).toEqual(["", "tiktok", "tiktok-ad", "reels", "reels-ad", "shorts"]);
     expect(await bands()).toEqual([]);
     await p.evaluate("(() => { const s = document.querySelector('[data-safe-area-select]'); s.value = 'tiktok'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await p.until("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).length === 6");
