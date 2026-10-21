@@ -5,6 +5,20 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 10.5 (`phase-10.5`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Remove Silences keeps time that shows a picture that isn't the talk's own (an image, another video, a group, a held frame): an image after the last word was cut whole, one over a pause cut down with it; the recording's own screen and camera are cut with their silences as before | 2026-10-21 | this commit | Core test on `audio.m4a` with a stand-in transcript and two 5 s images (over the pause, after the talk): both 5 s after Remove Silences, the pause around the first and the tail cut (fails without the fix); the probe over 29 of the user's takes: no word lost, saved time unchanged on takes with no added pictures |
+| Remove Filler Words never cuts into a kept word: an edge that rounding to whole frames would take into a neighbour goes to the filler's side (it took 3–14 ms of one in 8 places on 3 of the user's takes, e.g. the "p" of "padding?") | 2026-10-21 | this commit | Core test (a touching "uh," and an "um" a few ms from each neighbour at 30 fps: no cut overlaps a kept word, one undo exact; fails without the fix); the probe over the user's takes: no filler cut into a kept word |
+
+### Not checked yet
+
+- Remove Silences on a project with an image or title card after the talk, and a picture over a pause: both kept.
+- Remove Filler Words on your Yeti take (2026-10-14 18.22.21): "Is it top, uh, padding?" at 57 s keeps the "p".
+
 ## Phase 10 (`phase-10`)
 
 ### Checked by hand

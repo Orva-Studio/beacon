@@ -78,20 +78,33 @@ export function timelineWords(project: Project, registry: FeatureRegistry, data:
 /**
  * Silences on the timeline: where no audio clip has detected speech. Based
  * on the audio rather than gaps between words, so speech whisper missed is
- * never treated as silence. `after` is the index of the last word before.
+ * never treated as silence. Time showing a picture that isn't the talk's own
+ * (an image, another video, a group, a held frame) isn't silence either: it
+ * was put there to be seen. `after` is the index of the last word before.
  */
 export function pauses(project: Project, registry: FeatureRegistry, data: Data, words: TimelineWord[]): { start: number; end: number; after?: number }[] {
   const speech: [number, number][] = [];
-  for (const { t, from, to, map } of audioClips(project, registry, data)) {
+  const heard = new Set<string>();
+  for (const { clip, t, from, to, map } of audioClips(project, registry, data)) {
+    heard.add(clip.assetId!);
     for (const [a, b] of t.speech) if (b > from && a < to) speech.push([map(a), map(b)]);
   }
+  const shown = mergeSpans(
+    project.tracks
+      .filter((t) => !t.hidden)
+      .flatMap((t) => t.clips)
+      .filter((c) => (registry.hasTrait(c.type, "picture") || registry.hasTrait(c.type, "group")) && (registry.hasTrait(c.type, "hold") || !c.assetId || !heard.has(c.assetId)))
+      .map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as [number, number]),
+  );
   speech.sort((x, y) => x[0] - y[0]);
   const end = ticksToSeconds(projectDuration(project));
   const out: { start: number; end: number; after?: number }[] = [];
   let at = 0;
   const push = (start: number, stop: number) => {
-    const before = words.filter((w) => w.end <= start + 1e-6).at(-1);
-    out.push({ start: roundSeconds(start), end: roundSeconds(stop), ...(before ? { after: before.i } : {}) });
+    for (const [a, b] of subtractSpans([start, stop], shown)) {
+      const before = words.filter((w) => w.end <= a + 1e-6).at(-1);
+      out.push({ start: roundSeconds(a), end: roundSeconds(b), ...(before ? { after: before.i } : {}) });
+    }
   };
   for (const [a, b] of speech) {
     if (a > at) push(at, a);
@@ -370,15 +383,19 @@ const fillerReview = (s: Session) => (s.features.transcript as { fillers?: Fille
 /**
  * The time cut for filler words `first`..`last`: them and the shorter of the pauses either side, so the pause
  * left is the longer one ("so, um, the" becomes "so, the"; a long pause stays for Remove Silences, which knows
- * screen action). An edge touching a kept word goes to the nearest frame: `cut` rounds outward, which would
- * take up to a frame of that word.
+ * screen action). `cut` rounds out to whole frames, which near a kept word would take up to a frame of it (the
+ * onset of the word after, heard as clipped): there an edge goes to the frame on the filler's side instead.
  */
 function fillerCut(project: Project, words: TimelineWord[], first: TimelineWord, last: TimelineWord) {
   const [prev, next] = [words[first.i - 1], words[last.i + 1]];
   const pause = Math.min(prev ? first.start - prev.end : Infinity, next ? next.start - last.end : Infinity);
   const end = last.end + (Number.isFinite(pause) ? Math.max(0, pause) : 0);
-  const frame = (t: number) => ticksToSeconds(snapSeconds(t, project.settings.fps));
-  return { start: prev && first.start - prev.end < 1e-3 ? frame(first.start) : first.start, end: next && next.start - end < 1e-3 ? frame(end) : end };
+  const { fps } = project.settings;
+  const frame = (t: number, way: "floor" | "ceil") => ticksToSeconds(snapSeconds(t, fps, way));
+  return {
+    start: prev && frame(first.start, "floor") < prev.end - 1e-6 ? frame(first.start, "ceil") : first.start,
+    end: next && frame(end, "ceil") > next.start + 1e-6 ? frame(end, "floor") : end,
+  };
 }
 
 /**

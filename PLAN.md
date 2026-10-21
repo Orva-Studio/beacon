@@ -1877,7 +1877,27 @@ Fixes to Remove Silences and Remove Filler Words (Phase 7), first in the
 new order as Phase 10's drop fixes were. Started by running both on real
 takes and fixing what turns up; the user adds issues as they spot them.
 Each fix gets a test on real data that fails without it.
-- Issues found: _being collected_.
+- **Found by running both on 29 of the user's takes** (2026-10-21; 44 takes
+  in their Beacon projects and ai-slop, read in place, the ones with speech):
+  - Remove Silences cut pictures put over or after the talk: an image after
+    the last word went whole, one over a pause was cut down with it, as did
+    another video, a group or a held frame where no audio clip played (time
+    with no audio clip counted as silence). **Fixed:** time showing a picture
+    that isn't the talk's own isn't silence; the recording's own screen and
+    camera are cut with their silences as before.
+  - Remove Filler Words clipped 3–14 ms of the word next to a filler (8
+    places in 3 takes: "uh," touching "padding?" lost its "p"): edges were
+    rounded to the nearest or outward frame. **Fixed:** an edge goes to the
+    frame on the filler's side when rounding out would reach a kept word.
+  - Checked and fine: neither tool lost a word on any take, in either order.
+  - Not a bug: the recent takes' transcripts have almost no fillers (0 in 75
+    minutes of 3-shorts and ai-slop takes). The 9–29 stretches of sound per
+    take that no word covers were each sent to Whisper alone: breaths and
+    clicks ("Thank you.", its words for noise), not dropped "um"s.
+  - Left for the user: Whisper writes sounds as words ("\*Sings\*" over 3.3 s,
+    "\*laughs\*", "\*sniff\*"; 8 takes): kept as speech by both tools, shown
+    by captions. A filler cut could take sound no word covers in the pause it
+    takes; seen on no take, so not changed.
 **Gate:** each issue fixed on the user's own takes, checked by hand.
 
 ### Phase 11 — Device frames (research first; was 10.5 until 2026-10-21)
