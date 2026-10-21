@@ -383,7 +383,12 @@ function openWindow(): Win {
     // Agents and tests can start the app without taking focus from the user.
     activate: process.env.BEACON_BACKGROUND !== "1",
   });
-  const message: Send = (type, data) => (win.webview.rpc!.send[type] as (d: typeof data) => void)(data);
+  let shut = false;
+  // A closed window's project is still saved and closed after it, and tells it so: its page is gone, so that goes nowhere.
+  const message: Send = (type, data) => {
+    const send = shut ? undefined : win.webview?.rpc?.send;
+    if (send) (send[type] as (d: typeof data) => void)(data);
+  };
   const part = { core, message, status: (text: string) => message("status", { text }), current: () => w.current };
   Object.assign(w, { win, message, status: part.status, activate: () => win.activate(), views: createViews(part), media: createWindowMedia(part), exports: createExports(part) });
   windows.add(w);
@@ -396,6 +401,7 @@ function openWindow(): Win {
     menus.setMenu();
   });
   win.on("close", () => {
+    shut = true;
     windows.delete(w);
     if (focused === w) focused = [...windows].at(-1);
     void projects.closeWindow(w).catch(report);

@@ -24,6 +24,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Closing a window no longer tells its last save to the window's page, which was already gone (the dev console's "undefined is not an object (evaluating 'win.webview.rpc')" on close; core logged it and the save went through); the app's window also drops anything sent after it closed | 2026-10-21 | this commit | Desktop windows test (a window edited, then closed: its save isn't told to it; fails without the fix) |
 | A locked track's clips can't be touched on the timeline either: a click, a drag, a trim, a right-click, an animation arrow, a volume point or a marquee treat them as empty time | 2026-10-21 | this commit | UI flow (the screen's track locked: a click and a drag leave it unselected and unmoved, its edge isn't trimmed, no clip menu; fails without the fix) |
 | Remove Background's progress in the top bar too ("Remove Background: Finding the person… 42%"), whatever the inspector shows: the clip looks unchanged until its matte is made | 2026-10-21 | this commit | UI flow (the line beside the inspector's, gone once the matte job stops) |
 | Proxies of media with sound: Beacon's FFmpeg lacked the `matroska_audio` muxer, so since 2026-10-15 every proxy of a medium with audio failed copying its sound out (the user's cache has no `.mka` after 13 Oct) | 2026-10-20 | `e45cbb1` | Bundled-tools test makes a `.mka` with Beacon's own FFmpeg (fails without the fix) |

@@ -167,11 +167,12 @@ export function createProjects(app: ProjectsApp) {
   const closeWindow = (w: ProjectWindow) =>
     queued(async () => {
       const current = w.current;
+      // Gone from the screen already: its last save has no page to tell.
+      current?.bridge.unwatch();
       if (current && !current.closed) {
         try {
           await core.save(current.path);
         } catch (e) {
-          current.bridge.unwatch();
           app.leaving(w);
           w.current = undefined;
           const name = basename(current.path, ".beproj");

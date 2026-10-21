@@ -17,7 +17,10 @@ class FakeWindow implements ProjectWindow {
   current?: Current;
   messages: [string, unknown][] = [];
   activated = 0;
-  message = ((type: string, data: unknown) => void this.messages.push([type, data])) as ProjectWindow["message"];
+  /** Closed on screen: its page is gone, so whatever it is told then would throw in the app (core logs it). */
+  shut = false;
+  late: string[] = [];
+  message = ((type: string, data: unknown) => void (this.shut ? this.late.push(type) : this.messages.push([type, data]))) as ProjectWindow["message"];
   status = (text: string) => void this.messages.push(["status", text]);
   activate = () => void this.activated++;
 }
@@ -48,7 +51,8 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
       windows.push(w);
       return w;
     },
-    watch: () => bridge,
+    // As the app's bridge does: a save is told to the window showing the project.
+    watch: (w, h) => ({ ...bridge, unwatch: core.watch(h, (e) => e.kind === "saved" && w.message("saved", { ok: true })) }) as ProjectBridge,
     shown: async (w, h) => void shown.push(`${windows.indexOf(w as FakeWindow)}:${h}`),
     leaving: () => {},
     recentChanged: () => {},
@@ -91,8 +95,13 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
   expect(windows[0]!.current?.path).toBe(copy);
   expect(() => core.doc(A)).toThrow();
 
-  // A window closed: its project saved and released, the others untouched.
+  // A window closed: its project saved and released, the others untouched. It is gone from the screen first, so
+  // its last save isn't told to it.
+  await core.run(B, "track.add", { name: "Last edit" });
+  windows[1]!.shut = true;
   await projects.closeWindow(windows[1]!);
+  windows[1]!.shut = false;
+  expect(windows[1]!.late).toEqual([]);
   expect(windows[1]!.current).toBeUndefined();
   expect(() => core.doc(B)).toThrow();
   expect(core.doc(copy).tracks.some((t) => t.name === "Only in A")).toBe(true);
