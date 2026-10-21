@@ -1872,21 +1872,21 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
 thumbnail) or pasted lands at once; a camera take's background removed by
 each provider, with the same matte in preview and export.
 
-### Phase 10.5 — Device frames (research first)
+### Phase 10.5 — Silence and filler-word fixes (the user, 2026-10-21)
+Fixes to Remove Silences and Remove Filler Words (Phase 7), first in the
+new order as Phase 10's drop fixes were. Started by running both on real
+takes and fixing what turns up; the user adds issues as they spot them.
+Each fix gets a test on real data that fails without it.
+- Issues found: _being collected_.
+**Gate:** each issue fixed on the user's own takes, checked by hand.
+
+### Phase 11 — Device frames (research first; was 10.5 until 2026-10-21)
 The user will bring a lot of information before any work starts: which
 devices, how each frame looks and where its screen sits, what it's for.
 Research and agree the design with them first; nothing is built before.
 - **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
-
-### Phase 11 — Silence and filler-word fixes (the user, 2026-10-21)
-Fixes to Remove Silences and Remove Filler Words (Phase 7), first in the
-new order as Phase 10's drop fixes were. The issues are the user's, to be
-listed by them before anything is built; each gets a test on real data that
-fails without its fix.
-- Issues: _to be listed by the user_.
-**Gate:** each issue fixed on the user's own takes, checked by hand.
 
 ### Phase 12 — AI B-roll (the user, 2026-10-21; moved up from the backlog)
 Generated cutaways over the talk, through the user's own API keys, as jobs
