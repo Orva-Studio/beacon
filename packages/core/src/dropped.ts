@@ -1,13 +1,36 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { extname, join } from "node:path";
 import { draggedPaths, findDroppedFile, type DroppedFile } from "@beacon/media";
 import type { ImportResult, BeaconCore, ProjectHandle } from "./api";
 
-/** The paths of files dragged in from Finder; throws naming those it can't find. */
-export async function findDropped(files: DroppedFile[], dragged = draggedPaths()): Promise<string[]> {
+/** A name for a file that came with only its bytes: its own, unless it is WebKit's stand-in for a pasted image ("image.png"). */
+function savedName(f: DroppedFile, now: Date): string {
+  if (!/^image\.\w+$/i.test(f.name)) return f.name.replace(/[/:]/g, "-");
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `Pasted ${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} at ${two(now.getHours())}.${two(now.getMinutes())}.${two(now.getSeconds())}${extname(f.name)}`;
+}
+
+function save(f: DroppedFile & { data: string }, folder: string): string {
+  mkdirSync(folder, { recursive: true });
+  const name = savedName(f, new Date());
+  const [stem, ext] = [name.slice(0, name.length - extname(name).length), extname(name)];
+  let path = join(folder, name);
+  for (let n = 2; existsSync(path); n++) path = join(folder, `${stem} ${n}${ext}`);
+  writeFileSync(path, Buffer.from(f.data, "base64"));
+  return path;
+}
+
+/**
+ * The paths of files dragged in from Finder or pasted; throws naming those it can't find. One with no path but its
+ * bytes is written into `folder` (the project's media folder) first.
+ */
+export async function findDropped(files: DroppedFile[], opts: { dragged?: string[]; folder?: string } = {}): Promise<string[]> {
   // Each of the drag's paths answers one dropped file: two files alike in name, size and date are two paths.
-  const left = [...dragged];
+  const left = [...(opts.dragged ?? draggedPaths())];
   const paths = files.map((f) => {
     const path = findDroppedFile(f, left);
     if (path) left.splice(left.indexOf(path), 1);
+    else if (f.data !== undefined && opts.folder) return save({ ...f, data: f.data }, opts.folder);
     return path;
   });
   const lost = files.filter((_, i) => !paths[i]).map((f) => f.name);
@@ -15,7 +38,10 @@ export async function findDropped(files: DroppedFile[], dragged = draggedPaths()
   return paths as string[];
 }
 
-/** Imports files dragged in from Finder, once their paths are found; at `time` on `track` when dropped on the timeline. */
-export async function importDropped(core: BeaconCore, h: ProjectHandle, files: DroppedFile[], at: { time?: number; track?: string } = {}): Promise<ImportResult> {
-  return core.import(h, await findDropped(files), { ...(at.time !== undefined ? { at: at.time } : {}), ...(at.track ? { track: at.track } : {}) });
+/**
+ * Imports files dragged in from Finder or pasted, once their paths are found (those with only their bytes saved into
+ * `folder`); at `time` on `track` when dropped on the timeline.
+ */
+export async function importDropped(core: BeaconCore, h: ProjectHandle, files: DroppedFile[], at: { time?: number; track?: string } = {}, folder?: string): Promise<ImportResult> {
+  return core.import(h, await findDropped(files, { ...(folder ? { folder } : {}) }), { ...(at.time !== undefined ? { at: at.time } : {}), ...(at.track ? { track: at.track } : {}) });
 }

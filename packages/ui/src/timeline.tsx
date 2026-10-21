@@ -444,14 +444,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         className="absolute inset-0"
         onDragOver={acceptFiles}
         onDrop={(e) => {
-          const files = droppedFiles(e.dataTransfer);
-          if (!files.length || latest.current.session.group) return;
+          if (!e.dataTransfer.files.length || latest.current.session.group) return;
           e.preventDefault();
           e.stopPropagation();
           const r = canvas.current!.getBoundingClientRect();
           const row = rowUnder(e.clientY - r.top);
           const t = row === undefined ? undefined : tracks[row];
-          dropFiles(files, { time: timeAt(Math.max(e.clientX, r.left + HEADER)), ...(t && !t.locked ? { track: t.id } : {}) });
+          const at = { time: timeAt(Math.max(e.clientX, r.left + HEADER)), ...(t && !t.locked ? { track: t.id } : {}) };
+          void droppedFiles(e.dataTransfer).then((files) => dropFiles(files, at));
         }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;

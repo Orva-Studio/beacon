@@ -229,8 +229,9 @@ export function createProjects(app: ProjectsApp) {
     if (files.filter(Boolean).length) await importPaths(w, files.filter(Boolean));
   }
 
-  /** Files dropped on `w`, as Finder gave them. */
-  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) => importPaths(w, await findDropped(files), at);
+  /** Files dropped or pasted on `w`, as Finder or the clipboard gave them; those with only their bytes saved into its project. */
+  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) =>
+    importPaths(w, await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {}), at);
 
   /** File > New Project: `w` asks for the name, then `createProject`. */
   function newProject(w: ProjectWindow) {

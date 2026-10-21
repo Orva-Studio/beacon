@@ -134,7 +134,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
         else if (msg.type === "binMenu") menus.push(`asset:${p.asset}`);
         else if (msg.type === "importMedia") menus.push("import");
-        else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, p.files, p));
+        else if (msg.type === "dropFiles") result = await reply(() => importDropped(core, h, p.files, p, join(project, "media")));
         else if (msg.type === "captureFrame")
           result = await reply(async () => {
             const r = await core.captureFrame(h);

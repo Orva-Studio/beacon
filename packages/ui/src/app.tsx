@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
-import { acceptFiles, droppedFiles } from "./drop";
+import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
 import type { DroppedFile, Narrating } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
@@ -101,8 +101,7 @@ export function App({ host }: { host: Host }) {
     const drop = (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("Files")) return;
       e.preventDefault();
-      const files = droppedFiles(e.dataTransfer);
-      if (files.length) host.dropFiles(files);
+      if (e.dataTransfer.files.length) void droppedFiles(e.dataTransfer).then((files) => host.dropFiles(files));
     };
     window.addEventListener("dragover", over);
     window.addEventListener("drop", drop);
@@ -137,6 +136,11 @@ export function App({ host }: { host: Host }) {
     const onClipboard = (e: ClipboardEvent) => {
       if (isTextField(e.target)) return;
       e.preventDefault();
+      if (e.type === "paste" && pastedImage(e.clipboardData)) {
+        const at = replica.get().session?.playhead;
+        return void droppedFiles(e.clipboardData!).then((files) => host.dropFiles(files.filter((f) => f.data !== undefined), at === undefined ? undefined : { time: at }));
+      }
+      if (e.type !== "paste") e.clipboardData?.setData(BEACON_CLIPS, "1");
       host.run(`edit.${e.type}`);
     };
     window.addEventListener("keydown", onKey);

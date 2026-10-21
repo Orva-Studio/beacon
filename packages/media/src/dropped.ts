@@ -9,6 +9,11 @@ export interface DroppedFile {
   /** Milliseconds since the epoch. */
   lastModified: number;
   uri?: string;
+  /**
+   * Its bytes, base64, for a file with no path to find: a screenshot dragged from its thumbnail (whose temporary file is
+   * gone once the drag ends) or an image pasted from another app.
+   */
+  data?: string;
 }
 
 const same = (path: string, f: DroppedFile) => {

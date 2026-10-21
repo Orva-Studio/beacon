@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
@@ -2945,6 +2945,8 @@ test.skipIf(skip)("files dragged in from Finder are taken as a copy over the tim
     window.addEventListener("drop", window.__stop, { capture: true });
   })()`);
   const file = join(FIXTURES, "video.mp4");
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-asset]')");
   const box = await timelineBox();
   const over = async (x: number, y: number) => {
     await page.evaluate("window.__effects = []");
@@ -2983,3 +2985,60 @@ test.skipIf(skip)("a clip of one frame is drawn and grabbed at least 40 points w
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await select([]);
 }, 30_000);
+
+test.skipIf(skip)("a screenshot dropped from its thumbnail (no path to find) and an image pasted with ⌘V are saved into the project's media folder and imported, at the drop point and the playhead; ⌘V after copying clips in Beacon still pastes the clips", async () => {
+  const image = join(FIXTURES, "image.png");
+  if (!existsSync(image)) return;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const media = join(dir, "e2e.beproj", "media");
+  const images = () => clips().filter((c) => c.type === "image");
+  const before = images().length;
+  // The thumbnail's temporary file is a name WebKit has bytes for but Finder's drag doesn't list: only its bytes import.
+  const shot = join(dir, "Screenshot 2026-10-20 at 16.14.53.png");
+  copyFileSync(image, shot);
+  await run("timeline.zoom", { to: "fit" });
+  const box = await timelineBox();
+  // Below the last track: on a new one, clear of other media.
+  const bottom = await page.evaluate<number>("document.querySelector('canvas[data-timeline]').getBoundingClientRect().bottom");
+  await page.dropFiles(box.x + box.w * 0.6, bottom - 6, [shot]);
+  await arrived(() => images().length > before, 10_000);
+  expect(images().length).toBe(before + 1);
+  expect(existsSync(join(media, "Screenshot 2026-10-20 at 16.14.53.png"))).toBe(true);
+  const dropped = images().at(-1)!;
+  expect(dropped.start).toBeGreaterThan(0);
+
+  // ⌘V of an image copied in another app: WebKit names it image.png; it lands at the playhead, saved by date.
+  await run("playhead.set", { time: 3 });
+  await Bun.sleep(300);
+  const b64 = readFileSync(image).toString("base64");
+  const paste = (marked: boolean) =>
+    page.evaluate(`(() => {
+      const dt = new DataTransfer();
+      const bytes = Uint8Array.from(atob(${JSON.stringify(b64)}), (c) => c.charCodeAt(0));
+      dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
+      if (${marked}) dt.setData("application/x-beacon-clips", "1");
+      document.body.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    })()`);
+  await paste(false);
+  await arrived(() => images().length > before + 1, 10_000);
+  expect(images().filter((c) => c.id !== dropped.id && c.start === 3 * 705_600_000).length).toBe(1);
+  expect(readdirSync(media).some((n) => /^Pasted \d{4}-\d\d-\d\d at [\d.]+\.png$/.test(n))).toBe(true);
+
+  // Copying clips in Beacon marks the clipboard, so the image copied before it doesn't win the next ⌘V.
+  await select([callout.id]);
+  const marked = await page.evaluate<string[]>(`(() => {
+    const dt = new DataTransfer();
+    document.body.dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+    return [...dt.types];
+  })()`);
+  expect(marked).toContain("application/x-beacon-clips");
+  await arrived(() => false, 300);
+  const count = clips().length;
+  await paste(true);
+  await arrived(() => clips().length > count, 5000);
+  expect(clips().filter((c) => c.type === "callout").length).toBeGreaterThan(1);
+  expect(images().length).toBe(before + 2);
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 60_000);
