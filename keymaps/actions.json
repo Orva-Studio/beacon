@@ -222,6 +222,14 @@
       "command": "edit.addAnimation"
     },
     {
+      "id": "edit.addAnimationAcross",
+      "name": "Add Animation Across Clip",
+      "command": "edit.addAnimation",
+      "args": {
+        "whole": true
+      }
+    },
+    {
       "id": "selection.all",
       "name": "Select All",
       "command": "selection.all"

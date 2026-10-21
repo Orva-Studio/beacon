@@ -8,6 +8,7 @@ import {
   mediaTimeAt,
   projectDuration,
   secondsToTicks,
+  ticksPerFrame,
   ticksToSeconds,
   type ActionContext,
   type ActionPlan,
@@ -392,16 +393,33 @@ export const animationActions = [
   defineAction({
     id: "edit.addAnimation",
     description:
-      "Add an animation block (an arrow on the clip) to the selected visual clips, from the playhead over `duration` seconds, ease in/out, and move the playhead to its end: then property and canvas edits there set where it animates to (Custom, ⇧A). `preset` \"restore\" animates back to the clip's base values instead. With `clip` and `time` (timeline seconds), as dropping it on that clip there: on it (or the whole selection when it is selected), starting at `time`, moved earlier if needed to fit in the clip",
+      "Add an animation block (an arrow on the clip) to the selected visual clips, from the playhead over `duration` seconds, ease in/out, and move the playhead to its end: then property and canvas edits there set where it animates to (Custom, ⇧A). `preset` \"restore\" animates back to the clip's base values instead. `whole`: across each clip from its start to its end instead, wherever the playhead is (⌥⇧A). With `clip` and `time` (timeline seconds), as dropping it on that clip there: on it (or the whole selection when it is selected), starting at `time`, moved earlier if needed to fit in the clip",
     args: z.strictObject({
       duration: z.number().positive().default(1),
       preset: z.enum(["custom", "restore"]).default("custom"),
+      whole: z.boolean().default(false),
       clip: z.string().min(1).optional(),
       time: z.number().nonnegative().optional(),
     }),
-    resolve: ({ duration, preset, clip, time }, ctx) => {
+    resolve: ({ duration, preset, whole, clip, time }, ctx) => {
       const clips = dropTargets(ctx, clip).filter((c) => ctx.registry.hasTrait(c.type, "visual"));
       if (!clips.length) throw new Error(clip ? "animations apply to visual media" : "select visual media first");
+      if (whole) {
+        const steps: ActionStep[] = clips.map((c) => {
+          const [start, end] = [ticksToSeconds(c.start), ticksToSeconds(clipEnd(c))];
+          return { command: "animation.add", args: { clip: c.id, end, duration: end - start, easing: "easeInOut", to: targets(ctx, c, preset, start) } };
+        });
+        const last = clips.at(-1)!;
+        return {
+          label: "Add Animation Across Clip",
+          steps,
+          after: (results) => [
+            ...selectDropped(ctx, clip),
+            { command: "playhead.set", args: { time: ticksToSeconds(clipEnd(last)) - ticksToSeconds(ticksPerFrame(ctx.project.settings.fps)) } },
+            { command: "animation.select", args: { clip: last.id, animation: results.at(-1) as string } },
+          ],
+        };
+      }
       const target = clip ? clips.find((c) => c.id === clip) : undefined;
       const from = time ?? playhead(ctx);
       const start = target ? Math.max(ticksToSeconds(target.start), Math.min(from, ticksToSeconds(clipEnd(target)) - duration)) : from;
@@ -414,14 +432,7 @@ export const animationActions = [
         const e = Math.min(start + duration, ticksToSeconds(clipEnd(c)));
         if (e <= start) continue;
         end = e;
-        const to: Record<string, number> = {};
-        for (const [group, fields] of Object.entries(ANIMATED)) {
-          for (const [field, base] of Object.entries(fields)) {
-            const own = (c.props[group] as Record<string, number> | undefined)?.[field] ?? base;
-            to[`${group}.${field}`] = preset === "restore" ? own : Number(at(ctx, c, group, field, base));
-          }
-        }
-        steps.push({ command: "animation.add", args: { clip: c.id, end: e, duration: e - start, easing: "easeInOut", to } });
+        steps.push({ command: "animation.add", args: { clip: c.id, end: e, duration: e - start, easing: "easeInOut", to: targets(ctx, c, preset) } });
         last = c.id;
       }
       if (!steps.length) throw new Error("the playhead isn't on the selected media, or is at its end");
@@ -438,14 +449,29 @@ export const animationActions = [
   }),
 ];
 
+/**
+ * Where a new block animates `c` to: the values it has at the playhead (or at `time`), so it holds still until an edit
+ * at its end sets them, or with "restore" the clip's own base values.
+ */
+function targets(ctx: ActionContext, c: Clip, preset: "custom" | "restore", time?: number): Record<string, number> {
+  const to: Record<string, number> = {};
+  for (const [group, fields] of Object.entries(ANIMATED)) {
+    for (const [field, base] of Object.entries(fields)) {
+      const own = (c.props[group] as Record<string, number> | undefined)?.[field] ?? base;
+      to[`${group}.${field}`] = preset === "restore" ? own : Number(at(ctx, c, group, field, base, time));
+    }
+  }
+  return to;
+}
+
 /** The value an edit at the playhead changes: mid-animation, the block's end value rather than the one shown. */
 function stored(ctx: ActionContext, clip: Clip, group: string, field: string, fallback: unknown): unknown {
   const t = Math.min(Math.max(secondsToTicks(playhead(ctx)), clip.start), clipEnd(clip));
   return editedValue(clip, group, field, mediaTimeAt(clip, t), fallback);
 }
 
-/** A property's value at the playhead, through the clip's animations. */
-function at(ctx: ActionContext, clip: Clip, group: string, field: string, fallback: unknown): unknown {
-  const t = Math.min(Math.max(secondsToTicks(playhead(ctx)), clip.start), clipEnd(clip));
+/** A property's value at the playhead (or `time`), through the clip's animations. */
+function at(ctx: ActionContext, clip: Clip, group: string, field: string, fallback: unknown, time = playhead(ctx)): unknown {
+  const t = Math.min(Math.max(secondsToTicks(time), clip.start), clipEnd(clip));
   return animatedValue((clip.props[group] as Record<string, unknown> | undefined)?.[field] ?? fallback, `${group}.${field}`, clip.animations, mediaTimeAt(clip, t));
 }

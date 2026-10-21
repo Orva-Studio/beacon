@@ -252,6 +252,7 @@ export function createMenus(app: MenusApp) {
       action("edit.rippleCut"),
       action("edit.rippleDelete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
+      ...(target && core.registry.hasTrait(target.type, "visual") ? [SEPARATOR, action("edit.addAnimationAcross")] : []),
       SEPARATOR,
       own("Hide Properties", "hideProperties"),
       SEPARATOR,

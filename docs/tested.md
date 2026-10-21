@@ -19,11 +19,13 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| An animation across a whole clip: ⌥⇧A (Add Animation Across Clip, also in a visual clip's right-click menu and `edit.addAnimation` with `whole` for agents) adds one from each selected clip's start to its end wherever the playhead is, the playhead put on its last frame to set where it goes; double-clicking an animation's arrow stretches it across its clip | 2026-10-20 | this commit | UI flow (⌥⇧A with the playhead at 2 s spans the screen clip; a 1 s ⇧A one double-clicked spans it; one undo step each) |
 | LUT (Visual Effects): a `.cube` chosen in the effect (Choose…) or imported by an agent is copied into the project's `media` folder as a file asset (not in the Media Bin, no clips placed; kept relative so a moved project keeps it), each colour looked up trilinearly in a 3D texture and mixed by Intensity, before Film Look; a 1D or incomplete table refused with why | 2026-10-20 | this commit | Core test on `video.mp4` with a 17³ inverting LUT the test writes (every pixel within 2 of 255 minus it; grey at 50%; preview byte-identical to the export; the project moved and reopened renders it; 1D and short files refused; undo and redo exact); UI flow (tile, Choose… asks for .cube, a broken file's reason, the LUT's name in the menu, absent from the Media Bin) |
 | Remove Background (Visual Effects, on camera and video clips): Apple's Vision finds the person in every frame once per medium (a `matte` job, cached like proxies, about 30 ms a frame; a recording's screen skipped), started when the effect is added and awaited by export; the clip drawn through the matte over the clips below (Transparent), a blur of itself, a colour or a Media Bin image, with Softness and Shrink for the edge; the inspector says "Finding the person… %" (or why it failed) and shows only the background's own rows | 2026-10-20 | this commit | Core tests on `take.brec` (the camera's matte only, 1280×720 at the camera's own frame times; a colour wall with the chest unchanged, the screen below with Transparent, a blurred wall; preview byte-identical to the export; an export from a cold cache waits for the matte; undo exact); frames looked at; UI flow (tile, progress line, rows per background, image menu) |
 
 ### Not checked yet
 
+- ⌥⇧A, the clip menu's Add Animation Across Clip and double-clicking an arrow in the app.
 - LUT in the app with a LUT of yours on your own footage, and with Film Look on top.
 - Remove Background in the app on a real take: the edges on your hair-free head and shoulders, hands moving in front, each background, playback speed on a 4K camera, and how long a long take's matte takes.
 

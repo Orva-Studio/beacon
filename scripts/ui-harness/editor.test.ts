@@ -3111,3 +3111,37 @@ test.skipIf(skip)("LUT from its tile: Choose… imports a .cube into the project
   await run("panel.show", { tool: null });
   await select([]);
 }, 60_000);
+
+test.skipIf(skip)("⌥⇧A animates a clip from its start to its end, wherever the playhead is; double-clicking an animation stretches it across its clip", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.zoom", { to: "fit" });
+  await run("playhead.set", { time: 2 });
+  await select([screen.id]);
+  const across = (id: string) => {
+    const c = clip(id);
+    const a = c.animations.at(-1)!;
+    return a && a.end === (c.mediaStart ?? 0) + c.duration && a.duration === c.duration;
+  };
+  await page.key("A", "KeyA", ["alt", "shift"]);
+  await arrived(() => clip(screen.id).animations.length === 1);
+  expect(across(screen.id)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Animation Across Clip");
+  await ui.core.undo(ui.handle);
+
+  // A second-long one from the playhead (⇧A), then double-clicked.
+  await run("playhead.set", { time: 2 });
+  await Bun.sleep(300);
+  await page.key("A", "KeyA", ["shift"]);
+  await arrived(() => clip(screen.id).animations.length === 1);
+  expect(across(screen.id)).toBe(false);
+  await run("timeline.zoom", { to: "fit" });
+  await Bun.sleep(300);
+  const p = await timelinePlaces(screen.id);
+  await page.dblclick(p.box.x + p.xAt(2.5), p.box.y + p.y + p.h / 2);
+  await arrived(() => across(screen.id));
+  expect(across(screen.id)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Stretch Animation Across Clip");
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);

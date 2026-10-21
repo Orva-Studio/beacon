@@ -654,6 +654,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           const i = rowUnder(y);
           if (x < HEADER && i !== undefined && !headerIcon(x, y, i)) replica.rename(tracks[i]!.id);
           if (x < HEADER || i === undefined) return;
+          // An animation stretched across its whole clip.
+          const arrow = arrowAt(e.clientX, e.clientY);
+          if (arrow) {
+            const [a, b] = [ticksToSeconds(arrow.clip.start), ticksToSeconds(arrow.clip.start + arrow.clip.duration)];
+            return run("animation.set", { clip: arrow.clip.id, animation: arrow.anim.id, end: b, duration: b - a }, "Stretch Animation Across Clip");
+          }
           // On a selected audio clip's volume line: add a point there, or remove the one double-clicked.
           const clip = clipAt(e.clientX, e.clientY);
           if (clip && clipTypes[clip.type]?.includes("group") && !latest.current.session.group) return run("group.open", { clip: clip.id });

@@ -22,6 +22,19 @@
     },
     {
       "keys": {
+        "key": "a",
+        "modifiers": [
+          "option",
+          "shift"
+        ]
+      },
+      "command": "edit.addAnimation",
+      "args": {
+        "whole": true
+      }
+    },
+    {
+      "keys": {
         "key": "m",
         "modifiers": [
           "shift"
