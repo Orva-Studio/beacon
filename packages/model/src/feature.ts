@@ -56,6 +56,13 @@ export interface EffectDef {
    * content is visual. Effects other features draw (the cursor's) leave it out.
    */
   apply?: (e: ClipEval & { main: VisualLayer }, params: Record<string, any>, ctx: EvalContext) => void;
+  /**
+   * Job analyzers (`JobAnalyzerDef` ids) the clip's media must have before `apply` can draw the effect (Remove
+   * Background's matte): started when a clip has the effect, and awaited by export. Until then `apply` finds no data.
+   */
+  needs?: string[];
+  /** What the inspector says while `needs` are being made, with their progress ("Finding the person"). */
+  preparing?: string;
   /** Changes the sound of a clip with the effect enabled (the whole clip; `span` is for visual effects). */
   audio?: (params: Record<string, any>) => AudioEffect;
   /** Named sets of params the inspector offers (Film Look's looks); `notes`: what the preset can't reproduce. */

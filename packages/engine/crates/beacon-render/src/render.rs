@@ -78,6 +78,8 @@ pub struct Renderer {
     builtin_bgl: wgpu::BindGroupLayout,
     pass_bgl: wgpu::BindGroupLayout,
     draw_pipe: wgpu::RenderPipeline,
+    matte_bgl: wgpu::BindGroupLayout,
+    matte_pipe: wgpu::RenderPipeline,
     comp_pipe: wgpu::RenderPipeline,
     mip_pipe: wgpu::RenderPipeline,
     mask_pipe: wgpu::RenderPipeline,
@@ -199,6 +201,11 @@ impl Renderer {
         };
         let over = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
         let draw_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", FMT, Some(additive));
+        let matte_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("matte"),
+            entries: &[uniform(0), texture(1), sampler_entry(2), texture(3)],
+        });
+        let matte_pipe = pipeline(&device, &builtin, &matte_bgl, "vs_draw", "fs_draw_matte", FMT, Some(additive));
         let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", FMT, Some(over));
         let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", FMT, None);
         let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", FMT, Some(over));
@@ -240,6 +247,8 @@ impl Renderer {
             builtin_bgl,
             pass_bgl,
             draw_pipe,
+            matte_bgl,
+            matte_pipe,
             comp_pipe,
             mip_pipe,
             mask_pipe,
@@ -615,6 +624,8 @@ impl Renderer {
             }
         };
 
+        // Taken after the content, as `collect_videos` prepared them.
+        let matte = v.matte.as_ref().map(|m| (self.textures[&source_key(seen, &m.source)].tex.create_view(&Default::default()), m.range));
         let local = [v.size[0] - v.crop[0] - v.crop[2], v.size[1] - v.crop[1] - v.crop[3]];
         let inv = inverse(&v.transform);
         let Some(inv) = inv.filter(|_| local[0] > 0.0 && local[1] > 0.0) else {
@@ -624,7 +635,7 @@ impl Renderer {
             return Ok(());
         };
         if !v.passes.is_empty() && (0..=v.motion.len()).any(|i| v.perspective_of(i) != [0.0, 0.0]) {
-            let r = self.draw_tilted(enc, target, w, h, v, &content, color, local);
+            let r = self.draw_tilted(enc, target, w, h, v, &content, color, local, matte.as_ref());
             if let Some(g) = group_tex {
                 self.give(g);
             }
@@ -649,10 +660,7 @@ impl Renderer {
                     color,
                     margin: [2.0 / scale_of(m).max(1e-3), p[0], p[1], 0.0],
                 };
-                let bg = self.builtin_group(bytemuck::bytes_of(&u), &content_view);
-                rp.set_pipeline(&self.draw_pipe);
-                rp.set_bind_group(0, Some(&bg), &[]);
-                rp.draw(0..6, 0..1);
+                self.draw_content(&mut rp, u, &content_view, matte.as_ref());
             }
         }
         if let Some(g) = group_tex {
@@ -675,7 +683,18 @@ impl Renderer {
     /// draw outside, like a shadow), which is then drawn in perspective. Passes map canvas pixels to the
     /// layer through its 2D transform, which a tilt doesn't follow.
     #[allow(clippy::too_many_arguments)]
-    fn draw_tilted(&mut self, enc: &mut wgpu::CommandEncoder, target: &wgpu::Texture, w: u32, h: u32, v: &Visual, content: &wgpu::Texture, color: [f32; 4], local: [f32; 2]) -> Result<()> {
+    fn draw_tilted(
+        &mut self,
+        enc: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        w: u32,
+        h: u32,
+        v: &Visual,
+        content: &wgpu::Texture,
+        color: [f32; 4],
+        local: [f32; 2],
+        matte: Option<&(wgpu::TextureView, [f32; 2])>,
+    ) -> Result<()> {
         let m = &v.transform;
         let longest = local[0].max(local[1]);
         // Small enough that the padded corners stay in front of the camera (W > 0.5 there).
@@ -699,12 +718,9 @@ impl Renderer {
                 color,
                 margin: [2.0 / s, 0.0, 0.0, 0.0],
             };
-            let bg = self.builtin_group(bytemuck::bytes_of(&u), &content_view);
             let view = flat.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
-            rp.set_pipeline(&self.draw_pipe);
-            rp.set_bind_group(0, Some(&bg), &[]);
-            rp.draw(0..6, 0..1);
+            self.draw_content(&mut rp, u, &content_view, matte);
         }
         let frame = PassFrameU {
             inv0: [1.0 / s, 0.0, 0.0, 1.0 / s],
@@ -883,6 +899,31 @@ impl Renderer {
         self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: data, usage: wgpu::BufferUsages::UNIFORM })
     }
 
+    /// Draws a layer's content as `u` places it, through its matte when it has one.
+    fn draw_content(&self, rp: &mut wgpu::RenderPass, mut u: DrawU, content: &wgpu::TextureView, matte: Option<&(wgpu::TextureView, [f32; 2])>) {
+        let Some((view, [clear, opaque])) = matte else {
+            let bg = self.builtin_group(bytemuck::bytes_of(&u), content);
+            rp.set_pipeline(&self.draw_pipe);
+            rp.set_bind_group(0, Some(&bg), &[]);
+            return rp.draw(0..6, 0..1);
+        };
+        (u.content[3], u.margin[3]) = (*clear, *opaque);
+        let buf = self.uniform(bytemuck::bytes_of(&u));
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.matte_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(content) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(view) },
+            ],
+        });
+        rp.set_pipeline(&self.matte_pipe);
+        rp.set_bind_group(0, Some(&bg), &[]);
+        rp.draw(0..6, 0..1);
+    }
+
     fn builtin_group(&self, uniform: &[u8], view: &wgpu::TextureView) -> wgpu::BindGroup {
         let buf = self.uniform(uniform);
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -915,6 +956,9 @@ fn collect_videos(layers: &[Layer], parent: f32, out: &mut Vec<(String, f64, f32
             Content::Source { source, time } => out.push((source.clone(), *time, scale)),
             Content::Group { layers, .. } => collect_videos(layers, scale, out),
             Content::Solid { .. } => {}
+        }
+        if let Some(m) = &v.matte {
+            out.push((m.source.clone(), m.time, scale));
         }
     }
 }

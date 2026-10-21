@@ -11,6 +11,8 @@ pub mod sources;
 #[cfg(target_os = "macos")]
 pub mod encode;
 #[cfg(target_os = "macos")]
+pub mod matte;
+#[cfg(target_os = "macos")]
 mod surface;
 #[cfg(target_os = "macos")]
 pub mod text;

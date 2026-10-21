@@ -422,7 +422,7 @@ export type AppRPC = {
       /** Timeline pictures: waveforms by asset and audio stream, first-frame thumbnails (data URLs) by clip. */
       /** `preparing`: every asset whose proxy is being made, its progress 0-1 (replaces the last); `proxies`: whether assets have one (merged). */
       /** `missing`: media whose file is gone (replaces the last). */
-      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
+      media: { waveforms?: Record<string, Record<number, number[]>>; thumbs?: Record<string, string>; highlight?: string; preparing?: Record<string, number>; transcribing?: Record<string, number>; judging?: Record<string, number>; judgeFailed?: Record<string, string>; analyzing?: Record<string, number>; analysisFailed?: Record<string, string>; jobFailed?: Record<string, string>; proxies?: Record<string, boolean>; missing?: string[] };
     };
   };
 };

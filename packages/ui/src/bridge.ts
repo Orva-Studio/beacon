@@ -63,6 +63,8 @@ export interface ProjectBridge {
 export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHooks = {}): ProjectBridge {
   let rev = 0;
   const transcribing: Record<string, number> = {};
+  const analyzing: Record<string, number> = {};
+  const analysisFailed: Record<string, string> = {};
   const judging: Record<string, number> = {};
   const judgeFailed: Record<string, string> = {};
   const proxies: ProjectBridge["proxies"] = { queued: {}, jobs: {} };
@@ -117,6 +119,15 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
       }
       // A cancelled job ends as failed, but nothing went wrong.
       if (job.state === "failed" && job.error !== "cancelled" && job.asset && (job.kind === "transcript" || job.kind === "proxy")) send("media", { jobFailed: { [job.asset]: `${job.kind === "transcript" ? "Transcribing" : "Making a proxy"} failed${job.error ? `: ${job.error}` : ""}` } });
+      // Any analysis of a medium (an effect's matte): its progress while it runs, and why it failed.
+      if (job.asset) {
+        const key = `${job.kind}:${job.asset}`;
+        if (job.state === "running") analyzing[key] = job.progress;
+        else delete analyzing[key];
+        if (job.state === "failed" && job.error !== "cancelled") analysisFailed[key] = job.error ?? "failed";
+        else if (job.state === "running") delete analysisFailed[key];
+        send("media", { analyzing: { ...analyzing }, analysisFailed: { ...analysisFailed } });
+      }
       if (job.state === "done" && job.kind === "waveform") sendWaveforms();
       hooks.other?.(e);
     } else if (e.kind === "importing") {

@@ -1810,9 +1810,11 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
   proxies, so a take is segmented once), and a "Remove Background" effect
   on visual clips draws it in a pass: transparent (the clips below show
   through), blurred, a colour or an image, with a feather for the edge.
-  Preview and export read the same matte. Open: which is the default, and
-  whether Replicate's models are good enough on a talking head to be worth
-  the upload.
+  Preview and export read the same matte. **Decided (the user,
+  2026-10-20):** Vision only for now (a frame of `take.brec` came out clean
+  at balanced and accurate quality: no hair to lose); a local model and
+  Replicate wait until its edges disappoint. A new Remove Background is
+  transparent; blur, a colour or an image are options in the effect.
 - **LUT import** (the user, 2026-10-20): a LUT effect of its own, not part
   of Film Look (a LUT usually goes first, a look on top): a `.cube` file
   (what nearly every LUT is sold as) copied into the project so it travels

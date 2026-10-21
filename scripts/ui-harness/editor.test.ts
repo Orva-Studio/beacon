@@ -3042,3 +3042,33 @@ test.skipIf(skip)("a screenshot dropped from its thumbnail (no path to find) and
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await select([]);
 }, 60_000);
+
+test.skipIf(skip)("Remove Background from its tile on the camera: the inspector says it is finding the person while the matte is made; Background shows only its own rows, Image lists the project's images", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const camera = clips().find((c) => c.type === "video")!;
+  await select([camera.id]);
+  await run("panel.show", { tool: "visualEffects", properties: true });
+  const tile = `[data-item="effect:remove-background"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(camera.id).effects.some((e) => e.type === "remove-background"));
+  const fx = clip(camera.id).effects.find((e) => e.type === "remove-background")!;
+  await run("inspector.tab", { tab: "effects" });
+  // The matte job started with the effect: its progress under it.
+  await page.until("!!document.querySelector('[data-effect-preparing]')", 15_000);
+  expect(await page.evaluate<string>("document.querySelector('[data-effect-preparing]').textContent")).toMatch(/^Finding the person… \d+%$/);
+  const rows = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-effect-param]')].map((e) => e.dataset.effectParam)");
+  expect(await rows()).toEqual(["background"]);
+  expect(await page.evaluate<string[]>("[...document.querySelector('[data-effect-param=background]').options].map((o) => o.textContent)")).toEqual(["Transparent", "Blur", "Color", "Image"]);
+  await run("effect.set", { clip: camera.id, effect: fx.id, params: { background: "image" } });
+  await page.until("[...document.querySelectorAll('[data-effect-param]')].length === 2");
+  expect(await rows()).toEqual(["background", "image"]);
+  // The project's snapshot is its one image.
+  expect(await page.evaluate<string[]>("[...document.querySelector('[data-effect-param=image]').options].map((o) => o.textContent)")).toEqual(["None", expect.stringMatching(/^Snapshot/) as unknown as string]);
+  await page.screenshot(join(dir, "remove-background.png"));
+
+  for (const j of await ui.core.jobs()) if (j.kind === "matte" && j.state === "running") await ui.core.cancelJob(j.id).catch(() => {});
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 60_000);

@@ -21,10 +21,10 @@ struct Draw {
   m0: vec4<f32>,      // a, b, c, d
   m1: vec4<f32>,      // e, f, target width, target height
   rect: vec4<f32>,    // crop left, crop top, layer width, layer height
-  content: vec4<f32>, // content width, content height, weight, unused
+  content: vec4<f32>, // content width, content height, weight, w: the matte's clear brightness
   radius: vec4<f32>,
   color: vec4<f32>,   // multiplies the sample (solid colour, or white)
-  margin: vec4<f32>,  // x: quad expansion in layer pixels for edge antialiasing; yz: perspective row (g, h)
+  margin: vec4<f32>,  // x: quad expansion in layer pixels for edge antialiasing; yz: perspective row (g, h); w: the matte's opaque brightness
 };
 @group(0) @binding(0) var<uniform> draw: Draw;
 @group(0) @binding(1) var draw_tex: texture_2d<f32>;
@@ -49,13 +49,26 @@ fn vs_draw(@builtin(vertex_index) i: u32) -> VOut {
   return o;
 }
 
-@fragment
-fn fs_draw(v: VOut) -> @location(0) vec4<f32> {
+fn drawn(v: VOut) -> vec4<f32> {
   let d = rounded_rect_sdf(v.local, draw.rect.zw, draw.radius);
   let cov = coverage(d);
   // Half a mip level sharper than trilinear: downscaled text stays crisp.
   let c = textureSampleBias(draw_tex, draw_samp, clamp(v.uv, vec2(0.0), vec2(1.0)), -0.5) * draw.color;
   return c * cov * draw.content.z;
+}
+
+@fragment
+fn fs_draw(v: VOut) -> @location(0) vec4<f32> {
+  return drawn(v);
+}
+
+// The layer's matte, at the same content point: its brightness from content.w (clear) to margin.w (opaque).
+@group(0) @binding(3) var draw_matte: texture_2d<f32>;
+
+@fragment
+fn fs_draw_matte(v: VOut) -> @location(0) vec4<f32> {
+  let m = textureSampleLevel(draw_matte, draw_samp, clamp(v.uv, vec2(0.0), vec2(1.0)), 0.0).r;
+  return drawn(v) * clamp((m - draw.content.w) / max(draw.margin.w - draw.content.w, 1e-4), 0.0, 1.0);
 }
 
 // ---- fullscreen helpers ----

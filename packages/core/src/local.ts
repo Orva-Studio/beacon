@@ -596,6 +596,7 @@ export class LocalCore implements BeaconCore {
       // Transcripts an import started but a quit cancelled: made now, not when Remove Silences or Captions needs one.
       this.#analyses.importAnalyses(p, Object.keys(p.store.doc.assets));
     }
+    this.#analyses.effectJobs(p);
     return view;
   }
 
@@ -684,6 +685,7 @@ export class LocalCore implements BeaconCore {
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
   #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T {
     if (!change || change.dryRun || !change.patches.length) return change;
+    this.#analyses.effectJobs(p);
     try {
       writeProject(p.path, p.store.doc);
       this.#emit(p, { kind: "saved", path: p.path });
@@ -781,7 +783,10 @@ export class LocalCore implements BeaconCore {
         });
     for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
     mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
+    // What effects need (a matte) is made first: the export never draws a clip without it.
+    const needed = this.#analyses.effectJobs(p, true);
     return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
+      await Promise.all(needed.map((j) => j.done));
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {

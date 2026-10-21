@@ -165,6 +165,26 @@ pub struct Visual {
     pub opacity: f32,
     #[serde(default)]
     pub passes: Vec<PassUse>,
+    #[serde(default)]
+    pub matte: Option<Matte>,
+}
+
+/// The layer's alpha from another source's brightness at the same content point (Remove Background's person
+/// matte): a source the size of the content or smaller, the same shape.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Matte {
+    pub source: String,
+    /// Seconds of the matte's media time.
+    #[serde(default)]
+    pub time: f64,
+    /// The brightness drawn clear and the one drawn opaque, the rest between in proportion.
+    #[serde(default = "full")]
+    pub range: [f32; 2],
+}
+
+fn full() -> [f32; 2] {
+    [0.0, 1.0]
 }
 
 impl Visual {

@@ -22,6 +22,7 @@ OSV vulnerability database (includes RustSec and GitHub advisories).
 | pollster / bytemuck / serde / serde_json | 1.0.1 / 1.25.2 / 1.0.229 / 1.0.151 | 0.4 / 1.x / — | |
 | ffmpeg-next / ffmpeg-sidecar | 9.0.0 / 2.6.0 | — | candidates for `beacon-media` (in-process libav vs. ffmpeg binary) |
 | whisper-rs | 0.16.0 | — | candidate for local transcription |
+| objc2-vision | 0.3.2 | — | Remove Background's person matte (`beacon-render/src/matte.rs`): Apple's Vision, same objc2 0.3.2 family as the other framework crates (MIT/Apache-2.0/Zlib). Added 2026-10-20 |
 
 ## Advisories found in the spikes (176 package versions scanned)
 

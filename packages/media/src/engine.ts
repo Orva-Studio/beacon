@@ -61,6 +61,13 @@ export function enginePath(name: string): string {
   return join(import.meta.dir, "../../engine/target/release", name);
 }
 
+/** The `beacon-worker` sidecar (export, mattes); `BEACON_WORKER_PATH` overrides where it is. */
+export function workerPath(): string {
+  const path = process.env.BEACON_WORKER_PATH ?? enginePath("beacon-worker");
+  if (!existsSync(path)) throw new Error(`beacon-worker not found at ${path}; run \`bun run build:engine\``);
+  return path;
+}
+
 /** `BEACON_FFI_PATH` overrides the dylib location (e.g. inside the app bundle). */
 function libraryPath(): string {
   const path = process.env.BEACON_FFI_PATH ?? enginePath("libbeacon_ffi.dylib");

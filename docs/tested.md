@@ -7,19 +7,24 @@ feature lands and when it is checked.
 
 ## Phase 10 (`phase-10`)
 
+### Checked by hand
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Drops from Finder's Recents: its drag gives a file reference URL (`/.file/id=…`), which the drag pasteboard reader already turns into the real path; the drop is taken as a copy, so Finder no longer animates the files back (WebKit started the drag at "none") | 2026-10-20 | `d3892c2` | The user's own Recents drags (an image, a 35 s video) read off the drag pasteboard, and timed in the dev app: 30–130 ms from release to imported, the path found in about 1 ms; UI flow (a drag started at "none" as WebKit does, taken as "copy" over the timeline and the Media Bin; fails without the fix); by hand in the dev app 2026-10-20 (Recents, a thumbnail, ⌘V of a copied image, ⌘C/⌘V of clips, a one-frame clip) |
+| A screenshot dragged from its floating thumbnail (a file promise whose temporary file isn't the webview's and is gone once the drag ends) and an image copied in another app and pasted with ⌘V: the webview sends an image's bytes with it, and one found by no path is written into the project's `media` folder (its own name, numbered when taken; WebKit's "image.png" saved as "Pasted <date> at <time>.png") and imported at the drop point or the playhead. Copying clips in Beacon marks the clipboard, so ⌘V pastes the clips rather than an image copied before them | 2026-10-20 | `168e64a` | Core test on `image.png` (two drops alike numbered, bytes equal, at 2 s; a pasted "image.png" named by date; lost without a folder); UI flow (a drop no drag path matches imported from its bytes; a pasted image at the playhead; a copy event marks the clipboard and the next paste pastes the callout; fails without the change); by hand in the dev app 2026-10-20 (Recents, a thumbnail, ⌘V of a copied image, ⌘C/⌘V of clips, a one-frame clip) |
+| A clip narrower than 40 points (a frame left by a cut) is drawn, clicked and marquee-selected 40 points wide, grown into empty time on either side but never over its neighbours (between two clips it stays to scale); its length and trim edges are its own | 2026-10-20 | `d3892c2` | UI flow (a one-frame piece of the screen: between its neighbours a click past it picks the next clip; with the next removed, the same click picks it; fails without the change); by hand in the dev app 2026-10-20 (Recents, a thumbnail, ⌘V of a copied image, ⌘C/⌘V of clips, a one-frame clip) |
+
 ### Checked headless only (still to see by hand)
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| Drops from Finder's Recents: its drag gives a file reference URL (`/.file/id=…`), which the drag pasteboard reader already turns into the real path; the drop is taken as a copy, so Finder no longer animates the files back (WebKit started the drag at "none") | 2026-10-20 | this commit | The user's own Recents drags (an image, a 35 s video) read off the drag pasteboard, and timed in the dev app: 30–130 ms from release to imported, the path found in about 1 ms; UI flow (a drag started at "none" as WebKit does, taken as "copy" over the timeline and the Media Bin; fails without the fix) |
-| A screenshot dragged from its floating thumbnail (a file promise whose temporary file isn't the webview's and is gone once the drag ends) and an image copied in another app and pasted with ⌘V: the webview sends an image's bytes with it, and one found by no path is written into the project's `media` folder (its own name, numbered when taken; WebKit's "image.png" saved as "Pasted <date> at <time>.png") and imported at the drop point or the playhead. Copying clips in Beacon marks the clipboard, so ⌘V pastes the clips rather than an image copied before them | 2026-10-20 | this commit | Core test on `image.png` (two drops alike numbered, bytes equal, at 2 s; a pasted "image.png" named by date; lost without a folder); UI flow (a drop no drag path matches imported from its bytes; a pasted image at the playhead; a copy event marks the clipboard and the next paste pastes the callout; fails without the change) |
-| A clip narrower than 40 points (a frame left by a cut) is drawn, clicked and marquee-selected 40 points wide, grown into empty time on either side but never over its neighbours (between two clips it stays to scale); its length and trim edges are its own | 2026-10-20 | this commit | UI flow (a one-frame piece of the screen: between its neighbours a click past it picks the next clip; with the next removed, the same click picks it; fails without the change) |
+| Remove Background (Visual Effects, on camera and video clips): Apple's Vision finds the person in every frame once per medium (a `matte` job, cached like proxies, about 30 ms a frame; a recording's screen skipped), started when the effect is added and awaited by export; the clip drawn through the matte over the clips below (Transparent), a blur of itself, a colour or a Media Bin image, with Softness and Shrink for the edge; the inspector says "Finding the person… %" (or why it failed) and shows only the background's own rows | 2026-10-20 | this commit | Core tests on `take.brec` (the camera's matte only, 1280×720 at the camera's own frame times; a colour wall with the chest unchanged, the screen below with Transparent, a blurred wall; preview byte-identical to the export; an export from a cold cache waits for the matte; undo exact); frames looked at; UI flow (tile, progress line, rows per background, image menu) |
 
 ### Not checked yet
 
-- Drops from Recents in the app: no bounce, and the clip there at once.
-- A one-frame clip in the app: drawn wider and easy to grab and drag.
-- A screenshot dragged from its floating thumbnail onto the timeline in the app (whether WebKit still has its bytes once the thumbnail's folder is cleared), and ⌘V of an image copied from a browser or Preview; then ⌘C of clips in Beacon followed by ⌘V.
+- Remove Background in the app on a real take: the edges on your hair-free head and shoulders, hands moving in front, each background, playback speed on a 4K camera, and how long a long take's matte takes.
+
 
 ## Phase 9 (`phase-9`)
 
