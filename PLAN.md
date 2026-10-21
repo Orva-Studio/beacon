@@ -2088,6 +2088,18 @@ Notes for when it is picked up:
     background on whole sources at no cost, with Auphonic kept for final
     export.
 
+### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
+- **A custom look as a favourite:** sliders moved into a look of one's own
+  (Custom in the Look menu) saved under a name, starred into Favorites like
+  the effect tiles, and applied from there in one undo step. App-wide, as
+  favourites are, and readable by agents (`favorites_list`).
+- **Hovering a look previews it on the canvas:** moving over the Look
+  menu's entries (hance's looks and saved ones) shows each on the clip at
+  the playhead, back as it was when the pointer leaves or the menu closes;
+  nothing is applied or added to the undo history until a look is chosen.
+  A native menu reports no hover, so the menu may need to become Beacon's
+  own list.
+
 ### Recording metadata features
 `.trec` files also log clicks, keyboard shortcuts, scrolling, the focused app
 and window titles (`docs/formats/trec.md`). Candidates: auto-zoom on
