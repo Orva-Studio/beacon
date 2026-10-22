@@ -203,7 +203,7 @@ export function App({ host }: { host: Host }) {
           {session?.panels.properties &&
             project &&
             (auphonicReviewOf(session) ? (
-              <AuphonicPanel project={project} session={session} host={host} />
+              <AuphonicPanel project={project} session={session} host={host} init={init} />
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (

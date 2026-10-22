@@ -436,7 +436,7 @@ export interface TaskEnv {
   pref: Preferences;
   /** The project's media folder: files the task makes are kept there, with the project. */
   mediaDir: string;
-  /** Writes these clips' audio alone, as heard on the timeline over [from, to) seconds, to a WAV. */
+  /** Writes these clips' audio alone, as heard on the timeline over [from, to) seconds, in the path's format (.wav, .m4a, .mp3). */
   bounceAudio: (clips: string[], range: { from: number; to: number }, path: string) => Promise<void>;
   /** A file the task made, probed, as `asset.add` takes it. */
   asset: (path: string, kind: "audio" | "video" | "image") => Promise<Omit<Asset, "id">>;

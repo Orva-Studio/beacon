@@ -15,6 +15,8 @@ const dir = mkdtempSync(join(tmpdir(), "beacon-auphonic-"));
  * given, so the result must line up to the sample; "Cutter" trims a second off, as a preset that cuts silences would.
  */
 const uploads: { preset: string; key: string }[] = [];
+const uploadedNames: string[] = [];
+const downloaded: string[] = [];
 let polls = 0;
 const server = Bun.serve({
   port: 0,
@@ -26,18 +28,25 @@ const server = Bun.serve({
     if (url.pathname === "/simple/productions.json") {
       const form = await req.formData();
       const preset = String(form.get("preset"));
-      await Bun.write(join(dir, "uploaded.wav"), form.get("input_file") as Blob);
+      // As Auphonic does: whatever is sent (an M4A) comes back as a WAV.
+      const sent = form.get("input_file") as File;
+      uploadedNames.push(sent.name);
+      await Bun.write(join(dir, "uploaded.m4a"), sent);
+      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.m4a"), join(dir, "uploaded.wav")]);
       uploads.push({ preset, key });
       return Response.json({ data: { uuid: `prod-${preset}` } });
     }
     const m = url.pathname.match(/^\/production\/(prod-[\w-]+)(\/status|\/start)?\.json$/);
     if (m?.[2] === "/start") return Response.json({ data: {} });
     if (m?.[2] === "/status") return Response.json({ data: (polls++ % 2 ? { status: 3, status_string: "Done" } : { status: 1, status_string: "Audio Processing" }) });
-    if (m) return Response.json({ data: { output_files: [{ format: "mp3", filename: "out.mp3", download_url: `${url.origin}/download/out.mp3` }, { format: "wav", filename: "out.wav", download_url: `${url.origin}/download/${m[1]}.wav` }] } });
-    if (url.pathname === "/download/prod-p-echo.wav") return new Response(Bun.file(join(dir, "uploaded.wav")));
-    if (url.pathname === "/download/prod-p-cut.wav") {
-      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.wav"), "-ss", "1", join(dir, "cut.wav")]);
-      return new Response(Bun.file(join(dir, "cut.wav")));
+    // As a real preset can: several formats, WAV listed first; Beacon takes the M4A.
+    if (m) return Response.json({ data: { output_files: ["wav", "mp3", "m4a"].map((ext) => ({ format: ext, filename: `out.${ext}`, download_url: `${url.origin}/download/${m[1]}.${ext}` })) } });
+    const got = url.pathname.match(/^\/download\/(prod-p-(?:echo|cut))\.(\w+)$/);
+    if (got) {
+      const out = join(dir, `${got[1]}.${got[2]}`);
+      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.wav"), ...(got[1] === "prod-p-cut" ? ["-ss", "1"] : []), out]);
+      downloaded.push(got[2]!);
+      return new Response(Bun.file(out));
     }
     return new Response("not found", { status: 404 });
   },
@@ -73,15 +82,22 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   const started = (await core.run(h, "audio.clean", { preset: "Echo", polish: false })).results.at(-1) as { job: string };
   await waitJob(core, started.job);
   expect(uploads.at(-1)).toEqual({ preset: "p-echo", key: "Bearer test-key" });
+  // An M4A goes up, not a WAV ten times its size.
+  expect(uploadedNames.at(-1)).toEndWith(".m4a");
   const history = (await core.history(h)).undo;
   expect(history.length - steps).toBe(1);
   expect(history.at(-1)).toBe("Clean with Auphonic");
   const doc = core.doc(h);
   const cleaned = Object.values(doc.assets).find((a) => a.name?.endsWith("(Auphonic)"))!;
   expect(cleaned.path.startsWith(join(dir, "p.beproj", "media"))).toBe(true);
-  expect(cleaned.path.endsWith(".cleaned.wav")).toBe(true);
+  expect(cleaned.path.endsWith(".cleaned.m4a")).toBe(true);
+  expect(downloaded.at(-1)).toBe("m4a");
   const placed = doc.tracks.flatMap((t) => t.clips).filter((c) => c.assetId === cleaned.id);
   expect(placed).toHaveLength(1);
+  // On a new track right above the highest one it cleaned.
+  const row = (id: string) => doc.tracks.findIndex((t) => t.clips.some((c) => c.id === id));
+  expect(row(placed[0]!.id)).toBe(Math.max(...audio.map((c) => row(c.id))) + 1);
+  expect(doc.tracks[row(placed[0]!.id)]!.clips).toHaveLength(1);
   expect(ticksToSeconds(placed[0]!.start)).toBe(ticksToSeconds(Math.min(...audio.map((c) => c.start))));
   for (const c of audio) expect((doc.tracks.flatMap((t) => t.clips).find((x) => x.id === c.id)!.props.audio as { muted: boolean }).muted).toBe(true);
   expect((await core.session(h)).selection).toEqual([placed[0]!.id]);
@@ -89,18 +105,19 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   await (await core.export(h, { output: join(dir, "after.wav"), ...range })).done;
   const [a, b] = [samples(join(dir, "before.wav")), samples(join(dir, "after.wav"))];
   expect(b.length).toBe(a.length);
-  // In step to the sample and as loud, only a WAV's rounding apart.
-  let [rms, ea, eb] = [0, 0, 0];
-  for (let i = 0; i < a.length; i++) [rms, ea, eb] = [rms + (a[i]! - b[i]!) ** 2, ea + a[i]! ** 2, eb + b[i]! ** 2];
-  expect(Math.sqrt(rms / a.length)).toBeLessThan(0.003);
-  expect(Math.abs(10 * Math.log10(eb / ea))).toBeLessThan(0.5);
-  let [lag, score] = [0, -Infinity];
-  for (let d = -80; d <= 80; d++) {
+  // An M4A goes up, so it comes back about a millisecond late (1/30 of a frame, inaudible): in step within 2 ms,
+  // and once lined up as loud and the same, AAC's loss apart.
+  let [lag, best] = [0, -Infinity];
+  for (let d = -40; d <= 40; d++) {
     let sum = 0;
-    for (let i = 100; i < a.length - 100; i++) sum += a[i]! * (b[i + d] ?? 0);
-    if (sum > score) [score, lag] = [sum, d];
+    for (let i = 40; i < a.length - 40; i++) sum += a[i]! * b[i + d]!;
+    if (sum > best) [best, lag] = [sum, d];
   }
-  expect(lag).toBe(0);
+  expect(Math.abs(lag)).toBeLessThanOrEqual(RATE / 500);
+  let [ea, eb] = [0, 0];
+  for (let i = 40; i < a.length - 40; i++) [ea, eb] = [ea + a[i]! ** 2, eb + b[i + lag]! ** 2];
+  expect(best / Math.sqrt(ea * eb)).toBeGreaterThan(0.98);
+  expect(Math.abs(10 * Math.log10(eb / ea))).toBeLessThan(0.5);
   await core.undo(h);
   expect(core.doc(h).tracks.flatMap((t) => t.clips).some((c) => c.assetId === cleaned.id)).toBe(false);
 

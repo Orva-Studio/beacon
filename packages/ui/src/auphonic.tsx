@@ -5,7 +5,9 @@ import { Button, Check, Progress, Select, Slider, Toast } from "./controls";
 import { useShortcutTip } from "./keymap";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
+import type { Init } from "./rpc";
 import { clock } from "./time";
+import { NO_NESTED, timelineView } from "./timeline-draw";
 
 export const auphonicReviewOf = (s: Session) => s.features.auphonic as AuphonicReview | undefined;
 
@@ -16,8 +18,9 @@ const USUAL = "Usual-2";
  * Clean with Auphonic's settings, in place of the properties panel (Audio Effects' Auphonic tile): a preset of the
  * user's, Polish on what comes back, and what it costs before anything is uploaded.
  */
-export function AuphonicPanel({ project, session, host }: { project: Project; session: Session; host: Host }) {
-  const review = auphonicReviewOf(session)!;
+export function AuphonicPanel({ project: full, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
+  // With a group open, its clips are the ones selected; muted ones are left out, as Clean leaves them.
+  const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);
   const [presets, setPresets] = useState<AuphonicPreset[] | { error: string }>();
   const [preset, setPreset] = useState<string>();
   const [polish, setPolish] = useState(true);
@@ -38,13 +41,15 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
     );
     return () => void (live = false);
   }, [host, settingsOpen]);
-  const clips = project.tracks.flatMap((t) => t.clips).filter((c) => review.clips.includes(c.id));
+  const clips = project.tracks
+    .flatMap((t) => t.clips)
+    .filter((c) => session.selection.includes(c.id) && init?.clipTypes[c.type]?.includes("audio") && !(c.props.audio as { muted?: boolean } | undefined)?.muted);
   const seconds = clips.length ? ticksToSeconds(Math.max(...clips.map(clipEnd)) - Math.min(...clips.map((c) => c.start))) : 0;
   const ready = Array.isArray(presets) && !!preset && clips.length > 0;
   const close = () => host.run("auphonic.close");
   const tip = useShortcutTip();
   const start = () => {
-    host.run("audio.clean", { clips: review.clips, preset, polish, sibilance });
+    host.run("audio.clean", { clips: clips.map((c) => c.id), preset, polish, sibilance });
     close();
   };
   return (
@@ -73,9 +78,19 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
         <Check label="Polish what comes back" checked={polish} onChange={setPolish} data-auphonic-polish />
       </div>
       {polish && <Slider label="Sibilance" title="How much harsh “s” sounds are softened" value={sibilance * 100} unit="%" max={100} onChange={(v) => setSibilance(Math.round(v) / 100)} />}
-      <div className="mt-2 mb-4 rounded-md bg-groove px-3 py-2 text-text" data-auphonic-summary>
-        {clips.length === 1 ? "1 clip" : `${clips.length} clips`}, {clock(seconds)} of audio as you hear it: uploaded to Auphonic and cleaned on your account, about {Math.max(1, Math.ceil(seconds / 60))} min of your credit. The cleaned audio goes on a track of its own, the originals muted.
-      </div>
+      {clips.length ? (
+        <div className="mt-2 mb-4 rounded-md bg-groove px-3 py-2 text-text" data-auphonic-summary>
+          {clips.length === 1 ? "1 clip" : `${clips.length} clips`}, {clock(seconds)} of audio as you hear it: uploaded to Auphonic and cleaned on your account, about {Math.max(1, Math.ceil(seconds / 60))} min of your credit. The cleaned audio goes on a new track right above them, the originals muted, its file in the project's media folder.
+        </div>
+      ) : (
+        <div className="mt-2 mb-4 flex flex-col items-start gap-2 rounded-md bg-groove px-3 py-2 text-text" data-auphonic-none>
+          <span className="text-warning">Select the audio to clean on the timeline.</span>
+          <Button onClick={() => host.run("auphonic.selectAudio")} data-auphonic-select-all>
+            Select All Audio
+          </Button>
+          <span className="text-caption text-text-faint">All the audio the export plays: not muted, on tracks neither muted nor disabled.</span>
+        </div>
+      )}
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={close}>Cancel{tip("reviews.cancel")}</Button>
         <Button look="primary" disabled={!ready} onClick={start} data-auphonic-start>
@@ -101,6 +116,7 @@ export function TaskToasts({ host }: { host: Pick<Host, "cancelJob"> }) {
             </div>
           </>
         )}
+        {t.state === "done" && t.stage && <div className="text-label text-text-muted" data-task-done>{t.stage}</div>}
         {t.state === "failed" && t.error !== "cancelled" && <div className="text-danger">{t.error}</div>}
       </div>
     </Toast>

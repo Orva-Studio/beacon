@@ -3661,6 +3661,24 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     expect((await session()).selection).toEqual([audio.id]);
     await page.dblclick(...(await centre(tile)));
     await page.until("!!document.querySelector('[data-auphonic-error]')");
+    // It follows the selection: with no audio selected it asks for some; Select All Audio picks what the export plays.
+    await select([]);
+    await page.until("!!document.querySelector('[data-auphonic-none]')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
+    const doc0 = ui.core.doc(ui.handle);
+    const muted = doc0.tracks.find((t) => t.clips.some((c) => c.type === "audio") && t.id !== doc0.tracks.find((x) => x.clips.some((c) => c.id === audio.id))!.id);
+    if (muted) await run("track.set", { track: muted.id, muted: true });
+    const heard = ui.core
+      .doc(ui.handle)
+      .tracks.filter((t) => !t.muted && !t.hidden)
+      .flatMap((t) => t.clips.filter((c) => c.type === "audio" && !(c.props.audio as { muted?: boolean } | undefined)?.muted))
+      .map((c) => c.id);
+    await page.click(...(await centre("[data-auphonic-select-all]")));
+    for (let i = 0; i < 100 && (await session()).selection.length !== heard.length; i++) await Bun.sleep(20);
+    expect([...(await session()).selection].sort()).toEqual([...heard].sort());
+    await page.until("!document.querySelector('[data-auphonic-none]')");
+    if (muted) await run("track.set", { track: muted.id, muted: false });
+    await select([audio.id]);
     // Open Settings… goes to Settings › Audio, where the key is typed in and saved.
     const menus = ui.menus.length;
     await page.evaluate("[...document.querySelectorAll('[data-auphonic-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
@@ -3682,8 +3700,11 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.click(...(await centre("[data-auphonic-start]")));
     await page.until("!document.querySelector('[data-auphonic-review]')");
     await page.until("(document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? '').includes('Auphonic: Audio Processing')", 10_000);
+    expect(await page.evaluate<string>("document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? ''")).toMatch(/3 of 5 · Auphonic: Audio Processing · \d:\d\d/);
     await page.screenshot(join(dir, "auphonic-running.png"));
     await page.until("!!document.querySelector('[data-task-state=done]')", 20_000);
+    // Done, it says where the result went.
+    expect(await page.evaluate<string>("document.querySelector('[data-task-done]')?.textContent ?? ''")).toContain("in the project's media folder");
     const doc = ui.core.doc(ui.handle);
     const cleaned = doc.tracks.flatMap((t) => t.clips).find((c) => doc.assets[c.assetId ?? ""]?.name?.endsWith("(Auphonic)"))!;
     expect(cleaned.effects.map((e) => e.type)).toEqual(["polish"]);

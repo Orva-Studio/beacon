@@ -526,7 +526,7 @@ export class LocalCore implements BeaconCore {
     });
   }
 
-  /** These clips' audio alone, as the timeline plays it over the range, written to a WAV. */
+  /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
   async #bounceAudio(p: OpenProject, clips: string[], range: { from: number; to: number }, path: string) {
     const keep = new Set(clips);
     const doc = { ...p.store.doc, tracks: p.store.doc.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => keep.has(c.id)) })) };
