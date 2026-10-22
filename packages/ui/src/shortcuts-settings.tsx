@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { chordId, keysLabel, keysOfEvent, type Keys, type ShortcutInfo } from "@beacon/model";
+import { chordId, keysClash, keysLabel, keysOfEvent, type Keys, type ShortcutInfo } from "@beacon/model";
 import { Button, Icon, TextInput } from "./controls";
 import { useView } from "./store";
 import { searchByName } from "./search";
@@ -16,6 +16,9 @@ interface Clash {
   owner: ShortcutInfo;
 }
 
+/** The leader key: always the start of a sequence, never a shortcut alone. */
+const LEADER = chordId({ key: ":", modifiers: [] });
+
 const search = (shortcuts: ShortcutInfo[], query: string) => searchByName(shortcuts, query, (s) => s.name, (s) => `${s.name} ${s.description} ${s.keys.map(keysLabel).join(" ")}`);
 
 /**
@@ -27,6 +30,8 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
   const [query, setQuery] = useState("");
   const [recording, setRecording] = useState<string>();
   const [clash, setClash] = useState<Clash>();
+  /** The keys of a sequence pressed so far while recording (; then…). */
+  const [steps, setSteps] = useState<Keys[]>([]);
   const shown = search(shortcuts, query);
   const changed = shortcuts.some((s) => !s.standard);
   const pressed = (s: ShortcutInfo, e: React.KeyboardEvent) => {
@@ -36,13 +41,19 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
     const row = e.currentTarget.closest("[data-shortcut]");
     const done = () => {
       setRecording(undefined);
+      setSteps([]);
       setTimeout(() => (row?.querySelector("[data-shortcut-keys]") as HTMLElement | null)?.focus());
     };
     if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) return done();
-    const keys = keysOfEvent(e);
-    if (!keys) return;
+    const step = keysOfEvent(e);
+    if (!step) return;
+    const all = [...steps, step];
+    const keys: Keys = { ...all[0]!, ...(all.length > 1 ? { then: all.slice(1) } : {}) };
+    // The leader, or keys that begin another sequence: the next key is part of this one.
+    const id = chordId(keys);
+    if (all.length < 3 && (id === LEADER || shortcuts.some((o) => o.keys.some((k) => chordId(k)?.startsWith(`${id} `))))) return setSteps(all);
     done();
-    const owner = shortcuts.find((o) => o.id !== s.id && o.keys.some((k) => chordId(k) === chordId(keys)));
+    const owner = shortcuts.find((o) => o.id !== s.id && o.keys.some((k) => keysClash(k, keys)));
     if (owner) setClash({ action: s.id, keys, owner });
     else host.shortcutSet(s.id, [keys]);
   };
@@ -52,7 +63,7 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
         <Icon name="magnifying-glass" size={14} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-text-muted" />
         <TextInput value={query} placeholder="Search actions or keys" className="w-full pl-7" data-shortcuts-search onChange={(e) => setQuery(e.target.value)} />
       </div>
-      <p className="text-caption text-text-faint">Click an action's keys, then press the new ones (Escape stops). Menus and the command palette show them.</p>
+      <p className="text-caption text-text-faint">Click an action's keys, then press the new ones (Escape stops); : starts a sequence (: then a key, as in vi). Menus and the command palette show them.</p>
       {clash && (
         <div className="flex items-center gap-2 rounded-md bg-chip px-3 py-2 text-caption text-warning" data-shortcut-clash>
           <span className="flex-1">
@@ -83,8 +94,8 @@ export function ShortcutsSettings({ host }: { host: ShortcutsHost }) {
               </button>
             )}
             {recording === s.id ? (
-              <span tabIndex={0} ref={(el) => el?.focus()} onKeyDown={(e) => pressed(s, e)} onBlur={() => setRecording(undefined)} className="flex w-36 items-center rounded-sm bg-accent-wash py-0.5 pr-1 pl-2 text-label text-accent outline-none" data-recording>
-                <span className="flex-1 text-center">Press keys…</span>
+              <span tabIndex={0} ref={(el) => el?.focus()} onKeyDown={(e) => pressed(s, e)} onBlur={() => (setRecording(undefined), setSteps([]))} className="flex w-36 items-center rounded-sm bg-accent-wash py-0.5 pr-1 pl-2 text-label text-accent outline-none" data-recording>
+                <span className="flex-1 text-center" data-recording-steps>{steps.length ? `${steps.map(keysLabel).join(" ")} …` : "Press keys…"}</span>
                 {s.keys.length > 0 && (
                   <button
                     title="No shortcut"

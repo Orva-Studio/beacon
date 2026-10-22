@@ -32,6 +32,18 @@ function compileKeymap(bindings: Binding[]): Map<string, Binding> {
   return map;
 }
 
+/**
+ * A key pressed partway through a sequence (`pending`: the chords so far, `chordId`'s form), or one that could start
+ * one: the binding it completes, or the sequence it continues (`pending`), or neither (the sequence is dropped).
+ */
+export function sequenceStep(map: Map<string, Binding>, pending: string | undefined, e: KeyboardEvent): { binding?: Binding; pending?: string } {
+  const so = pending ? `${pending} ${eventChordId(e)}` : eventChordId(e);
+  const binding = pending ? map.get(so) : undefined;
+  if (binding) return { binding };
+  for (const id of map.keys()) if (id.startsWith(`${so} `)) return { pending: so };
+  return {};
+}
+
 export function match(map: Map<string, Binding>, e: KeyboardEvent): Binding | undefined {
   const c = eventChordId(e);
   // Forward delete does what delete does unless bound itself (⌘⌦ Ripple Deletes, as ⌘⌫), for keyboards and remaps that send it.

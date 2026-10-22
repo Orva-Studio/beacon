@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
+import { keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
@@ -1190,6 +1190,74 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   expect(await ui.core.favorites()).not.toContain("audio:fade-in");
   await select([]);
 });
+
+test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r labels the selection red; : a deletes a recording's audio; : p opens the command palette; Esc, a click or a wrong key drops it; Settings › Shortcuts records : then a key", async () => {
+  const semi = () => page.key(":", "Semicolon", ["shift"]);
+  const audio = clips().find((c) => c.type === "audio" && c.linkId)!;
+  await select([audio.id, ...clips().filter((c) => c.linkId === audio.linkId && c.id !== audio.id).map((c) => c.id)]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
+  expect(shown).toContain("ADelete Audio");
+  expect(shown).toContain("CColor Label…");
+  await page.screenshot(join(dir, "leader.png"));
+  // A group opens on its key: the colours.
+  await page.key("c", "KeyC");
+  await page.until("[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent === 'RRed')");
+  await page.key("r", "KeyR");
+  await page.until("!document.querySelector('[data-leader]')");
+  await arrived(() => (clip(audio.id).props.label as { color?: string } | undefined)?.color === "red");
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Color Label");
+  // Esc, a click elsewhere and a key that follows nothing each drop it, doing nothing.
+  const playhead = (await session()).playhead;
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-leader]')");
+  expect((await session()).selection.length).toBeGreaterThan(0);
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("ArrowRight", "ArrowRight");
+  await page.until("!document.querySelector('[data-leader]')");
+  expect((await session()).playhead).toBe(playhead);
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.click(...(await centre("canvas[data-timeline]")));
+  await page.until("!document.querySelector('[data-leader]')");
+  // ; a: the recording's audio, without unlinking.
+  await select([audio.id, ...clips().filter((c) => c.linkId === audio.linkId && c.id !== audio.id).map((c) => c.id)]);
+  await semi();
+  await page.key("a", "KeyA");
+  await arrived(() => !clips().some((c) => c.id === audio.id));
+  expect(clips().some((c) => c.id === audio.id)).toBe(false);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Audio");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clips().some((c) => c.id === audio.id)).toBe(true);
+  // : p opens the command palette.
+  await semi();
+  await page.key("p", "KeyP");
+  await page.until("!!document.querySelector('[data-palette]')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-palette]')");
+
+  // Settings › Shortcuts: : waits for the next key, and the two are the shortcut.
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
+  await page.until("!!document.querySelector('[data-shortcuts]')");
+  const row = '[data-shortcut="edit.split"]';
+  await page.evaluate(`document.querySelector('${row}').scrollIntoView({ block: "center" })`);
+  await page.click(...(await centre(`${row} [data-shortcut-keys]`)));
+  await page.until("document.activeElement?.hasAttribute('data-recording')");
+  await semi();
+  await page.until("(document.querySelector('[data-recording-steps]')?.textContent ?? '') === ': …'");
+  await page.key("x", "KeyX");
+  await page.until(`document.querySelector('${row} [data-shortcut-keys]').textContent === ": X"`);
+  expect((await ui.core.shortcuts()).find((x) => x.id === "edit.split")!.keys.map(keysLabel)).toEqual([": X"]);
+  await ui.core.shortcutReset("edit.split");
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  await page.until("!document.querySelector('[data-shortcuts]')");
+  await select([]);
+}, 30_000);
 
 test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressing keys rebinds one, a key taken asks first and moves it; the keys work at once; Reset All puts them back", async () => {
   const keysOf = async (id: string) => (await ui.core.shortcuts()).find((s) => s.id === id)!.keys;

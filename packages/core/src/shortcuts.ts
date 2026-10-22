@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { chordId, chordOf, KeysSchema, keysLabel, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
+import { chordId, keysClash, KeysSchema, keysLabel, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
 import actionList from "../../../keymaps/actions.json";
 import defaultKeymap from "../../../keymaps/default.json";
 
@@ -49,16 +49,16 @@ export function setShortcut(overrides: KeymapOverrides, id: string, keys: Keys[]
   const action = ACTION_BY_ID.get(id);
   if (!action) throw new Error(`no action "${id}"; shortcuts_list lists them`);
   if (action.fixed) throw new Error(`${action.name}'s keys can't be changed: ${action.fixed}`);
-  for (const k of keys) if (!chordOf(k)) throw new Error(`"${keysLabel(k)}" isn't a key Beacon can bind`);
-  const chords = new Set(keys.map((k) => chordId(k)!));
+  for (const k of keys) if (!chordId(k)) throw new Error(`"${keysLabel(k)}" isn't a key Beacon can bind`);
+  const clashing = (k: Keys) => keys.some((mine) => keysClash(mine, k));
   const next = { ...overrides };
   for (const other of shortcutList(overrides, () => undefined)) {
     if (other.id === id) continue;
-    const taken = other.keys.filter((k) => chords.has(chordId(k)!));
+    const taken = other.keys.filter(clashing);
     if (!taken.length) continue;
     if (!replace) throw new Error(`${keysLabel(taken[0]!)} is ${other.name}'s shortcut`);
     if (other.fixed) throw new Error(`${keysLabel(taken[0]!)} is ${other.name}'s, which can't change (${other.fixed})`);
-    const rest = other.keys.filter((k) => !chords.has(chordId(k)!));
+    const rest = other.keys.filter((k) => !clashing(k));
     if (sameKeys(rest, defaultKeys(other.id))) delete next[other.id];
     else next[other.id] = rest;
   }

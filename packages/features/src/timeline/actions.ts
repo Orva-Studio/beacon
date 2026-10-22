@@ -79,6 +79,22 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
   };
 }
 
+/** Delete Audio, Delete Video: that part of the selection and of what is linked to it, the rest left where it is. */
+function removePart(ctx: ActionContext, part: "audio" | "video"): ActionPlan {
+  const selected = selectedClips(ctx);
+  if (!selected.length) throw new Error("select media first");
+  const links = new Set(selected.flatMap((c) => (c.linkId ? [c.linkId] : [])));
+  const pool = ctx.scope.tracks.flatMap((t) => t.clips).filter((c) => selected.includes(c) || (c.linkId && links.has(c.linkId)));
+  const gone = pool.filter((c) => ctx.registry.hasTrait(c.type, part));
+  if (!gone.length) throw new Error(`the selection has no ${part === "audio" ? "audio" : "picture"} to delete`);
+  if (gone.length === pool.length) throw new Error(`the selection is all ${part === "audio" ? "audio" : "picture"}: Delete (⌫) removes it`);
+  return {
+    label: part === "audio" ? "Delete Audio" : "Delete Video",
+    steps: [{ command: "clip.remove", args: { clips: gone.map((c) => c.id), linked: false } }],
+    after: () => [{ command: "selection.set", args: { clips: ctx.session.selection.filter((id) => !gone.some((c) => c.id === id)), linked: false } }],
+  };
+}
+
 /** Lock Track, Mute Track: on if any of the tracks is off, else off, in one step. */
 function toggleTracks(ctx: ActionContext, flag: "locked" | "muted", [on, off]: [string, string]): ActionPlan {
   const clips = new Set(selectedClips(ctx).map((c) => c.id));
@@ -318,6 +334,18 @@ export const actions = [
       if (!dropTargets(ctx, clip).some((c) => c.assetId || ctx.registry.hasTrait(c.type, "stitched"))) throw new Error(clip ? "only media has a speed" : "select media first");
       return { label: "Clip Speed", before: [...selectDropped(ctx, clip), { command: "inspector.tab", args: { tab: "speed" } }] };
     },
+  }),
+  defineAction({
+    id: "edit.deleteAudio",
+    description: "Delete the audio of the selected clips and the clips recorded with them, keeping their picture, without unlinking first; one undo step (: A)",
+    args: none,
+    resolve: (_, ctx) => removePart(ctx, "audio"),
+  }),
+  defineAction({
+    id: "edit.deleteVideo",
+    description: "Delete the picture (screen or camera) of the selected clips and the clips recorded with them, keeping their audio, without unlinking first; one undo step (: V)",
+    args: none,
+    resolve: (_, ctx) => removePart(ctx, "video"),
   }),
   defineAction({
     id: "edit.lockTrack",

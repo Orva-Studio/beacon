@@ -222,6 +222,79 @@
       "command": "edit.muteTrack"
     },
     {
+      "id": "edit.deleteAudio",
+      "name": "Delete Audio",
+      "command": "edit.deleteAudio"
+    },
+    {
+      "id": "edit.deleteVideo",
+      "name": "Delete Video",
+      "command": "edit.deleteVideo"
+    },
+    {
+      "id": "edit.label:red",
+      "name": "Color Label: Red",
+      "command": "edit.label",
+      "args": {
+        "color": "red"
+      },
+      "description": "Give the selected clips a red colour label"
+    },
+    {
+      "id": "edit.label:purple",
+      "name": "Color Label: Purple",
+      "command": "edit.label",
+      "args": {
+        "color": "purple"
+      },
+      "description": "Give the selected clips a purple colour label"
+    },
+    {
+      "id": "edit.label:blue",
+      "name": "Color Label: Blue",
+      "command": "edit.label",
+      "args": {
+        "color": "blue"
+      },
+      "description": "Give the selected clips a blue colour label"
+    },
+    {
+      "id": "edit.label:green",
+      "name": "Color Label: Green",
+      "command": "edit.label",
+      "args": {
+        "color": "green"
+      },
+      "description": "Give the selected clips a green colour label"
+    },
+    {
+      "id": "edit.label:yellow",
+      "name": "Color Label: Yellow",
+      "command": "edit.label",
+      "args": {
+        "color": "yellow"
+      },
+      "description": "Give the selected clips a yellow colour label"
+    },
+    {
+      "id": "edit.label:orange",
+      "name": "Color Label: Orange",
+      "command": "edit.label",
+      "args": {
+        "color": "orange"
+      },
+      "description": "Give the selected clips a orange colour label"
+    },
+    {
+      "id": "edit.label:none",
+      "name": "Color Label: None",
+      "command": "edit.label",
+      "args": {
+        "color": null
+      },
+      "description": "Take the selected clips' colour label off"
+    },
+    {
       "id": "edit.addMarker",
       "name": "Add Timeline Marker",
       "command": "edit.addMarker"

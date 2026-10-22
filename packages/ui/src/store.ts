@@ -69,6 +69,8 @@ export interface ViewState {
   exportJob?: ExportJob;
   /** Features' background jobs, running or finished, until dismissed. */
   tasks: TaskJob[];
+  /** The keys of a sequence pressed so far (the leader key, :), its next keys shown until one is pressed. */
+  leader?: string;
   /** Imports under way or just finished, by id, until their panel is dismissed. */
   imports: Record<string, ImportingFiles>;
   /** Imports whose panel was dismissed while their files were still read: their tiles stay, the panel doesn't come back. */
@@ -217,6 +219,9 @@ export const replica = {
   },
   taskJob(job: TaskJob) {
     set({ tasks: [...state.tasks.filter((t) => t.id !== job.id), job] });
+  },
+  leader(leader: string | undefined) {
+    if (leader !== state.leader) set({ leader });
   },
   dismissTask(id: string) {
     set({ tasks: state.tasks.filter((t) => t.id !== id) });

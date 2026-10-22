@@ -1102,6 +1102,250 @@
         "modifiers": []
       },
       "command": "reviews.apply"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "a",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.deleteAudio"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "v",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.deleteVideo"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "u",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.unlink"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "l",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.lockTrack"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "m",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.muteTrack"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "s",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "silences.review"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "f",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "fillers.review"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "r",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": "red"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "p",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": "purple"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "b",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": "blue"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "g",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": "green"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "y",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": "yellow"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "o",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": "orange"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "c",
+            "modifiers": []
+          },
+          {
+            "key": "n",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.label",
+      "args": {
+        "color": null
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "p",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "app.palette"
     }
   ]
 }

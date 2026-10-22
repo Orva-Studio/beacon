@@ -3,15 +3,24 @@ import { z } from "zod";
 /** Modifiers in the order menus show them (⌃⌥⇧⌘). */
 export const MODIFIERS = ["control", "option", "shift", "command"] as const;
 
-/** A shortcut as keymaps write it: a key ("t", "⌫", "<") and its modifiers (control, option, shift, command). */
-export const KeysSchema = z.object({
+const StepSchema = z.object({
   key: z.string().describe('one character ("t", ",", "<") or ↩ ⇥ ⌫ ⌦ ⎋ ← → ↑ ↓ Space'),
   modifiers: z.array(z.enum(MODIFIERS)),
 });
+
+/**
+ * A shortcut as keymaps write it: a key ("t", "⌫", "<") and its modifiers (control, option, shift, command); with
+ * `then`, the keys pressed after it, one by one (the leader key: ":" then "a").
+ */
+export const KeysSchema = StepSchema.extend({ then: z.array(StepSchema).min(1).optional().describe("Keys pressed after it, in turn (a sequence: : then a)") });
 export interface Keys {
   key: string;
   modifiers: string[];
+  then?: { key: string; modifiers: string[] }[];
 }
+
+/** A shortcut's keys pressed in turn: one, or a sequence. */
+export const keySteps = (keys: Keys): Keys[] => [{ key: keys.key, modifiers: keys.modifiers }, ...(keys.then ?? [])];
 
 /** An action the editor lists (`keymaps/actions.json`): what keys, menus and the command palette run. */
 export interface ActionListing {
@@ -96,10 +105,16 @@ export function chordOf(keys: Keys): Chord | undefined {
 
 const chordKey = (mods: string, code: string) => `${mods}|${code}`;
 
-/** One string per physical chord, so "<" and ⇧, are the same shortcut. */
+/** One string per physical chord, so "<" and ⇧, are the same shortcut; a sequence's chords joined by spaces. */
 export const chordId = (keys: Keys): string | undefined => {
-  const c = chordOf(keys);
-  return c && chordKey(c.mods, c.code);
+  const ids = keySteps(keys).map((k) => chordOf(k));
+  return ids.every(Boolean) ? ids.map((c) => chordKey(c!.mods, c!.code)).join(" ") : undefined;
+};
+
+/** Whether two shortcuts can't both be kept: the same keys, or one begins the other (: would never reach : a). */
+export const keysClash = (a: Keys, b: Keys): boolean => {
+  const [x, y] = [chordId(a), chordId(b)];
+  return !!x && !!y && (x === y || x.startsWith(`${y} `) || y.startsWith(`${x} `));
 };
 
 type KeyEventLike = { code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean };
@@ -110,13 +125,18 @@ const held = (e: KeyEventLike) => MODIFIERS.filter((m) => (m === "control" ? e.c
 export const eventChordId = (e: KeyEventLike): string => chordKey([...held(e)].sort().join("+"), e.code);
 
 /** Whether a shortcut can be a native menu's key equivalent: one with ⌘ or ⌃ never types into a text field. */
-export const menuKey = (keys: Keys) => !!chordOf(keys) && (keys.modifiers.includes("command") || keys.modifiers.includes("control"));
+export const menuKey = (keys: Keys) => !keys.then && !!chordOf(keys) && (keys.modifiers.includes("command") || keys.modifiers.includes("control"));
 
 /** The keys a key press makes, as keymaps write them (lower-case letters, shift as a modifier); undefined for a modifier alone. */
 export function keysOfEvent(e: KeyEventLike): Keys | undefined {
   const key = keyOfCode(e.code);
-  return key === undefined ? undefined : { key, modifiers: held(e) };
+  if (key === undefined) return undefined;
+  // Written as typed, as the defaults are: ⇧; is ":" (the leader key), ⇧, is "<".
+  const typed = e.shiftKey ? TYPED_SHIFTED.get(key) : undefined;
+  return typed ? { key: typed, modifiers: held(e).filter((m) => m !== "shift") } : { key, modifiers: held(e) };
 }
+
+const TYPED_SHIFTED = new Map(Object.entries(SHIFTED).map(([typed, key]) => [key, typed]));
 
 /** The key keymaps write for a KeyboardEvent.code (lower-case letters); undefined for one they don't name. */
 export function keyOfCode(code: string): string | undefined {
@@ -130,6 +150,7 @@ export function keyOfCode(code: string): string | undefined {
  * shows as itself, its ⇧ implied.
  */
 export function keysLabel(keys: Keys): string {
+  if (keys.then) return keySteps(keys).map(keysLabel).join(" ");
   const sym: Record<string, string> = { control: "⌃", option: "⌥", shift: "⇧", command: "⌘" };
   const mods = new Set(chordOf(keys)?.mods.split("+").filter(Boolean) ?? keys.modifiers);
   if (SHIFTED[keys.key]) mods.delete("shift");

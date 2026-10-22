@@ -271,6 +271,7 @@ export function createMenus(app: MenusApp) {
         submenu: [
           action("edit.rippleCut"),
           action("edit.rippleDelete"),
+          ...(target?.linkId ? [SEPARATOR, action("edit.deleteAudio"), action("edit.deleteVideo")] : []),
           ...(visual ? [SEPARATOR, action("edit.addAnimationAcross")] : []),
           ...(grouping.length ? [SEPARATOR, ...grouping] : []),
         ],

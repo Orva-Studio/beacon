@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
+import { match, menuKey, runAction, sequenceStep, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
+import { LeaderKeys } from "./leader";
 import { Palette } from "./palette";
 import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
 import type { DroppedFile, EffectPreview, Narrating, RunReply, TileMenu } from "./rpc";
@@ -134,6 +135,7 @@ export function App({ host }: { host: Host }) {
     const down = (e: PointerEvent) => {
       const el = document.activeElement;
       if (isFormField(el) && el !== e.target && !isFormField(e.target)) el.blur();
+      replica.leader(undefined);
     };
     window.addEventListener("pointerdown", down, true);
     return () => window.removeEventListener("pointerdown", down, true);
@@ -142,6 +144,19 @@ export function App({ host }: { host: Host }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const field = isFormField(e.target);
+      // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.
+      const pending = replica.get().leader;
+      if (!field && (pending !== undefined || !match(keymap, e))) {
+        if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+        const next = sequenceStep(keymap, pending, e);
+        if (pending !== undefined || next.pending) {
+          e.preventDefault();
+          e.stopPropagation();
+          replica.leader(next.pending);
+          if (next.binding) runAction(host, next.binding);
+          return;
+        }
+      }
       const b = match(keymap, e);
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
@@ -263,6 +278,7 @@ export function App({ host }: { host: Host }) {
         <MediaPreviewUi host={host} />
         <NoticeUi />
         <Palette host={host} />
+        <LeaderKeys />
         {/* The dragged panel item; a mask so it shows over the native canvas too. */}
         {dragging && (
           <div
