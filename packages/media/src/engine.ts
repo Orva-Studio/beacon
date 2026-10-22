@@ -1,7 +1,7 @@
 import { dlopen, FFIType, CString, type Pointer } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { toolsDir } from "./tool";
+import { spawn, toolsDir } from "./tool";
 
 const symbols = {
   beacon_set_tools_dir: { args: [FFIType.ptr], returns: FFIType.i32 },
@@ -66,6 +66,16 @@ export function workerPath(): string {
   const path = process.env.BEACON_WORKER_PATH ?? enginePath("beacon-worker");
   if (!existsSync(path)) throw new Error(`beacon-worker not found at ${path}; run \`bun run build:engine\``);
   return path;
+}
+
+/** A `beacon-worker` subcommand (`align`, `shift`), off the app's main process: its answer, or its error thrown. */
+export async function runWorker<T>(args: string[]): Promise<T> {
+  const proc = spawn([workerPath(), ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
+  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  const last = (out.trim().split("\n").at(-1) ?? "") || "{}";
+  const msg = JSON.parse(last) as { done?: T; error?: string };
+  if (code !== 0 || msg.error !== undefined || msg.done === undefined) throw new Error(`beacon-worker ${args[0]}: ${msg.error ?? (err.trim() || `exited with ${code}`)}`);
+  return msg.done;
 }
 
 /** `BEACON_FFI_PATH` overrides the dylib location (e.g. inside the app bundle). */

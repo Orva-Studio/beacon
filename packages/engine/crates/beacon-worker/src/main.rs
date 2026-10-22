@@ -124,8 +124,27 @@ fn matte(args: &[String]) -> Result<(u32, u32), String> {
     .map_err(|e| e.to_string())
 }
 
+mod lineup;
+
+type Subcommand = fn(&[String]) -> Result<serde_json::Value, String>;
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let sub: Option<Subcommand> = match args.first().map(String::as_str) {
+        Some("align") => Some(lineup::align),
+        Some("shift") => Some(lineup::shift),
+        _ => None,
+    };
+    if let Some(sub) = sub {
+        match sub(&args[1..]) {
+            Ok(v) => report(serde_json::json!({ "done": v })),
+            Err(e) => {
+                report(serde_json::json!({ "error": e }));
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     #[cfg(target_os = "macos")]
     if args.first().map(String::as_str) == Some("matte") {
         match matte(&args[1..]) {

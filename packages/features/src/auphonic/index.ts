@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
-import { jobSignal, runTool, tool } from "@beacon/media";
+import { jobSignal, runTool, runWorker, tool } from "@beacon/media";
 import { clipEnd, defineAction, heardAudio, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Project, type Session, type SessionCommandDef } from "@beacon/model";
 
 const KEY = "auphonic-api-key";
@@ -114,12 +114,8 @@ function audioClips(ctx: ActionContext, ids?: string[]): Clip[] {
   return pool.filter((c) => heard.has(c));
 }
 
-/** Mono samples at 8 kHz, enough to line two takes of the same audio up. */
-const RATE = 8000;
-async function samples(path: string, raw: string): Promise<Float32Array> {
-  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", path, "-ac", "1", "-ar", String(RATE), "-f", "f32le", raw]);
-  return new Float32Array(await Bun.file(raw).arrayBuffer());
-}
+/** Mono f32 at 8 kHz, what beacon-worker's `align` compares: enough to line two takes of the same audio up. */
+const samples = (path: string, raw: string) => runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", path, "-ac", "1", "-ar", "8000", "-f", "f32le", raw]);
 
 async function format(path: string): Promise<{ rate: number; channels: number }> {
   const out = String(await runTool([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", path])).trim();
@@ -127,10 +123,17 @@ async function format(path: string): Promise<{ rate: number; channels: number }>
   return { rate, channels };
 }
 
+/** How late `back` is against `sent` at places across it, with how alike they are there (0–1). */
+async function offsets(sent: string, back: string, tmp: string): Promise<{ at: number; shift: number; alike: number }[]> {
+  const [a, b] = [join(tmp, "a.raw"), join(tmp, "b.raw")];
+  await Promise.all([samples(sent, a), samples(back, b)]);
+  return runWorker(["align", a, b]);
+}
+
 /**
  * Auphonic's file lined up with what was sent, as `out` (AAC): its encoder's padding (and its own rate and channels)
- * taken off by the samples, so container timestamps can't move it. Refused when its start and end sit differently
- * (the preset cut something), Auphonic's file then kept as `kept`.
+ * taken off by the samples, so container timestamps can't move it. Refused when its places sit differently (the
+ * preset cut something), Auphonic's file then kept as `kept`. The sample work is beacon-worker's (PLAN §3.1).
  */
 async function lineUp(sent: string, back: string, seconds: number, tmp: string, out: string, kept: () => Promise<string>): Promise<void> {
   const refuse = async (why: string) => {
@@ -138,61 +141,17 @@ async function lineUp(sent: string, back: string, seconds: number, tmp: string, 
   };
   const length = await duration(back);
   if (Math.abs(length - seconds) > CUT) await refuse(`Auphonic's audio is ${length.toFixed(2)} s long, the sent audio ${seconds.toFixed(2)} s`);
-  const [a, b] = [await samples(sent, join(tmp, "sent.raw")), await samples(back, join(tmp, "back.raw"))];
-  // Measured at about 11 places across it, those with enough to go on: something cut moves the places after it.
-  const total = a.length / RATE;
-  const span = Math.min(5, total / 3);
-  const found: { shift: number; alike: number }[] = [];
-  for (let at = 0; at + span <= total + 1e-9; at += Math.max(span, (total - span) / 10)) found.push(match(a, b, at, span));
-  const sure = found.filter((m) => m.alike > 0.6);
+  // Places with little to go on (near silence) line up anywhere: only the sure ones count. A cut moves those after it.
+  const sure = (await offsets(sent, back, tmp)).filter((m) => m.alike > 0.6).map((m) => m.shift);
   if (!sure.length) await refuse("Auphonic's audio doesn't sound like what was sent");
-  const shifts = sure.map((m) => m.shift);
-  const start = shifts[0]!;
-  const spread = Math.max(...shifts) - Math.min(...shifts);
+  const spread = Math.max(...sure) - Math.min(...sure);
   if (spread > 0.02) await refuse(`Auphonic's audio drifts ${Math.round(spread * 1000)} ms from start to end`);
   const { rate, channels } = await format(sent);
-  const raw = join(tmp, "back.pcm");
+  const [raw, lined] = [join(tmp, "back.pcm"), join(tmp, "lined.pcm")];
   await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", back, "-ac", String(channels), "-ar", String(rate), "-f", "s16le", raw]);
-  const pcm = new Int16Array(await Bun.file(raw).arrayBuffer());
-  const frames = Math.round(seconds * rate);
-  const skip = Math.round(start * rate);
-  const lined = new Int16Array(frames * channels);
-  // Late by `start`: its first samples dropped; early: silence before it.
-  for (let f = 0; f < frames; f++) {
-    const g = f + skip;
-    if (g < 0 || g * channels >= pcm.length) continue;
-    for (let c = 0; c < channels; c++) lined[f * channels + c] = pcm[g * channels + c]!;
-  }
-  await Bun.write(raw, lined);
-  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", String(rate), "-ac", String(channels), "-i", raw, "-c:a", "aac", "-b:a", "256k", out]);
+  await runWorker(["shift", raw, lined, String(channels), String(Math.round(sure[0]! * rate)), String(Math.round(seconds * rate))]);
+  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", String(rate), "-ac", String(channels), "-i", lined, "-c:a", "aac", "-b:a", "256k", out]);
 }
-
-/**
- * How late `b` is against `a` over `seconds` from `at`, in seconds, looked for within ±`reach` s (coarse, then fine),
- * and how alike they are there (0–1): a stretch with little to go on (near silence, a hum) lines up anywhere.
- */
-function match(a: Float32Array, b: Float32Array, at = 0, seconds = 5, reach = 1): { shift: number; alike: number } {
-  const [from, to] = [Math.round(at * RATE), Math.min(a.length, Math.round((at + seconds) * RATE))];
-  const score = (d: number, stride: number) => {
-    let sum = 0;
-    for (let i = from; i < to; i += stride) sum += a[i]! * (b[i + d] ?? 0);
-    return sum;
-  };
-  const search = (lo: number, hi: number, step: number, stride: number) => {
-    let [best, top] = [lo, -Infinity];
-    for (let d = lo; d <= hi; d += step) {
-      const v = score(d, stride);
-      if (v > top) [top, best] = [v, d];
-    }
-    return best;
-  };
-  const coarse = search(-Math.round(reach * RATE), Math.round(reach * RATE), 16, 8);
-  const best = search(coarse - 16, coarse + 16, 1, 2);
-  let [ea, eb] = [0, 0];
-  for (let i = from; i < to; i += 2) [ea, eb] = [ea + a[i]! ** 2, eb + (b[i + best] ?? 0) ** 2];
-  return { shift: best / RATE, alike: score(best, 2) / Math.sqrt(ea * eb || 1) };
-}
-
 
 async function duration(path: string): Promise<number> {
   const out = await runTool([tool("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path]);
@@ -305,7 +264,7 @@ const audioClean = defineAction({
                 await Bun.write(kept, Bun.file(back));
                 return kept;
               });
-              const { shift: check } = match(await samples(input, join(tmp, "sent.raw")), await samples(out, join(tmp, "out.raw")), 0, Math.min(30, to - from));
+              const check = (await offsets(input, out, tmp)).find((m) => m.alike > 0.6)?.shift ?? 0;
               if (Math.abs(check) > 0.002) throw new Error(`the cleaned audio is ${Math.round(check * 1000)} ms out of step after lining it up`);
             } catch (e) {
               rmSync(out, { force: true });
