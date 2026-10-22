@@ -10,6 +10,8 @@ const KEY = "auphonic-api-key";
 const api = () => process.env.BEACON_AUPHONIC_URL ?? "https://auphonic.com/api";
 /** How often a production's status is asked for, as tuneup does. */
 const POLL_MS = () => Number(process.env.BEACON_AUPHONIC_POLL_MS ?? 15_000);
+/** How long a request may go unanswered; an upload or download five times that. */
+const TIMEOUT_MS = () => Number(process.env.BEACON_AUPHONIC_TIMEOUT_MS ?? 60_000);
 /** Auphonic's production states: done, and failed. */
 const DONE = 3;
 const FAILED = 2;
@@ -59,8 +61,26 @@ export interface AuphonicPreset {
   name: string;
 }
 
-async function call<T>(key: string, path: string, init: RequestInit = {}): Promise<T> {
-  const r = await fetch(`${api()}${path}`, { ...init, headers: { Authorization: `Bearer ${key}`, ...init.headers }, signal: jobSignal() });
+/**
+ * A request to Auphonic on a connection of its own, given up after `ms`, a read tried once more. Bun kept a polling
+ * connection for reuse and, once Auphonic's server had dropped it, waited on it for good (a download "took" 12 min).
+ */
+async function request(url: string, init: RequestInit, ms: number, what: string): Promise<Response> {
+  const read = !init.method || init.method === "GET";
+  for (let attempt = 1; ; attempt++) {
+    const job = jobSignal();
+    try {
+      return await fetch(url, { ...init, keepalive: false, signal: AbortSignal.any([AbortSignal.timeout(ms), ...(job ? [job] : [])]) });
+    } catch (e) {
+      job?.throwIfAborted();
+      if ((e as Error).name !== "TimeoutError") throw e;
+      if (!read || attempt === 2) throw new Error(`Auphonic didn't answer within ${Math.round(ms / 1000)} s (${what}): try again`);
+    }
+  }
+}
+
+async function call<T>(key: string, path: string, init: RequestInit = {}, ms = TIMEOUT_MS()): Promise<T> {
+  const r = await request(`${api()}${path}`, { ...init, headers: { Authorization: `Bearer ${key}`, ...init.headers } }, ms, path.replace(/\?.*/, ""));
   if (r.status === 401 || r.status === 403) throw new Error("Auphonic refused the API key: check it in Settings › Audio");
   if (!r.ok) throw new Error(`Auphonic: ${path} failed (${r.status}) ${(await r.text()).slice(0, 300)}`);
   return (await r.json()) as T;
@@ -250,7 +270,7 @@ export const auphonic = defineFeature({
                 form.append("input_file", Bun.file(input));
                 form.append("title", `Beacon: ${name}`);
                 form.append("preset", chosen.uuid);
-                const made = await call<{ data?: { uuid?: string } }>(key, "/simple/productions.json", { method: "POST", body: form });
+                const made = await call<{ data?: { uuid?: string } }>(key, "/simple/productions.json", { method: "POST", body: form }, TIMEOUT_MS() * 5);
                 const uuid = made.data?.uuid;
                 if (!uuid) throw new Error("Auphonic didn't start a production");
                 say(3, 0.2, "Auphonic: starting");
@@ -273,7 +293,8 @@ export const auphonic = defineFeature({
                 const file = AUDIO_OUTPUTS.map((ext) => files.find((f) => f.filename!.toLowerCase().endsWith(`.${ext}`))).find(Boolean);
                 if (!file) throw new Error(`the preset "${chosen.preset_name}" makes no audio file (WAV, FLAC, M4A or MP3): add one as an output format in Auphonic`);
                 say(4, 0.85, "Downloading");
-                const got = await fetch(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow", signal: jobSignal() });
+                // Its link redirects to Auphonic's storage, which Bun asks without the key.
+                const got = await request(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow" }, TIMEOUT_MS() * 5, "the download");
                 if (!got.ok) throw new Error(`Auphonic's file couldn't be downloaded (${got.status})`);
                 const back = join(tmp, `back${extname(file.filename!).toLowerCase()}`);
                 await Bun.write(back, got);

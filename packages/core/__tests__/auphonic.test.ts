@@ -18,6 +18,7 @@ const dir = mkdtempSync(join(tmpdir(), "beacon-auphonic-"));
 const uploads: { preset: string; key: string }[] = [];
 const uploadedNames: string[] = [];
 const downloaded: string[] = [];
+let stalled = false;
 let polls = 0;
 const server = Bun.serve({
   port: 0,
@@ -43,6 +44,11 @@ const server = Bun.serve({
     // As a real preset can: several formats, WAV listed first; Beacon takes the M4A.
     if (m) return Response.json({ data: { output_files: ["wav", "mp3", "m4a"].map((ext) => ({ format: ext, filename: `out.${ext}`, download_url: `${url.origin}/download/${m[1]}.${ext}` })) } });
     const got = url.pathname.match(/^\/download\/(prod-p-(?:echo|cut|snip))\.(\w+)$/);
+    // The first download never answers, as a dropped connection didn't for the user: it's tried again.
+    if (got && !stalled) {
+      stalled = true;
+      return new Promise<Response>(() => {});
+    }
     if (got) {
       const out = join(dir, `${got[1]}.${got[2]}`);
       const cut = got[1] === "prod-p-cut" ? ["-ss", "1"] : [];
@@ -63,6 +69,7 @@ const server = Bun.serve({
   },
 });
 process.env.BEACON_AUPHONIC_URL = server.url.origin;
+process.env.BEACON_AUPHONIC_TIMEOUT_MS = "2000";
 process.env.BEACON_AUPHONIC_POLL_MS = "10";
 afterAll(() => {
   server.stop(true);
@@ -106,6 +113,8 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   const probe = Bun.spawnSync([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0", cleaned.path]).stdout.toString().trim();
   expect(probe).toBe("48000");
   expect(downloaded.at(-1)).toBe("m4a");
+  // It got there though the first download hung.
+  expect(stalled).toBe(true);
   const placed = doc.tracks.flatMap((t) => t.clips).filter((c) => c.assetId === cleaned.id);
   expect(placed).toHaveLength(1);
   // On a new track right above the highest one it cleaned.
