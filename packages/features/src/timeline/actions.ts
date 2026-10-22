@@ -79,6 +79,18 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
   };
 }
 
+/** Lock Track, Mute Track: on if any of the tracks is off, else off, in one step. */
+function toggleTracks(ctx: ActionContext, flag: "locked" | "muted", [on, off]: [string, string]): ActionPlan {
+  const clips = new Set(selectedClips(ctx).map((c) => c.id));
+  const tracks = clips.size ? ctx.scope.tracks.filter((t) => t.clips.some((c) => clips.has(c.id))) : ctx.scope.tracks.filter((t) => t.id === ctx.session.track);
+  if (!tracks.length) throw new Error("select media or click a track's header first");
+  const value = tracks.some((t) => !t[flag]);
+  return {
+    label: `${value ? on : off} ${tracks.length > 1 ? "Tracks" : "Track"}`,
+    steps: tracks.map((t) => ({ command: "track.set", args: { track: t.id, [flag]: value } })),
+  };
+}
+
 const placed = { duration: z.number().positive().default(5), time: z.number().nonnegative().optional(), track: z.string().min(1).optional() };
 
 const selectPasted = (results: unknown[]): ActionStep[] => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }];
@@ -296,6 +308,19 @@ export const actions = [
       if (!clips.length) throw new Error("select linked clips first");
       return { label: "Unlink Recording", steps: [{ command: "clip.unlink", args: { clips } }] };
     },
+  }),
+  defineAction({
+    id: "edit.lockTrack",
+    description:
+      "Lock the tracks of the selected clips (else the track whose header was clicked last), or unlock them when all are locked; a locked track's clips can't be picked or edited (⌥⇧L)",
+    args: none,
+    resolve: (_, ctx) => toggleTracks(ctx, "locked", ["Lock", "Unlock"]),
+  }),
+  defineAction({
+    id: "edit.muteTrack",
+    description: "Mute the tracks of the selected clips (else the track whose header was clicked last), or unmute them when all are muted (⌥⇧M)",
+    args: none,
+    resolve: (_, ctx) => toggleTracks(ctx, "muted", ["Mute", "Unmute"]),
   }),
   defineAction({
     id: "edit.addMarker",

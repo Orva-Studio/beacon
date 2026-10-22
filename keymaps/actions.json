@@ -212,6 +212,16 @@
       "command": "edit.unlink"
     },
     {
+      "id": "edit.lockTrack",
+      "name": "Lock Track",
+      "command": "edit.lockTrack"
+    },
+    {
+      "id": "edit.muteTrack",
+      "name": "Mute Track",
+      "command": "edit.muteTrack"
+    },
+    {
       "id": "edit.addMarker",
       "name": "Add Timeline Marker",
       "command": "edit.addMarker"

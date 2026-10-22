@@ -152,6 +152,9 @@ export function createMenus(app: MenusApp) {
           item("edit.splitAll"),
           item("edit.unlink"),
           SEPARATOR,
+          item("edit.lockTrack"),
+          item("edit.muteTrack"),
+          SEPARATOR,
           { label: "Select", submenu: [item("selection.all"), item("selection.side:left", { label: "All Timeline to Left" }), item("selection.side:right", { label: "All Timeline to Right" })] },
           item("selection.clear"),
           { label: "Playhead", submenu: [item("edit.trimToPlayhead:start"), item("edit.trimToPlayhead:end")] },
@@ -323,6 +326,9 @@ export function createMenus(app: MenusApp) {
       ContextMenu.showContextMenu([
         { label: "Insert Track", action: "track:insertTop:" },
         { label: "Remove All Empty Tracks", action: "track:removeEmpty:" },
+        SEPARATOR,
+        action("edit.lockTrack"),
+        action("edit.muteTrack"),
         SEPARATOR,
         action("timeline.snapping", { label: "Enable Timeline Snapping" }),
       ]);

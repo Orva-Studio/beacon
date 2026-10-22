@@ -44,6 +44,26 @@
     },
     {
       "keys": {
+        "key": "l",
+        "modifiers": [
+          "option",
+          "shift"
+        ]
+      },
+      "command": "edit.lockTrack"
+    },
+    {
+      "keys": {
+        "key": "m",
+        "modifiers": [
+          "option",
+          "shift"
+        ]
+      },
+      "command": "edit.muteTrack"
+    },
+    {
+      "keys": {
         "key": "u",
         "modifiers": [
           "control",

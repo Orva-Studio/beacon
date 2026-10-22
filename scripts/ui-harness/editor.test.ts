@@ -1758,6 +1758,49 @@ test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock to
   await run("timeline.trackHeight", { height });
 });
 
+test.skipIf(skip)("⌥⇧L and ⌥⇧M lock and mute the selected clip's track, one undo step each, else the header clicked last; a locked track's clips can't then be picked", async () => {
+  const s = clip(screen.id);
+  const trackOf = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === s.id))!;
+  await select([s.id]);
+  await Bun.sleep(100);
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.key("L", "KeyL", ["alt", "shift"]);
+  await Bun.sleep(200);
+  try {
+    expect(trackOf().locked).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Lock Track");
+    expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+    await run("selection.clear");
+    const [a, b] = [ticksToSeconds(s.start), ticksToSeconds(s.start + s.duration)];
+    await run("timeline.view", { start: Math.max(0, a - 2), end: b + 2 });
+    await Bun.sleep(300);
+    const { y, h, xAt, box } = await timelinePlaces(s.id);
+    await page.click(box.x + xAt((a + b) / 2), box.y + y + h / 2);
+    await Bun.sleep(200);
+    expect((await session()).selection).not.toContain(s.id);
+    // Nothing selected: the keys act on the track whose header was clicked, here off its icons.
+    await page.click(box.x + 8, box.y + y + h / 2);
+    await Bun.sleep(200);
+    expect((await session()).track).toBe(trackOf().id);
+    await page.key("L", "KeyL", ["alt", "shift"]);
+    await Bun.sleep(200);
+    expect(trackOf().locked).toBe(false);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unlock Track");
+    await select([s.id]);
+    await page.key("M", "KeyM", ["alt", "shift"]);
+    await Bun.sleep(200);
+    expect(trackOf().muted).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Mute Track");
+    await page.key("M", "KeyM", ["alt", "shift"]);
+    await Bun.sleep(200);
+    expect(trackOf().muted).toBe(false);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unmute Track");
+  } finally {
+    await run("track.set", { track: trackOf().id, locked: false, muted: false });
+    await run("selection.clear");
+  }
+});
+
 test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top of the selected clips, keeping their kind's colour; Default removes it; one undo step", async () => {
   await select([screen.id]);
   await run("timeline.view", { start: 0, end: 20 });

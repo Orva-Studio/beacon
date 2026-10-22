@@ -488,6 +488,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const i = rowUnder(y);
             if (i === undefined) return;
             const t = tracks[i]!;
+            if (session.track !== t.id) run("track.focus", { track: t.id });
             const icon = headerIcon(x, y, i);
             if (icon === "eye") return run("track.set", { track: t.id, hidden: !t.hidden }, t.hidden ? "Enable Track" : "Disable Track");
             if (icon === "magnet") return run("track.set", { track: t.id, magnetic: !t.magnetic }, "Magnetic Track");

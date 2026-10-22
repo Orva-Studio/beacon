@@ -11,11 +11,13 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Lock Track (⌥⇧L) and Mute Track (⌥⇧M): the selected clips' tracks, else the track whose header was clicked last (its header lit while nothing is selected); all on if any is off, else all off, one undo step named as the header's buttons are; in Edit and the ⌄ track menu, the palette, Settings › Shortcuts and MCP (`edit_lockTrack`, `edit_muteTrack`, `track_focus`) | 2026-10-21 | this commit | UI flow (keys lock and unlock, mute and unmute the selected clip's track, one step each; the locked track's clip can't be picked; a header click then the keys unlock it) |
 | Choosing a look in Film Look's Look menu no longer shows a note of what it can't reproduce ("Not in Film Look, from…"), and takes away one left by an imported `.hlook` (whose note still shows) | 2026-10-22 | this commit | UI flow (no note after CineStill 800T; an import's note gone once a look is chosen; fails without the change) |
 
 ### Not checked yet
 
 - Film Look: choose a look; no "Not in Film Look…" note under the menu.
+- Lock Track / Mute Track: select a clip, ⌥⇧L locks its track (padlock lit, clip can't be picked), ⌥⇧L again unlocks; ⌥⇧M mutes and unmutes; with nothing selected, click a track's header and press the keys; both in Edit and the ⌄ menu.
 
 ## 0.10.2 (`fix/remember-easing`)
 

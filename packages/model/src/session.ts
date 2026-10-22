@@ -34,6 +34,8 @@ export interface Session {
   effects: { clip: string; id: string }[];
   /** The group opened for editing inside (its group tab), if any; selection and the editor's commands then work on its tracks. */
   group: string | null;
+  /** The track whose header was clicked last: Lock Track and Mute Track act on it when no clip is selected. */
+  track: string | null;
   range: { in: number; out: number } | null;
   /** The timeline's visible span in seconds, and every track's height in points. */
   /** `top`: points the tracks are scrolled up by, when there are more than fit (none: the top track under the ruler). */
@@ -112,6 +114,7 @@ function defaultSession(project: Project, shared: Partial<SharedSession> = {}): 
     animation: null,
     effects: [],
     group: null,
+    track: null,
     range: null,
     timeline: { start: 0, end: roundSeconds(end * 1.05), trackHeight: TRACK_HEIGHT.default },
     panels: { tool: "media", properties: true },
@@ -313,6 +316,15 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     },
   }),
   sessionCommand({
+    id: "track.focus",
+    description: "Pick the track Lock Track and Mute Track act on when no clip is selected (a click on its header); null for none",
+    args: z.strictObject({ track: z.string().nullable() }),
+    apply: (s, { track }, { project }) => {
+      if (track !== null && !project.tracks.some((t) => t.id === track)) throw new Error(`no track "${track}"${s.group ? " in the open group" : " on the timeline"}`);
+      s.track = track;
+    },
+  }),
+  sessionCommand({
     id: "group.open",
     description: "Open a group (a top-level group clip) to edit the clips inside it on the timeline (⌃⇧G); the selected group when no clip is given",
     args: z.strictObject({ clip: z.string().optional() }),
@@ -324,6 +336,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       if (!c || !registry.hasTrait(c.type, "group") || !nestedOf(registry)(c)) throw new Error(id ? `"${id}" is not a group on the timeline` : "select a group first");
       if (c.speed) throw new Error("a group with a speed change can't be opened");
       s.group = c.id;
+      s.track = null;
       s.selection = [];
       s.animation = null;
     },
@@ -335,6 +348,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     apply: (s) => {
       if (s.group) s.selection = [s.group];
       s.group = null;
+      s.track = null;
       s.animation = null;
     },
   }),

@@ -1935,6 +1935,9 @@ Today a track is locked or muted only by its header's padlock and speaker.
   timeline menu and the command palette, and as MCP actions.
 - Test: a UI flow (keys lock and unlock, mute and unmute the selected clip's
   track; a locked track's clips can't then be picked), and `tested.md`.
+- **Done 2026-10-21:** `edit.lockTrack` ⌥⇧L, `edit.muteTrack` ⌥⇧M; the
+  header clicked last is the session's `track` (`track.focus`), lit while
+  nothing is selected; in Edit and the ⌄ track menu.
 
 #### Film Look: a look previewed on hover (the user, 2026-10-21; Phase 11 since 2026-10-22)
 Moving over the Look menu's looks shows each on the canvas at the playhead,
