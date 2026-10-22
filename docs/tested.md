@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Extend Frame (⌥-drag a clip's start or end) holds the frame as it looks there: a clip zoomed in by the end (a zoom, any transform or crop animation) gives a zoomed still; its first frame, before the zoom, a still as the clip starts | 2026-10-22 | this commit | Core test (zoom.to then both edges extended: the end's still at the zoomed scale, the start's at the base; fails without the change) |
 | ⌘E (and Export Selection…) with clips selected exports only those clips over their span, the rest left out: just audio clips start on the last audio format (WAV the first time), just pictures (screen, camera) on no audio track, framed as on the canvas; else the in/out range, else the whole project. The sheet's tick says how many clips. A selection's format doesn't become the usual export settings. `export_start` takes `clips` | 2026-10-22 | this commit | Core test (an audio piece exports alone at its length; the screen alone is silent; an unknown clip refused) and UI flow (audio clip: Export Selection, Audio only, .wav written; camera: no audio track; nothing selected: the whole project) |
 | Remove Silences (Longer than, Leave) and Remove Retakes (Repeats, Within) keep the user's last slider settings app-wide, as animation easing is: a review opens with them, in any project, after a relaunch; an agent's settings (`silences_review` with `min`) are for that review only. Kept as preferences with a number range (`preference_list`); changing one doesn't restart transcripts | 2026-10-22 | this commit | UI flow (sliders saved, review closed and reopened with them, an agent's settings not saved) and core test (range checked, read back by a new core, both reviews open with them) |
 | Remove Silences draws every silence found red, picked or not (no grey); the picked ones have a green (accent) outline | 2026-10-22 | this commit | UI flow (two silences red before a pick; after a click, the picked one's outline green and still red inside, the other without one) |
@@ -32,6 +33,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Extend Frame: zoom into the end of a screen clip, ⌥-drag its end out: the held frame stays zoomed.
 - Export a selection: select a recording's audio, ⌘E, Export: a .wav of just it. Select the camera, ⌘E: a video of only the camera, laid out as on the canvas, no sound.
 - Remembered review settings: move Remove Silences' sliders, close it, open it again (or in another project): same values. Same for Remove Retakes.
 - Palette media: ⌘K, type part of a medium's name, choose it: it goes in at the playhead.
