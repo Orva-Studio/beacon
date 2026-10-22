@@ -24,6 +24,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| ⎋ closes Clean with Auphonic's panel as its Cancel does (shown on the button), the selection kept; it never starts a clean. Features list the panels ⎋ closes (`dismissable` in the feature contract), which `reviews.cancel` closes | 2026-10-22 | this commit | UI flow (panel open, ⎋ closes it, the audio still selected; the review flows' ⎋ unchanged) |
 | Exporting a selection with nothing to hear (only screen, camera, images or annotations; not a group or stitched clip, which may hold sound): Audio only and Encode audio can't be ticked, their tooltip saying why, while the sheet exports the selection | 2026-10-22 | this commit | UI flow (the camera alone: Audio only disabled, Encode audio off; nothing selected: Audio only enabled) |
 | Opening a project another process holds: a dialog names who ("Beacon", "Beacon dev", "an agent's MCP server"); Show It brings the other app's window forward; Ask It to Let Go closes it in the agent (refused while a job runs, the dialog asked again saying why), opens it here, and the agent's next tool call joins the app and says so; Open a Copy opens "Name copy.beproj" beside it; Cancel does nothing; a dead process's lock is taken over without asking. The agent's instructions say it may be asked | 2026-10-22 | this commit | Desktop test with a real MCP server process (every button; a refusing stand-in; a stand-in app answering Show It; a dead lock). The native dialog itself, and Show It between two real apps, only by hand |
 | Status messages (the top bar's grey line: "Can't move there…", "Imported 3 files"…) clear themselves: 5 s, longer for a long one (a second per 12 characters), at most 10 s; a newer message restarts the time | 2026-10-22 | this commit | UI flow (a second message keeps showing past the first's time, then clears) |
@@ -39,6 +40,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Auphonic panel: open it on a voice clip, press Esc: it closes.
 - Export a picture-only selection: select the camera, ⌘E: Audio only greyed out, its tooltip says why.
 - Remove Silences: Cut Selected / ⌫ cuts only the picked silences; Cut All the rest; two stacked voices show the error.
 - Remembered review settings: Remove Retakes' sliders, closed and opened again, keep their values (Remove Silences checked).

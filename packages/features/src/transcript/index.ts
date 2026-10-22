@@ -729,14 +729,14 @@ const reviewsApply = defineAction({
     return key === "silences" ? silencesApply.resolve({ all: false }, ctx) : { retakes: retakesApply, fillers: fillersApply }[key].resolve({ one: false }, ctx);
   },
 });
-// ⎋ was Deselect All and Clear the Range alone: with no review open it still is.
+// ⎋ was Deselect All and Clear the Range alone: with no panel open it still is.
 const reviewsCancel = defineAction({
   id: "reviews.cancel",
-  description: "Close the open review (Remove Silences, Remove Filler Words or Remove Retakes) without cutting, as its Cancel button does; with none open, deselect everything and clear the in/out range",
+  description: "Close the open review or panel ⎋ closes (Remove Silences, Remove Filler Words, Remove Retakes, Clean with Auphonic) without applying it, as its Cancel button does; with none open, deselect everything and clear the in/out range",
   args: z.strictObject({}),
-  resolve: (_, { session }) => {
-    const key = openReviewKey(session);
-    return { label: "Cancel", before: [key ? { command: `${key}.close` } : { command: "selection.clear", args: { range: true } }] };
+  resolve: (_, { session, registry }) => {
+    const open = registry.dismissable.find((d) => d.open(session));
+    return { label: "Cancel", before: [open ? { command: open.close } : { command: "selection.clear", args: { range: true } }] };
   },
 });
 
@@ -744,6 +744,7 @@ const reviewsCancel = defineAction({
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
+  dismissable: (["silences", "fillers", "retakes"] as const).map((key) => ({ open: (s: Session) => openReviewKey(s) === key, close: `${key}.close` })),
   preferences: [
     ...(
       [

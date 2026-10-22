@@ -103,6 +103,7 @@ async function duration(path: string): Promise<number> {
 export const auphonic = defineFeature({
   id: "auphonic",
   version: 1,
+  dismissable: [{ open: (s) => !!auphonicReview(s), close: "auphonic.close" }],
   secrets: [{ id: KEY, title: "Auphonic API key" }],
   sessionCommands,
   panelItems: [

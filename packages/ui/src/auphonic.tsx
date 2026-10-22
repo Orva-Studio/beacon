@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { clipEnd, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import type { AuphonicPreset, AuphonicReview } from "@beacon/features";
 import { Button, Check, Progress, Select, Slider, Toast } from "./controls";
+import { useShortcutTip } from "./keymap";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
 import { clock } from "./time";
@@ -41,6 +42,7 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
   const seconds = clips.length ? ticksToSeconds(Math.max(...clips.map(clipEnd)) - Math.min(...clips.map((c) => c.start))) : 0;
   const ready = Array.isArray(presets) && !!preset && clips.length > 0;
   const close = () => host.run("auphonic.close");
+  const tip = useShortcutTip();
   const start = () => {
     host.run("audio.clean", { clips: review.clips, preset, polish, sibilance });
     close();
@@ -75,7 +77,7 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
         {clips.length === 1 ? "1 clip" : `${clips.length} clips`}, {clock(seconds)} of audio as you hear it: uploaded to Auphonic and cleaned on your account, about {Math.max(1, Math.ceil(seconds / 60))} min of your credit. The cleaned audio goes on a track of its own, the originals muted.
       </div>
       <div className="mt-auto flex justify-end gap-2">
-        <Button onClick={close}>Cancel</Button>
+        <Button onClick={close}>Cancel{tip("reviews.cancel")}</Button>
         <Button look="primary" disabled={!ready} onClick={start} data-auphonic-start>
           Clean
         </Button>

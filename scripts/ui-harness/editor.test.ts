@@ -3655,6 +3655,12 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.until("!!document.querySelector('[data-auphonic-review]')");
     await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › Audio')");
     expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
+    // ⎋ closes it as Cancel does, the selection kept; opened again for the rest.
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-auphonic-review]')");
+    expect((await session()).selection).toEqual([audio.id]);
+    await page.dblclick(...(await centre(tile)));
+    await page.until("!!document.querySelector('[data-auphonic-error]')");
     // Open Settings… goes to Settings › Audio, where the key is typed in and saved.
     const menus = ui.menus.length;
     await page.evaluate("[...document.querySelectorAll('[data-auphonic-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");

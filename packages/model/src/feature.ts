@@ -535,6 +535,8 @@ export interface Feature {
   annotations?: Record<string, AnnotationDef>;
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
+  /** Panels of its own that ⎋ closes (`reviews.cancel`): whether one is open, and the session command closing it. */
+  dismissable?: { open: (s: Session) => boolean; close: string }[];
   /**
    * What of that state is kept with the project (its `editor.json`, never an undo step), restored when it is
    * opened; undefined keeps nothing. The safe areas shown are; a review isn't.
