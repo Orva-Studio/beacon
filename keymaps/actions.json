@@ -935,6 +935,30 @@
       "description": "Open the Visual Effects panel on the left"
     },
     {
+      "id": "inspector.step:back",
+      "name": "Previous Properties Tab",
+      "command": "inspector.step",
+      "args": {
+        "by": -1
+      },
+      "description": "The properties panel's tab before this one, round to the last"
+    },
+    {
+      "id": "inspector.step:next",
+      "name": "Next Properties Tab",
+      "command": "inspector.step",
+      "args": {
+        "by": 1
+      },
+      "description": "The properties panel's next tab, round to the first"
+    },
+    {
+      "id": "inspector.effects",
+      "name": "Show Effects",
+      "command": "inspector.effects",
+      "description": "The selected clip's fx tab, or the Visual Effects panel when it has no effects"
+    },
+    {
       "id": "panel.show:audioEffects",
       "name": "Show Audio Effects",
       "command": "panel.show",

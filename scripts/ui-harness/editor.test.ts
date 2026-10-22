@@ -1232,6 +1232,35 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await select([]);
 });
 
+test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, : [ back, round the ends; : E the fx tab, else Visual Effects", async () => {
+  const leader = async (key: string, code: string) => {
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until("!!document.querySelector('[data-leader]')");
+    await page.key(key, code);
+    await page.until("!document.querySelector('[data-leader]')");
+    await Bun.sleep(150);
+  };
+  const camera = clips().find((c) => c.type === "video" && c.assetId === screen.assetId)!;
+  await select([camera.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await run("panel.show", { tool: "media" });
+  await leader("e", "KeyE");
+  expect((await session()).panels.tool).toBe("visualEffects");
+  await run("effect.add", { clip: camera.id, type: "drop-shadow" });
+  await leader("e", "KeyE");
+  expect((await session()).inspector).toBe("effects");
+  await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
+  // Effects is the last tab: ] goes round to the first, [ back to Effects.
+  await leader("]", "BracketRight");
+  expect((await session()).inspector).toBe("transform");
+  await leader("[", "BracketLeft");
+  expect((await session()).inspector).toBe("effects");
+  await leader("[", "BracketLeft");
+  expect((await session()).inspector).not.toBe("effects");
+  await ui.core.undo(ui.handle);
+  await run("inspector.tab", { tab: "transform" });
+});
+
 test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r labels the selection red; : a deletes a recording's audio; : p opens the command palette; Esc, a click or a wrong key drops it; Settings › Shortcuts records : then a key", async () => {
   const semi = () => page.key(":", "Semicolon", ["shift"]);
   const audio = clips().find((c) => c.type === "audio" && c.linkId)!;

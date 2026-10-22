@@ -89,6 +89,27 @@ export interface SessionCommandDef<A = any> {
   apply: (s: Session, args: A, ctx: SessionContext) => void;
 }
 
+/** The properties panel's tab a clip type's trait gives it, in order. */
+export const TRAIT_TABS = [
+  ["visual", "transform"],
+  ["callout", "callout"],
+  ["region", "region"],
+  ["caption", "caption"],
+  ["cursor", "cursor"],
+  ["audio", "audio"],
+] as const;
+
+/** A clip's properties tabs, in order: its traits', Clip Speed once changed or asked for (`inspector`), Effects when it has any. */
+export function inspectorTabs(clip: Clip, traits: readonly string[], inspector: string): string[] {
+  const tabs: string[] = TRAIT_TABS.filter(([trait]) => traits.includes(trait)).map(([, tab]) => tab);
+  if ((clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || inspector === "speed")) tabs.push("speed");
+  if (clip.effects.length) tabs.push("effects");
+  return tabs;
+}
+
+/** The clip the properties panel shows: the first selected. */
+const inspected = (s: Session, project: Project) => project.tracks.flatMap((t) => t.clips).find((c) => c.id === s.selection[0]);
+
 /** The tool panels, in sidebar order. */
 const TOOL_PANELS = [
   "favorites",
@@ -597,6 +618,31 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       }
       s.inspector = tab;
       s.panels.properties = true;
+    },
+  }),
+  sessionCommand({
+    id: "inspector.step",
+    description: "Show the properties panel's next tab (`by` 1) or the one before (-1), round from the last to the first",
+    args: z.strictObject({ by: z.union([z.literal(1), z.literal(-1)]) }),
+    apply: (s, { by }, { project, registry }) => {
+      const clip = inspected(s, project);
+      if (!clip) throw new Error("select a clip to step through its properties");
+      const tabs = inspectorTabs(clip, registry.clipTypes.get(clip.type)?.traits ?? [], s.inspector);
+      if (!tabs.length) return;
+      const at = Math.max(0, tabs.indexOf(s.inspector));
+      s.inspector = tabs[(at + by + tabs.length) % tabs.length]!;
+      s.panels.properties = true;
+    },
+  }),
+  sessionCommand({
+    id: "inspector.effects",
+    description: "Show the selected clip's Effects (fx) tab; with no effects on it, the Visual Effects panel to add one",
+    args: z.strictObject({}),
+    apply: (s, _, { project }) => {
+      if (inspected(s, project)?.effects.length) {
+        s.inspector = "effects";
+        s.panels.properties = true;
+      } else s.panels.tool = "visualEffects";
     },
   }),
   sessionCommand({

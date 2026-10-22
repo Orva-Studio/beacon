@@ -1346,6 +1346,51 @@
         ]
       },
       "command": "app.palette"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "[",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "inspector.step",
+      "args": {
+        "by": -1
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "]",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "inspector.step",
+      "args": {
+        "by": 1
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "e",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "inspector.effects"
     }
   ]
 }

@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Properties tabs by the leader: `: ]` the next tab, `: [` the one before, round the ends; `: E` the fx tab, or the Visual Effects panel on a clip with no effects. Session commands `inspector.step` and `inspector.effects` (MCP tools too), listed in Settings › Shortcuts and the palette | 2026-10-22 | this commit | UI flow (: E with no effects opens Visual Effects, with one the fx tab; : ] from fx wraps to the first, : [ back) |
 | The `:` popup marks a group (Color Label): its name in the accent tone with a › at the right, so it reads as opening more keys | 2026-10-22 | this commit | UI flow (the group's tone differs from a single key's; screenshot looked at) |
 | Opening a project another process holds: a dialog names who ("Beacon", "Beacon dev", "an agent's MCP server"); Show It brings the other app's window forward; Ask It to Let Go closes it in the agent (refused while a job runs, the dialog asked again saying why), opens it here, and the agent's next tool call joins the app and says so; Open a Copy opens "Name copy.beproj" beside it; Cancel does nothing; a dead process's lock is taken over without asking. The agent's instructions say it may be asked | 2026-10-22 | this commit | Desktop test with a real MCP server process (every button; a refusing stand-in; a stand-in app answering Show It; a dead lock). The native dialog itself, and Show It between two real apps, only by hand |
 | Status messages (the top bar's grey line: "Can't move there…", "Imported 3 files"…) clear themselves: 5 s, longer for a long one (a second per 12 characters), at most 10 s; a newer message restarts the time | 2026-10-22 | this commit | UI flow (a second message keeps showing past the first's time, then clears) |
@@ -27,6 +28,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Properties tabs: select a clip, : ] and : [ move through its tabs; : E shows fx (or Visual Effects when it has none).
 - Leader popup: press : and see Color Label in green with a ›.
 - Project already open: with an agent holding a project (Claude Code, `project_open` on it), open it in Beacon: the dialog, Ask It to Let Go, then the agent's next edit shows in the window. With Beacon dev holding one, open it in Beacon: Show It.
 - Status messages: make one (drag a clip onto another) and see it go after about 5 s.
