@@ -5,17 +5,13 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
-## Remembered easing (`fix/remember-easing`)
+## 0.10.2 (`fix/remember-easing`)
 
-### Checked headless only (still to see by hand)
+### Checked by hand
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| The easing picked on an animation (Linear, or Ease in and out) is the one new animations take (Add Animation, ⇧A, an animation tile, across a clip) until another is picked; kept app-wide as the Animation easing preference, shown in Settings | 2026-10-22 | this commit | UI flow (a new animation eases in and out; Linear picked on it, the next is linear and the preference says so; Ease in and out picked, the next eases again; fails without the change) |
-
-### Not checked yet
-
-- Pick Linear on an animation, then add another (⇧A or a tile): it's linear; after a restart too.
+| The easing picked on an animation (Linear, or Ease in and out) is the one new animations take (Add Animation, ⇧A, an animation tile, across a clip) until another is picked; kept app-wide as the Animation easing preference, shown in Settings | 2026-10-22 | this commit | UI flow (a new animation eases in and out; Linear picked on it, the next is linear and the preference says so; Ease in and out picked, the next eases again; fails without the change); by hand in the dev app 2026-10-22 |
 
 ## 0.10.1 (`fix/extend-frame-start`)
 
