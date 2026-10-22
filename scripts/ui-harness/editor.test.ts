@@ -881,6 +881,15 @@ test.skipIf(skip)("Record asks macOS for a ticked camera it hasn't been asked ab
   expect(ui.menus.slice(before).filter((m) => m.startsWith("recordAccess:"))).toHaveLength(1);
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-record]')");
+
+  // The camera answered, the microphone's asking failing: the camera still joins the preview, and the failure is shown.
+  const both = { ...devices, permissions: { screen: "granted", camera: "not asked", microphone: "not asked" } };
+  ui.setNarrationDevices({ ...both, sources: {}, hear: false, failAccess: ["microphone"] });
+  ui.send("recordSheet", { ...both, mode: "take", sources: { camera: { id: "cam-1" }, microphone: { id: "mic-1" } } });
+  await page.until("!!document.querySelector('[data-preview=Camera]')");
+  await page.until("(document.querySelector('[data-record-error]')?.textContent ?? '').includes('microphone')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
   ui.setNarrationDevices({ permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false });
 });
 

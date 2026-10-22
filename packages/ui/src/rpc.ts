@@ -344,7 +344,7 @@ export type AppRPC = {
       /** Ends the narration and places it, or throws it away (`discard`). */
       stopNarration: { params: { discard?: boolean }; response: RunReply };
       /** Asks macOS for the camera and microphone among the sources it hasn't been asked about: the permissions then. */
-      recordAccess: { params: RecordSources; response: Pick<RecordSheet, "permissions"> };
+      recordAccess: { params: RecordSources; response: Pick<RecordSheet, "permissions"> & { error?: string } };
       /** Shows the sources in the Record dialog (levels as `recordPreview` messages, frames from `recordFrames`); with none, stops. */
       recordPreview: { params: RecordSources; response: RunReply };
       /** Check Sync: flashes the screen and beeps while recording the camera and microphone, measures and saves their delay. */

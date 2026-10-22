@@ -361,10 +361,11 @@ function openWindow(): Win {
         startNarration: (params) => (recordFor(w), reply(() => recorder.startNarration(params))),
         stopNarration: (params) => reply(() => recorder.stopNarration(params)),
         recordAccess: async (sources) => {
-          await askFor(core, sources);
+          // The permissions are sent whatever happened: one source asked about may have been answered before another failed.
+          const error = await askFor(core, sources).then(() => undefined, (e: unknown) => errorText(e));
           const devices = await core.recorderDevices();
           w.message("recordDevices", devices);
-          return { permissions: devices.permissions };
+          return { permissions: devices.permissions, ...(error ? { error } : {}) };
         },
         recordPreview: (devices) => {
           recorder.clearFrames();
