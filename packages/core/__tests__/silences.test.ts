@@ -92,6 +92,30 @@ test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE) || !existsSync(VIDEO))("Rem
   await core.close(h);
 }, 60_000);
 
+test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE))("Remove Silences keeps a title card before the talk whole, to the frame, with nothing of the pause kept", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-t") });
+  const h = await core.create({ path: join(dir, "title.beproj") });
+  const audio = join(dir, "title.m4a");
+  copyFileSync(AUDIO, audio);
+  const r = await core.import(h, [audio], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  transcribed(core, core.doc(h).assets[r.assets[0]!]!, { 0: { words: [{ text: "one", start: 9.1, end: 9.9 }], speech: [[9, 10]] } });
+  await core.run(h, "track.add", { name: "Title" });
+  const track = core.doc(h).tracks.find((t) => t.name === "Title")!.id;
+  // From frame 92 at 30 fps (3.0667 s, between milliseconds) for 5 s, before anything is said.
+  await core.import(h, [IMAGE], { at: 92 / 30, track });
+  const card = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "image")!;
+  const frames = (ticks: number) => Math.round((ticks / 705_600_000) * 30);
+  expect([frames(card().start), frames(card().duration)]).toEqual([92, 150]);
+  await core.run(h, "transcript.removeSilences", { ...SETTINGS, keep: 0 });
+  // The pause before it and after it go; the card stays all 150 frames.
+  expect([frames(card().start), frames(card().duration)]).toEqual([0, 150]);
+  const words = (await core.query(h, "transcript.get", { format: "words" })) as { text: string; start: number }[];
+  expect(words.map((w) => w.text)).toEqual(["one"]);
+  expect(words[0]!.start).toBeLessThan(5.5);
+  await core.close(h);
+}, 60_000);
+
 test.skipIf(!existsSync(TAKE))("a silence where the cursor moved once, logged by a single sample inside it, is screen action and kept", async () => {
   const take = join(dir, "sparse.brec");
   cpSync(TAKE, take, { recursive: true });

@@ -8,6 +8,7 @@ import {
   projectDuration,
   clipSpeed,
   roundSeconds,
+  secondsToTicks,
   snapSeconds,
   ticksPerFrame,
   ticksToSeconds,
@@ -114,7 +115,7 @@ export function pauses(project: Project, registry: FeatureRegistry, data: Data, 
   for (const q of quiet) {
     for (const [a, b] of subtractSpans(q, kept)) {
       const before = words.filter((w) => w.end <= a + 1e-6).at(-1);
-      out.push({ start: roundSeconds(a), end: roundSeconds(b), ...(before ? { after: before.i } : {}) });
+      out.push({ start: a, end: b, ...(before ? { after: before.i } : {}) });
     }
   }
   return out;
@@ -149,20 +150,27 @@ const SLIVER_FRAMES = 2;
 
 /**
  * Ranges in ticks, merged and widened so no clip on an unlocked track is left
- * with only a sliver between two cuts or between a cut and its own edge.
+ * with only a sliver between two cuts or between a cut and its own edge, unless
+ * the sliver holds one of the words `kept` (ticks): a short word is no flash.
  */
-function withoutSlivers(doc: Project, ranges: [number, number][]): [number, number][] {
+function withoutSlivers(doc: Project, ranges: [number, number][], kept: [number, number][]): [number, number][] {
   const sliver = SLIVER_FRAMES * ticksPerFrame(doc.settings.fps);
   const clips = doc.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
+  const holdsWord = (a: number, b: number) => kept.some(([k0, k1]) => k1 > a && k0 < b);
   let out: [number, number][] = ranges.map((r) => [...r]);
   for (let changed = true; changed; ) {
     changed = false;
-    const merged = mergeSpans(out, sliver);
+    const merged: [number, number][] = [];
+    for (const [a, b] of [...out].sort((x, y) => x[0] - y[0])) {
+      const last = merged.at(-1);
+      if (last && (a <= last[1] || (a - last[1] <= sliver && !holdsWord(last[1], a)))) last[1] = Math.max(last[1], b);
+      else merged.push([a, b]);
+    }
     for (const r of merged) {
       for (const c of clips) {
         const end = c.start + c.duration;
-        if (c.start < r[0] && end > r[0] && r[0] - c.start <= sliver) [r[0], changed] = [c.start, true];
-        if (end > r[1] && c.start < r[1] && end - r[1] <= sliver) [r[1], changed] = [end, true];
+        if (c.start < r[0] && end > r[0] && r[0] - c.start <= sliver && !holdsWord(c.start, r[0])) [r[0], changed] = [c.start, true];
+        if (end > r[1] && c.start < r[1] && end - r[1] <= sliver && !holdsWord(r[1], end)) [r[1], changed] = [end, true];
       }
     }
     out = merged;
@@ -170,13 +178,16 @@ function withoutSlivers(doc: Project, ranges: [number, number][]): [number, numb
   return out;
 }
 
-/** Rounded out to whole frames, so a cut never leaves the edge of a word it removes, nor a sliver of a clip. */
-/** The ranges `cut` removes: out to whole frames, without leaving slivers of clips. */
-function cutRanges(doc: Project, ranges: { start: number; end: number }[]) {
+/** The ranges `cut` removes: out to whole frames, so a cut never leaves the edge of a word it removes, nor a sliver of a clip. */
+function cutRanges(doc: Project, registry: FeatureRegistry, data: Data, ranges: { start: number; end: number }[]) {
   const { fps } = doc.settings;
+  const kept = timelineWords(doc, registry, data)
+    .filter((w) => !ranges.some((r) => (w.start + w.end) / 2 >= r.start && (w.start + w.end) / 2 < r.end))
+    .map((w) => [secondsToTicks(w.start), secondsToTicks(w.end)] as [number, number]);
   return withoutSlivers(
     doc,
     ranges.map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number]).filter(([a, b]) => b > a),
+    kept,
   ).map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
 }
 
@@ -191,7 +202,7 @@ function wordSpan(words: Word[], a: number, b: number, lead = 0.1) {
 }
 
 function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: number }[]) {
-  const outward = cutRanges(doc, ranges);
+  const outward = cutRanges(doc, ctx.registry, ctx.data, ranges);
   rippleDeleteRanges(doc, outward, ctx);
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
@@ -204,7 +215,7 @@ function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min
     .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
     .flatMap((p) =>
       subtractSpans(
-        [p.after === undefined ? 0 : p.start + o.keep / 2, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2],
+        [p.after === undefined ? p.start : p.start + o.keep / 2, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2],
         o.except.map((x) => [x.start, x.end]),
       ).map(([start, end]) => ({ start, end })),
     );
@@ -303,7 +314,7 @@ function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o:
     });
   const except = silences.filter((p) => !p.cut).map(({ start, end }) => ({ start, end }));
   const ranges = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except }) ?? [];
-  return { waiting, words: words.length, silences, ranges, current: currentOf(silences, o.current) };
+  return { waiting, words: words.length, silences: silences.map((p) => ({ ...p, start: roundSeconds(p.start), end: roundSeconds(p.end) })), ranges, current: currentOf(silences, o.current) };
 }
 
 const SilenceSettings = {
@@ -398,9 +409,11 @@ function fillerCut(project: Project, words: TimelineWord[], first: TimelineWord,
   const end = last.end + (Number.isFinite(pause) ? Math.max(0, pause) : 0);
   const { fps } = project.settings;
   const frame = (t: number, way: "floor" | "ceil") => ticksToSeconds(snapSeconds(t, fps, way));
+  // Words a transcriber wrote overlapping the filler keep their time.
+  const [a, b] = [Math.max(first.start, prev?.end ?? 0), Math.min(end, next?.start ?? Infinity)];
   return {
-    start: prev && frame(first.start, "floor") < prev.end - 1e-6 ? frame(first.start, "ceil") : first.start,
-    end: next && frame(end, "ceil") > next.start + 1e-6 ? frame(end, "floor") : end,
+    start: prev && frame(a, "floor") < prev.end - 1e-6 ? frame(a, "ceil") : a,
+    end: next && frame(b, "ceil") > next.start + 1e-6 ? frame(b, "floor") : b,
   };
 }
 
@@ -800,7 +813,9 @@ export const transcript = defineFeature({
       description: "Silences on the timeline (no detected speech in any audio clip, including before the first and after the last word) at least `min` seconds long, in timeline seconds; `after` is the index of the word before",
       args: z.strictObject({ min: z.number().nonnegative().default(0.5) }),
       run({ min }, { project, registry, data }) {
-        return pauses(project, registry, data, timelineWords(project, registry, data)).filter((p) => p.end - p.start >= min);
+        return pauses(project, registry, data, timelineWords(project, registry, data))
+          .filter((p) => p.end - p.start >= min)
+          .map((p) => ({ ...p, start: roundSeconds(p.start), end: roundSeconds(p.end) }));
       },
     }),
     defineQuery({
@@ -817,7 +832,7 @@ export const transcript = defineFeature({
       run(args, { project, registry, data }) {
         const o = { ...SILENCE_DEFAULTS, ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) } as SilenceReview;
         const plan = silencePlan(project, registry, data, o);
-        const removed = cutRanges(project, plan.ranges);
+        const removed = cutRanges(project, registry, data, plan.ranges);
         return { waiting: plan.waiting, silences: plan.silences, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)), ...(plan.current === undefined ? {} : { current: plan.current }) };
       },
     }),
@@ -831,7 +846,7 @@ export const transcript = defineFeature({
       }),
       run({ flipped, current }, { project, registry, data }) {
         const plan = fillerPlan(project, registry, data, { flipped: flipped ?? [], ...(current === undefined ? {} : { current }) });
-        const removed = cutRanges(project, plan.ranges);
+        const removed = cutRanges(project, registry, data, plan.ranges);
         return { waiting: plan.waiting, fillers: plan.fillers, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)), ...(plan.current === undefined ? {} : { current: plan.current }) };
       },
     }),
@@ -848,7 +863,7 @@ export const transcript = defineFeature({
       }),
       run({ minWords, within, kept, cutAll, current }, { project, registry, data, pref }) {
         const plan = retakePlan(project, registry, data, pref, { minWords: minWords ?? RETAKE_DEFAULTS.minWords, within: within ?? RETAKE_DEFAULTS.within, kept: kept ?? [], cutAll: cutAll ?? [], ...(current === undefined ? {} : { current }) });
-        const removed = cutRanges(project, plan.ranges);
+        const removed = cutRanges(project, registry, data, plan.ranges);
         return {
           waiting: plan.waiting,
           judging: plan.judging,

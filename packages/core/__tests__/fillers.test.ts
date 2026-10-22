@@ -51,3 +51,35 @@ test.skipIf(!existsSync(AUDIO))("Remove Filler Words never cuts into a kept word
   expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("Remove Filler Words keeps a short word a sliver of a clip would have taken, and words a transcriber wrote overlapping a filler", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-b") });
+  const h = await core.create({ path: join(dir, "slivers.beproj") });
+  const audio = join(dir, "short.m4a");
+  copyFileSync(AUDIO, audio);
+  const r = await core.import(h, [audio], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  // "I" in the first frame before an "um"; "a" two frames wide between "um" and "uh"; "yes" running into an "um".
+  const words: Said[] = [
+    { text: "I", start: 0, end: 0.03 },
+    { text: "um", start: 0.04, end: 0.5 },
+    { text: "so", start: 0.6, end: 1.0 },
+    { text: "um", start: 1.0, end: 1.3 },
+    { text: "a", start: 1.31, end: 1.35 },
+    { text: "uh", start: 1.36, end: 1.6 },
+    { text: "next", start: 2.0, end: 2.4 },
+    { text: "yes", start: 2.5, end: 3.2 },
+    { text: "um", start: 3.0, end: 3.5 },
+    { text: "ok", start: 3.8, end: 4.2 },
+  ];
+  transcribed(core, core.doc(h).assets[r.assets[0]!]!, words, [[0, 1.6], [2.0, 2.4], [2.5, 4.2]]);
+  const before = JSON.stringify(core.doc(h).tracks);
+  const cuts = (await core.run(h, "transcript.removeFillers", {})).results[0] as { start: number; end: number }[];
+  const kept = words.filter((w) => !["um", "uh"].includes(w.text));
+  for (const c of cuts) for (const w of kept) expect(c.end <= w.start + 1e-3 || c.start >= w.end - 1e-3).toBe(true);
+  const left = (await core.query(h, "transcript.get", { format: "words" })) as Said[];
+  expect(left.map((w) => w.text)).toEqual(kept.map((w) => w.text));
+  await core.undo(h);
+  expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
+  await core.close(h);
+}, 60_000);
