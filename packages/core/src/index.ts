@@ -2,9 +2,9 @@ export * from "./api";
 export * from "./local";
 export * from "./remote";
 export { findDropped, importDropped } from "./dropped";
-export { lockOwner, projectName, readProject, writeProject } from "./persist";
+export { LOCK_FILE, lockOwner, ProjectLockedError, projectName, readProject, writeProject, type Owner } from "./persist";
 export { summarizeReport } from "@beacon/camtasia";
-export { DEFAULT_SOCKET, serveCore, type CoreServer } from "./socket";
+export { askOwner, CONTROL_SOCKET, DEFAULT_SOCKET, serveControl, serveCore, type CoreServer } from "./socket";
 export {
   chordOf,
   enginePlacement,

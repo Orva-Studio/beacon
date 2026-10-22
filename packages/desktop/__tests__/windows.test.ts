@@ -1,8 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalCore } from "@beacon/core";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { LocalCore, serveControl, serveCore } from "@beacon/core";
 import type { ProjectBridge } from "@beacon/ui";
 import type { Current, ProjectWindow } from "../src/bun/app";
 import { createProjects } from "../src/bun/projects";
@@ -61,6 +63,7 @@ test.skipIf(!existsSync(VIDEO))("each project opens in a window of its own; one 
     moveToTrash: () => {
       throw new Error("not in this test");
     },
+    lockedDialog: async () => "cancel",
   });
 
   // The start screen's window takes the first; the next opens beside it, and both stay open in core.
@@ -166,6 +169,7 @@ test("the start screen's right-click: a project taken off the recent list stays 
       renameSync(path, join(trash, path.split("/").at(-1)!));
       return true;
     },
+    lockedDialog: async () => "cancel",
   });
   await projects.open(D);
   await projects.open(E);
@@ -220,3 +224,98 @@ test("the start screen's right-click: a project taken off the recent list stays 
   expect(existsSync(D)).toBe(true);
   core.closeAll();
 });
+
+test("a project another process holds: a dialog naming it; Open a Copy beside it; an agent asked to let go joins the app; an app asked shows it", async () => {
+  const socket = join(dir, "app.sock");
+  const core = new LocalCore({ cacheDir: join(dir, "cache-lock"), configDir: join(dir, "config-lock"), socket, name: "Beacon" });
+  const windows: FakeWindow[] = [new FakeWindow()];
+  const server = serveCore(core, { path: socket, canOpen: (p) => windows.some((w) => w.current?.path === p) });
+  const P = join(dir, "Held.beproj");
+  await core.close(await core.create({ path: P }));
+  const asked: Parameters<Parameters<typeof createProjects>[0]["lockedDialog"]>[0][] = [];
+  const answers: ("show" | "letGo" | "copy" | "cancel")[] = [];
+  const projects = createProjects({
+    core,
+    focused: () => windows[0],
+    windows: () => windows,
+    newWindow: () => {
+      const w = new FakeWindow();
+      windows.push(w);
+      return w;
+    },
+    watch: () => bridge,
+    shown: async () => {},
+    leaving: () => {},
+    recentChanged: () => {},
+    openFileDialog: async () => [],
+    confirmTrash: async () => false,
+    moveToTrash: () => false,
+    lockedDialog: async (opts) => (asked.push(opts), answers.shift() ?? "cancel"),
+  });
+  const agent = new Client({ name: "lock-test", version: "0" });
+  await agent.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dir, "../../mcp/src/main.ts")], stderr: "ignore" }));
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const r = (await agent.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
+    if (r.isError) throw new Error(`${name}: ${r.content[0]?.text}`);
+    return r.content.map((c) => c.text);
+  };
+  try {
+    await call("project_open", { path: P });
+
+    // Cancel: nothing opens.
+    await projects.open(P);
+    expect(asked).toEqual([{ project: "Held", holder: "an agent's MCP server", can: "letGo" }]);
+    expect(windows[0]!.current).toBeUndefined();
+
+    // Open a Copy: beside it, numbered when taken, the agent's lock not copied; the original untouched.
+    answers.push("copy");
+    await projects.open(P);
+    const copy = join(dir, "Held copy.beproj");
+    expect(windows[0]!.current?.path).toBe(copy);
+    expect(JSON.parse(readFileSync(join(copy, "lock"), "utf8")).pid).toBe(process.pid);
+    expect(windows[0]!.messages.at(-1)).toEqual(["status", "Opened a copy, Held copy.beproj; “Held” is unchanged"]);
+    await projects.closeWindow(windows[0]!);
+
+    // Asked to let go: it does, the project opens here, and the agent's next call works on it through the app.
+    answers.push("letGo");
+    await projects.open(P);
+    expect(windows[0]!.current?.path).toBe(P);
+    const [note] = await call("track_add", { name: "From the agent" });
+    expect(note).toStartWith("the user opened this project in the Beacon app");
+    expect(core.doc(P).tracks.some((t) => t.name === "From the agent")).toBe(true);
+    await projects.closeWindow(windows[0]!);
+
+    // A windowless holder that refuses (busy): asked again, saying why.
+    const control = serveControl({ letGo: async () => Promise.reject(new Error("the agent is busy (Export, 40%): try again when it's done")) }, join(dir, "busy.sock"));
+    writeFileSync(join(P, "lock"), JSON.stringify({ pid: process.ppid, host: hostname(), name: "an agent's MCP server", control: control.path }));
+    asked.length = 0;
+    answers.push("letGo", "cancel");
+    await projects.open(P);
+    expect(asked[1]).toEqual({ project: "Held", holder: "an agent's MCP server", can: "letGo", refused: "the agent is busy (Export, 40%): try again when it's done" });
+    expect(windows[0]!.current).toBeUndefined();
+    control.stop();
+
+    // Held by another Beacon app: Show It brings its window forward.
+    const shownThere: string[] = [];
+    const other = serveCore(core, { path: join(dir, "other.sock"), show: (p) => void shownThere.push(p) });
+    writeFileSync(join(P, "lock"), JSON.stringify({ pid: process.ppid, host: hostname(), name: "Beacon dev", socket: other.path }));
+    asked.length = 0;
+    answers.push("show");
+    await projects.open(P);
+    expect(asked).toEqual([{ project: "Held", holder: "Beacon dev", can: "show" }]);
+    expect(shownThere).toEqual([P]);
+    other.stop();
+    rmSync(join(P, "lock"));
+
+    // A lock left by a process that is gone is taken over without asking.
+    writeFileSync(join(P, "lock"), JSON.stringify({ pid: 2 ** 22 + 7, host: hostname(), name: "Beacon" }));
+    asked.length = 0;
+    await projects.open(P);
+    expect(asked).toEqual([]);
+    expect(windows[0]!.current?.path).toBe(P);
+  } finally {
+    await agent.close();
+    server.stop();
+    core.closeAll();
+  }
+}, 60_000);

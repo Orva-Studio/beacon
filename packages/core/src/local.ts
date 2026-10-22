@@ -80,7 +80,7 @@ import { AppConfig } from "./config";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
-import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject } from "./persist";
+import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject, type OwnerInfo } from "./persist";
 import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
@@ -98,6 +98,10 @@ export interface LocalCoreOptions {
   cacheDir?: string;
   /** The app's automation socket, recorded in each project's lock so agents connect to it. */
   socket?: string;
+  /** Who this process is, in each project's lock, so another that finds it locked can say so ("Beacon dev"). */
+  name?: string;
+  /** A windowless process's control socket (`serveControl`), in each lock, so the app can ask it to let go. */
+  control?: string;
   /** Shows a file in Finder; the app passes its own. */
   reveal?: (path: string) => void;
   /** Where app-wide preferences are kept (`preferences.json`): Beacon's Application Support folder. */
@@ -131,7 +135,7 @@ const encoding = ({ output: _, overwrite: _o, from: _f, to: _t, ...rest }: Expor
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
-  readonly #socket?: string;
+  readonly #owner: OwnerInfo;
   readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
   /** Every background job: exports, analyses, downloads. */
@@ -157,7 +161,7 @@ export class LocalCore implements BeaconCore {
       for (const l of this.#appListeners) l(e);
     });
     this.#pref = this.#config.pref;
-    this.#socket = opts.socket;
+    this.#owner = { ...(opts.name ? { name: opts.name } : {}), ...(opts.socket ? { socket: opts.socket } : {}), ...(opts.control ? { control: opts.control } : {}) };
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
       registry: this.registry,
@@ -184,7 +188,7 @@ export class LocalCore implements BeaconCore {
     let current = doc;
     const data = new DerivedData(this.registry, this.cacheDir, () => current, this.#pref);
     const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get });
-    lock(path, this.#socket);
+    lock(path, this.#owner);
     store.subscribe((e) => void (current = e.doc));
     const p: OpenProject = {
       path,

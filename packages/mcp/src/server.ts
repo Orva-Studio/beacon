@@ -66,10 +66,12 @@ export interface ServerOptions {
  * The `beacon-mcp` server (PLAN §7): every registered command and query
  * becomes a tool, beside project, media, frame, export and job tools.
  */
-export function createServer(local: BeaconCore, version: string, opts: ServerOptions = {}): Server {
+export function createServer(local: BeaconCore, version: string, opts: ServerOptions = {}): Server & { letGo(path: string): Promise<void> } {
   /** The core holding the session's project: local, or the open app's. */
   let core = local;
   let current: ProjectHandle | undefined;
+  /** The project let go for the app (`letGo`), which the next tool call joins there. */
+  let handedOver: string | undefined;
   const project = () => {
     if (!current) throw new Error("no project open: call project_open (with no path, it connects to the project open in the Beacon app) or project_create first");
     return current;
@@ -478,14 +480,25 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     }),
   }));
 
+  /** The project the user opened in the app after this session let it go: joined there, as `project_open` would. */
+  const joinApp = async (): Promise<string | undefined> => {
+    const p = handedOver!;
+    const app = await opts.appCore?.(p);
+    if (!app) throw new Error(`the user is opening ${p} in the Beacon app: try again in a moment`);
+    await switchTo(await app.open(p), app);
+    handedOver = undefined;
+    return "the user opened this project in the Beacon app, so this session is now connected to it: changes show there live, sharing its undo history";
+  };
+
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const def = tools.get(req.params.name);
     if (!def) return { isError: true, content: text(`unknown tool ${req.params.name}`) };
     try {
       const args = def.schema instanceof z.ZodUnknown ? (req.params.arguments ?? {}) : def.schema.parse(req.params.arguments ?? {});
+      const joined = handedOver && !["project_open", "project_create"].includes(req.params.name) ? await joinApp() : undefined;
       const out = await def.run(args);
       const content = Array.isArray(out) && out.every((c) => c && typeof c === "object" && "type" in c) ? (out as Content) : text(typeof out === "string" ? out : JSON.stringify(out, null, 1));
-      return { content };
+      return { content: joined ? [...text(joined), ...content] : content };
     } catch (e) {
       const message = e instanceof z.ZodError ? formatIssues(e) : e instanceof Error ? e.message : String(e);
       return { isError: true, content: text(message) };
@@ -523,7 +536,18 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     return { description: w.description, messages: [{ role: "user", content: { type: "text", text: body } }] };
   });
 
-  return server;
+  /** Asked by the app over the control socket: the session's project closed so the app can open it; refused while a job runs. */
+  const letGo = async (path: string) => {
+    const dir = resolve(path);
+    if (core !== local || current !== dir) throw new Error(`the agent doesn't have ${dir} open`);
+    const busy = (await local.jobs()).find((j) => j.state === "running");
+    if (busy) throw new Error(`the agent is busy (${busy.label}, ${Math.round(busy.progress * 100)}%): try again when it's done`);
+    await local.close(dir);
+    current = undefined;
+    handedOver = dir;
+  };
+
+  return Object.assign(server, { letGo });
 }
 
 function expandHome(p: string): string {

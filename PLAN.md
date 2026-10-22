@@ -1952,7 +1952,7 @@ same offset on every frame.
   showed one clip and the others jumped on release. The ghost now adds the
   linked clips as `clip.move` does.
 
-#### NEXT: "open in another process" as a dialog (the user, 2026-10-22)
+#### "open in another process" as a dialog (the user, 2026-10-22)
 Today a status line ("… is open in another process (pid … on …)"). Decided:
 no option to turn autosave off for it (two editors would still overwrite each
 other). Instead a dialog naming who has it (the Beacon app, Beacon dev, an
@@ -1961,8 +1961,19 @@ window, ask it to let go (it closes the project; the agent's tools then join
 the app, as `project_open` does). A lock left by a process that is gone is
 cleared without asking (check it already is). Test: a UI flow with the lock
 held by another LocalCore.
+- **Decided (the user, 2026-10-22):** an app holder (it has a window) gets
+  Show It, which brings its window forward; Open a Copy copies the project
+  beside it as "Name copy.beproj" ("copy 2"…) with no save panel; an agent busy
+  with a job refuses to let go, the dialog saying what is running.
+- **Done 2026-10-22:** the lock records who holds it (`name`; the app as Beacon
+  or Beacon dev by its channel) and, for an MCP server, its control socket
+  (`mcp-<pid>.sock`, `letGo`). A native dialog (as Move to Trash): Show It or
+  Ask It to Let Go, Open a Copy, Cancel. Let go, the agent's next tool call
+  joins the app and says so. A dead process's lock was already taken over.
+  Tested in `desktop/__tests__/windows.test.ts` against a real MCP server (the
+  dialog is native, so not in the UI harness).
 
-#### Then: the user's notes after trying the leader key (2026-10-22)
+#### NEXT: the user's notes after trying the leader key (2026-10-22)
 The user likes the leader key. Asked for, in this order after the two above:
 1. **Groups look like groups.** In the `:` popup, Color Label… didn't read as
    opening more keys: mark a group plainly (a chevron › and a different tone,
