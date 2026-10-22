@@ -41,8 +41,15 @@ export function LeaderKeys() {
         {[...next.values()].map((n) => (
           <div key={chordId(n.keys)} className="contents" data-leader-next={keysLabel(n.keys)}>
             <kbd className="min-w-6 rounded-sm bg-chip px-1.5 text-center font-sans text-label text-text-strong">{keysLabel(n.keys)}</kbd>
-            {/* In a group the header names it: "Red", not "Color Label: Red". */}
-            <span className="truncate text-text">{n.more ? `${n.names[0]!.split(":")[0]}…` : n.names.map((x) => (depth > 1 ? x.replace(/^[^:]*: /, "") : x)).join(", ")}</span>
+            {n.more ? (
+              <span className="flex items-center justify-between gap-2 text-accent" data-leader-group>
+                <span className="truncate">{n.names[0]!.split(":")[0]}</span>
+                <span aria-hidden>›</span>
+              </span>
+            ) : (
+              // In a group the header names it: "Red", not "Color Label: Red".
+              <span className="truncate text-text">{n.names.map((x) => (depth > 1 ? x.replace(/^[^:]*: /, "") : x)).join(", ")}</span>
+            )}
           </div>
         ))}
       </div>

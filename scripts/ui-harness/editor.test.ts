@@ -1241,7 +1241,12 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   await page.until("!!document.querySelector('[data-leader]')");
   const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
   expect(shown).toContain("ADelete Audio");
-  expect(shown).toContain("CColor Label…");
+  expect(shown).toContain("CColor Label›");
+  // A group reads as one: the accent tone and a chevron, the single keys in the text colour.
+  const tones = await page.evaluate<[string, string]>(
+    "[document.querySelector('[data-leader-group]'), document.querySelector('[data-leader-next] span:not([data-leader-group])')].map((e) => getComputedStyle(e).color)",
+  );
+  expect(tones[0]).not.toBe(tones[1]);
   await page.screenshot(join(dir, "leader.png"));
   // A group opens on its key: the colours.
   await page.key("c", "KeyC");

@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| The `:` popup marks a group (Color Label): its name in the accent tone with a › at the right, so it reads as opening more keys | 2026-10-22 | this commit | UI flow (the group's tone differs from a single key's; screenshot looked at) |
 | Opening a project another process holds: a dialog names who ("Beacon", "Beacon dev", "an agent's MCP server"); Show It brings the other app's window forward; Ask It to Let Go closes it in the agent (refused while a job runs, the dialog asked again saying why), opens it here, and the agent's next tool call joins the app and says so; Open a Copy opens "Name copy.beproj" beside it; Cancel does nothing; a dead process's lock is taken over without asking. The agent's instructions say it may be asked | 2026-10-22 | this commit | Desktop test with a real MCP server process (every button; a refusing stand-in; a stand-in app answering Show It; a dead lock). The native dialog itself, and Show It between two real apps, only by hand |
 | Status messages (the top bar's grey line: "Can't move there…", "Imported 3 files"…) clear themselves: 5 s, longer for a long one (a second per 12 characters), at most 10 s; a newer message restarts the time | 2026-10-22 | this commit | UI flow (a second message keeps showing past the first's time, then clears) |
 | Dragging a linked clip (a recording's camera or audio) draws its linked clips moving with it on every frame, as `clip.move` will place them (in time, on their own tracks), even when the drag starts before the press's linked selection has come back; "Can't move there" names an unnamed track as "Track N" rather than "" | 2026-10-22 | this commit | UI flow (the camera alone selected, dragged: each mid-drag frame's camera and audio ghosts at the same x; fails without the change) |
@@ -26,6 +27,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Leader popup: press : and see Color Label in green with a ›.
 - Project already open: with an agent holding a project (Claude Code, `project_open` on it), open it in Beacon: the dialog, Ask It to Let Go, then the agent's next edit shows in the window. With Beacon dev holding one, open it in Beacon: Show It.
 - Status messages: make one (drag a clip onto another) and see it go after about 5 s.
 - Linked drag: drag a recording's camera or audio quickly without selecting it first; the other follows the pointer the whole way, no jump on release.

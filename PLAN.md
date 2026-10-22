@@ -1988,6 +1988,12 @@ The user likes the leader key. Asked for, in this order after the two above:
    border** (decided 2026-10-22): no grey; all found silences take the red
    fill, and selection is shown only by the green (accent) outline.
 
+**Decided (the user, 2026-10-22, before building):** a group shows its name in
+the accent tone with a › at the right, no count; `: E` jumps to the fx tab, or
+on a clip with no effects opens the Visual Effects panel; `: [` / `: ]` wrap
+around; the palette lists media only once something is typed, under a "Media
+Bin" group.
+
 #### A leader key (the user, 2026-10-22; a trial in its own commit)
 `:` (as in vi) then a key, with a popup of what can follow: : P palette, : A / : V
 Delete Audio / Video, : U Unlink, : L / : M Lock / Mute Track, : S / : F Remove
