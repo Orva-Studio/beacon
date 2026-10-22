@@ -300,11 +300,12 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("export_start", {
     description:
-      "Export the project (or `from`-`to` seconds) in the background to a .mp4, .mov, .gif or .webm path (the format), a .wav, .m4a or .mp3 path for the audio alone (no frames rendered), or a folder ending in / for PNG frames. Returns a job id for job_status; job_cancel stops it",
+      "Export the project (or `from`-`to` seconds) in the background to a .mp4, .mov, .gif or .webm path (the format), a .wav, .m4a or .mp3 path for the audio alone (no frames rendered), or a folder ending in / for PNG frames. With `clips` (ids from timeline_clips), only those clips over their span, as the app's ⌘E exports the selection: only audio clips with an audio path for their sound alone. Returns a job id for job_status; job_cancel stops it",
     schema: VideoEncodingSchema.extend({
       output: z.string(),
       from: Seconds.optional(),
       to: Seconds.optional(),
+      clips: z.array(z.string()).min(1).optional().describe("Only these clips, the rest left out; `from`/`to` default to their span"),
       overwrite: z.boolean().default(false).describe("Replace an existing file"),
     }),
     async run({ output, ...rest }) {

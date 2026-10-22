@@ -121,7 +121,7 @@ export interface TileMenu {
 }
 
 export { exportOptions } from "./export-options";
-export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
+export { appWideMessage, exportCanvas, exportSheetFor, initPayload, settingsSheet } from "./payloads";
 export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
@@ -182,6 +182,8 @@ export interface ExportSheet {
   settings: ExportSettings;
   /** Export Selection: the in/out range. */
   range?: { in: number; out: number };
+  /** Export Selection with clips selected (it wins over the range): only those, over their span. */
+  clips?: { ids: string[]; in: number; out: number };
   canvas: { width: number; height: number; fps: number };
 }
 
@@ -325,7 +327,7 @@ export type AppRPC = {
       /** A file picked for an effect (a LUT) imported into the project, placing no clips: its asset id. */
       importFile: { params: { path: string }; response: RunReply & { result?: string } };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
-      startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
+      startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; clips?: string[]; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };

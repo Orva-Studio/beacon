@@ -1965,6 +1965,14 @@ slider changes count (an agent's review settings are its own). **Done
 commands read preferences (`SessionContext.pref`); changing such a preference
 restarts no analysis.
 
+#### ⌘E exports the selected clips (the user, 2026-10-22)
+**Decided:** only the selected clips, over their span, the rest left out (only
+audio clips: an audio-only export; only the camera or screen: that alone);
+⌘E is the selection, else the in/out range, else the whole project; framed as
+on the canvas; an audio-only selection starts on the last audio format.
+**Done 2026-10-22:** `ExportOptions.clips` (and `export_start`); the sheet
+is built by `exportSheetFor` (ui), shared by the app and the UI harness.
+
 #### "open in another process" as a dialog (the user, 2026-10-22)
 Today a status line ("… is open in another process (pid … on …)"). Decided:
 no option to turn autosave off for it (two editors would still overwrite each

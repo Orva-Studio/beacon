@@ -696,6 +696,41 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
 
+test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips their sound alone, a picture without an audio track; with none, the whole project", async () => {
+  const audio = clips().find((c) => c.type === "audio" && c.assetId === screen.assetId)!;
+  const camera = clips().find((c) => c.type === "video" && c.assetId === screen.assetId)!;
+  const label = (text: string) => `[...document.querySelectorAll('[role=checkbox]')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(text)})?.getAttribute('aria-checked')`;
+  const title = () => page.evaluate<string>("document.querySelector('[role=dialog] h2, [role=dialog] [data-modal-title]')?.textContent ?? document.body.innerText");
+  await select([audio.id]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  expect(await title()).toContain("Export Selection");
+  expect(await page.evaluate<string>("document.querySelector('[data-export-only]').getAttribute('aria-label')")).toStartWith("Export the selected clips only (1 clip, ");
+  expect(await page.evaluate<string | null>(label("Audio only"))).toBe("true");
+  expect(await page.evaluate<boolean>("document.body.innerText.includes('.wav')")).toBe(true);
+  await page.key("Enter", "Enter");
+  const out = join(tmpdir(), "project selection.wav");
+  await arrived(() => existsSync(out), 60_000);
+  expect(existsSync(out)).toBe(true);
+  rmSync(out, { force: true });
+
+  await select([camera.id]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  expect(await page.evaluate<string | null>(label("Audio only"))).toBe("false");
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => /^Options/.test(b.textContent ?? ''))?.click()");
+  await page.until(`${label("Encode audio")} === "false"`);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-only]')");
+
+  await select([]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("[...document.querySelectorAll('[role=checkbox]')].some((b) => b.getAttribute('aria-label') === 'Audio only')");
+  expect(await has("[data-export-only]")).toBe(false);
+  expect(await page.evaluate<string | null>(label("Audio only"))).toBe("false");
+  await page.key("Escape", "Escape");
+}, 90_000);
+
 test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
   ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);

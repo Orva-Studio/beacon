@@ -13,6 +13,7 @@ export {
   fpsRational,
   jsonSchemaOf,
   keyOfCode,
+  isAudioFormat,
   KeysSchema,
   keysLabel,
   locateTrack,

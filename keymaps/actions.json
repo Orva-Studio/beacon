@@ -68,12 +68,12 @@
     {
       "id": "app.export",
       "name": "Export…",
-      "description": "Export the project to a video file"
+      "description": "Export the project to a video file; with clips selected only those (just audio clips: the sound alone), else an in/out range when there is one"
     },
     {
       "id": "app.exportSelection",
       "name": "Export Selection…",
-      "description": "Export the in/out range to a video file"
+      "description": "Export the selected clips (only those, over their span), else the in/out range"
     },
     {
       "id": "project.undo",

@@ -53,9 +53,11 @@ export interface ExportOptions extends VideoEncoding {
   output: string;
   /** Replace an existing file (or a non-empty frames folder). */
   overwrite?: boolean;
-  /** Timeline seconds; defaults to the whole project. */
+  /** Timeline seconds; defaults to the whole project, or with `clips` their span. */
   from?: number;
   to?: number;
+  /** Only these timeline clips (an export of the selection): the others are left out of the picture and the sound. */
+  clips?: string[];
 }
 
 export interface ImportOptions {
