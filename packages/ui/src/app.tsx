@@ -379,7 +379,7 @@ function TopBar({ name, project, session, host, status, saved, preparing, effect
           {effectPreparing}
         </span>
       )}
-      <span className="truncate text-xs text-text-faint">{status}</span>
+      <span className="truncate text-xs text-text-faint" data-status>{status}</span>
       {project && session && <SafeAreaPicker host={host} project={project} session={session} layouts={layouts} />}
       {session && (
         <Select

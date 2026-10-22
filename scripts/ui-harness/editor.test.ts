@@ -2317,6 +2317,16 @@ test.skipIf(skip)("Settings keeps focus where it is while the editor re-renders 
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("a status message clears itself after a few seconds; a newer one starts its own time", async () => {
+  ui.send("status", { text: "first" });
+  await page.until("document.querySelector('[data-status]').textContent === 'first'");
+  await Bun.sleep(3000);
+  ui.send("status", { text: "second" });
+  await Bun.sleep(3000);
+  expect(await page.evaluate<string>("document.querySelector('[data-status]').textContent")).toBe("second");
+  await page.until("document.querySelector('[data-status]').textContent === ''", 4000);
+}, 15000);
+
 test.skipIf(skip)("holding ⌥ over a selected clip's handles shows the crop cursor, and a ⌥-drag keeps it while cropping", async () => {
   await run("playhead.set", { time: 1 });
   await select([screen.id]);

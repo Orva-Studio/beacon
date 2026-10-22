@@ -106,6 +106,9 @@ export type BinKind = "all" | "video" | "audio" | "image";
 
 let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
+let statusTimer: ReturnType<typeof setTimeout> | undefined;
+/** Long enough to read: 5 s, more for a long message, at most 10. */
+export const statusSeconds = (text: string) => Math.min(10, Math.max(5, text.length / 12));
 
 function set(next: Partial<ViewState>) {
   state = { ...state, ...next };
@@ -288,7 +291,9 @@ export const replica = {
     set({ settings });
   },
   status(status: string) {
+    clearTimeout(statusTimer);
     set({ status });
+    if (status) statusTimer = setTimeout(() => set({ status: "" }), statusSeconds(status) * 1000);
   },
   subscribe(fn: () => void) {
     listeners.add(fn);
