@@ -2133,6 +2133,15 @@ into Beacon, so audio is never edited outside it and nobody installs tuneup
   only costs nothing),
   `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
 
+**Selected-part cleaning done 2026-10-21 (first slice):** Audio Effects ›
+Auphonic opens its settings in the properties panel (preset, Polish,
+Sibilance, the minutes it costs); Clean runs `audio.clean` as a job (toast
+with stages and Cancel); the result goes on a free track over the originals,
+which get a new clip-level Mute (media v2). Key in Settings › Audio. Tested
+against a stand-in server; a first real run waits on the user. Still to do:
+Whole recording (swap the source, Original/Cleaned A/B), checking the preset
+before upload, reusing a cleaned file when the same audio is sent again.
+
 **Polish done 2026-10-21, as a live effect instead of a baked file:** an
 Audio Effects tile, Polish (`adeclick`, `adeclip`, `deesser` added to
 build-tools.ts), drawn like Noise Removal: free, offline, undoable, nothing

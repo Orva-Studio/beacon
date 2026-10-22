@@ -61,3 +61,23 @@ test.skipIf(!existsSync(RECORDING))("Polish (de-click, de-clip, de-ess) changes 
   expect(Buffer.from(samples(join(dir, "off.wav")).buffer).equals(Buffer.from(before.buffer))).toBe(true);
   await core.close(h);
 }, 180_000);
+
+test.skipIf(!existsSync(RECORDING))("a muted clip is out of the mix with its volume kept; unmuted, the sound is back exactly", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-mute") });
+  const h = await core.create({ path: join(dir, "m.beproj") });
+  const r = await core.import(h, [RECORDING]);
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const range = { from: 0, to: 5 };
+  await (await core.export(h, { output: join(dir, "m-before.wav"), ...range })).done;
+  const before = samples(join(dir, "m-before.wav"));
+  const audio = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio");
+  for (const c of audio) await core.run(h, "clip.set", { clip: c.id, props: { audio: { muted: true } } });
+  await (await core.export(h, { output: join(dir, "m-muted.wav"), ...range })).done;
+  const muted = samples(join(dir, "m-muted.wav"));
+  expect(muted.length).toBe(before.length);
+  expect(muted.every((s) => s === 0)).toBe(true);
+  for (const c of audio) await core.run(h, "clip.set", { clip: c.id, props: { audio: { muted: false } } });
+  await (await core.export(h, { output: join(dir, "m-after.wav"), ...range })).done;
+  expect(Buffer.from(samples(join(dir, "m-after.wav")).buffer).equals(Buffer.from(before.buffer))).toBe(true);
+  await core.close(h);
+}, 120_000);

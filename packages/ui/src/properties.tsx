@@ -113,6 +113,7 @@ function ClipProperties({
             onChange={(v, key) => edit("audio", { gain: v / 100 }, "Boost", key)}
           />
           <div className="ml-[92px] flex flex-col gap-3">
+            <Check label="Mute" checked={!!propsOf<{ muted?: boolean }>(clip, "audio").muted} onChange={(on) => edit("audio", { muted: on }, on ? "Mute Clip" : "Unmute Clip")} />
             <Check label="Mix to mono" checked={false} disabled />
             <Check
               label="Auto-normalize loudness"

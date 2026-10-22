@@ -2161,7 +2161,7 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
 test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
   await page.until("!!document.querySelector('[data-settings-nav]')");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Shortcuts"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Audio", "Shortcuts"]);
   const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
   const first = await size();
   for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
@@ -3335,6 +3335,25 @@ test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audi
   await select([]);
 }, 30_000);
 
+test.skipIf(skip)("Mute in a clip's audio tab takes it out of the mix in one step, keeping its volume", async () => {
+  const audio = clips().find((c) => c.type === "audio")!;
+  const volume = (clip(audio.id).props.audio as { volume: number }).volume;
+  await select([audio.id]);
+  await run("inspector.tab", { tab: "audio" });
+  const box = '[role=checkbox][aria-label="Mute"]';
+  await page.until(`!!document.querySelector('${box}')`);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.click(...(await centre(box)));
+  await arrived(() => (clip(audio.id).props.audio as { muted?: boolean }).muted === true);
+  expect((await ui.core.history(ui.handle)).undo).toHaveLength(steps + 1);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Mute Clip");
+  expect((clip(audio.id).props.audio as { volume: number }).volume).toBe(volume);
+  await page.until(`document.querySelector('${box}').getAttribute('aria-checked') === 'true'`);
+  await ui.core.undo(ui.handle);
+  expect((clip(audio.id).props.audio as { muted?: boolean }).muted).toBe(false);
+  await select([]);
+});
+
 test.skipIf(skip)("Polish in Audio Effects, double-clicked with audio selected: the clip gets it in one step, with Remove Clicks, Repair Clipping and Sibilance; again, it says it is already polished", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const audio = clips().find((c) => c.type === "audio")!;
@@ -3354,6 +3373,69 @@ test.skipIf(skip)("Polish in Audio Effects, double-clicked with audio selected: 
   await run("panel.show", { tool: null });
   await select([]);
 }, 30_000);
+
+test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the selected audio: without a key it says where to add one; with one, the user's presets (Usual-2 first), and Clean runs it as a job with a toast, the cleaned audio over the originals, which are muted", async () => {
+  // Auphonic's API, standing in for the real one (which charges): it sends back what it was given.
+  let upload = "";
+  let polls = 0;
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/presets.json") return Response.json({ data: [{ uuid: "p-a", preset_name: "Podcast" }, { uuid: "p-u", preset_name: "Usual-2" }] });
+      if (url.pathname === "/simple/productions.json") {
+        upload = join(dir, "auphonic-upload.wav");
+        await Bun.write(upload, (await req.formData()).get("input_file") as Blob);
+        return Response.json({ data: { uuid: "prod" } });
+      }
+      if (url.pathname === "/production/prod/start.json") return Response.json({ data: {} });
+      if (url.pathname === "/production/prod/status.json") return Response.json({ data: polls++ < 3 ? { status: 1, status_string: "Audio Processing" } : { status: 3, status_string: "Done" } });
+      if (url.pathname === "/production/prod.json") return Response.json({ data: { output_files: [{ filename: "out.wav", download_url: `${url.origin}/out.wav` }] } });
+      if (url.pathname === "/out.wav") return new Response(Bun.file(upload));
+      return new Response("", { status: 404 });
+    },
+  });
+  process.env.BEACON_AUPHONIC_URL = fake.url.origin;
+  process.env.BEACON_AUPHONIC_POLL_MS = "300";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const audio = clips().find((c) => c.type === "audio")!;
+  try {
+    await select([audio.id]);
+    await run("panel.show", { tool: "audioEffects", properties: true });
+    const tile = `[data-item="audio:auphonic"]`;
+    await page.until(`!!document.querySelector('${tile}')`);
+    await page.dblclick(...(await centre(tile)));
+    await page.until("!!document.querySelector('[data-auphonic-review]')");
+    await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › Audio')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
+    await run("auphonic.close");
+    await page.until("!document.querySelector('[data-auphonic-review]')");
+
+    await ui.core.setSecret("auphonic-api-key", "test-key");
+    await page.dblclick(...(await centre(tile)));
+    await page.until("document.querySelector('[data-auphonic-preset]')?.value === 'p-u'");
+    expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toContain("1 clip");
+    await page.click(...(await centre("[data-auphonic-start]")));
+    await page.until("!document.querySelector('[data-auphonic-review]')");
+    await page.until("(document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? '').includes('Auphonic: Audio Processing')", 10_000);
+    await page.screenshot(join(dir, "auphonic-running.png"));
+    await page.until("!!document.querySelector('[data-task-state=done]')", 20_000);
+    const doc = ui.core.doc(ui.handle);
+    const cleaned = doc.tracks.flatMap((t) => t.clips).find((c) => doc.assets[c.assetId ?? ""]?.name?.endsWith("(Auphonic)"))!;
+    expect(cleaned.effects.map((e) => e.type)).toEqual(["polish"]);
+    expect((clip(audio.id).props.audio as { muted: boolean }).muted).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Clean with Auphonic");
+    expect((await session()).selection).toEqual([cleaned.id]);
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_AUPHONIC_URL;
+    delete process.env.BEACON_AUPHONIC_POLL_MS;
+    await ui.core.setSecret("auphonic-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
 
 test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
   await page.evaluate(`(() => {

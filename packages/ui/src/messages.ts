@@ -30,6 +30,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   recordedSheet: (s) => replica.recordedSheet(s),
   narrating: (n) => replica.narrating(n),
   exportJob: (j) => replica.exportJob(j),
+  taskJob: (j) => replica.taskJob(j),
   importing: (i) => replica.importing(i),
   snapshotSaved: ({ path }) => replica.snapshot(path),
   settingsSheet: (s) => replica.settings(s),

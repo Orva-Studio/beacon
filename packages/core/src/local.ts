@@ -39,6 +39,10 @@ import {
   type SettingsTab,
   type SettingsPatch,
   withEffectParams,
+  type ActionContext,
+  type ActionPlan,
+  type ActionTask,
+  type ActionStep,
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -80,6 +84,12 @@ import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
+
+/** An action's document steps in one transaction, each given the results of those before it when it asks. */
+function runSteps(tx: { run: (command: string, args: unknown) => unknown }, steps: ActionStep[]) {
+  const results: unknown[] = [];
+  for (const s of steps) results.push(tx.run(s.command, typeof s.args === "function" ? (s.args as (r: unknown[]) => unknown)(results) : (s.args ?? {})));
+}
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -430,24 +440,36 @@ export class LocalCore implements BeaconCore {
     }, 300);
   }
 
-  /** An editor action: its editor steps, then its document steps as one undo step, then editor steps that follow from them. */
+  /** An editor action: its editor steps, then its document steps as one undo step, then editor steps that follow from them; a task it starts runs as a job. */
   #runAction(p: OpenProject, action: ActionDef, args: unknown, opts: RunOptions): CommandResult {
     const parsed = action.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${action.id}: ${formatIssues(parsed.error)}`);
-    const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref });
+    const plan = action.resolve(parsed.data, this.#actionContext(p));
     const label = opts.label ?? plan.label;
     if (opts.dryRun) {
-      const r = plan.steps?.length ? p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {})), { dryRun: true }) : undefined;
-      const lines = [...(plan.before ?? []), ...(plan.steps ?? [])].map((s) => `${s.command} ${JSON.stringify(s.args ?? {})}`);
+      const r = plan.steps?.length ? p.store.transaction(label, (tx) => runSteps(tx, plan.steps!), { dryRun: true }) : undefined;
+      const lines = [...(plan.before ?? []), ...(plan.steps ?? [])].map((s) => `${s.command} ${typeof s.args === "function" ? "(from the steps before it)" : JSON.stringify(s.args ?? {})}`);
+      if (plan.task) lines.push(`then in the background: ${plan.task.label}`);
       return { label, patches: r?.patches ?? [], inverse: r?.inverse ?? [], results: r?.results ?? [], diff: [...lines, ...(r?.diff ?? [])], dryRun: true };
     }
+    const result = this.#applyPlan(p, plan, label);
+    if (!plan.task) return result;
+    const job = this.#startTask(p, plan.task);
+    return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };
+  }
+
+  #actionContext(p: OpenProject): ActionContext {
+    const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
+    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref };
+  }
+
+  #applyPlan(p: OpenProject, plan: ActionPlan, label: string): CommandResult {
     const before = p.session.state;
     let result: CommandResult;
     try {
       for (const s of plan.before ?? []) p.session.run(s.command, s.args, p.store.doc);
       result = plan.steps?.length
-        ? this.#saved(p, p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {}))))
+        ? this.#saved(p, p.store.transaction(label, (tx) => runSteps(tx, plan.steps!)))
         : { label, patches: [], inverse: [], results: [], diff: [], dryRun: false };
     } catch (e) {
       // A Cut that couldn't delete must not have replaced the clipboard either.
@@ -461,6 +483,37 @@ export class LocalCore implements BeaconCore {
       return { ...result, diff: [...result.diff, `(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`] };
     }
     return result;
+  }
+
+  /** An action's background work; its edit is planned on the document as it is when the work is done. */
+  #startTask(p: OpenProject, task: ActionTask): Job {
+    return this.#parts.startJob(p, "task", task.label, async (progress) => {
+      const mediaDir = join(p.path, "media");
+      mkdirSync(mediaDir, { recursive: true });
+      const finish = await task.run({
+        progress,
+        secret: (id) => this.#config.secrets.get(id),
+        pref: p.data.pref,
+        mediaDir,
+        bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, path),
+        asset: async (path, kind) => ({ kind, path, fingerprint: fileFingerprint(path), derived: await probeAsset(path) }),
+      });
+      if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
+      const plan = finish(this.#actionContext(p));
+      const had = new Set(Object.keys(p.store.doc.assets));
+      const r = this.#applyPlan(p, plan, plan.label);
+      const added = Object.keys(p.store.doc.assets).filter((a) => !had.has(a));
+      if (added.length) this.#analyses.importAnalyses(p, added);
+      return { label: plan.label, results: r.results };
+    });
+  }
+
+  /** These clips' audio alone, as the timeline plays it over the range, written to a WAV. */
+  async #bounceAudio(p: OpenProject, clips: string[], range: { from: number; to: number }, path: string) {
+    const keep = new Set(clips);
+    const doc = { ...p.store.doc, tracks: p.store.doc.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => keep.has(c.id)) })) };
+    mkdirSync(dirname(path), { recursive: true });
+    await renderProject(doc, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
   }
 
   async transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts: { dryRun?: boolean } = {}): Promise<CommandResult> {
@@ -734,7 +787,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {

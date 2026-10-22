@@ -129,6 +129,10 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
         send("media", { analyzing: { ...analyzing }, analysisFailed: { ...analysisFailed } });
       }
       if (job.state === "done" && job.kind === "waveform") sendWaveforms();
+      if (job.kind === "task") {
+        const { id, label, stage, progress, state, error } = job;
+        send("taskJob", { id, label, ...(stage ? { stage } : {}), progress, state, ...(error ? { error } : {}) });
+      }
       hooks.other?.(e);
     } else if (e.kind === "importing") {
       const { kind: _, ...files } = e;

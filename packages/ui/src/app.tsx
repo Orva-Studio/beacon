@@ -22,6 +22,7 @@ import { ImportProgress } from "./import-progress";
 import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
@@ -186,7 +187,9 @@ export function App({ host }: { host: Host }) {
           </div>
           {session?.panels.properties &&
             project &&
-            (reviewOf(session) ? (
+            (auphonicReviewOf(session) ? (
+              <AuphonicPanel project={project} session={session} host={host} />
+            ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
               <FillerReviewPanel project={project} host={host} found={fillers} />
@@ -243,6 +246,7 @@ export function App({ host }: { host: Host }) {
         <RecordUi host={host} />
         <Toasts>
           <ExportToast host={host} />
+          <TaskToasts host={host} />
           <SnapshotSaved host={host} />
           <ImportProgress project={project} />
         </Toasts>

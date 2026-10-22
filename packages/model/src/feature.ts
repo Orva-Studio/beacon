@@ -372,6 +372,8 @@ export interface QueryContext {
   pref: Preferences;
   /** The editor's state, when the query is about an open project (the safe areas shown). */
   session?: Session;
+  /** A secret's value (an API key), undefined when it isn't set; only for queries about an open project. */
+  secret?: (id: string) => Promise<string | undefined>;
 }
 
 /** A read of the document or derived data (PLAN §7), exposed to agents like commands. */
@@ -399,7 +401,8 @@ export interface ExportFileDef {
 
 export interface ActionStep {
   command: string;
-  args?: unknown;
+  /** A function: given the results of the steps before it in the same undo step (an added asset's id, to place it). */
+  args?: unknown | ((results: unknown[]) => unknown);
 }
 
 /** What an action does, as commands: editor commands before and after, document commands between as one undo step. */
@@ -410,6 +413,31 @@ export interface ActionPlan {
   steps?: ActionStep[];
   /** Given the document commands' return values (e.g. pasted clip ids). */
   after?: (results: unknown[]) => ActionStep[];
+  /** Slow work started once the steps are done (audio sent to Auphonic), its edit made when it finishes. */
+  task?: ActionTask;
+}
+
+/**
+ * An action's background job: with progress and cancel (`jobSignal()` aborts its requests; its tools are killed),
+ * then `run`'s answer gives the edit, planned on the document as it is by then and made as one undo step.
+ */
+export interface ActionTask {
+  /** The job's name ("Clean with Auphonic"). */
+  label: string;
+  run: (env: TaskEnv) => Promise<(ctx: ActionContext) => ActionPlan>;
+}
+
+export interface TaskEnv {
+  /** 0–1, with what it is doing ("Uploading"). */
+  progress: (fraction: number, stage?: string) => void;
+  secret: (id: string) => Promise<string | undefined>;
+  pref: Preferences;
+  /** The project's media folder: files the task makes are kept there, with the project. */
+  mediaDir: string;
+  /** Writes these clips' audio alone, as heard on the timeline over [from, to) seconds, to a WAV. */
+  bounceAudio: (clips: string[], range: { from: number; to: number }, path: string) => Promise<void>;
+  /** A file the task made, probed, as `asset.add` takes it. */
+  asset: (path: string, kind: "audio" | "video" | "image") => Promise<Omit<Asset, "id">>;
 }
 
 export interface ActionContext {

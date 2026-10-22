@@ -33,7 +33,7 @@ export class Jobs {
   /** `emit`: every job's changes, whichever project it is for (core's app-wide events). */
   constructor(readonly emit: (e: { kind: "job"; job: JobInfo }) => void) {}
 
-  start(kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, opts: JobOptions = {}): Job {
+  start(kind: string, label: string, fn: (progress: (f: number, stage?: string) => void) => Promise<unknown>, opts: JobOptions = {}): Job {
     const id = randomId("job", 8);
     const entry: JobEntry = {
       info: { id, kind, label, state: "running", progress: 0, ...(opts.asset ? { asset: opts.asset } : {}) },
@@ -53,9 +53,11 @@ export class Jobs {
     this.#forgetFinished();
     entry.done = jobProcesses
       .run(entry.processes, () =>
-        fn((f) => {
+        fn((f, stage) => {
           entry.info.progress = Math.min(1, Math.max(0, f));
-          if (Math.floor(entry.info.progress * 100) > shown) {
+          const staged = stage !== undefined && stage !== entry.info.stage;
+          if (staged) entry.info.stage = stage;
+          if (staged || Math.floor(entry.info.progress * 100) > shown) {
             shown = Math.floor(entry.info.progress * 100);
             report();
           }

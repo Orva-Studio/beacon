@@ -32,7 +32,7 @@ export interface CoreParts {
   emit(p: OpenProject, e: CoreEvent): void;
   /** Autosave after a change; a failed save is the caller's error. */
   saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T;
-  startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job;
+  startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number, stage?: string) => void) => Promise<unknown>, subject?: string, asset?: string): Job;
 }
 
 /** Short enough for agents to read back; unique enough within one project. */

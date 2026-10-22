@@ -21,11 +21,14 @@ export interface TranscriptsHost {
  * transcribes (Whisper on this Mac, Apple's transcriber, or Whisper through OpenAI's API), with Whisper's model when
  * it is the one chosen; who picks the best take. `changed` gets every preference after a change, as a key is shared.
  */
-export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your audio is uploaded to OpenAI to be transcribed", offline, model, close, host, changed }: {
+export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your audio is uploaded to OpenAI to be transcribed", charges = "OpenAI", placeholder = "sk-…", offline, model, close, host, changed }: {
   pref: PreferenceInfo;
   label?: string;
   /** What the online option sends, in the key's hint. */
   sends?: string;
+  /** Who bills the user for it. */
+  charges?: string;
+  placeholder?: string;
   /** What works while offline, after "You're offline: X can't … until you're back online.". */
   offline?: string;
   model?: ResourceInfo;
@@ -95,7 +98,7 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
           label="API Key"
           hint={
             <div className="mt-1 text-caption text-text-faint">
-              <span className="text-warning">{sends}</span>, and OpenAI charges your account. The key is kept in this Mac's Keychain, never in a
+              <span className="text-warning">{sends}</span>, and {charges} charges your account. The key is kept in this Mac's Keychain, never in a
               file.
               {error && <div className="mt-1 text-danger">{error}</div>}
             </div>
@@ -114,7 +117,7 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
                 {...PLAIN_TEXT}
                 type="password"
                 autoComplete="new-password"
-                placeholder="sk-…"
+                placeholder={placeholder}
                 className="min-w-0 flex-1 rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent"
                 value={key}
                 onChange={(e) => (setKey(e.target.value), setError(undefined))}

@@ -286,8 +286,8 @@ export function drawTimeline(t: TimelineDrawing) {
       const cw = Math.max(1, (b - a) * pps - 1.5);
       const selected = session.selection.includes(clip.id);
       const teal = audio && selected;
-      // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
-      const silent = audio && !!t.muted;
+      // A muted track's or clip's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
+      const silent = audio && (!!t.muted || !!(clip.props.audio as { muted?: boolean } | undefined)?.muted);
       ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * alpha * (t.locked ? 0.6 : 1);
       ctx.save();
       ctx.beginPath();

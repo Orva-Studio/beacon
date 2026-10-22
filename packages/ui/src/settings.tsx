@@ -26,6 +26,7 @@ const SECTIONS: { id: SettingsTab; title: string }[] = [
   { id: "general", title: "General" },
   { id: "recording", title: "Recording" },
   { id: "transcripts", title: "Transcripts" },
+  { id: "audio", title: "Audio" },
   { id: "shortcuts", title: "Shortcuts" },
 ];
 
@@ -55,6 +56,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
   const [prefs, setPrefs] = useState(preferences);
   const transcriber = prefs?.find((p) => p.id === "transcriber");
   const judge = prefs?.find((p) => p.id === "retake-judge");
+  const auphonic = prefs?.find((p) => p.id === "auphonic");
   return (
     <Modal title="Settings" width={760} onClose={close}>
       <div className="flex gap-4" style={{ height: HEIGHT }} data-settings-window>
@@ -145,6 +147,11 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                 />
               )}
               {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} />}
+            </div>
+          )}
+          {tab === "audio" && auphonic && (
+            <div className="flex flex-col gap-3">
+              <TranscriptsSettings pref={auphonic} label="Auphonic" sends="The audio you clean is uploaded to Auphonic" charges="Auphonic" placeholder="Your Auphonic API key" close={close} host={host} changed={setPrefs} />
             </div>
           )}
           {tab === "shortcuts" && <ShortcutsSettings host={host} />}

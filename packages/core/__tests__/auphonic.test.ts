@@ -1,0 +1,131 @@
+import { afterAll, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { tool } from "@beacon/media";
+import { ticksToSeconds } from "@beacon/model";
+import { LocalCore } from "../src";
+
+const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
+const RECORDING = join(FIXTURES, "recording.trec");
+const dir = mkdtempSync(join(tmpdir(), "beacon-auphonic-"));
+
+/**
+ * Auphonic's API as tuneup uses it, standing in for the real one (which charges): "Echo" sends back what it was
+ * given, so the result must line up to the sample; "Cutter" trims a second off, as a preset that cuts silences would.
+ */
+const uploads: { preset: string; key: string }[] = [];
+let polls = 0;
+const server = Bun.serve({
+  port: 0,
+  async fetch(req) {
+    const url = new URL(req.url);
+    const key = req.headers.get("authorization") ?? "";
+    if (key !== "Bearer test-key") return new Response("bad key", { status: 401 });
+    if (url.pathname === "/presets.json") return Response.json({ data: [{ uuid: "p-echo", preset_name: "Echo" }, { uuid: "p-cut", preset_name: "Cutter" }] });
+    if (url.pathname === "/simple/productions.json") {
+      const form = await req.formData();
+      const preset = String(form.get("preset"));
+      await Bun.write(join(dir, "uploaded.wav"), form.get("input_file") as Blob);
+      uploads.push({ preset, key });
+      return Response.json({ data: { uuid: `prod-${preset}` } });
+    }
+    const m = url.pathname.match(/^\/production\/(prod-[\w-]+)(\/status|\/start)?\.json$/);
+    if (m?.[2] === "/start") return Response.json({ data: {} });
+    if (m?.[2] === "/status") return Response.json({ data: (polls++ % 2 ? { status: 3, status_string: "Done" } : { status: 1, status_string: "Audio Processing" }) });
+    if (m) return Response.json({ data: { output_files: [{ format: "mp3", filename: "out.mp3", download_url: `${url.origin}/download/out.mp3` }, { format: "wav", filename: "out.wav", download_url: `${url.origin}/download/${m[1]}.wav` }] } });
+    if (url.pathname === "/download/prod-p-echo.wav") return new Response(Bun.file(join(dir, "uploaded.wav")));
+    if (url.pathname === "/download/prod-p-cut.wav") {
+      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.wav"), "-ss", "1", join(dir, "cut.wav")]);
+      return new Response(Bun.file(join(dir, "cut.wav")));
+    }
+    return new Response("not found", { status: 404 });
+  },
+});
+process.env.BEACON_AUPHONIC_URL = server.url.origin;
+process.env.BEACON_AUPHONIC_POLL_MS = "10";
+afterAll(() => {
+  server.stop(true);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const RATE = 8000;
+const samples = (path: string) => new Float32Array(Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-i", path, "-ac", "1", "-ar", String(RATE), "-f", "f32le", "-"]).stdout.buffer);
+
+test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as heard goes up with the preset, and what comes back sits over it on a track of its own, the originals muted, one undo step; a preset that cuts is refused", async () => {
+  const secrets = new Map<string, string>();
+  const core = new LocalCore({ cacheDir: join(dir, "cache"), configDir: join(dir, "config"), secrets: { get: async (id) => secrets.get(id), set: async (id, v) => void (v === null ? secrets.delete(id) : secrets.set(id, v)) } });
+  const h = await core.create({ path: join(dir, "p.beproj") });
+  const r = await core.import(h, [RECORDING]);
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const audio = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio");
+  await core.run(h, "selection.set", { clips: audio.map((c) => c.id), linked: false });
+  const range = { from: 0, to: 8 };
+  await (await core.export(h, { output: join(dir, "before.wav"), ...range })).done;
+
+  // No key yet: the job says where to add one.
+  const noKey = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
+  await expect(waitJob(core, noKey.job)).rejects.toThrow(/no Auphonic API key: add one in Settings › Audio/);
+  secrets.set("auphonic-api-key", "test-key");
+  expect(((await core.query(h, "auphonic.presets", {})) as { name: string }[]).map((p) => p.name)).toEqual(["Echo", "Cutter"]);
+
+  const steps = (await core.history(h)).undo.length;
+  const started = (await core.run(h, "audio.clean", { preset: "Echo", polish: false })).results.at(-1) as { job: string };
+  await waitJob(core, started.job);
+  expect(uploads.at(-1)).toEqual({ preset: "p-echo", key: "Bearer test-key" });
+  const history = (await core.history(h)).undo;
+  expect(history.length - steps).toBe(1);
+  expect(history.at(-1)).toBe("Clean with Auphonic");
+  const doc = core.doc(h);
+  const cleaned = Object.values(doc.assets).find((a) => a.name?.endsWith("(Auphonic)"))!;
+  expect(cleaned.path.startsWith(join(dir, "p.beproj", "media"))).toBe(true);
+  expect(cleaned.path.endsWith(".cleaned.wav")).toBe(true);
+  const placed = doc.tracks.flatMap((t) => t.clips).filter((c) => c.assetId === cleaned.id);
+  expect(placed).toHaveLength(1);
+  expect(ticksToSeconds(placed[0]!.start)).toBe(ticksToSeconds(Math.min(...audio.map((c) => c.start))));
+  for (const c of audio) expect((doc.tracks.flatMap((t) => t.clips).find((x) => x.id === c.id)!.props.audio as { muted: boolean }).muted).toBe(true);
+  expect((await core.session(h)).selection).toEqual([placed[0]!.id]);
+  // Heard instead of the originals, it sounds the same, in step.
+  await (await core.export(h, { output: join(dir, "after.wav"), ...range })).done;
+  const [a, b] = [samples(join(dir, "before.wav")), samples(join(dir, "after.wav"))];
+  expect(b.length).toBe(a.length);
+  // In step to the sample and as loud, only a WAV's rounding apart.
+  let [rms, ea, eb] = [0, 0, 0];
+  for (let i = 0; i < a.length; i++) [rms, ea, eb] = [rms + (a[i]! - b[i]!) ** 2, ea + a[i]! ** 2, eb + b[i]! ** 2];
+  expect(Math.sqrt(rms / a.length)).toBeLessThan(0.003);
+  expect(Math.abs(10 * Math.log10(eb / ea))).toBeLessThan(0.5);
+  let [lag, score] = [0, -Infinity];
+  for (let d = -80; d <= 80; d++) {
+    let sum = 0;
+    for (let i = 100; i < a.length - 100; i++) sum += a[i]! * (b[i + d] ?? 0);
+    if (sum > score) [score, lag] = [sum, d];
+  }
+  expect(lag).toBe(0);
+  await core.undo(h);
+  expect(core.doc(h).tracks.flatMap((t) => t.clips).some((c) => c.assetId === cleaned.id)).toBe(false);
+
+  // With Polish, the cleaned clip has it.
+  await core.run(h, "selection.set", { clips: audio.map((c) => c.id), linked: false });
+  await waitJob(core, ((await core.run(h, "audio.clean", { preset: "p-echo" })).results.at(-1) as { job: string }).job);
+  const polished = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.effects.some((e) => e.type === "polish"));
+  expect(polished).toHaveLength(1);
+  await core.undo(h);
+
+  // A preset that cuts: refused, nothing placed, the file kept.
+  await core.run(h, "selection.set", { clips: audio.map((c) => c.id), linked: false });
+  const before = (await core.history(h)).undo.length;
+  const cut = (await core.run(h, "audio.clean", { preset: "Cutter" })).results.at(-1) as { job: string };
+  await expect(waitJob(core, cut.job)).rejects.toThrow(/turn off cutting/);
+  expect((await core.history(h)).undo.length).toBe(before);
+  await expect(core.run(h, "audio.clean", { preset: "Nope" }).then((x) => waitJob(core, (x.results.at(-1) as { job: string }).job))).rejects.toThrow(/no Auphonic preset "Nope"; there are: Echo, Cutter/);
+  await core.close(h);
+}, 180_000);
+
+async function waitJob(core: LocalCore, id: string) {
+  for (;;) {
+    const j = await core.job(id);
+    if (j.state === "done") return j.result;
+    if (j.state === "failed") throw new Error(j.error);
+    await Bun.sleep(20);
+  }
+}

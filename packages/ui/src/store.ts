@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, ImportingFiles, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, ImportingFiles, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet, TaskJob } from "./rpc";
 
 enablePatches();
 
@@ -67,6 +67,8 @@ export interface ViewState {
   narrating?: Narrating;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
+  /** Features' background jobs, running or finished, until dismissed. */
+  tasks: TaskJob[];
   /** Imports under way or just finished, by id, until their panel is dismissed. */
   imports: Record<string, ImportingFiles>;
   /** Imports whose panel was dismissed while their files were still read: their tiles stay, the panel doesn't come back. */
@@ -100,7 +102,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -212,6 +214,12 @@ export const replica = {
   },
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });
+  },
+  taskJob(job: TaskJob) {
+    set({ tasks: [...state.tasks.filter((t) => t.id !== job.id), job] });
+  },
+  dismissTask(id: string) {
+    set({ tasks: state.tasks.filter((t) => t.id !== id) });
   },
   importing(i: ImportingFiles) {
     if (state.importsHidden.includes(i.id) && i.state !== "reading") {

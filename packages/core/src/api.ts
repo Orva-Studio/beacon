@@ -151,6 +151,8 @@ export interface JobInfo {
   state: JobState;
   /** 0–1. */
   progress: number;
+  /** What it is doing now, when it goes through stages ("Uploading", "Auphonic: Audio Processing"). */
+  stage?: string;
   result?: unknown;
   error?: string;
   /** Seconds since the job started. */

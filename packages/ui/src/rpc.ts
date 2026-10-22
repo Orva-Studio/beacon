@@ -18,6 +18,15 @@ export { canvasChange } from "./canvas-values";
 export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */
+export interface TaskJob {
+  id: string;
+  label: string;
+  stage?: string;
+  progress: number;
+  state: "running" | "done" | "failed";
+  error?: string;
+}
+
 /** An effect's params shown on the canvas without an edit. */
 export interface EffectPreview {
   clip: string;
@@ -422,6 +431,8 @@ export type AppRPC = {
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;
       exportJob: ExportJob;
+      /** A feature's background job (Clean with Auphonic): its stage and progress, then how it ended. */
+      taskJob: TaskJob;
       importing: ImportingFiles;
       /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
       favorites: { items: string[] };
