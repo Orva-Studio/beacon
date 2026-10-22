@@ -26,6 +26,7 @@ if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
 const { captureWindow, DEFAULT_SOCKET, focusPage, LocalCore, serveCore, windowNumber } = await import("@beacon/core");
 const { initPayload, appBridge, coreRequests, projectBridge, settingsSheet } = await import("@beacon/ui");
 const { createRecording } = await import("./recording");
+const { askFor } = await import("./permissions");
 const { createMenus } = await import("./menus");
 const { createProjects } = await import("./projects");
 const { createViews } = await import("./views");
@@ -361,12 +362,13 @@ function openWindow(): Win {
         stopNarration: (params) => reply(() => recorder.stopNarration(params)),
         recordPreview: (devices) => {
           recorder.clearFrames();
-          return reply(() =>
-            core.recorderPreview(devices, (e) => {
+          return reply(async () => {
+            if (await askFor(core, devices)) w.message("recordDevices", await core.recorderDevices());
+            return core.recorderPreview(devices, (e) => {
               if (!("devicesChanged" in e)) return recorder.previewEvent(e, (p) => w.message("recordPreview", p));
               void core.recorderDevices().then((d) => w.message("recordDevices", d), () => {});
-            }),
-          );
+            });
+          });
         },
         recordFrames: ({ after }) => recorder.newerFrames(after),
         testBeep: (params) => recorder.testBeep(params),

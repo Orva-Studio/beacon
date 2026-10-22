@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## 0.11.1 (`fix/ask-permissions-early`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| The Record dialog (and narration) asks macOS for the camera and microphone it shows ticked as it opens or as one is ticked, before its preview starts, once per source not yet asked about; it asked only at Record, the prompt coming over the countdown, the dialog meanwhile saying "Needs permission" | 2026-10-22 | this commit | Desktop test with a stand-in core (the ticked camera asked about, the microphone once ticked, neither again, nothing unticked). The prompt itself only by hand |
+
+### Not checked yet
+
+- Camera permission: `tccutil reset Camera dev.beacon.editor`, open Beacon, File › Record… with Camera ticked: macOS asks straight away (not at Record), and once allowed the camera preview shows.
+
 ## Phase 11 (`phase-11`)
 
 ### Checked by hand
