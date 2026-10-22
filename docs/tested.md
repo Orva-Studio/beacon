@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 11 (`phase-11`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Choosing a look in Film Look's Look menu no longer shows a note of what it can't reproduce ("Not in Film Look, from…"), and takes away one left by an imported `.hlook` (whose note still shows) | 2026-10-22 | this commit | UI flow (no note after CineStill 800T; an import's note gone once a look is chosen; fails without the change) |
+
+### Not checked yet
+
+- Film Look: choose a look; no "Not in Film Look…" note under the menu.
+
 ## 0.10.1 (`fix/extend-frame-start`)
 
 ### Checked by hand

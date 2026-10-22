@@ -1936,6 +1936,47 @@ Today a track is locked or muted only by its header's padlock and speaker.
 - Test: a UI flow (keys lock and unlock, mute and unmute the selected clip's
   track; a locked track's clips can't then be picked), and `tested.md`.
 
+#### Film Look: a look previewed on hover (the user, 2026-10-21; Phase 11 since 2026-10-22)
+Moving over the Look menu's looks shows each on the canvas at the playhead,
+back as it was when the pointer leaves or the menu closes; nothing is
+applied, saved or put in the undo history until a look is clicked (then one
+undo step, as now). The note of what a chosen look can't reproduce ("Not in
+Film Look, from…") is gone (done 2026-10-22, the user's ask); an imported
+`.hlook`'s still shows.
+
+**Spike (2026-10-22, read through the code, nothing built):**
+- **The menu has to be Beacon's own.** The Look menu is a `<select>`
+  (`properties.tsx`, `data-effect-preset`), whose list WebKit draws natively:
+  no hover reaches the page. It becomes a button opening a list of Beacon's
+  own (in `controls/`, reusable: any effect with `presets`, so LUTs or
+  other preset effects get hover previews too), keyboard-driven as a menu is
+  (↑↓ move and preview, ↩ applies, Esc closes and restores), checked against
+  the Look menu's 41 looks plus Custom.
+- **A preview that isn't an edit.** The canvas renders `LiveView`'s
+  `project()`, today `p.store.doc` (`core/src/local.ts` `attachView`). A
+  preview is an overlay there: core keeps `p.preview = { clip, effect,
+  params }`, `project()` returns the document with those params laid over that
+  one effect (a structural copy of the path, the rest shared), and
+  `view.refresh()` redraws. The store, history, autosave, agents and the
+  timeline never see it; closing the menu clears it and redraws. An RPC
+  `effect.preview` / `effect.previewEnd` (session-like, not a command), also
+  for agents as a tool if useful. Export reads the store, so it can't leak.
+- **Speed:** a redraw at the same frame is the slider path ("an edit redrawn
+  at the settled frame keeps the originals", `playback.ts` `show`), which
+  already feels live when dragging Film Look's sliders; Film Look's passes
+  are GPU work on one frame. A hover is throttled to the newest look (a frame
+  in flight is replaced, not queued), so sweeping down the list stays smooth.
+  To measure when built: hover-to-frame time on 4K originals (`BEACON_PROFILE`).
+- **Edge cases:** the preview ends if the clip or effect is removed, the
+  playhead moves (the preview follows it: it is an overlay on whatever frame
+  is shown), playback starts (ends the preview), or an edit arrives
+  (the overlay is laid on the new document). Several clips selected: the
+  effect's own clip only, as the menu edits one effect.
+- **Tests:** a UI flow (hovering looks changes the canvas's pixels, leaving
+  restores them exactly, no undo step or save; a click applies in one step;
+  ↑↓/↩/Esc), and a core test that the overlay never reaches the document or
+  an export.
+
 #### AI B-roll and animations
 Generated footage or animation over a stretch of the talk, made from what is
 said there, through the user's own API keys, reviewed in the AI panel before
@@ -2305,17 +2346,12 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 
 ## 16. Backlog (ideas parked, not scheduled)
 
-### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
+### Film Look: looks as favourites (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own
   (Custom in the Look menu) saved under a name, starred into Favorites like
   the effect tiles, and applied from there in one undo step. App-wide, as
   favourites are, and readable by agents (`favorites_list`).
-- **Hovering a look previews it on the canvas:** moving over the Look
-  menu's entries (hance's looks and saved ones) shows each on the clip at
-  the playhead, back as it was when the pointer leaves or the menu closes;
-  nothing is applied or added to the undo history until a look is chosen.
-  A native menu reports no hover, so the menu may need to become Beacon's
-  own list.
+- Hovering a look to preview it: Phase 11 (spiked 2026-10-22).
 
 ### Recording metadata features
 `.trec` files also log clicks, keyboard shortcuts, scrolling, the focused app

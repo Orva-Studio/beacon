@@ -2177,7 +2177,7 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and says what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
+test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with no note of what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
   await run("effect.add", { clip: screen.id, type: "film-look" });
   await select([screen.id]);
   await run("inspector.tab", { tab: "effects" });
@@ -2190,9 +2190,8 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and sa
   await arrived(() => fx().params.halation === 0.7);
   expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
-  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('bloom 0.45')");
-  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toStartWith("Not in Film Look, from “CineStill 800T”:");
-  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).not.toContain("split tone");
+  await arrived(() => false, 300);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-report]')")).toBe(false);
   // Its split tone on two hue sliders, the hues along their grooves; Tint just under Warmth.
   expect(fx().params).toMatchObject({ tint: 0.02, splitTone: 0.25, shadowHue: 220, highlightHue: 40 });
   const labels = await page.evaluate<string[]>("[...document.querySelectorAll('label, span, div')].filter((e) => e.children.length === 0).map((e) => e.textContent)");
@@ -2216,13 +2215,16 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and sa
   expect(fx().params.warmth).toBe(2);
   await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
   expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
+  // A look chosen after it takes the note away.
+  await page.evaluate("(() => { const s = document.querySelector('[data-effect-preset]'); s.value = 'default'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await page.until("!document.querySelector('[data-effect-report]')");
   // Cancelled in Finder, nothing changes.
   ui.chooseFile(null);
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await page.evaluate("document.querySelector('[data-effect-import]').click()");
   await Bun.sleep(300);
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
-  for (let i = 0; i < 5; i++) await ui.core.undo(ui.handle);
+  for (let i = 0; i < 6; i++) await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
 }, 30_000);
 

@@ -494,7 +494,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
                       const p = def.presets!.find((x) => x.id === e.target.value);
                       if (!p) return;
                       host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
-                      setReport({ name: p.title, notes: p.notes ?? [] });
+                      setReport(undefined);
                     }}
                     data-effect-preset
                   >
