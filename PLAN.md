@@ -1939,6 +1939,33 @@ Today a track is locked or muted only by its header's padlock and speaker.
   header clicked last is the session's `track` (`track.focus`), lit while
   nothing is selected; in Edit and the ⌄ track menu.
 
+#### NEXT: linked clips move together while dragged (the user, 2026-10-22)
+Dragging a linked clip (a recording's camera and audio), the clips linked to it
+must follow the pointer in the same frame, not one after the other. Look first
+at the timeline's move drag (`timeline.tsx`, the `clip.move` drag with its
+coalesce key): whether the ghost/preview draws only the grabbed clip and the
+linked ones jump when the command lands, or each clip is its own move. Test: a
+UI flow sampling the clips' drawn positions mid-drag, every linked clip at the
+same offset on every frame.
+
+#### NEXT after that: "open in another process" as a dialog (the user, 2026-10-22)
+Today a status line ("… is open in another process (pid … on …)"). Decided:
+no option to turn autosave off for it (two editors would still overwrite each
+other). Instead a dialog naming who has it (the Beacon app, Beacon dev, an
+agent's MCP server), with Open a Copy, Cancel, and for a process with no
+window, ask it to let go (it closes the project; the agent's tools then join
+the app, as `project_open` does). A lock left by a process that is gone is
+cleared without asking (check it already is). Test: a UI flow with the lock
+held by another LocalCore.
+
+#### A leader key (the user, 2026-10-22; a trial in its own commit)
+`:` (as in vi) then a key, with a popup of what can follow: : P palette, : A / : V
+Delete Audio / Video, : U Unlink, : L / : M Lock / Mute Track, : S / : F Remove
+Silences / Filler Words, : C + colour letter a label. Existing keys kept. Shortcuts can be
+sequences everywhere (Keys.then). **Done 2026-10-22**; the user decides after
+using it whether it stays. Unanswered: whether Copy Properties should carry
+volume points.
+
 #### Remove Silences cuts only what is picked (the user, 2026-10-22)
 No cut/keep marking: the silences found are shown, the user selects them
 (click, ⇧-click) and cuts them (Cut Selected, ↩, ⌫), or Cut All. Refused while
