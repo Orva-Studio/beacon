@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Icon, Modal, TextInput } from "./controls";
+import { assetName, type Asset } from "@beacon/model";
+import { Icon, Modal, TextInput, type IconName } from "./controls";
+import { KIND_ICON } from "./media-bin";
 import { AI_TOOLS, allItems, inFavoriteOrder } from "./panel-items";
 import { searchByName } from "./search";
 import { replica, useView } from "./store";
@@ -8,23 +10,29 @@ interface PaletteHost {
   run(command: string, args?: unknown): void;
 }
 
-/** Something the palette adds: what the panels' tiles do on a double-click, or an AI tool's review. */
+/** Something the palette adds: what the panels' tiles do on a double-click, an AI tool's review, or a medium of the bin. */
 interface Entry {
   id: string;
   name: string;
   description: string;
   group: string;
   art?: string;
+  /** A medium's picture, as the Media Bin shows it, else its kind's icon. */
+  thumb?: string;
+  icon?: IconName;
   starred: boolean;
   start: (host: PaletteHost) => void;
 }
+
+const KIND: Record<Exclude<Asset["kind"], "file">, string> = { recording: "Recording", video: "Video", audio: "Audio", image: "Image" };
 
 const search = (entries: Entry[], query: string) => searchByName(entries, query, (e) => e.name, (e) => `${e.name} ${e.description} ${e.group}`);
 
 /**
  * The command palette (⌘K by default): what can be done to clips or added to the timeline, by name or what it
  * does. Annotations are added at the playhead; effects and fades go on the selected clips, as a double-click on
- * their tile does; an AI tool opens its review. Favourites come first.
+ * their tile does; an AI tool opens its review. Favourites come first. Media from the bin, once something is typed (a
+ * big bin would bury the rest), go on the timeline at the playhead.
  */
 export function Palette({ host }: { host: PaletteHost }) {
   const open = useView((v) => !!v.palette && !!v.opened);
@@ -34,6 +42,8 @@ export function Palette({ host }: { host: PaletteHost }) {
 function PaletteUi({ host }: { host: PaletteHost }) {
   const init = useView((v) => v.init);
   const favorites = useView((v) => v.favorites);
+  const assets = useView((v) => v.project?.assets);
+  const thumbs = useView((v) => v.thumbs);
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -42,7 +52,15 @@ function PaletteUi({ host }: { host: PaletteHost }) {
     const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
     return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...tools];
   }, [init, favorites]);
-  const found = useMemo(() => search(entries, query), [entries, query]);
+  const media = useMemo(
+    () =>
+      // As the bin: a LUT or other file a feature imported isn't media to place.
+      Object.values(assets ?? {}).filter((a) => a.kind !== "file").map(
+        (a): Entry => ({ id: `media:${a.id}`, name: assetName(a), description: KIND[a.kind as keyof typeof KIND], group: "Media Bin", thumb: thumbs[`asset:${a.id}`], icon: KIND_ICON[a.kind as keyof typeof KIND_ICON], starred: false, start: (h) => h.run("edit.addMedia", { asset: a.id }) }),
+      ),
+    [assets, thumbs],
+  );
+  const found = useMemo(() => search(query.trim() ? [...entries, ...media] : entries, query), [entries, media, query]);
   useEffect(() => {
     setAt(0);
   }, [query]);
@@ -62,7 +80,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
         <TextInput
           autoFocus
           value={query}
-          placeholder="Add an annotation, an effect, or an AI tool"
+          placeholder="Add an annotation, an effect, an AI tool or media"
           className="w-full py-2 pl-9 text-body"
           data-palette-search
           onChange={(e) => setQuery(e.target.value)}
@@ -76,7 +94,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
           }}
         />
       </div>
-      <div className="mt-2 text-caption text-text-faint">Annotations go in at the playhead; effects on the selected clips</div>
+      <div className="mt-2 text-caption text-text-faint">Annotations and media go in at the playhead; effects on the selected clips</div>
       <div ref={list} className="-mx-2 mt-2 max-h-[min(420px,60vh)] overflow-y-auto" role="listbox">
         {found.map((e, i) => (
           <div
@@ -89,7 +107,12 @@ function PaletteUi({ host }: { host: PaletteHost }) {
             onPointerMove={() => i !== at && setAt(i)}
             onClick={() => choose(e)}
           >
-            <span className={`aspect-[3/2] w-12 shrink-0 rounded-sm bg-groove bg-cover bg-center art-${e.art}`} />
+            <span
+              className={`flex aspect-[3/2] w-12 shrink-0 items-center justify-center rounded-sm bg-groove bg-cover bg-center text-text-disabled ${e.art ? `art-${e.art}` : ""}`}
+              style={e.thumb ? { backgroundImage: `url(${JSON.stringify(e.thumb)})` } : undefined}
+            >
+              {!e.thumb && e.icon && <Icon name={e.icon} size={18} />}
+            </span>
             <div className="min-w-0 flex-1">
               <div className={`flex items-center gap-1.5 truncate ${i === at ? "text-text-strong" : "text-text"}`}>
                 {e.name}

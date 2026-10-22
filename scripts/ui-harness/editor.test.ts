@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
+import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
@@ -1393,6 +1393,29 @@ test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressi
   await page.until("!document.querySelector('[data-shortcuts]')");
   await select([]);
 }, 30000);
+
+test.skipIf(skip)("the command palette lists the Media Bin once something is typed: a medium by name, with its kind, goes on the timeline at the playhead", async () => {
+  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
+  const recording = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
+  await select([]);
+  await run("playhead.set", { time: 3 });
+  await page.key("k", "KeyK", ["meta"]);
+  await page.until("!!document.querySelector('[data-palette]')");
+  expect((await shown()).some((e) => e.startsWith("media:"))).toBe(false);
+  await type(assetName(recording));
+  const entry = `[data-entry="media:${recording.id}"]`;
+  await page.until(`!!document.querySelector('${entry}')`);
+  expect(await page.evaluate<string>(`document.querySelector('${entry}').textContent`)).toContain("Recording");
+  expect(await page.evaluate<string>(`document.querySelector('${entry}').textContent`)).toContain("Media Bin");
+  const before = clips().length;
+  await page.click(...(await centre(entry)));
+  await page.until("!document.querySelector('[data-palette]')");
+  await arrived(() => clips().length > before);
+  const placed = clips().filter((c) => c.assetId === recording.id && ticksToSeconds(c.start) === 3);
+  expect(placed.length).toBeGreaterThan(0);
+  expect([...(await session()).selection].sort()).toEqual(placed.map((c) => c.id).sort());
+  await ui.core.undo(ui.handle);
+});
 
 test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");

@@ -45,7 +45,7 @@ function sortAssets(assets: Asset[], { by, desc }: { by: BinSort; desc: boolean 
   return desc ? sorted.reverse() : sorted;
 }
 
-const KIND_ICON: Record<Exclude<Asset["kind"], "file">, IconName> = { recording: "monitor-play", image: "image", audio: "music-note", video: "video-camera" };
+export const KIND_ICON: Record<Exclude<Asset["kind"], "file">, IconName> = { recording: "monitor-play", image: "image", audio: "music-note", video: "video-camera" };
 
 /** Frames across a video for scrubbing its tile: one per few pixels of a grid tile. */
 const SCRUB_FRAMES = 30;
