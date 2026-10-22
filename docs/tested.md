@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## 0.10.1 (`fix/extend-frame-start`)
+
+### Checked by hand
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| ⌥-dragging a video clip's start outward holds its first frame before it, as ⌥-dragging its end holds its last frame after it (the start did nothing); ⇧ (or a magnetic track) makes room by moving the clip, its linked sound and what follows, even for a clip at 0; inside a group, not before the group's window | 2026-10-22 | this commit | UI flow (⌥-drag of the start: a still of the clip's first frame before it, the clip where it was; ⌥⇧-drag past 0 at the timeline's start; ⌥⇧-drag of the end; fails without the fix); core test on a recording (linked audio moves with it, refused at 0 without room, refused before a trimmed group's window; fails without the Codex fixes); undo exactness with the start held, rippled. Codex reviewed it; by hand in the dev app 2026-10-22 (⌥-drag of a start with room before it, ⌥⇧-drag at 0 with its sound moving with it, undo, the end as before) |
+
 ## Phase 10.5 (`phase-10.5`)
 
 ### Checked headless only (still to see by hand)

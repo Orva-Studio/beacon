@@ -555,7 +555,10 @@ export function drawTimeline(t: TimelineDrawing) {
     } else if (d?.kind === "trim" && d.extend) {
       const ti = project.tracks.findIndex((t) => t.clips.some((c) => c.id === d.clip));
       const clip = project.tracks[ti]!.clips.find((c) => c.id === d.clip)!;
-      ghost(ticksToSeconds(clip.start + clip.duration), d.t, project.tracks.length - 1 - ti, `Frame of ${label(clip)}`);
+      // Before the start, or with room made (ripple), at the clip's start, the clip moving on after it.
+      const s = ticksToSeconds(clip.start);
+      const [a, b] = d.edge === "end" ? [ticksToSeconds(clip.start + clip.duration), d.t] : d.ripple ? [s, s + (s - d.t)] : [d.t, s];
+      ghost(a, b, project.tracks.length - 1 - ti, `Frame of ${label(clip)}`);
     }
     if (d && snapLine.current !== undefined) {
       ctx.strokeStyle = SELECTED();

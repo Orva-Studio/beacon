@@ -155,10 +155,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  const timeAt = (clientX: number) => {
+  /** The time under `clientX`; `before0` lets it go before the timeline's start (a frame held before a clip at 0, room made for it). */
+  const timeAt = (clientX: number, before0 = false) => {
     const r = canvas.current!.getBoundingClientRect();
     const { start, end } = latest.current.session.timeline;
-    return Math.max(0, start + ((clientX - r.left - HEADER) / Math.max(1, r.width - HEADER)) * (end - start));
+    const t = start + ((clientX - r.left - HEADER) / Math.max(1, r.width - HEADER)) * (end - start);
+    return before0 ? t : Math.max(0, t);
   };
 
   /** Empty time just before `at` (seconds) on the tracks a Shift-drag moves: `track`, or every unlocked one. */
@@ -427,9 +429,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       const clip = latest.current.project.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clip)!;
       const end = ticksToSeconds(clip.start + clip.duration);
       if (d.extend) {
-        if (d.t > end) {
+        const by = d.edge === "start" ? ticksToSeconds(clip.start) - d.t : d.t - end;
+        if (by > 0) {
           settle(d);
-          run("clip.extendFrame", { clip: d.clip, duration: d.t - end, ripple: d.ripple }, "Extend Frame");
+          run("clip.extendFrame", { clip: d.clip, duration: by, edge: d.edge, ripple: d.ripple }, "Extend Frame");
         }
       } else if (Math.abs(d.t - (d.edge === "start" ? ticksToSeconds(clip.start) : end)) > 1e-9) {
         settle(d);
@@ -621,17 +624,21 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const clip = project.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clip)!;
             const a = ticksToSeconds(clip.start);
             const b = ticksToSeconds(clip.start + clip.duration);
-            let t = timeAt(e.clientX);
+            const track = project.tracks.find((tr) => tr.clips.includes(clip))!;
+            const video = clipTypes[clip.type]?.includes("video") ?? false;
+            // ⌥ on the start with room made (Shift, a magnetic track): the frame goes in at the clip's start, so it may be dragged past 0.
+            const room = video && e.altKey && d.edge === "start" && (e.shiftKey || !!track.magnetic);
+            let t = timeAt(e.clientX, room);
             t += snapped([t], new Set([clip.id]), e.ctrlKey);
             // Edges stop at the clips beside them, as the command does; Shift (ripple) pushes them instead.
             if (!e.shiftKey) {
-              const [lo, hi] = trimBounds(project.tracks.find((tr) => tr.clips.includes(clip))!, clip);
+              const [lo, hi] = trimBounds(track, clip);
               t = Math.min(Math.max(t, ticksToSeconds(lo)), ticksToSeconds(hi));
             }
             const frame = 1 / rationalToNumber(project.settings.fps);
             t = d.edge === "start" ? Math.min(t, b - frame) : Math.max(t, a + frame);
-            const video = clipTypes[clip.type]?.includes("video") ?? false;
-            dragState.current = { ...d, t, ripple: e.shiftKey, extend: video && d.edge === "end" && e.altKey && t > b };
+            const extend = video && e.altKey && (d.edge === "end" ? t > b : t < a);
+            dragState.current = { ...d, t, ripple: e.shiftKey || (extend && d.edge === "start" && !!track.magnetic), extend };
             return draw();
           }
           if (d.kind === "marquee") {

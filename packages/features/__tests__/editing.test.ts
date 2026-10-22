@@ -71,6 +71,7 @@ test.skipIf(!existsSync(AI_SLOP))("timeline edits from the editor keep tracks in
     tx.run("timeline.deleteRanges", { ranges: [{ start: mid, end: mid + 2 }] });
     tx.run("clip.trim", { clip: screen.id, end: ticksToSeconds(screen.start + screen.duration) - 1, ripple: true });
     tx.run("clip.extendFrame", { clip: screen.id, duration: 1, ripple: true });
+    tx.run("clip.extendFrame", { clip: screen.id, duration: 1, edge: "start", ripple: true });
     const track = store.doc.tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
     tx.run("track.set", { track: track.id, magnetic: true });
   });
