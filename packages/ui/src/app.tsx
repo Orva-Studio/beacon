@@ -149,10 +149,10 @@ export function App({ host }: { host: Host }) {
       // Return on a focused button or link presses it, as the keyboard user tabbed there to do.
       if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button, a[href], [role=button], [role=menuitem], [role=tab]")) return;
       e.preventDefault();
-      // A silence or filler picked on the timeline: ⌫ cuts it, as Cut This One does.
-      const reviews = replica.get().session?.features.transcript as Partial<Record<"silences" | "fillers", { current?: number }>> | undefined;
-      const picked = (["silences", "fillers"] as const).find((k) => reviews?.[k]?.current !== undefined);
-      if (b.command === "edit.delete" && picked) return host.run(`${picked}.apply`, { one: true });
+      // Silences selected on the timeline: ⌫ cuts them; a filler picked there: ⌫ cuts it, as Cut This One does.
+      const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] }; fillers?: { current?: number } } | undefined;
+      if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");
+      if (b.command === "edit.delete" && reviews?.fillers?.current !== undefined) return host.run("fillers.apply", { one: true });
       runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
@@ -213,18 +213,22 @@ export function App({ host }: { host: Host }) {
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
               dropFiles={host.dropFiles}
-              marks={retakes ? retakeMarks(retakes) : (silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
-              markClick={(m, alt) =>
+              marks={
+                retakes
+                  ? retakeMarks(retakes)
+                  : silences
+                    ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: s.selected ? "cut" : "keep" }))
+                    : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
+              }
+              markClick={(m, alt, shift) =>
                 retakes
                   ? // A click picks the line to look at; a click on one of its takes then keeps that one.
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
                   : silences
-                    ? // A click picks a silence, for ⌫ or Cut This One to cut; ⌥-click turns it to keep or cut.
-                      alt
-                      ? host.run("silences.flip", { at: m.start })
-                      : goTo(host, "silences", m)
+                    ? // A click selects a silence to cut, ⇧-click selects more.
+                      host.run("silences.select", { at: (m.start + m.end) / 2, add: shift })
                     : alt
                       ? goTo(host, "fillers", m)
                       : host.run("fillers.flip", { at: m.start })

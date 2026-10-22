@@ -181,7 +181,7 @@ export function ReviewPanel<T extends Item>(props: {
               <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-keep" /> Kept
             </span>
             <span data-review-hint>
-              {review === "silences" ? `Click one on the timeline to pick it, then ${tip("edit.delete").replace(/^ \((.*)\)$/, "$1") || "Delete"} to cut it; ⌥-click keeps or cuts it.` : "Click one on the timeline to keep or cut it."}
+              Click one on the timeline to keep or cut it.
             </span>
           </>
         )}

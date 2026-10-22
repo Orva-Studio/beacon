@@ -2402,7 +2402,7 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, ⌥-click flips one, a click picks one for ⌫ to cut alone; Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
+test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⇧-click more (again to drop one); Cut Selected or ⌫ cuts those in one undo step and stays open; Cut All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
@@ -2411,8 +2411,8 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.until("!!document.querySelector('[data-silence-review]')");
   // The recording's transcript may still be being made in the background.
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
-  type Found = { silences: { start: number; end: number; cut: boolean }[]; saved: number };
-  const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; keepActive: boolean; flipped: number[] } } | undefined;
+  type Found = { silences: { start: number; end: number; selected: boolean }[]; saved: number; selectedSaved: number };
+  const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; selected: number[] } } | undefined;
   const found = async () => (await ui.core.query(ui.handle, "transcript.silences", (await review())!.silences)) as Found;
   // Its settings are sliders: clicked along, the review follows.
   const track = (i: number) => page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelectorAll('[data-silence-review] .bg-groove')[${i}].getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
@@ -2425,42 +2425,71 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   await run("silences.review", { min: 0.6, keep: 0.3 });
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
-  // An edit while the review is open: the marks and summary describe the timeline as it is now, not as it was.
-  const counts = async () => {
-    const f = await found();
-    const cut = f.silences.filter((x) => x.cut).length;
-    return `${f.silences.length} silences: ${cut} to cut, ${f.silences.length - cut} kept.`;
-  };
+  // An edit while the review is open: the summary describes the timeline as it is now, not as it was.
   const shows = (text: string) => page.until(`(document.querySelector('[data-silences-summary]')?.textContent ?? '').startsWith(${JSON.stringify(text)})`);
-  const reviewed = await counts();
+  const reviewed = `${(await found()).silences.length} silences.`;
   await shows(reviewed);
   await run("timeline.rippleDelete", { ranges: [{ start: 0, end: 30 }] });
-  const edited = await counts();
+  const edited = `${(await found()).silences.length} silences.`;
   expect(edited).not.toBe(reviewed);
   await shows(edited);
   await ui.core.undo(ui.handle);
   await shows(reviewed);
+  // Nothing is picked to begin with: Cut Selected waits for a pick.
   const first = await found();
-  // The widest silence to cut, ⌥-clicked in the middle of its band on the timeline: kept now.
-  const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
+  expect(first.silences.some((x) => x.selected)).toBe(false);
+  expect(await page.evaluate<boolean>("document.querySelector('[data-silences-apply]').disabled")).toBe(true);
+  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("⇧-click to select more");
+  const [wide, next] = [...first.silences].sort((a, b) => b.end - b.start - (a.end - a.start));
   const s = await session();
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   const header = headerWidth(ui.core.doc(ui.handle).tracks);
   const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20, ["alt"]);
-  for (let i = 0; i < 50 && !(await review())?.silences?.flipped.length; i++) await Bun.sleep(50);
-  const flipped = await found();
-  expect(flipped.silences.find((x) => x.start === target.start)!.cut).toBe(false);
-  expect(flipped.saved).toBeLessThan(first.saved);
+  const on = (x: { start: number; end: number }) => [xAt((x.start + x.end) / 2), box.y + box.h - 20] as const;
+  const picked = async (n: number) => {
+    for (let i = 0; i < 50 && (await review())?.silences?.selected.length !== n; i++) await Bun.sleep(50);
+    return (await found()).silences.filter((x) => x.selected);
+  };
+  await page.click(...on(wide!));
+  expect((await picked(1)).map((x) => x.start)).toEqual([wide!.start]);
+  await page.click(...on(next!), ["shift"]);
+  expect((await picked(2)).map((x) => x.start).sort()).toEqual([wide!.start, next!.start].sort());
+  await page.click(...on(wide!), ["shift"]);
+  expect((await picked(1)).map((x) => x.start)).toEqual([next!.start]);
+  // A plain click picks only that one again.
+  await page.click(...on(wide!));
+  await page.click(...on(next!), ["shift"]);
+  await page.until("/^2 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  const chosen = await found();
   const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
   const before = length();
   const undo = (await ui.core.history(ui.handle)).undo.length;
   await page.evaluate("document.querySelector('[data-silences-apply]').click()");
+  await arrived(() => length() < before);
+  expect(before - length()).toBeCloseTo(chosen.selectedSaved, 2);
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  // Still open on the rest, none picked.
+  expect((await review())?.silences?.selected).toEqual([]);
+  expect((await found()).silences.length).toBe(first.silences.length - 2);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // ⌫ cuts the one picked.
+  await page.click(...on(wide!));
+  await picked(1);
+  await page.until("/^1 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
+  await arrived(() => length() < before);
+  expect(before - length()).toBeLessThan(wide!.end - wide!.start);
+  expect(before - length()).toBeGreaterThan(wide!.end - wide!.start - 0.5);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // Cut All: every silence, one undo step, and the review closes.
+  await run("silences.select", {});
+  const all = await found();
+  await page.evaluate("document.querySelector('[data-silences-all]').click()");
   await page.until("!document.querySelector('[data-silence-review]')");
   await arrived(() => length() < before);
-  expect(before - length()).toBeCloseTo(flipped.saved, 2);
-  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
-  expect((await review())?.silences).toBeUndefined();
+  expect(before - length()).toBeCloseTo(all.saved, 2);
   await ui.core.undo(ui.handle);
   expect(length()).toBeCloseTo(before, 3);
   // Opened again and cancelled: nothing cut.
@@ -2469,32 +2498,10 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
-
-  // A plain click picks a silence, keeping it as it was; ⌫ then cuts that one alone, one undo step.
-  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
-  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
-  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("then ⌫ to cut it");
-  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
-  await page.until("(document.querySelector('[data-one-at]')?.textContent ?? '').includes(' of ')");
-  const picked = (await review()) as { silences: { flipped: number[]; current?: number } };
-  expect(picked.silences.flipped).toEqual([]);
-  expect(picked.silences.current).toBeCloseTo(target.start, 2);
-  const cutUndo = (await ui.core.history(ui.handle)).undo.length;
-  await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
-  await arrived(() => length() < before);
-  const each = (await ui.core.query(ui.handle, "transcript.silences", { min: 0.6, keep: 0.3, keepActive: false, flipped: [] })) as Found;
-  expect(each.silences.length).toBe(first.silences.length - 1);
-  expect(before - length()).toBeLessThan(target.end - target.start);
-  expect(before - length()).toBeGreaterThan(target.end - target.start - 0.5);
-  expect((await ui.core.history(ui.handle)).undo.length - cutUndo).toBe(1);
-  await ui.core.undo(ui.handle);
-  expect(length()).toBeCloseTo(before, 3);
-  await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
-  await page.until("!document.querySelector('[data-silence-review]')");
   await run("panel.show", { tool: null });
 }, 150_000);
 
-test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the buttons: ⎋ closes it cutting nothing, ↩ applies it in one undo step; with none open ⎋ still deselects and clears the range", async () => {
+test.skipIf(skip)("a review's Apply and Cancel by their keys, shown on the buttons: ⎋ closes it cutting nothing, ↩ applies it in one undo step (Remove Silences: what is selected); with none open ⎋ still deselects and clears the range", async () => {
   await run("panel.show", { tool: "ai" });
   const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
   const before = length();
@@ -2506,15 +2513,20 @@ test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the b
   };
   await open();
   expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (Esc)");
-  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply All (↩)");
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Cut Selected (↩)");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
   await open();
   const undo = (await ui.core.history(ui.handle)).undo.length;
+  // ↩ cuts what is selected, never every silence.
+  const [one] = ((await ui.core.query(ui.handle, "transcript.silences", {})) as { silences: { start: number; end: number }[] }).silences;
+  await run("silences.select", { at: (one!.start + one!.end) / 2 });
+  await page.until("/^1 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
   await page.key("Enter", "Enter");
-  await page.until("!document.querySelector('[data-silence-review]')");
   await arrived(() => length() < before);
+  await run("silences.close");
+  await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeLessThan(before);
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
   await ui.core.undo(ui.handle);

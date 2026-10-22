@@ -1939,6 +1939,11 @@ Today a track is locked or muted only by its header's padlock and speaker.
   header clicked last is the session's `track` (`track.focus`), lit while
   nothing is selected; in Edit and the ⌄ track menu.
 
+#### Remove Silences cuts only what is picked (the user, 2026-10-22)
+No cut/keep marking: the silences found are shown, the user selects them
+(click, ⇧-click) and cuts them (Cut Selected, ↩, ⌫), or Cut All. Refused while
+two clips with speech play at once. **Done 2026-10-22.**
+
 #### A shorter clip menu (the user, 2026-10-21)
 Gone through item by item with the user: Add Color Label first; Cut, Copy,
 Delete, Unlink, Copy/Paste Properties kept; Ripple Cut, Ripple Delete, Add
