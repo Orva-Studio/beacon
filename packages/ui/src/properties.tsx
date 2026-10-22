@@ -65,9 +65,8 @@ function ClipProperties({
 }) {
   const traits = init?.clipTypes[clip.type] ?? [];
   const tabs = TRAIT_TABS.filter(([trait]) => traits.includes(trait)).map(([, tab]) => tab);
-  const speedShown = useView((v) => v.clipSpeed);
   // Speed is the clip's timing, video and audio alike: its own tab once it has been changed or asked for.
-  if ((clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || speedShown.includes(clip.id))) tabs.push({ id: "speed", title: "Clip Speed", icon: "gauge" });
+  if ((clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || session.inspector === "speed")) tabs.push({ id: "speed", title: "Clip Speed", icon: "gauge" });
   if (clip.effects.length) tabs.push({ id: "effects", title: "Effects", icon: "sparkle" });
   const tab = tabs.find((t) => t.id === session.inspector) ?? tabs[0];
   const value = (group: string, field: string, fallback = 0) => valueAt(clip, session.playhead, group, field, fallback);

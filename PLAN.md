@@ -1939,6 +1939,14 @@ Today a track is locked or muted only by its header's padlock and speaker.
   header clicked last is the session's `track` (`track.focus`), lit while
   nothing is selected; in Edit and the ⌄ track menu.
 
+#### A shorter clip menu (the user, 2026-10-21)
+Gone through item by item with the user: Add Color Label first; Cut, Copy,
+Delete, Unlink, Copy/Paste Properties kept; Ripple Cut, Ripple Delete, Add
+Animation Across Clip and Group/Stitch under More; Hide Properties, Select in
+Media Bin, Add Clip Speed and Split at Playhead removed. Clip Speed became a
+Visual Effects tile. **Done 2026-10-21.** Later (Phase 15): order menus by
+what the user actually uses, counted locally.
+
 #### Film Look: a look previewed on hover (the user, 2026-10-21; Phase 11 since 2026-10-22)
 Moving over the Look menu's looks shows each on the canvas at the playhead,
 back as it was when the pointer leaves or the menu closes; nothing is

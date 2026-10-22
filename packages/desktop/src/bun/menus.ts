@@ -251,32 +251,30 @@ export function createMenus(app: MenusApp) {
       applies(h, "edit.unstitch"),
       applies(h, "edit.stitch"),
     ]);
+    const visual = !!target && core.registry.hasTrait(target.type, "visual");
+    const grouping = [...(open ? [action("group.open")] : []), ...(ungroup ? [action("edit.ungroup")] : group ? [action("edit.group")] : []), ...(unstitch ? [action("edit.unstitch")] : stitch ? [action("edit.stitch")] : [])];
+    // The user's own order (2026-10-21): what they reach for first, the rest under More.
     ContextMenu.showContextMenu([
+      { label: "Add Color Label", submenu: colors },
+      SEPARATOR,
       action("edit.cut"),
       action("edit.copy"),
       SEPARATOR,
       action("edit.delete"),
-      action("edit.rippleCut"),
-      action("edit.rippleDelete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
-      ...(target && core.registry.hasTrait(target.type, "visual") ? [SEPARATOR, action("edit.addAnimationAcross")] : []),
-      SEPARATOR,
-      own("Hide Properties", "hideProperties"),
-      SEPARATOR,
-      own("Select in Media Bin", "selectInBin"),
       SEPARATOR,
       action("edit.copyProperties"),
       action("edit.pasteProperties"),
       SEPARATOR,
-      ...(open ? [action("group.open")] : []),
-      ...(ungroup ? [action("edit.ungroup")] : group ? [action("edit.group")] : []),
-      ...(unstitch ? [action("edit.unstitch")] : stitch ? [action("edit.stitch")] : []),
-      SEPARATOR,
-      { label: "Add Color Label", submenu: colors },
-      SEPARATOR,
-      own("Add Clip Speed", "clipSpeed"),
-      SEPARATOR,
-      action("edit.split", { label: "Split at Playhead" }),
+      {
+        label: "More",
+        submenu: [
+          action("edit.rippleCut"),
+          action("edit.rippleDelete"),
+          ...(visual ? [SEPARATOR, action("edit.addAnimationAcross")] : []),
+          ...(grouping.length ? [SEPARATOR, ...grouping] : []),
+        ],
+      },
       // From the canvas, where media usually covers it all, the canvas's own items too.
       ...(canvas ? [SEPARATOR, action("app.projectSettings"), action("canvas.zoom:fit", { label: "Zoom to Fit" })] : []),
     ]);
@@ -418,17 +416,6 @@ export function createMenus(app: MenusApp) {
   function clipAction(h: string, op: string, clip: string) {
     const run = (command: string, args: unknown = {}) => void core.run(h, command, args).catch(fail);
     if (op.startsWith("label=")) run("edit.label", { color: op === "label=none" ? null : op.slice(6) });
-    // The clip's properties gain a Speed tab.
-    else if (op === "clipSpeed") {
-      message("showClipSpeed", { clip });
-      run("panel.show", { properties: true });
-      run("inspector.tab", { tab: "speed" });
-    } else if (op === "hideProperties") run("panel.show", { properties: false });
-    else if (op === "selectInBin") {
-      const asset = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === clip)?.assetId;
-      run("panel.show", { tool: "media" });
-      if (asset) message("media", { highlight: asset });
-    }
   }
 
   /** The tile whose menu is shown: its item ids have colons, so the click names only the choice. */

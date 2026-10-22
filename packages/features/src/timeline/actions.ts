@@ -310,6 +310,16 @@ export const actions = [
     },
   }),
   defineAction({
+    id: "edit.clipSpeed",
+    description:
+      "Show the selected clips' speed in the properties panel to change it (Visual Effects' Clip Speed); with `clip`, as dropping it on that clip. Set the speed itself with `clip.speed`",
+    args: z.strictObject({ clip: z.string().min(1).optional() }),
+    resolve: ({ clip }, ctx) => {
+      if (!dropTargets(ctx, clip).some((c) => c.assetId || ctx.registry.hasTrait(c.type, "stitched"))) throw new Error(clip ? "only media has a speed" : "select media first");
+      return { label: "Clip Speed", before: [...selectDropped(ctx, clip), { command: "inspector.tab", args: { tab: "speed" } }] };
+    },
+  }),
+  defineAction({
     id: "edit.lockTrack",
     description:
       "Lock the tracks of the selected clips (else the track whose header was clicked last), or unlock them when all are locked; a locked track's clips can't be picked or edited (⌥⇧L)",

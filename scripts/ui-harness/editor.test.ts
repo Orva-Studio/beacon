@@ -128,14 +128,17 @@ test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the ef
   await run("playhead.set", { time: 2 });
 });
 
-test.skipIf(skip)("Clip Speed is a tab once added; editing its duration sets the speed of the selected clip only", async () => {
+test.skipIf(skip)("Clip Speed (a Visual Effects tile, double-clicked) shows the selected clip's speed tab; editing its duration sets the speed of the selected clip only", async () => {
   await select([screen.id]);
   await run("inspector.tab", { tab: "transform" });
   expect(await page.evaluate<boolean>("!!document.querySelector('[title=\"Clip Speed\"]')")).toBe(false);
-  // As the app's Clip Speed menu item does.
-  ui.send("showClipSpeed", { clip: screen.id });
-  await run("inspector.tab", { tab: "speed" });
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('[data-item="visual:clip-speed"]')`);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.dblclick(...(await centre('[data-item="visual:clip-speed"]')));
   await page.until("!!document.querySelector('[title=\"Clip Speed\"]') && document.body.innerText.includes('Minutes')");
+  // Only shown: nothing to undo yet.
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
   const minutes = Math.floor(clip(screen.id).duration / 705_600_000 / 60);
   await page.evaluate(`[...document.querySelectorAll('label')].find(l => l.textContent.endsWith('Minutes')).querySelector('span').click()`);
   await page.until("document.activeElement?.tagName === 'INPUT'");
@@ -149,6 +152,8 @@ test.skipIf(skip)("Clip Speed is a tab once added; editing its duration sets the
   expect(others.length).toBeGreaterThan(0);
   for (const o of others) expect(o.speed).toBeUndefined();
   await run("clip.speed", { clips: [screen.id], speed: null });
+  await run("panel.show", { tool: "media" });
+  await page.until("document.querySelectorAll('[data-asset]').length >= 2");
 });
 
 test.skipIf(skip)("double-clicking a Media Bin item previews it: video with a play bar, an image without", async () => {

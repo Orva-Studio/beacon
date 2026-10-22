@@ -91,8 +91,6 @@ export interface ViewState {
   editingText?: string;
   /** The colour picker's eyedropper is waiting for a click on the canvas: called with its colour (0-1 RGB), or nothing if it failed. */
   picking?: (rgb?: [number, number, number]) => void;
-  /** Clips given a Clip Speed section (Add Clip Speed) though at 1x; a clip at another speed always shows it. */
-  clipSpeed: string[];
   /** The Media Bin's Sort by, and whether it is descending. */
   binSort: { by: BinSort; desc: boolean };
   /** The Media Bin's search, kind filter and layout. */
@@ -102,7 +100,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<ViewState>) {
@@ -263,9 +261,6 @@ export const replica = {
   /** A download finished: the dialog has done its job. */
   resourceJob(resourceJob: ViewState["resourceJob"]) {
     set(resourceJob?.state === "done" ? { resourceJob: undefined, resource: undefined } : { resourceJob });
-  },
-  showClipSpeed(clip: string, on: boolean) {
-    set({ clipSpeed: on ? [...new Set([...state.clipSpeed, clip])] : state.clipSpeed.filter((c) => c !== clip) });
   },
   pick(picking: ViewState["picking"]) {
     set({ picking });

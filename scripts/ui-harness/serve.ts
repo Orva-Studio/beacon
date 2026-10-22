@@ -255,7 +255,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     },
     /** A camera or screen frame (base64 JPEG) for the Record dialog or recording panel to pull. */
     previewFrame,
-    /** A message from the main process, as the app's menus send them (`showClipSpeed`, `rename`...). */
+    /** A message from the main process, as the app's menus send them (`rename`...). */
     send(type: string, data: unknown) {
       for (const ws of sockets) ws.send(JSON.stringify({ type, data }));
     },

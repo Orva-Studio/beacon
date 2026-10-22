@@ -408,8 +408,6 @@ export type AppRPC = {
       /** An analysis needs a resource that isn't downloaded: ask. */
       resourceSheet: ResourceInfo;
       resourceJob: ResourceJob;
-      /** Add Clip Speed: show the clip's Clip Speed section. */
-      showClipSpeed: { clip: string };
       /** A shortcut the native menu took before the page could see it, replayed as a keydown. */
       key: { code: string; meta: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
