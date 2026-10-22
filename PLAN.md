@@ -24,12 +24,12 @@ narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
 (2026-10-18), passed its gate 2026-10-19 but for the agent half (MCP
 with the app open, below). The review's three branches were merged
-2026-10-19 (#18, #19, #20). Next: **Phase 8.5** (everyday
-fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
-any drive), then 9 (workspace and film look), 10 (filmstrips and
-backgrounds), 11 (security audit), 12 (Camtasia export) and 13 (Beacon
-learns how you edit); an in-app
-agent preview (§7, decided 2026-10-17) can come before Phase 9.
+2026-10-19 (#18, #19, #20). Phases 8.5, 9, 10 and 10.5 are merged
+(v0.7.0-v0.10.0; v0.10.1 fixed ⌥-dragging a clip's start, 2026-10-22).
+Next (order set 2026-10-22): **Phase 11** (lock and mute a track by keys,
+AI B-roll and animations, audio cleaning with Auphonic and the local
+polish), 12 (device frames, and a spike on AI camera angles), 13 (security
+audit), 14 (Camtasia export) and 15 (Beacon learns how you edit).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -1921,15 +1921,22 @@ Each fix gets a test on real data that fails without it.
     takes; seen on no take, so not changed.
 **Gate:** each issue fixed on the user's own takes, checked by hand.
 
-### Phase 11 — Device frames (research first; was 10.5 until 2026-10-21)
-The user will bring a lot of information before any work starts: which
-devices, how each frame looks and where its screen sits, what it's for.
-Research and agree the design with them first; nothing is built before.
-- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
-  superimposed on a device (a phone, a laptop, a monitor), fitted into its
-  screen.
+### Phase 11 — Track shortcuts, AI B-roll and animations, and audio cleaning (the user, 2026-10-22; B-roll and cleaning were Phase 12)
+Moved up from Phase 12 on 2026-10-22, with device frames moving to Phase 12.
 
-### Phase 12 — AI B-roll and animations, and Auphonic cleaning (the user, 2026-10-21; moved up from the backlog)
+#### Lock and mute a track by keys (the user, 2026-10-22)
+Today a track is locked or muted only by its header's padlock and speaker.
+- **Lock Track** and **Mute Track** actions, each a toggle: the tracks of the
+  selected clips (else the track under the pointer's last click on a
+  header); all of them locked (muted) if any isn't, else all unlocked
+  (unmuted), one undo step each, named as the header's buttons name them.
+- Default keys free in the keymap (chosen when built, checked against
+  `shortcuts.list`), listed in the shortcuts settings to change, in the
+  timeline menu and the command palette, and as MCP actions.
+- Test: a UI flow (keys lock and unlock, mute and unmute the selected clip's
+  track; a locked track's clips can't then be picked), and `tested.md`.
+
+#### AI B-roll and animations
 Generated footage or animation over a stretch of the talk, made from what is
 said there, through the user's own API keys, reviewed in the AI panel before
 it is placed (as Remove Silences is: agents prepare, the user applies).
@@ -1994,14 +2001,15 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 - **First slice: footage with the drawn region**; animation (HyperFrames)
   after it.
 - **One candidate per shot**, re-rolled on request.
-- Still to settle while building: a spending limit (per generation, asked
-  before it runs, and per project).
+- **Spending limit:** not a worry this phase (the user, 2026-10-22). The
+  cost estimate is shown before anything runs; a limit per generation the
+  user can set in Settings (off by default) is enough.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
 
-#### Auphonic cleaning, built in (the user, 2026-10-21; in Phase 12 beside B-roll)
+#### Audio cleaning: Auphonic and the local polish, built in (the user, 2026-10-21; in Phase 11 beside B-roll since 2026-10-22)
 Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too:
 what their `tuneup` CLI does (`~/tuneup`, v0.3.0, MIT, theirs: an Auphonic
 preset in the cloud, then a local de-click, de-clip and de-ess pass), built
@@ -2069,10 +2077,76 @@ into Beacon, so audio is never edited outside it and nobody installs tuneup
   only costs nothing),
   `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
 
-**Decided (the user, 2026-10-21):** built in Phase 12 beside B-roll (both
+**Decided (the user, 2026-10-21; Phase 11 since 2026-10-22):** built beside B-roll (both
 are paid cloud jobs reviewed in the sidebar); the selected part by default.
 **Open:** whether audio already cleaned is reused when exactly the same
 audio is sent again (asked). Later: clean only what is kept, at export.
+
+### Phase 12 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11)
+The user will bring a lot of information before any work starts: which
+devices, how each frame looks and where its screen sits, what it's for.
+Research and agree the design with them first; nothing is built before.
+- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
+
+#### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
+Not built in this phase until the spike says how: a new angle of the presenter
+(a close-up, a side profile, a wide) from one take, made with AI and placed as
+a cut to it, the take's own sound kept. The user's lead: **Seedance 2.5**.
+Spending limit: as Phase 11's (a Settings value), not a worry for now.
+
+**What is known (desk research, 2026-10-22).**
+- Seedance 2.5 re-angles an existing clip in its **editing** task:
+  `bytedance/seedance-2.5/reference-to-video` with `task: "editing"` on fal,
+  the take as `@Video1` (MP4/MOV, 1.8-30.2 s, up to 200 MB, 300-6,000 px a
+  side, 24-60 fps), an optional still for wardrobe and set; duration and
+  aspect follow the source ("auto"), 4-30 s out, the length kept to within
+  about 0.4 s. Prompts that work name the camera and lens and lock the rest:
+  "Medium close-up straight in front of him at seated eye level, 50mm feel,
+  locked", "a true 90-degree side profile at eye level", plus "camera
+  placement and lens are the only things you are allowed to change", "real-
+  time playback: no speed change, no retiming", no captions, text or logos.
+  ([fal guide](https://fal.ai/learn/tools/how-to-create-multi-angle-video-seedance-2-5),
+  [Kapwing](https://www.kapwing.com/resources/how-to-turn-one-clip-into-4-camera-angles-with-ai-seedance-2-5/),
+  [Morphic](https://morphic.com/resources/how-to/seedance-2-5-guide))
+- **Cost:** fal bills tokens (height × width × (input + output seconds) × 24
+  ÷ 1024, ×0.6 with a video input; $0.0214 per 1,000 at 480p/720p, about
+  $0.0234 at 1080p): a 20 s take was $5.18 at 480p, $9.24 at 720p, about
+  $27.40 at 1080p (≈$0.26/s, $0.46/s, $1.36/s). A 480p draft can be finished
+  at 1080p later from its `draft_id` (within seven days).
+- **Sync is not guaranteed:** "An edit cannot guarantee frame-by-frame
+  overlap with the source" (Morphic); Kapwing found speech and timing kept
+  but says to check the lips. So the take's own audio stays the master and
+  the generated picture is muted, checked for drift before it is placed.
+- **Weak points:** the farther the camera moves, the more AI invents (faces
+  drift, "inconsistent facial features"); exact text (a screen, a sign) is
+  for post, so screen recordings never go through it, only the camera; 8-10 s
+  pieces are the practical start.
+- **Replicate** has `bytedance/seedance-2.5` ("provide a reference video and
+  describe changes... preserves the original motion and camera work"), but its
+  page doesn't say whether it has the editing task, its field names or its
+  price ([Replicate](https://replicate.com/bytedance/seedance-2.5)). Phase 11
+  uses the user's Replicate token, so this decides the provider.
+- Earlier research (2026-10-15) still holds: no generation first (a punch-in
+  crop of the 4K source with a small ±5° depth-parallax move) costs nothing
+  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
+  model turning one frame then lip-sync (sync.so); no monocular 4D method
+  holds beyond 10-15° yet.
+
+**The spike (each answered with a real take, the user's go-ahead before any
+paid call, a few dollars at 480p):**
+1. Does Replicate's Seedance 2.5 do the editing task (one call with the
+   schema read from its API), or is fal needed (a second key)?
+2. On a 10 s camera take: a close-up, a side profile and a wide, at 480p:
+   lips against the original audio (offset by cross-correlation of mouth
+   movement, or by eye frame by frame), face and set drift, length kept.
+3. The same against the free punch-in crop: is a close-up worth generating?
+4. Longer takes: 8-10 s pieces cut at pauses (the transcript's), stitched;
+   do the seams show?
+5. Write the result into this plan as a spec in the B-roll review's shape
+   (pick a range, the angle and lens, a draft at 480p with its cost, then
+   1080p; applied as a cut on a camera track, one undo step), or park it.
 
 ### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -2230,21 +2304,6 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
-
-### AI camera angles (the user, 2026-10-15)
-Generated video, through the user's own API keys, reviewed before it is
-placed. AI B-roll, researched with it on 2026-10-15, moved to Phase 12
-(the user, 2026-10-21); this follows the same job shape.
-- **A new camera angle of the presenter**: (1) no generation first: a
-  punch-in crop of the 4K source and a small depth-parallax move (±5°), in
-  Beacon's renderer; (2) video-to-video re-angling in 3-10 s pieces with
-  Seedance 2.5's reference-to-video (the clip and its audio as references;
-  best in independent tests, $0.30-0.70/s, 720p-1080p, re-rolls expected) or
-  Runway Aleph 2.0; (3) experimental: turn one frame with an image model
-  (FLUX 3 Image, Qwen-Image-Edit multiple-angles), animate it from the
-  original's motion, then lip-sync to the original audio (sync.so sync-3).
-  No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
-  lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
 
 ### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own
