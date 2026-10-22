@@ -171,7 +171,7 @@ export class LocalCore implements BeaconCore {
       find: (h) => this.#projects.get(h),
       projects: () => this.#projects.values(),
       emit: (p, e) => this.#emit(p, e),
-      saved: (p, change) => this.#saved(p, change),
+      saved: (p, change, analyse) => this.#saved(p, change, analyse),
       startJob: (p, kind, label, fn, subject, asset) =>
         this.#jobs.start(kind, label, fn, { ...(p ? { project: p.path, report: (e) => this.#emit(p, e) } : {}), ...(subject ? { subject } : {}), ...(asset ? { asset } : {}) }),
     };
@@ -194,7 +194,7 @@ export class LocalCore implements BeaconCore {
     const p: OpenProject = {
       path,
       store,
-      session: new SessionStore(this.registry, doc, this.#shared, this.#pref),
+      session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get),
       data,
       frames: new FrameRenderer(this.registry, this.cacheDir),
       ticking: false,
@@ -514,7 +514,7 @@ export class LocalCore implements BeaconCore {
   /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
   async #bounceAudio(p: OpenProject, clips: string[], range: { from: number; to: number }, path: string) {
     mkdirSync(dirname(path), { recursive: true });
-    await renderProject(onlyClips(p.store.doc, clips).project, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
+    await renderProject(onlyClips(p.store.doc, clips, nestedOf(this.registry)).project, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
   }
 
   async transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts: { dryRun?: boolean } = {}): Promise<CommandResult> {
@@ -768,7 +768,7 @@ export class LocalCore implements BeaconCore {
   }
 
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
-  #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T {
+  #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T, analyse = true): T {
     if (!change || change.dryRun || !change.patches.length) return change;
     this.#analyses.effectJobs(p);
     try {
@@ -778,6 +778,7 @@ export class LocalCore implements BeaconCore {
       this.#emit(p, { kind: "error", message: `could not save ${p.path}: ${e instanceof Error ? e.message : e}` });
       throw new Error(`the change was made but could not be saved to ${p.path}: ${e instanceof Error ? e.message : e}`);
     }
+    if (!analyse) return change;
     // Media an edit brought in (a task's result, a paste, asset.add), as an import would: waveforms, proxies, transcripts.
     const added = (change.patches as { op: string; path: (string | number)[] }[]).flatMap((x) => (x.op === "add" && x.path[0] === "assets" && x.path.length === 2 && p.store.doc.assets[x.path[1]!] ? [String(x.path[1])] : []));
     if (added.length) {
@@ -856,7 +857,7 @@ export class LocalCore implements BeaconCore {
 
   async export(h: ProjectHandle, opts: ExportOptions): Promise<Job> {
     const p = this.#get(h);
-    const only = opts.clips && onlyClips(p.store.doc, opts.clips);
+    const only = opts.clips && onlyClips(p.store.doc, opts.clips, nestedOf(this.registry));
     const missing = only && opts.clips!.find((id) => !only.found.some((c) => c.id === id));
     if (missing) throw new Error(`no clip "${missing}" on the timeline`);
     const project = only ? only.project : p.store.doc;
@@ -942,14 +943,18 @@ export class LocalCore implements BeaconCore {
     const copies = copied.length ? await this.#copyIn(p.path, copied) : [];
     for (const { id, path, fingerprint } of copies) Object.assign(probed[Number(id)]!.asset, { path, fingerprint });
     try {
-      this.#saved(p, p.store.transaction(label, (tx) => {
-        for (const { importer, asset } of probed) {
-          const id = tx.run<string>("asset.add", asset);
-          result.assets.push(id);
-          result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
-          at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
-        }
-      }));
+      this.#saved(
+        p,
+        p.store.transaction(label, (tx) => {
+          for (const { importer, asset } of probed) {
+            const id = tx.run<string>("asset.add", asset);
+            result.assets.push(id);
+            result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
+            at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
+          }
+        }),
+        false,
+      );
     } catch (e) {
       for (const c of copies) rmSync(c.path, { recursive: true, force: true });
       throw e;

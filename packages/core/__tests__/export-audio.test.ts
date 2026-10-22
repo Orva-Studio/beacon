@@ -80,5 +80,11 @@ test.skipIf(!existsSync(RECORDING))("exporting clips (the selection) plays only 
   await (await core.export(h, { output: join(dir, "screen.wav"), clips: [screen.id], from: 3, to: 5 })).done;
   expect(listen(join(dir, "screen.wav")).mean).toBeLessThan(-80);
   await expect(core.export(h, { output: join(dir, "x.wav"), clips: ["clip-nope"] })).rejects.toThrow('no clip "clip-nope" on the timeline');
+  // Inside a group, the piece alone: the group keeps only it.
+  await core.run(h, "clip.group", { clips: [piece.id, screen.id] });
+  await (await core.export(h, { output: join(dir, "grouped.wav"), clips: [piece.id] })).done;
+  const grouped = listen(join(dir, "grouped.wav"));
+  expect(grouped.seconds).toBeCloseTo(ticksToSeconds(piece.duration), 1);
+  expect(Math.abs(grouped.mean - heard.mean)).toBeLessThan(0.5);
   core.closeAll();
 });

@@ -414,14 +414,15 @@ const silenceSessionCommands: SessionCommandDef[] = [
     description:
       "In Remove Silences' review, pick a silence to cut (a click on it on the timeline): `at`, a time inside it, e.g. its start from transcript_silences, replacing the picked ones; with `add`, picked or unpicked alongside them (⇧-click). Without `at`, none picked",
     args: z.strictObject({ at: z.number().nonnegative().optional(), add: z.boolean().default(false) }),
-    apply: (s, { at, add }: { at?: number; add: boolean }) => {
+    apply: (s, { at, add }: { at?: number; add: boolean }, { project, registry, data }) => {
       const r = silenceReview(s);
       if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
       if (at === undefined) return void (r.selected = []);
       if (!add) return void (r.selected = [at]);
-      // The silence picked is found from any time in it: unpicked by any time in the same one, so near times count.
-      const near = r.selected.filter((t) => Math.abs(t - at) < 0.05);
-      r.selected = near.length ? r.selected.filter((t) => !near.includes(t)) : [...r.selected, at];
+      // Any time in a silence picks it, so any time in the same one unpicks it.
+      const hit = silencePlan(project, registry, data, r).silences.find((x) => at >= x.start && at <= x.end);
+      const same = r.selected.filter((t) => (hit ? t >= hit.start && t <= hit.end : Math.abs(t - at) < 0.05));
+      r.selected = same.length ? r.selected.filter((t) => !same.includes(t)) : [...r.selected, at];
     },
   },
   ...reviewSteps("silences", "Remove Silences", "silence").filter((c) => c.id === "silences.close"),

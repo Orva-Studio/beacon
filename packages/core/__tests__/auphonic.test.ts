@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
@@ -169,13 +169,21 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   expect((await core.history(h)).undo.length).toBe(before + 1);
   await core.undo(h);
 
-  // Two cleans at once: each its own file.
-  const twice = await Promise.all([1, 2].map(async () => ((await core.run(h, "audio.clean", { preset: "Echo", polish: false })).results.at(-1) as { job: string }).job));
-  for (const job of twice) await waitJob(core, job);
-  const results = Object.values(core.doc(h).assets).filter((a) => a.name?.endsWith("(Auphonic)")).map((a) => a.path);
-  expect(results).toHaveLength(2);
-  expect(new Set(results).size).toBe(2);
+  // Its sound changed while it cleans (the volume): refused as well.
+  const louder = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
+  await core.run(h, "clip.set", { clip: audio[0]!.id, props: { audio: { gain: 0.5 } } });
+  await expect(waitJob(core, louder.job)).rejects.toThrow(/edited while Auphonic cleaned it/);
   await core.undo(h);
+
+  // Two cleans of the same audio at once: each its own file, but only the first placed (the second's originals
+  // were muted by then).
+  const twice = await Promise.all([1, 2].map(async () => ((await core.run(h, "audio.clean", { preset: "Echo", polish: false })).results.at(-1) as { job: string }).job));
+  const ends = await Promise.allSettled(twice.map((job) => waitJob(core, job)));
+  expect(ends.filter((e) => e.status === "fulfilled")).toHaveLength(1);
+  expect(String((ends.find((e) => e.status === "rejected") as PromiseRejectedResult).reason)).toMatch(/edited while Auphonic cleaned it/);
+  const files = readdirSync(join(dir, "p.beproj", "media")).filter((f) => /\.cleaned( \d+)?\.m4a$/.test(f));
+  expect(new Set(files).size).toBe(files.length);
+  expect(Object.values(core.doc(h).assets).filter((a) => a.name?.endsWith("(Auphonic)"))).toHaveLength(1);
   await core.undo(h);
 
   // A group's audio, the group open: refused before anything is sent (the bounce would be silence, still charged).

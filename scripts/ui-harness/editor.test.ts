@@ -713,6 +713,15 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
   await arrived(() => existsSync(out), 60_000);
   expect(existsSync(out)).toBe(true);
   rmSync(out, { force: true });
+  // Unticked, the project's usual video format; Audio only then still goes back to audio.
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  await page.evaluate("document.querySelector('[data-export-only]').click()");
+  await page.until(`${label("Audio only")} === "false"`);
+  await page.evaluate(`[...document.querySelectorAll('[role=checkbox]')].find((b) => b.getAttribute('aria-label') === 'Audio only').click()`);
+  await page.until(`${label("Audio only")} === "true"`);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-only]')");
 
   await select([camera.id]);
   await page.key("e", "KeyE", ["meta"]);
@@ -730,13 +739,13 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-export-only]')");
 
-  // Clips selected inside an open group: their span, rather than the whole project.
+  // Clips selected inside an open group: only those, as on the main timeline.
   const group = (await run("clip.group", { clips: [camera.id, audio.id] })).results[0] as string;
   await run("group.open", { clip: group });
   await select([camera.id]);
   await page.key("e", "KeyE", ["meta"]);
   await page.until("!!document.querySelector('[data-export-only]')");
-  expect(await page.evaluate<string>("document.querySelector('[data-export-only]').getAttribute('aria-label')")).toStartWith("Export the selection only (");
+  expect(await page.evaluate<string>("document.querySelector('[data-export-only]').getAttribute('aria-label')")).toStartWith("Export the selected clips only (1 clip, ");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-export-only]')");
   await run("group.close", {});

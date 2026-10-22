@@ -189,12 +189,10 @@ export class Analyses {
     });
   }
 
-  /**
-   * An import's analyses, for its result: saving it started them (`LocalCore`'s save of a change adding media), so
-   * this only names them, telling what they need no second time.
-   */
+  /** After media is imported: the app's view makes its proxies and waveforms, and its analyses (transcripts) start. */
   imported(p: OpenProject, result: ImportResult): ImportResult {
-    const { jobs, needs } = this.importAnalyses(p, result.assets, false);
+    if (p.view) this.previewJobs(p);
+    const { jobs, needs } = this.importAnalyses(p, result.assets);
     result.jobs.push(...jobs);
     return needs ? { ...result, needs } : result;
   }
@@ -203,7 +201,7 @@ export class Analyses {
    * Starts the analyses new media gets (transcripts), except those waiting for a resource that isn't downloaded:
    * those are reported, to the caller and as a `needs` event, and start when it arrives.
    */
-  importAnalyses(p: OpenProject, assets: string[], tell = true): { jobs: string[]; needs?: string[] } {
+  importAnalyses(p: OpenProject, assets: string[]): { jobs: string[]; needs?: string[] } {
     const { registry } = this.parts;
     const jobs: string[] = [];
     const needs = new Set<string>();
@@ -217,7 +215,7 @@ export class Analyses {
         else if (existsSync(a.path)) jobs.push(this.analyze(p, def.id, id).id);
       }
     }
-    if (tell) for (const id of needs) this.parts.emit(p, { kind: "needs", resource: this.#resourceInfo(registry.resources.get(id)!) });
+    for (const id of needs) this.parts.emit(p, { kind: "needs", resource: this.#resourceInfo(registry.resources.get(id)!) });
     return needs.size ? { jobs, needs: [...needs] } : { jobs };
   }
 

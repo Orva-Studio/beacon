@@ -79,6 +79,16 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences cuts only the silences picked w
   await expect(core.run(h, "transcript.removeSilences", { ...SETTINGS, at: [0.5] })).rejects.toThrow(/no silence over 0.6 s at 0.5/);
   await core.undo(h);
 
+  // In the review, ⇧-clicking anywhere else in a picked silence unpicks it; another silence is added.
+  await core.run(h, "silences.review", SETTINGS);
+  const picked = async () => ((await core.session(h)).features.transcript as { silences: { selected: number[] } }).silences.selected;
+  await core.run(h, "silences.select", { at: 5 });
+  await core.run(h, "silences.select", { at: 2, add: true });
+  expect(await picked()).toEqual([5, 2]);
+  await core.run(h, "silences.select", { at: 6, add: true });
+  expect(await picked()).toEqual([2]);
+  await core.run(h, "silences.close", {});
+
   // A second voice over it: refused, both named, nothing cut; muted, it no longer counts.
   await core.run(h, "track.add", { name: "B" });
   const track = core.doc(h).tracks.find((t) => t.name === "B")!.id;

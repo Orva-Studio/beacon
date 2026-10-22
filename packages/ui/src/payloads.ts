@@ -1,5 +1,5 @@
 import type { BeaconCore, CoreEvent } from "@beacon/core";
-import { editScope, isAudioFormat, onlyClips, scopedProject, type Clip, type Project, type Session, type Track } from "@beacon/model";
+import { isAudioFormat, onlyClips, type Clip, type Project, type Session, type Track } from "@beacon/model";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } from "./rpc";
 
@@ -54,14 +54,9 @@ export function exportSheetFor(o: {
   /** A group's or stitched clip's own tracks, to find clips selected inside an open group. */
   nested: (c: Clip) => Track[] | undefined;
 }): ExportSheet | undefined {
-  const only = onlyClips(o.project, o.session.selection);
+  const only = onlyClips(o.project, o.session.selection, o.nested);
   const chosen = only.found;
-  let range = o.session.range ?? undefined;
-  // Only the main timeline's clips can go alone: those of an open group go as their span, whatever plays there.
-  if (!chosen.length && o.session.selection.length && o.session.group) {
-    const inGroup = onlyClips(scopedProject(o.project, editScope(o.project, o.session.group, o.nested)), o.session.selection);
-    if (inGroup.found.length) range = { in: inGroup.from, out: inGroup.to };
-  }
+  const range = o.session.range ?? undefined;
   if (o.selection && !chosen.length && !range) return undefined;
   let settings = o.settings;
   let clips: ExportSheet["clips"];
@@ -77,7 +72,7 @@ export function exportSheetFor(o: {
     }
     if (settings.format !== usual.format || settings.audio !== usual.audio) clips.usual = usual;
   }
-  const selected = !!clips || (!!range && (!!o.selection || range !== o.session.range));
+  const selected = !!clips || (!!o.selection && !!range);
   return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings) };
 }
 

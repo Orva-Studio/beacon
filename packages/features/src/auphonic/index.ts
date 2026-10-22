@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
-import { clipEnd, clipSpeed, defineAction, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Session, type SessionCommandDef } from "@beacon/model";
+import { clipEnd, defineAction, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Project, type Session, type SessionCommandDef } from "@beacon/model";
 
 const KEY = "auphonic-api-key";
 /** Auphonic's API; a test points it at a stand-in. */
@@ -99,7 +99,6 @@ async function call<T>(key: string, path: string, init: RequestInit = {}, ms = T
 /** The audio files a preset can make, in the order taken: M4A, then MP3 (the user's, 2026-10-22), then the rest. */
 const AUDIO_OUTPUTS = ["m4a", "aac", "mp3", "wav", "flac", "opus", "ogg"];
 
-/** 0:07, 1:42. */
 const minutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
 const keyOf = async (secret: ((id: string) => Promise<string | undefined>) | undefined) => {
@@ -216,9 +215,10 @@ const audioClean = defineAction({
     // The bounce and the placing work on the main timeline: a group's clips would go up as silence, charged.
     const top = new Set(ctx.project.tracks.flatMap((t) => t.clips.map((c) => c.id)));
     if (clips.some((c) => !top.has(c.id))) throw new Error("Clean with Auphonic works on the main timeline's audio: close the group and select the group or its audio there");
-    // Edited while Auphonic cleans them (moved, trimmed, split, sped up), the result would no longer fit them.
-    const shape = (c: Clip) => `${c.assetId}:${c.start}:${c.duration}:${c.mediaStart ?? 0}:${clipSpeed(c)}`;
-    const shapes = new Map(clips.map((c) => [c.id, shape(c)]));
+    // Changed while Auphonic cleans them (moved, trimmed, re-timed, its media replaced, its sound or effects
+    // changed, muted by another clean), the result would no longer be theirs.
+    const shape = (c: Clip, project: Project) => ((a) => JSON.stringify([c, a?.path, a?.fingerprint]))(c.assetId ? project.assets[c.assetId] : undefined);
+    const shapes = new Map(clips.map((c) => [c.id, shape(c, ctx.project)]));
     const from = ticksToSeconds(Math.min(...clips.map((c) => c.start)));
     const to = ticksToSeconds(Math.max(...clips.map(clipEnd)));
     const asset = clips[0]!.assetId ? ctx.project.assets[clips[0]!.assetId] : undefined;
@@ -311,7 +311,7 @@ const audioClean = defineAction({
             clearInterval(ticking);
             env.progress(1, `On a new track right above the originals, which are muted; the file is ${basename(out)} in the project's media folder`);
             return (ctx) => {
-              const now = new Map(ctx.project.tracks.flatMap((t) => t.clips.map((c) => [c.id, shape(c)] as const)));
+              const now = new Map(ctx.project.tracks.flatMap((t) => t.clips.map((c) => [c.id, shape(c, ctx.project)] as const)));
               if ([...shapes].some(([id, was]) => now.get(id) !== was)) {
                 throw new Error(`the audio was edited while Auphonic cleaned it, so the result no longer fits it; it is kept as ${basename(out)} in the project's media folder`);
               }

@@ -270,18 +270,33 @@ export interface EditScope {
 }
 
 /**
- * The project with only `ids` of its timeline's clips (exporting or bouncing a selection), those found, and their
- * span in seconds (0 to 0 when none is).
+ * The project with only `ids` of its clips (exporting or bouncing a selection), those found, and their span in
+ * main-timeline seconds (0 to 0 when none is). With `nested`, clips inside groups count too: a group stays for the
+ * ones chosen in it, the rest of it gone.
  */
-export function onlyClips(project: Project, ids: readonly string[]): { project: Project; found: Clip[]; from: number; to: number } {
+export function onlyClips(project: Project, ids: readonly string[], nested?: (c: Clip) => Track[] | undefined): { project: Project; found: Clip[]; from: number; to: number } {
   const keep = new Set(ids);
-  const found = project.tracks.flatMap((t) => t.clips).filter((c) => keep.has(c.id));
-  return {
-    project: { ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => keep.has(c.id)) })) },
-    found,
-    from: found.length ? ticksToSeconds(Math.min(...found.map((c) => c.start))) : 0,
-    to: found.length ? ticksToSeconds(Math.max(...found.map((c) => c.start + c.duration))) : 0,
+  const found: Clip[] = [];
+  let [from, to] = [Infinity, -Infinity];
+  const copy = structuredClone(project);
+  const prune = (tracks: Track[], offset: Ticks) => {
+    for (const t of tracks) {
+      t.clips = t.clips.filter((c) => {
+        if (keep.has(c.id)) {
+          found.push(c);
+          [from, to] = [Math.min(from, offset + c.start), Math.max(to, offset + c.start + c.duration)];
+          return true;
+        }
+        const inner = nested?.(c);
+        if (!inner) return false;
+        const had = found.length;
+        prune(inner, offset + c.start - (c.mediaStart ?? 0));
+        return found.length > had;
+      });
+    }
   };
+  prune(copy.tracks, 0);
+  return { project: copy, found, from: found.length ? ticksToSeconds(from) : 0, to: found.length ? ticksToSeconds(to) : 0 };
 }
 
 /**

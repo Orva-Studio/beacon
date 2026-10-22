@@ -136,7 +136,6 @@ export class FeatureRegistry {
   }
 
   /** Prop groups that apply to a clip type, in registration order; those kept on its track are left out. */
-  /** The properties panel's tabs a clip type's groups give it, in order. */
   tabsFor(clipType: string): PropGroupDef[] {
     return this.groupsFor(clipType)
       .filter((g) => g.tab)

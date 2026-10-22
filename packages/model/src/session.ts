@@ -82,6 +82,8 @@ export interface SessionContext {
   fitPercent?: number;
   /** The app's preferences (a review's last settings). */
   pref: (id: string) => string;
+  /** Media's derived data (transcripts), for a command that picks what it finds (a silence). */
+  data: <T>(assetId: string, key: string) => T | undefined;
 }
 
 export interface SessionCommandDef<A = any> {
@@ -690,6 +692,7 @@ export class SessionStore {
     project: Project,
     shared: Partial<SharedSession> = {},
     readonly pref: (id: string) => string = (id) => registry.preferences.get(id)?.default ?? "",
+    readonly data: <T>(assetId: string, key: string) => T | undefined = () => undefined,
   ) {
     this.#state = defaultSession(project, shared);
     this.commands = new Map([...SESSION_COMMANDS, ...registry.sessionCommands.values()].map((c) => [c.id, c]));
@@ -715,7 +718,7 @@ export class SessionStore {
     const parsed = def.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
-    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref };
+    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref, data: this.data };
     // One panel with Cancel and Apply at a time (a review, Clean with Auphonic): opening one cancels any other.
     const open = this.registry.panels.filter((p) => p.open(this.#state));
     const next = produce(this.#state, (d) => {

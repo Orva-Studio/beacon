@@ -200,16 +200,20 @@ export class Recording {
     // The clip begins at `from`, or later if the take began after it.
     const start = Math.max(ticksToSeconds(snapSeconds(from, fps)), ticksToSeconds(snapSeconds(at, fps, "ceil")));
     const result: ImportResult = { assets: [], clips: [], jobs: [] };
-    this.parts.saved(p, p.store.transaction("Record Narration", (tx) => {
-      const id = tx.run<string>("asset.add", asset);
-      const [spec] = importer.clips({ id, ...asset }, p.store.doc);
-      if (!spec) throw new Error(`${basename(dir)} has no audio`);
-      const track = tx.run<string>("track.add", { name: "Narration" });
-      const mediaStart = start - at + ticksToSeconds(spec.mediaStart ?? 0);
-      const duration = ticksToSeconds(spec.duration) - (start - at);
-      result.assets.push(id);
-      result.clips.push(tx.run<string>("clip.add", { track, type: spec.type, start, duration, mediaStart, assetId: id, props: spec.props }));
-    }));
+    this.parts.saved(
+      p,
+      p.store.transaction("Record Narration", (tx) => {
+        const id = tx.run<string>("asset.add", asset);
+        const [spec] = importer.clips({ id, ...asset }, p.store.doc);
+        if (!spec) throw new Error(`${basename(dir)} has no audio`);
+        const track = tx.run<string>("track.add", { name: "Narration" });
+        const mediaStart = start - at + ticksToSeconds(spec.mediaStart ?? 0);
+        const duration = ticksToSeconds(spec.duration) - (start - at);
+        result.assets.push(id);
+        result.clips.push(tx.run<string>("clip.add", { track, type: spec.type, start, duration, mediaStart, assetId: id, props: spec.props }));
+      }),
+      false,
+    );
     return this.analyses.imported(p, result);
   }
 }

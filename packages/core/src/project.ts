@@ -31,7 +31,8 @@ export interface CoreParts {
   projects(): Iterable<OpenProject>;
   emit(p: OpenProject, e: CoreEvent): void;
   /** Autosave after a change; a failed save is the caller's error. */
-  saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T;
+  /** `analyse` false: the caller starts the new media's analyses itself (an import's, for its result). */
+  saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T, analyse?: boolean): T;
   startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number, stage?: string) => void) => Promise<unknown>, subject?: string, asset?: string): Job;
 }
 

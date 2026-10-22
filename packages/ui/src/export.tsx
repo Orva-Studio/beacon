@@ -118,7 +118,11 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
                 setSelectionOnly(on);
                 // The format and sound picked for the clips (audio only, no audio track) aren't the whole project's.
                 const usual = sheet.clips?.usual;
-                if (usual) set(on ? { format: sheet.settings.format, audio: sheet.settings.audio } : usual);
+                if (!usual) return;
+                const next = on ? { format: sheet.settings.format, audio: sheet.settings.audio } : usual;
+                // Crossing between audio and video formats, Audio only's way back is the one left.
+                if (isAudioFormat(next.format) !== isAudioFormat(s.format)) setOther(s.format);
+                set(next);
               }}
               data-export-only
             />
