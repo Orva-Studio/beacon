@@ -3706,7 +3706,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     if (muted) await run("track.set", { track: muted.id, muted: true });
     const heard = ui.core
       .doc(ui.handle)
-      .tracks.filter((t) => !t.muted && !t.hidden)
+      .tracks.filter((t) => !t.muted)
       .flatMap((t) => t.clips.filter((c) => c.type === "audio" && !(c.props.audio as { muted?: boolean } | undefined)?.muted))
       .map((c) => c.id);
     await page.click(...(await centre("[data-auphonic-select-all]")));

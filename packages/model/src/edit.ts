@@ -269,9 +269,9 @@ export interface EditScope {
   group?: Clip;
 }
 
-/** The audio the export plays: audio clips not muted, on tracks neither muted nor disabled. Anything else bounces as silence. */
+/** The audio the export plays, as the mixer does: audio clips not muted, on tracks not muted (a hidden track still plays). */
 export function heardAudio(tracks: readonly Track[], isAudio: (clipType: string) => boolean): Clip[] {
-  return tracks.filter((t) => !t.muted && !t.hidden).flatMap((t) => t.clips.filter((c) => isAudio(c.type) && !(c.props.audio as { muted?: boolean } | undefined)?.muted));
+  return tracks.filter((t) => !t.muted).flatMap((t) => t.clips.filter((c) => isAudio(c.type) && !(c.props.audio as { muted?: boolean } | undefined)?.muted));
 }
 
 /**

@@ -49,7 +49,7 @@ const sessionCommands: SessionCommandDef[] = [
   },
   {
     id: "auphonic.selectAudio",
-    description: "Select the audio the export plays (its panel's Select All Audio): every audio clip not muted, on a track neither muted nor disabled",
+    description: "Select the audio the export plays (its panel's Select All Audio): every audio clip not muted, on a track not muted",
     args: z.strictObject({}),
     apply: (s, _, { project, registry }) => {
       const heard = heardAudio(project.tracks, (type) => registry.hasTrait(type, "audio"));
@@ -219,7 +219,8 @@ const audioClean = defineAction({
     // changed, muted by another clean), the result would no longer be theirs.
     const shape = (c: Clip, project: Project) => {
       const [a, t] = [c.assetId ? project.assets[c.assetId] : undefined, project.tracks.find((x) => x.clips.includes(c))];
-      return JSON.stringify([c, a?.path, a?.fingerprint, t?.muted, t?.hidden]);
+      // The loudness target too: a normalized bounce no longer fits once Auto-normalize is off, or the other way.
+      return JSON.stringify([c, a?.path, a?.fingerprint, t?.muted, project.settings.loudnessTarget]);
     };
     const shapes = new Map(clips.map((c) => [c.id, shape(c, ctx.project)]));
     const from = ticksToSeconds(Math.min(...clips.map((c) => c.start)));

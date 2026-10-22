@@ -185,6 +185,19 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   await expect(core.run(h, "audio.clean", { preset: "Echo" })).rejects.toThrow(/select audio first/);
   expect(uploads.length).toBe(sentBefore);
   await core.undo(h);
+  // A hidden track still plays its sound, so its audio counts as heard.
+  await core.run(h, "track.set", { track, hidden: true });
+  await core.run(h, "auphonic.selectAudio", {});
+  expect((await core.session(h)).selection).toContain(audio[0]!.id);
+  await core.undo(h);
+  await core.run(h, "selection.set", { clips: audio.map((c) => c.id), linked: false });
+  // Auto-normalize turned off while it cleans: the bounce was levelled, so it no longer fits.
+  const levelled = uploads.length;
+  const normal = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
+  while (uploads.length === levelled) await Bun.sleep(10);
+  await core.run(h, "project.settings.set", { loudnessTarget: null });
+  await expect(waitJob(core, normal.job)).rejects.toThrow(/edited while Auphonic cleaned it/);
+  await core.undo(h);
 
   // Two cleans of the same audio at once: each its own file, but only the first placed (the second's originals
   // were muted by then).

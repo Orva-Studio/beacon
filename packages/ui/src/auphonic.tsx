@@ -86,7 +86,7 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
           <Button onClick={() => host.run("auphonic.selectAudio")} data-auphonic-select-all>
             Select All Audio
           </Button>
-          <span className="text-caption text-text-faint">All the audio the export plays: not muted, on tracks neither muted nor disabled.</span>
+          <span className="text-caption text-text-faint">All the audio the export plays: not muted, on tracks not muted.</span>
         </div>
       )}
       <div className="mt-auto flex justify-end gap-2">
