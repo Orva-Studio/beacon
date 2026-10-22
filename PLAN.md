@@ -1964,14 +1964,14 @@ The user likes the leader key. Asked for, in this order after the two above:
    opening more keys: mark a group plainly (a chevron › and a different tone,
    or a count, "6 colours"), so it is clear more choices follow.
 2. **Properties tabs by the leader.** Leader keys to move the properties
-   panel's tab left and right (e.g. `: [` and `: ]`, or `: H` / `: L` vi-style:
-   ask, as `: L` is Lock Track), and one to jump to the fx (Effects) tab.
+   panel's tab left and right, `: [` and `: ]` (decided 2026-10-22), and one
+   to jump to the fx (Effects) tab.
 3. **The command palette lists the Media Bin.** Every medium in the bin as a
-   palette entry (by name, with its kind); choosing one selects it in the bin
-   / adds it at the playhead (ask which).
-4. **Remove Silences: a green border on selected silences.** The user liked
-   the old green outline (`current`, accent) and wants it on the selected ones
-   (with or instead of the red fill: show both, ask).
+   palette entry (by name, with its kind); choosing one adds it to the
+   timeline at the playhead (decided 2026-10-22).
+4. **Remove Silences: every silence red, the selected ones with a green
+   border** (decided 2026-10-22): no grey; all found silences take the red
+   fill, and selection is shown only by the green (accent) outline.
 
 #### A leader key (the user, 2026-10-22; a trial in its own commit)
 `:` (as in vi) then a key, with a popup of what can follow: : P palette, : A / : V
