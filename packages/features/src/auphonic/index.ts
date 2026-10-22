@@ -14,9 +14,9 @@ const POLL_MS = () => Number(process.env.BEACON_AUPHONIC_POLL_MS ?? 15_000);
 const DONE = 3;
 const FAILED = 2;
 /** What the cleaned audio may differ from what was sent, in length and in time, before it is refused. */
-const SLACK = 0.05;
+/** A length further off than this means the preset cut something out. */
+const CUT = 0.5;
 
-/** Clean with Auphonic's settings, open in the properties panel (`session.features.auphonic`) until started or closed. */
 /** Clean with Auphonic's panel is open: it cleans the audio selected, whatever that is now. */
 export interface AuphonicReview {
   open: true;
@@ -87,23 +87,84 @@ function audioClips(ctx: ActionContext, ids?: string[]): Clip[] {
 
 /** Mono samples at 8 kHz, enough to line two takes of the same audio up. */
 const RATE = 8000;
-async function samples(path: string, seconds: number, raw: string): Promise<Float32Array> {
-  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", path, "-t", String(seconds), "-ac", "1", "-ar", String(RATE), "-f", "f32le", raw]);
+async function samples(path: string, raw: string): Promise<Float32Array> {
+  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", path, "-ac", "1", "-ar", String(RATE), "-f", "f32le", raw]);
   return new Float32Array(await Bun.file(raw).arrayBuffer());
 }
 
-/** Where `b` best lines up with `a`, in seconds, within ±`SLACK` * 4. */
-function offset(a: Float32Array, b: Float32Array): number {
-  const reach = Math.round(SLACK * 4 * RATE);
-  let best = 0;
-  let score = -Infinity;
-  for (let d = -reach; d <= reach; d += 2) {
-    let sum = 0;
-    for (let i = reach; i < a.length - reach; i += 4) sum += a[i]! * (b[i + d] ?? 0);
-    if (sum > score) [score, best] = [sum, d];
-  }
-  return best / RATE;
+/** A file's sample rate and channels. */
+async function format(path: string): Promise<{ rate: number; channels: number }> {
+  const out = String(await runTool([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", path])).trim();
+  const [rate, channels] = out.split(",").map(Number) as [number, number];
+  return { rate, channels };
 }
+
+/**
+ * Auphonic's file lined up with what was sent, as `out` (AAC): its encoder's padding (and its own rate and channels)
+ * taken off by the samples, so container timestamps can't move it. Refused when its start and end sit differently
+ * (the preset cut something), Auphonic's file then kept as `kept`.
+ */
+async function lineUp(sent: string, back: string, seconds: number, tmp: string, out: string, kept: () => Promise<string>): Promise<void> {
+  const refuse = async (why: string) => {
+    throw new Error(`${why}: turn off cutting (silences, fillers, coughs) in the preset; Auphonic's file is kept as ${basename(await kept())} in the project's media folder`);
+  };
+  const length = await duration(back);
+  if (Math.abs(length - seconds) > CUT) await refuse(`Auphonic's audio is ${length.toFixed(2)} s long, the sent audio ${seconds.toFixed(2)} s`);
+  const [a, b] = [await samples(sent, join(tmp, "sent.raw")), await samples(back, join(tmp, "back.raw"))];
+  // Measured at about 11 places across it, those with enough to go on: something cut moves the places after it.
+  const total = a.length / RATE;
+  const span = Math.min(5, total / 3);
+  const found: { shift: number; alike: number }[] = [];
+  for (let at = 0; at + span <= total + 1e-9; at += Math.max(span, (total - span) / 10)) found.push(match(a, b, at, span));
+  const sure = found.filter((m) => m.alike > 0.6);
+  if (!sure.length) await refuse("Auphonic's audio doesn't sound like what was sent");
+  const shifts = sure.map((m) => m.shift);
+  const start = shifts[0]!;
+  const spread = Math.max(...shifts) - Math.min(...shifts);
+  if (spread > 0.02) await refuse(`Auphonic's audio drifts ${Math.round(spread * 1000)} ms from start to end`);
+  const { rate, channels } = await format(sent);
+  const raw = join(tmp, "back.pcm");
+  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", back, "-ac", String(channels), "-ar", String(rate), "-f", "s16le", raw]);
+  const pcm = new Int16Array(await Bun.file(raw).arrayBuffer());
+  const frames = Math.round(seconds * rate);
+  const skip = Math.round(start * rate);
+  const lined = new Int16Array(frames * channels);
+  // Late by `start`: its first samples dropped; early: silence before it.
+  for (let f = 0; f < frames; f++) {
+    const g = f + skip;
+    if (g < 0 || g * channels >= pcm.length) continue;
+    for (let c = 0; c < channels; c++) lined[f * channels + c] = pcm[g * channels + c]!;
+  }
+  await Bun.write(raw, lined);
+  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", String(rate), "-ac", String(channels), "-i", raw, "-c:a", "aac", "-b:a", "256k", out]);
+}
+
+/**
+ * How late `b` is against `a` over `seconds` from `at`, in seconds, looked for within ±`reach` s (coarse, then fine),
+ * and how alike they are there (0–1): a stretch with little to go on (near silence, a hum) lines up anywhere.
+ */
+function match(a: Float32Array, b: Float32Array, at = 0, seconds = 5, reach = 1): { shift: number; alike: number } {
+  const [from, to] = [Math.round(at * RATE), Math.min(a.length, Math.round((at + seconds) * RATE))];
+  const score = (d: number, stride: number) => {
+    let sum = 0;
+    for (let i = from; i < to; i += stride) sum += a[i]! * (b[i + d] ?? 0);
+    return sum;
+  };
+  const search = (lo: number, hi: number, step: number, stride: number) => {
+    let [best, top] = [lo, -Infinity];
+    for (let d = lo; d <= hi; d += step) {
+      const v = score(d, stride);
+      if (v > top) [top, best] = [v, d];
+    }
+    return best;
+  };
+  const coarse = search(-Math.round(reach * RATE), Math.round(reach * RATE), 16, 8);
+  const best = search(coarse - 16, coarse + 16, 1, 2);
+  let [ea, eb] = [0, 0];
+  for (let i = from; i < to; i += 2) [ea, eb] = [ea + a[i]! ** 2, eb + (b[i + best] ?? 0) ** 2];
+  return { shift: best / RATE, alike: score(best, 2) / Math.sqrt(ea * eb || 1) };
+}
+
 
 async function duration(path: string): Promise<number> {
   const out = await runTool([tool("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path]);
@@ -214,15 +275,23 @@ export const auphonic = defineFeature({
                 say(4, 0.85, "Downloading");
                 const got = await fetch(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow", signal: jobSignal() });
                 if (!got.ok) throw new Error(`Auphonic's file couldn't be downloaded (${got.status})`);
-                let out = join(env.mediaDir, `${name}.cleaned${extname(file.filename!).toLowerCase()}`);
-                for (let n = 2; await Bun.file(out).exists(); n++) out = join(env.mediaDir, `${name}.cleaned ${n}${extname(file.filename!).toLowerCase()}`);
-                await Bun.write(out, got);
-                say(5, 0.95, "Checking it lines up");
-                // A preset that cuts silences or changes speed would no longer line up with the picture: refused, the file kept.
-                const [sent, back] = [await duration(input), await duration(out)];
-                if (Math.abs(sent - back) > SLACK) throw new Error(`Auphonic's audio is ${back.toFixed(2)} s long, the sent audio ${sent.toFixed(2)} s: turn off cutting (silences, fillers, coughs) in the preset; the file is kept in the project's media folder`);
-                const shift = offset(await samples(input, 30, join(tmp, "sent.raw")), await samples(out, 30, join(tmp, "back.raw")));
-                if (Math.abs(shift) > 0.01) throw new Error(`Auphonic's audio is ${Math.round(shift * 1000)} ms out of step with the original; the file is kept in the project's media folder`);
+                const back = join(tmp, `back${extname(file.filename!).toLowerCase()}`);
+                await Bun.write(back, got);
+                say(5, 0.95, "Lining it up");
+                const free = async (suffix: string, ext: string) => {
+                  let path = join(env.mediaDir, `${name}.${suffix}${ext}`);
+                  for (let n = 2; await Bun.file(path).exists(); n++) path = join(env.mediaDir, `${name}.${suffix} ${n}${ext}`);
+                  return path;
+                };
+                const out = await free("cleaned", ".m4a");
+                // A preset that cut silences or changed speed would no longer line up with the picture: refused.
+                await lineUp(input, back, to - from, tmp, out, async () => {
+                  const kept = await free("auphonic", extname(back));
+                  await Bun.write(kept, Bun.file(back));
+                  return kept;
+                });
+                const { shift: check } = match(await samples(input, join(tmp, "sent.raw")), await samples(out, join(tmp, "out.raw")), 0, Math.min(30, to - from));
+                if (Math.abs(check) > 0.002) throw new Error(`the cleaned audio is ${Math.round(check * 1000)} ms out of step after lining it up`);
                 const added = await env.asset(out, "audio");
                 clearInterval(ticking);
                 env.progress(1, `On a new track right above the originals, which are muted; the file is ${basename(out)} in the project's media folder`);

@@ -11,8 +11,9 @@ const RECORDING = join(FIXTURES, "recording.trec");
 const dir = mkdtempSync(join(tmpdir(), "beacon-auphonic-"));
 
 /**
- * Auphonic's API as tuneup uses it, standing in for the real one (which charges): "Echo" sends back what it was
- * given, so the result must line up to the sample; "Cutter" trims a second off, as a preset that cuts silences would.
+ * Auphonic's API as tuneup uses it, standing in for the real one (which charges). "Echo" sends back what it was
+ * given as Auphonic's encoder does (44.1 kHz stereo, 46 ms of padding before, 100 ms after), so it must be lined up
+ * here; "Cutter" trims a second off, as a preset that cuts silences would, and "Snipper" 0.3 s from the middle (at 100 s).
  */
 const uploads: { preset: string; key: string }[] = [];
 const uploadedNames: string[] = [];
@@ -24,7 +25,7 @@ const server = Bun.serve({
     const url = new URL(req.url);
     const key = req.headers.get("authorization") ?? "";
     if (key !== "Bearer test-key") return new Response("bad key", { status: 401 });
-    if (url.pathname === "/presets.json") return Response.json({ data: [{ uuid: "p-echo", preset_name: "Echo" }, { uuid: "p-cut", preset_name: "Cutter" }] });
+    if (url.pathname === "/presets.json") return Response.json({ data: [{ uuid: "p-echo", preset_name: "Echo" }, { uuid: "p-cut", preset_name: "Cutter" }, { uuid: "p-snip", preset_name: "Snipper" }] });
     if (url.pathname === "/simple/productions.json") {
       const form = await req.formData();
       const preset = String(form.get("preset"));
@@ -41,10 +42,20 @@ const server = Bun.serve({
     if (m?.[2] === "/status") return Response.json({ data: (polls++ % 2 ? { status: 3, status_string: "Done" } : { status: 1, status_string: "Audio Processing" }) });
     // As a real preset can: several formats, WAV listed first; Beacon takes the M4A.
     if (m) return Response.json({ data: { output_files: ["wav", "mp3", "m4a"].map((ext) => ({ format: ext, filename: `out.${ext}`, download_url: `${url.origin}/download/${m[1]}.${ext}` })) } });
-    const got = url.pathname.match(/^\/download\/(prod-p-(?:echo|cut))\.(\w+)$/);
+    const got = url.pathname.match(/^\/download\/(prod-p-(?:echo|cut|snip))\.(\w+)$/);
     if (got) {
       const out = join(dir, `${got[1]}.${got[2]}`);
-      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.wav"), ...(got[1] === "prod-p-cut" ? ["-ss", "1"] : []), out]);
+      const cut = got[1] === "prod-p-cut" ? ["-ss", "1"] : [];
+      let source = join(dir, "uploaded.wav");
+      if (got[1] === "prod-p-snip") {
+        // 0.3 s from 100 s out, by the samples (Beacon's FFmpeg has no filter for it).
+        const raw = Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-i", source, "-ac", "1", "-ar", "48000", "-f", "s16le", "-"]).stdout;
+        const pcm = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
+        await Bun.write(join(dir, "snip.pcm"), new Int16Array([...pcm.subarray(0, 100 * 48000), ...pcm.subarray(100.3 * 48000)]));
+        Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", "48000", "-ac", "1", "-i", join(dir, "snip.pcm"), join(dir, "snip.wav")]);
+        source = join(dir, "snip.wav");
+      }
+      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", source, ...cut, "-af", "adelay=46:all=1,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", out]);
       downloaded.push(got[2]!);
       return new Response(Bun.file(out));
     }
@@ -76,7 +87,7 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   const noKey = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
   await expect(waitJob(core, noKey.job)).rejects.toThrow(/no Auphonic API key: add one in Settings › Audio/);
   secrets.set("auphonic-api-key", "test-key");
-  expect(((await core.query(h, "auphonic.presets", {})) as { name: string }[]).map((p) => p.name)).toEqual(["Echo", "Cutter"]);
+  expect(((await core.query(h, "auphonic.presets", {})) as { name: string }[]).map((p) => p.name)).toEqual(["Echo", "Cutter", "Snipper"]);
 
   const steps = (await core.history(h)).undo.length;
   const started = (await core.run(h, "audio.clean", { preset: "Echo", polish: false })).results.at(-1) as { job: string };
@@ -91,6 +102,9 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   const cleaned = Object.values(doc.assets).find((a) => a.name?.endsWith("(Auphonic)"))!;
   expect(cleaned.path.startsWith(join(dir, "p.beproj", "media"))).toBe(true);
   expect(cleaned.path.endsWith(".cleaned.m4a")).toBe(true);
+  // Lined up here: the sent audio's rate and length, Auphonic's padding gone.
+  const probe = Bun.spawnSync([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0", cleaned.path]).stdout.toString().trim();
+  expect(probe).toBe("48000");
   expect(downloaded.at(-1)).toBe("m4a");
   const placed = doc.tracks.flatMap((t) => t.clips).filter((c) => c.assetId === cleaned.id);
   expect(placed).toHaveLength(1);
@@ -132,9 +146,13 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   await core.run(h, "selection.set", { clips: audio.map((c) => c.id), linked: false });
   const before = (await core.history(h)).undo.length;
   const cut = (await core.run(h, "audio.clean", { preset: "Cutter" })).results.at(-1) as { job: string };
-  await expect(waitJob(core, cut.job)).rejects.toThrow(/turn off cutting/);
+  await expect(waitJob(core, cut.job)).rejects.toThrow(/turn off cutting.*kept as .*\.auphonic\.m4a/);
   expect((await core.history(h)).undo.length).toBe(before);
-  await expect(core.run(h, "audio.clean", { preset: "Nope" }).then((x) => waitJob(core, (x.results.at(-1) as { job: string }).job))).rejects.toThrow(/no Auphonic preset "Nope"; there are: Echo, Cutter/);
+  // 0.3 s cut from the middle, the length nearly right: its end sits later than its start.
+  const snip = (await core.run(h, "audio.clean", { preset: "Snipper" })).results.at(-1) as { job: string };
+  await expect(waitJob(core, snip.job)).rejects.toThrow(/drifts \d+ ms from start to end/);
+  expect((await core.history(h)).undo.length).toBe(before);
+  await expect(core.run(h, "audio.clean", { preset: "Nope" }).then((x) => waitJob(core, (x.results.at(-1) as { job: string }).job))).rejects.toThrow(/no Auphonic preset "Nope"; there are: Echo, Cutter, Snipper/);
   await core.close(h);
 }, 180_000);
 
