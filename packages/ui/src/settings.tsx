@@ -3,7 +3,7 @@ import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
-import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
+import { SecretRow, TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
 import { ShortcutsSettings, type ShortcutsHost } from "./shortcuts-settings";
 
 export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost {
@@ -19,7 +19,7 @@ const space = (bytes: number) =>
 
 
 /** The app settings in a Settings sheet, without what it opened with (tab, devices…). */
-const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, ...app }: SettingsSheet): AppSettings => app;
+const pick = ({ tab: _, devices: __, resources: ___, preferences: ____, secrets: _____, ...app }: SettingsSheet): AppSettings => app;
 
 /** Settings' sections, down its sidebar. */
 const SECTIONS: { id: SettingsTab; title: string }[] = [
@@ -37,7 +37,7 @@ const HEIGHT = 500;
  * Beacon > Settings… (⌘,): app-wide, in sections down a sidebar as System Settings has them. The project's own
  * settings are Project Settings (`project-settings.tsx`).
  */
-function SettingsWindow({ app: { tab: opening, devices, resources, preferences, ...app }, host }: { app: SettingsSheet; host: SettingsHost }) {
+function SettingsWindow({ app: { tab: opening, devices, resources, preferences, secrets, ...app }, host }: { app: SettingsSheet; host: SettingsHost }) {
   const [tab, setTab] = useState<SettingsTab>(opening ?? "general");
   const [settings, setSettings] = useState<AppSettings>(app);
   // Changed elsewhere while open (an agent, Check Sync): shown here.
@@ -56,7 +56,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
   const [prefs, setPrefs] = useState(preferences);
   const transcriber = prefs?.find((p) => p.id === "transcriber");
   const judge = prefs?.find((p) => p.id === "retake-judge");
-  const auphonic = prefs?.find((p) => p.id === "auphonic");
+  const auphonicKey = secrets?.find((s) => s.id === "auphonic-api-key");
   return (
     <Modal title="Settings" width={760} onClose={close}>
       <div className="flex gap-4" style={{ height: HEIGHT }} data-settings-window>
@@ -149,9 +149,9 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
               {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} />}
             </div>
           )}
-          {tab === "audio" && auphonic && (
+          {tab === "audio" && auphonicKey && (
             <div className="flex flex-col gap-3">
-              <TranscriptsSettings pref={auphonic} label="Auphonic" sends="The audio you clean is uploaded to Auphonic" charges="Auphonic" placeholder="Your Auphonic API key" close={close} host={host} changed={setPrefs} />
+              <SecretRow secret={auphonicKey} label="Auphonic API Key" sends="Audio you clean with Auphonic is uploaded to it" charges="Auphonic" placeholder="From auphonic.com › Account Settings" host={host} />
             </div>
           )}
           {tab === "shortcuts" && <ShortcutsSettings host={host} />}

@@ -49,7 +49,7 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
       {presets && !Array.isArray(presets) && (
         <div className="mb-4 flex flex-col items-start gap-2" data-auphonic-error>
           <span className="text-danger">{presets.error.replace(/^no Auphonic/, "No Auphonic")}</span>
-          {/API key/.test(presets.error) && <Button onClick={() => host.app("app.settings")}>Open Settings…</Button>}
+          {/API key/.test(presets.error) && <Button onClick={() => host.app("app.settings:audio")}>Open Settings…</Button>}
         </div>
       )}
       {Array.isArray(presets) && (

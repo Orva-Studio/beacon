@@ -104,18 +104,6 @@ export const auphonic = defineFeature({
   id: "auphonic",
   version: 1,
   secrets: [{ id: KEY, title: "Auphonic API key" }],
-  preferences: [
-    {
-      id: "auphonic",
-      title: "Auphonic",
-      description: "Cleaning audio with Auphonic (Audio Effects › Auphonic), on the user's own Auphonic account",
-      options: [
-        { id: "off", title: "Not set up", description: "Audio Effects' Auphonic tile asks for your Auphonic API key" },
-        { id: "on", title: "My Auphonic account", description: "Audio you clean is uploaded to Auphonic with your API key, and cleaned with one of your presets; Auphonic charges your account by length", secret: KEY, online: true },
-      ],
-      default: "off",
-    },
-  ],
   sessionCommands,
   panelItems: [
     {

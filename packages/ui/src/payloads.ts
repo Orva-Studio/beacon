@@ -7,7 +7,7 @@ import type { Init, SettingsSheet, SettingsTab } from "./rpc";
  * for it), so the two can't drift. Only core's types are imported: this runs in those processes, not the page.
  */
 
-type Core = Pick<BeaconCore, "schema" | "shortcuts" | "favorites" | "preferences" | "settings" | "resources">;
+type Core = Pick<BeaconCore, "schema" | "shortcuts" | "favorites" | "preferences" | "settings" | "resources" | "secrets">;
 
 /** The window's init payload, but for what only the app knows (the open project, recent projects, its socket). */
 export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "recent" | "socket" | "keyLog">> {
@@ -36,5 +36,5 @@ export const exportCanvas = ({ width, height, fps }: Project["settings"]) => ({ 
 
 /** Settings as it opens: the app settings, the tab, and what General's transcript and download choices need. */
 export async function settingsSheet(core: Core, extra: { tab?: SettingsTab; devices?: SettingsSheet["devices"] } = {}): Promise<SettingsSheet> {
-  return { ...(await core.settings()), ...(extra.tab ? { tab: extra.tab } : {}), ...(extra.devices ? { devices: extra.devices } : {}), resources: await core.resources(), preferences: await core.preferences() };
+  return { ...(await core.settings()), ...(extra.tab ? { tab: extra.tab } : {}), ...(extra.devices ? { devices: extra.devices } : {}), resources: await core.resources(), preferences: await core.preferences(), secrets: await core.secrets() };
 }

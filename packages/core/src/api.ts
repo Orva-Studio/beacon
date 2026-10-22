@@ -144,6 +144,13 @@ export interface PreferenceInfo {
 
 export type JobState = "running" | "done" | "failed";
 
+export interface SecretInfo {
+  id: string;
+  /** "Auphonic API key". */
+  title: string;
+  set: boolean;
+}
+
 export interface JobInfo {
   id: string;
   kind: string;
@@ -293,6 +300,8 @@ export interface BeaconCore {
   resources(): Promise<ResourceInfo[]>;
   /** App-wide choices (the transcriber), kept across projects and launches. */
   preferences(): Promise<PreferenceInfo[]>;
+  /** The API keys features use, and whether each is saved (never their values). */
+  secrets(): Promise<SecretInfo[]>;
   /**
    * Changes one for every project. Transcripts are kept per transcriber: open projects' media without one by
    * the new choice gets one (or waits for a resource, as an import does). Refused for an option whose secret

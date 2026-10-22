@@ -50,7 +50,7 @@ export const PROTOCOL_VERSION = 1;
  */
 export const FORWARDED = [
   "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "redo", "history", "query", "frame", "captureFrame", "sheet",
-  "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences",
+  "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences", "secrets",
   "setPreference", "favorites", "favoriteAdd", "favoriteRemove", "favoriteMove", "shortcuts", "shortcutSet", "shortcutReset", "settings",
   "setSettings", "uiOpen", "summary", "checkOutput", "recorderDevices", "recorderAccess", "recordStart", "recordStatus", "recordStop",
   "session", "snapshot",

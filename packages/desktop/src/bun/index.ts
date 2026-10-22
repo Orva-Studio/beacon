@@ -227,6 +227,8 @@ function appAction(id: string, w: Win | undefined = focused): void {
   if (id === "app.saveAs") return void projects.saveAsDialog(target);
   if (id === "app.reveal") return void (target.current && core.reveal(target.current.path).catch(report));
   if (id === "app.settings") return void openSettings(target);
+  // A panel sending the user to the section they need (Clean with Auphonic to its key).
+  if (id.startsWith("app.settings:")) return void openSettings(target, id.slice(13) as import("@beacon/ui").SettingsTab);
   if (id === "app.shortcuts") return void openSettings(target, "shortcuts");
   if (id === "app.projectSettings") return void target.message("projectSettings", {});
   if (id === "app.palette") return void target.message("palette", {});

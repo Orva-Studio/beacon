@@ -66,6 +66,7 @@ import type {
   RecordStopOptions,
   ResourceInfo,
   PreferenceInfo,
+  SecretInfo,
   RecordStatus,
   RunOptions,
   SchemaInfo,
@@ -1045,6 +1046,10 @@ export class LocalCore implements BeaconCore {
 
   async setPreference(id: string, value: string): Promise<void> {
     if (await this.#config.setPreference(id, value)) this.#analyses.preferenceChanged();
+  }
+
+  async secrets(): Promise<SecretInfo[]> {
+    return Promise.all([...this.registry.secrets.values()].map(async (s) => ({ id: s.id, title: s.title, set: (await this.#config.secrets.get(s.id)) !== undefined })));
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */
