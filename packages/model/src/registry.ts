@@ -42,8 +42,8 @@ export class FeatureRegistry {
   readonly annotations = new Map<string, AnnotationDef & { id: string }>();
   /** A new user's Favorites panel: the items and effects features mark `favorite`, in registration order. */
   readonly favorites: string[] = [];
-  /** Every feature's panels that ⎋ closes. */
-  readonly dismissable: NonNullable<Feature["dismissable"]> = [];
+  /** Every feature's panels with Cancel and Apply. */
+  readonly panels: NonNullable<Feature["panels"]> = [];
 
   constructor(features: Feature[] = []) {
     claim(this.commands, CORE_COMMANDS, "command", "core");
@@ -97,7 +97,7 @@ export class FeatureRegistry {
     }
     this.panelItems.push(...(feature.panelItems ?? []));
     claim(this.annotations, annotations, "annotation", feature.id);
-    this.dismissable.push(...(feature.dismissable ?? []));
+    this.panels.push(...(feature.panels ?? []));
     this.favorites.push(...(feature.panelItems ?? []).filter((i) => i.favorite).map((i) => i.id), ...(feature.effects ?? []).filter((e) => e.favorite).map((e) => `effect:${e.id}`));
     this.features.set(feature.id, feature);
     return this;

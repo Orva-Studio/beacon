@@ -207,7 +207,7 @@ export function ReviewPanel<T extends Item>(props: {
           Cancel{tip("reviews.cancel")}
         </Button>
         <Button look="primary" disabled={!ready} onClick={() => host.run(`${review}.apply`)} {...{ [`data-${review}-apply`]: true }}>
-          Apply All{tip("reviews.apply")}
+          Apply{tip("reviews.apply")}
         </Button>
       </div>
     </div>

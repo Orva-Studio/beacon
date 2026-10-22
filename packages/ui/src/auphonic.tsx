@@ -22,9 +22,10 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
   // With a group open, its clips are the ones selected; muted ones are left out, as Clean leaves them.
   const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);
   const [presets, setPresets] = useState<AuphonicPreset[] | { error: string }>();
-  const [preset, setPreset] = useState<string>();
-  const [polish, setPolish] = useState(true);
-  const [sibilance, setSibilance] = useState(0.2);
+  // Kept in the session, so Apply (↩) starts it as set here.
+  const review = auphonicReviewOf(session)!;
+  const { preset, polish, sibilance } = review;
+  const set = (settings: Partial<Omit<AuphonicReview, "open">>) => host.run("auphonic.review", settings);
   // Asked again when Settings closes: the key may just have been added there.
   const settingsOpen = useView((v) => !!v.settings);
   useEffect(() => {
@@ -35,7 +36,11 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
         if (!live) return;
         const list = p as AuphonicPreset[];
         setPresets(list);
-        setPreset((list.find((x) => x.name === USUAL) ?? list[0])?.uuid);
+        const chosen = auphonicReviewOf(replica.get().session!)?.preset;
+        if (!list.some((x) => x.uuid === chosen)) {
+          const first = (list.find((x) => x.name === USUAL) ?? list[0])?.uuid;
+          if (first) set({ preset: first });
+        }
       },
       (e: Error) => live && setPresets({ error: e.message }),
     );
@@ -46,12 +51,7 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
     .filter((c) => session.selection.includes(c.id) && init?.clipTypes[c.type]?.includes("audio") && !(c.props.audio as { muted?: boolean } | undefined)?.muted);
   const seconds = clips.length ? ticksToSeconds(Math.max(...clips.map(clipEnd)) - Math.min(...clips.map((c) => c.start))) : 0;
   const ready = Array.isArray(presets) && !!preset && clips.length > 0;
-  const close = () => host.run("auphonic.close");
   const tip = useShortcutTip();
-  const start = () => {
-    host.run("audio.clean", { clips: clips.map((c) => c.id), preset, polish, sibilance });
-    close();
-  };
   return (
     <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-auphonic-review>
       <div className="mb-4 text-title font-semibold text-text-strong">Clean with Auphonic</div>
@@ -65,7 +65,7 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
       {Array.isArray(presets) && (
         <label className="mb-3 flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Preset</span>
-          <Select value={preset ?? ""} onChange={(e) => setPreset(e.target.value)} data-auphonic-preset>
+          <Select value={preset ?? ""} onChange={(e) => set({ preset: e.target.value })} data-auphonic-preset>
             {presets.map((p) => (
               <option key={p.uuid} value={p.uuid}>
                 {p.name}
@@ -75,12 +75,12 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
         </label>
       )}
       <div className="mb-2">
-        <Check label="Polish what comes back" checked={polish} onChange={setPolish} data-auphonic-polish />
+        <Check label="Polish what comes back" checked={polish} onChange={(on) => set({ polish: on })} data-auphonic-polish />
       </div>
-      {polish && <Slider label="Sibilance" title="How much harsh “s” sounds are softened" value={sibilance * 100} unit="%" max={100} onChange={(v) => setSibilance(Math.round(v) / 100)} />}
+      {polish && <Slider label="Sibilance" title="How much harsh “s” sounds are softened" value={sibilance * 100} unit="%" max={100} onChange={(v) => set({ sibilance: Math.round(v) / 100 })} />}
       {clips.length ? (
         <div className="mt-2 mb-4 rounded-md bg-groove px-3 py-2 text-text" data-auphonic-summary>
-          {clips.length === 1 ? "1 clip" : `${clips.length} clips`}, {clock(seconds)} of audio as you hear it: uploaded to Auphonic and cleaned on your account, about {Math.max(1, Math.ceil(seconds / 60))} min of your credit. The cleaned audio goes on a new track right above them, the originals muted, its file in the project's media folder.
+          {clips.length === 1 ? "1 clip" : `${clips.length} clips`}, {clock(seconds)} · about {Math.max(1, Math.ceil(seconds / 60))} min of Auphonic credit
         </div>
       ) : (
         <div className="mt-2 mb-4 flex flex-col items-start gap-2 rounded-md bg-groove px-3 py-2 text-text" data-auphonic-none>
@@ -92,9 +92,9 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
         </div>
       )}
       <div className="mt-auto flex justify-end gap-2">
-        <Button onClick={close}>Cancel{tip("reviews.cancel")}</Button>
-        <Button look="primary" disabled={!ready} onClick={start} data-auphonic-start>
-          Clean
+        <Button onClick={() => host.run("auphonic.close")}>Cancel{tip("reviews.cancel")}</Button>
+        <Button look="primary" disabled={!ready} onClick={() => host.run("auphonic.apply")} data-auphonic-start>
+          Apply{tip("reviews.apply")}
         </Button>
       </div>
     </div>

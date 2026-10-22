@@ -15,13 +15,16 @@ const TIMEOUT_MS = () => Number(process.env.BEACON_AUPHONIC_TIMEOUT_MS ?? 60_000
 /** Auphonic's production states: done, and failed. */
 const DONE = 3;
 const FAILED = 2;
-/** What the cleaned audio may differ from what was sent, in length and in time, before it is refused. */
 /** A length further off than this means the preset cut something out. */
 const CUT = 0.5;
 
-/** Clean with Auphonic's panel is open: it cleans the audio selected, whatever that is now. */
+/** Clean with Auphonic's panel is open: it cleans the audio selected, whatever that is now, with these settings. */
 export interface AuphonicReview {
   open: true;
+  /** The preset's uuid, once the user's presets are read. */
+  preset?: string;
+  polish: boolean;
+  sibilance: number;
 }
 
 export const auphonicReview = (s: Session) => s.features.auphonic as AuphonicReview | undefined;
@@ -30,12 +33,19 @@ const sessionCommands: SessionCommandDef[] = [
   {
     id: "auphonic.review",
     description:
-      "Open Clean with Auphonic's settings in the properties panel (Audio Effects' Auphonic tile does): it cleans the selected audio, following the selection (`clips`, or a `clip` not selected, are selected first; with none it asks for some). The user picks a preset and starts it, which spends their Auphonic minutes. audio.clean starts it directly",
-    args: z.strictObject({ clips: z.array(z.string().min(1)).min(1).optional(), clip: z.string().min(1).optional() }),
-    apply: (s, { clips, clip }: { clips?: string[]; clip?: string }) => {
+      "Open Clean with Auphonic's settings in the properties panel (Audio Effects' Auphonic tile does), or change them: it cleans the selected audio, following the selection (`clips`, or a `clip` not selected, are selected first; with none it asks for some), with `preset` (a uuid from auphonic.presets), Polish on what comes back (`polish`, its de-esser `sibilance` 0-1). The user starts it (Apply, ↩: auphonic.apply), which spends their Auphonic minutes",
+    args: z.strictObject({
+      clips: z.array(z.string().min(1)).min(1).optional(),
+      clip: z.string().min(1).optional(),
+      preset: z.string().min(1).optional(),
+      polish: z.boolean().optional(),
+      sibilance: z.number().min(0).max(1).optional(),
+    }),
+    apply: (s, { clips, clip, ...settings }: { clips?: string[]; clip?: string; preset?: string; polish?: boolean; sibilance?: number }) => {
       if (clips) s.selection = clips;
       else if (clip && !s.selection.includes(clip)) s.selection = [clip];
-      s.features.auphonic = { open: true } satisfies AuphonicReview;
+      const given = Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
+      s.features.auphonic = { ...(auphonicReview(s) ?? { open: true, polish: true, sibilance: 0.2 }), ...given } satisfies AuphonicReview;
     },
   },
   {
@@ -191,6 +201,134 @@ async function duration(path: string): Promise<number> {
   return Number(String(out).trim());
 }
 
+const audioClean = defineAction({
+  id: "audio.clean",
+  description:
+    "Clean the selected clips' audio (or `clips`) with Auphonic, using one of the user's presets (`auphonic.presets`): their audio as heard over their span is uploaded to Auphonic, on the user's account, which charges by length; what comes back (saved in the project's media folder) goes on a new track right above the highest one cleaned, the originals muted, in one undo step, with Polish on it unless `polish` is false. Runs as a job (job_status). Only when the user asks: it spends their Auphonic minutes",
+  args: z.strictObject({
+    preset: z.string().min(1).describe("The preset's uuid or name"),
+    clips: z.array(z.string().min(1)).min(1).optional(),
+    polish: z.boolean().default(true).describe("Put Polish (de-click, de-clip, de-ess) on the cleaned audio"),
+    sibilance: z.number().min(0).max(1).optional().describe("Polish's de-esser, 0-1"),
+  }),
+  resolve: ({ preset, clips: ids, polish, sibilance }, ctx) => {
+    const clips = audioClips(ctx, ids);
+    if (!clips.length) throw new Error("select audio first");
+    const from = ticksToSeconds(Math.min(...clips.map((c) => c.start)));
+    const to = ticksToSeconds(Math.max(...clips.map(clipEnd)));
+    const asset = clips[0]!.assetId ? ctx.project.assets[clips[0]!.assetId] : undefined;
+    const name = asset?.name ?? (asset ? basename(asset.path, extname(asset.path)) : "audio");
+    const ids2 = clips.map((c) => c.id);
+    return {
+      label: "Clean with Auphonic",
+      task: {
+        label: `Clean ${name} with Auphonic`,
+        run: async (env) => {
+          const key = await keyOf(env.secret);
+          const presets = (await call<{ data?: { uuid: string; preset_name: string }[] }>(key, "/presets.json?minimal_data=1")).data ?? [];
+          const chosen = presets.find((p) => p.uuid === preset || p.preset_name === preset);
+          if (!chosen) throw new Error(`no Auphonic preset "${preset}"; there are: ${presets.map((p) => p.preset_name).join(", ")}`);
+          const tmp = mkdtempSync(join(tmpdir(), "beacon-auphonic-"));
+          // Each stage numbered, with its seconds ticking: an upload and Auphonic's wait report no progress of their own.
+          let stage = { n: 1, text: "", value: 0, since: Date.now() };
+          const tell = () => env.progress(stage.value, `${stage.n} of 5 · ${stage.text} · ${minutes((Date.now() - stage.since) / 1000)}`);
+          const say = (n: number, value: number, text: string) => {
+            stage = { n, text, value, since: n === stage.n ? stage.since : Date.now() };
+            tell();
+          };
+          const ticking = setInterval(tell, 1000);
+          try {
+            say(1, 0, "Preparing the audio");
+            // AAC, a tenth of a WAV: a WAV's upload took minutes on an ordinary connection.
+            const input = join(tmp, `${name}.m4a`);
+            await env.bounceAudio(ids2, { from, to }, input);
+            say(2, 0.1, "Uploading to Auphonic");
+            const form = new FormData();
+            form.append("input_file", Bun.file(input));
+            form.append("title", `Beacon: ${name}`);
+            form.append("preset", chosen.uuid);
+            const made = await call<{ data?: { uuid?: string } }>(key, "/simple/productions.json", { method: "POST", body: form }, TIMEOUT_MS() * 5);
+            const uuid = made.data?.uuid;
+            if (!uuid) throw new Error("Auphonic didn't start a production");
+            say(3, 0.2, "Auphonic: starting");
+            await call(key, `/production/${uuid}/start.json`, { method: "POST" });
+            for (let wait = 1; ; wait++) {
+              await Bun.sleep(POLL_MS());
+              jobSignal()?.throwIfAborted();
+              const s = await call<{ data?: { status?: number; status_string?: string } }>(key, `/production/${uuid}/status.json`);
+              if (s.data?.status === DONE) break;
+              if (s.data?.status === FAILED) {
+                const d = await call<{ data?: { error_message?: string; error_summary?: string } }>(key, `/production/${uuid}.json`);
+                throw new Error(`Auphonic couldn't clean it: ${d.data?.error_message || d.data?.error_summary || "no reason given"}`);
+              }
+              // Auphonic gives no percentage: the wait creeps on towards the download.
+              say(3, 0.2 + 0.6 * (1 - 1 / (1 + wait / 8)), `Auphonic: ${s.data?.status_string ?? "working"}`);
+            }
+            const d = await call<{ data?: { output_files?: { download_url?: string; filename?: string; format?: string }[] } }>(key, `/production/${uuid}.json`);
+            // Whatever audio the preset makes, in AUDIO_OUTPUTS' order: the line-up check below still refuses one out of step.
+            const files = (d.data?.output_files ?? []).filter((f) => f.download_url && f.filename);
+            const file = AUDIO_OUTPUTS.map((ext) => files.find((f) => f.filename!.toLowerCase().endsWith(`.${ext}`))).find(Boolean);
+            if (!file) throw new Error(`the preset "${chosen.preset_name}" makes no audio file (WAV, FLAC, M4A or MP3): add one as an output format in Auphonic`);
+            say(4, 0.85, "Downloading");
+            // Its link redirects to Auphonic's storage, which Bun asks without the key.
+            const got = await request(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow" }, TIMEOUT_MS() * 5, "the download");
+            if (!got.ok) throw new Error(`Auphonic's file couldn't be downloaded (${got.status})`);
+            const back = join(tmp, `back${extname(file.filename!).toLowerCase()}`);
+            await Bun.write(back, got);
+            say(5, 0.95, "Lining it up");
+            const free = async (suffix: string, ext: string) => {
+              let path = join(env.mediaDir, `${name}.${suffix}${ext}`);
+              for (let n = 2; await Bun.file(path).exists(); n++) path = join(env.mediaDir, `${name}.${suffix} ${n}${ext}`);
+              return path;
+            };
+            const out = await free("cleaned", ".m4a");
+            // A preset that cut silences or changed speed would no longer line up with the picture: refused.
+            await lineUp(input, back, to - from, tmp, out, async () => {
+              const kept = await free("auphonic", extname(back));
+              await Bun.write(kept, Bun.file(back));
+              return kept;
+            });
+            const { shift: check } = match(await samples(input, join(tmp, "sent.raw")), await samples(out, join(tmp, "out.raw")), 0, Math.min(30, to - from));
+            if (Math.abs(check) > 0.002) throw new Error(`the cleaned audio is ${Math.round(check * 1000)} ms out of step after lining it up`);
+            const added = await env.asset(out, "audio");
+            clearInterval(ticking);
+            env.progress(1, `On a new track right above the originals, which are muted; the file is ${basename(out)} in the project's media folder`);
+            return (ctx) => {
+              // On a track of its own right above the highest one it cleaned, as the document is now.
+              const above = Math.max(-1, ...ctx.project.tracks.flatMap((t, i) => (t.clips.some((c) => ids2.includes(c.id)) ? [i] : []))) + 1;
+              const steps: ActionStep[] = [
+                { command: "asset.add", args: { ...added, name: `${name} (Auphonic)` } },
+                { command: "track.add", args: { name: "Auphonic", ...(above > 0 ? { index: above } : {}) } },
+                { command: "asset.place", args: (r: unknown[]) => ({ asset: r[0], time: from, track: r[1] }) },
+                ...ids2.map((id) => ({ command: "clip.set", args: { clip: id, props: { audio: { muted: true } } } })),
+                ...(polish ? [{ command: "effect.add", args: (r: unknown[]) => ({ clip: (r[2] as string[])[0], type: "polish", ...(sibilance === undefined ? {} : { params: { sibilance } }) }) }] : []),
+              ];
+              return { label: "Clean with Auphonic", steps, after: (r) => [{ command: "selection.set", args: { clips: r[2] as string[], linked: false } }] };
+            };
+          } finally {
+            clearInterval(ticking);
+            rmSync(tmp, { recursive: true, force: true });
+          }
+        },
+      },
+    };
+  },
+});
+
+/** The panel's Apply (↩): cleans the selected audio with its settings, and closes it. */
+const auphonicApply = defineAction({
+  id: "auphonic.apply",
+  description: "Start Clean with Auphonic as its open panel is set (its Apply button, ↩) on the selected audio, and close the panel. Only when the user asks: it spends their Auphonic minutes",
+  args: z.strictObject({}),
+  resolve: (_, ctx) => {
+    const r = auphonicReview(ctx.session);
+    if (!r) throw new Error("Clean with Auphonic isn't open: auphonic.review opens it");
+    if (!r.preset) throw new Error("pick an Auphonic preset first");
+    const plan = audioClean.resolve({ preset: r.preset, polish: r.polish, sibilance: r.sibilance }, ctx);
+    return { ...plan, before: [...(plan.before ?? []), { command: "auphonic.close" }] };
+  },
+});
+
 /**
  * Auphonic's cleaning, as the user's tuneup does it, built in: the selected clips' audio, as heard, sent to Auphonic
  * with one of the user's presets, and what comes back put on a new track right above them, the originals muted.
@@ -198,7 +336,7 @@ async function duration(path: string): Promise<number> {
 export const auphonic = defineFeature({
   id: "auphonic",
   version: 1,
-  dismissable: [{ open: (s) => !!auphonicReview(s), close: "auphonic.close" }],
+  panels: [{ open: (s) => !!auphonicReview(s), cancel: "auphonic.close", apply: { action: "auphonic.apply" } }],
   secrets: [{ id: KEY, title: "Auphonic API key" }],
   sessionCommands,
   panelItems: [
@@ -223,119 +361,5 @@ export const auphonic = defineFeature({
       },
     }),
   ],
-  actions: [
-    defineAction({
-      id: "audio.clean",
-      description:
-        "Clean the selected clips' audio (or `clips`) with Auphonic, using one of the user's presets (`auphonic.presets`): their audio as heard over their span is uploaded to Auphonic, on the user's account, which charges by length; what comes back (saved in the project's media folder) goes on a new track right above the highest one cleaned, the originals muted, in one undo step, with Polish on it unless `polish` is false. Runs as a job (job_status). Only when the user asks: it spends their Auphonic minutes",
-      args: z.strictObject({
-        preset: z.string().min(1).describe("The preset's uuid or name"),
-        clips: z.array(z.string().min(1)).min(1).optional(),
-        polish: z.boolean().default(true).describe("Put Polish (de-click, de-clip, de-ess) on the cleaned audio"),
-        sibilance: z.number().min(0).max(1).optional().describe("Polish's de-esser, 0-1"),
-      }),
-      resolve: ({ preset, clips: ids, polish, sibilance }, ctx) => {
-        const clips = audioClips(ctx, ids);
-        if (!clips.length) throw new Error("select audio first");
-        const from = ticksToSeconds(Math.min(...clips.map((c) => c.start)));
-        const to = ticksToSeconds(Math.max(...clips.map(clipEnd)));
-        const asset = clips[0]!.assetId ? ctx.project.assets[clips[0]!.assetId] : undefined;
-        const name = asset?.name ?? (asset ? basename(asset.path, extname(asset.path)) : "audio");
-        const ids2 = clips.map((c) => c.id);
-        return {
-          label: "Clean with Auphonic",
-          task: {
-            label: `Clean ${name} with Auphonic`,
-            run: async (env) => {
-              const key = await keyOf(env.secret);
-              const presets = (await call<{ data?: { uuid: string; preset_name: string }[] }>(key, "/presets.json?minimal_data=1")).data ?? [];
-              const chosen = presets.find((p) => p.uuid === preset || p.preset_name === preset);
-              if (!chosen) throw new Error(`no Auphonic preset "${preset}"; there are: ${presets.map((p) => p.preset_name).join(", ")}`);
-              const tmp = mkdtempSync(join(tmpdir(), "beacon-auphonic-"));
-              // Each stage numbered, with its seconds ticking: an upload and Auphonic's wait report no progress of their own.
-              let stage = { n: 1, text: "", value: 0, since: Date.now() };
-              const tell = () => env.progress(stage.value, `${stage.n} of 5 · ${stage.text} · ${minutes((Date.now() - stage.since) / 1000)}`);
-              const say = (n: number, value: number, text: string) => {
-                stage = { n, text, value, since: n === stage.n ? stage.since : Date.now() };
-                tell();
-              };
-              const ticking = setInterval(tell, 1000);
-              try {
-                say(1, 0, "Preparing the audio");
-                // AAC, a tenth of a WAV: a WAV's upload took minutes on an ordinary connection.
-                const input = join(tmp, `${name}.m4a`);
-                await env.bounceAudio(ids2, { from, to }, input);
-                say(2, 0.1, "Uploading to Auphonic");
-                const form = new FormData();
-                form.append("input_file", Bun.file(input));
-                form.append("title", `Beacon: ${name}`);
-                form.append("preset", chosen.uuid);
-                const made = await call<{ data?: { uuid?: string } }>(key, "/simple/productions.json", { method: "POST", body: form }, TIMEOUT_MS() * 5);
-                const uuid = made.data?.uuid;
-                if (!uuid) throw new Error("Auphonic didn't start a production");
-                say(3, 0.2, "Auphonic: starting");
-                await call(key, `/production/${uuid}/start.json`, { method: "POST" });
-                for (let wait = 1; ; wait++) {
-                  await Bun.sleep(POLL_MS());
-                  jobSignal()?.throwIfAborted();
-                  const s = await call<{ data?: { status?: number; status_string?: string } }>(key, `/production/${uuid}/status.json`);
-                  if (s.data?.status === DONE) break;
-                  if (s.data?.status === FAILED) {
-                    const d = await call<{ data?: { error_message?: string; error_summary?: string } }>(key, `/production/${uuid}.json`);
-                    throw new Error(`Auphonic couldn't clean it: ${d.data?.error_message || d.data?.error_summary || "no reason given"}`);
-                  }
-                  // Auphonic gives no percentage: the wait creeps on towards the download.
-                  say(3, 0.2 + 0.6 * (1 - 1 / (1 + wait / 8)), `Auphonic: ${s.data?.status_string ?? "working"}`);
-                }
-                const d = await call<{ data?: { output_files?: { download_url?: string; filename?: string; format?: string }[] } }>(key, `/production/${uuid}.json`);
-                // Whatever audio the preset makes, in AUDIO_OUTPUTS' order: the line-up check below still refuses one out of step.
-                const files = (d.data?.output_files ?? []).filter((f) => f.download_url && f.filename);
-                const file = AUDIO_OUTPUTS.map((ext) => files.find((f) => f.filename!.toLowerCase().endsWith(`.${ext}`))).find(Boolean);
-                if (!file) throw new Error(`the preset "${chosen.preset_name}" makes no audio file (WAV, FLAC, M4A or MP3): add one as an output format in Auphonic`);
-                say(4, 0.85, "Downloading");
-                // Its link redirects to Auphonic's storage, which Bun asks without the key.
-                const got = await request(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow" }, TIMEOUT_MS() * 5, "the download");
-                if (!got.ok) throw new Error(`Auphonic's file couldn't be downloaded (${got.status})`);
-                const back = join(tmp, `back${extname(file.filename!).toLowerCase()}`);
-                await Bun.write(back, got);
-                say(5, 0.95, "Lining it up");
-                const free = async (suffix: string, ext: string) => {
-                  let path = join(env.mediaDir, `${name}.${suffix}${ext}`);
-                  for (let n = 2; await Bun.file(path).exists(); n++) path = join(env.mediaDir, `${name}.${suffix} ${n}${ext}`);
-                  return path;
-                };
-                const out = await free("cleaned", ".m4a");
-                // A preset that cut silences or changed speed would no longer line up with the picture: refused.
-                await lineUp(input, back, to - from, tmp, out, async () => {
-                  const kept = await free("auphonic", extname(back));
-                  await Bun.write(kept, Bun.file(back));
-                  return kept;
-                });
-                const { shift: check } = match(await samples(input, join(tmp, "sent.raw")), await samples(out, join(tmp, "out.raw")), 0, Math.min(30, to - from));
-                if (Math.abs(check) > 0.002) throw new Error(`the cleaned audio is ${Math.round(check * 1000)} ms out of step after lining it up`);
-                const added = await env.asset(out, "audio");
-                clearInterval(ticking);
-                env.progress(1, `On a new track right above the originals, which are muted; the file is ${basename(out)} in the project's media folder`);
-                return (ctx) => {
-                  // On a track of its own right above the highest one it cleaned, as the document is now.
-                  const above = Math.max(-1, ...ctx.project.tracks.flatMap((t, i) => (t.clips.some((c) => ids2.includes(c.id)) ? [i] : []))) + 1;
-                  const steps: ActionStep[] = [
-                    { command: "asset.add", args: { ...added, name: `${name} (Auphonic)` } },
-                    { command: "track.add", args: { name: "Auphonic", ...(above > 0 ? { index: above } : {}) } },
-                    { command: "asset.place", args: (r: unknown[]) => ({ asset: r[0], time: from, track: r[1] }) },
-                    ...ids2.map((id) => ({ command: "clip.set", args: { clip: id, props: { audio: { muted: true } } } })),
-                    ...(polish ? [{ command: "effect.add", args: (r: unknown[]) => ({ clip: (r[2] as string[])[0], type: "polish", ...(sibilance === undefined ? {} : { params: { sibilance } }) }) }] : []),
-                  ];
-                  return { label: "Clean with Auphonic", steps, after: (r) => [{ command: "selection.set", args: { clips: r[2] as string[], linked: false } }] };
-                };
-              } finally {
-                clearInterval(ticking);
-                rmSync(tmp, { recursive: true, force: true });
-              }
-            },
-          },
-        };
-      },
-    }),
-  ],
+  actions: [audioClean, auphonicApply],
 });

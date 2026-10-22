@@ -1973,6 +1973,13 @@ on the canvas; an audio-only selection starts on the last audio format.
 **Done 2026-10-22:** `ExportOptions.clips` (and `export_start`); the sheet
 is built by `exportSheetFor` (ui), shared by the app and the UI harness.
 
+#### The same Cancel and Apply in every panel (the user, 2026-10-22)
+**Decided:** the same word everywhere: Cancel (⎋), Apply (↩), and Apply All
+(⇧↩) where there is one (Remove Silences). **Done 2026-10-22:** features
+declare their panels (`panels`), the `reviews.*` actions act on the open one;
+Clean with Auphonic's settings live in the session (`auphonic.apply`), and its
+summary is one line.
+
 #### "open in another process" as a dialog (the user, 2026-10-22)
 Today a status line ("… is open in another process (pid … on …)"). Decided:
 no option to turn autosave off for it (two editors would still overwrite each

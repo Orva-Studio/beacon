@@ -111,8 +111,39 @@ const placed = { duration: z.number().positive().default(5), time: z.number().no
 
 const selectPasted = (results: unknown[]): ActionStep[] => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }];
 
+/** The open panel with Cancel and Apply (a feature's `panels`: Remove Silences, Clean with Auphonic), if any. */
+const openPanel = (ctx: ActionContext) => ctx.registry.panels.find((p) => p.open(ctx.session));
+const runPanel = (ctx: ActionContext, step: { action: string; args?: object }) => {
+  const def = ctx.registry.actions.get(step.action)!;
+  return def.resolve(def.args.parse(step.args ?? {}), ctx);
+};
+
+/** The open panel's Apply (↩), Apply All (⇧↩) and Cancel (⎋), whichever feature's it is. */
+const panelActions = [
+  defineAction({
+    id: "reviews.apply",
+    description: "The open panel's Apply (↩): Remove Silences cuts the picked silences, Remove Filler Words and Remove Retakes what they mark, Clean with Auphonic starts; nothing when none is open",
+    args: z.strictObject({}),
+    resolve: (_, ctx) => ((p) => (p ? runPanel(ctx, p.apply) : { label: "Apply" }))(openPanel(ctx)),
+  }),
+  defineAction({
+    id: "reviews.applyAll",
+    description: "The open panel's Apply All (⇧↩): Remove Silences cuts every silence it found; elsewhere as Apply",
+    args: z.strictObject({}),
+    resolve: (_, ctx) => ((p) => (p ? runPanel(ctx, p.applyAll ?? p.apply) : { label: "Apply All" }))(openPanel(ctx)),
+  }),
+  // ⎋ was Deselect All and Clear the Range alone: with no panel open it still is.
+  defineAction({
+    id: "reviews.cancel",
+    description: "Close the open panel without applying it (Cancel, ⎋); with none open, deselect everything and clear the in/out range",
+    args: z.strictObject({}),
+    resolve: (_, ctx) => ({ label: "Cancel", before: [((p) => (p ? { command: p.cancel } : { command: "selection.clear", args: { range: true } }))(openPanel(ctx))] }),
+  }),
+];
+
 /** The editing commands as the editor runs them: on the selection, the range and the playhead. */
 export const actions = [
+  ...panelActions,
   defineAction({
     id: "edit.delete",
     description: "Delete the selected clips, leaving gaps; with nothing selected, the in/out range from every unlocked track (⌫)",

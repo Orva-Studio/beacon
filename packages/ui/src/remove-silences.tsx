@@ -74,17 +74,17 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
         </div>
       )}
       <div className="mb-4 text-label text-text-muted" data-review-hint>
-        Click a silence on the timeline to select it, ⇧-click to select more, then Cut Selected ({tip("edit.delete").replace(/^ \((.*)\)$/, "$1") || "Delete"}).
+        Click a silence on the timeline to select it, ⇧-click to select more, then Apply.
       </div>
       <div className="mt-auto flex flex-wrap justify-end gap-2">
         <Button onClick={() => host.run("silences.close")} data-silences-cancel>
           Cancel{tip("reviews.cancel")}
         </Button>
         <Button disabled={!usable} onClick={() => host.run("silences.apply", { all: true })} data-silences-all>
-          Cut All
+          Apply All{tip("reviews.applyAll")}
         </Button>
         <Button look="primary" disabled={!usable || !picked} onClick={() => host.run("silences.apply")} data-silences-apply>
-          Cut Selected{tip("reviews.apply")}
+          Apply{tip("reviews.apply")}
         </Button>
       </div>
     </div>

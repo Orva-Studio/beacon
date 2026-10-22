@@ -1391,6 +1391,15 @@
         ]
       },
       "command": "inspector.effects"
+    },
+    {
+      "keys": {
+        "key": "\u21a9",
+        "modifiers": [
+          "shift"
+        ]
+      },
+      "command": "reviews.applyAll"
     }
   ]
 }

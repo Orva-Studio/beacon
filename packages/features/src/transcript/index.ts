@@ -288,7 +288,7 @@ function refuseUntranscribed(project: Project, registry: FeatureRegistry, data: 
 export interface SilenceReview {
   min: number;
   keep: number;
-  /** A time inside each silence picked on the timeline (a click, ⇧-click for more): Cut Selected cuts those. */
+  /** A time inside each silence picked on the timeline (a click, ⇧-click for more): Apply cuts those. */
   selected: number[];
 }
 
@@ -669,7 +669,7 @@ const transcriber = (pref: (id: string) => string): Transcriber => (TRANSCRIBERS
 const retakesApply = defineAction({
   id: "retakes.apply",
   description:
-    "Cut what Remove Retakes' open review marks to cut (its Apply All button): of each group the takes not kept, one undo step, and close the review. With `one`, cut only the group retakes.focus is on (Cut This One) and stay open on the next",
+    "Cut what Remove Retakes' open review marks to cut (its Apply button, ↩): of each group the takes not kept, one undo step, and close the review. With `one`, cut only the group retakes.focus is on (Cut This One) and stay open on the next",
   args: z.strictObject({ one: z.boolean().default(false) }),
   resolve: ({ one }, { project, registry, session, data, pref }) => {
     const r = retakeReview(session);
@@ -688,14 +688,14 @@ const retakesApply = defineAction({
 const silencesApply = defineAction({
   id: "silences.apply",
   description:
-    "Cut the silences picked in Remove Silences' open review (Cut Selected, ↩ or ⌫), one undo step, staying open on the rest; with `all`, every silence it found (Cut All), and close the review",
+    "Cut the silences picked in Remove Silences' open review (Apply, ↩ or ⌫), one undo step, staying open on the rest; with `all`, every silence it found (Apply All, ⇧↩), and close the review",
   args: z.strictObject({ all: z.boolean().default(false) }),
   resolve: ({ all }, { session }) => {
     const r = silenceReview(session);
     if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
     const { min, keep, selected } = r;
     if (all) return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep } }], after: () => [{ command: "silences.close" }] };
-    if (!selected.length) throw new Error("no silences picked: click one on the timeline (⇧-click for more), or Cut All");
+    if (!selected.length) throw new Error("no silences picked: click one on the timeline (⇧-click for more), or Apply All");
     return { label: selected.length === 1 ? "Remove Silence" : "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, at: selected } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }] };
   },
 });
@@ -703,7 +703,7 @@ const silencesApply = defineAction({
 const fillersApply = defineAction({
   id: "fillers.apply",
   description:
-    "Cut what Remove Filler Words' open review marks to cut (its Apply button), one undo step, and close the review. With `one`, cut only the filler fillers.focus is on (Cut This One), cut or kept, and stay open on the next",
+    "Cut what Remove Filler Words' open review marks to cut (its Apply button, ↩), one undo step, and close the review. With `one`, cut only the filler fillers.focus is on (Cut This One), cut or kept, and stay open on the next",
   args: z.strictObject({ one: z.boolean().default(false) }),
   resolve: ({ one }, { session }) => {
     const r = fillerReview(session);
@@ -717,34 +717,14 @@ const fillersApply = defineAction({
 /** Which review is open, if any: one at a time. */
 const openReviewKey = (s: Session): ReviewKey | undefined => (["silences", "fillers", "retakes"] as const).find((k) => (s.features.transcript as Reviews | undefined)?.[k]);
 
-/** Apply All and Cancel by their keys (↩, ⎋), for whichever review is open. */
-const reviewsApply = defineAction({
-  id: "reviews.apply",
-  description: "Apply the open review (Remove Silences, Remove Filler Words or Remove Retakes) as its Apply All button does, one undo step; nothing when none is open",
-  args: z.strictObject({}),
-  resolve: (_, ctx) => {
-    const key = openReviewKey(ctx.session);
-    if (!key) return { label: "Apply" };
-    // Remove Silences cuts only what was picked: ↩ never cuts every silence.
-    return key === "silences" ? silencesApply.resolve({ all: false }, ctx) : { retakes: retakesApply, fillers: fillersApply }[key].resolve({ one: false }, ctx);
-  },
-});
-// ⎋ was Deselect All and Clear the Range alone: with no panel open it still is.
-const reviewsCancel = defineAction({
-  id: "reviews.cancel",
-  description: "Close the open review or panel ⎋ closes (Remove Silences, Remove Filler Words, Remove Retakes, Clean with Auphonic) without applying it, as its Cancel button does; with none open, deselect everything and clear the in/out range",
-  args: z.strictObject({}),
-  resolve: (_, { session, registry }) => {
-    const open = registry.dismissable.find((d) => d.open(session));
-    return { label: "Cancel", before: [open ? { command: open.close } : { command: "selection.clear", args: { range: true } }] };
-  },
-});
-
 /** Transcripts of recordings and audio (Whisper on this Mac, Apple's transcriber or OpenAI's API), and editing by transcript. */
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
-  dismissable: (["silences", "fillers", "retakes"] as const).map((key) => ({ open: (s: Session) => openReviewKey(s) === key, close: `${key}.close` })),
+  panels: [
+    { open: (s: Session) => openReviewKey(s) === "silences", cancel: "silences.close", apply: { action: "silences.apply" }, applyAll: { action: "silences.apply", args: { all: true } } },
+    ...(["fillers", "retakes"] as const).map((key) => ({ open: (s: Session) => openReviewKey(s) === key, cancel: `${key}.close`, apply: { action: `${key}.apply` } })),
+  ],
   preferences: [
     ...(
       [
@@ -954,7 +934,7 @@ export const transcript = defineFeature({
     }),
   ],
   sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands, ...retakeSessionCommands, reviewShift],
-  actions: [retakesApply, silencesApply, fillersApply, reviewsApply, reviewsCancel],
+  actions: [retakesApply, silencesApply, fillersApply],
   commands: [
     defineCommand({
       id: "transcript.removeRetakes",

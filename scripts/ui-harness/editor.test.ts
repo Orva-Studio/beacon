@@ -2617,7 +2617,7 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⇧-click more (again to drop one); Cut Selected or ⌫ cuts those in one undo step and stays open; Cut All cuts every one and closes; Cancel cuts nothing", async () => {
+test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⇧-click more (again to drop one); Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
@@ -2659,7 +2659,7 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   await shows(edited);
   await ui.core.undo(ui.handle);
   await shows(reviewed);
-  // Nothing is picked to begin with: Cut Selected waits for a pick.
+  // Nothing is picked to begin with: Apply waits for a pick.
   const first = await found();
   expect(first.silences.some((x) => x.selected)).toBe(false);
   expect(await page.evaluate<boolean>("document.querySelector('[data-silences-apply]').disabled")).toBe(true);
@@ -2718,7 +2718,7 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   expect(before - length()).toBeGreaterThan(wide!.end - wide!.start - 0.5);
   await ui.core.undo(ui.handle);
   expect(length()).toBeCloseTo(before, 3);
-  // Cut All: every silence, one undo step, and the review closes.
+  // Apply All: every silence, one undo step, and the review closes.
   await run("silences.select", {});
   const all = await found();
   await page.evaluate("document.querySelector('[data-silences-all]').click()");
@@ -2748,7 +2748,9 @@ test.skipIf(skip)("a review's Apply and Cancel by their keys, shown on the butto
   };
   await open();
   expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (Esc)");
-  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Cut Selected (↩)");
+  // The same words and keys as every panel with Cancel and Apply.
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply (↩)");
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-all]').textContent")).toBe("Apply All (⇧↩)");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
@@ -2764,6 +2766,15 @@ test.skipIf(skip)("a review's Apply and Cancel by their keys, shown on the butto
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeLessThan(before);
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // ⇧↩ is Apply All: every silence, and the review closes.
+  await open();
+  const every = ((await ui.core.query(ui.handle, "transcript.silences", {})) as { saved: number }).saved;
+  await page.key("Enter", "Enter", ["shift"]);
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => length() < before);
+  expect(before - length()).toBeCloseTo(every, 2);
   await ui.core.undo(ui.handle);
   expect(length()).toBeCloseTo(before, 3);
   // ↩ on a focused button presses it: Cancel, tabbed to, cancels rather than applies.
@@ -3699,7 +3710,10 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toContain("1 clip");
     // A view open, as the app's window is: media an edit adds then gets its waveform with no one asking.
     ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
-    await page.click(...(await centre("[data-auphonic-start]")));
+    // Apply, as in every panel with Cancel: ↩ starts it.
+    expect(await page.evaluate<string>("document.querySelector('[data-auphonic-start]').textContent")).toBe("Apply (↩)");
+    expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toMatch(/^1 clip, \d+:\d\d · about \d+ min of Auphonic credit$/);
+    await page.key("Enter", "Enter");
     await page.until("!document.querySelector('[data-auphonic-review]')");
     await page.until("(document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? '').includes('Auphonic: Audio Processing')", 10_000);
     expect(await page.evaluate<string>("document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? ''")).toMatch(/3 of 5 · Auphonic: Audio Processing · \d:\d\d/);

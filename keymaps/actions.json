@@ -997,12 +997,17 @@
     },
     {
       "id": "reviews.apply",
-      "name": "Apply Review",
+      "name": "Apply",
       "command": "reviews.apply"
     },
     {
+      "id": "reviews.applyAll",
+      "name": "Apply All",
+      "command": "reviews.applyAll"
+    },
+    {
       "id": "reviews.cancel",
-      "name": "Cancel Review or Deselect",
+      "name": "Cancel or Deselect",
       "command": "reviews.cancel"
     },
     {
