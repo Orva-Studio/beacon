@@ -92,3 +92,32 @@ test("reloading tells a change back to the defaults, and nothing when the file d
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Remove Silences' and Remove Retakes' last settings are kept app-wide: checked against their range, and a review opens with them", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "beacon-settings-"));
+  try {
+    const configDir = join(dir, "config");
+    const core = new LocalCore({ configDir, cacheDir: join(dir, "cache") });
+    const prefs = await core.preferences();
+    expect(prefs.find((p) => p.id === "retakeWithin")).toMatchObject({ value: "30", options: [], range: { min: 5, max: 120 } });
+    await expect(core.setPreference("retakeWithin", "500")).rejects.toThrow("isn't a number from 5 to 120");
+    await expect(core.setPreference("retakeWithin", "soon")).rejects.toThrow("isn't a number");
+    await core.setPreference("retakeWithin", "60");
+    await core.setPreference("retakeMinWords", "5");
+    await core.setPreference("silenceMin", "1.5");
+
+    // Another core (the next launch) reads them back; a review opened there starts from them.
+    const next = new LocalCore({ configDir, cacheDir: join(dir, "cache") });
+    const h = await next.create({ path: join(dir, "p.beproj") });
+    const review = async () => (await next.session(h)).features.transcript as { retakes?: object; silences?: object };
+    await next.run(h, "retakes.review", {});
+    expect((await review()).retakes).toMatchObject({ minWords: 5, within: 60 });
+    await next.run(h, "silences.review", { keep: 0.2 });
+    expect((await review()).silences).toMatchObject({ min: 1.5, keep: 0.2 });
+    // Settings a review is given (an agent's) are its own: the kept ones don't change.
+    expect((await next.preferences()).find((p) => p.id === "silenceKeep")?.value).toBe("0.3");
+    next.closeAll();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -24,7 +24,7 @@ test.skipIf(!existsSync(RECORDING))(
     try {
       // export_start takes the encoding schema the app's Export dialog fills, plus where and which range.
       const exportTool = (await client.listTools()).tools.find((t) => t.name === "export_start")!;
-      expect(Object.keys(exportTool.inputSchema.properties ?? {}).sort()).toEqual(["audio", "audioBitrate", "bitrate", "codec", "colorSpace", "fps", "from", "keyframe", "output", "overwrite", "profile", "size", "to"]);
+      expect(Object.keys(exportTool.inputSchema.properties ?? {}).sort()).toEqual(["audio", "audioBitrate", "bitrate", "clips", "codec", "colorSpace", "fps", "from", "keyframe", "output", "overwrite", "profile", "size", "to"]);
       await call("project_create", { path: join(dir, "test.beproj") });
       const imported = await json("media_import", { files: [RECORDING] });
       for (const job of imported.jobs) {

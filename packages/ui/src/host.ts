@@ -1,4 +1,5 @@
 import type { Host } from "./app";
+import { dropTiming } from "./drop";
 import { commandQueue } from "./latest";
 import { applyReply } from "./messages";
 import type { AppRPC } from "./rpc";
@@ -42,9 +43,11 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     tileMenu: (tile) => void request("tileMenu", tile),
     recentMenu: (path) => void request("recentMenu", { path }),
     importMedia: () => void request("importMedia", {}),
-    dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at })),
+    dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at, timing: dropTiming() })),
     captureFrame: () => commands.send(() => request("captureFrame", {})),
     frameImage: () => request("frameImage", {}),
+    // Coalesced: sweeping down a list sends only the newest look once the last one is in.
+    previewEffect: (preview) => commands.send(() => request("previewEffect", { preview }), "previewEffect"),
     binFrame: (asset, time) => request("binFrame", { asset, time }),
     analyze: (key, asset) => void request("analyze", { key, asset }),
     favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, ...(index !== undefined ? { index } : {}) })),

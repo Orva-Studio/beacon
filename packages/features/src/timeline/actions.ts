@@ -79,12 +79,71 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
   };
 }
 
+/** Delete Audio, Delete Video: that part of the selection and of what is linked to it, the rest left where it is. */
+function removePart(ctx: ActionContext, part: "audio" | "video"): ActionPlan {
+  const selected = selectedClips(ctx);
+  if (!selected.length) throw new Error("select media first");
+  const links = new Set(selected.flatMap((c) => (c.linkId ? [c.linkId] : [])));
+  const pool = ctx.scope.tracks.flatMap((t) => t.clips).filter((c) => selected.includes(c) || (c.linkId && links.has(c.linkId)));
+  const gone = pool.filter((c) => ctx.registry.hasTrait(c.type, part));
+  if (!gone.length) throw new Error(`the selection has no ${part === "audio" ? "audio" : "picture"} to delete`);
+  if (gone.length === pool.length) throw new Error(`the selection is all ${part === "audio" ? "audio" : "picture"}: Delete (⌫) removes it`);
+  return {
+    label: part === "audio" ? "Delete Audio" : "Delete Video",
+    steps: [{ command: "clip.remove", args: { clips: gone.map((c) => c.id), linked: false } }],
+    after: () => [{ command: "selection.set", args: { clips: ctx.session.selection.filter((id) => !gone.some((c) => c.id === id)), linked: false } }],
+  };
+}
+
+/** Lock Track, Mute Track: on if any of the tracks is off, else off, in one step. */
+function toggleTracks(ctx: ActionContext, flag: "locked" | "muted", [on, off]: [string, string]): ActionPlan {
+  const clips = new Set(selectedClips(ctx).map((c) => c.id));
+  const tracks = clips.size ? ctx.scope.tracks.filter((t) => t.clips.some((c) => clips.has(c.id))) : ctx.scope.tracks.filter((t) => t.id === ctx.session.track);
+  if (!tracks.length) throw new Error("select media or click a track's header first");
+  const value = tracks.some((t) => !t[flag]);
+  return {
+    label: `${value ? on : off} ${tracks.length > 1 ? "Tracks" : "Track"}`,
+    steps: tracks.map((t) => ({ command: "track.set", args: { track: t.id, [flag]: value } })),
+  };
+}
+
 const placed = { duration: z.number().positive().default(5), time: z.number().nonnegative().optional(), track: z.string().min(1).optional() };
 
 const selectPasted = (results: unknown[]): ActionStep[] => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }];
 
+/** The open panel with Cancel and Apply (a feature's `panels`: Remove Silences, Clean with Auphonic), if any. */
+const openPanel = (ctx: ActionContext) => ctx.registry.panels.find((p) => p.open(ctx.session));
+const runPanel = (ctx: ActionContext, step: { action: string; args?: object }) => {
+  const def = ctx.registry.actions.get(step.action)!;
+  return def.resolve(def.args.parse(step.args ?? {}), ctx);
+};
+
+/** The open panel's Apply (↩), Apply All (⇧↩) and Cancel (⎋), whichever feature's it is. */
+const panelActions = [
+  defineAction({
+    id: "reviews.apply",
+    description: "The open panel's Apply (↩): Remove Silences cuts the picked silences, Remove Filler Words and Remove Retakes what they mark, Clean with Auphonic starts; nothing when none is open",
+    args: z.strictObject({}),
+    resolve: (_, ctx) => ((p) => (p ? runPanel(ctx, p.apply) : { label: "Apply" }))(openPanel(ctx)),
+  }),
+  defineAction({
+    id: "reviews.applyAll",
+    description: "The open panel's Apply All (⇧↩): Remove Silences cuts every silence it found; elsewhere as Apply",
+    args: z.strictObject({}),
+    resolve: (_, ctx) => ((p) => (p ? runPanel(ctx, p.applyAll ?? p.apply) : { label: "Apply All" }))(openPanel(ctx)),
+  }),
+  // ⎋ was Deselect All and Clear the Range alone: with no panel open it still is.
+  defineAction({
+    id: "reviews.cancel",
+    description: "Close the open panel without applying it (Cancel, ⎋); with none open, deselect everything and clear the in/out range",
+    args: z.strictObject({}),
+    resolve: (_, ctx) => ({ label: "Cancel", before: [((p) => (p ? { command: p.cancel } : { command: "selection.clear", args: { range: true } }))(openPanel(ctx))] }),
+  }),
+];
+
 /** The editing commands as the editor runs them: on the selection, the range and the playhead. */
 export const actions = [
+  ...panelActions,
   defineAction({
     id: "edit.delete",
     description: "Delete the selected clips, leaving gaps; with nothing selected, the in/out range from every unlocked track (⌫)",
@@ -296,6 +355,41 @@ export const actions = [
       if (!clips.length) throw new Error("select linked clips first");
       return { label: "Unlink Recording", steps: [{ command: "clip.unlink", args: { clips } }] };
     },
+  }),
+  defineAction({
+    id: "edit.clipSpeed",
+    description:
+      "Show the selected clips' speed in the properties panel to change it (Visual Effects' Clip Speed); with `clip`, as dropping it on that clip. Set the speed itself with `clip.speed`",
+    args: z.strictObject({ clip: z.string().min(1).optional() }),
+    resolve: ({ clip }, ctx) => {
+      if (!dropTargets(ctx, clip).some((c) => c.assetId || ctx.registry.hasTrait(c.type, "stitched"))) throw new Error(clip ? "only media has a speed" : "select media first");
+      return { label: "Clip Speed", before: [...selectDropped(ctx, clip), { command: "inspector.tab", args: { tab: "speed" } }] };
+    },
+  }),
+  defineAction({
+    id: "edit.deleteAudio",
+    description: "Delete the audio of the selected clips and the clips recorded with them, keeping their picture, without unlinking first; one undo step (: A)",
+    args: none,
+    resolve: (_, ctx) => removePart(ctx, "audio"),
+  }),
+  defineAction({
+    id: "edit.deleteVideo",
+    description: "Delete the picture (screen or camera) of the selected clips and the clips recorded with them, keeping their audio, without unlinking first; one undo step (: V)",
+    args: none,
+    resolve: (_, ctx) => removePart(ctx, "video"),
+  }),
+  defineAction({
+    id: "edit.lockTrack",
+    description:
+      "Lock the tracks of the selected clips (else the track whose header was clicked last), or unlock them when all are locked; a locked track's clips can't be picked or edited (⌥⇧L)",
+    args: none,
+    resolve: (_, ctx) => toggleTracks(ctx, "locked", ["Lock", "Unlock"]),
+  }),
+  defineAction({
+    id: "edit.muteTrack",
+    description: "Mute the tracks of the selected clips (else the track whose header was clicked last), or unmute them when all are muted (⌥⇧M)",
+    args: none,
+    resolve: (_, ctx) => toggleTracks(ctx, "muted", ["Mute", "Unmute"]),
   }),
   defineAction({
     id: "edit.addMarker",

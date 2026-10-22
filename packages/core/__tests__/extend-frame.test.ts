@@ -43,3 +43,23 @@ test.skipIf(!existsSync(RECORDING) || !existsSync(IMAGE))("a recording's first f
   await core.run(h, "clip.extendFrame", { clip: video.id, duration: 0.5, edge: "start" });
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(RECORDING))("a held frame looks as the clip does there: zoomed in at its end, the still is zoomed in; its first frame, before the zoom, isn't", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const h = await core.create({ path: join(dir, "zoomed.beproj") });
+  const r = await core.import(h, [RECORDING], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const all = () => core.doc(h).tracks.flatMap((t) => t.clips);
+  const screen = all().find((c) => c.type === "screen")!;
+  const scale = (id: string) => (all().find((c) => c.id === id)!.props.transform as { scaleX: number }).scaleX;
+  const base = scale(screen.id);
+  await core.run(h, "zoom.to", { clip: screen.id, at: 2, center: { x: 400, y: 300 }, factor: 2 });
+  await core.run(h, "timeline.insertSpace", { at: 0, duration: 1 });
+
+  const end = (await core.run(h, "clip.extendFrame", { clip: screen.id, duration: 1 })).results[0] as string;
+  expect(scale(end)).toBeCloseTo(base * 2, 5);
+  expect(all().find((c) => c.id === end)!.animations).toEqual([]);
+  const start = (await core.run(h, "clip.extendFrame", { clip: screen.id, duration: 1, edge: "start" })).results[0] as string;
+  expect(scale(start)).toBeCloseTo(base, 5);
+  await core.close(h);
+}, 60_000);

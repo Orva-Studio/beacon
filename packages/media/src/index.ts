@@ -5,7 +5,7 @@ export * from "./recorder";
 export * from "./renderer";
 export * from "./preview";
 export * from "./transcribe";
-export { enginePath, workerPath } from "./engine";
+export { enginePath, runWorker, workerPath } from "./engine";
 export * from "./matte";
 export * from "./tool";
 export * from "./window";

@@ -53,9 +53,11 @@ export interface ExportOptions extends VideoEncoding {
   output: string;
   /** Replace an existing file (or a non-empty frames folder). */
   overwrite?: boolean;
-  /** Timeline seconds; defaults to the whole project. */
+  /** Timeline seconds; defaults to the whole project, or with `clips` their span. */
   from?: number;
   to?: number;
+  /** Only these timeline clips (an export of the selection): the others are left out of the picture and the sound. */
+  clips?: string[];
 }
 
 export interface ImportOptions {
@@ -140,9 +142,18 @@ export interface PreferenceInfo {
     /** It needs the internet. */
     online?: boolean;
   }[];
+  /** A number in this range instead of one of `options`. */
+  range?: { min: number; max: number };
 }
 
 export type JobState = "running" | "done" | "failed";
+
+export interface SecretInfo {
+  id: string;
+  /** As Settings shows it ("OpenAI API key"). */
+  title: string;
+  set: boolean;
+}
 
 export interface JobInfo {
   id: string;
@@ -151,6 +162,8 @@ export interface JobInfo {
   state: JobState;
   /** 0–1. */
   progress: number;
+  /** What it is doing now, when it goes through stages ("Uploading", "Downloading"). */
+  stage?: string;
   result?: unknown;
   error?: string;
   /** Seconds since the job started. */
@@ -182,7 +195,17 @@ export interface QueryInfo extends CommandInfo {
 /** What clips can hold: for agents' reference and generated UI. */
 export interface SchemaInfo {
   /** `nested`: the prop group holding the clip type's own tracks (groups, stitched media), if any. */
-  clipTypes: { id: string; description: string; traits: string[]; props: string[]; effects: string[]; nested?: string }[];
+  clipTypes: {
+    id: string;
+    description: string;
+    traits: string[];
+    props: string[];
+    effects: string[];
+    nested?: string;
+    /** Its properties panel tabs, in order (from its groups'). */
+    tabs: { id: string; title: string; icon: string }[];
+    retimes?: boolean;
+  }[];
   /** `defaults`: what a clip without its own values has. */
   props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
   effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string }; needs?: string[]; preparing?: string }[];
@@ -291,6 +314,8 @@ export interface BeaconCore {
   resources(): Promise<ResourceInfo[]>;
   /** App-wide choices (the transcriber), kept across projects and launches. */
   preferences(): Promise<PreferenceInfo[]>;
+  /** The API keys features use, and whether each is saved (never their values). */
+  secrets(): Promise<SecretInfo[]>;
   /**
    * Changes one for every project. Transcripts are kept per transcriber: open projects' media without one by
    * the new choice gets one (or waits for a resource, as an import does). Refused for an option whose secret

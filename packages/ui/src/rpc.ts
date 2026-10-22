@@ -1,7 +1,7 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
-import type { CoreEvent, SchemaInfo } from "@beacon/core";
+import type { CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export type { RecorderLive } from "@beacon/media";
@@ -18,6 +18,22 @@ export { canvasChange } from "./canvas-values";
 export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */
+export interface TaskJob {
+  id: string;
+  label: string;
+  stage?: string;
+  progress: number;
+  state: "running" | "done" | "failed";
+  error?: string;
+}
+
+/** An effect's params shown on the canvas without an edit. */
+export interface EffectPreview {
+  clip: string;
+  effect: string;
+  params: Record<string, unknown>;
+}
+
 export interface Binding {
   keys: Keys;
   command: string;
@@ -64,6 +80,10 @@ export interface Init {
   clipTypes: Record<string, string[]>;
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */
   nested: Record<string, string>;
+  /** Each clip type's properties panel tabs, in order. */
+  tabs: Record<string, { id: string; title: string; icon: string }[]>;
+  /** Clip types that can change speed with no media of their own. */
+  retimes: string[];
   socket: string;
   /** App-wide choices (the transcriber), as Settings shows them; `preferences` messages follow changes. */
   preferences: PreferenceInfo[];
@@ -105,7 +125,7 @@ export interface TileMenu {
 }
 
 export { exportOptions } from "./export-options";
-export { appWideMessage, exportCanvas, initPayload, settingsSheet } from "./payloads";
+export { appWideMessage, exportCanvas, exportSheetFor, initPayload, settingsSheet } from "./payloads";
 export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
@@ -123,7 +143,7 @@ export interface Notice {
 export type { SettingsTab } from "@beacon/model";
 /** Settings as the window opens it: `tab` the one to open on. */
 /** Settings, with the devices Settings › Recording picks from (the ones last recorded chosen). */
-export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[] };
+export type SettingsSheet = AppSettings & { tab?: SettingsTab; devices?: RecordDevices; resources?: ResourceInfo[]; preferences?: PreferenceInfo[]; secrets?: SecretInfo[] };
 
 /** Where the Mac's sound can play; `speakers` when the room (and a microphone) hears it. */
 export type SoundOutput = RecorderDevices["outputs"][number];
@@ -166,6 +186,8 @@ export interface ExportSheet {
   settings: ExportSettings;
   /** Export Selection: the in/out range. */
   range?: { in: number; out: number };
+  /** Export Selection with clips selected (it wins over the range): only those, over their span. */
+  clips?: { ids: string[]; in: number; out: number; silent?: boolean; usual?: Pick<ExportSettings, "format" | "audio"> };
   canvas: { width: number; height: number; fps: number };
 }
 
@@ -292,11 +314,13 @@ export type AppRPC = {
       /** Import Media…'s file picker (the Media Bin's Import tile). */
       importMedia: { params: {}; response: void };
       /** Files dragged in from Finder: imported at `time` on `track` (a drop on the timeline), else after the last clip. */
-      dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string }; response: RunReply };
+      dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string; timing?: { over?: number; drop?: number; read?: number } }; response: RunReply };
       /** A track's menu, or the track options (null). */
       trackMenu: { params: { track: string | null }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
+      /** An effect shown with other params on the canvas only, or null to show it as it is (a look under the pointer). */
+      previewEffect: { params: { preview: EffectPreview | null }; response: RunReply };
       /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
       binFrame: { params: { asset: string; time: number }; response: string | null };
       /** Starts a media item's background analysis unless it is running (Remove Silences' missing transcripts). */
@@ -307,7 +331,7 @@ export type AppRPC = {
       /** A file picked for an effect (a LUT) imported into the project, placing no clips: its asset id. */
       importFile: { params: { path: string }; response: RunReply & { result?: string } };
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
-      startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }; response: RunReply };
+      startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; clips?: string[]; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
       /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
@@ -399,8 +423,6 @@ export type AppRPC = {
       /** An analysis needs a resource that isn't downloaded: ask. */
       resourceSheet: ResourceInfo;
       resourceJob: ResourceJob;
-      /** Add Clip Speed: show the clip's Clip Speed section. */
-      showClipSpeed: { clip: string };
       /** A shortcut the native menu took before the page could see it, replayed as a keydown. */
       key: { code: string; meta: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean };
       /** File > Export… or Export Selection…: open the Export dialog. */
@@ -415,6 +437,8 @@ export type AppRPC = {
       /** A take was recorded and imported: offer to name it. */
       recordedSheet: RecordedSheet;
       exportJob: ExportJob;
+      /** A feature's background job (Clean with Auphonic): its stage and progress, then how it ended. */
+      taskJob: TaskJob;
       importing: ImportingFiles;
       /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
       favorites: { items: string[] };

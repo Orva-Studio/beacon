@@ -4,7 +4,7 @@ import type { ResourceInfo } from "./resource";
 import { replica } from "./store";
 import { useOnline } from "./online";
 
-import type { PreferenceInfo } from "@beacon/core";
+import type { PreferenceInfo, SecretInfo } from "@beacon/core";
 
 export type { PreferenceInfo };
 
@@ -142,5 +142,55 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
         </Row>
       )}
     </div>
+  );
+}
+
+/** An API key a feature uses (Auphonic's), saved in the Keychain or removed; what it sends and who charges, in its hint. */
+export function SecretRow({ secret, label, sends, charges, placeholder, host }: { secret: SecretInfo; label: string; sends: string; charges: string; placeholder: string; host: Pick<TranscriptsHost, "setSecret"> }) {
+  const [saved, setSaved] = useState(secret.set);
+  const [key, setKey] = useState("");
+  const [error, setError] = useState<string>();
+  const save = async (value: string | null) => {
+    const r = await host.setSecret(secret.id, value);
+    if (!r.ok) return setError(r.error);
+    setKey("");
+    setError(undefined);
+    setSaved(value !== null);
+  };
+  return (
+    <Row
+      label={label}
+      hint={
+        <div className="mt-1 text-caption text-text-faint">
+          <span className="text-warning">{sends}</span>, and {charges} charges your account. The key is kept in this Mac's Keychain, never in a file.
+          {error && <div className="mt-1 text-danger">{error}</div>}
+        </div>
+      }
+    >
+      {saved ? (
+        <div className="flex items-center gap-3" data-secret={secret.id} data-api-key="set">
+          <span className="text-text-muted">Saved in the Keychain</span>
+          <Button look="quiet" onClick={() => void save(null)}>
+            Remove
+          </Button>
+        </div>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-2" data-secret={secret.id} data-api-key="unset">
+          <input
+            {...PLAIN_TEXT}
+            type="password"
+            autoComplete="new-password"
+            placeholder={placeholder}
+            className="min-w-0 flex-1 rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent"
+            value={key}
+            onChange={(e) => (setKey(e.target.value), setError(undefined))}
+            onKeyDown={(e) => e.key === "Enter" && key.trim() && (e.stopPropagation(), void save(key.trim()))}
+          />
+          <Button look="primary" disabled={!key.trim()} onClick={() => void save(key.trim())}>
+            Save
+          </Button>
+        </div>
+      )}
+    </Row>
   );
 }

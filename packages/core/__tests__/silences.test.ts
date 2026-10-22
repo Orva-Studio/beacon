@@ -25,7 +25,7 @@ function transcribed(core: LocalCore, asset: Asset, streams: Record<number, Stre
   writeFileSync(file, JSON.stringify({ streams: full }));
 }
 
-const SETTINGS = { min: 0.6, keep: 0.3, keepActive: true, flipped: [] };
+const SETTINGS = { min: 0.6, keep: 0.3 };
 
 test.skipIf(!existsSync(AUDIO))("Remove Silences cuts nothing while audio heard with a transcribed clip still has no transcript", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache-a") });
@@ -48,10 +48,71 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences cuts nothing while audio heard 
   await expect(core.run(h, "transcript.removeSilences", SETTINGS)).rejects.toThrow(/transcri/);
   await expect(core.run(h, "transcript.removePauses", {})).rejects.toThrow(/transcri/);
   expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
-  // Once B's transcript is there, it cuts.
-  transcribed(core, assetB, { 0: { words: [{ text: "three", start: 0.2, end: 0.8 }], speech: [[0, 1]] } });
+  // Once B's transcript is there (room tone, nothing said), it cuts.
+  transcribed(core, assetB, { 0: { words: [], speech: [] } });
   await core.run(h, "transcript.removeSilences", SETTINGS);
   expect(JSON.stringify(core.doc(h).tracks)).not.toBe(before);
+  await core.close(h);
+}, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("Remove Silences cuts only the silences picked when asked to, and refuses two voices heard at once, naming them, until one is muted", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-pick") });
+  const h = await core.create({ path: join(dir, "pick.beproj") });
+  const [a, b] = [join(dir, "pa.m4a"), join(dir, "pb.m4a")];
+  copyFileSync(AUDIO, a);
+  copyFileSync(AUDIO, b);
+  const ra = await core.import(h, [a], { at: 0 });
+  for (const j of ra.jobs) await core.cancelJob(j).catch(() => {});
+  const assetA = core.doc(h).assets[ra.assets[0]!]!;
+  // Speech at 0–1, 3–4 and 7–8 s: silences at 1–3 and 4–7 s.
+  transcribed(core, assetA, { 0: { words: [{ text: "one", start: 0.1, end: 0.9 }, { text: "two", start: 3.1, end: 3.9 }, { text: "three", start: 7.1, end: 7.9 }], speech: [[0, 1], [3, 4], [7, 8]] } });
+  type Found = { silences: { start: number; end: number; selected: boolean }[]; saved: number; selectedSaved: number; stacked?: string };
+  const plan = (await core.query(h, "transcript.silences", { ...SETTINGS, selected: [5] })) as Found;
+  const inner = plan.silences.filter((x) => x.start >= 0.9 && x.end <= 7.1);
+  expect(inner.map((x) => [x.start, x.selected])).toEqual([[1, false], [4, true]]);
+  expect(Math.abs(plan.selectedSaved - (3 - 0.3))).toBeLessThan(0.07);
+  expect(plan.saved).toBeGreaterThan(plan.selectedSaved);
+  const length = () => core.doc(h).tracks.flatMap((t) => t.clips).reduce((n, c) => Math.max(n, c.start + c.duration), 0);
+  const before = length();
+  await core.run(h, "transcript.removeSilences", { ...SETTINGS, at: [5] });
+  expect((before - length()) / 705_600_000).toBeCloseTo(2.7, 1);
+  await expect(core.run(h, "transcript.removeSilences", { ...SETTINGS, at: [0.5] })).rejects.toThrow(/no silence over 0.6 s at 0.5/);
+  await core.undo(h);
+
+  // In the review, ⇧-clicking anywhere else in a picked silence unpicks it; another silence is added.
+  await core.run(h, "silences.review", SETTINGS);
+  const picked = async () => ((await core.session(h)).features.transcript as { silences: { selected: number[] } }).silences.selected;
+  await core.run(h, "silences.select", { at: 5 });
+  await core.run(h, "silences.select", { at: 2, add: true });
+  expect(await picked()).toEqual([5, 2]);
+  await core.run(h, "silences.select", { at: 6, add: true });
+  expect(await picked()).toEqual([2]);
+  await core.run(h, "silences.close", {});
+
+  // A second voice over it: refused, both named, nothing cut; muted, it no longer counts.
+  await core.run(h, "track.add", { name: "B" });
+  const track = core.doc(h).tracks.find((t) => t.name === "B")!.id;
+  const rb = await core.import(h, [b], { at: 0, track });
+  for (const j of rb.jobs) await core.cancelJob(j).catch(() => {});
+  const assetB = core.doc(h).assets[rb.assets[0]!]!;
+  // With no transcript yet it holds Remove Silences up while heard; muted, it doesn't.
+  const waiting = async () => ((await core.query(h, "transcript.silences", SETTINGS)) as { waiting: string[] }).waiting;
+  const quiet = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.assetId === assetB.id)!;
+  expect(await waiting()).toContain(assetB.id);
+  await core.run(h, "clip.set", { clip: quiet.id, props: { audio: { muted: true } } });
+  expect(await waiting()).not.toContain(assetB.id);
+  await core.run(h, "clip.set", { clip: quiet.id, props: { audio: { muted: false } } });
+  transcribed(core, assetB, { 0: { words: [{ text: "hello", start: 5.1, end: 5.9 }], speech: [[5, 6]] } });
+  const stacked = ((await core.query(h, "transcript.silences", SETTINGS)) as Found).stacked;
+  expect(stacked).toContain("one voice at a time");
+  expect(stacked).toContain('"pa"');
+  expect(stacked).toContain('"pb"');
+  const tracks = JSON.stringify(core.doc(h).tracks);
+  await expect(core.run(h, "transcript.removeSilences", SETTINGS)).rejects.toThrow(/one voice at a time/);
+  expect(JSON.stringify(core.doc(h).tracks)).toBe(tracks);
+  const clipB = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.assetId === assetB.id)!;
+  await core.run(h, "clip.set", { clip: clipB.id, props: { audio: { muted: true } } });
+  expect(((await core.query(h, "transcript.silences", SETTINGS)) as Found).stacked).toBeUndefined();
   await core.close(h);
 }, 60_000);
 
@@ -116,7 +177,7 @@ test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE))("Remove Silences keeps a t
   await core.close(h);
 }, 60_000);
 
-test.skipIf(!existsSync(TAKE))("a silence where the cursor moved once, logged by a single sample inside it, is screen action and kept", async () => {
+test.skipIf(!existsSync(TAKE))("a silence where the cursor moved once, logged by a single sample inside it, is screen action", async () => {
   const take = join(dir, "sparse.brec");
   cpSync(TAKE, take, { recursive: true });
   // A `.brec` logs a position only when it changes: here at the start, then once mid-silence 500 points away.
@@ -142,10 +203,10 @@ test.skipIf(!existsSync(TAKE))("a silence where the cursor moved once, logged by
     0: { words: [{ text: "hi", start: 0.05, end: 0.25 }, { text: "bye", start: 1.85, end: 1.95 }], speech: [[0, 0.3], [1.8, 2.0]] },
     1: { words: [], speech: [] },
   });
-  const plan = (await core.query(h, "transcript.silences", SETTINGS)) as { waiting: string[]; silences: { start: number; end: number; active: boolean; cut: boolean }[] };
+  const plan = (await core.query(h, "transcript.silences", SETTINGS)) as { waiting: string[]; silences: { start: number; end: number; active: boolean; selected: boolean }[] };
   expect(plan.waiting).toEqual([]);
   const silence = plan.silences.find((s) => s.start < 1 && s.end > 1)!;
   expect(silence).toBeDefined();
-  expect([silence.active, silence.cut]).toEqual([true, false]);
+  expect([silence.active, silence.selected]).toEqual([true, false]);
   await core.close(h);
 }, 60_000);

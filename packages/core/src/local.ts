@@ -30,6 +30,7 @@ import {
   type SessionChange,
   placeCanvas,
   rationalToNumber,
+  onlyClips,
   scopedProject,
   assetName,
   type Keys,
@@ -38,6 +39,11 @@ import {
   SETTINGS_TABS,
   type SettingsTab,
   type SettingsPatch,
+  withEffectParams,
+  type ActionContext,
+  type ActionPlan,
+  type ActionTask,
+  type ActionStep,
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -61,6 +67,7 @@ import type {
   RecordStopOptions,
   ResourceInfo,
   PreferenceInfo,
+  SecretInfo,
   RecordStatus,
   RunOptions,
   SchemaInfo,
@@ -74,11 +81,17 @@ import { AppConfig } from "./config";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
-import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject } from "./persist";
+import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject, type OwnerInfo } from "./persist";
 import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
+
+/** An action's document steps in one transaction, each given the results of those before it when it asks. */
+function runSteps(tx: { run: (command: string, args: unknown) => unknown }, steps: ActionStep[]) {
+  const results: unknown[] = [];
+  for (const s of steps) results.push(tx.run(s.command, typeof s.args === "function" ? (s.args as (r: unknown[]) => unknown)(results) : (s.args ?? {})));
+}
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -86,6 +99,10 @@ export interface LocalCoreOptions {
   cacheDir?: string;
   /** The app's automation socket, recorded in each project's lock so agents connect to it. */
   socket?: string;
+  /** Who this process is, in each project's lock, so another that finds it locked can say so ("Beacon dev"). */
+  name?: string;
+  /** A windowless process's control socket (`serveControl`), in each lock, so the app can ask it to let go. */
+  control?: string;
   /** Shows a file in Finder; the app passes its own. */
   reveal?: (path: string) => void;
   /** Where app-wide preferences are kept (`preferences.json`): Beacon's Application Support folder. */
@@ -119,7 +136,7 @@ const encoding = ({ output: _, overwrite: _o, from: _f, to: _t, ...rest }: Expor
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
-  readonly #socket?: string;
+  readonly #owner: OwnerInfo;
   readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
   /** Every background job: exports, analyses, downloads. */
@@ -145,7 +162,7 @@ export class LocalCore implements BeaconCore {
       for (const l of this.#appListeners) l(e);
     });
     this.#pref = this.#config.pref;
-    this.#socket = opts.socket;
+    this.#owner = { ...(opts.name ? { name: opts.name } : {}), ...(opts.socket ? { socket: opts.socket } : {}), ...(opts.control ? { control: opts.control } : {}) };
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
       registry: this.registry,
@@ -154,7 +171,7 @@ export class LocalCore implements BeaconCore {
       find: (h) => this.#projects.get(h),
       projects: () => this.#projects.values(),
       emit: (p, e) => this.#emit(p, e),
-      saved: (p, change) => this.#saved(p, change),
+      saved: (p, change, analyse) => this.#saved(p, change, analyse),
       startJob: (p, kind, label, fn, subject, asset) =>
         this.#jobs.start(kind, label, fn, { ...(p ? { project: p.path, report: (e) => this.#emit(p, e) } : {}), ...(subject ? { subject } : {}), ...(asset ? { asset } : {}) }),
     };
@@ -172,12 +189,12 @@ export class LocalCore implements BeaconCore {
     let current = doc;
     const data = new DerivedData(this.registry, this.cacheDir, () => current, this.#pref);
     const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get });
-    lock(path, this.#socket);
+    lock(path, this.#owner);
     store.subscribe((e) => void (current = e.doc));
     const p: OpenProject = {
       path,
       store,
-      session: new SessionStore(this.registry, doc, this.#shared),
+      session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get),
       data,
       frames: new FrameRenderer(this.registry, this.cacheDir),
       ticking: false,
@@ -429,24 +446,36 @@ export class LocalCore implements BeaconCore {
     }, 300);
   }
 
-  /** An editor action: its editor steps, then its document steps as one undo step, then editor steps that follow from them. */
+  /** An editor action: its editor steps, then its document steps as one undo step, then editor steps that follow from them; a task it starts runs as a job. */
   #runAction(p: OpenProject, action: ActionDef, args: unknown, opts: RunOptions): CommandResult {
     const parsed = action.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${action.id}: ${formatIssues(parsed.error)}`);
-    const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    const plan = action.resolve(parsed.data, { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref });
+    const plan = action.resolve(parsed.data, this.#actionContext(p));
     const label = opts.label ?? plan.label;
     if (opts.dryRun) {
-      const r = plan.steps?.length ? p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {})), { dryRun: true }) : undefined;
-      const lines = [...(plan.before ?? []), ...(plan.steps ?? [])].map((s) => `${s.command} ${JSON.stringify(s.args ?? {})}`);
+      const r = plan.steps?.length ? p.store.transaction(label, (tx) => runSteps(tx, plan.steps!), { dryRun: true }) : undefined;
+      const lines = [...(plan.before ?? []), ...(plan.steps ?? [])].map((s) => `${s.command} ${typeof s.args === "function" ? "(from the steps before it)" : JSON.stringify(s.args ?? {})}`);
+      if (plan.task) lines.push(`then in the background: ${plan.task.label}`);
       return { label, patches: r?.patches ?? [], inverse: r?.inverse ?? [], results: r?.results ?? [], diff: [...lines, ...(r?.diff ?? [])], dryRun: true };
     }
+    const result = this.#applyPlan(p, plan, label);
+    if (!plan.task) return result;
+    const job = this.#startTask(p, plan.task);
+    return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };
+  }
+
+  #actionContext(p: OpenProject): ActionContext {
+    const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
+    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref };
+  }
+
+  #applyPlan(p: OpenProject, plan: ActionPlan, label: string): CommandResult {
     const before = p.session.state;
     let result: CommandResult;
     try {
       for (const s of plan.before ?? []) p.session.run(s.command, s.args, p.store.doc);
       result = plan.steps?.length
-        ? this.#saved(p, p.store.transaction(label, (tx) => plan.steps!.forEach((s) => tx.run(s.command, s.args ?? {}))))
+        ? this.#saved(p, p.store.transaction(label, (tx) => runSteps(tx, plan.steps!)))
         : { label, patches: [], inverse: [], results: [], diff: [], dryRun: false };
     } catch (e) {
       // A Cut that couldn't delete must not have replaced the clipboard either.
@@ -460,6 +489,32 @@ export class LocalCore implements BeaconCore {
       return { ...result, diff: [...result.diff, `(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`] };
     }
     return result;
+  }
+
+  /** An action's background work; its edit is planned on the document as it is when the work is done. */
+  #startTask(p: OpenProject, task: ActionTask): Job {
+    return this.#parts.startJob(p, "task", task.label, async (progress) => {
+      const mediaDir = join(p.path, "media");
+      mkdirSync(mediaDir, { recursive: true });
+      const finish = await task.run({
+        progress,
+        secret: (id) => this.#config.secrets.get(id),
+        pref: p.data.pref,
+        mediaDir,
+        bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, path),
+        asset: async (path, kind) => ({ kind, path, fingerprint: fileFingerprint(path), derived: await probeAsset(path) }),
+      });
+      if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
+      const plan = finish(this.#actionContext(p));
+      const r = this.#applyPlan(p, plan, plan.label);
+      return { label: plan.label, results: r.results };
+    });
+  }
+
+  /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
+  async #bounceAudio(p: OpenProject, clips: string[], range: { from: number; to: number }, path: string) {
+    mkdirSync(dirname(path), { recursive: true });
+    await renderProject(onlyClips(p.store.doc, clips, nestedOf(this.registry)).project, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
   }
 
   async transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts: { dryRun?: boolean } = {}): Promise<CommandResult> {
@@ -503,6 +558,7 @@ export class LocalCore implements BeaconCore {
     this.#recording.sessionChanged(p, session, changed);
     const view = p.view;
     if (!view || p.ticking) return;
+    if (changed.includes("playing") && session.playing) p.preview = undefined;
     if (changed.includes("playing") && !session.playing) view.pause();
     else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
     else if (changed.includes("playhead")) view.show(session.playhead);
@@ -575,7 +631,7 @@ export class LocalCore implements BeaconCore {
     const view = new LiveView(target, {
       registry: this.registry,
       cacheDir: this.cacheDir,
-      project: () => p.store.doc,
+      project: () => this.#shown(p),
       data: p.data.get,
       onTime: (t) => {
         p.ticking = true;
@@ -598,6 +654,35 @@ export class LocalCore implements BeaconCore {
     }
     this.#analyses.effectJobs(p);
     return view;
+  }
+
+  /** What the canvas shows: the document, with an effect previewed over it. */
+  #shown(p: OpenProject): Project {
+    const doc = p.store.doc;
+    if (!p.preview) return doc;
+    if (p.previewDoc?.doc === doc) return p.previewDoc.shown;
+    let shown = doc;
+    try {
+      shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
+    } catch {
+      // Its clip or effect is gone: nothing left to preview.
+      p.preview = undefined;
+    }
+    p.previewDoc = { doc, shown };
+    return shown;
+  }
+
+  /**
+   * Shows an effect with these params on the canvas without editing it (a look under the pointer); null shows it as
+   * it is again. The document, undo history, saves, agents and exports never see it; playing ends it.
+   */
+  async previewEffect(h: ProjectHandle, preview: { clip: string; effect: string; params: Record<string, unknown> } | null): Promise<void> {
+    const p = this.#get(h);
+    if (preview) withEffectParams(p.store.doc, this.registry, preview.clip, preview.effect, preview.params);
+    if (!preview && !p.preview) return;
+    p.preview = preview ?? undefined;
+    p.previewDoc = undefined;
+    p.view?.refresh();
   }
 
   /** The Media Bin's preview document: the asset alone, placed as importing it would, on a canvas of its picture's size. */
@@ -683,7 +768,7 @@ export class LocalCore implements BeaconCore {
   }
 
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
-  #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T {
+  #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T, analyse = true): T {
     if (!change || change.dryRun || !change.patches.length) return change;
     this.#analyses.effectJobs(p);
     try {
@@ -692,6 +777,13 @@ export class LocalCore implements BeaconCore {
     } catch (e) {
       this.#emit(p, { kind: "error", message: `could not save ${p.path}: ${e instanceof Error ? e.message : e}` });
       throw new Error(`the change was made but could not be saved to ${p.path}: ${e instanceof Error ? e.message : e}`);
+    }
+    if (!analyse) return change;
+    // Media an edit brought in (a task's result, a paste, asset.add), as an import would: waveforms, proxies, transcripts.
+    const added = (change.patches as { op: string; path: (string | number)[] }[]).flatMap((x) => (x.op === "add" && x.path[0] === "assets" && x.path.length === 2 && p.store.doc.assets[x.path[1]!] ? [String(x.path[1])] : []));
+    if (added.length) {
+      if (p.view) this.#analyses.previewJobs(p);
+      this.#analyses.importAnalyses(p, added);
     }
     return change;
   }
@@ -703,7 +795,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {
@@ -765,7 +857,11 @@ export class LocalCore implements BeaconCore {
 
   async export(h: ProjectHandle, opts: ExportOptions): Promise<Job> {
     const p = this.#get(h);
-    const project = p.store.doc;
+    const only = opts.clips && onlyClips(p.store.doc, opts.clips, nestedOf(this.registry));
+    const missing = only && opts.clips!.find((id) => !only.found.some((c) => c.id === id));
+    if (missing) throw new Error(`no clip "${missing}" on the timeline`);
+    const project = only ? only.project : p.store.doc;
+    if (only) opts = { from: only.from, to: only.to, ...opts };
     const output = resolve(opts.output);
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
@@ -847,14 +943,18 @@ export class LocalCore implements BeaconCore {
     const copies = copied.length ? await this.#copyIn(p.path, copied) : [];
     for (const { id, path, fingerprint } of copies) Object.assign(probed[Number(id)]!.asset, { path, fingerprint });
     try {
-      this.#saved(p, p.store.transaction(label, (tx) => {
-        for (const { importer, asset } of probed) {
-          const id = tx.run<string>("asset.add", asset);
-          result.assets.push(id);
-          result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
-          at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
-        }
-      }));
+      this.#saved(
+        p,
+        p.store.transaction(label, (tx) => {
+          for (const { importer, asset } of probed) {
+            const id = tx.run<string>("asset.add", asset);
+            result.assets.push(id);
+            result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
+            at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
+          }
+        }),
+        false,
+      );
     } catch (e) {
       for (const c of copies) rmSync(c.path, { recursive: true, force: true });
       throw e;
@@ -960,7 +1060,12 @@ export class LocalCore implements BeaconCore {
   }
 
   async setPreference(id: string, value: string): Promise<void> {
-    if (await this.#config.setPreference(id, value)) this.#analyses.preferenceChanged();
+    // A slider's last setting (a range) decides no analysis, so it mustn't restart transcripts.
+    if ((await this.#config.setPreference(id, value)) && !this.registry.preferences.get(id)!.range) this.#analyses.preferenceChanged();
+  }
+
+  async secrets(): Promise<SecretInfo[]> {
+    return Promise.all([...this.registry.secrets.values()].map(async (s) => ({ id: s.id, title: s.title, set: (await this.#config.secrets.get(s.id)) !== undefined })));
   }
 
   /** Sets or removes a secret (an API key): the app's Settings, never agents. Removed, a choice that needs it goes back to its default. */

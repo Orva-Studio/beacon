@@ -129,6 +129,10 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
         send("media", { analyzing: { ...analyzing }, analysisFailed: { ...analysisFailed } });
       }
       if (job.state === "done" && job.kind === "waveform") sendWaveforms();
+      if (job.kind === "task") {
+        const { id, label, stage, progress, state, error } = job;
+        send("taskJob", { id, label, ...(stage ? { stage } : {}), progress, state, ...(error ? { error } : {}) });
+      }
       hooks.other?.(e);
     } else if (e.kind === "importing") {
       const { kind: _, ...files } = e;
@@ -150,8 +154,8 @@ export async function tileChoice(core: Pick<LocalCore, "run" | "favoriteAdd" | "
 /** The items of a tile's right-click menu, as [label, choice]. */
 export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"], tile.favorite ? ["Remove from Favorites", "unfavorite"] : ["Add to Favorites", "favorite"]];
 
-type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage";
-type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session">;
+type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage" | "previewEffect";
+type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect">;
 
 const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const done = async (fn: () => Promise<unknown>) => {
@@ -208,6 +212,7 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
       const h = project();
       return png(h ? await core.assetThumbnail(h, asset, 128, time).catch(() => undefined) : undefined);
     },
+    previewEffect: ({ preview }) => edit((h) => core.previewEffect(h, preview)),
     frameImage: async () => {
       const h = project();
       return h ? png((await core.frame(h, (await core.session(h)).playhead)).png) : null;

@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import { importDropped, LocalCore } from "@beacon/core";
+import { importDropped, LocalCore, nestedOf } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportCanvas, exportOptions, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
+import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportOptions, exportSheetFor, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
@@ -60,17 +60,17 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   const sendAll = (type: string, data: unknown) => {
     for (const ws of sockets) ws.send(JSON.stringify({ type, data }));
   };
+  /** ⌘E and Export Selection…, as the app's exports module opens them. */
+  const exportSheet = async (selection: boolean) => {
+    const sheet = exportSheetFor({ name: "project", project: core.doc(h), session: await core.session(h), traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [], nested: nestedOf(core.registry), folder: tmpdir(), settings: DEFAULT_EXPORT, selection });
+    if (sheet) sendAll("exportSheet", sheet);
+  };
   // The window agents open dialogs in (`ui_open`), as the app's does: what its menus would send.
   core.setUiOpener(async (_, dialog, tab) => {
-    const doc = core.doc(h);
     if (dialog === null) return sendAll("closeDialogs", {});
     if (dialog === "settings") return sendAll("settingsSheet", await settingsSheet(core, tab ? { tab } : {}));
     if (dialog === "projectSettings") return sendAll("projectSettings", {});
-    if (dialog === "export" || dialog === "exportSelection") {
-      const range = (await core.session(h)).range;
-      if (dialog === "exportSelection" && !range) return;
-      return sendAll("exportSheet", { name: "project", folder: tmpdir(), settings: DEFAULT_EXPORT, canvas: exportCanvas(doc.settings), ...(dialog === "exportSelection" && range ? { range } : {}) });
-    }
+    if (dialog === "export" || dialog === "exportSelection") return exportSheet(dialog === "exportSelection");
     if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project" });
     if (dialog === "record") return sendAll("recordSheet", { ...(narrationDevices as object), mode: "take", sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } } });
   });
@@ -151,7 +151,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           result = await reply(async () => {
             const output = join(p.folder, `${p.name}.${p.settings.format}`);
             if (!p.overwrite && existsSync(output)) throw new Error(`${p.name}.${p.settings.format} already exists`);
-            const job = await core.export(h, { output, overwrite: true, ...exportOptions(p.settings), ...(p.range ? { from: p.range.in, to: p.range.out } : {}) });
+            const job = await core.export(h, { output, overwrite: true, ...exportOptions(p.settings), ...(p.clips ? { clips: p.clips } : p.range ? { from: p.range.in, to: p.range.out } : {}) });
             const stop = core.watch(h, (e) => {
               if (e.kind !== "job" || e.job.id !== job.id) return;
               ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: e.job.state, progress: e.job.progress, ...(e.job.error ? { error: e.job.error } : {}) } }));
@@ -225,7 +225,10 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(p.action, p.keys, p.replace));
         else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(p.action));
         // The app's own actions open dialogs the main process owns: recorded, as menus are.
-        else if (msg.type === "appAction") menus.push(`app:${p.action}`);
+        else if (msg.type === "appAction") {
+          menus.push(`app:${p.action}`);
+          if (p.action === "app.export" || p.action === "app.exportSelection") await exportSheet(p.action === "app.exportSelection");
+        }
         else if (msg.type === "declineResource" || msg.type === "cancelJob") {
           menus.push(`${msg.type}:${p.id}`);
           result = { ok: true };
@@ -255,7 +258,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     },
     /** A camera or screen frame (base64 JPEG) for the Record dialog or recording panel to pull. */
     previewFrame,
-    /** A message from the main process, as the app's menus send them (`showClipSpeed`, `rename`...). */
+    /** A message from the main process, as the app's menus send them (`rename`...). */
     send(type: string, data: unknown) {
       for (const ws of sockets) ws.send(JSON.stringify({ type, data }));
     },

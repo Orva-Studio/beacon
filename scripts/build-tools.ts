@@ -58,7 +58,7 @@ const ENABLE = {
     "scale", "scale_vt", "setparams", "fps", "split", "palettegen", "paletteuse", "signalstats", "metadata",
     "transpose", "transpose_vt", "hflip", "vflip", "rotate", "hwdownload", "hwupload",
     "volume", "atempo", "adelay", "amix", "apad", "anullsrc", "ebur128", "volumedetect",
-    "afftdn", "asendcmd", "concat", "asetpts", "atrim",
+    "afftdn", "asendcmd", "concat", "asetpts", "atrim", "adeclick", "adeclip", "deesser",
   ],
 };
 

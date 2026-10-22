@@ -291,6 +291,9 @@ export const timeline = defineFeature({
   queries,
   normalize: packMagnetic,
   actions: [...actions, ...animationActions],
+  panelItems: [
+    { id: "visual:clip-speed", label: "Clip Speed", title: "Play the clip faster or slower: its speed in the properties panel", command: "edit.clipSpeed", args: {}, traits: ["video", "audio", "stitched"] },
+  ],
   preferences: [
     {
       id: "animationEasing",

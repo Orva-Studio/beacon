@@ -236,7 +236,7 @@ export function drawTimeline(t: TimelineDrawing) {
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -286,8 +286,8 @@ export function drawTimeline(t: TimelineDrawing) {
       const cw = Math.max(1, (b - a) * pps - 1.5);
       const selected = session.selection.includes(clip.id);
       const teal = audio && selected;
-      // A muted track's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
-      const silent = audio && !!t.muted;
+      // A muted track's or clip's audio is drawn silent (faded, its waveform flat); its pictures are unaffected.
+      const silent = audio && (!!t.muted || !!(clip.props.audio as { muted?: boolean } | undefined)?.muted);
       ctx.globalAlpha = (t.hidden || silent ? 0.4 : 1) * alpha * (t.locked ? 0.6 : 1);
       ctx.save();
       ctx.beginPath();
@@ -639,6 +639,11 @@ export function drawTimeline(t: TimelineDrawing) {
       const y = rowTop(i, TRACK, TOP);
       ctx.fillStyle = color("track-head");
       ctx.fillRect(0, y + 1, HEADER - 1, TRACK - 1);
+      // The header Lock Track and Mute Track act on while nothing is selected.
+      if (t.id === session.track && !session.selection.length) {
+        ctx.fillStyle = color("accent-wash");
+        ctx.fillRect(0, y + 1, HEADER - 1, TRACK - 1);
+      }
       ctx.textBaseline = "middle";
       const icons = headerIcons(i, TRACK, HEADER, TOP);
       const ny = icons.magnet ? icons.eye[1] : y + TRACK / 2;

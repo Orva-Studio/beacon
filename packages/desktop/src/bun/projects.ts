@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { findDropped, lockOwner, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
+import { askOwner, findDropped, LOCK_FILE, lockOwner, ProjectLockedError, projectDuration, projectName, summarizeReport, ticksToSeconds, type DroppedFile } from "@beacon/core";
 import { canvasChange, type CanvasValues, type ProjectBridge } from "@beacon/ui";
 import type { LocalCore } from "@beacon/core";
 import { errorText, type ProjectWindow, type Current } from "./app";
@@ -28,6 +28,8 @@ export interface ProjectsApp {
   confirmTrash(name: string): Promise<boolean>;
   /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`): whether it went. */
   moveToTrash(path: string): boolean;
+  /** A project another process holds: what the user chose. `refused`: why it didn't let go when asked last time. */
+  lockedDialog(opts: { project: string; holder: string; can: "show" | "letGo" | undefined; refused?: string }): Promise<"show" | "letGo" | "copy" | "cancel">;
 }
 
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
@@ -158,7 +160,42 @@ export function createProjects(app: ProjectsApp) {
   }
 
   /** Opens `path` where `windowFor` says, or in `w` (Save As and renaming keep their window). */
-  const open = (path: string, w?: ProjectWindow) => queued(() => switchTo(w ?? windowFor(path), path));
+  const open = (path: string, w?: ProjectWindow): Promise<void> =>
+    queued(() => switchTo(w ?? windowFor(path), path)).catch((e: unknown) => (e instanceof ProjectLockedError ? whenLocked(e) : Promise.reject(e)));
+
+  /**
+   * Another live process holds the project: the user picks. An app (it has a window) can be asked to show it; a
+   * windowless one (an agent's MCP server) to let go, after which the agent works through this app.
+   */
+  async function whenLocked(e: ProjectLockedError, refused?: string): Promise<void> {
+    const { dir, owner } = e;
+    const name = basename(dir, extname(dir));
+    const can = owner.socket ? "show" : owner.control ? "letGo" : undefined;
+    const choice = await app.lockedDialog({ project: name, holder: owner.name ?? "another process", can, ...(refused ? { refused } : {}) });
+    if (choice === "show") return askOwner(owner.socket!, "show", dir).catch((err: unknown) => status(`${owner.name ?? "It"} couldn't show “${name}”: ${errorText(err)}`));
+    if (choice === "letGo") {
+      try {
+        await askOwner(owner.control!, "letGo", dir);
+      } catch (err) {
+        return whenLocked(e, errorText(err));
+      }
+      return open(dir);
+    }
+    if (choice === "copy") {
+      const to = copyBeside(dir);
+      await open(to);
+      status(`Opened a copy, ${basename(to)}; “${name}” is unchanged`);
+    }
+  }
+
+  /** `dir` copied beside itself as "Name copy.beproj" ("copy 2"…), without its lock. */
+  function copyBeside(dir: string): string {
+    const name = basename(dir, extname(dir));
+    let to = "";
+    for (let n = 1; !to || existsSync(to); n++) to = join(dirname(dir), `${name} copy${n > 1 ? ` ${n}` : ""}${extname(dir)}`);
+    cpSync(dir, to, { recursive: true, filter: (src) => src !== join(dir, LOCK_FILE) });
+    return to;
+  }
 
   async function switchTo(w: ProjectWindow, path: string) {
     const dir = resolve(path);
@@ -265,8 +302,18 @@ export function createProjects(app: ProjectsApp) {
   }
 
   /** Files dropped or pasted on `w`, as Finder or the clipboard gave them; those with only their bytes saved into its project. */
-  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) =>
-    importPaths(w, await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {}), at);
+  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }, timing: { over?: number; drop?: number; read?: number } = {}) => {
+    const got = Date.now();
+    const paths = await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {});
+    const found = Date.now();
+    const result = await importPaths(w, paths, at);
+    // Where a drop's time goes, from the drag's last move over the window to the clip on the timeline: always when it was slow.
+    if (process.env.BEACON_PROFILE || Date.now() - (timing.over ?? got) > 1000) {
+      const ms = (a?: number, b?: number) => (a === undefined || b === undefined ? "?" : `${b - a}`);
+      console.log(`[drop] ${files.map((f) => `${f.name} ${f.size} B${f.data === undefined ? "" : " +bytes"}`).join(", ")}: last over→drop ${ms(timing.over, timing.drop)} ms, read ${ms(timing.drop, timing.read)} ms, to main ${ms(timing.read, got)} ms, find ${found - got} ms, import ${Date.now() - found} ms`);
+    }
+    return result;
+  };
 
   /** File > New Project: `w` asks for the name, then `createProject`. */
   function newProject(w: ProjectWindow) {

@@ -189,7 +189,7 @@ export class Analyses {
     });
   }
 
-  /** After media is added: the app's view makes its proxies and waveforms, and its analyses (transcripts) start. */
+  /** After media is imported: the app's view makes its proxies and waveforms, and its analyses (transcripts) start. */
   imported(p: OpenProject, result: ImportResult): ImportResult {
     if (p.view) this.previewJobs(p);
     const { jobs, needs } = this.importAnalyses(p, result.assets);

@@ -1,5 +1,5 @@
 import { measureLoudness, probeMedia } from "@beacon/media";
-import { randomId, type Asset, type FeatureRegistry, type ProjectStore, type SessionStore } from "@beacon/model";
+import { randomId, type Asset, type FeatureRegistry, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
 import type { DerivedData, FrameRenderer, LiveView } from "@beacon/render";
 import type { CoreEvent, Job, ProjectHandle } from "./api";
 
@@ -10,6 +10,9 @@ export interface OpenProject {
   data: DerivedData;
   frames: FrameRenderer;
   view?: LiveView;
+  /** An effect shown with other params on the canvas only (a look under the pointer), and the document laid over last. */
+  preview?: { clip: string; effect: string; params: Record<string, unknown> };
+  previewDoc?: { doc: Project; shown: Project };
   /** Set while playback itself moves the playhead, so it isn't taken as a seek. */
   ticking: boolean;
   listeners: Set<(e: CoreEvent) => void>;
@@ -28,8 +31,9 @@ export interface CoreParts {
   projects(): Iterable<OpenProject>;
   emit(p: OpenProject, e: CoreEvent): void;
   /** Autosave after a change; a failed save is the caller's error. */
-  saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T): T;
-  startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number) => void) => Promise<unknown>, subject?: string, asset?: string): Job;
+  /** `analyse` false: the caller starts the new media's analyses itself (an import's, for its result). */
+  saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T, analyse?: boolean): T;
+  startJob(p: OpenProject | undefined, kind: string, label: string, fn: (progress: (f: number, stage?: string) => void) => Promise<unknown>, subject?: string, asset?: string): Job;
 }
 
 /** Short enough for agents to read back; unique enough within one project. */

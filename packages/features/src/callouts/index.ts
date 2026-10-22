@@ -233,6 +233,7 @@ export const callouts = defineFeature({
       id: "callout",
       description: "Shape, box size, fill, stroke and text of a callout",
       traits: ["callout"],
+      tab: { title: "Annotation Properties", icon: "chat-centered-text", order: 2 },
       schema: calloutSchema,
       defaults: () => ({ shape: "text", width: 400, height: 200, cornerRadius: 0 }),
     },

@@ -2,7 +2,7 @@ import { applyPatches, enablePatches } from "immer";
 import { useSyncExternalStore } from "react";
 import type { Patch, Project, Session } from "@beacon/model";
 import type { PanelItem } from "./drop";
-import type { ExportJob, ExportSheet, ImportingFiles, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet } from "./rpc";
+import type { ExportJob, ExportSheet, ImportingFiles, Init, Narrating, Opened, RecordedSheet, RecordSheet, SettingsSheet, TaskJob } from "./rpc";
 
 enablePatches();
 
@@ -67,6 +67,10 @@ export interface ViewState {
   narrating?: Narrating;
   /** The latest export, running or finished, until dismissed. */
   exportJob?: ExportJob;
+  /** Features' background jobs, running or finished, until dismissed. */
+  tasks: TaskJob[];
+  /** The keys of a sequence pressed so far (the leader key, :), its next keys shown until one is pressed. */
+  leader?: string;
   /** Imports under way or just finished, by id, until their panel is dismissed. */
   imports: Record<string, ImportingFiles>;
   /** Imports whose panel was dismissed while their files were still read: their tiles stay, the panel doesn't come back. */
@@ -91,8 +95,6 @@ export interface ViewState {
   editingText?: string;
   /** The colour picker's eyedropper is waiting for a click on the canvas: called with its colour (0-1 RGB), or nothing if it failed. */
   picking?: (rgb?: [number, number, number]) => void;
-  /** Clips given a Clip Speed section (Add Clip Speed) though at 1x; a clip at another speed always shows it. */
-  clipSpeed: string[];
   /** The Media Bin's Sort by, and whether it is descending. */
   binSort: { by: BinSort; desc: boolean };
   /** The Media Bin's search, kind filter and layout. */
@@ -102,8 +104,11 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, clipSpeed: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
+let statusTimer: ReturnType<typeof setTimeout> | undefined;
+/** Long enough to read: 5 s, more for a long message, at most 10. */
+export const statusSeconds = (text: string) => Math.min(10, Math.max(5, text.length / 12));
 
 function set(next: Partial<ViewState>) {
   state = { ...state, ...next };
@@ -215,6 +220,15 @@ export const replica = {
   exportJob(exportJob: ExportJob | undefined) {
     set({ exportJob });
   },
+  taskJob(job: TaskJob) {
+    set({ tasks: [...state.tasks.filter((t) => t.id !== job.id), job] });
+  },
+  leader(leader: string | undefined) {
+    if (leader !== state.leader) set({ leader });
+  },
+  dismissTask(id: string) {
+    set({ tasks: state.tasks.filter((t) => t.id !== id) });
+  },
   importing(i: ImportingFiles) {
     if (state.importsHidden.includes(i.id) && i.state !== "reading") {
       const { [i.id]: _, ...imports } = state.imports;
@@ -264,9 +278,6 @@ export const replica = {
   resourceJob(resourceJob: ViewState["resourceJob"]) {
     set(resourceJob?.state === "done" ? { resourceJob: undefined, resource: undefined } : { resourceJob });
   },
-  showClipSpeed(clip: string, on: boolean) {
-    set({ clipSpeed: on ? [...new Set([...state.clipSpeed, clip])] : state.clipSpeed.filter((c) => c !== clip) });
-  },
   pick(picking: ViewState["picking"]) {
     set({ picking });
   },
@@ -280,7 +291,9 @@ export const replica = {
     set({ settings });
   },
   status(status: string) {
+    clearTimeout(statusTimer);
     set({ status });
+    if (status) statusTimer = setTimeout(() => set({ status: "" }), statusSeconds(status) * 1000);
   },
   subscribe(fn: () => void) {
     listeners.add(fn);

@@ -21,6 +21,8 @@ import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } fro
  * The app's own choices, kept as JSON files in one folder (and secrets in the Keychain): preferences, favourites,
  * settings and keys. Each change is written at once and told to `emit`, for the app's windows and agents.
  */
+const inRange = (v: string, r: { min: number; max: number }) => v.trim() !== "" && Number(v) >= r.min && Number(v) <= r.max;
+
 export class AppConfig {
   #prefs: Record<string, string>;
   /** Commands' descriptions by id, for the shortcuts list; the registry doesn't change, so read once. */
@@ -43,7 +45,7 @@ export class AppConfig {
     const def = this.registry.preferences.get(id);
     if (!def) throw new Error(`no preference "${id}"`);
     const v = this.#prefs[id];
-    return v !== undefined && def.options.some((o) => o.id === v) ? v : def.default;
+    return v !== undefined && (def.range ? inRange(v, def.range) : def.options.some((o) => o.id === v)) ? v : def.default;
   };
 
   /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
@@ -70,6 +72,7 @@ export class AppConfig {
         title: def.title,
         description: def.description,
         value: this.pref(def.id),
+        ...(def.range ? { range: def.range } : {}),
         options: await Promise.all(
           def.options.map(async (o) => ({
             id: o.id,
@@ -87,10 +90,14 @@ export class AppConfig {
   async setPreference(id: string, value: string): Promise<boolean> {
     const def = this.registry.preferences.get(id);
     if (!def) throw new Error(`no preference "${id}"; there are: ${[...this.registry.preferences.keys()].join(", ")}`);
-    const option = def.options.find((o) => o.id === value);
-    if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);
-    if (option.secret && (await this.secrets.get(option.secret)) === undefined) {
-      throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add (Settings › Transcripts)`);
+    if (def.range) {
+      if (!inRange(value, def.range)) throw new Error(`${def.title}: "${value}" isn't a number from ${def.range.min} to ${def.range.max}`);
+    } else {
+      const option = def.options.find((o) => o.id === value);
+      if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);
+      if (option.secret && (await this.secrets.get(option.secret)) === undefined) {
+        throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add in Settings`);
+      }
     }
     if (this.pref(id) === value) return false;
     this.#prefs = { ...this.#prefs, [id]: value };

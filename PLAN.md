@@ -24,12 +24,12 @@ narration, favourites, shortcuts, the command palette, colour labels,
 settings and dialogs for agents), is built and merged, released as v0.6.0
 (2026-10-18), passed its gate 2026-10-19 but for the agent half (MCP
 with the app open, below). The review's three branches were merged
-2026-10-19 (#18, #19, #20). Next: **Phase 8.5** (everyday
-fixes: audio-only export, noise removal, Shift-drag on gaps, drops from
-any drive), then 9 (workspace and film look), 10 (filmstrips and
-backgrounds), 11 (security audit), 12 (Camtasia export) and 13 (Beacon
-learns how you edit); an in-app
-agent preview (§7, decided 2026-10-17) can come before Phase 9.
+2026-10-19 (#18, #19, #20). Phases 8.5, 9, 10 and 10.5 are merged
+(v0.7.0-v0.10.0; v0.10.1 fixed ⌥-dragging a clip's start, 2026-10-22).
+Next (order set 2026-10-22): **Phase 11** (lock and mute a track by keys,
+AI B-roll and animations, audio cleaning with Auphonic and the local
+polish), 12 (device frames, and a spike on AI camera angles), 13 (security
+audit), 14 (Camtasia export) and 15 (Beacon learns how you edit).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -1921,15 +1921,177 @@ Each fix gets a test on real data that fails without it.
     takes; seen on no take, so not changed.
 **Gate:** each issue fixed on the user's own takes, checked by hand.
 
-### Phase 11 — Device frames (research first; was 10.5 until 2026-10-21)
-The user will bring a lot of information before any work starts: which
-devices, how each frame looks and where its screen sits, what it's for.
-Research and agree the design with them first; nothing is built before.
-- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
-  superimposed on a device (a phone, a laptop, a monitor), fitted into its
-  screen.
+### Phase 11 — Track shortcuts, AI B-roll and animations, and audio cleaning (the user, 2026-10-22; B-roll and cleaning were Phase 12)
+Moved up from Phase 12 on 2026-10-22, with device frames moving to Phase 12.
 
-### Phase 12 — AI B-roll and animations, and Auphonic cleaning (the user, 2026-10-21; moved up from the backlog)
+#### Lock and mute a track by keys (the user, 2026-10-22)
+Today a track is locked or muted only by its header's padlock and speaker.
+- **Lock Track** and **Mute Track** actions, each a toggle: the tracks of the
+  selected clips (else the track under the pointer's last click on a
+  header); all of them locked (muted) if any isn't, else all unlocked
+  (unmuted), one undo step each, named as the header's buttons name them.
+- Default keys free in the keymap (chosen when built, checked against
+  `shortcuts.list`), listed in the shortcuts settings to change, in the
+  timeline menu and the command palette, and as MCP actions.
+- Test: a UI flow (keys lock and unlock, mute and unmute the selected clip's
+  track; a locked track's clips can't then be picked), and `tested.md`.
+- **Done 2026-10-21:** `edit.lockTrack` ⌥⇧L, `edit.muteTrack` ⌥⇧M; the
+  header clicked last is the session's `track` (`track.focus`), lit while
+  nothing is selected; in Edit and the ⌄ track menu.
+
+#### Linked clips move together while dragged (the user, 2026-10-22)
+Dragging a linked clip (a recording's camera and audio), the clips linked to it
+must follow the pointer in the same frame, not one after the other. Look first
+at the timeline's move drag (`timeline.tsx`, the `clip.move` drag with its
+coalesce key): whether the ghost/preview draws only the grabbed clip and the
+linked ones jump when the command lands, or each clip is its own move. Test: a
+UI flow sampling the clips' drawn positions mid-drag, every linked clip at the
+same offset on every frame.
+- **Done 2026-10-22:** the ghost drew only the dragged ids; the press selects
+  the linked clips through the core, so a drag begun before that came back
+  showed one clip and the others jumped on release. The ghost now adds the
+  linked clips as `clip.move` does.
+
+#### Status messages clear themselves (the user, 2026-10-22)
+The top bar's grey line stayed until the next message. Now 5 s, a second more
+per 12 characters past 60, at most 10 s; a newer message restarts the time.
+"Can't move there" named an unnamed track `""`: now "Track N". **Done
+2026-10-22.**
+
+#### Remove Silences and Remove Retakes keep their last settings (the user, 2026-10-22)
+As an animation's easing is kept. **Decided:** app-wide, and only the user's
+slider changes count (an agent's review settings are its own). **Done
+2026-10-22:** preferences can be a number in a `range` (no options); session
+commands read preferences (`SessionContext.pref`); changing such a preference
+restarts no analysis.
+
+#### ⌘E exports the selected clips (the user, 2026-10-22)
+**Decided:** only the selected clips, over their span, the rest left out (only
+audio clips: an audio-only export; only the camera or screen: that alone);
+⌘E is the selection, else the in/out range, else the whole project; framed as
+on the canvas; an audio-only selection starts on the last audio format.
+**Done 2026-10-22:** `ExportOptions.clips` (and `export_start`); the sheet
+is built by `exportSheetFor` (ui), shared by the app and the UI harness.
+
+#### The same Cancel and Apply in every panel (the user, 2026-10-22)
+**Decided:** the same word everywhere: Cancel (⎋), Apply (↩), and Apply All
+(⇧↩) where there is one (Remove Silences). **Done 2026-10-22:** features
+declare their panels (`panels`), the `reviews.*` actions act on the open one;
+Clean with Auphonic's settings live in the session (`auphonic.apply`), and its
+summary is one line.
+
+#### "open in another process" as a dialog (the user, 2026-10-22)
+Today a status line ("… is open in another process (pid … on …)"). Decided:
+no option to turn autosave off for it (two editors would still overwrite each
+other). Instead a dialog naming who has it (the Beacon app, Beacon dev, an
+agent's MCP server), with Open a Copy, Cancel, and for a process with no
+window, ask it to let go (it closes the project; the agent's tools then join
+the app, as `project_open` does). A lock left by a process that is gone is
+cleared without asking (check it already is). Test: a UI flow with the lock
+held by another LocalCore.
+- **Decided (the user, 2026-10-22):** an app holder (it has a window) gets
+  Show It, which brings its window forward; Open a Copy copies the project
+  beside it as "Name copy.beproj" ("copy 2"…) with no save panel; an agent busy
+  with a job refuses to let go, the dialog saying what is running.
+- **Done 2026-10-22:** the lock records who holds it (`name`; the app as Beacon
+  or Beacon dev by its channel) and, for an MCP server, its control socket
+  (`mcp-<pid>.sock`, `letGo`). A native dialog (as Move to Trash): Show It or
+  Ask It to Let Go, Open a Copy, Cancel. Let go, the agent's next tool call
+  joins the app and says so. A dead process's lock was already taken over.
+  Tested in `desktop/__tests__/windows.test.ts` against a real MCP server (the
+  dialog is native, so not in the UI harness).
+
+#### The user's notes after trying the leader key (2026-10-22)
+The user likes the leader key. Asked for, in this order after the two above:
+1. **Groups look like groups.** In the `:` popup, Color Label… didn't read as
+   opening more keys: mark a group plainly (a chevron › and a different tone,
+   or a count, "6 colours"), so it is clear more choices follow.
+2. **Properties tabs by the leader.** Leader keys to move the properties
+   panel's tab left and right, `: [` and `: ]` (decided 2026-10-22), and one
+   to jump to the fx (Effects) tab.
+3. **The command palette lists the Media Bin.** Every medium in the bin as a
+   palette entry (by name, with its kind); choosing one adds it to the
+   timeline at the playhead (decided 2026-10-22).
+4. **Remove Silences: every silence red, the selected ones with a green
+   border** (decided 2026-10-22): no grey; all found silences take the red
+   fill, and selection is shown only by the green (accent) outline.
+
+**Decided (the user, 2026-10-22, before building):** a group shows its name in
+the accent tone with a › at the right, no count; `: E` jumps to the fx tab, or
+on a clip with no effects opens the Visual Effects panel; `: [` / `: ]` wrap
+around; the palette lists media only once something is typed, under a "Media
+Bin" group.
+**Done 2026-10-22**, all four, each its own commit (`inspector.step`,
+`inspector.effects`; palette media show their kind's icon until the bin has
+made their picture).
+
+#### A leader key (the user, 2026-10-22; a trial in its own commit)
+`:` (as in vi) then a key, with a popup of what can follow: : P palette, : A / : V
+Delete Audio / Video, : U Unlink, : L / : M Lock / Mute Track, : S / : F Remove
+Silences / Filler Words, : C + colour letter a label. Existing keys kept. Shortcuts can be
+sequences everywhere (Keys.then). **Done 2026-10-22**; the user decides after
+using it whether it stays. Unanswered: whether Copy Properties should carry
+volume points.
+
+#### Remove Silences cuts only what is picked (the user, 2026-10-22)
+No cut/keep marking: the silences found are shown, the user selects them
+(click, ⇧-click) and cuts them (Cut Selected, ↩, ⌫), or Cut All. Refused while
+two clips with speech play at once. **Done 2026-10-22.**
+
+#### A shorter clip menu (the user, 2026-10-21)
+Gone through item by item with the user: Add Color Label first; Cut, Copy,
+Delete, Unlink, Copy/Paste Properties kept; Ripple Cut, Ripple Delete, Add
+Animation Across Clip and Group/Stitch under More; Hide Properties, Select in
+Media Bin, Add Clip Speed and Split at Playhead removed. Clip Speed became a
+Visual Effects tile. **Done 2026-10-21.** Later (Phase 15): order menus by
+what the user actually uses, counted locally.
+
+#### Film Look: a look previewed on hover (the user, 2026-10-21; Phase 11 since 2026-10-22)
+Moving over the Look menu's looks shows each on the canvas at the playhead,
+back as it was when the pointer leaves or the menu closes; nothing is
+applied, saved or put in the undo history until a look is clicked (then one
+undo step, as now). The note of what a chosen look can't reproduce ("Not in
+Film Look, from…") is gone (done 2026-10-22, the user's ask); an imported
+`.hlook`'s still shows.
+
+**Spike (2026-10-22, read through the code, nothing built):**
+- **The menu has to be Beacon's own.** The Look menu is a `<select>`
+  (`properties.tsx`, `data-effect-preset`), whose list WebKit draws natively:
+  no hover reaches the page. It becomes a button opening a list of Beacon's
+  own (in `controls/`, reusable: any effect with `presets`, so LUTs or
+  other preset effects get hover previews too), keyboard-driven as a menu is
+  (↑↓ move and preview, ↩ applies, Esc closes and restores), checked against
+  the Look menu's 41 looks plus Custom.
+- **A preview that isn't an edit.** The canvas renders `LiveView`'s
+  `project()`, today `p.store.doc` (`core/src/local.ts` `attachView`). A
+  preview is an overlay there: core keeps `p.preview = { clip, effect,
+  params }`, `project()` returns the document with those params laid over that
+  one effect (a structural copy of the path, the rest shared), and
+  `view.refresh()` redraws. The store, history, autosave, agents and the
+  timeline never see it; closing the menu clears it and redraws. An RPC
+  `effect.preview` / `effect.previewEnd` (session-like, not a command), also
+  for agents as a tool if useful. Export reads the store, so it can't leak.
+- **Speed:** a redraw at the same frame is the slider path ("an edit redrawn
+  at the settled frame keeps the originals", `playback.ts` `show`), which
+  already feels live when dragging Film Look's sliders; Film Look's passes
+  are GPU work on one frame. A hover is throttled to the newest look (a frame
+  in flight is replaced, not queued), so sweeping down the list stays smooth.
+  To measure when built: hover-to-frame time on 4K originals (`BEACON_PROFILE`).
+- **Edge cases:** the preview ends if the clip or effect is removed, the
+  playhead moves (the preview follows it: it is an overlay on whatever frame
+  is shown), playback starts (ends the preview), or an edit arrives
+  (the overlay is laid on the new document). Several clips selected: the
+  effect's own clip only, as the menu edits one effect.
+- **Tests:** a UI flow (hovering looks changes the canvas's pixels, leaving
+  restores them exactly, no undo step or save; a click applies in one step;
+  ↑↓/↩/Esc), and a core test that the overlay never reaches the document or
+  an export.
+- **Done 2026-10-21:** as the spike says: `ListSelect` in `controls/`,
+  `LocalCore.previewEffect` (an overlay through `withEffectParams`, the view
+  only), the `previewEffect` RPC coalesced like a drag. Not an MCP tool (agents
+  see edits, not hovers). Hover to frame about 7 ms on a 4K original.
+
+#### AI B-roll and animations
 Generated footage or animation over a stretch of the talk, made from what is
 said there, through the user's own API keys, reviewed in the AI panel before
 it is placed (as Remove Silences is: agents prepare, the user applies).
@@ -1994,14 +2156,15 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 - **First slice: footage with the drawn region**; animation (HyperFrames)
   after it.
 - **One candidate per shot**, re-rolled on request.
-- Still to settle while building: a spending limit (per generation, asked
-  before it runs, and per project).
+- **Spending limit:** not a worry this phase (the user, 2026-10-22). The
+  cost estimate is shown before anything runs; a limit per generation the
+  user can set in Settings (off by default) is enough.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
 
-#### Auphonic cleaning, built in (the user, 2026-10-21; in Phase 12 beside B-roll)
+#### Audio cleaning: Auphonic and the local polish, built in (the user, 2026-10-21; in Phase 11 beside B-roll since 2026-10-22)
 Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too:
 what their `tuneup` CLI does (`~/tuneup`, v0.3.0, MIT, theirs: an Auphonic
 preset in the cloud, then a local de-click, de-clip and de-ess pass), built
@@ -2069,10 +2232,92 @@ into Beacon, so audio is never edited outside it and nobody installs tuneup
   only costs nothing),
   `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
 
-**Decided (the user, 2026-10-21):** built in Phase 12 beside B-roll (both
+**Selected-part cleaning done 2026-10-21 (first slice):** Audio Effects ›
+Auphonic opens its settings in the properties panel (preset, Polish,
+Sibilance, the minutes it costs); Clean runs `audio.clean` as a job (toast
+with stages and Cancel); the result goes on a free track over the originals,
+which get a new clip-level Mute (media v2). Key in Settings › Audio. Tested
+against a stand-in server; a first real run waits on the user. Still to do:
+Whole recording (swap the source, Original/Cleaned A/B), checking the preset
+before upload, reusing a cleaned file when the same audio is sent again.
+
+**Polish done 2026-10-21, as a live effect instead of a baked file:** an
+Audio Effects tile, Polish (`adeclick`, `adeclip`, `deesser` added to
+build-tools.ts), drawn like Noise Removal: free, offline, undoable, nothing
+written. The Auphonic job's Polish choice puts this effect on the cleaned clip
+rather than running a pass. Gotcha: these filters lose a seeked input's
+timestamps, so the chain ends in `asetpts=N/SR/TB`.
+
+**Decided (the user, 2026-10-21; Phase 11 since 2026-10-22):** built beside B-roll (both
 are paid cloud jobs reviewed in the sidebar); the selected part by default.
 **Open:** whether audio already cleaned is reused when exactly the same
 audio is sent again (asked). Later: clean only what is kept, at export.
+
+### Phase 12 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11)
+The user will bring a lot of information before any work starts: which
+devices, how each frame looks and where its screen sits, what it's for.
+Research and agree the design with them first; nothing is built before.
+- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
+
+#### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
+Not built in this phase until the spike says how: a new angle of the presenter
+(a close-up, a side profile, a wide) from one take, made with AI and placed as
+a cut to it, the take's own sound kept. The user's lead: **Seedance 2.5**.
+Spending limit: as Phase 11's (a Settings value), not a worry for now.
+
+**What is known (desk research, 2026-10-22).**
+- Seedance 2.5 re-angles an existing clip in its **editing** task:
+  `bytedance/seedance-2.5/reference-to-video` with `task: "editing"` on fal,
+  the take as `@Video1` (MP4/MOV, 1.8-30.2 s, up to 200 MB, 300-6,000 px a
+  side, 24-60 fps), an optional still for wardrobe and set; duration and
+  aspect follow the source ("auto"), 4-30 s out, the length kept to within
+  about 0.4 s. Prompts that work name the camera and lens and lock the rest:
+  "Medium close-up straight in front of him at seated eye level, 50mm feel,
+  locked", "a true 90-degree side profile at eye level", plus "camera
+  placement and lens are the only things you are allowed to change", "real-
+  time playback: no speed change, no retiming", no captions, text or logos.
+  ([fal guide](https://fal.ai/learn/tools/how-to-create-multi-angle-video-seedance-2-5),
+  [Kapwing](https://www.kapwing.com/resources/how-to-turn-one-clip-into-4-camera-angles-with-ai-seedance-2-5/),
+  [Morphic](https://morphic.com/resources/how-to/seedance-2-5-guide))
+- **Cost:** fal bills tokens (height × width × (input + output seconds) × 24
+  ÷ 1024, ×0.6 with a video input; $0.0214 per 1,000 at 480p/720p, about
+  $0.0234 at 1080p): a 20 s take was $5.18 at 480p, $9.24 at 720p, about
+  $27.40 at 1080p (≈$0.26/s, $0.46/s, $1.36/s). A 480p draft can be finished
+  at 1080p later from its `draft_id` (within seven days).
+- **Sync is not guaranteed:** "An edit cannot guarantee frame-by-frame
+  overlap with the source" (Morphic); Kapwing found speech and timing kept
+  but says to check the lips. So the take's own audio stays the master and
+  the generated picture is muted, checked for drift before it is placed.
+- **Weak points:** the farther the camera moves, the more AI invents (faces
+  drift, "inconsistent facial features"); exact text (a screen, a sign) is
+  for post, so screen recordings never go through it, only the camera; 8-10 s
+  pieces are the practical start.
+- **Replicate** has `bytedance/seedance-2.5` ("provide a reference video and
+  describe changes... preserves the original motion and camera work"), but its
+  page doesn't say whether it has the editing task, its field names or its
+  price ([Replicate](https://replicate.com/bytedance/seedance-2.5)). Phase 11
+  uses the user's Replicate token, so this decides the provider.
+- Earlier research (2026-10-15) still holds: no generation first (a punch-in
+  crop of the 4K source with a small ±5° depth-parallax move) costs nothing
+  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
+  model turning one frame then lip-sync (sync.so); no monocular 4D method
+  holds beyond 10-15° yet.
+
+**The spike (each answered with a real take, the user's go-ahead before any
+paid call, a few dollars at 480p):**
+1. Does Replicate's Seedance 2.5 do the editing task (one call with the
+   schema read from its API), or is fal needed (a second key)?
+2. On a 10 s camera take: a close-up, a side profile and a wide, at 480p:
+   lips against the original audio (offset by cross-correlation of mouth
+   movement, or by eye frame by frame), face and set drift, length kept.
+3. The same against the free punch-in crop: is a close-up worth generating?
+4. Longer takes: 8-10 s pieces cut at pauses (the transcript's), stitched;
+   do the seams show?
+5. Write the result into this plan as a spec in the B-roll review's shape
+   (pick a range, the angle and lens, a draft at 480p with its cost, then
+   1080p; applied as a cut on a camera track, one undo step), or park it.
 
 ### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -2231,32 +2476,12 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 
 ## 16. Backlog (ideas parked, not scheduled)
 
-### AI camera angles (the user, 2026-10-15)
-Generated video, through the user's own API keys, reviewed before it is
-placed. AI B-roll, researched with it on 2026-10-15, moved to Phase 12
-(the user, 2026-10-21); this follows the same job shape.
-- **A new camera angle of the presenter**: (1) no generation first: a
-  punch-in crop of the 4K source and a small depth-parallax move (±5°), in
-  Beacon's renderer; (2) video-to-video re-angling in 3-10 s pieces with
-  Seedance 2.5's reference-to-video (the clip and its audio as references;
-  best in independent tests, $0.30-0.70/s, 720p-1080p, re-rolls expected) or
-  Runway Aleph 2.0; (3) experimental: turn one frame with an image model
-  (FLUX 3 Image, Qwen-Image-Edit multiple-angles), animate it from the
-  original's motion, then lip-sync to the original audio (sync.so sync-3).
-  No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
-  lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
-
-### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
+### Film Look: looks as favourites (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own
   (Custom in the Look menu) saved under a name, starred into Favorites like
   the effect tiles, and applied from there in one undo step. App-wide, as
   favourites are, and readable by agents (`favorites_list`).
-- **Hovering a look previews it on the canvas:** moving over the Look
-  menu's entries (hance's looks and saved ones) shows each on the clip at
-  the playhead, back as it was when the pointer leaves or the menu closes;
-  nothing is applied or added to the undo history until a look is chosen.
-  A native menu reports no hover, so the menu may need to become Beacon's
-  own list.
+- Hovering a look to preview it: Phase 11 (spiked 2026-10-22).
 
 ### Recording metadata features
 `.trec` files also log clicks, keyboard shortcuts, scrolling, the focused app

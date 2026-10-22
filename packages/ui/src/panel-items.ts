@@ -6,8 +6,8 @@ import { isPanelEffect } from "@beacon/model";
 /** A panel item with its tooltip, its tile's picture (`art/<art>.webp`) and what favourites call it (`LocalCore.favorites`). */
 export type Item = PanelItem & { title: string; art?: string; favorite: string };
 
-/** The features' items of one panel (`annotation:` or `audio:`), its tile's picture named after what follows. */
-function featureItems(init: Init | undefined, panel: "annotation" | "audio"): Item[] {
+/** The features' items of one panel (`annotation:`, `visual:` or `audio:`), its tile's picture named after what follows. */
+function featureItems(init: Init | undefined, panel: "annotation" | "visual" | "audio"): Item[] {
   return (init?.panelItems ?? [])
     .filter((it) => it.id.startsWith(`${panel}:`))
     .map((it) => ({
@@ -27,11 +27,13 @@ export const annotations = (init: Init | undefined) => featureItems(init, "annot
 
 export const audioEffects = (init: Init | undefined) => featureItems(init, "audio");
 
-/** The Visual Effects panel: the effects for what is seen (the cursor's are on the Cursor tab, the audio's in Audio Effects). */
-export const visualEffects = (init: Init | undefined): Item[] =>
-  (init?.effects ?? [])
+/** The Visual Effects panel: the effects for what is seen (the cursor's are on the Cursor tab, the audio's in Audio Effects), and Clip Speed. */
+export const visualEffects = (init: Init | undefined): Item[] => [
+  ...(init?.effects ?? [])
     .filter((e) => isPanelEffect(e.traits))
-    .map((e) => ({ label: e.title, title: e.description, art: e.id, favorite: `effect:${e.id}`, command: "edit.addEffect", args: { type: e.id }, traits: e.traits }));
+    .map((e) => ({ label: e.title, title: e.description, art: e.id, favorite: `effect:${e.id}`, command: "edit.addEffect", args: { type: e.id }, traits: e.traits })),
+  ...featureItems(init, "visual"),
+];
 
 /** Every item of the Annotations, Visual Effects and Audio Effects panels, with its panel's name. */
 export const allItems = (init: Init | undefined): (Item & { group: string })[] => [

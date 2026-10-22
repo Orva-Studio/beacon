@@ -39,10 +39,10 @@ interface Props {
   trackMenu: (track: string | null) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
-  /** Spans marked across the tracks while something is reviewed (Remove Silences: red to cut, grey to keep). */
+  /** Spans marked across the tracks while something is reviewed (Remove Silences: every one red, the selected outlined). */
   marks?: TimelineMark[];
   /** A click on a mark (not by the playhead): Remove Silences flips it, or with ⌥ goes to it. */
-  markClick?: (mark: TimelineMark, alt: boolean) => void;
+  markClick?: (mark: TimelineMark, alt: boolean, shift: boolean) => void;
 }
 
 export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
@@ -358,6 +358,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const planned = (ids: string[], by: number, rows: number, ripple: boolean): MoveDrag => {
     const { project } = latest.current;
     const moves = new Map(ids.map((id) => [id, ripple ? 0 : rows]));
+    // As `clip.move` with `linked`: clips linked to a moved one follow it in time but keep their tracks.
+    const links = new Set(project.tracks.flatMap((t) => t.clips).filter((c) => c.linkId && moves.has(c.id)).map((c) => c.linkId));
+    for (const t of project.tracks) for (const c of t.clips) if (c.linkId && links.has(c.linkId) && !moves.has(c.id)) moves.set(c.id, 0);
     if (ripple) {
       for (const t of project.tracks) {
         const mine = t.clips.filter((c) => moves.has(c.id));
@@ -488,6 +491,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const i = rowUnder(y);
             if (i === undefined) return;
             const t = tracks[i]!;
+            if (session.track !== t.id) run("track.focus", { track: t.id });
             const icon = headerIcon(x, y, i);
             if (icon === "eye") return run("track.set", { track: t.id, hidden: !t.hidden }, t.hidden ? "Enable Track" : "Disable Track");
             if (icon === "magnet") return run("track.set", { track: t.id, magnetic: !t.magnetic }, "Magnetic Track");
@@ -522,7 +526,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
           const t = timeAt(e.clientX);
           const mark = y >= RULER && markClick ? latest.current.marks?.find((m) => t >= m.start && t <= m.end) : undefined;
-          if (mark) return markClick!(mark, e.altKey);
+          if (mark) return markClick!(mark, e.altKey, e.shiftKey);
           capture();
           const arrow = arrowAt(e.clientX, e.clientY);
           if (arrow) {

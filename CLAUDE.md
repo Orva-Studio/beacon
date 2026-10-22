@@ -17,7 +17,7 @@ Beacon (by Orva): a macOS screen-recording editor on its own project format, wit
 - `bun run dump-trec [root] [--out dir]` - read every `.trec` under `root` (default `~/client-videos`); the Phase 1 gate
 - `bun run render-cmproj <project.cmproj> <out.mp4 | dir/> [--from s] [--to s] [--frames a,b]` - headless render of a `.cmproj` project
 - `bun scripts/perf.ts <project> [--size WxH]` - times the preview offscreen on a copy (jumps, settles, scrubbing, play); `docs/performance.md`
-- `BEACON_PROFILE=1` prints the worker's per-stage times
+- `BEACON_PROFILE=1` prints the worker's per-stage times, and each file drop's steps (`[drop]`, printed anyway when a drop takes over a second)
 - `scripts/ui-harness/` - the editor UI served to headless Chromium, backed by a `LocalCore`: `serveUi(project)` then `openPage(url)` to click, drag, type and screenshot with no window (use it instead of the app during working hours)
 
 ## Rules

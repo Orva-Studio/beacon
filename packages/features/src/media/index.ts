@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   animationRamps,
   defineFeature,
+  eachRawClip,
   defineQuery,
   IDENTITY,
   clipSpeed,
@@ -46,6 +47,8 @@ interface AudioProps {
   gain: number;
   volume: number;
   normalize: boolean;
+  /** Out of the mix, its volume and points kept: a clip set aside (the originals of a cleaned recording). */
+  muted: boolean;
 }
 
 /** Where to read an asset's `n`th stream of a kind: a `.brec` keeps each stream in its own file. */
@@ -54,7 +57,7 @@ export function sourceOf(asset: Asset, kind: "video" | "audio", n: number): { pa
 }
 
 /** An audio clip's segment of the mix: its volume envelope, scaled by its gain and the levelling to the project's target. */
-const AUDIO_DEFAULTS: AudioProps = { gain: 1, volume: 1, normalize: false };
+const AUDIO_DEFAULTS: AudioProps = { gain: 1, volume: 1, normalize: false, muted: false };
 
 function audioSegment(project: Project, clip: Clip, asset: Asset, stream: number): AudioSegment {
   const a: AudioProps = { ...AUDIO_DEFAULTS, ...(clip.props.audio as Partial<AudioProps> | undefined) };
@@ -183,9 +186,19 @@ function proxyOf(data: ProxyData | undefined, stream: number): { proxy?: Proxy }
  * Clips that show or play an asset: screen recordings (with cursor data),
  * camera and other video, images, held frames, and audio.
  */
+/** v2: a clip's audio can be muted on its own. */
+function addMuted(doc: unknown): unknown {
+  eachRawClip(doc, (c) => {
+    const audio = (c.props as Record<string, unknown> | undefined)?.audio as Record<string, unknown> | undefined;
+    if (audio && audio.muted === undefined) audio.muted = false;
+  });
+  return doc;
+}
+
 export const media = defineFeature({
   id: "media",
-  version: 1,
+  version: 2,
+  migrations: [{ version: 2, migrate: addMuted }],
   clipTypes: [
     { id: "screen", description: "Screen recording stream of a .trec, drawn with its cursor", traits: ["visual", "picture", "media", "video", "cursor"] },
     { id: "video", description: "A video stream (camera, mp4, mov)", traits: ["visual", "picture", "media", "video"] },
@@ -307,9 +320,10 @@ export const media = defineFeature({
     { id: "media", description: "Which stream of the asset the clip uses", traits: ["media"], schema: mediaGroup, defaults: () => ({ stream: 0 }), identity: true },
     {
       id: "audio",
-      description: "Linear gain, a volume envelope (fades, ducking) on top of it, and whether the clip is levelled to the project's loudness target",
+      description: "Linear gain, a volume envelope (fades, ducking) on top of it, whether the clip is levelled to the project's loudness target, and whether it is muted (out of the mix, the rest kept)",
       traits: ["audio"],
-      schema: z.strictObject({ gain: z.number().nonnegative(), volume: z.number().nonnegative(), normalize: z.boolean() }),
+      tab: { title: "Audio Properties", icon: "speaker-high", order: 6 },
+      schema: z.strictObject({ gain: z.number().nonnegative(), volume: z.number().nonnegative(), normalize: z.boolean(), muted: z.boolean() }),
       defaults: () => ({ ...AUDIO_DEFAULTS }),
       animatable: ["volume"],
     },
@@ -330,7 +344,7 @@ export const media = defineFeature({
   },
   evaluate: {
     audio(clip, ctx) {
-      if (clip.type !== "audio" || !clip.assetId) return [];
+      if (clip.type !== "audio" || !clip.assetId || (clip.props.audio as Partial<AudioProps> | undefined)?.muted) return [];
       const stream = clipStream(clip);
       return [audioSegment(ctx.project, clip, ctx.project.assets[clip.assetId]!, stream)];
     },

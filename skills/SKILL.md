@@ -9,7 +9,9 @@ its timeline live and share its undo history with the user.
 ## Basics
 - **One project per session.** `project_create` (new `.beproj` folder, optionally
   from a Camtasia `.cmproj`) or `project_open` first. Every change is saved
-  as it is made.
+  as it is made. If the user opens your project in the Beacon app, the app may
+  ask this session to let go (refused while a job runs): your next tool call
+  then works on it through the app, and its result says so.
 - **Times are timeline seconds**, snapped to frames. Source positions
   (`mediaStart`) are seconds into the media file.
 - **Read before you edit:** `project_describe` (plain text), `timeline_clips`,

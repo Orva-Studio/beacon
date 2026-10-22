@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { assetName, clipSpeed, formatColor, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
+import { assetName, clipSpeed, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -35,15 +35,11 @@ export function Properties({ project: full, session, host, init }: { project: Pr
 
 type Tab = { id: string; title: string; icon: IconName };
 
-/** The tabs a clip type's traits give it, in order. */
-const TRAIT_TABS: [trait: string, tab: Tab][] = [
-  ["visual", { id: "transform", title: "Visual Properties", icon: "film-strip" }],
-  ["callout", { id: "callout", title: "Annotation Properties", icon: "chat-centered-text" }],
-  ["region", { id: "region", title: "Annotation Properties", icon: "chat-centered-text" }],
-  ["caption", { id: "caption", title: "Caption Properties", icon: "closed-captioning" }],
-  ["cursor", { id: "cursor", title: "Cursor Properties", icon: "pointer" }],
-  ["audio", { id: "audio", title: "Audio Properties", icon: "speaker-high" }],
-];
+/** The tabs every clip with media or effects can have; the rest come from its groups (`Init.tabs`). */
+const CLIP_TABS: Record<string, Tab> = {
+  speed: { id: "speed", title: "Clip Speed", icon: "gauge" },
+  effects: { id: "effects", title: "Effects", icon: "sparkle" },
+};
 
 /** Sets fields of a prop group on the selected clips that have it; `key` makes a drag's changes one undo step. */
 type Edit = (group: string, fields: Record<string, unknown>, label: string, key?: string) => void;
@@ -64,11 +60,8 @@ function ClipProperties({
   init?: Init;
 }) {
   const traits = init?.clipTypes[clip.type] ?? [];
-  const tabs = TRAIT_TABS.filter(([trait]) => traits.includes(trait)).map(([, tab]) => tab);
-  const speedShown = useView((v) => v.clipSpeed);
-  // Speed is the clip's timing, video and audio alike: its own tab once it has been changed or asked for.
-  if ((clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || speedShown.includes(clip.id))) tabs.push({ id: "speed", title: "Clip Speed", icon: "gauge" });
-  if (clip.effects.length) tabs.push({ id: "effects", title: "Effects", icon: "sparkle" });
+  const own = new Map((init?.tabs[clip.type] ?? []).map((t): [string, Tab] => [t.id, { ...t, icon: t.icon as IconName }]));
+  const tabs = inspectorTabs(clip, [...own.keys()], !!init?.retimes.includes(clip.type), session.inspector).map((id) => CLIP_TABS[id] ?? own.get(id)!);
   const tab = tabs.find((t) => t.id === session.inspector) ?? tabs[0];
   const value = (group: string, field: string, fallback = 0) => valueAt(clip, session.playhead, group, field, fallback);
   const edit: Edit = (group, fields, label, key) => {
@@ -114,6 +107,7 @@ function ClipProperties({
             onChange={(v, key) => edit("audio", { gain: v / 100 }, "Boost", key)}
           />
           <div className="ml-[92px] flex flex-col gap-3">
+            <Check label="Mute" checked={!!propsOf<{ muted?: boolean }>(clip, "audio").muted} onChange={(on) => edit("audio", { muted: on }, on ? "Mute Clip" : "Unmute Clip")} />
             <Check label="Mix to mono" checked={false} disabled />
             <Check
               label="Auto-normalize loudness"
@@ -487,24 +481,24 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             <Row label="Look">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {def.presets && (
-                  <Select
+                  <ListSelect
                     value={preset?.id ?? ""}
                     title={preset?.description}
-                    onChange={(e) => {
-                      const p = def.presets!.find((x) => x.id === e.target.value);
-                      if (!p) return;
-                      host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
-                      setReport({ name: p.title, notes: p.notes ?? [] });
+                    options={[{ id: "", label: "Custom" }, ...def.presets.map((p) => ({ id: p.id, label: p.title, title: p.description }))]}
+                    onPreview={(id) => {
+                      const p = def.presets!.find((x) => x.id === id);
+                      host.previewEffect(p ? { clip: clip.id, effect: effect.id, params: p.params } : null);
+                    }}
+                    onChange={(id) => {
+                      const p = def.presets!.find((x) => x.id === id);
+                      if (p) {
+                        host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
+                        setReport(undefined);
+                      }
+                      host.previewEffect(null);
                     }}
                     data-effect-preset
-                  >
-                    <option value="">Custom</option>
-                    {def.presets.map((p) => (
-                      <option key={p.id} value={p.id} title={p.description}>
-                        {p.title}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 )}
                 {def.importFile && (
                   <Button look="quiet" title={`Read a look from a .${def.importFile.extensions[0]} file onto these sliders`} onClick={() => void importLook()} data-effect-import>

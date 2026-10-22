@@ -1,6 +1,7 @@
-import { type Project, type Session } from "@beacon/model";
-import { Check, Slider } from "./controls";
-import { ReviewPanel, useReviewed } from "./review";
+import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { Button, Progress, Slider } from "./controls";
+import { useShortcutTip } from "./keymap";
+import { useReviewed, useTranscribing } from "./review";
 import { clock } from "./time";
 import type { Host } from "./app";
 
@@ -8,19 +9,19 @@ import type { Host } from "./app";
 interface Review {
   min: number;
   keep: number;
-  keepActive: boolean;
-  flipped: number[];
+  selected: number[];
 }
 
 /** What `transcript.silences` answers. */
 export interface Silences {
   /** Media with no transcript yet. */
   waiting: string[];
-  silences: { start: number; end: number; active: boolean; cut: boolean }[];
-  cuts: number;
+  silences: { start: number; end: number; active: boolean; selected: boolean }[];
+  /** Seconds cutting all of them saves, and cutting the picked ones. */
   saved: number;
-  /** Index of the silence being looked at, going through them one at a time. */
-  current?: number;
+  selectedSaved: number;
+  /** Why nothing can be cut: two voices heard at once. */
+  stacked?: string;
 }
 
 export const reviewOf = (session: Session | undefined) => (session?.features.transcript as { silences?: Review } | undefined)?.silences;
@@ -30,29 +31,62 @@ export const useSilences = (host: Host, session: Session | undefined, project: P
 // A slider's steps of 0.1 come out as 0.30000000000000004.
 const tenths = (v: number) => Math.round(v * 10) / 10;
 
-/** Remove Silences' review, with its settings. */
+/**
+ * Remove Silences' review: the silences it finds are marked on the timeline and nothing is cut until the user picks
+ * which (a click, ⇧-click for more) and cuts them, or cuts them all.
+ */
 export function SilenceReviewPanel({ project, session, host, found }: { project: Project; session: Session; host: Host; found: Silences | undefined }) {
   const review = reviewOf(session)!;
-  const set = (args: Partial<Review>) => host.run("silences.review", args);
+  // The user's settings are remembered app-wide, as an animation's easing is; an agent's (silences.review) aren't.
+  const set = (args: Partial<Review>) => {
+    host.run("silences.review", args);
+    if (args.min !== undefined) void host.setPreference("silenceMin", String(args.min));
+    if (args.keep !== undefined) void host.setPreference("silenceKeep", String(args.keep));
+  };
+  const progress = useTranscribing();
+  const tip = useShortcutTip();
+  const length = ticksToSeconds(projectDuration(project));
+  const items = found?.silences ?? [];
+  const picked = items.filter((s) => s.selected).length;
+  const usable = !!found && !found.waiting.length && !found.stacked && items.length > 0;
+  const summary = !found
+    ? "Finding silences…"
+    : found.waiting.length
+      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}: silences are found in the transcript.`
+      : !items.length
+        ? `No silences longer than ${review.min} s.`
+        : picked
+          ? `${picked} of ${items.length} silences selected: ${clock(found.selectedSaved)} shorter.`
+          : `${items.length} silences. Cutting them all: ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
   return (
-    <ReviewPanel
-      review="silences"
-      one="silence"
-      title="Remove Silences"
-      noun="silences"
-      none={`No silences longer than ${review.min} s.`}
-      project={project}
-      host={host}
-      found={found}
-      items={found?.silences}
-      describe={(s) => `${clock(s.start)}, ${(s.end - s.start).toFixed(1)} s${s.active ? " of screen action" : ""}: ${s.cut ? "to cut" : "kept"}`}
-    >
-      <Slider label="Cut over" title="Silences longer than this are cut" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
+    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-silence-review>
+      <div className="mb-4 text-title font-semibold text-text-strong">Remove Silences</div>
+      <Slider label="Longer than" title="Silences longer than this are found" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
       <Slider label="Leave" title="How much of each cut silence is left in, half each side" value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
-      <div className="mt-1 mb-1">
-        <Check label="Keep silences with screen action" checked={review.keepActive} onChange={(keepActive) => set({ keepActive })} data-keep-active />
+      {found?.stacked ? (
+        <div className="mt-2 mb-4 rounded-md bg-groove px-3 py-2 text-danger" data-silences-stacked>
+          {found.stacked}.
+        </div>
+      ) : (
+        <div className="mt-2 mb-2 rounded-md bg-groove px-3 py-2 text-text" data-silences-summary>
+          {summary}
+          {!!found?.waiting.length && <Progress value={progress ?? 0} className="mt-2" />}
+        </div>
+      )}
+      <div className="mb-4 text-label text-text-muted" data-review-hint>
+        Click a silence on the timeline to select it, ⇧-click to select more, then Apply.
       </div>
-      <div className="mb-4 text-label text-text-faint">Where the recording's cursor moves or clicks. Typing alone isn't seen.</div>
-    </ReviewPanel>
+      <div className="mt-auto flex flex-wrap justify-end gap-2">
+        <Button onClick={() => host.run("silences.close")} data-silences-cancel>
+          Cancel{tip("reviews.cancel")}
+        </Button>
+        <Button disabled={!usable} onClick={() => host.run("silences.apply", { all: true })} data-silences-all>
+          Apply All{tip("reviews.applyAll")}
+        </Button>
+        <Button look="primary" disabled={!usable || !picked} onClick={() => host.run("silences.apply")} data-silences-apply>
+          Apply{tip("reviews.apply")}
+        </Button>
+      </div>
+    </div>
   );
 }

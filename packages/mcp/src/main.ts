@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { appCoreFor, appProjects, LocalCore } from "@beacon/core";
+import { appCoreFor, appProjects, CONTROL_SOCKET, LocalCore, serveControl } from "@beacon/core";
 import { createServer } from "./server";
 import pkg from "../package.json";
 
@@ -8,9 +8,12 @@ import pkg from "../package.json";
 console.log = console.error;
 console.info = console.error;
 
-const core = new LocalCore();
+// The control socket in each lock lets the app ask for a project the user wants to open there.
+const core = new LocalCore({ name: "an agent's MCP server", control: CONTROL_SOCKET });
 const server = createServer(core, pkg.version, { appCore: appCoreFor, appProjects });
+const control = serveControl({ letGo: server.letGo });
 const exit = () => {
+  control.stop();
   core.closeAll();
   process.exit(0);
 };

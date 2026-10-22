@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
-import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
+import { match, menuKey, runAction, sequenceStep, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
+import { LeaderKeys } from "./leader";
 import { Palette } from "./palette";
 import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
-import type { DroppedFile, Narrating, RunReply, TileMenu } from "./rpc";
+import type { DroppedFile, EffectPreview, Narrating, RunReply, TileMenu } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
@@ -22,6 +23,7 @@ import { ImportProgress } from "./import-progress";
 import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
+import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
@@ -54,6 +56,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   captureFrame(): void;
   /** The canvas at the playhead as a PNG data URL, at the canvas size (the eyedropper samples it). */
   frameImage(): Promise<string | null>;
+  /** Shows an effect with other params on the canvas without an edit (a look under the pointer); null ends it. */
+  previewEffect(preview: EffectPreview | null): void;
   binFrame(asset: string, time: number): Promise<string | null>;
   /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
   chooseFile(extensions: string[]): Promise<string | null>;
@@ -131,6 +135,7 @@ export function App({ host }: { host: Host }) {
     const down = (e: PointerEvent) => {
       const el = document.activeElement;
       if (isFormField(el) && el !== e.target && !isFormField(e.target)) el.blur();
+      replica.leader(undefined);
     };
     window.addEventListener("pointerdown", down, true);
     return () => window.removeEventListener("pointerdown", down, true);
@@ -139,6 +144,19 @@ export function App({ host }: { host: Host }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const field = isFormField(e.target);
+      // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.
+      const pending = replica.get().leader;
+      if (!field && (pending !== undefined || !match(keymap, e))) {
+        if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+        const next = sequenceStep(keymap, pending, e);
+        if (pending !== undefined || next.pending) {
+          e.preventDefault();
+          e.stopPropagation();
+          replica.leader(next.pending);
+          if (next.binding) runAction(host, next.binding);
+          return;
+        }
+      }
       const b = match(keymap, e);
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
@@ -146,10 +164,10 @@ export function App({ host }: { host: Host }) {
       // Return on a focused button or link presses it, as the keyboard user tabbed there to do.
       if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button, a[href], [role=button], [role=menuitem], [role=tab]")) return;
       e.preventDefault();
-      // A silence or filler picked on the timeline: ⌫ cuts it, as Cut This One does.
-      const reviews = replica.get().session?.features.transcript as Partial<Record<"silences" | "fillers", { current?: number }>> | undefined;
-      const picked = (["silences", "fillers"] as const).find((k) => reviews?.[k]?.current !== undefined);
-      if (b.command === "edit.delete" && picked) return host.run(`${picked}.apply`, { one: true });
+      // Silences selected on the timeline: ⌫ cuts them; a filler picked there: ⌫ cuts it, as Cut This One does.
+      const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] }; fillers?: { current?: number } } | undefined;
+      if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");
+      if (b.command === "edit.delete" && reviews?.fillers?.current !== undefined) return host.run("fillers.apply", { one: true });
       runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
@@ -184,7 +202,9 @@ export function App({ host }: { host: Host }) {
           </div>
           {session?.panels.properties &&
             project &&
-            (reviewOf(session) ? (
+            (auphonicReviewOf(session) ? (
+              <AuphonicPanel project={project} session={session} host={host} init={init} />
+            ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
               <FillerReviewPanel project={project} host={host} found={fillers} />
@@ -208,18 +228,22 @@ export function App({ host }: { host: Host }) {
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
               dropFiles={host.dropFiles}
-              marks={retakes ? retakeMarks(retakes) : (silences?.silences ?? fillers?.fillers)?.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === (silences ?? fillers)?.current }))}
-              markClick={(m, alt) =>
+              marks={
+                retakes
+                  ? retakeMarks(retakes)
+                  : silences
+                    ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
+                    : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
+              }
+              markClick={(m, alt, shift) =>
                 retakes
                   ? // A click picks the line to look at; a click on one of its takes then keeps that one.
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
                   : silences
-                    ? // A click picks a silence, for ⌫ or Cut This One to cut; ⌥-click turns it to keep or cut.
-                      alt
-                      ? host.run("silences.flip", { at: m.start })
-                      : goTo(host, "silences", m)
+                    ? // A click selects a silence to cut, ⇧-click selects more.
+                      host.run("silences.select", { at: (m.start + m.end) / 2, add: shift })
                     : alt
                       ? goTo(host, "fillers", m)
                       : host.run("fillers.flip", { at: m.start })
@@ -241,6 +265,7 @@ export function App({ host }: { host: Host }) {
         <RecordUi host={host} />
         <Toasts>
           <ExportToast host={host} />
+          <TaskToasts host={host} />
           <SnapshotSaved host={host} />
           <ImportProgress project={project} />
         </Toasts>
@@ -253,6 +278,7 @@ export function App({ host }: { host: Host }) {
         <MediaPreviewUi host={host} />
         <NoticeUi />
         <Palette host={host} />
+        <LeaderKeys />
         {/* The dragged panel item; a mask so it shows over the native canvas too. */}
         {dragging && (
           <div
@@ -353,7 +379,7 @@ function TopBar({ name, project, session, host, status, saved, preparing, effect
           {effectPreparing}
         </span>
       )}
-      <span className="truncate text-xs text-text-faint">{status}</span>
+      <span className="truncate text-xs text-text-faint" data-status>{status}</span>
       {project && session && <SafeAreaPicker host={host} project={project} session={session} layouts={layouts} />}
       {session && (
         <Select

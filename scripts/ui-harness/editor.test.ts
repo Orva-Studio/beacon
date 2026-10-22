@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
+import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
@@ -128,14 +128,17 @@ test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the ef
   await run("playhead.set", { time: 2 });
 });
 
-test.skipIf(skip)("Clip Speed is a tab once added; editing its duration sets the speed of the selected clip only", async () => {
+test.skipIf(skip)("Clip Speed (a Visual Effects tile, double-clicked) shows the selected clip's speed tab; editing its duration sets the speed of the selected clip only", async () => {
   await select([screen.id]);
   await run("inspector.tab", { tab: "transform" });
   expect(await page.evaluate<boolean>("!!document.querySelector('[title=\"Clip Speed\"]')")).toBe(false);
-  // As the app's Clip Speed menu item does.
-  ui.send("showClipSpeed", { clip: screen.id });
-  await run("inspector.tab", { tab: "speed" });
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('[data-item="visual:clip-speed"]')`);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.dblclick(...(await centre('[data-item="visual:clip-speed"]')));
   await page.until("!!document.querySelector('[title=\"Clip Speed\"]') && document.body.innerText.includes('Minutes')");
+  // Only shown: nothing to undo yet.
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
   const minutes = Math.floor(clip(screen.id).duration / 705_600_000 / 60);
   await page.evaluate(`[...document.querySelectorAll('label')].find(l => l.textContent.endsWith('Minutes')).querySelector('span').click()`);
   await page.until("document.activeElement?.tagName === 'INPUT'");
@@ -149,6 +152,8 @@ test.skipIf(skip)("Clip Speed is a tab once added; editing its duration sets the
   expect(others.length).toBeGreaterThan(0);
   for (const o of others) expect(o.speed).toBeUndefined();
   await run("clip.speed", { clips: [screen.id], speed: null });
+  await run("panel.show", { tool: "media" });
+  await page.until("document.querySelectorAll('[data-asset]').length >= 2");
 });
 
 test.skipIf(skip)("double-clicking a Media Bin item previews it: video with a play bar, an image without", async () => {
@@ -577,6 +582,47 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("dragging a linked clip draws the clips linked to it at the same offset on every frame", async () => {
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  // The camera alone, as the drag sees it in the app when it starts before the press's linked selection comes back.
+  await select([camera.id]);
+  const start = ticksToSeconds(camera.start);
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("playhead.set", { time: 9 });
+  await Bun.sleep(300);
+  const [cam, aud] = [await timelinePlaces(camera.id), await timelinePlaces(audio.id)];
+  const { box, xAt } = cam;
+  // The leftmost accent pixel across the middle of a row: a move's ghost is outlined in it, the clips left behind aren't.
+  const ghostLeft = (p: { y: number; h: number }) =>
+    page.evaluate<number>(`(() => {
+      const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width;
+      const probe = document.createElement('canvas').getContext('2d'); probe.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(); probe.fillRect(0, 0, 1, 1);
+      const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+      const row = c.getContext('2d').getImageData(0, Math.round((${p.y} + ${p.h} / 2) * k), c.width, 1).data;
+      for (let x = 0; x < c.width; x++) if (Math.abs(row[x * 4] - r) + Math.abs(row[x * 4 + 1] - g) + Math.abs(row[x * 4 + 2] - b) < 40) return x / k;
+      return -1;
+    })()`);
+  const y = box.y + cam.y + cam.h / 2;
+  const from = box.x + xAt(start + 1);
+  await page.move(from, y);
+  await page.down(from, y);
+  await page.move(from + 12, y);
+  for (let i = 2; i <= 8; i++) {
+    await page.move(from + i * 12, y);
+    await Bun.sleep(50);
+    const [c, a] = [await ghostLeft(cam), await ghostLeft(aud)];
+    expect(c).toBeGreaterThan(xAt(start));
+    expect(Math.abs(c - a)).toBeLessThan(2);
+  }
+  await page.up(from + 96, y);
+  await Bun.sleep(300);
+  expect(clip(audio.id).start - audio.start).toBe(clip(camera.id).start - camera.start);
+  expect(clip(camera.id).start).toBeGreaterThan(camera.start);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a list; its Import tile imports", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("!!document.querySelector('[data-media-bin]')");
@@ -649,6 +695,70 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-export-muted]') && !document.body.innerText.includes('Encode audio')");
 });
+
+test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips their sound alone, a picture without an audio track; with none, the whole project", async () => {
+  const audio = clips().find((c) => c.type === "audio" && c.assetId === screen.assetId)!;
+  const camera = clips().find((c) => c.type === "video" && c.assetId === screen.assetId)!;
+  const label = (text: string) => `[...document.querySelectorAll('[role=checkbox]')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(text)})?.getAttribute('aria-checked')`;
+  const title = () => page.evaluate<string>("document.querySelector('[role=dialog] h2, [role=dialog] [data-modal-title]')?.textContent ?? document.body.innerText");
+  await select([audio.id]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  expect(await title()).toContain("Export Selection");
+  expect(await page.evaluate<string>("document.querySelector('[data-export-only]').getAttribute('aria-label')")).toStartWith("Export the selected clips only (1 clip, ");
+  expect(await page.evaluate<string | null>(label("Audio only"))).toBe("true");
+  expect(await page.evaluate<boolean>("document.body.innerText.includes('.wav')")).toBe(true);
+  await page.key("Enter", "Enter");
+  const out = join(tmpdir(), "project selection.wav");
+  await arrived(() => existsSync(out), 60_000);
+  expect(existsSync(out)).toBe(true);
+  rmSync(out, { force: true });
+  // Unticked, the project's usual video format; Audio only then still goes back to audio.
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  await page.evaluate("document.querySelector('[data-export-only]').click()");
+  await page.until(`${label("Audio only")} === "false"`);
+  await page.evaluate(`[...document.querySelectorAll('[role=checkbox]')].find((b) => b.getAttribute('aria-label') === 'Audio only').click()`);
+  await page.until(`${label("Audio only")} === "true"`);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-only]')");
+
+  await select([camera.id]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  expect(await page.evaluate<string | null>(label("Audio only"))).toBe("false");
+  // Nothing selected is heard: Audio only can't be ticked.
+  const disabled = (text: string) => page.evaluate<boolean>(`[...document.querySelectorAll('[role=checkbox]')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(text)})?.disabled ?? false`);
+  expect(await disabled("Audio only")).toBe(true);
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => /^Options/.test(b.textContent ?? ''))?.click()");
+  await page.until(`${label("Encode audio")} === "false"`);
+  // Unticked, it's the whole project again, with its sound.
+  await page.evaluate("document.querySelector('[data-export-only]').click()");
+  await page.until(`${label("Encode audio")} === "true"`);
+  expect(await disabled("Audio only")).toBe(false);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-only]')");
+
+  // Clips selected inside an open group: only those, as on the main timeline.
+  const group = (await run("clip.group", { clips: [camera.id, audio.id] })).results[0] as string;
+  await run("group.open", { clip: group });
+  await select([camera.id]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-export-only]').getAttribute('aria-label')")).toStartWith("Export the selected clips only (1 clip, ");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-only]')");
+  await run("group.close", {});
+  await ui.core.undo(ui.handle);
+
+  await select([]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("[...document.querySelectorAll('[role=checkbox]')].some((b) => b.getAttribute('aria-label') === 'Audio only')");
+  expect(await has("[data-export-only]")).toBe(false);
+  expect(await page.evaluate<string | null>(label("Audio only"))).toBe("false");
+  expect(await disabled("Audio only")).toBe(false);
+  await page.key("Escape", "Escape");
+}, 90_000);
 
 test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
   ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } });
@@ -1186,6 +1296,108 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await select([]);
 });
 
+test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, : [ back, round the ends; : E the fx tab, else Visual Effects", async () => {
+  const leader = async (key: string, code: string) => {
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until("!!document.querySelector('[data-leader]')");
+    await page.key(key, code);
+    await page.until("!document.querySelector('[data-leader]')");
+    await Bun.sleep(150);
+  };
+  const camera = clips().find((c) => c.type === "video" && c.assetId === screen.assetId)!;
+  await select([camera.id]);
+  await run("inspector.tab", { tab: "transform" });
+  await run("panel.show", { tool: "media" });
+  await leader("e", "KeyE");
+  expect((await session()).panels.tool).toBe("visualEffects");
+  await run("effect.add", { clip: camera.id, type: "drop-shadow" });
+  await leader("e", "KeyE");
+  expect((await session()).inspector).toBe("effects");
+  await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
+  // Effects is the last tab: ] goes round to the first, [ back to Effects.
+  await leader("]", "BracketRight");
+  expect((await session()).inspector).toBe("transform");
+  await leader("[", "BracketLeft");
+  expect((await session()).inspector).toBe("effects");
+  await leader("[", "BracketLeft");
+  expect((await session()).inspector).not.toBe("effects");
+  await ui.core.undo(ui.handle);
+  await run("inspector.tab", { tab: "transform" });
+});
+
+test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r labels the selection red; : a deletes a recording's audio; : p opens the command palette; Esc, a click or a wrong key drops it; Settings › Shortcuts records : then a key", async () => {
+  const semi = () => page.key(":", "Semicolon", ["shift"]);
+  const audio = clips().find((c) => c.type === "audio" && c.linkId)!;
+  await select([audio.id, ...clips().filter((c) => c.linkId === audio.linkId && c.id !== audio.id).map((c) => c.id)]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
+  expect(shown).toContain("ADelete Audio");
+  expect(shown).toContain("CColor Label›");
+  // A group reads as one: the accent tone and a chevron, the single keys in the text colour.
+  const tones = await page.evaluate<[string, string]>(
+    "[document.querySelector('[data-leader-group]'), document.querySelector('[data-leader-next] span:not([data-leader-group])')].map((e) => getComputedStyle(e).color)",
+  );
+  expect(tones[0]).not.toBe(tones[1]);
+  await page.screenshot(join(dir, "leader.png"));
+  // A group opens on its key: the colours.
+  await page.key("c", "KeyC");
+  await page.until("[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent === 'RRed')");
+  await page.key("r", "KeyR");
+  await page.until("!document.querySelector('[data-leader]')");
+  await arrived(() => (clip(audio.id).props.label as { color?: string } | undefined)?.color === "red");
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Color Label");
+  // Esc, a click elsewhere and a key that follows nothing each drop it, doing nothing.
+  const playhead = (await session()).playhead;
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-leader]')");
+  expect((await session()).selection.length).toBeGreaterThan(0);
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("ArrowRight", "ArrowRight");
+  await page.until("!document.querySelector('[data-leader]')");
+  expect((await session()).playhead).toBe(playhead);
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.click(...(await centre("canvas[data-timeline]")));
+  await page.until("!document.querySelector('[data-leader]')");
+  // ; a: the recording's audio, without unlinking.
+  await select([audio.id, ...clips().filter((c) => c.linkId === audio.linkId && c.id !== audio.id).map((c) => c.id)]);
+  await semi();
+  await page.key("a", "KeyA");
+  await arrived(() => !clips().some((c) => c.id === audio.id));
+  expect(clips().some((c) => c.id === audio.id)).toBe(false);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Audio");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clips().some((c) => c.id === audio.id)).toBe(true);
+  // : p opens the command palette.
+  await semi();
+  await page.key("p", "KeyP");
+  await page.until("!!document.querySelector('[data-palette]')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-palette]')");
+
+  // Settings › Shortcuts: : waits for the next key, and the two are the shortcut.
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
+  await page.until("!!document.querySelector('[data-shortcuts]')");
+  const row = '[data-shortcut="edit.split"]';
+  await page.evaluate(`document.querySelector('${row}').scrollIntoView({ block: "center" })`);
+  await page.click(...(await centre(`${row} [data-shortcut-keys]`)));
+  await page.until("document.activeElement?.hasAttribute('data-recording')");
+  await semi();
+  await page.until("(document.querySelector('[data-recording-steps]')?.textContent ?? '') === ': …'");
+  await page.key("x", "KeyX");
+  await page.until(`document.querySelector('${row} [data-shortcut-keys]').textContent === ": X"`);
+  expect((await ui.core.shortcuts()).find((x) => x.id === "edit.split")!.keys.map(keysLabel)).toEqual([": X"]);
+  await ui.core.shortcutReset("edit.split");
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  await page.until("!document.querySelector('[data-shortcuts]')");
+  await select([]);
+}, 30_000);
+
 test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressing keys rebinds one, a key taken asks first and moves it; the keys work at once; Reset All puts them back", async () => {
   const keysOf = async (id: string) => (await ui.core.shortcuts()).find((s) => s.id === id)!.keys;
   const row = (id: string) => `[data-shortcut="${id}"]`;
@@ -1245,6 +1457,29 @@ test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressi
   await page.until("!document.querySelector('[data-shortcuts]')");
   await select([]);
 }, 30000);
+
+test.skipIf(skip)("the command palette lists the Media Bin once something is typed: a medium by name, with its kind, goes on the timeline at the playhead", async () => {
+  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
+  const recording = Object.values(ui.core.doc(ui.handle).assets).find((a) => a.kind === "recording")!;
+  await select([]);
+  await run("playhead.set", { time: 3 });
+  await page.key("k", "KeyK", ["meta"]);
+  await page.until("!!document.querySelector('[data-palette]')");
+  expect((await shown()).some((e) => e.startsWith("media:"))).toBe(false);
+  await type(assetName(recording));
+  const entry = `[data-entry="media:${recording.id}"]`;
+  await page.until(`!!document.querySelector('${entry}')`);
+  expect(await page.evaluate<string>(`document.querySelector('${entry}').textContent`)).toContain("Recording");
+  expect(await page.evaluate<string>(`document.querySelector('${entry}').textContent`)).toContain("Media Bin");
+  const before = clips().length;
+  await page.click(...(await centre(entry)));
+  await page.until("!document.querySelector('[data-palette]')");
+  await arrived(() => clips().length > before);
+  const placed = clips().filter((c) => c.assetId === recording.id && ticksToSeconds(c.start) === 3);
+  expect(placed.length).toBeGreaterThan(0);
+  expect([...(await session()).selection].sort()).toEqual(placed.map((c) => c.id).sort());
+  await ui.core.undo(ui.handle);
+});
 
 test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
@@ -1758,6 +1993,49 @@ test.skipIf(skip)("every track's header has mute, lock and eye: mute and lock to
   await run("timeline.trackHeight", { height });
 });
 
+test.skipIf(skip)("⌥⇧L and ⌥⇧M lock and mute the selected clip's track, one undo step each, else the header clicked last; a locked track's clips can't then be picked", async () => {
+  const s = clip(screen.id);
+  const trackOf = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === s.id))!;
+  await select([s.id]);
+  await Bun.sleep(100);
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.key("L", "KeyL", ["alt", "shift"]);
+  await Bun.sleep(200);
+  try {
+    expect(trackOf().locked).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Lock Track");
+    expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+    await run("selection.clear");
+    const [a, b] = [ticksToSeconds(s.start), ticksToSeconds(s.start + s.duration)];
+    await run("timeline.view", { start: Math.max(0, a - 2), end: b + 2 });
+    await Bun.sleep(300);
+    const { y, h, xAt, box } = await timelinePlaces(s.id);
+    await page.click(box.x + xAt((a + b) / 2), box.y + y + h / 2);
+    await Bun.sleep(200);
+    expect((await session()).selection).not.toContain(s.id);
+    // Nothing selected: the keys act on the track whose header was clicked, here off its icons.
+    await page.click(box.x + 8, box.y + y + h / 2);
+    await Bun.sleep(200);
+    expect((await session()).track).toBe(trackOf().id);
+    await page.key("L", "KeyL", ["alt", "shift"]);
+    await Bun.sleep(200);
+    expect(trackOf().locked).toBe(false);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unlock Track");
+    await select([s.id]);
+    await page.key("M", "KeyM", ["alt", "shift"]);
+    await Bun.sleep(200);
+    expect(trackOf().muted).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Mute Track");
+    await page.key("M", "KeyM", ["alt", "shift"]);
+    await Bun.sleep(200);
+    expect(trackOf().muted).toBe(false);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unmute Track");
+  } finally {
+    await run("track.set", { track: trackOf().id, locked: false, muted: false });
+    await run("selection.clear");
+  }
+});
+
 test.skipIf(skip)("a colour label (Add Color Label) draws a stripe along the top of the selected clips, keeping their kind's colour; Default removes it; one undo step", async () => {
   await select([screen.id]);
   await run("timeline.view", { start: 0, end: 20 });
@@ -2113,7 +2391,7 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
 test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
   await page.until("!!document.querySelector('[data-settings-nav]')");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Shortcuts"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Audio", "Shortcuts"]);
   const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
   const first = await size();
   for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
@@ -2160,6 +2438,16 @@ test.skipIf(skip)("Settings keeps focus where it is while the editor re-renders 
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("a status message clears itself after a few seconds; a newer one starts its own time", async () => {
+  ui.send("status", { text: "first" });
+  await page.until("document.querySelector('[data-status]').textContent === 'first'");
+  await Bun.sleep(3000);
+  ui.send("status", { text: "second" });
+  await Bun.sleep(3000);
+  expect(await page.evaluate<string>("document.querySelector('[data-status]').textContent")).toBe("second");
+  await page.until("document.querySelector('[data-status]').textContent === ''", 4000);
+}, 15000);
+
 test.skipIf(skip)("holding ⌥ over a selected clip's handles shows the crop cursor, and a ⌥-drag keeps it while cropping", async () => {
   await run("playhead.set", { time: 1 });
   await select([screen.id]);
@@ -2203,22 +2491,30 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and says what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
+/** Opens Film Look's Look menu (Beacon's own list, 41 looks and Custom) and clicks a look. */
+async function pickLook(id: string) {
+  await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
+  await page.click(...(await centre("[data-effect-preset]")));
+  await page.until("document.querySelectorAll('[data-option]').length === 42");
+  await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
+  await page.click(...(await centre(`[data-option="${id}"]`)));
+  await page.until("!document.querySelector('[role=listbox]')");
+}
+
+test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with no note of what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
   await run("effect.add", { clip: screen.id, type: "film-look" });
   await select([screen.id]);
   await run("inspector.tab", { tab: "effects" });
   const fx = () => clip(screen.id).effects.find((e) => e.type === "film-look")!;
   // Its defaults are hance's Default look.
-  await page.until("document.querySelector('[data-effect-preset]')?.value === 'default'");
-  expect(await page.evaluate<number>("document.querySelectorAll('[data-effect-preset] option').length")).toBe(42);
+  await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === 'default'");
   const undo = (await ui.core.history(ui.handle)).undo.length;
-  await page.evaluate("(() => { const s = document.querySelector('[data-effect-preset]'); s.value = 'cinestill-800t'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await pickLook("cinestill-800t");
   await arrived(() => fx().params.halation === 0.7);
   expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
-  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('bloom 0.45')");
-  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toStartWith("Not in Film Look, from “CineStill 800T”:");
-  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).not.toContain("split tone");
+  await arrived(() => false, 300);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-report]')")).toBe(false);
   // Its split tone on two hue sliders, the hues along their grooves; Tint just under Warmth.
   expect(fx().params).toMatchObject({ tint: 0.02, splitTone: 0.25, shadowHue: 220, highlightHue: 40 });
   const labels = await page.evaluate<string[]>("[...document.querySelectorAll('label, span, div')].filter((e) => e.children.length === 0).map((e) => e.textContent)");
@@ -2231,7 +2527,7 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and sa
   await arrived(() => Math.abs(fx().params.shadowHue as number - 180) <= 2);
   // A slider moved: no longer the look, Custom.
   await run("effect.set", { clip: screen.id, effect: fx().id, params: { fade: 0.5 } });
-  await page.until("document.querySelector('[data-effect-preset]')?.value === ''");
+  await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === ''");
   // Import .hlook…: Finder picks a file of your own.
   const file = join(dir, "mine.hlook");
   writeFileSync(file, JSON.stringify({ name: "Mine", params: { fade: 0.3, "white-balance": 2000 } }));
@@ -2242,14 +2538,91 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders and sa
   expect(fx().params.warmth).toBe(2);
   await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
   expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
+  // A look chosen after it takes the note away.
+  await pickLook("default");
+  await page.until("!document.querySelector('[data-effect-report]')");
   // Cancelled in Finder, nothing changes.
   ui.chooseFile(null);
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await page.evaluate("document.querySelector('[data-effect-import]').click()");
   await Bun.sleep(300);
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
-  for (let i = 0; i < 5; i++) await ui.core.undo(ui.handle);
+  for (let i = 0; i < 6; i++) await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
+}, 30_000);
+
+test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and the arrow keys, with no edit; leaving the list or Esc shows the clip as it is; a click applies in one step", async () => {
+  // The camera, which covers the screen until it is laid out.
+  const camera = clips().find((c) => c.type === "video")!;
+  await run("effect.add", { clip: camera.id, type: "film-look" });
+  await select([camera.id]);
+  await run("inspector.tab", { tab: "effects" });
+  const fx = () => clip(camera.id).effects.find((e) => e.type === "film-look")!;
+  await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === 'default'");
+  // The app's canvas is a native view; here an offscreen one shows what it would.
+  const view = ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: false });
+  try {
+    await run("playhead.set", { time: ticksToSeconds(camera.start) + 1 });
+    view.settle();
+    const pixels = () => Buffer.from(view.flush()!);
+    /** The canvas once it has changed from `from` (or, with `same`, become it). */
+    const shown = async (from: Buffer, same = false) => {
+      for (const end = Date.now() + 5000; Date.now() < end; await Bun.sleep(20)) {
+        const now = pixels();
+        if (now.equals(from) === same) return now;
+      }
+      throw new Error(same ? "the canvas didn't go back" : "the canvas didn't change");
+    };
+    const plain = pixels();
+    const doc = JSON.stringify(ui.core.doc(ui.handle));
+    const steps = (await ui.core.history(ui.handle)).undo.length;
+    const playhead = (await session()).playhead;
+
+    await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
+    await page.click(...(await centre("[data-effect-preset]")));
+    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    const over = async (id: string) => {
+      await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
+      await page.hover(...(await centre(`[data-option="${id}"]`)));
+    };
+    await over("cinestill-800t");
+    const cinestill = await shown(plain);
+    await over("tri-x-400");
+    const bw = await shown(cinestill);
+    expect(bw.equals(plain)).toBe(false);
+    expect(JSON.stringify(ui.core.doc(ui.handle))).toBe(doc);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+    // Off the list, the clip as it is; the list stays open.
+    await page.hover(...(await centre("[data-timeline]")));
+    await shown(plain, true);
+    expect(await has("[role=listbox]")).toBe(true);
+    // The keys move through the looks without moving the playhead; Esc closes and restores.
+    await page.key("ArrowDown", "ArrowDown");
+    const next = await shown(plain);
+    expect(next.equals(cinestill) || next.equals(bw)).toBe(false);
+    await page.key("Escape", "Escape");
+    await shown(plain, true);
+    await page.until("!document.querySelector('[role=listbox]')");
+    expect((await session()).playhead).toBe(playhead);
+    expect(JSON.stringify(ui.core.doc(ui.handle))).toBe(doc);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+
+    // A click applies the look under the pointer, in one step, and the canvas stays as previewed.
+    await page.click(...(await centre("[data-effect-preset]")));
+    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    await over("cinestill-800t");
+    await shown(cinestill, true);
+    await page.click(...(await centre('[data-option="cinestill-800t"]')));
+    await arrived(() => fx().params.halation === 0.7);
+    expect(fx().params.halation).toBe(0.7);
+    expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+    await page.until("!document.querySelector('[role=listbox]')");
+    await Bun.sleep(200);
+    expect(pixels().equals(cinestill)).toBe(true);
+  } finally {
+    ui.core.detachView(ui.handle);
+    while (clip(camera.id).effects.some((e) => e.type === "film-look")) await ui.core.undo(ui.handle);
+  }
 }, 30_000);
 
 test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {
@@ -2269,7 +2642,7 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, ⌥-click flips one, a click picks one for ⌫ to cut alone; Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
+test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⇧-click more (again to drop one); Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
@@ -2278,8 +2651,8 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.until("!!document.querySelector('[data-silence-review]')");
   // The recording's transcript may still be being made in the background.
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
-  type Found = { silences: { start: number; end: number; cut: boolean }[]; saved: number };
-  const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; keepActive: boolean; flipped: number[] } } | undefined;
+  type Found = { silences: { start: number; end: number; selected: boolean }[]; saved: number; selectedSaved: number };
+  const review = async () => (await session()).features.transcript as { silences?: { min: number; keep: number; selected: number[] } } | undefined;
   const found = async () => (await ui.core.query(ui.handle, "transcript.silences", (await review())!.silences)) as Found;
   // Its settings are sliders: clicked along, the review follows.
   const track = (i: number) => page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelectorAll('[data-silence-review] .bg-groove')[${i}].getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
@@ -2290,44 +2663,93 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.click(leave.x + leave.w / 2, leave.y + leave.h / 2);
   for (let i = 0; i < 50 && (await review())?.silences?.keep !== 1; i++) await Bun.sleep(50);
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
+  // The sliders are remembered app-wide: closed and opened again, the review has them; an agent's settings aren't kept.
+  const prefs = async () => Object.fromEntries((await ui.core.preferences()).filter((p) => p.id.startsWith("silence")).map((p) => [p.id, p.value]));
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  await run("silences.close");
+  await run("silences.review");
+  expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   await run("silences.review", { min: 0.6, keep: 0.3 });
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  await ui.core.setPreference("silenceMin", "0.6");
+  await ui.core.setPreference("silenceKeep", "0.3");
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
-  // An edit while the review is open: the marks and summary describe the timeline as it is now, not as it was.
-  const counts = async () => {
-    const f = await found();
-    const cut = f.silences.filter((x) => x.cut).length;
-    return `${f.silences.length} silences: ${cut} to cut, ${f.silences.length - cut} kept.`;
-  };
+  // An edit while the review is open: the summary describes the timeline as it is now, not as it was.
   const shows = (text: string) => page.until(`(document.querySelector('[data-silences-summary]')?.textContent ?? '').startsWith(${JSON.stringify(text)})`);
-  const reviewed = await counts();
+  const reviewed = `${(await found()).silences.length} silences.`;
   await shows(reviewed);
   await run("timeline.rippleDelete", { ranges: [{ start: 0, end: 30 }] });
-  const edited = await counts();
+  const edited = `${(await found()).silences.length} silences.`;
   expect(edited).not.toBe(reviewed);
   await shows(edited);
   await ui.core.undo(ui.handle);
   await shows(reviewed);
+  // Nothing is picked to begin with: Apply waits for a pick.
   const first = await found();
-  // The widest silence to cut, ⌥-clicked in the middle of its band on the timeline: kept now.
-  const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
+  expect(first.silences.some((x) => x.selected)).toBe(false);
+  expect(await page.evaluate<boolean>("document.querySelector('[data-silences-apply]').disabled")).toBe(true);
+  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("⇧-click to select more");
+  const [wide, next] = [...first.silences].sort((a, b) => b.end - b.start - (a.end - a.start));
   const s = await session();
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   const header = headerWidth(ui.core.doc(ui.handle).tracks);
   const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20, ["alt"]);
-  for (let i = 0; i < 50 && !(await review())?.silences?.flipped.length; i++) await Bun.sleep(50);
-  const flipped = await found();
-  expect(flipped.silences.find((x) => x.start === target.start)!.cut).toBe(false);
-  expect(flipped.saved).toBeLessThan(first.saved);
+  const on = (x: { start: number; end: number }) => [xAt((x.start + x.end) / 2), box.y + box.h - 20] as const;
+  const picked = async (n: number) => {
+    for (let i = 0; i < 50 && (await review())?.silences?.selected.length !== n; i++) await Bun.sleep(50);
+    return (await found()).silences.filter((x) => x.selected);
+  };
+  // Every silence red, unpicked ones too; a picked one outlined in green.
+  const rgb = async (x: number, y: number) => (await page.evaluate<string>(timelinePixel(x - box.x, y - box.y))).split(",").map(Number) as [number, number, number];
+  const red = ([r, g]: [number, number, number]) => r > g + 30;
+  // The outline is stroked just outside the silence.
+  const leftEdge = (x: { start: number }) => [xAt(x.start) - 1, box.y + box.h - 20] as const;
+  expect(red(await rgb(...on(wide!)))).toBe(true);
+  expect(red(await rgb(...on(next!)))).toBe(true);
+  await page.click(...on(wide!));
+  expect((await picked(1)).map((x) => x.start)).toEqual([wide!.start]);
+  await page.until(`(([r, g]) => g > r + 30)(${timelinePixel(leftEdge(wide!)[0] - box.x, leftEdge(wide!)[1] - box.y)}.split(',').map(Number))`);
+  expect(red(await rgb(...on(wide!)))).toBe(true);
+  const [r, g] = await rgb(...leftEdge(next!));
+  expect(g > r + 30).toBe(false);
+  await page.click(...on(next!), ["shift"]);
+  expect((await picked(2)).map((x) => x.start).sort()).toEqual([wide!.start, next!.start].sort());
+  await page.click(...on(wide!), ["shift"]);
+  expect((await picked(1)).map((x) => x.start)).toEqual([next!.start]);
+  // A plain click picks only that one again.
+  await page.click(...on(wide!));
+  await page.click(...on(next!), ["shift"]);
+  await page.until("/^2 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  const chosen = await found();
   const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
   const before = length();
   const undo = (await ui.core.history(ui.handle)).undo.length;
   await page.evaluate("document.querySelector('[data-silences-apply]').click()");
+  await arrived(() => length() < before);
+  expect(before - length()).toBeCloseTo(chosen.selectedSaved, 2);
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  // Still open on the rest, none picked.
+  expect((await review())?.silences?.selected).toEqual([]);
+  expect((await found()).silences.length).toBe(first.silences.length - 2);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // ⌫ cuts the one picked.
+  await page.click(...on(wide!));
+  await picked(1);
+  await page.until("/^1 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
+  await arrived(() => length() < before);
+  expect(before - length()).toBeLessThan(wide!.end - wide!.start);
+  expect(before - length()).toBeGreaterThan(wide!.end - wide!.start - 0.5);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // Apply All: every silence, one undo step, and the review closes.
+  await run("silences.select", {});
+  const all = await found();
+  await page.evaluate("document.querySelector('[data-silences-all]').click()");
   await page.until("!document.querySelector('[data-silence-review]')");
   await arrived(() => length() < before);
-  expect(before - length()).toBeCloseTo(flipped.saved, 2);
-  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
-  expect((await review())?.silences).toBeUndefined();
+  expect(before - length()).toBeCloseTo(all.saved, 2);
   await ui.core.undo(ui.handle);
   expect(length()).toBeCloseTo(before, 3);
   // Opened again and cancelled: nothing cut.
@@ -2336,32 +2758,10 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
-
-  // A plain click picks a silence, keeping it as it was; ⌫ then cuts that one alone, one undo step.
-  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
-  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
-  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("then ⌫ to cut it");
-  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
-  await page.until("(document.querySelector('[data-one-at]')?.textContent ?? '').includes(' of ')");
-  const picked = (await review()) as { silences: { flipped: number[]; current?: number } };
-  expect(picked.silences.flipped).toEqual([]);
-  expect(picked.silences.current).toBeCloseTo(target.start, 2);
-  const cutUndo = (await ui.core.history(ui.handle)).undo.length;
-  await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
-  await arrived(() => length() < before);
-  const each = (await ui.core.query(ui.handle, "transcript.silences", { min: 0.6, keep: 0.3, keepActive: false, flipped: [] })) as Found;
-  expect(each.silences.length).toBe(first.silences.length - 1);
-  expect(before - length()).toBeLessThan(target.end - target.start);
-  expect(before - length()).toBeGreaterThan(target.end - target.start - 0.5);
-  expect((await ui.core.history(ui.handle)).undo.length - cutUndo).toBe(1);
-  await ui.core.undo(ui.handle);
-  expect(length()).toBeCloseTo(before, 3);
-  await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
-  await page.until("!document.querySelector('[data-silence-review]')");
   await run("panel.show", { tool: null });
 }, 150_000);
 
-test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the buttons: ⎋ closes it cutting nothing, ↩ applies it in one undo step; with none open ⎋ still deselects and clears the range", async () => {
+test.skipIf(skip)("a review's Apply and Cancel by their keys, shown on the buttons: ⎋ closes it cutting nothing, ↩ applies it in one undo step (Remove Silences: what is selected); with none open ⎋ still deselects and clears the range", async () => {
   await run("panel.show", { tool: "ai" });
   const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
   const before = length();
@@ -2373,17 +2773,33 @@ test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the b
   };
   await open();
   expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (Esc)");
-  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply All (↩)");
+  // The same words and keys as every panel with Cancel and Apply.
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply (↩)");
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-all]').textContent")).toBe("Apply All (⇧↩)");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
   await open();
   const undo = (await ui.core.history(ui.handle)).undo.length;
+  // ↩ cuts what is selected, never every silence.
+  const [one] = ((await ui.core.query(ui.handle, "transcript.silences", {})) as { silences: { start: number; end: number }[] }).silences;
+  await run("silences.select", { at: (one!.start + one!.end) / 2 });
+  await page.until("/^1 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
   await page.key("Enter", "Enter");
-  await page.until("!document.querySelector('[data-silence-review]')");
   await arrived(() => length() < before);
+  await run("silences.close");
+  await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeLessThan(before);
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // ⇧↩ is Apply All: every silence, and the review closes.
+  await open();
+  const every = ((await ui.core.query(ui.handle, "transcript.silences", {})) as { saved: number }).saved;
+  await page.key("Enter", "Enter", ["shift"]);
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => length() < before);
+  expect(before - length()).toBeCloseTo(every, 2);
   await ui.core.undo(ui.handle);
   expect(length()).toBeCloseTo(before, 3);
   // ↩ on a focused button presses it: Cancel, tabbed to, cancels rather than applies.
@@ -3201,6 +3617,155 @@ test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audi
   await run("panel.show", { tool: null });
   await select([]);
 }, 30_000);
+
+test.skipIf(skip)("Mute in a clip's audio tab takes it out of the mix in one step, keeping its volume", async () => {
+  const audio = clips().find((c) => c.type === "audio")!;
+  const volume = (clip(audio.id).props.audio as { volume: number }).volume;
+  await select([audio.id]);
+  await run("inspector.tab", { tab: "audio" });
+  const box = '[role=checkbox][aria-label="Mute"]';
+  await page.until(`!!document.querySelector('${box}')`);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.click(...(await centre(box)));
+  await arrived(() => (clip(audio.id).props.audio as { muted?: boolean }).muted === true);
+  expect((await ui.core.history(ui.handle)).undo).toHaveLength(steps + 1);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Mute Clip");
+  expect((clip(audio.id).props.audio as { volume: number }).volume).toBe(volume);
+  await page.until(`document.querySelector('${box}').getAttribute('aria-checked') === 'true'`);
+  await ui.core.undo(ui.handle);
+  expect((clip(audio.id).props.audio as { muted?: boolean }).muted).toBe(false);
+  await select([]);
+});
+
+test.skipIf(skip)("Polish in Audio Effects, double-clicked with audio selected: the clip gets it in one step, with Remove Clicks, Repair Clipping and Sibilance; again, it says it is already polished", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const audio = clips().find((c) => c.type === "audio")!;
+  await select([audio.id]);
+  await run("panel.show", { tool: "audioEffects", properties: true });
+  const tile = `[data-item="audio:polish"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(audio.id).effects.some((e) => e.type === "polish"));
+  expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("['Remove Clicks', 'Repair Clipping', 'Sibilance'].every((l) => document.body.innerText.includes(l))");
+  await page.dblclick(...(await centre(tile)));
+  await page.until("document.body.innerText.includes('already polished')");
+  expect(clip(audio.id).effects.filter((e) => e.type === "polish").length).toBe(1);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the selected audio: without a key it says where to add one; with one, the user's presets (Usual-2 first), and Clean runs it as a job with a toast, the cleaned audio over the originals, which are muted", async () => {
+  // Auphonic's API, standing in for the real one (which charges): it sends back what it was given.
+  let upload = "";
+  let polls = 0;
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/presets.json") return Response.json({ data: [{ uuid: "p-a", preset_name: "Podcast" }, { uuid: "p-u", preset_name: "Usual-2" }] });
+      if (url.pathname === "/simple/productions.json") {
+        upload = join(dir, "auphonic-upload.wav");
+        await Bun.write(upload, (await req.formData()).get("input_file") as Blob);
+        return Response.json({ data: { uuid: "prod" } });
+      }
+      if (url.pathname === "/production/prod/start.json") return Response.json({ data: {} });
+      if (url.pathname === "/production/prod/status.json") return Response.json({ data: polls++ < 3 ? { status: 1, status_string: "Audio Processing" } : { status: 3, status_string: "Done" } });
+      if (url.pathname === "/production/prod.json") return Response.json({ data: { output_files: [{ filename: "out.wav", download_url: `${url.origin}/out.wav` }] } });
+      if (url.pathname === "/out.wav") return new Response(Bun.file(upload));
+      return new Response("", { status: 404 });
+    },
+  });
+  process.env.BEACON_AUPHONIC_URL = fake.url.origin;
+  process.env.BEACON_AUPHONIC_POLL_MS = "300";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const audio = clips().find((c) => c.type === "audio")!;
+  try {
+    await select([audio.id]);
+    await run("panel.show", { tool: "audioEffects", properties: true });
+    const tile = `[data-item="audio:auphonic"]`;
+    await page.until(`!!document.querySelector('${tile}')`);
+    await page.dblclick(...(await centre(tile)));
+    await page.until("!!document.querySelector('[data-auphonic-review]')");
+    await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › Audio')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
+    // ⎋ closes it as Cancel does, the selection kept; opened again for the rest.
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-auphonic-review]')");
+    expect((await session()).selection).toEqual([audio.id]);
+    await page.dblclick(...(await centre(tile)));
+    await page.until("!!document.querySelector('[data-auphonic-error]')");
+    // It follows the selection: with no audio selected it asks for some; Select All Audio picks what the export plays.
+    await select([]);
+    await page.until("!!document.querySelector('[data-auphonic-none]')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
+    const doc0 = ui.core.doc(ui.handle);
+    const muted = doc0.tracks.find((t) => t.clips.some((c) => c.type === "audio") && t.id !== doc0.tracks.find((x) => x.clips.some((c) => c.id === audio.id))!.id);
+    if (muted) await run("track.set", { track: muted.id, muted: true });
+    const heard = ui.core
+      .doc(ui.handle)
+      .tracks.filter((t) => !t.muted)
+      .flatMap((t) => t.clips.filter((c) => c.type === "audio" && !(c.props.audio as { muted?: boolean } | undefined)?.muted))
+      .map((c) => c.id);
+    await page.click(...(await centre("[data-auphonic-select-all]")));
+    for (let i = 0; i < 100 && (await session()).selection.length !== heard.length; i++) await Bun.sleep(20);
+    expect([...(await session()).selection].sort()).toEqual([...heard].sort());
+    await page.until("!document.querySelector('[data-auphonic-none]')");
+    if (muted) await run("track.set", { track: muted.id, muted: false });
+    await select([audio.id]);
+    // Open Settings… goes to Settings › Audio, where the key is typed in and saved.
+    const menus = ui.menus.length;
+    await page.evaluate("[...document.querySelectorAll('[data-auphonic-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
+    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:audio"));
+    expect(ui.menus.slice(menus)).toContain("app:app.settings:audio");
+    await ui.core.uiOpen(ui.handle, "settings", "audio");
+    const field = '[data-secret="auphonic-api-key"] input';
+    await page.until(`!!document.querySelector('${field}')`);
+    await page.click(...(await centre(field)));
+    await type("test-key");
+    await page.key("Enter", "Enter");
+    await page.until(`document.querySelector('[data-secret="auphonic-api-key"]')?.dataset.apiKey === 'set'`);
+    expect((await ui.core.secrets()).find((x) => x.id === "auphonic-api-key")!.set).toBe(true);
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+    await page.until("!document.querySelector('[data-settings-nav]')");
+    // The panel left open finds the key: the presets, with no reopening.
+    await page.until("document.querySelector('[data-auphonic-preset]')?.value === 'p-u'");
+    expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toContain("1 clip");
+    // A view open, as the app's window is: media an edit adds then gets its waveform with no one asking.
+    ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
+    // Apply, as in every panel with Cancel: ↩ starts it.
+    expect(await page.evaluate<string>("document.querySelector('[data-auphonic-start]').textContent")).toBe("Apply (↩)");
+    expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toMatch(/^1 clip, \d+:\d\d · about \d+ min of Auphonic credit$/);
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-auphonic-review]')");
+    await page.until("(document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? '').includes('Auphonic: Audio Processing')", 10_000);
+    expect(await page.evaluate<string>("document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? ''")).toMatch(/3 of 5 · Auphonic: Audio Processing · \d:\d\d/);
+    await page.screenshot(join(dir, "auphonic-running.png"));
+    await page.until("!!document.querySelector('[data-task-state=done]')", 20_000);
+    // Done, it says where the result went.
+    expect(await page.evaluate<string>("document.querySelector('[data-task-done]')?.textContent ?? ''")).toContain("in the project's media folder");
+    const doc = ui.core.doc(ui.handle);
+    const cleaned = doc.tracks.flatMap((t) => t.clips).find((c) => doc.assets[c.assetId ?? ""]?.name?.endsWith("(Auphonic)"))!;
+    expect(cleaned.effects.map((e) => e.type)).toEqual(["polish"]);
+    expect((clip(audio.id).props.audio as { muted: boolean }).muted).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Clean with Auphonic");
+    expect((await session()).selection).toEqual([cleaned.id]);
+    // Its media gets a waveform, as an import's does.
+    await run("panel.show", { tool: "media" });
+    await page.until(`!!document.querySelector('[data-asset="${cleaned.assetId}"] [data-waveform]')`, 60_000);
+  } finally {
+    ui.core.detachView(ui.handle);
+    fake.stop(true);
+    delete process.env.BEACON_AUPHONIC_URL;
+    delete process.env.BEACON_AUPHONIC_POLL_MS;
+    await ui.core.setSecret("auphonic-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 120_000);
 
 test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
   await page.evaluate(`(() => {

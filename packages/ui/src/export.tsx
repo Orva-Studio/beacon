@@ -8,7 +8,7 @@ import { clock } from "./time";
 
 export interface ExportHost {
   chooseFolder(start: string): Promise<string | null>;
-  startExport(params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; overwrite?: boolean }): Promise<{ ok: boolean; error?: string }>;
+  startExport(params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; clips?: string[]; overwrite?: boolean }): Promise<{ ok: boolean; error?: string }>;
   cancelExport(id: string): void;
   showFile(path: string, open?: boolean): void;
 }
@@ -68,15 +68,19 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState<string>();
   const [exists, setExists] = useState(false);
-  // A range on the timeline is what gets exported unless unticked.
-  const [selectionOnly, setSelectionOnly] = useState(!!sheet.range);
+  // The selected clips, else a range on the timeline, are what gets exported unless unticked.
+  const [selectionOnly, setSelectionOnly] = useState(!!(sheet.clips ?? sheet.range));
+  const span = sheet.clips ?? sheet.range;
+  // Only pictures are being exported: there is nothing to hear.
+  const silent = !!sheet.clips?.silent && selectionOnly;
   // The format last picked on the other side of Audio only, to come back to.
   const [other, setOther] = useState<ExportSettings["format"]>(isAudioFormat(sheet.settings.format) ? DEFAULT_EXPORT.format : "wav");
   const set = (patch: Partial<ExportSettings>) => setS((x) => ({ ...x, ...patch }));
   const pick = (format: ExportSettings["format"]) => set({ format, ...(format !== "mov" && s.codec === "prores" ? { codec: "h264" } : {}), ...(isAudioFormat(format) ? { audio: true } : {}) });
   const close = () => replica.exportSheet(undefined);
   const start = async (overwrite = false) => {
-    const r = await host.startExport({ name: name.trim(), folder, settings: s, ...(sheet.range && selectionOnly ? { range: sheet.range } : {}), overwrite });
+    const only = selectionOnly ? (sheet.clips ? { clips: sheet.clips.ids } : sheet.range ? { range: sheet.range } : {}) : {};
+    const r = await host.startExport({ name: name.trim(), folder, settings: s, ...only, overwrite });
     if (r.ok) return close();
     setExists(!!r.error?.includes("already exists"));
     setError(r.error);
@@ -87,7 +91,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
   const fitted = fittedSize(sheet.canvas, s.size);
   const autoRate = autoBitrate(fitted.width, fitted.height, s.fps ?? sheet.canvas.fps);
   return (
-    <Modal title={sheet.range && selectionOnly ? "Export Selection" : "Export"} width={680} onClose={close} onEnter={() => void start()}>
+    <Modal title={span && selectionOnly ? "Export Selection" : "Export"} width={680} onClose={close} onEnter={() => void start()}>
       <div className="flex flex-col gap-3">
         <Row label="Export As">
           <TextInput
@@ -105,9 +109,23 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
           </span>
           <Button onClick={async () => (await host.chooseFolder(folder).then((f) => f && setFolder(f)), setError(undefined))}>Choose…</Button>
         </Row>
-        {sheet.range && (
+        {span && (
           <Row label="">
-            <Check label={`Export the selection only (${clock(sheet.range.in, { tenths: true })}–${clock(sheet.range.out, { tenths: true })})`} checked={selectionOnly} onChange={setSelectionOnly} />
+            <Check
+              label={`${sheet.clips ? `Export the selected clips only (${sheet.clips.ids.length === 1 ? "1 clip" : `${sheet.clips.ids.length} clips`}, ` : "Export the selection only ("}${clock(span.in, { tenths: true })}–${clock(span.out, { tenths: true })})`}
+              checked={selectionOnly}
+              onChange={(on) => {
+                setSelectionOnly(on);
+                // The format and sound picked for the clips (audio only, no audio track) aren't the whole project's.
+                const usual = sheet.clips?.usual;
+                if (!usual) return;
+                const next = on ? { format: sheet.settings.format, audio: sheet.settings.audio } : usual;
+                // Crossing between audio and video formats, Audio only's way back is the one left.
+                if (isAudioFormat(next.format) !== isAudioFormat(s.format)) setOther(s.format);
+                set(next);
+              }}
+              data-export-only
+            />
           </Row>
         )}
         <Row label="File format">
@@ -123,7 +141,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
           <Button onClick={() => setAdvanced((a) => !a)}>{advanced ? "Hide Options" : "Options…"}</Button>
         </Row>
         <Row label="">
-          <Check label="Audio only" checked={audioOnly} onChange={() => (setOther(s.format), pick(other))} />
+          <Check label="Audio only" checked={audioOnly} disabled={silent} title={silent ? "The selected clips have no sound" : undefined} onChange={() => (setOther(s.format), pick(other))} />
         </Row>
       </div>
       {advanced && (
@@ -203,7 +221,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
               <div className="mt-1 text-text-strong">Audio</div>
               {!audioOnly && (
                 <Row label="">
-                  <Check label="Encode audio" checked={s.audio} onChange={(audio) => set({ audio })} />
+                  <Check label="Encode audio" checked={s.audio} disabled={silent} title={silent ? "The selected clips have no sound" : undefined} onChange={(audio) => set({ audio })} />
                 </Row>
               )}
               {s.audio && s.format !== "wav" && (

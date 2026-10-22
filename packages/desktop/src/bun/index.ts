@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, watch } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
-import Electrobun, { BrowserView, BrowserWindow, Utils } from "electrobun/main";
+import Electrobun, { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/main";
 import type { ProjectWindow } from "./app";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
@@ -37,7 +37,9 @@ type Send = import("@beacon/ui").Send;
 
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
-const core = new LocalCore({ socket, reveal: (path) => Utils.showItemInFolder(path) });
+// In each project's lock, so another Beacon that finds one held can say by which.
+const ownerName = (await Updater.localInfo.channel()) === "dev" ? "Beacon dev" : "Beacon";
+const core = new LocalCore({ socket, name: ownerName, reveal: (path) => Utils.showItemInFolder(path) });
 /** Every action with its keys, the user's over the defaults: the menus show them. */
 let shortcuts = await core.shortcuts();
 
@@ -159,6 +161,27 @@ const projects = createProjects({
     return response === 0;
   },
   moveToTrash: (path) => Utils.moveToTrash(path),
+  lockedDialog: async ({ project, holder, can, refused }) => {
+    const first = can === "show" ? (["Show It", "show"] as const) : can === "letGo" ? (["Ask It to Let Go", "letGo"] as const) : undefined;
+    const choices = [...(first ? [first] : []), ["Open a Copy", "copy"], ["Cancel", "cancel"]] as const;
+    const { response } = await Utils.showMessageBox({
+      type: refused ? "warning" : "info",
+      title: "Project Already Open",
+      message: refused ? `${holder} didn't let go of “${project}”.` : `“${project}” is open in ${holder}.`,
+      detail: [
+        refused && `${refused[0]!.toUpperCase()}${refused.slice(1)}.`,
+        "Only one can edit a project at a time, or each would overwrite the other's changes.",
+        can === "letGo" && "Asked to let go, it closes the project and opens here; the agent then carries on through this window.",
+        "Open a Copy opens a copy beside it, the original left as it is.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      buttons: choices.map(([label]) => label),
+      defaultId: 0,
+      cancelId: choices.length - 1,
+    });
+    return choices[response]?.[1] ?? "cancel";
+  },
   watch: (target, h) => {
     const w = target as Win;
     return projectBridge(core, h, w.message, {
@@ -227,6 +250,8 @@ function appAction(id: string, w: Win | undefined = focused): void {
   if (id === "app.saveAs") return void projects.saveAsDialog(target);
   if (id === "app.reveal") return void (target.current && core.reveal(target.current.path).catch(report));
   if (id === "app.settings") return void openSettings(target);
+  // A panel sending the user to the section they need (Clean with Auphonic to its key).
+  if (id.startsWith("app.settings:")) return void openSettings(target, id.slice(13) as import("@beacon/ui").SettingsTab);
   if (id === "app.shortcuts") return void openSettings(target, "shortcuts");
   if (id === "app.projectSettings") return void target.message("projectSettings", {});
   if (id === "app.palette") return void target.message("palette", {});
@@ -368,7 +393,7 @@ function openWindow(): Win {
         binMenu: (params) => menus.binMenu(params),
         tileMenu: (params) => void menus.tileMenu(params),
         recentMenu: ({ path }) => void menus.recentMenu(path),
-        dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(w, files, { time, track })),
+        dropFiles: ({ files, time, track, timing }) => reply(() => projects.dropFiles(w, files, { time, track }, timing)),
         trackMenu: (params) => menus.trackMenu(params),
         captureFrame: () =>
           reply(async () => {
@@ -460,7 +485,17 @@ const recorder = createRecording({
   setSettings: (patch) => setAppSettings(patch, recording ?? focused),
 });
 
-const server = serveCore(core, { path: socket, canOpen: (p) => !!winFor(resolve(p)), projects: () => [...windows].flatMap((w) => (w.current ? [w.current.path] : [])) });
+const server = serveCore(core, {
+  path: socket,
+  canOpen: (p) => !!winFor(resolve(p)),
+  projects: () => [...windows].flatMap((w) => (w.current ? [w.current.path] : [])),
+  // Another Beacon found the project held by this one: its window comes forward.
+  show: (p) => {
+    const w = winFor(resolve(p));
+    if (!w) throw new Error(`${p} isn't open here`);
+    w.activate();
+  },
+});
 core.setUiOpener((h, dialog, tab) => {
   const w = winFor(h) ?? focused;
   if (!w) return;

@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
 import { audioPlaybackArgs } from "@beacon/render";
-import { LocalCore } from "../src";
+import { LocalCore, ticksToSeconds } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
 const RECORDING = join(FIXTURES, "recording.trec");
@@ -60,3 +60,36 @@ test.skipIf(!existsSync(RECORDING))("the audio alone exports as .wav, .m4a and .
   expect(silent.mean).toBeLessThan(-80);
   await core.close(h);
 }, 120000);
+
+test.skipIf(!existsSync(RECORDING))("exporting clips (the selection) plays only those, over their span", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const h = await core.create({ path: join(dir, "clips.beproj") });
+  const r = await core.import(h, [RECORDING]);
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const clips = core.doc(h).tracks.flatMap((t) => t.clips);
+  const audio = clips.find((c) => c.type === "audio")!;
+  const screen = clips.find((c) => c.type === "screen")!;
+  // Split, so the selection is a piece that starts later than the timeline.
+  await core.run(h, "clip.split", { at: 2, clips: [audio.id], linked: false });
+  const piece = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "audio" && c.id !== audio.id)!;
+  await (await core.export(h, { output: join(dir, "piece.wav"), clips: [piece.id] })).done;
+  const heard = listen(join(dir, "piece.wav"));
+  expect(heard.seconds).toBeCloseTo(ticksToSeconds(piece.duration), 1);
+  expect(heard.mean).toBeGreaterThan(-60);
+  // The screen alone has nothing to hear: the recording's audio is left out.
+  await (await core.export(h, { output: join(dir, "screen.wav"), clips: [screen.id], from: 3, to: 5 })).done;
+  expect(listen(join(dir, "screen.wav")).mean).toBeLessThan(-80);
+  await expect(core.export(h, { output: join(dir, "x.wav"), clips: ["clip-nope"] })).rejects.toThrow('no clip "clip-nope" on the timeline');
+  // Inside a group, the piece alone: the group keeps only it.
+  const group = (await core.run(h, "clip.group", { clips: [piece.id, screen.id] })).results[0] as string;
+  await (await core.export(h, { output: join(dir, "grouped.wav"), clips: [piece.id] })).done;
+  const grouped = listen(join(dir, "grouped.wav"));
+  expect(grouped.seconds).toBeCloseTo(ticksToSeconds(piece.duration), 1);
+  expect(Math.abs(grouped.mean - heard.mean)).toBeLessThan(0.5);
+  // The group's start trimmed past the piece's: only what the group shows of it goes.
+  const end = ticksToSeconds(piece.start + piece.duration);
+  await core.run(h, "clip.trim", { clip: group, start: 4 });
+  await (await core.export(h, { output: join(dir, "trimmed.wav"), clips: [piece.id] })).done;
+  expect(listen(join(dir, "trimmed.wav")).seconds).toBeCloseTo(end - 4, 1);
+  core.closeAll();
+});

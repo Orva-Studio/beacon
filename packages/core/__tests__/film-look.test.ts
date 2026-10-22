@@ -151,3 +151,54 @@ test("a .hlook path that isn't a small regular file is refused without reading i
   await expect(core.query(h, "filmLook.read", { path: big })).rejects.toThrow(/2 MB/);
   await core.close(h);
 });
+
+test.skipIf(!existsSync(VIDEO))("a look previewed on the canvas shows what applying it would, and never reaches the document, the undo history or an export; ending it, or playing, shows the clip as it is", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-pv") });
+  const h = await core.create({ path: join(dir, "preview.beproj") });
+  const copy = join(dir, "video-pv.mp4");
+  copyFileSync(VIDEO, copy);
+  const r = await core.import(h, [copy], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const clip = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "video")!;
+  await core.run(h, "effect.add", { clip: clip.id, type: "film-look", params: { strength: 0 } });
+  const fx = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === clip.id)!.effects[0]!;
+  const look = ((await core.query(h, "filmLook.looks", {})) as { id: string; params: Record<string, unknown> }[]).find((l) => l.id === "cinestill-800t")!;
+
+  const view = core.attachView(h, { offscreen: { width: 1920, height: 1080 } }, { silent: true, proxies: false });
+  view.show(1);
+  view.settle();
+  const plain = Buffer.from(view.flush()!);
+  const doc = JSON.stringify(core.doc(h));
+  const history = JSON.stringify(await core.history(h));
+
+  await core.previewEffect(h, { clip: clip.id, effect: fx().id, params: look.params });
+  const previewed = Buffer.from(view.flush()!);
+  expect(previewed.equals(plain)).toBe(false);
+  expect(JSON.stringify(core.doc(h))).toBe(doc);
+  expect(JSON.stringify(await core.history(h))).toBe(history);
+  // An export made meanwhile renders the document, not the preview.
+  await renderProject(core.doc(h), core.registry, { output: { kind: "png", dir: join(dir, "pv-export") }, frames: [30], cacheDir: core.cacheDir });
+  expect(Buffer.from(await rgb(join(dir, "pv-export/f000030.png"))).equals(plain)).toBe(true);
+
+  await core.previewEffect(h, null);
+  expect(Buffer.from(view.flush()!).equals(plain)).toBe(true);
+
+  // Applied, the canvas is what the preview showed.
+  await core.run(h, "effect.set", { clip: clip.id, effect: fx().id, params: look.params });
+  expect(Buffer.from(view.flush()!).equals(previewed)).toBe(true);
+  await core.undo(h);
+  expect(Buffer.from(view.flush()!).equals(plain)).toBe(true);
+
+  // Playing ends a preview; so does its effect going away.
+  await core.previewEffect(h, { clip: clip.id, effect: fx().id, params: look.params });
+  await core.run(h, "playback.play", {});
+  await core.run(h, "playback.pause", {});
+  await core.run(h, "playhead.set", { time: 1 });
+  view.settle();
+  expect(Buffer.from(view.flush()!).equals(plain)).toBe(true);
+  await core.previewEffect(h, { clip: clip.id, effect: fx().id, params: look.params });
+  await core.run(h, "effect.remove", { clip: clip.id, effect: fx().id });
+  await expect(core.previewEffect(h, { clip: clip.id, effect: "gone", params: {} })).rejects.toThrow(/no effect/);
+  core.detachView(h);
+  await core.close(h);
+}, 120_000);

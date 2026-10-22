@@ -5,7 +5,7 @@ import { migrateProject, SCHEMA_VERSION, type FeatureRegistry, type Project } fr
 
 const PROJECT_FILE = "project.json";
 const EDITOR_FILE = "editor.json";
-const LOCK_FILE = "lock";
+export const LOCK_FILE = "lock";
 
 type Assets = Record<string, { path: string }>;
 
@@ -83,11 +83,28 @@ export function alive(pid: number): boolean {
 export interface Owner {
   pid: number;
   host: string;
+  /** Who it is, for the user: "Beacon", "Beacon dev", "an agent's MCP server". */
+  name?: string;
   /** The app's automation socket, when the owner is the app (PLAN §7.1). */
   socket?: string;
+  /** A process with no window: its socket answering `letGo` (`serveControl`). */
+  control?: string;
 }
 
-const me = (socket?: string): Owner => ({ pid: process.pid, host: hostname(), ...(socket ? { socket } : {}) });
+/** What this process writes in the locks it takes. */
+export type OwnerInfo = Omit<Owner, "pid" | "host">;
+
+/** Opening a project another live process holds. */
+export class ProjectLockedError extends Error {
+  constructor(
+    readonly dir: string,
+    readonly owner: Owner,
+  ) {
+    super(`${dir} is open in ${owner.name ?? "another process"} (pid ${owner.pid} on ${owner.host})`);
+  }
+}
+
+const me = (info: OwnerInfo = {}): Owner => ({ pid: process.pid, host: hostname(), ...info });
 
 function owner(file: string): Owner | undefined {
   try {
@@ -104,19 +121,19 @@ const mine = (o: Owner | undefined) => o?.pid === process.pid && o.host === host
  * unreadable or held by a dead process on this machine is taken over by
  * renaming ours onto it, then re-read, since another process may have won.
  */
-export function lock(dir: string, socket?: string) {
+export function lock(dir: string, info?: OwnerInfo) {
   const file = join(dir, LOCK_FILE);
   try {
-    writeFileSync(file, JSON.stringify(me(socket)), { flag: "wx" });
+    writeFileSync(file, JSON.stringify(me(info)), { flag: "wx" });
     return;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
   }
   const held = owner(file);
   if (mine(held)) return;
-  if (held && (held.host !== hostname() || alive(held.pid))) throw new Error(`${dir} is open in another process (pid ${held.pid} on ${held.host})`);
+  if (held && (held.host !== hostname() || alive(held.pid))) throw new ProjectLockedError(dir, held);
   const tmp = join(dir, `.${LOCK_FILE}.${process.pid}`);
-  writeFileSync(tmp, JSON.stringify(me(socket)));
+  writeFileSync(tmp, JSON.stringify(me(info)));
   renameSync(tmp, file);
   if (!mine(owner(file))) throw new Error(`${dir} was just opened by another process`);
 }

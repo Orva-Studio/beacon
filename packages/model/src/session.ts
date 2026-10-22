@@ -34,6 +34,8 @@ export interface Session {
   effects: { clip: string; id: string }[];
   /** The group opened for editing inside (its group tab), if any; selection and the editor's commands then work on its tracks. */
   group: string | null;
+  /** The track whose header was clicked last: Lock Track and Mute Track act on it when no clip is selected. */
+  track: string | null;
   range: { in: number; out: number } | null;
   /** The timeline's visible span in seconds, and every track's height in points. */
   /** `top`: points the tracks are scrolled up by, when there are more than fit (none: the top track under the ruler). */
@@ -78,6 +80,10 @@ export interface SessionContext {
   registry: FeatureRegistry;
   /** The canvas's fit zoom in percent, reported by the app, for stepping from "fit". */
   fitPercent?: number;
+  /** The app's preferences (a review's last settings). */
+  pref: (id: string) => string;
+  /** Media's derived data (transcripts), for a command that picks what it finds (a silence). */
+  data: <T>(assetId: string, key: string) => T | undefined;
 }
 
 export interface SessionCommandDef<A = any> {
@@ -86,6 +92,19 @@ export interface SessionCommandDef<A = any> {
   args: z.ZodType<A>;
   apply: (s: Session, args: A, ctx: SessionContext) => void;
 }
+
+/**
+ * A clip's properties tabs, in order: its groups' (`groupTabs`), Clip Speed once changed or asked for (`inspector`)
+ * when it can change speed (`retimes`), Effects when it has any.
+ */
+export function inspectorTabs(clip: Clip, groupTabs: readonly string[], retimes: boolean, inspector: string): string[] {
+  const tabs = [...groupTabs];
+  if ((clip.assetId || retimes) && (clipSpeed(clip) !== 1 || inspector === "speed")) tabs.push("speed");
+  if (clip.effects.length) tabs.push("effects");
+  return tabs;
+}
+
+const inspected = (s: Session, project: Project) => project.tracks.flatMap((t) => t.clips).find((c) => c.id === s.selection[0]);
 
 /** The tool panels, in sidebar order. */
 const TOOL_PANELS = [
@@ -112,6 +131,7 @@ function defaultSession(project: Project, shared: Partial<SharedSession> = {}): 
     animation: null,
     effects: [],
     group: null,
+    track: null,
     range: null,
     timeline: { start: 0, end: roundSeconds(end * 1.05), trackHeight: TRACK_HEIGHT.default },
     panels: { tool: "media", properties: true },
@@ -313,6 +333,15 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     },
   }),
   sessionCommand({
+    id: "track.focus",
+    description: "Pick the track Lock Track and Mute Track act on when no clip is selected (a click on its header); null for none",
+    args: z.strictObject({ track: z.string().nullable() }),
+    apply: (s, { track }, { project }) => {
+      if (track !== null && !project.tracks.some((t) => t.id === track)) throw new Error(`no track "${track}"${s.group ? " in the open group" : " on the timeline"}`);
+      s.track = track;
+    },
+  }),
+  sessionCommand({
     id: "group.open",
     description: "Open a group (a top-level group clip) to edit the clips inside it on the timeline (⌃⇧G); the selected group when no clip is given",
     args: z.strictObject({ clip: z.string().optional() }),
@@ -324,6 +353,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       if (!c || !registry.hasTrait(c.type, "group") || !nestedOf(registry)(c)) throw new Error(id ? `"${id}" is not a group on the timeline` : "select a group first");
       if (c.speed) throw new Error("a group with a speed change can't be opened");
       s.group = c.id;
+      s.track = null;
       s.selection = [];
       s.animation = null;
     },
@@ -335,6 +365,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     apply: (s) => {
       if (s.group) s.selection = [s.group];
       s.group = null;
+      s.track = null;
       s.animation = null;
     },
   }),
@@ -586,6 +617,31 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     },
   }),
   sessionCommand({
+    id: "inspector.step",
+    description: "Show the properties panel's next tab (`by` 1) or the one before (-1), round from the last to the first",
+    args: z.strictObject({ by: z.union([z.literal(1), z.literal(-1)]) }),
+    apply: (s, { by }, { project, registry }) => {
+      const clip = inspected(s, project);
+      if (!clip) throw new Error("select a clip to step through its properties");
+      const tabs = inspectorTabs(clip, registry.tabsFor(clip.type).map((g) => g.id), !!registry.clipTypes.get(clip.type)?.retimes, s.inspector);
+      if (!tabs.length) return;
+      const at = Math.max(0, tabs.indexOf(s.inspector));
+      s.inspector = tabs[(at + by + tabs.length) % tabs.length]!;
+      s.panels.properties = true;
+    },
+  }),
+  sessionCommand({
+    id: "inspector.effects",
+    description: "Show the selected clip's Effects (fx) tab; with no effects on it, the Visual Effects panel to add one",
+    args: z.strictObject({}),
+    apply: (s, _, { project }) => {
+      if (inspected(s, project)?.effects.length) {
+        s.inspector = "effects";
+        s.panels.properties = true;
+      } else s.panels.tool = "visualEffects";
+    },
+  }),
+  sessionCommand({
     id: "canvas.zoom",
     description:
       'Zoom the canvas preview: "fit" (⌘0, centred), a percent (100 = actual size, ⌥Z), or "in"/"out" (⌘= / ⌘-); `pan`: the canvas point (pixels from its centre, y down) to show at the view\'s centre, as the wheel and a middle-button drag set it',
@@ -635,6 +691,8 @@ export class SessionStore {
     readonly registry: FeatureRegistry,
     project: Project,
     shared: Partial<SharedSession> = {},
+    readonly pref: (id: string) => string = (id) => registry.preferences.get(id)?.default ?? "",
+    readonly data: <T>(assetId: string, key: string) => T | undefined = () => undefined,
   ) {
     this.#state = defaultSession(project, shared);
     this.commands = new Map([...SESSION_COMMANDS, ...registry.sessionCommands.values()].map((c) => [c.id, c]));
@@ -660,8 +718,15 @@ export class SessionStore {
     const parsed = def.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
-    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent };
-    const next = produce(this.#state, (d) => def.apply(d as Session, parsed.data, ctx));
+    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref, data: this.data };
+    // One panel with Cancel and Apply at a time (a review, Clean with Auphonic): opening one cancels any other.
+    const open = this.registry.panels.filter((p) => p.open(this.#state));
+    const next = produce(this.#state, (d) => {
+      def.apply(d as Session, parsed.data, ctx);
+      if (this.registry.panels.some((p) => !open.includes(p) && p.open(d as Session))) {
+        for (const p of open) if (p.open(d as Session)) this.commands.get(p.cancel)!.apply(d as Session, {}, ctx);
+      }
+    });
     if (opts.dryRun) return { session: next, changed: changedKeys(this.#state, next) };
     return this.#set(next);
   }

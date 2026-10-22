@@ -12,6 +12,7 @@ import {
   original,
   isFree,
   mediaTimeAt,
+  resolveProps,
   pasteBase,
   planMove,
   trimBounds,
@@ -400,14 +401,18 @@ export const clipCommands = [
       }
       const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const id = ctx.newId("clip");
+      const held = edge === "start" ? (c.mediaStart ?? 0) : mediaTimeAt(c, clipEnd(c) - frame);
+      // The frame as it shows there, animations and all (a zoom in), since the still has none of its own.
+      const animated = new Set(c.animations.flatMap((a) => Object.keys(a.to).map((target) => target.split(".")[0]!)));
+      const shown = resolveProps(ctx.registry, c, held);
       const still: Clip = {
         id,
         type: "still",
         start,
         duration: d,
-        mediaStart: edge === "start" ? (c.mediaStart ?? 0) : mediaTimeAt(c, clipEnd(c) - frame),
+        mediaStart: held,
         assetId: c.assetId,
-        props: clone(Object.fromEntries(Object.entries(c.props).filter(([k]) => groups.has(k)))),
+        props: clone(Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k))))),
         effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };

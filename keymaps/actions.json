@@ -68,12 +68,12 @@
     {
       "id": "app.export",
       "name": "Export…",
-      "description": "Export the project to a video file"
+      "description": "Export the project to a video file; with clips selected only those (just audio clips: the sound alone), else an in/out range when there is one"
     },
     {
       "id": "app.exportSelection",
       "name": "Export Selection…",
-      "description": "Export the in/out range to a video file"
+      "description": "Export the selected clips (only those, over their span), else the in/out range"
     },
     {
       "id": "project.undo",
@@ -210,6 +210,89 @@
       "id": "edit.unlink",
       "name": "Unlink Recording",
       "command": "edit.unlink"
+    },
+    {
+      "id": "edit.lockTrack",
+      "name": "Lock Track",
+      "command": "edit.lockTrack"
+    },
+    {
+      "id": "edit.muteTrack",
+      "name": "Mute Track",
+      "command": "edit.muteTrack"
+    },
+    {
+      "id": "edit.deleteAudio",
+      "name": "Delete Audio",
+      "command": "edit.deleteAudio"
+    },
+    {
+      "id": "edit.deleteVideo",
+      "name": "Delete Video",
+      "command": "edit.deleteVideo"
+    },
+    {
+      "id": "edit.label:red",
+      "name": "Color Label: Red",
+      "command": "edit.label",
+      "args": {
+        "color": "red"
+      },
+      "description": "Give the selected clips a red colour label"
+    },
+    {
+      "id": "edit.label:purple",
+      "name": "Color Label: Purple",
+      "command": "edit.label",
+      "args": {
+        "color": "purple"
+      },
+      "description": "Give the selected clips a purple colour label"
+    },
+    {
+      "id": "edit.label:blue",
+      "name": "Color Label: Blue",
+      "command": "edit.label",
+      "args": {
+        "color": "blue"
+      },
+      "description": "Give the selected clips a blue colour label"
+    },
+    {
+      "id": "edit.label:green",
+      "name": "Color Label: Green",
+      "command": "edit.label",
+      "args": {
+        "color": "green"
+      },
+      "description": "Give the selected clips a green colour label"
+    },
+    {
+      "id": "edit.label:yellow",
+      "name": "Color Label: Yellow",
+      "command": "edit.label",
+      "args": {
+        "color": "yellow"
+      },
+      "description": "Give the selected clips a yellow colour label"
+    },
+    {
+      "id": "edit.label:orange",
+      "name": "Color Label: Orange",
+      "command": "edit.label",
+      "args": {
+        "color": "orange"
+      },
+      "description": "Give the selected clips a orange colour label"
+    },
+    {
+      "id": "edit.label:none",
+      "name": "Color Label: None",
+      "command": "edit.label",
+      "args": {
+        "color": null
+      },
+      "description": "Take the selected clips' colour label off"
     },
     {
       "id": "edit.addMarker",
@@ -852,6 +935,30 @@
       "description": "Open the Visual Effects panel on the left"
     },
     {
+      "id": "inspector.step:back",
+      "name": "Previous Properties Tab",
+      "command": "inspector.step",
+      "args": {
+        "by": -1
+      },
+      "description": "The properties panel's tab before this one, round to the last"
+    },
+    {
+      "id": "inspector.step:next",
+      "name": "Next Properties Tab",
+      "command": "inspector.step",
+      "args": {
+        "by": 1
+      },
+      "description": "The properties panel's next tab, round to the first"
+    },
+    {
+      "id": "inspector.effects",
+      "name": "Show Effects",
+      "command": "inspector.effects",
+      "description": "The selected clip's fx tab, or the Visual Effects panel when it has no effects"
+    },
+    {
       "id": "panel.show:audioEffects",
       "name": "Show Audio Effects",
       "command": "panel.show",
@@ -890,12 +997,17 @@
     },
     {
       "id": "reviews.apply",
-      "name": "Apply Review",
+      "name": "Apply",
       "command": "reviews.apply"
     },
     {
+      "id": "reviews.applyAll",
+      "name": "Apply All",
+      "command": "reviews.applyAll"
+    },
+    {
       "id": "reviews.cancel",
-      "name": "Cancel Review or Deselect",
+      "name": "Cancel or Deselect",
       "command": "reviews.cancel"
     },
     {
