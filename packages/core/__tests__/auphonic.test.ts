@@ -174,6 +174,17 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   await core.run(h, "clip.set", { clip: audio[0]!.id, props: { audio: { gain: 0.5 } } });
   await expect(waitJob(core, louder.job)).rejects.toThrow(/edited while Auphonic cleaned it/);
   await core.undo(h);
+  // Its track muted while it cleans: refused, so the sound muted doesn't come back; on a muted track it isn't sent.
+  const track = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === audio[0]!.id))!.id;
+  const uploaded = uploads.length;
+  const hushed = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
+  while (uploads.length === uploaded) await Bun.sleep(10);
+  await core.run(h, "track.set", { track, muted: true });
+  await expect(waitJob(core, hushed.job)).rejects.toThrow(/edited while Auphonic cleaned it/);
+  const sentBefore = uploads.length;
+  await expect(core.run(h, "audio.clean", { preset: "Echo" })).rejects.toThrow(/select audio first/);
+  expect(uploads.length).toBe(sentBefore);
+  await core.undo(h);
 
   // Two cleans of the same audio at once: each its own file, but only the first placed (the second's originals
   // were muted by then).

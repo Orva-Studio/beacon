@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
-import { clipEnd, defineAction, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Project, type Session, type SessionCommandDef } from "@beacon/model";
+import { clipEnd, defineAction, heardAudio, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Project, type Session, type SessionCommandDef } from "@beacon/model";
 
 const KEY = "auphonic-api-key";
 /** Auphonic's API; a test points it at a stand-in. */
@@ -12,7 +12,6 @@ const api = () => process.env.BEACON_AUPHONIC_URL ?? "https://auphonic.com/api";
 const POLL_MS = () => Number(process.env.BEACON_AUPHONIC_POLL_MS ?? 15_000);
 /** How long a request may go unanswered; an upload or download five times that. */
 const TIMEOUT_MS = () => Number(process.env.BEACON_AUPHONIC_TIMEOUT_MS ?? 60_000);
-/** Auphonic's production states: done, and failed. */
 const DONE = 3;
 const FAILED = 2;
 /** A length further off than this means the preset cut something out. */
@@ -53,7 +52,7 @@ const sessionCommands: SessionCommandDef[] = [
     description: "Select the audio the export plays (its panel's Select All Audio): every audio clip not muted, on a track neither muted nor disabled",
     args: z.strictObject({}),
     apply: (s, _, { project, registry }) => {
-      const heard = project.tracks.filter((t) => !t.muted && !t.hidden).flatMap((t) => t.clips.filter((c) => registry.hasTrait(c.type, "audio") && !(c.props.audio as { muted?: boolean } | undefined)?.muted));
+      const heard = heardAudio(project.tracks, (type) => registry.hasTrait(type, "audio"));
       if (!heard.length) throw new Error("no audio is heard on the timeline");
       s.selection = heard.map((c) => c.id);
     },
@@ -107,11 +106,12 @@ const keyOf = async (secret: ((id: string) => Promise<string | undefined>) | und
   return key;
 };
 
-/** The clips Clean with Auphonic sends: those given, else the selected ones with audio, muted ones left out. */
+/** The clips Clean with Auphonic sends: those given, else the selected ones, that are heard. */
 function audioClips(ctx: ActionContext, ids?: string[]): Clip[] {
   const pool = ids ? ctx.scope.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id)) : selectedClips(ctx);
   if (ids && pool.length !== ids.length) throw new Error(`no clip ${ids.filter((id) => !pool.some((c) => c.id === id)).join(", ")} on the timeline`);
-  return pool.filter((c) => ctx.registry.hasTrait(c.type, "audio") && !(c.props.audio as { muted?: boolean } | undefined)?.muted);
+  const heard = new Set(heardAudio(ctx.scope.tracks, (type) => ctx.registry.hasTrait(type, "audio")));
+  return pool.filter((c) => heard.has(c));
 }
 
 /** Mono samples at 8 kHz, enough to line two takes of the same audio up. */
@@ -217,7 +217,10 @@ const audioClean = defineAction({
     if (clips.some((c) => !top.has(c.id))) throw new Error("Clean with Auphonic works on the main timeline's audio: close the group and select the group or its audio there");
     // Changed while Auphonic cleans them (moved, trimmed, re-timed, its media replaced, its sound or effects
     // changed, muted by another clean), the result would no longer be theirs.
-    const shape = (c: Clip, project: Project) => ((a) => JSON.stringify([c, a?.path, a?.fingerprint]))(c.assetId ? project.assets[c.assetId] : undefined);
+    const shape = (c: Clip, project: Project) => {
+      const [a, t] = [c.assetId ? project.assets[c.assetId] : undefined, project.tracks.find((x) => x.clips.includes(c))];
+      return JSON.stringify([c, a?.path, a?.fingerprint, t?.muted, t?.hidden]);
+    };
     const shapes = new Map(clips.map((c) => [c.id, shape(c, ctx.project)]));
     const from = ticksToSeconds(Math.min(...clips.map((c) => c.start)));
     const to = ticksToSeconds(Math.max(...clips.map(clipEnd)));

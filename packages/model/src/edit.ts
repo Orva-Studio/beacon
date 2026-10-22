@@ -269,6 +269,11 @@ export interface EditScope {
   group?: Clip;
 }
 
+/** The audio the export plays: audio clips not muted, on tracks neither muted nor disabled. Anything else bounces as silence. */
+export function heardAudio(tracks: readonly Track[], isAudio: (clipType: string) => boolean): Clip[] {
+  return tracks.filter((t) => !t.muted && !t.hidden).flatMap((t) => t.clips.filter((c) => isAudio(c.type) && !(c.props.audio as { muted?: boolean } | undefined)?.muted));
+}
+
 /**
  * The project with only `ids` of its clips (exporting or bouncing a selection), those found, and their span in
  * main-timeline seconds (0 to 0 when none is). With `nested`, clips inside groups count too: a group stays for the
@@ -279,24 +284,26 @@ export function onlyClips(project: Project, ids: readonly string[], nested?: (c:
   const found: Clip[] = [];
   let [from, to] = [Infinity, -Infinity];
   const copy = structuredClone(project);
-  const prune = (tracks: Track[], offset: Ticks) => {
+  // `at`: an inner time on the main timeline; `seen`: the part of it the groups around show.
+  const prune = (tracks: Track[], at: (t: number) => number, seen: [number, number]) => {
     for (const t of tracks) {
       t.clips = t.clips.filter((c) => {
+        const [a, b] = [Math.max(seen[0], at(c.start)), Math.min(seen[1], at(c.start + c.duration))];
         if (keep.has(c.id)) {
           found.push(c);
-          [from, to] = [Math.min(from, offset + c.start), Math.max(to, offset + c.start + c.duration)];
+          if (a < b) [from, to] = [Math.min(from, a), Math.max(to, b)];
           return true;
         }
         const inner = nested?.(c);
         if (!inner) return false;
         const had = found.length;
-        prune(inner, offset + c.start - (c.mediaStart ?? 0));
+        prune(inner, (x) => at(c.start + (x - (c.mediaStart ?? 0)) / clipSpeed(c)), [a, b]);
         return found.length > had;
       });
     }
   };
-  prune(copy.tracks, 0);
-  return { project: copy, found, from: found.length ? ticksToSeconds(from) : 0, to: found.length ? ticksToSeconds(to) : 0 };
+  prune(copy.tracks, (x) => x, [-Infinity, Infinity]);
+  return { project: copy, found, from: to > from ? ticksToSeconds(from) : 0, to: to > from ? ticksToSeconds(to) : 0 };
 }
 
 /**

@@ -135,13 +135,13 @@ export class FeatureRegistry {
     return def;
   }
 
-  /** Prop groups that apply to a clip type, in registration order; those kept on its track are left out. */
   tabsFor(clipType: string): PropGroupDef[] {
     return this.groupsFor(clipType)
       .filter((g) => g.tab)
       .sort((a, b) => a.tab!.order - b.tab!.order);
   }
 
+  /** Prop groups that apply to a clip type, in registration order; those kept on its track are left out. */
   groupsFor(clipType: string): PropGroupDef[] {
     // Asked per clip per frame: worked out once per type, again only when a feature registers.
     let groups = this.#groups.get(clipType);

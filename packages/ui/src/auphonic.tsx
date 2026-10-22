@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { clipEnd, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { clipEnd, heardAudio, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import type { AuphonicPreset, AuphonicReview } from "@beacon/features";
 import { Button, Check, Progress, Select, Slider, Toast } from "./controls";
 import { useShortcutTip } from "./keymap";
@@ -46,9 +46,7 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
     );
     return () => void (live = false);
   }, [host, settingsOpen]);
-  const clips = project.tracks
-    .flatMap((t) => t.clips)
-    .filter((c) => session.selection.includes(c.id) && init?.clipTypes[c.type]?.includes("audio") && !(c.props.audio as { muted?: boolean } | undefined)?.muted);
+  const clips = heardAudio(project.tracks, (type) => !!init?.clipTypes[type]?.includes("audio")).filter((c) => session.selection.includes(c.id));
   const seconds = clips.length ? ticksToSeconds(Math.max(...clips.map(clipEnd)) - Math.min(...clips.map((c) => c.start))) : 0;
   const ready = Array.isArray(presets) && !!preset && clips.length > 0;
   const tip = useShortcutTip();
