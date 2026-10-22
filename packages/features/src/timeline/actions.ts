@@ -389,11 +389,14 @@ const ANIMATED: Record<string, Record<string, number>> = {
   crop: { left: 0, top: 0, right: 0, bottom: 0 },
 };
 
+/** The easing a new animation takes: the last one picked on an animation (Settings' Animation easing). */
+const newEasing = (ctx: ActionContext) => (ctx.pref("animationEasing") === "linear" ? "linear" : "easeInOut");
+
 export const animationActions = [
   defineAction({
     id: "edit.addAnimation",
     description:
-      "Add an animation block (an arrow on the clip) to the selected visual clips, from the playhead over `duration` seconds, ease in/out, and move the playhead to its end: then property and canvas edits there set where it animates to (Custom, ⇧A). `preset` \"restore\" animates back to the clip's base values instead. `whole`: across each clip from its start to its end instead, wherever the playhead is (⌥⇧A). With `clip` and `time` (timeline seconds), as dropping it on that clip there: on it (or the whole selection when it is selected), starting at `time`, moved earlier if needed to fit in the clip",
+      "Add an animation block (an arrow on the clip) to the selected visual clips, from the playhead over `duration` seconds, with the user's animation easing (ease in/out unless they picked linear), and move the playhead to its end: then property and canvas edits there set where it animates to (Custom, ⇧A). `preset` \"restore\" animates back to the clip's base values instead. `whole`: across each clip from its start to its end instead, wherever the playhead is (⌥⇧A). With `clip` and `time` (timeline seconds), as dropping it on that clip there: on it (or the whole selection when it is selected), starting at `time`, moved earlier if needed to fit in the clip",
     args: z.strictObject({
       duration: z.number().positive().default(1),
       preset: z.enum(["custom", "restore"]).default("custom"),
@@ -407,7 +410,7 @@ export const animationActions = [
       if (whole) {
         const steps: ActionStep[] = clips.map((c) => {
           const [start, end] = [ticksToSeconds(c.start), ticksToSeconds(clipEnd(c))];
-          return { command: "animation.add", args: { clip: c.id, end, duration: end - start, easing: "easeInOut", to: targets(ctx, c, preset, start) } };
+          return { command: "animation.add", args: { clip: c.id, end, duration: end - start, easing: newEasing(ctx), to: targets(ctx, c, preset, start) } };
         });
         const last = clips.at(-1)!;
         return {
@@ -432,7 +435,7 @@ export const animationActions = [
         const e = Math.min(start + duration, ticksToSeconds(clipEnd(c)));
         if (e <= start) continue;
         end = e;
-        steps.push({ command: "animation.add", args: { clip: c.id, end: e, duration: e - start, easing: "easeInOut", to: targets(ctx, c, preset) } });
+        steps.push({ command: "animation.add", args: { clip: c.id, end: e, duration: e - start, easing: newEasing(ctx), to: targets(ctx, c, preset) } });
         last = c.id;
       }
       if (!steps.length) throw new Error("the playhead isn't on the selected media, or is at its end");
