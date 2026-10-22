@@ -11,7 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| The Record dialog (and narration) asks macOS for the camera and microphone it shows ticked as it opens or as one is ticked, before its preview starts, once per source not yet asked about; it asked only at Record, the prompt coming over the countdown, the dialog meanwhile saying "Needs permission" | 2026-10-22 | this commit | Desktop test with a stand-in core (the ticked camera asked about, the microphone once ticked, neither again, nothing unticked). The prompt itself only by hand |
+| The Record dialog (and the narration panel) asks macOS for the camera and microphone it shows ticked as it opens or as one is ticked (`recordAccess`), once per source not yet asked about, the answer bringing the preview; it asked only at Record, the prompt coming over the countdown, the dialog meanwhile saying "Needs permission" | 2026-10-22 | this commit | UI flow (the dialog opened with the camera ticked and not asked about: asked once, for it only, with no Record; allowed, it joins the preview; fails without the change) and desktop test of `askFor` (asked once per source, nothing unticked). The narration panel asks for its microphone the same way. The prompt itself only by hand |
 
 ### Not checked yet
 

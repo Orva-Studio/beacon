@@ -360,15 +360,20 @@ function openWindow(): Win {
         openRecord: ({ mode }) => openRecord(w, mode),
         startNarration: (params) => (recordFor(w), reply(() => recorder.startNarration(params))),
         stopNarration: (params) => reply(() => recorder.stopNarration(params)),
+        recordAccess: async (sources) => {
+          await askFor(core, sources);
+          const devices = await core.recorderDevices();
+          w.message("recordDevices", devices);
+          return { permissions: devices.permissions };
+        },
         recordPreview: (devices) => {
           recorder.clearFrames();
-          return reply(async () => {
-            if (await askFor(core, devices)) w.message("recordDevices", await core.recorderDevices());
-            return core.recorderPreview(devices, (e) => {
+          return reply(() =>
+            core.recorderPreview(devices, (e) => {
               if (!("devicesChanged" in e)) return recorder.previewEvent(e, (p) => w.message("recordPreview", p));
               void core.recorderDevices().then((d) => w.message("recordDevices", d), () => {});
-            });
-          });
+            }),
+          );
         },
         recordFrames: ({ after }) => recorder.newerFrames(after),
         testBeep: (params) => recorder.testBeep(params),

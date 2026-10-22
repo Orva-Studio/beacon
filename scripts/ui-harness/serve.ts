@@ -177,6 +177,14 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         // Stand-in devices: a test sets them with `narrationDevices`.
         else if (msg.type === "narrationDevices") result = narrationDevices;
         else if (msg.type === "openRecord") menus.push(p.mode ? `openRecord:${p.mode}` : "openRecord");
+        // As macOS's prompt allowed: the asked sources granted, and told as the app tells them.
+        else if (msg.type === "recordAccess") {
+          menus.push(`recordAccess:${Object.keys(p).sort().join(",")}`);
+          const d = narrationDevices as { permissions: Record<string, string> };
+          for (const k of Object.keys(p)) if (d.permissions[k] === "not asked") d.permissions[k] = "granted";
+          sendAll("recordDevices", d);
+          result = { permissions: d.permissions };
+        }
         // No devices here: still frames and levels stand in for them.
         else if (msg.type === "recordPreview") {
           menus.push(`recordPreview:${JSON.stringify(p)}`);

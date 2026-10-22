@@ -142,6 +142,11 @@ function NarrationPanel({ host }: { host: Host }) {
       setHear(!!d.hear);
     });
   }, []);
+  // Asked for as soon as one is chosen, not at Narrate: the answer brings its level.
+  const unasked = !!microphone && devices?.permissions.microphone === "not asked";
+  useEffect(() => {
+    if (unasked && !dialog) void host.recordAccess({ microphone: { id: microphone } }).then((r) => setDevices((d) => d && { ...d, permissions: r.permissions }));
+  }, [unasked, dialog]);
   // Its level: previewed while idle; while it records, the take sends it. The Record dialog has the microphone while open.
   const granted = devices?.permissions.microphone === "granted";
   const preview = granted && !!microphone && !narrating && !dialog;

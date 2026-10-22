@@ -860,6 +860,30 @@ test.skipIf(skip)("Record previews the chosen screen and camera with the size ea
   expect(previews().at(-1)).toEqual({});
 });
 
+test.skipIf(skip)("Record asks macOS for a ticked camera it hasn't been asked about as the dialog opens, not at Record; allowed, its preview starts", async () => {
+  const devices = {
+    permissions: { screen: "granted", camera: "not asked", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [{ id: "cam-1", name: "MacBook Pro Camera" }],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }],
+    outputs: [],
+  };
+  ui.setNarrationDevices({ ...devices, sources: {}, hear: false });
+  const before = ui.menus.length;
+  ui.send("recordSheet", { ...devices, mode: "take", sources: { screen: { display: 1, fps: 60 }, camera: { id: "cam-1" } } });
+  // Asked once, for the camera only, with no Record pressed.
+  await arrived(() => ui.menus.slice(before).includes("recordAccess:camera"));
+  expect(ui.menus.slice(before).filter((m) => m.startsWith("recordAccess:"))).toEqual(["recordAccess:camera"]);
+  // Allowed: the camera joins the preview.
+  await page.until("!!document.querySelector('[data-preview=Camera]')");
+  const previews = ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
+  expect(previews.at(-1)).toEqual({ screen: { display: 1 }, camera: { id: "cam-1" } });
+  expect(ui.menus.slice(before).filter((m) => m.startsWith("recordAccess:"))).toHaveLength(1);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-record]')");
+  ui.setNarrationDevices({ permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false });
+});
+
 test.skipIf(skip)("Record moves a remembered display, camera or microphone that was unplugged to one that is there", async () => {
   const sheet = {
     permissions: { screen: "granted", camera: "granted", microphone: "granted" },

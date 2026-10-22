@@ -3,7 +3,7 @@ import type { RecordSources } from "@beacon/ui";
 
 /**
  * macOS asked for the camera and microphone the sources want and it hasn't been asked about yet, as the Record
- * dialog shows them (asked at Record, the prompt came over the countdown); whether it was asked.
+ * dialog and narration show them ticked (asked at Record, the prompt came over the countdown); whether it was asked.
  */
 export async function askFor(core: Pick<LocalCore, "recorderDevices" | "recorderAccess">, sources: RecordSources): Promise<boolean> {
   const { permissions } = await core.recorderDevices();
