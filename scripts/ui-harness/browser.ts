@@ -87,6 +87,8 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
         await mouse("mouseReleased", x, y, undefined, "left", n);
       }
     },
+    /** A trackpad or wheel scroll at a point, by `dx`, `dy` (positive: right and down). */
+    wheel: (x: number, y: number, dx: number, dy: number) => send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: dx, deltaY: dy }),
     /** Files dragged in from outside the page (Finder) and dropped at a point. */
     async dropFiles(x: number, y: number, files: string[]) {
       // Copy, link and move, as Finder offers them.

@@ -1243,7 +1243,7 @@ and notarization are added once the user has a Developer ID.
 `.cmproj` and a `.trec`, edits, plays, transcribes and exports MP4 and GIF.
 **Passed 2026-10-19** (the user, by hand).
 
-### Phases 7–11 (split 2026-10-15)
+### Phases 7 and on (split 2026-10-15)
 Phase 7 was one list of everything next ("Growth"); the user split it by
 theme, each with a gate, as the earlier phases had. Each feature is a folder
 in `packages/features` where it can be (§6: the checklist passes with no core
@@ -1872,7 +1872,56 @@ map, and a 9:16 Short checks clean against its platform's safe areas.
 thumbnail) or pasted lands at once; a camera take's background removed by
 each provider, with the same matte in preview and export.
 
-### Phase 10.5 — Device frames (research first)
+### Phase 10.5 — Silence and filler-word fixes (the user, 2026-10-21)
+Fixes to Remove Silences and Remove Filler Words (Phase 7), first in the
+new order as Phase 10's drop fixes were. Started by running both on real
+takes and fixing what turns up; the user adds issues as they spot them.
+Each fix gets a test on real data that fails without it.
+- **Found by running both on 29 of the user's takes** (2026-10-21; 44 takes
+  in their Beacon projects and ai-slop, read in place, the ones with speech):
+  - Remove Silences cut pictures put over or after the talk: an image after
+    the last word went whole, one over a pause was cut down with it, as did
+    another video, a group or a held frame where no audio clip played (time
+    with no audio clip counted as silence). **Fixed:** time showing a picture
+    that isn't the talk's own isn't silence; the recording's own screen and
+    camera are cut with their silences as before. **Then (the user,
+    2026-10-21):** on 3-shorts it found 3 silences where there were dozens:
+    the camera was another file (the Lumix, synced to the mic's recording),
+    so it counted as a picture put there. Narrowed: a picture where no
+    audio plays, and an image, held frame or group wholly inside a pause,
+    are kept; a video across the talk is cut with it (3-shorts: 58
+    silences, 3:37 shorter).
+  - **Apply and Cancel by keys** (the user, 2026-10-21): ↩ applies the open
+    review (Silences, Filler Words, Retakes) and ⎋ cancels it, shown on the
+    buttons ("Apply All (↩)"); ⎋ with no review open still deselects and
+    clears the range. In Settings › Shortcuts as Apply Review and Cancel
+    Review or Deselect. Escape is shown as "Esc" (the user didn't read "⎋").
+  - **The timeline didn't scroll vertically** (the user, 2026-10-21): with
+    more tracks than fit, the bottom ones were out of reach (the wheel only
+    moved through time). Now up and down move through the tracks when they
+    overflow, sideways through time.
+  - **Fillers missing from the user's takes** (the user, 2026-10-21): on
+    3-shorts Remove Filler Words finds none, as its transcript has none (0 in
+    703 words of 11.50.02). Whisper primed with fillers (with `-mc 0` off, or
+    the prompt is ignored) found none in its first 4 minutes either. Waiting
+    on a time where the user hears one, to see whether it is in a pause or
+    inside a word's time.
+  - Remove Filler Words clipped 3–14 ms of the word next to a filler (8
+    places in 3 takes: "uh," touching "padding?" lost its "p"): edges were
+    rounded to the nearest or outward frame. **Fixed:** an edge goes to the
+    frame on the filler's side when rounding out would reach a kept word.
+  - Checked and fine: neither tool lost a word on any take, in either order.
+  - Not a bug: the recent takes' transcripts have almost no fillers (0 in 75
+    minutes of 3-shorts and ai-slop takes). The 9–29 stretches of sound per
+    take that no word covers were each sent to Whisper alone: breaths and
+    clicks ("Thank you.", its words for noise), not dropped "um"s.
+  - Left for the user: Whisper writes sounds as words ("\*Sings\*" over 3.3 s,
+    "\*laughs\*", "\*sniff\*"; 8 takes): kept as speech by both tools, shown
+    by captions. A filler cut could take sound no word covers in the pause it
+    takes; seen on no take, so not changed.
+**Gate:** each issue fixed on the user's own takes, checked by hand.
+
+### Phase 11 — Device frames (research first; was 10.5 until 2026-10-21)
 The user will bring a lot of information before any work starts: which
 devices, how each frame looks and where its screen sits, what it's for.
 Research and agree the design with them first; nothing is built before.
@@ -1880,7 +1929,152 @@ Research and agree the design with them first; nothing is built before.
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
 
-### Phase 11 — Security audit (the user, 2026-10-16)
+### Phase 12 — AI B-roll and animations, and Auphonic cleaning (the user, 2026-10-21; moved up from the backlog)
+Generated footage or animation over a stretch of the talk, made from what is
+said there, through the user's own API keys, reviewed in the AI panel before
+it is placed (as Remove Silences is: agents prepare, the user applies).
+**Draft spec (2026-10-21), from the user's flow; the open decisions below
+come first.**
+
+**The flow.**
+1. **How long:** drag the in/out range on the ruler over the words it should
+   cover (the range Beacon already has). The range's length is the footage's
+   length; a range longer than one shot (models make 4-10 s) becomes several
+   shots, cut on the transcript's sentence ends.
+2. **Open it:** the AI panel's B-roll tile (or the range's right-click menu,
+   or an agent) opens a review in the right sidebar: the range and the words
+   said in it, a **Guide** box (optional: "show a city at night", "keep it
+   abstract"), a **Kind** (Footage, or Animation), **Research the topic**
+   (on or off), and **Where** (Full canvas, or Draw on canvas).
+3. **Where (optional):** Draw on canvas drags a rectangle over the canvas
+   with handles, snapping to the canvas's halves and thirds and to the safe
+   areas (a vertical Short: the face in the bottom half, B-roll in the top).
+   The footage is made at that shape (the nearest aspect the model offers,
+   then cropped to fill) and placed there.
+4. **Plan:** an LLM reads the range's words (and a little before and after,
+   for context), researches the topic on the web when asked (names, products,
+   places in what is said, so the shots show the right thing), and writes a
+   shot list: each shot's span on the timeline, its prompt and why. Shown as
+   marks over the range on the timeline, each prompt editable, with the
+   cost estimate (model × seconds) before anything is generated.
+5. **Generate:** a job per shot (progress in the top bar, as Remove
+   Background's), each a candidate with its prompt, model and cost; re-roll
+   one shot, or edit its prompt and make it again.
+6. **Apply:** one undo step places the picked candidates on a B-roll track
+   above the talk, over their spans, fitted to the region; the talk's audio
+   kept (footage is generated silent). The files are copied into the project's
+   `media` folder, each asset remembering its prompt, model and cost.
+
+**Kinds.**
+- **Footage** (first): text-to-video with audio off, through Replicate
+  (below): a 20 s range is about $3 a try with Veo 3.1 Fast. Good for generic shots; weak on real UIs, logos and
+  text, which is where research and the Guide help least.
+- **Animation** (second): motion graphics made from the words (a title, a
+  number, a list, a diagram) with HyperFrames (the user's pick, to be
+  looked at), drawn locally rather than generated: sharp text, no per-second
+  cost, editable afterwards. Later: the user's own skills as presets.
+
+**Agents.** MCP tools follow the same path: `broll.plan` (the range, guide,
+kind, research, region) prepares the review, `broll.generate` runs it,
+`broll.apply` only when the user asks.
+
+**Decided (the user, 2026-10-21).**
+- **Footage through Replicate**, the user's own API token (kept in the
+  Keychain as the OpenAI key is; Settings says the prompts and region shape
+  are sent to Replicate and it charges the user's account). Default model
+  Veo 3.1 Fast, with Seedance 2.0 and Kling v3 Pro to choose from in
+  Settings. Prices seen in Aug-Sep 2026 comparisons, to check on
+  replicate.com/pricing before relying on them: Veo 3.1 Fast about $0.15/s,
+  Seedance 2.0 about $0.18/s (720p), Kling v3 Pro about $0.22/s, Veo 3.1
+  $0.40/s. Remove Background's Replicate option (Phase 10) would share the
+  token.
+- **Planning and research by OpenAI**, with the key Beacon already keeps
+  (its web search for research); the range's words and the Guide are sent,
+  not the audio.
+- **First slice: footage with the drawn region**; animation (HyperFrames)
+  after it.
+- **One candidate per shot**, re-rolled on request.
+- Still to settle while building: a spending limit (per generation, asked
+  before it runs, and per project).
+
+**Gate:** a range of one of the user's takes planned (with research),
+generated, reviewed and placed in one undo step, in a drawn region, with
+its cost shown before it runs.
+
+#### Auphonic cleaning, built in (the user, 2026-10-21; in Phase 12 beside B-roll)
+Noise Removal (Phase 8.5) is good, but the user wants Auphonic's cleaning too:
+what their `tuneup` CLI does (`~/tuneup`, v0.3.0, MIT, theirs: an Auphonic
+preset in the cloud, then a local de-click, de-clip and de-ess pass), built
+into Beacon, so audio is never edited outside it and nobody installs tuneup
+(the user, 2026-10-21). They do it by hand today (3-shorts'
+`coffee.cleaned.m4a`). **Plan only; nothing built.**
+
+**The flow.**
+1. **Pick it:** an **Auphonic** tile in Audio Effects, dragged onto an audio
+   clip or double-clicked with audio clips selected (as Noise Removal is),
+   or a clip's right-click (Clean with Auphonic…), or the command palette.
+   It works on clips, not an effect drawn live: it makes new audio.
+2. **Set it, in the properties panel** (a review, as Remove Silences opens:
+   settings in the sidebar, Start and Cancel at the foot, ↩ and Esc):
+   - **Preset:** the user's Auphonic presets (as `--list-presets` gives them),
+     their tuneup default first.
+   - **Polish:** de-click, de-clip and de-ess on or off (`--post-process`),
+     with **De-esser** 0-1 (`--deesser`, 0.2).
+   - **What is cleaned:** **Only the selected part** (default, the user's
+     choice: the clips' audio as heard, bounced to WAV: fewer Auphonic
+     minutes, one baked file) or **Whole recording** (the clips' source
+     cleaned once, every clip of it switched over, edits kept and still
+     re-cuttable).
+   - **Before it runs:** the minutes to upload (Auphonic bills by length) and
+     that the audio is sent to Auphonic on the user's account.
+3. **Start:** a background job, its stage in the top bar and the import
+   panel (Uploading, Auphonic: its status line, Downloading, Polishing, %);
+   Esc or Cancel stops it. Editing carries on meanwhile.
+4. **Done:** the cleaned file goes into the project's `media` folder as a new
+   asset (named `<source>.cleaned.wav`, remembering preset and settings) and
+   onto the timeline in one undo step:
+   - Selected part (default): the cleaned audio on a new track under the
+     range, the original clips muted (not deleted), so it can be undone or
+     compared.
+   - Whole recording: the source's clips switch to the cleaned medium (as
+     Replace Media does, same length, every cut and fade kept); the original
+     stays in the Media Bin, and a clip's **Original / Cleaned** switch in
+     the audio tab flips back for a listen (A/B).
+
+**How it runs.**
+- **Beacon talks to Auphonic itself**, as tuneup does (its code ported, not
+  depended on; no tuneup, no CLI): `GET /presets.json` for the preset list,
+  `POST /simple/productions.json` with the WAV and the preset's uuid, `POST
+  /production/<uuid>/start.json`, `GET /production/<uuid>/status.json` until
+  done (status 3) or failed (2, with its message), then the output files
+  from `/production/<uuid>.json`, downloaded into the project's `media`
+  folder. A job in core (as the OpenAI transcriber's requests are), with
+  progress and cancel; the upload streamed, not read into memory.
+- **The polish pass with Beacon's own FFmpeg** (`adeclick,adeclip,deesser=
+  i=<de-esser>`, as tuneup runs it), which needs `adeclick`, `adeclip` and
+  `deesser` enabled in `scripts/build-tools.ts` (all LGPL; today it has only
+  `afftdn`). It can also run alone, with no Auphonic, free and offline: a
+  **Polish only** choice beside the presets.
+- **The Auphonic key** in the Keychain as the OpenAI key is (Settings ›
+  Audio), handed to tuneup, never written to logs or the project; offline,
+  the tile greys out with why (as the online AI tools do).
+- **Alignment is the main risk:** a swapped medium must line up to the
+  sample. The preset must not cut silences or fillers or change speed
+  (checked before starting: refused with which option to turn off), the
+  output must be WAV or FLAC (no MP3/AAC padding), and the result is checked
+  against the original (length within a frame, offset by cross-correlation)
+  before it is used; a mismatch is refused with why, the file kept.
+- **Agents:** `audio.clean` prepares it (clips, preset, polish, scope),
+  `audio.cleanStart` runs it (the user's money: only when asked; Polish
+  only costs nothing),
+  `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
+
+**Decided (the user, 2026-10-21):** built in Phase 12 beside B-roll (both
+are paid cloud jobs reviewed in the sidebar); the selected part by default.
+**Open:** whether audio already cleaned is reused when exactly the same
+audio is sent again (asked). Later: clean only what is kept, at export.
+
+### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
@@ -1908,7 +2102,7 @@ with each finding fixed or written down as an accepted risk in
 **Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
 and a fuzzing run of the file readers finds no crash.
 
-### Phase 12 — Camtasia export (the user, 2026-10-16)
+### Phase 14 — Camtasia export (the user, 2026-10-16)
 Handing a Beacon project to someone who keeps editing in Camtasia: File ›
 Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
 media beside it), one way and best effort, as import is (§11). Not for
@@ -1936,7 +2130,7 @@ finished videos: MP4 and `.srt` export already covers those.
 captions opens in Camtasia with its edit intact, and the report lists what
 didn't carry over.
 
-### Phase 13 — Beacon learns how you edit (the user, 2026-10-19)
+### Phase 15 — Beacon learns how you edit (the user, 2026-10-19)
 The AI tools start from what the user tends to do, not fixed settings: if
 they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
@@ -2037,15 +2231,10 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 
 ## 16. Backlog (ideas parked, not scheduled)
 
-### AI B-roll and camera angles (the user, 2026-10-15; Phase 10 or later)
-Generated video, through the user's own API keys, as jobs that make media
-assets reviewed before they are placed (as Remove Silences is). Researched
-2026-10-15:
-- **B-roll from the transcript** (low risk, first): an LLM picks 2-6 s
-  cutaways from the word-timed transcript and writes shot prompts with one
-  style sheet; text-to-video with audio off (Veo 3.1 Fast/Lite, Kling 3.0,
-  FLUX 3 Video's draft mode; about $0.05-0.17/s), placed on a B-roll track
-  over the word range. Good for generic shots; weak on real UIs, logos, text.
+### AI camera angles (the user, 2026-10-15)
+Generated video, through the user's own API keys, reviewed before it is
+placed. AI B-roll, researched with it on 2026-10-15, moved to Phase 12
+(the user, 2026-10-21); this follows the same job shape.
 - **A new camera angle of the presenter**: (1) no generation first: a
   punch-in crop of the 4K source and a small depth-parallax move (±5°), in
   Beacon's renderer; (2) video-to-video re-angling in 3-10 s pieces with
@@ -2056,40 +2245,6 @@ assets reviewed before they are placed (as Remove Silences is). Researched
   original's motion, then lip-sync to the original audio (sync.so sync-3).
   No monocular 4D/splat method holds up beyond 10-15° yet; camera work and
   lip-sync are cloud-only on a Mac today (local B-roll: LTX-2 via MLX).
-- **Where it goes, drawn on the canvas** (the user, 2026-10-17): drag a
-  rectangle over the canvas for the area the generated video fills (a
-  vertical video: the face in the bottom half, B-roll generated for the top
-  half), so it is generated at that shape and placed there. Seedance 2.5 or
-  whatever model is best then. Later, to be fleshed out by the user: motion
-  graphics made with HyperFrames, and the user's own skills as presets.
-- Shape: a generation job per provider (fal and Runway cover many models with
-  one key), results as candidates with their prompt, model and cost, a cost
-  estimate before running, then one undoable command to place a take; the
-  original audio kept. MCP tools follow the same suggest/generate/apply path.
-
-### Background audio cleaning (tuneup / Auphonic)
-Clean each source recording's audio in the background while editing and swap
-it in when ready, using `~/tuneup` (Auphonic + local ffmpeg de-click/de-clip/
-de-ess). Phase 8.5 tries ffmpeg's noise removal first; this is the fallback if
-it isn't good enough. Parked because Auphonic is billed by audio length, and cleaning whole
-raw recordings (bad takes included) costs more than cleaning the final cut.
-
-Notes for when it is picked up:
-- Fits as an `audio-clean` feature + background job in the media service,
-  stored as a derived asset in `cache/`, with an original/cleaned toggle per
-  source and agent commands (`audio.clean`, `audio.useCleaned`).
-- tuneup needs a library entry point (returns/throws/progress instead of
-  `process.exit` and console output).
-- Alignment is the main risk: the Auphonic preset must not cut silence or
-  filler words, output must be WAV/FLAC (no MP3/AAC padding), and the result
-  must be checked against the original for offset.
-- Cheaper variants to compare:
-  - **Clean only the kept segments at export**, so you pay only for minutes
-    in the final video; you wait at the end and it's tied to one edit.
-  - **Local-only cleaning**, free and offline: tuneup's ffmpeg pass, and/or a
-    local noise-reduction model (e.g. DeepFilterNet). Could run in the
-    background on whole sources at no cost, with Auphonic kept for final
-    export.
 
 ### Film Look: favourites and hover previews (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own

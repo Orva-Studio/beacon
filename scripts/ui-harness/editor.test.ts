@@ -42,7 +42,7 @@ const timelinePlaces = async (clipId: string) => {
   const tracks = ui.core.doc(ui.handle).tracks;
   const row = tracks.length - 1 - tracks.findIndex((t) => t.clips.some((k) => k.id === clipId));
   const [box, header] = [await timelineBox(), headerWidth(tracks)];
-  return { ...clipBox(row, s.timeline.trackHeight), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
+  return { ...clipBox(row, s.timeline.trackHeight, s.timeline.top ?? 0), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
 };
 /** Page code reading a timeline canvas pixel's RGB (canvas points) as "r,g,b". */
 const timelinePixel = (x: number, y: number) =>
@@ -2243,7 +2243,7 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, a click flips one, Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
+test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, ⌥-click flips one, a click picks one for ⌫ to cut alone; Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
@@ -2282,13 +2282,13 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await ui.core.undo(ui.handle);
   await shows(reviewed);
   const first = await found();
-  // The widest silence to cut, clicked in the middle of its band on the timeline: kept now.
+  // The widest silence to cut, ⌥-clicked in the middle of its band on the timeline: kept now.
   const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
   const s = await session();
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   const header = headerWidth(ui.core.doc(ui.handle).tracks);
   const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20, ["alt"]);
   for (let i = 0; i < 50 && !(await review())?.silences?.flipped.length; i++) await Bun.sleep(50);
   const flipped = await found();
   expect(flipped.silences.find((x) => x.start === target.start)!.cut).toBe(false);
@@ -2310,8 +2310,72 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
+
+  // A plain click picks a silence, keeping it as it was; ⌫ then cuts that one alone, one undo step.
+  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("then ⌫ to cut it");
+  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+  await page.until("(document.querySelector('[data-one-at]')?.textContent ?? '').includes(' of ')");
+  const picked = (await review()) as { silences: { flipped: number[]; current?: number } };
+  expect(picked.silences.flipped).toEqual([]);
+  expect(picked.silences.current).toBeCloseTo(target.start, 2);
+  const cutUndo = (await ui.core.history(ui.handle)).undo.length;
+  await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
+  await arrived(() => length() < before);
+  const each = (await ui.core.query(ui.handle, "transcript.silences", { min: 0.6, keep: 0.3, keepActive: false, flipped: [] })) as Found;
+  expect(each.silences.length).toBe(first.silences.length - 1);
+  expect(before - length()).toBeLessThan(target.end - target.start);
+  expect(before - length()).toBeGreaterThan(target.end - target.start - 0.5);
+  expect((await ui.core.history(ui.handle)).undo.length - cutUndo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
+  await page.until("!document.querySelector('[data-silence-review]')");
   await run("panel.show", { tool: null });
 }, 150_000);
+
+test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the buttons: ⎋ closes it cutting nothing, ↩ applies it in one undo step; with none open ⎋ still deselects and clears the range", async () => {
+  await run("panel.show", { tool: "ai" });
+  const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const before = length();
+  const open = async () => {
+    await page.until("!!document.querySelector('[data-ai=silences]')");
+    await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+    // The recording's transcript may still be being made in the background.
+    await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')", 120_000);
+  };
+  await open();
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-cancel]').textContent")).toBe("Cancel (Esc)");
+  expect(await page.evaluate<string>("document.querySelector('[data-silences-apply]').textContent")).toBe("Apply All (↩)");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  expect(length()).toBeCloseTo(before, 3);
+  await open();
+  const undo = (await ui.core.history(ui.handle)).undo.length;
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => length() < before);
+  expect(length()).toBeLessThan(before);
+  expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  // ↩ on a focused button presses it: Cancel, tabbed to, cancels rather than applies.
+  await open();
+  await page.evaluate("document.querySelector('[data-silences-cancel]').focus()");
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => false, 300);
+  expect(length()).toBeCloseTo(before, 3);
+  // No review open: ⎋ is Deselect All and Clear the Range, as it was.
+  await select([callout.id]);
+  await run("range.set", { in: 1, out: 2 });
+  await page.key("Escape", "Escape");
+  await arrived(() => false, 300);
+  expect((await session()).selection).toEqual([]);
+  expect((await session()).range).toBeNull();
+  await run("panel.show", { tool: null });
+}, 120_000);
 
 test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; one at a time, Cut This One cuts only one; Cancel cuts nothing; one review at a time", async () => {
   // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
@@ -2990,7 +3054,24 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   await page.drag(ruler(5), ruler(0.5), ["shift"]);
   await arrived(() => after.every((id) => Math.abs(startOf(id) - 2) < 0.05));
   for (const id of after) expect(startOf(id)).toBeCloseTo(2, 1);
+  expect((await session()).playhead).toBeCloseTo(2, 1);
   await undoOne();
+
+  // The playhead dragged right opens time and follows the pointer, ending where the space does.
+  await run("playhead.set", { time: 5 });
+  await Bun.sleep(200);
+  const line = Math.round(xAt(5.5)) + 0.5;
+  const gap = await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2));
+  await page.down(...ruler(5), ["shift"]);
+  for (let i = 1; i <= 8; i++) await page.move(box.x + xAt(5 + i / 16), ruler(5)[1], ["shift"]);
+  await Bun.sleep(200);
+  expect(await page.evaluate<string>(timelinePixel(line, y + h / 2))).not.toBe(gap);
+  await page.up(...ruler(5.5), ["shift"]);
+  await arrived(() => after.every((id) => Math.abs(startOf(id) - 5.5) < 0.05));
+  for (const id of after) expect(startOf(id)).toBeCloseTo(5.5, 1);
+  expect((await session()).playhead).toBeCloseTo(5.5, 1);
+  await undoOne();
+  await run("playhead.set", { time: 9 });
 
   // Shift on the gap, dragged right, opens time there on every track, the clips after it moving as it goes.
   const empty = await page.evaluate<string>(timelinePixel(xAt(3.5), y + h / 2));
@@ -3094,6 +3175,71 @@ test.skipIf(skip)("a clip of one frame is drawn and grabbed at least 40 points w
   expect((await session()).selection).toEqual([sliver.id]);
   await page.screenshot(join(dir, "one-frame-clip.png"));
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await select([]);
+}, 30_000);
+
+test.skipIf(skip)("with more tracks than fit, scrolling up and down moves through them (the bottom track's clips reachable), sideways still through time", async () => {
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  const height = (await session()).timeline.trackHeight;
+  await run("timeline.trackHeight", { height: 120 });
+  const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const doc = () => ui.core.doc(ui.handle);
+  const had = new Set(doc().tracks.map((t) => t.id));
+  // Empty tracks until they don't all fit.
+  while (doc().tracks.length * 120 <= box.h - 40) await run("track.add", {});
+  const added = doc().tracks.filter((t) => !had.has(t.id)).map((t) => t.id);
+  const bottom = doc().tracks[0]!.clips[0]!;
+  await Bun.sleep(300);
+  const x = box.x + box.w * 0.6;
+  await page.wheel(x, box.y + box.h / 2, 0, 2000);
+  await arrived(() => false, 300);
+  const s = await session();
+  expect(s.timeline.top).toBe(Math.round(doc().tracks.length * 120 - (box.h - 40)));
+  expect(s.timeline.start).toBe(0);
+  // The bottom track's row is at the timeline's foot now: a click there picks its clip.
+  const p = await timelinePlaces(bottom.id);
+  expect(p.y + p.h).toBeLessThanOrEqual(box.h);
+  await page.click(box.x + p.xAt((bottom.start + bottom.duration / 2) / 705_600_000), box.y + p.y + p.h / 2);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toContain(bottom.id);
+  // Sideways still moves through time.
+  await run("timeline.zoom", { to: "in" });
+  const start = (await session()).timeline.start;
+  await page.wheel(x, box.y + box.h / 2, 300, 0);
+  await arrived(() => false, 300);
+  expect((await session()).timeline.start).toBeGreaterThan(start);
+  await run("timeline.scroll", { start: 0 });
+
+  // Scrolled down, a track header dragged up a row lands one row up, not a scroll's worth further.
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const below = doc().tracks[1]!.id;
+  await page.drag([box.x + 10, box.y + p.y + p.h / 2], [box.x + 10, box.y + p.y + p.h / 2 - 120]);
+  await arrived(() => doc().tracks.findIndex((t) => t.clips.some((c) => c.id === bottom.id)) === 1);
+  expect(doc().tracks.findIndex((t) => t.clips.some((c) => c.id === bottom.id))).toBe(1);
+  expect(doc().tracks[0]!.id).toBe(below);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await Bun.sleep(200);
+
+  // The timeline grown while scrolled to the foot: the bottom row is drawn at the foot, and a click there picks it.
+  const grow = (px: number) => page.evaluate(`(() => { const b = document.querySelector('canvas[data-timeline]').parentElement; b.style.flex = '0 0 ${px}px'; return 0; })()`);
+  await select([]);
+  await grow(box.h - 120);
+  await Bun.sleep(300);
+  await page.wheel(x, box.y + 60, 0, 2000);
+  await arrived(() => false, 300);
+  await grow(box.h);
+  await page.evaluate(`(() => { document.querySelector('canvas[data-timeline]').parentElement.style.flex = ''; return 0; })()`);
+  await Bun.sleep(300);
+  await page.click(box.x + p.xAt((bottom.start + bottom.duration / 2) / 705_600_000), box.y + box.h - 60);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toContain(bottom.id);
+
+  // Tracks removed while scrolled: the offset goes with them, so tracks added later start at the top.
+  for (const t of added) await run("track.remove", { track: t });
+  await run("timeline.trackHeight", { height });
+  await Bun.sleep(300);
+  expect((await session()).timeline.top ?? 0).toBe(0);
   await select([]);
 }, 30_000);
 

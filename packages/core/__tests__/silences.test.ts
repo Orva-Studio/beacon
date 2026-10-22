@@ -9,6 +9,8 @@ import { LocalCore } from "../src";
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
 const AUDIO = join(FIXTURES, "audio.m4a");
 const TAKE = join(FIXTURES, "take.brec");
+const IMAGE = join(FIXTURES, "image.png");
+const VIDEO = join(FIXTURES, "video-3.mp4");
 const dir = mkdtempSync(join(tmpdir(), "beacon-silences-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -50,6 +52,67 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences cuts nothing while audio heard 
   transcribed(core, assetB, { 0: { words: [{ text: "three", start: 0.2, end: 0.8 }], speech: [[0, 1]] } });
   await core.run(h, "transcript.removeSilences", SETTINGS);
   expect(JSON.stringify(core.doc(h).tracks)).not.toBe(before);
+  await core.close(h);
+}, 60_000);
+
+test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE) || !existsSync(VIDEO))("Remove Silences keeps time that shows a picture put there (an image over a pause, a card after the talk), cutting the silence around it; a camera from another file across the talk is cut as usual", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-p") });
+  const h = await core.create({ path: join(dir, "pictures.beproj") });
+  const audio = join(dir, "talk.m4a");
+  copyFileSync(AUDIO, audio);
+  const r = await core.import(h, [audio], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  transcribed(core, core.doc(h).assets[r.assets[0]!]!, { 0: { words: [{ text: "one", start: 0.1, end: 0.9 }, { text: "two", start: 9.1, end: 9.9 }], speech: [[0, 1], [9, 10]] } });
+  const clips = () => core.doc(h).tracks.flatMap((t) => t.clips);
+  const seconds = (ticks: number) => ticks / 705_600_000;
+  const talkEnd = Math.max(...clips().map((c) => seconds(c.start + c.duration)));
+  await core.run(h, "track.add", { name: "Pictures" });
+  const track = core.doc(h).tracks.find((t) => t.name === "Pictures")!.id;
+  // A still over the pause, and a card after the talk, each on screen for 5 s.
+  await core.import(h, [IMAGE], { at: 3, track });
+  await core.import(h, [IMAGE], { at: talkEnd, track });
+  // The talk's picture from a camera recorded apart from the microphone: another file, its own sound left out.
+  await core.run(h, "track.add", { name: "Camera" });
+  const camera = core.doc(h).tracks.find((t) => t.name === "Camera")!.id;
+  const rv = await core.import(h, [VIDEO], { at: 0, track: camera });
+  for (const j of rv.jobs) await core.cancelJob(j).catch(() => {});
+  const own = clips().filter((c) => c.assetId === rv.assets[0] && c.type === "audio").map((c) => c.id);
+  if (own.length) await core.run(h, "clip.remove", { clips: own, linked: false });
+  expect(seconds(clips().find((c) => c.assetId === rv.assets[0])!.duration)).toBeGreaterThan(10);
+  const images = () => clips().filter((c) => c.type === "image");
+  expect(images().map((c) => seconds(c.duration))).toEqual([5, 5]);
+  await core.run(h, "transcript.removeSilences", SETTINGS);
+  // Both still shown for 5 s; the pause around the first is cut down to it (1–3 s and 8–9 s), and the talk's long tail.
+  expect(images().map((c) => seconds(c.duration))).toEqual([5, 5]);
+  const words = (await core.query(h, "transcript.get", { format: "words" })) as { text: string; start: number }[];
+  expect(words.map((w) => w.text)).toEqual(["one", "two"]);
+  expect(seconds(images()[0]!.start)).toBeLessThan(2);
+  expect(words[1]!.start - seconds(images()[0]!.start + images()[0]!.duration)).toBeLessThan(0.5);
+  expect(seconds(images()[1]!.start)).toBeLessThan(11);
+  await core.close(h);
+}, 60_000);
+
+test.skipIf(!existsSync(AUDIO) || !existsSync(IMAGE))("Remove Silences keeps a title card before the talk whole, to the frame, with nothing of the pause kept", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-t") });
+  const h = await core.create({ path: join(dir, "title.beproj") });
+  const audio = join(dir, "title.m4a");
+  copyFileSync(AUDIO, audio);
+  const r = await core.import(h, [audio], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  transcribed(core, core.doc(h).assets[r.assets[0]!]!, { 0: { words: [{ text: "one", start: 9.1, end: 9.9 }], speech: [[9, 10]] } });
+  await core.run(h, "track.add", { name: "Title" });
+  const track = core.doc(h).tracks.find((t) => t.name === "Title")!.id;
+  // From frame 92 at 30 fps (3.0667 s, between milliseconds) for 5 s, before anything is said.
+  await core.import(h, [IMAGE], { at: 92 / 30, track });
+  const card = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "image")!;
+  const frames = (ticks: number) => Math.round((ticks / 705_600_000) * 30);
+  expect([frames(card().start), frames(card().duration)]).toEqual([92, 150]);
+  await core.run(h, "transcript.removeSilences", { ...SETTINGS, keep: 0 });
+  // The pause before it and after it go; the card stays all 150 frames.
+  expect([frames(card().start), frames(card().duration)]).toEqual([0, 150]);
+  const words = (await core.query(h, "transcript.get", { format: "words" })) as { text: string; start: number }[];
+  expect(words.map((w) => w.text)).toEqual(["one"]);
+  expect(words[0]!.start).toBeLessThan(5.5);
   await core.close(h);
 }, 60_000);
 

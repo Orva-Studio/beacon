@@ -107,10 +107,7 @@
         "key": "\u238b",
         "modifiers": []
       },
-      "command": "selection.clear",
-      "args": {
-        "range": true
-      }
+      "command": "reviews.cancel"
     },
     {
       "keys": {
@@ -1078,6 +1075,13 @@
         ]
       },
       "command": "app.palette"
+    },
+    {
+      "keys": {
+        "key": "\u21a9",
+        "modifiers": []
+      },
+      "command": "reviews.apply"
     }
   ]
 }

@@ -143,7 +143,13 @@ export function App({ host }: { host: Host }) {
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
       if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;
+      // Return on a focused button or link presses it, as the keyboard user tabbed there to do.
+      if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button, a[href], [role=button], [role=menuitem], [role=tab]")) return;
       e.preventDefault();
+      // A silence or filler picked on the timeline: ⌫ cuts it, as Cut This One does.
+      const reviews = replica.get().session?.features.transcript as Partial<Record<"silences" | "fillers", { current?: number }>> | undefined;
+      const picked = (["silences", "fillers"] as const).find((k) => reviews?.[k]?.current !== undefined);
+      if (b.command === "edit.delete" && picked) return host.run(`${picked}.apply`, { one: true });
       runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
@@ -209,9 +215,14 @@ export function App({ host }: { host: Host }) {
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
-                  : alt
-                    ? goTo(host, silences ? "silences" : "fillers", m)
-                    : host.run(silences ? "silences.flip" : "fillers.flip", { at: m.start })
+                  : silences
+                    ? // A click picks a silence, for ⌫ or Cut This One to cut; ⌥-click turns it to keep or cut.
+                      alt
+                      ? host.run("silences.flip", { at: m.start })
+                      : goTo(host, "silences", m)
+                    : alt
+                      ? goTo(host, "fillers", m)
+                      : host.run("fillers.flip", { at: m.start })
               }
             />
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { projectDuration, ticksToSeconds, type Project } from "@beacon/model";
 import { Button, Progress } from "./controls";
+import { useShortcutTip } from "./keymap";
 import { useQuery } from "./query";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
@@ -67,7 +68,7 @@ export function goTo(host: Host, review: Review, item: { start: number }) {
 }
 
 /**
- * Going through a review's silences or fillers one at a time: ‹ › step between them (⌥-click one on the timeline
+ * Going through a review's silences or fillers one at a time: ‹ › step between them (a click on a silence on the timeline, ⌥-click on a filler,
  * goes to it), Skip moves on, Cut This One cuts only it (one undo step) and moves on.
  */
 function OneByOne<T extends Item>({ review, items, current, host, describe, detail }: { review: Review; items: T[]; current: number | undefined; host: Host; describe: (item: T) => string; detail?: (item: T) => ReactNode }) {
@@ -121,7 +122,7 @@ function OneByOne<T extends Item>({ review, items, current, host, describe, deta
 
 /**
  * A review in the properties panel while it is open: `children` (its settings), what it will cut (marked on the
- * timeline, red to cut and grey to keep; a click there flips one), one at a time, then Apply as one undo step or Cancel.
+ * timeline, red to cut and grey to keep; a click there flips one, or picks a silence to cut), one at a time, then Apply as one undo step or Cancel.
  */
 export function ReviewPanel<T extends Item>(props: {
   review: Review;
@@ -155,6 +156,7 @@ export function ReviewPanel<T extends Item>(props: {
   const kept = items.length - cut;
   const ready = !!found && !found.waiting.length && cut > 0;
   const progress = useTranscribing();
+  const tip = useShortcutTip();
   const summary = !found
     ? `Finding ${noun}…`
     : found.waiting.length
@@ -178,7 +180,9 @@ export function ReviewPanel<T extends Item>(props: {
               <span className="h-2.5 w-4 rounded-sm bg-silence-cut" /> To cut
               <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-keep" /> Kept
             </span>
-            <span>Click one on the timeline to keep or cut it.</span>
+            <span data-review-hint>
+              {review === "silences" ? `Click one on the timeline to pick it, then ${tip("edit.delete").replace(/^ \((.*)\)$/, "$1") || "Delete"} to cut it; ⌥-click keeps or cuts it.` : "Click one on the timeline to keep or cut it."}
+            </span>
           </>
         )}
       </div>
@@ -200,10 +204,10 @@ export function ReviewPanel<T extends Item>(props: {
       <OneByOne review={review} items={found?.waiting.length ? [] : items} current={found?.current} host={host} describe={describe} {...(detail ? { detail } : {})} />
       <div className="mt-auto flex justify-end gap-2">
         <Button onClick={() => host.run(`${review}.close`)} {...{ [`data-${review}-cancel`]: true }}>
-          Cancel
+          Cancel{tip("reviews.cancel")}
         </Button>
         <Button look="primary" disabled={!ready} onClick={() => host.run(`${review}.apply`)} {...{ [`data-${review}-apply`]: true }}>
-          Apply All
+          Apply All{tip("reviews.apply")}
         </Button>
       </div>
     </div>

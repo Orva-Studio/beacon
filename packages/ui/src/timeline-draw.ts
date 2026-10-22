@@ -20,7 +20,7 @@ import {
 } from "@beacon/model";
 import type { PanelItem } from "./drop";
 import { drawIcon, type IconName } from "./controls";
-import { clipBox, cornerButtons, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, volumeY } from "./timeline-layout";
+import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, volumeY } from "./timeline-layout";
 import type { ViewState } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -39,8 +39,8 @@ export type Drag =
   | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
   | { kind: "range"; anchor: number }
   | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
-  /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`). */
-  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number }
+  /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`); `playhead`: begun on it, which follows. */
+  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number; playhead?: boolean }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
   | PressDrag
   | MoveDrag
@@ -223,6 +223,7 @@ export function drawTimeline(t: TimelineDrawing) {
     const TRACK = session.timeline.trackHeight;
     const fps = rationalToNumber(project.settings.fps);
     const { w, h } = size.current;
+    const TOP = Math.min(session.timeline.top ?? 0, maxTop(tracks.length, TRACK, h));
     const dpr = window.devicePixelRatio || 1;
     const { start, end } = session.timeline;
     const width = Math.max(1, w - HEADER);
@@ -259,7 +260,7 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.fillRect(0, 0, w, h);
 
     tracks.forEach((_, i) => {
-      const y = rowTop(i, TRACK);
+      const y = rowTop(i, TRACK, TOP);
       ctx.fillStyle = color("well");
       ctx.fillRect(HEADER, y, width, TRACK);
       ctx.strokeStyle = color("track-line");
@@ -279,7 +280,7 @@ export function drawTimeline(t: TimelineDrawing) {
      * would put it. `by`: how far it is drawn from where it is, its waveform and volume read where they are in it.
      */
     const drawClip = (clip: Clip, t: Track, i: number, a: number, b: number, alpha: number, ghost?: { bad: boolean; fresh: boolean }, by = 0) => {
-      const { y, h: ch } = clipBox(i, TRACK);
+      const { y, h: ch } = clipBox(i, TRACK, TOP);
       const audio = clip.type === "audio";
       const x0 = x(a) + 0.5;
       const cw = Math.max(1, (b - a) * pps - 1.5);
@@ -386,7 +387,7 @@ export function drawTimeline(t: TimelineDrawing) {
     });
     // Animation arrows across each clip, and the volume line on audio.
     tracks.forEach((t, i) => {
-      const { y, h: ch } = clipBox(i, TRACK);
+      const { y, h: ch } = clipBox(i, TRACK, TOP);
       for (const clip of t.clips) {
         const cs = ticksToSeconds(clip.start);
         const ce = ticksToSeconds(clip.start + clip.duration);
@@ -407,7 +408,7 @@ export function drawTimeline(t: TimelineDrawing) {
         ctx.clip();
         const selectedClip = session.selection.includes(clip.id);
         if (clipTypes[clip.type]?.includes("audio")) {
-          const vy = (v: number) => volumeY(i, TRACK, v);
+          const vy = (v: number) => volumeY(i, TRACK, v, TOP);
           const pts = volumePoints(clip);
           ctx.strokeStyle = selectedClip ? VOLUME.selected() : VOLUME.line();
           ctx.lineWidth = 1.5;
@@ -481,7 +482,7 @@ export function drawTimeline(t: TimelineDrawing) {
     const over = latest.current.dragging;
     const drop = over && dropHit(over.x, over.y, over.item);
     if (over && drop) {
-      const y = RULER + drop.row * TRACK + 3;
+      const y = rowTop(drop.row, TRACK, TOP) + 3;
       const [cs, ce] = [ticksToSeconds(drop.clip.start), ticksToSeconds(drop.clip.start + drop.clip.duration)];
       ctx.beginPath();
       ctx.roundRect(x(cs) + 0.5, y, Math.max(1, (ce - cs) * pps - 1.5), TRACK - 6, CLIP_RADIUS);
@@ -500,12 +501,12 @@ export function drawTimeline(t: TimelineDrawing) {
     }
     if (d?.kind === "track" && d.to !== d.from) {
       ctx.fillStyle = SELECTED();
-      ctx.fillRect(0, RULER + (d.to > d.from ? d.to + 1 : d.to) * TRACK - 1, w, 2);
+      ctx.fillRect(0, rowTop(d.to > d.from ? d.to + 1 : d.to, TRACK, TOP) - 1, w, 2);
     }
     // A locked track is dimmed with diagonal lines.
     tracks.forEach((t, i) => {
       if (!t.locked) return;
-      const y = rowTop(i, TRACK);
+      const y = rowTop(i, TRACK, TOP);
       ctx.save();
       ctx.beginPath();
       ctx.rect(HEADER, y, width, TRACK);
@@ -524,7 +525,7 @@ export function drawTimeline(t: TimelineDrawing) {
     const ghost = (a: number, b: number, i: number, label: string, bad?: boolean) => ghostRow(a, b, Math.max(0, i), label, i < 0, bad);
     /** `fresh`: on a track the drop makes, dashed. */
     const ghostRow = (a: number, b: number, row: number, label: string, fresh: boolean, bad?: boolean) => {
-      const gy = clipBox(row, TRACK).y;
+      const gy = clipBox(row, TRACK, TOP).y;
       if (fresh) ctx.setLineDash([5, 4]);
       ctx.beginPath();
       ctx.roundRect(x(a) + 0.5, gy, Math.max(1, (b - a) * pps - 1.5), TRACK - 6, CLIP_RADIUS);
@@ -632,11 +633,11 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.fillStyle = color("well");
     ctx.fillRect(0, 0, HEADER, h);
     tracks.forEach((t, i) => {
-      const y = rowTop(i, TRACK);
+      const y = rowTop(i, TRACK, TOP);
       ctx.fillStyle = color("track-head");
       ctx.fillRect(0, y + 1, HEADER - 1, TRACK - 1);
       ctx.textBaseline = "middle";
-      const icons = headerIcons(i, TRACK, HEADER);
+      const icons = headerIcons(i, TRACK, HEADER, TOP);
       const ny = icons.magnet ? icons.eye[1] : y + TRACK / 2;
       // A name only when the track has one; otherwise its number, faint (Track N to agents and menus).
       if (shownName(t.name)) {
@@ -706,7 +707,9 @@ export function drawTimeline(t: TimelineDrawing) {
 
     function drawPlayhead(ctx: CanvasRenderingContext2D) {
     // One colour, as CapCut, Premiere and Resolve: a pin-shaped head on the ruler over a thin line, its timecode beside it.
-    const ph = x(session.playhead);
+    const space = dragState.current?.kind === "space" && dragState.current.playhead ? dragState.current : undefined;
+    const playhead = space ? space.at + space.d : session.playhead;
+    const ph = x(playhead);
     // Zoomed in, the frame on show is a band from the playhead to the next frame.
     if (pps / fps >= FRAME_SHADE) {
       ctx.fillStyle = color("frame-shade");
@@ -771,7 +774,7 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.closePath();
       ctx.fill();
       // White on the ruler's own colour, as Camtasia's: the ruler's labels underneath don't run into it.
-      const text = timecode(session.playhead, fps);
+      const text = timecode(playhead, fps);
       ctx.font = font(12, 600);
       const tw = ctx.measureText(text).width;
       ctx.fillStyle = color("ruler");
