@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Remove Silences (Longer than, Leave) and Remove Retakes (Repeats, Within) keep the user's last slider settings app-wide, as animation easing is: a review opens with them, in any project, after a relaunch; an agent's settings (`silences_review` with `min`) are for that review only. Kept as preferences with a number range (`preference_list`); changing one doesn't restart transcripts | 2026-10-22 | this commit | UI flow (sliders saved, review closed and reopened with them, an agent's settings not saved) and core test (range checked, read back by a new core, both reviews open with them) |
 | Remove Silences draws every silence found red, picked or not (no grey); the picked ones have a green (accent) outline | 2026-10-22 | this commit | UI flow (two silences red before a pick; after a click, the picked one's outline green and still red inside, the other without one) |
 | The command palette lists the Media Bin once something is typed: each medium by name, with its kind and picture (or its kind's icon), under Media Bin; choosing one puts it on the timeline at the playhead (`edit.addMedia`), selected. The empty palette is unchanged | 2026-10-22 | this commit | UI flow (no media before typing; the recording found by name, shows Recording and Media Bin; clicked, placed at 3 s and selected; screenshot looked at) |
 | Properties tabs by the leader: `: ]` the next tab, `: [` the one before, round the ends; `: E` the fx tab, or the Visual Effects panel on a clip with no effects. Session commands `inspector.step` and `inspector.effects` (MCP tools too), listed in Settings › Shortcuts and the palette | 2026-10-22 | this commit | UI flow (: E with no effects opens Visual Effects, with one the fx tab; : ] from fx wraps to the first, : [ back) |
@@ -30,6 +31,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Remembered review settings: move Remove Silences' sliders, close it, open it again (or in another project): same values. Same for Remove Retakes.
 - Palette media: ⌘K, type part of a medium's name, choose it: it goes in at the playhead.
 - Properties tabs: select a clip, : ] and : [ move through its tabs; : E shows fx (or Visual Effects when it has none).
 - Leader popup: press : and see Color Label in green with a ›.

@@ -294,6 +294,10 @@ export interface SilenceReview {
 
 const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, selected: [] };
 
+/** A review's settings as the user last left them (its sliders), else the defaults. */
+const silenceSettings = (pref: Preferences): SilenceReview => ({ min: Number(pref("silenceMin")), keep: Number(pref("silenceKeep")), selected: [] });
+const retakeSettings = (pref: Preferences): RetakeOptions => ({ minWords: Number(pref("retakeMinWords")), within: Number(pref("retakeWithin")) });
+
 const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
 
 /**
@@ -399,8 +403,8 @@ const silenceSessionCommands: SessionCommandDef[] = [
     description:
       "Open Remove Silences' review (the AI panel's tile does): the timeline marks each silence and the properties panel shows these settings, until silences.apply or silences.close; nothing is cut until the user picks silences (silences.select) and cuts them, or cuts all. With settings, change them. An agent can pick silences for the user to look over",
     args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional() }),
-    apply: (s, a: Partial<SilenceReview>) => {
-      const r = { ...(silenceReview(s) ?? SILENCE_DEFAULTS), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
+    apply: (s, a: Partial<SilenceReview>, { pref }) => {
+      const r = { ...(silenceReview(s) ?? silenceSettings(pref)), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
       openReview(s, "silences", { ...r, keep: Math.min(r.keep, r.min) });
     },
   },
@@ -610,8 +614,8 @@ const retakeSessionCommands: SessionCommandDef[] = [
     description:
       "Open Remove Retakes' review (the AI panel's tile does): the timeline marks each line said more than once, the take kept green and the others red, and the properties panel lists each group's takes, until retakes.apply or retakes.close; with settings, change them. The user sees it, so an agent can prepare the cuts for them to look over",
     args: z.strictObject({ minWords: RetakeSettings.minWords.optional(), within: RetakeSettings.within.optional() }),
-    apply: (s, a: Partial<RetakeOptions>) => {
-      const r = retakeReview(s) ?? { ...RETAKE_DEFAULTS, kept: [] };
+    apply: (s, a: Partial<RetakeOptions>, { pref }) => {
+      const r = retakeReview(s) ?? { ...retakeSettings(pref), kept: [] };
       openReview(s, "retakes", { ...r, ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) });
     },
   },
@@ -741,6 +745,21 @@ export const transcript = defineFeature({
   id: "transcript",
   version: 1,
   preferences: [
+    ...(
+      [
+        ["silenceMin", "Remove Silences: longer than", "Silences longer than this many seconds are found", SILENCE_DEFAULTS.min, { min: 0.2, max: 5 }],
+        ["silenceKeep", "Remove Silences: leave", "Seconds of each cut silence left in, half each side", SILENCE_DEFAULTS.keep, { min: 0, max: 2 }],
+        ["retakeMinWords", "Remove Retakes: repeats", "Words in a row a take must say again to count as a retake", RETAKE_DEFAULTS.minWords, { min: 2, max: 8 }],
+        ["retakeWithin", "Remove Retakes: within", "Seconds between the starts of two takes, at most", RETAKE_DEFAULTS.within, { min: 5, max: 120 }],
+      ] as const
+    ).map(([id, title, description, value, range]) => ({
+      id,
+      title,
+      description: `${description}: where the user last left its slider, which a review opens with`,
+      options: [],
+      default: String(value),
+      range,
+    })),
     {
       id: "transcriber",
       title: "Transcriber",
@@ -859,14 +878,14 @@ export const transcript = defineFeature({
     defineQuery({
       id: "transcript.silences",
       description:
-        "What Remove Silences finds: each silence over `min` seconds (timeline seconds), whether it is screen action (the recording's cursor moved or clicked) and whether it is picked to cut, with the seconds cutting all of them (`saved`) or the picked ones (`selectedSaved`) saves. Settings not given are the defaults (the open review's are in ui_state). `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one). `stacked`: why it can't cut (two voices heard at once)",
+        "What Remove Silences finds: each silence over `min` seconds (timeline seconds), whether it is screen action (the recording's cursor moved or clicked) and whether it is picked to cut, with the seconds cutting all of them (`saved`) or the picked ones (`selectedSaved`) saves. Settings not given are the user's last (the open review's are in ui_state). `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one). `stacked`: why it can't cut (two voices heard at once)",
       args: z.strictObject({
         min: SilenceSettings.min.optional(),
         keep: SilenceSettings.keep.optional(),
         selected: z.array(z.number()).optional().describe("Times inside the silences picked, as silences.select sets"),
       }),
-      run(args, { project, registry, data }) {
-        const o = { ...SILENCE_DEFAULTS, ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) } as SilenceReview;
+      run(args, { project, registry, data, pref }) {
+        const o = { ...silenceSettings(pref), ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) } as SilenceReview;
         const plan = silencePlan(project, registry, data, o);
         const seconds = (ranges: { start: number; end: number }[]) => roundSeconds(cutRanges(project, registry, data, ranges).reduce((n, c) => n + c.end - c.start, 0));
         return { waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
@@ -898,7 +917,7 @@ export const transcript = defineFeature({
         current: z.number().optional().describe("A time in the group being looked at, as retakes.focus sets: `current` answers its index"),
       }),
       run({ minWords, within, kept, cutAll, current }, { project, registry, data, pref }) {
-        const plan = retakePlan(project, registry, data, pref, { minWords: minWords ?? RETAKE_DEFAULTS.minWords, within: within ?? RETAKE_DEFAULTS.within, kept: kept ?? [], cutAll: cutAll ?? [], ...(current === undefined ? {} : { current }) });
+        const plan = retakePlan(project, registry, data, pref, { ...retakeSettings(pref), ...(minWords === undefined ? {} : { minWords }), ...(within === undefined ? {} : { within }), kept: kept ?? [], cutAll: cutAll ?? [], ...(current === undefined ? {} : { current }) });
         const removed = cutRanges(project, registry, data, plan.ranges);
         return {
           waiting: plan.waiting,

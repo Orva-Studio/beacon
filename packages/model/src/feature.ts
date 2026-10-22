@@ -219,6 +219,8 @@ export interface PreferenceDef {
     online?: boolean;
   }[];
   default: string;
+  /** A number in this range instead of one of `options` (then none), kept as its text: a slider's last setting. */
+  range?: { min: number; max: number };
 }
 
 /** A credential an analyzer needs (an API key): kept in the macOS Keychain, never in a file; set by the user. */

@@ -1958,6 +1958,13 @@ per 12 characters past 60, at most 10 s; a newer message restarts the time.
 "Can't move there" named an unnamed track `""`: now "Track N". **Done
 2026-10-22.**
 
+#### Remove Silences and Remove Retakes keep their last settings (the user, 2026-10-22)
+As an animation's easing is kept. **Decided:** app-wide, and only the user's
+slider changes count (an agent's review settings are its own). **Done
+2026-10-22:** preferences can be a number in a `range` (no options); session
+commands read preferences (`SessionContext.pref`); changing such a preference
+restarts no analysis.
+
 #### "open in another process" as a dialog (the user, 2026-10-22)
 Today a status line ("… is open in another process (pid … on …)"). Decided:
 no option to turn autosave off for it (two editors would still overwrite each

@@ -80,6 +80,8 @@ export interface SessionContext {
   registry: FeatureRegistry;
   /** The canvas's fit zoom in percent, reported by the app, for stepping from "fit". */
   fitPercent?: number;
+  /** The app's preferences (a review's last settings). */
+  pref: (id: string) => string;
 }
 
 export interface SessionCommandDef<A = any> {
@@ -695,6 +697,7 @@ export class SessionStore {
     readonly registry: FeatureRegistry,
     project: Project,
     shared: Partial<SharedSession> = {},
+    readonly pref: (id: string) => string = (id) => registry.preferences.get(id)?.default ?? "",
   ) {
     this.#state = defaultSession(project, shared);
     this.commands = new Map([...SESSION_COMMANDS, ...registry.sessionCommands.values()].map((c) => [c.id, c]));
@@ -720,7 +723,7 @@ export class SessionStore {
     const parsed = def.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
-    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent };
+    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref };
     const next = produce(this.#state, (d) => def.apply(d as Session, parsed.data, ctx));
     if (opts.dryRun) return { session: next, changed: changedKeys(this.#state, next) };
     return this.#set(next);

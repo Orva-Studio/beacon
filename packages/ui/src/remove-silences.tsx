@@ -37,7 +37,12 @@ const tenths = (v: number) => Math.round(v * 10) / 10;
  */
 export function SilenceReviewPanel({ project, session, host, found }: { project: Project; session: Session; host: Host; found: Silences | undefined }) {
   const review = reviewOf(session)!;
-  const set = (args: Partial<Review>) => host.run("silences.review", args);
+  // The user's settings are remembered app-wide, as an animation's easing is; an agent's (silences.review) aren't.
+  const set = (args: Partial<Review>) => {
+    host.run("silences.review", args);
+    if (args.min !== undefined) void host.setPreference("silenceMin", String(args.min));
+    if (args.keep !== undefined) void host.setPreference("silenceKeep", String(args.keep));
+  };
   const progress = useTranscribing();
   const tip = useShortcutTip();
   const length = ticksToSeconds(projectDuration(project));

@@ -2599,7 +2599,16 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   await page.click(leave.x + leave.w / 2, leave.y + leave.h / 2);
   for (let i = 0; i < 50 && (await review())?.silences?.keep !== 1; i++) await Bun.sleep(50);
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
+  // The sliders are remembered app-wide: closed and opened again, the review has them; an agent's settings aren't kept.
+  const prefs = async () => Object.fromEntries((await ui.core.preferences()).filter((p) => p.id.startsWith("silence")).map((p) => [p.id, p.value]));
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  await run("silences.close");
+  await run("silences.review");
+  expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   await run("silences.review", { min: 0.6, keep: 0.3 });
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  await ui.core.setPreference("silenceMin", "0.6");
+  await ui.core.setPreference("silenceKeep", "0.3");
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
   // An edit while the review is open: the summary describes the timeline as it is now, not as it was.
   const shows = (text: string) => page.until(`(document.querySelector('[data-silences-summary]')?.textContent ?? '').startsWith(${JSON.stringify(text)})`);

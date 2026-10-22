@@ -66,7 +66,10 @@ export class FeatureRegistry {
     claim(this.secrets, feature.secrets ?? [], "secret", feature.id);
     for (const a of feature.jobAnalyzers ?? []) if (typeof a.needs === "string" && !this.resources.has(a.needs)) throw new Error(`analyzer "${a.id}" needs resource "${a.needs}", which no feature registers`);
     for (const p of feature.preferences ?? []) {
-      if (!p.options.some((o) => o.id === p.default)) throw new Error(`preference "${p.id}": default "${p.default}" isn't one of its options`);
+      if (p.range) {
+        const v = Number(p.default);
+        if (p.options.length || !(v >= p.range.min && v <= p.range.max)) throw new Error(`preference "${p.id}": a range takes no options and a default inside it`);
+      } else if (!p.options.some((o) => o.id === p.default)) throw new Error(`preference "${p.id}": default "${p.default}" isn't one of its options`);
       for (const o of p.options) if (o.secret && !this.secrets.has(o.secret)) throw new Error(`preference "${p.id}": option "${o.id}" needs secret "${o.secret}", which no feature registers`);
     }
     // Both kinds are read by the same key, so an id may be one or the other.

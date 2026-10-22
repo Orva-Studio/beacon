@@ -193,7 +193,7 @@ export class LocalCore implements BeaconCore {
     const p: OpenProject = {
       path,
       store,
-      session: new SessionStore(this.registry, doc, this.#shared),
+      session: new SessionStore(this.registry, doc, this.#shared, this.#pref),
       data,
       frames: new FrameRenderer(this.registry, this.cacheDir),
       ticking: false,
@@ -1049,7 +1049,8 @@ export class LocalCore implements BeaconCore {
   }
 
   async setPreference(id: string, value: string): Promise<void> {
-    if (await this.#config.setPreference(id, value)) this.#analyses.preferenceChanged();
+    // A slider's last setting (a range) decides no analysis, so it mustn't restart transcripts.
+    if ((await this.#config.setPreference(id, value)) && !this.registry.preferences.get(id)!.range) this.#analyses.preferenceChanged();
   }
 
   async secrets(): Promise<SecretInfo[]> {

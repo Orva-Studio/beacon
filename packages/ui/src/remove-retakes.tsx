@@ -116,7 +116,12 @@ function Takes({ group, host, session }: { group: RetakeGroup; host: Host; sessi
 /** Remove Retakes' review, with its settings. */
 export function RetakeReviewPanel({ project, session, host, found }: { project: Project; session: Session; host: Host; found: Retakes | undefined }) {
   const review = retakeReviewOf(session)!;
-  const set = (args: Partial<Review>) => host.run("retakes.review", args);
+  // Remembered app-wide, as Remove Silences' are.
+  const set = (args: Partial<Review>) => {
+    host.run("retakes.review", args);
+    if (args.minWords !== undefined) void host.setPreference("retakeMinWords", String(args.minWords));
+    if (args.within !== undefined) void host.setPreference("retakeWithin", String(args.within));
+  };
   const judging = useView((v) => v.judging);
   const failed = useView((v) => v.judgeFailed);
   const asking = found?.judging.filter((a) => a in judging || !failed[a]) ?? [];

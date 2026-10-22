@@ -140,6 +140,8 @@ export interface PreferenceInfo {
     /** It needs the internet. */
     online?: boolean;
   }[];
+  /** A number in this range instead of one of `options`. */
+  range?: { min: number; max: number };
 }
 
 export type JobState = "running" | "done" | "failed";
