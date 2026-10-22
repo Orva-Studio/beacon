@@ -358,6 +358,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const planned = (ids: string[], by: number, rows: number, ripple: boolean): MoveDrag => {
     const { project } = latest.current;
     const moves = new Map(ids.map((id) => [id, ripple ? 0 : rows]));
+    // As `clip.move` with `linked`: clips linked to a moved one follow it in time but keep their tracks.
+    const links = new Set(project.tracks.flatMap((t) => t.clips).filter((c) => c.linkId && moves.has(c.id)).map((c) => c.linkId));
+    for (const t of project.tracks) for (const c of t.clips) if (c.linkId && links.has(c.linkId) && !moves.has(c.id)) moves.set(c.id, 0);
     if (ripple) {
       for (const t of project.tracks) {
         const mine = t.clips.filter((c) => moves.has(c.id));

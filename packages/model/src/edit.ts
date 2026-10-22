@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { clipSpeed } from "./evaluate";
-import { AssetSchema, ClipSchema, IdSchema, type Asset, type Clip, type Project, type Track } from "./schema";
+import { AssetSchema, ClipSchema, IdSchema, trackName, type Asset, type Clip, type Project, type Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
 import type { Ticks } from "./ticks";
 import type { Animation } from "./schema";
@@ -62,13 +62,13 @@ export function planMove(tracks: Track[], rows: ReadonlyMap<string, number>, by:
   const clip = (id: string) => tracks.flatMap((t) => t.clips).find((c) => c.id === id)!;
   for (const p of placements) {
     const from = tracks.find((t) => t.clips.some((c) => c.id === p.clip))!;
-    if (from.locked) return { placements, error: `track "${from.name}" is locked` };
+    if (from.locked) return { placements, error: `track "${trackName(from, tracks.indexOf(from))}" is locked` };
     if (p.start < 0) return { placements, error: "it would start before the timeline" };
     if (p.track < 0) return { placements, error: "there is no track below" };
     const to = tracks[p.track];
     if (!to) continue;
-    if (to.locked) return { placements, error: `track "${to.name}" is locked` };
-    if (!to.magnetic && !isFree(to, p.start, p.start + clip(p.clip).duration, ids)) return { placements, error: `it would overlap media on "${to.name}"` };
+    if (to.locked) return { placements, error: `track "${trackName(to, p.track)}" is locked` };
+    if (!to.magnetic && !isFree(to, p.start, p.start + clip(p.clip).duration, ids)) return { placements, error: `it would overlap media on "${trackName(to, p.track)}"` };
   }
   // Moved clips can also land on each other: a clip moved onto the track of a linked clip that only moves in time.
   for (const [i, p] of placements.entries()) {

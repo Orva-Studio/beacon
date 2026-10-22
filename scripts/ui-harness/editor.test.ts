@@ -582,6 +582,47 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("dragging a linked clip draws the clips linked to it at the same offset on every frame", async () => {
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  // The camera alone, as the drag sees it in the app when it starts before the press's linked selection comes back.
+  await select([camera.id]);
+  const start = ticksToSeconds(camera.start);
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("playhead.set", { time: 9 });
+  await Bun.sleep(300);
+  const [cam, aud] = [await timelinePlaces(camera.id), await timelinePlaces(audio.id)];
+  const { box, xAt } = cam;
+  // The leftmost accent pixel across the middle of a row: a move's ghost is outlined in it, the clips left behind aren't.
+  const ghostLeft = (p: { y: number; h: number }) =>
+    page.evaluate<number>(`(() => {
+      const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width;
+      const probe = document.createElement('canvas').getContext('2d'); probe.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(); probe.fillRect(0, 0, 1, 1);
+      const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+      const row = c.getContext('2d').getImageData(0, Math.round((${p.y} + ${p.h} / 2) * k), c.width, 1).data;
+      for (let x = 0; x < c.width; x++) if (Math.abs(row[x * 4] - r) + Math.abs(row[x * 4 + 1] - g) + Math.abs(row[x * 4 + 2] - b) < 40) return x / k;
+      return -1;
+    })()`);
+  const y = box.y + cam.y + cam.h / 2;
+  const from = box.x + xAt(start + 1);
+  await page.move(from, y);
+  await page.down(from, y);
+  await page.move(from + 12, y);
+  for (let i = 2; i <= 8; i++) {
+    await page.move(from + i * 12, y);
+    await Bun.sleep(50);
+    const [c, a] = [await ghostLeft(cam), await ghostLeft(aud)];
+    expect(c).toBeGreaterThan(xAt(start));
+    expect(Math.abs(c - a)).toBeLessThan(2);
+  }
+  await page.up(from + 96, y);
+  await Bun.sleep(300);
+  expect(clip(audio.id).start - audio.start).toBe(clip(camera.id).start - camera.start);
+  expect(clip(camera.id).start).toBeGreaterThan(camera.start);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a list; its Import tile imports", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("!!document.querySelector('[data-media-bin]')");
