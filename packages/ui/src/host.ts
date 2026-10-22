@@ -65,6 +65,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     openRecord: (mode) => void request("openRecord", mode ? { mode } : {}),
     startNarration: (microphone, hear) => request("startNarration", { microphone, hear }),
     stopNarration: (discard) => void report(request("stopNarration", discard ? { discard } : {})),
+    recordAccess: (sources) => request("recordAccess", sources),
     recordPreview: (devices) => void request("recordPreview", devices),
     recordFrames: (after) => request("recordFrames", { after }),
     checkSync: (camera, microphone, display, output) => request("checkSync", { camera, microphone, ...(display !== undefined ? { display } : {}), ...(output ? { output } : {}) }),

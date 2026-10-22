@@ -17,6 +17,8 @@ export interface RecordHost extends SyncCheckHost {
   stopNarration(discard?: boolean): void;
   /** The microphones and the last narration choices, for the Narration panel. */
   narrationDevices(): Promise<RecordSheet>;
+  /** Asks macOS for the camera and microphone among them it hasn't been asked about; the permissions then. */
+  recordAccess(sources: RecordSources): Promise<Pick<RecordSheet, "permissions"> & { error?: string }>;
   /** Shows the sources (`recordPreviewEvent` gets their levels, `recordFrames` their frames); with none, stops. */
   recordPreview(sources: RecordSources): void;
   recordFrames(after: number): Promise<RecordFrames>;
@@ -166,7 +168,13 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
   const [checking, setChecking] = useState(false);
   useEffect(() => setS((s) => present(s, sheet)), [sheet.displays, sheet.cameras, sheet.microphones]);
 
-  // Only what Beacon may already use: asking for a permission waits for Record.
+  // macOS asked as soon as a ticked camera or microphone needs it (asked at Record, its prompt came over the
+  // countdown); once answered, the new permissions bring the preview.
+  const unasked = (["camera", "microphone"] as const).filter((k) => s[k] && sheet.permissions[k] === "not asked");
+  useEffect(() => {
+    if (unasked.length && !checking) void host.recordAccess(Object.fromEntries(unasked.map((k) => [k, s[k]]))).then((r) => r.error && setError(r.error));
+  }, [unasked.join(), checking]);
+  // Only what Beacon may already use.
   const granted = (k: keyof RecordSheet["permissions"]) => sheet.permissions[k] === "granted";
   const screen = granted("screen") ? s.screen : undefined;
   const systemAudio = granted("screen") ? s.systemAudio : undefined;
@@ -288,7 +296,11 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
           </div>
         )}
       </div>
-      {error && <div className="mt-4 text-danger">{error}</div>}
+      {error && (
+        <div className="mt-4 text-danger" data-record-error>
+          {error}
+        </div>
+      )}
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={close}>Cancel</Button>
         <Button look="primary" disabled={nothing} onClick={() => start()} data-record-start>

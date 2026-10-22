@@ -26,6 +26,7 @@ if (bundle && patchInfoPlist(join(bundle, "Contents/Info.plist"))) {
 const { captureWindow, DEFAULT_SOCKET, focusPage, LocalCore, serveCore, windowNumber } = await import("@beacon/core");
 const { initPayload, appBridge, coreRequests, projectBridge, settingsSheet } = await import("@beacon/ui");
 const { createRecording } = await import("./recording");
+const { askFor } = await import("./permissions");
 const { createMenus } = await import("./menus");
 const { createProjects } = await import("./projects");
 const { createViews } = await import("./views");
@@ -359,6 +360,13 @@ function openWindow(): Win {
         openRecord: ({ mode }) => openRecord(w, mode),
         startNarration: (params) => (recordFor(w), reply(() => recorder.startNarration(params))),
         stopNarration: (params) => reply(() => recorder.stopNarration(params)),
+        recordAccess: async (sources) => {
+          // The permissions are sent whatever happened: one source asked about may have been answered before another failed.
+          const error = await askFor(core, sources).then(() => undefined, (e: unknown) => errorText(e));
+          const devices = await core.recorderDevices();
+          w.message("recordDevices", devices);
+          return { permissions: devices.permissions, ...(error ? { error } : {}) };
+        },
         recordPreview: (devices) => {
           recorder.clearFrames();
           return reply(() =>
