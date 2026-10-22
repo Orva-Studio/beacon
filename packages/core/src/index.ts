@@ -19,6 +19,7 @@ export {
   locateTrack,
   menuKey,
   MODIFIERS,
+  nestedOf,
   placeCanvas,
   projectDuration,
   SETTINGS_TABS,

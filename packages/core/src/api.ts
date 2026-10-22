@@ -150,7 +150,7 @@ export type JobState = "running" | "done" | "failed";
 
 export interface SecretInfo {
   id: string;
-  /** "Auphonic API key". */
+  /** As Settings shows it ("OpenAI API key"). */
   title: string;
   set: boolean;
 }
@@ -162,7 +162,7 @@ export interface JobInfo {
   state: JobState;
   /** 0–1. */
   progress: number;
-  /** What it is doing now, when it goes through stages ("Uploading", "Auphonic: Audio Processing"). */
+  /** What it is doing now, when it goes through stages ("Uploading", "Downloading"). */
   stage?: string;
   result?: unknown;
   error?: string;
@@ -195,7 +195,17 @@ export interface QueryInfo extends CommandInfo {
 /** What clips can hold: for agents' reference and generated UI. */
 export interface SchemaInfo {
   /** `nested`: the prop group holding the clip type's own tracks (groups, stitched media), if any. */
-  clipTypes: { id: string; description: string; traits: string[]; props: string[]; effects: string[]; nested?: string }[];
+  clipTypes: {
+    id: string;
+    description: string;
+    traits: string[];
+    props: string[];
+    effects: string[];
+    nested?: string;
+    /** Its properties panel tabs, in order (from its groups'). */
+    tabs: { id: string; title: string; icon: string }[];
+    retimes?: boolean;
+  }[];
   /** `defaults`: what a clip without its own values has. */
   props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
   effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string }; needs?: string[]; preparing?: string }[];

@@ -62,6 +62,7 @@ export const transform = defineFeature({
       id: "transform",
       description: "Position (from the canvas centre, y up), scale, rotation and opacity",
       traits: ["visual"],
+      tab: { title: "Visual Properties", icon: "film-strip", order: 1 },
       schema: transformGroup,
       defaults: () => ({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 }),
       animatable: ["x", "y", "scaleX", "scaleY", "rotation", "rotationX", "rotationY", "opacity"],

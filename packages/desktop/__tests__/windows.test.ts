@@ -284,6 +284,16 @@ test("a project another process holds: a dialog naming it; Open a Copy beside it
     expect(note).toStartWith("the user opened this project in the Beacon app");
     expect(core.doc(P).tracks.some((t) => t.name === "From the agent")).toBe(true);
     await projects.closeWindow(windows[0]!);
+    // Let go again, then another project chosen: its calls stay on it rather than joining the one let go.
+    await call("project_open", { path: P });
+    answers.push("letGo");
+    await projects.open(P);
+    const Q = join(dir, "Other.beproj");
+    await call("project_create", { path: Q });
+    await call("track_add", { name: "Only in Other" });
+    expect(core.doc(P).tracks.some((t) => t.name === "Only in Other")).toBe(false);
+    expect((await call("project_describe"))[0]).toContain("Only in Other");
+    await projects.closeWindow(windows[0]!);
 
     // A windowless holder that refuses (busy): asked again, saying why.
     const control = serveControl({ letGo: async () => Promise.reject(new Error("the agent is busy (Export, 40%): try again when it's done")) }, join(dir, "busy.sock"));

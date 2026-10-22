@@ -161,6 +161,47 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   const snip = (await core.run(h, "audio.clean", { preset: "Snipper" })).results.at(-1) as { job: string };
   await expect(waitJob(core, snip.job)).rejects.toThrow(/drifts \d+ ms from start to end/);
   expect((await core.history(h)).undo.length).toBe(before);
+
+  // Moved while Auphonic cleans it: the result no longer fits, so it isn't placed; the file is kept, the move stands.
+  const moving = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
+  await core.run(h, "clip.move", { clip: audio[0]!.id, by: 1, linked: false });
+  await expect(waitJob(core, moving.job)).rejects.toThrow(/edited while Auphonic cleaned it.*kept as .*\.cleaned/);
+  expect((await core.history(h)).undo.length).toBe(before + 1);
+  await core.undo(h);
+
+  // Two cleans at once: each its own file.
+  const twice = await Promise.all([1, 2].map(async () => ((await core.run(h, "audio.clean", { preset: "Echo", polish: false })).results.at(-1) as { job: string }).job));
+  for (const job of twice) await waitJob(core, job);
+  const results = Object.values(core.doc(h).assets).filter((a) => a.name?.endsWith("(Auphonic)")).map((a) => a.path);
+  expect(results).toHaveLength(2);
+  expect(new Set(results).size).toBe(2);
+  await core.undo(h);
+  await core.undo(h);
+
+  // A group's audio, the group open: refused before anything is sent (the bounce would be silence, still charged).
+  const group = (await core.run(h, "clip.group", { clips: audio.map((c) => c.id) })).results[0] as string;
+  await core.run(h, "group.open", { clip: group });
+  const sent = uploads.length;
+  await expect(core.run(h, "audio.clean", { preset: "Echo", clips: [audio[0]!.id] })).rejects.toThrow(/main timeline/);
+  expect(uploads.length).toBe(sent);
+  await core.run(h, "group.close", {});
+  await core.undo(h);
+  await core.run(h, "selection.set", { clips: audio.map((c) => c.id), linked: false });
+
+  // One panel at a time: a review opened over Clean with Auphonic closes it, and the other way round.
+  const panels = async () => {
+    const f = (await core.session(h)).features as { auphonic?: unknown; transcript?: { silences?: unknown } };
+    return { auphonic: !!f.auphonic, silences: !!f.transcript?.silences };
+  };
+  await core.run(h, "auphonic.review", {});
+  await core.run(h, "silences.review", {});
+  expect(await panels()).toEqual({ auphonic: false, silences: true });
+  await core.run(h, "auphonic.review", {});
+  expect(await panels()).toEqual({ auphonic: true, silences: false });
+  // Changing the open panel's settings keeps it open.
+  await core.run(h, "auphonic.review", { polish: false });
+  expect(await panels()).toEqual({ auphonic: true, silences: false });
+  await core.run(h, "auphonic.close", {});
   await expect(core.run(h, "audio.clean", { preset: "Nope" }).then((x) => waitJob(core, (x.results.at(-1) as { job: string }).job))).rejects.toThrow(/no Auphonic preset "Nope"; there are: Echo, Cutter, Snipper/);
   await core.close(h);
 }, 180_000);

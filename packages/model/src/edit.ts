@@ -2,7 +2,7 @@ import { z } from "zod";
 import { clipSpeed } from "./evaluate";
 import { AssetSchema, ClipSchema, IdSchema, trackName, type Asset, type Clip, type Project, type Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import type { Ticks } from "./ticks";
+import { ticksToSeconds, type Ticks } from "./ticks";
 import type { Animation } from "./schema";
 
 /**
@@ -267,6 +267,21 @@ export interface EditScope {
   /** Main-timeline ticks at the scope's time 0: a group's inner clip at `t` shows at `t + offset`. */
   offset: Ticks;
   group?: Clip;
+}
+
+/**
+ * The project with only `ids` of its timeline's clips (exporting or bouncing a selection), those found, and their
+ * span in seconds (0 to 0 when none is).
+ */
+export function onlyClips(project: Project, ids: readonly string[]): { project: Project; found: Clip[]; from: number; to: number } {
+  const keep = new Set(ids);
+  const found = project.tracks.flatMap((t) => t.clips).filter((c) => keep.has(c.id));
+  return {
+    project: { ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => keep.has(c.id)) })) },
+    found,
+    from: found.length ? ticksToSeconds(Math.min(...found.map((c) => c.start))) : 0,
+    to: found.length ? ticksToSeconds(Math.max(...found.map((c) => c.start + c.duration))) : 0,
+  };
 }
 
 /**

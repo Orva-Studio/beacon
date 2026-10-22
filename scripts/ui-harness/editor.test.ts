@@ -723,8 +723,24 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
   expect(await disabled("Audio only")).toBe(true);
   await page.evaluate("[...document.querySelectorAll('button')].find((b) => /^Options/.test(b.textContent ?? ''))?.click()");
   await page.until(`${label("Encode audio")} === "false"`);
+  // Unticked, it's the whole project again, with its sound.
+  await page.evaluate("document.querySelector('[data-export-only]').click()");
+  await page.until(`${label("Encode audio")} === "true"`);
+  expect(await disabled("Audio only")).toBe(false);
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-export-only]')");
+
+  // Clips selected inside an open group: their span, rather than the whole project.
+  const group = (await run("clip.group", { clips: [camera.id, audio.id] })).results[0] as string;
+  await run("group.open", { clip: group });
+  await select([camera.id]);
+  await page.key("e", "KeyE", ["meta"]);
+  await page.until("!!document.querySelector('[data-export-only]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-export-only]').getAttribute('aria-label')")).toStartWith("Export the selection only (");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-export-only]')");
+  await run("group.close", {});
+  await ui.core.undo(ui.handle);
 
   await select([]);
   await page.key("e", "KeyE", ["meta"]);

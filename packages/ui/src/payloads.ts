@@ -1,5 +1,5 @@
 import type { BeaconCore, CoreEvent } from "@beacon/core";
-import { isAudioFormat, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { editScope, isAudioFormat, onlyClips, scopedProject, type Clip, type Project, type Session, type Track } from "@beacon/model";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } from "./rpc";
 
@@ -20,6 +20,8 @@ export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "re
     panelItems: schema.panelItems,
     clipTypes: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.traits])),
     nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
+    tabs: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.tabs])),
+    retimes: schema.clipTypes.filter((c) => c.retimes).map((c) => c.id),
     favorites: await core.favorites(),
     preferences: await core.preferences(),
   };
@@ -49,23 +51,33 @@ export function exportSheetFor(o: {
   settings: ExportSettings;
   audioFormat?: ExportSettings["format"];
   selection?: boolean;
+  /** A group's or stitched clip's own tracks, to find clips selected inside an open group. */
+  nested: (c: Clip) => Track[] | undefined;
 }): ExportSheet | undefined {
-  const chosen = o.project.tracks.flatMap((t) => t.clips).filter((c) => o.session.selection.includes(c.id));
-  const range = o.session.range ?? undefined;
+  const only = onlyClips(o.project, o.session.selection);
+  const chosen = only.found;
+  let range = o.session.range ?? undefined;
+  // Only the main timeline's clips can go alone: those of an open group go as their span, whatever plays there.
+  if (!chosen.length && o.session.selection.length && o.session.group) {
+    const inGroup = onlyClips(scopedProject(o.project, editScope(o.project, o.session.group, o.nested)), o.session.selection);
+    if (inGroup.found.length) range = { in: inGroup.from, out: inGroup.to };
+  }
   if (o.selection && !chosen.length && !range) return undefined;
   let settings = o.settings;
   let clips: ExportSheet["clips"];
   if (chosen.length) {
-    clips = { ids: chosen.map((c) => c.id), in: ticksToSeconds(Math.min(...chosen.map((c) => c.start))), out: ticksToSeconds(Math.max(...chosen.map((c) => c.start + c.duration))) };
+    clips = { ids: chosen.map((c) => c.id), in: only.from, out: only.to };
     const traits = chosen.map((c) => o.traits(c.type));
+    const usual = { format: settings.format, audio: settings.audio };
     if (traits.every((t) => t.includes("audio") && !t.includes("visual"))) settings = { ...settings, format: o.audioFormat ?? "wav", audio: true };
     // A group or stitched clip may hold sound of its own.
     else if (traits.every((t) => !t.includes("audio") && !t.includes("group") && !t.includes("stitched"))) {
       clips.silent = true;
       settings = { ...settings, audio: false, ...(isAudioFormat(settings.format) ? { format: DEFAULT_EXPORT.format } : {}) };
     }
+    if (settings.format !== usual.format || settings.audio !== usual.audio) clips.usual = usual;
   }
-  const selected = !!clips || (!!o.selection && !!range);
+  const selected = !!clips || (!!range && (!!o.selection || range !== o.session.range));
   return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings) };
 }
 

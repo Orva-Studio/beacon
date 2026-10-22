@@ -114,7 +114,12 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
             <Check
               label={`${sheet.clips ? `Export the selected clips only (${sheet.clips.ids.length === 1 ? "1 clip" : `${sheet.clips.ids.length} clips`}, ` : "Export the selection only ("}${clock(span.in, { tenths: true })}–${clock(span.out, { tenths: true })})`}
               checked={selectionOnly}
-              onChange={setSelectionOnly}
+              onChange={(on) => {
+                setSelectionOnly(on);
+                // The format and sound picked for the clips (audio only, no audio track) aren't the whole project's.
+                const usual = sheet.clips?.usual;
+                if (usual) set(on ? { format: sheet.settings.format, audio: sheet.settings.audio } : usual);
+              }}
               data-export-only
             />
           </Row>

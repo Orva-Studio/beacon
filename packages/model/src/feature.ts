@@ -12,6 +12,8 @@ export interface ClipTypeDef {
   description: string;
   /** Prop groups and effects apply to clip types by trait ("visual", "screen", ...). */
   traits: string[];
+  /** Its speed can change though it has no media of its own (stitched pieces): it gets the Clip Speed tab. */
+  retimes?: boolean;
 }
 
 /**
@@ -22,6 +24,8 @@ export interface PropGroupDef {
   id: string;
   description: string;
   traits: string[];
+  /** A tab of its own in the properties panel, by `order` among the clip's (its icon one of the editor's). */
+  tab?: { title: string; icon: string; order: number };
   schema: z.ZodType<Record<string, unknown>>;
   defaults: () => Record<string, unknown>;
   /** Fields animation blocks may target; a target is written `"<group>.<field>"`. */

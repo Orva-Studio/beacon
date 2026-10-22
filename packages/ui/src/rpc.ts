@@ -80,6 +80,10 @@ export interface Init {
   clipTypes: Record<string, string[]>;
   /** Clip type → the prop group holding its own tracks (groups, stitched media). */
   nested: Record<string, string>;
+  /** Each clip type's properties panel tabs, in order. */
+  tabs: Record<string, { id: string; title: string; icon: string }[]>;
+  /** Clip types that can change speed with no media of their own. */
+  retimes: string[];
   socket: string;
   /** App-wide choices (the transcriber), as Settings shows them; `preferences` messages follow changes. */
   preferences: PreferenceInfo[];
@@ -183,7 +187,7 @@ export interface ExportSheet {
   /** Export Selection: the in/out range. */
   range?: { in: number; out: number };
   /** Export Selection with clips selected (it wins over the range): only those, over their span. */
-  clips?: { ids: string[]; in: number; out: number; silent?: boolean };
+  clips?: { ids: string[]; in: number; out: number; silent?: boolean; usual?: Pick<ExportSettings, "format" | "audio"> };
   canvas: { width: number; height: number; fps: number };
 }
 

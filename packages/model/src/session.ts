@@ -91,25 +91,17 @@ export interface SessionCommandDef<A = any> {
   apply: (s: Session, args: A, ctx: SessionContext) => void;
 }
 
-/** The properties panel's tab a clip type's trait gives it, in order. */
-export const TRAIT_TABS = [
-  ["visual", "transform"],
-  ["callout", "callout"],
-  ["region", "region"],
-  ["caption", "caption"],
-  ["cursor", "cursor"],
-  ["audio", "audio"],
-] as const;
-
-/** A clip's properties tabs, in order: its traits', Clip Speed once changed or asked for (`inspector`), Effects when it has any. */
-export function inspectorTabs(clip: Clip, traits: readonly string[], inspector: string): string[] {
-  const tabs: string[] = TRAIT_TABS.filter(([trait]) => traits.includes(trait)).map(([, tab]) => tab);
-  if ((clip.assetId || traits.includes("stitched")) && (clipSpeed(clip) !== 1 || inspector === "speed")) tabs.push("speed");
+/**
+ * A clip's properties tabs, in order: its groups' (`groupTabs`), Clip Speed once changed or asked for (`inspector`)
+ * when it can change speed (`retimes`), Effects when it has any.
+ */
+export function inspectorTabs(clip: Clip, groupTabs: readonly string[], retimes: boolean, inspector: string): string[] {
+  const tabs = [...groupTabs];
+  if ((clip.assetId || retimes) && (clipSpeed(clip) !== 1 || inspector === "speed")) tabs.push("speed");
   if (clip.effects.length) tabs.push("effects");
   return tabs;
 }
 
-/** The clip the properties panel shows: the first selected. */
 const inspected = (s: Session, project: Project) => project.tracks.flatMap((t) => t.clips).find((c) => c.id === s.selection[0]);
 
 /** The tool panels, in sidebar order. */
@@ -629,7 +621,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     apply: (s, { by }, { project, registry }) => {
       const clip = inspected(s, project);
       if (!clip) throw new Error("select a clip to step through its properties");
-      const tabs = inspectorTabs(clip, registry.clipTypes.get(clip.type)?.traits ?? [], s.inspector);
+      const tabs = inspectorTabs(clip, registry.tabsFor(clip.type).map((g) => g.id), !!registry.clipTypes.get(clip.type)?.retimes, s.inspector);
       if (!tabs.length) return;
       const at = Math.max(0, tabs.indexOf(s.inspector));
       s.inspector = tabs[(at + by + tabs.length) % tabs.length]!;
@@ -724,7 +716,14 @@ export class SessionStore {
     if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
     const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref };
-    const next = produce(this.#state, (d) => def.apply(d as Session, parsed.data, ctx));
+    // One panel with Cancel and Apply at a time (a review, Clean with Auphonic): opening one cancels any other.
+    const open = this.registry.panels.filter((p) => p.open(this.#state));
+    const next = produce(this.#state, (d) => {
+      def.apply(d as Session, parsed.data, ctx);
+      if (this.registry.panels.some((p) => !open.includes(p) && p.open(d as Session))) {
+        for (const p of open) if (p.open(d as Session)) this.commands.get(p.cancel)!.apply(d as Session, {}, ctx);
+      }
+    });
     if (opts.dryRun) return { session: next, changed: changedKeys(this.#state, next) };
     return this.#set(next);
   }

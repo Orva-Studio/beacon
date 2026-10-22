@@ -35,13 +35,8 @@ export function Properties({ project: full, session, host, init }: { project: Pr
 
 type Tab = { id: string; title: string; icon: IconName };
 
-const TABS: Record<string, Tab> = {
-  transform: { id: "transform", title: "Visual Properties", icon: "film-strip" },
-  callout: { id: "callout", title: "Annotation Properties", icon: "chat-centered-text" },
-  region: { id: "region", title: "Annotation Properties", icon: "chat-centered-text" },
-  caption: { id: "caption", title: "Caption Properties", icon: "closed-captioning" },
-  cursor: { id: "cursor", title: "Cursor Properties", icon: "pointer" },
-  audio: { id: "audio", title: "Audio Properties", icon: "speaker-high" },
+/** The tabs every clip with media or effects can have; the rest come from its groups (`Init.tabs`). */
+const CLIP_TABS: Record<string, Tab> = {
   speed: { id: "speed", title: "Clip Speed", icon: "gauge" },
   effects: { id: "effects", title: "Effects", icon: "sparkle" },
 };
@@ -65,7 +60,8 @@ function ClipProperties({
   init?: Init;
 }) {
   const traits = init?.clipTypes[clip.type] ?? [];
-  const tabs = inspectorTabs(clip, traits, session.inspector).map((id) => TABS[id]!);
+  const own = new Map((init?.tabs[clip.type] ?? []).map((t): [string, Tab] => [t.id, { ...t, icon: t.icon as IconName }]));
+  const tabs = inspectorTabs(clip, [...own.keys()], !!init?.retimes.includes(clip.type), session.inspector).map((id) => CLIP_TABS[id] ?? own.get(id)!);
   const tab = tabs.find((t) => t.id === session.inspector) ?? tabs[0];
   const value = (group: string, field: string, fallback = 0) => valueAt(clip, session.playhead, group, field, fallback);
   const edit: Edit = (group, fields, label, key) => {

@@ -223,6 +223,7 @@ export const cursor = defineFeature({
       id: "cursor",
       description: "Recorded cursor: size, opacity and smoothing",
       traits: ["cursor"],
+      tab: { title: "Cursor Properties", icon: "pointer", order: 5 },
       schema: cursorGroup,
       defaults: () => ({ scale: 1, opacity: 1, smoothing: 1, smoothAcrossEdits: 0 }),
       animatable: ["scale", "opacity"],

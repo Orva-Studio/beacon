@@ -316,7 +316,7 @@ export const captions = defineFeature({
   ],
   clipTypes: [{ id: "caption", description: "A caption: words from the transcript, shown with the captions' style while they are spoken", traits: ["caption"] }],
   props: [
-    { id: "caption", description: "The caption's words, timed in its media seconds", traits: ["caption"], schema: captionSchema, defaults: () => ({ words: [] }), identity: true },
+    { id: "caption", description: "The caption's words, timed in its media seconds", traits: ["caption"], tab: { title: "Caption Properties", icon: "closed-captioning", order: 4 }, schema: captionSchema, defaults: () => ({ words: [] }), identity: true },
     { id: "captionPlace", description: "Where this caption sits when placed on its own (caption.place), instead of where its track's captions all sit", traits: ["caption"], schema: placeSchema, defaults: () => ({}) },
     {
       id: "captionStyle",

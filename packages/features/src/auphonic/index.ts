@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
-import { clipEnd, defineAction, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Session, type SessionCommandDef } from "@beacon/model";
+import { clipEnd, clipSpeed, defineAction, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Session, type SessionCommandDef } from "@beacon/model";
 
 const KEY = "auphonic-api-key";
 /** Auphonic's API; a test points it at a stand-in. */
@@ -122,7 +122,6 @@ async function samples(path: string, raw: string): Promise<Float32Array> {
   return new Float32Array(await Bun.file(raw).arrayBuffer());
 }
 
-/** A file's sample rate and channels. */
 async function format(path: string): Promise<{ rate: number; channels: number }> {
   const out = String(await runTool([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", path])).trim();
   const [rate, channels] = out.split(",").map(Number) as [number, number];
@@ -214,6 +213,12 @@ const audioClean = defineAction({
   resolve: ({ preset, clips: ids, polish, sibilance }, ctx) => {
     const clips = audioClips(ctx, ids);
     if (!clips.length) throw new Error("select audio first");
+    // The bounce and the placing work on the main timeline: a group's clips would go up as silence, charged.
+    const top = new Set(ctx.project.tracks.flatMap((t) => t.clips.map((c) => c.id)));
+    if (clips.some((c) => !top.has(c.id))) throw new Error("Clean with Auphonic works on the main timeline's audio: close the group and select the group or its audio there");
+    // Edited while Auphonic cleans them (moved, trimmed, split, sped up), the result would no longer fit them.
+    const shape = (c: Clip) => `${c.assetId}:${c.start}:${c.duration}:${c.mediaStart ?? 0}:${clipSpeed(c)}`;
+    const shapes = new Map(clips.map((c) => [c.id, shape(c)]));
     const from = ticksToSeconds(Math.min(...clips.map((c) => c.start)));
     const to = ticksToSeconds(Math.max(...clips.map(clipEnd)));
     const asset = clips[0]!.assetId ? ctx.project.assets[clips[0]!.assetId] : undefined;
@@ -276,24 +281,40 @@ const audioClean = defineAction({
             const back = join(tmp, `back${extname(file.filename!).toLowerCase()}`);
             await Bun.write(back, got);
             say(5, 0.95, "Lining it up");
-            const free = async (suffix: string, ext: string) => {
-              let path = join(env.mediaDir, `${name}.${suffix}${ext}`);
-              for (let n = 2; await Bun.file(path).exists(); n++) path = join(env.mediaDir, `${name}.${suffix} ${n}${ext}`);
-              return path;
+            // Taken by creating it: two cleans of the same audio at once would otherwise both pick the same name.
+            const free = (suffix: string, ext: string) => {
+              for (let n = 1; ; n++) {
+                const path = join(env.mediaDir, `${name}.${suffix}${n > 1 ? ` ${n}` : ""}${ext}`);
+                try {
+                  writeFileSync(path, "", { flag: "wx" });
+                  return path;
+                } catch (e) {
+                  if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+                }
+              }
             };
-            const out = await free("cleaned", ".m4a");
-            // A preset that cut silences or changed speed would no longer line up with the picture: refused.
-            await lineUp(input, back, to - from, tmp, out, async () => {
-              const kept = await free("auphonic", extname(back));
-              await Bun.write(kept, Bun.file(back));
-              return kept;
-            });
-            const { shift: check } = match(await samples(input, join(tmp, "sent.raw")), await samples(out, join(tmp, "out.raw")), 0, Math.min(30, to - from));
-            if (Math.abs(check) > 0.002) throw new Error(`the cleaned audio is ${Math.round(check * 1000)} ms out of step after lining it up`);
+            const out = free("cleaned", ".m4a");
+            try {
+              // A preset that cut silences or changed speed would no longer line up with the picture: refused.
+              await lineUp(input, back, to - from, tmp, out, async () => {
+                const kept = free("auphonic", extname(back));
+                await Bun.write(kept, Bun.file(back));
+                return kept;
+              });
+              const { shift: check } = match(await samples(input, join(tmp, "sent.raw")), await samples(out, join(tmp, "out.raw")), 0, Math.min(30, to - from));
+              if (Math.abs(check) > 0.002) throw new Error(`the cleaned audio is ${Math.round(check * 1000)} ms out of step after lining it up`);
+            } catch (e) {
+              rmSync(out, { force: true });
+              throw e;
+            }
             const added = await env.asset(out, "audio");
             clearInterval(ticking);
             env.progress(1, `On a new track right above the originals, which are muted; the file is ${basename(out)} in the project's media folder`);
             return (ctx) => {
+              const now = new Map(ctx.project.tracks.flatMap((t) => t.clips.map((c) => [c.id, shape(c)] as const)));
+              if ([...shapes].some(([id, was]) => now.get(id) !== was)) {
+                throw new Error(`the audio was edited while Auphonic cleaned it, so the result no longer fits it; it is kept as ${basename(out)} in the project's media folder`);
+              }
               // On a track of its own right above the highest one it cleaned, as the document is now.
               const above = Math.max(-1, ...ctx.project.tracks.flatMap((t, i) => (t.clips.some((c) => ids2.includes(c.id)) ? [i] : []))) + 1;
               const steps: ActionStep[] = [

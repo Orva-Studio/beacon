@@ -46,6 +46,7 @@ export const regions = defineFeature({
       id: "region",
       description: "What the region does to the image under it, its box and strength",
       traits: ["region"],
+      tab: { title: "Annotation Properties", icon: "chat-centered-text", order: 3 },
       schema: regionSchema,
       defaults: () => ({ kind: "blur", width: 400, height: 200, cornerRadius: 6, intensity: 1, invert: false }),
       animatable: ["width", "height", "intensity"],

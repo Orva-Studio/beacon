@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { isAudioFormat, type JobInfo } from "@beacon/core";
+import { isAudioFormat, nestedOf, type JobInfo } from "@beacon/core";
 import { DEFAULT_EXPORT, exportOptions, exportSheetFor, type ExportSettings } from "@beacon/ui";
 import type { App } from "./app";
 
@@ -37,6 +37,7 @@ export function createExports(app: App) {
       project: core.doc(current.path),
       session: await core.session(current.path),
       traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [],
+      nested: nestedOf(core.registry),
       ...prefs,
       selection,
     });

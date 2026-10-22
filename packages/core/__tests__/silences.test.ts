@@ -85,6 +85,13 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences cuts only the silences picked w
   const rb = await core.import(h, [b], { at: 0, track });
   for (const j of rb.jobs) await core.cancelJob(j).catch(() => {});
   const assetB = core.doc(h).assets[rb.assets[0]!]!;
+  // With no transcript yet it holds Remove Silences up while heard; muted, it doesn't.
+  const waiting = async () => ((await core.query(h, "transcript.silences", SETTINGS)) as { waiting: string[] }).waiting;
+  const quiet = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.assetId === assetB.id)!;
+  expect(await waiting()).toContain(assetB.id);
+  await core.run(h, "clip.set", { clip: quiet.id, props: { audio: { muted: true } } });
+  expect(await waiting()).not.toContain(assetB.id);
+  await core.run(h, "clip.set", { clip: quiet.id, props: { audio: { muted: false } } });
   transcribed(core, assetB, { 0: { words: [{ text: "hello", start: 5.1, end: 5.9 }], speech: [[5, 6]] } });
   const stacked = ((await core.query(h, "transcript.silences", SETTINGS)) as Found).stacked;
   expect(stacked).toContain("one voice at a time");

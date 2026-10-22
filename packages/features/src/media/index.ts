@@ -322,6 +322,7 @@ export const media = defineFeature({
       id: "audio",
       description: "Linear gain, a volume envelope (fades, ducking) on top of it, whether the clip is levelled to the project's loudness target, and whether it is muted (out of the mix, the rest kept)",
       traits: ["audio"],
+      tab: { title: "Audio Properties", icon: "speaker-high", order: 6 },
       schema: z.strictObject({ gain: z.number().nonnegative(), volume: z.number().nonnegative(), normalize: z.boolean(), muted: z.boolean() }),
       defaults: () => ({ ...AUDIO_DEFAULTS }),
       animatable: ["volume"],

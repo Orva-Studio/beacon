@@ -275,7 +275,8 @@ function afterCut(t: number, ranges: { start: number; end: number }[]): number {
 /** Media heard on the timeline whose transcript isn't made yet. */
 function untranscribed(project: Project, registry: FeatureRegistry, data: Data): string[] {
   const clips = project.tracks.filter((t) => !t.muted).flatMap((t) => t.clips);
-  return [...new Set(clips.filter((c) => c.assetId && registry.hasTrait(c.type, "audio") && !data<TranscriptData>(c.assetId, "transcript")?.streams[clipStream(c)]).map((c) => c.assetId!))];
+  const heard = clips.filter((c) => c.assetId && registry.hasTrait(c.type, "audio") && !(c.props.audio as { muted?: boolean } | undefined)?.muted);
+  return [...new Set(heard.filter((c) => !data<TranscriptData>(c.assetId!, "transcript")?.streams[clipStream(c)]).map((c) => c.assetId!))];
 }
 
 /** Refuses a cut from the transcript while media heard on the timeline has none yet: it may speak in what would go. */

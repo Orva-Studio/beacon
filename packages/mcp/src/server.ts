@@ -89,6 +89,8 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     if (core !== local && core !== next) (core as { disconnect?: () => void }).disconnect?.();
     current = h;
     core = next;
+    // Another project chosen since letting one go: the next call mustn't join the one let go.
+    handedOver = undefined;
   };
   const save = async (path: string, data: Uint8Array, overwrite: boolean) => {
     const p = expandHome(path);

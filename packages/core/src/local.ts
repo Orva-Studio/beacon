@@ -30,6 +30,7 @@ import {
   type SessionChange,
   placeCanvas,
   rationalToNumber,
+  onlyClips,
   scopedProject,
   assetName,
   type Keys,
@@ -132,19 +133,6 @@ const MAX_SHEET = 100;
 const encoding = ({ output: _, overwrite: _o, from: _f, to: _t, ...rest }: ExportOptions) => rest;
 
 /** In-process core: owns the documents, runs the engine, reads and writes `.beproj` folders (PLAN §7.1). */
-/** The project with only `ids` of its timeline's clips, and their span in seconds: what exporting a selection draws and plays. */
-function onlyClips(doc: Project, ids: string[]): { project: Project; from: number; to: number } {
-  const keep = new Set(ids);
-  const found = doc.tracks.flatMap((t) => t.clips).filter((c) => keep.has(c.id));
-  const missing = ids.find((id) => !found.some((c) => c.id === id));
-  if (missing) throw new Error(`no clip "${missing}" on the timeline`);
-  return {
-    project: { ...doc, tracks: doc.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => keep.has(c.id)) })) },
-    from: ticksToSeconds(Math.min(...found.map((c) => c.start))),
-    to: ticksToSeconds(Math.max(...found.map((c) => c.start + c.duration))),
-  };
-}
-
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
   readonly cacheDir: string;
@@ -525,10 +513,8 @@ export class LocalCore implements BeaconCore {
 
   /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
   async #bounceAudio(p: OpenProject, clips: string[], range: { from: number; to: number }, path: string) {
-    const keep = new Set(clips);
-    const doc = { ...p.store.doc, tracks: p.store.doc.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => keep.has(c.id)) })) };
     mkdirSync(dirname(path), { recursive: true });
-    await renderProject(doc, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
+    await renderProject(onlyClips(p.store.doc, clips).project, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
   }
 
   async transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts: { dryRun?: boolean } = {}): Promise<CommandResult> {
@@ -871,6 +857,8 @@ export class LocalCore implements BeaconCore {
   async export(h: ProjectHandle, opts: ExportOptions): Promise<Job> {
     const p = this.#get(h);
     const only = opts.clips && onlyClips(p.store.doc, opts.clips);
+    const missing = only && opts.clips!.find((id) => !only.found.some((c) => c.id === id));
+    if (missing) throw new Error(`no clip "${missing}" on the timeline`);
     const project = only ? only.project : p.store.doc;
     if (only) opts = { from: only.from, to: only.to, ...opts };
     const output = resolve(opts.output);
