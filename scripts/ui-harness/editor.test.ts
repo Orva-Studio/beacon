@@ -2338,6 +2338,13 @@ test.skipIf(skip)("a review's Apply All and Cancel by their keys, shown on the b
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
   await ui.core.undo(ui.handle);
   expect(length()).toBeCloseTo(before, 3);
+  // ↩ on a focused button presses it: Cancel, tabbed to, cancels rather than applies.
+  await open();
+  await page.evaluate("document.querySelector('[data-silences-cancel]').focus()");
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-silence-review]')");
+  await arrived(() => false, 300);
+  expect(length()).toBeCloseTo(before, 3);
   // No review open: ⎋ is Deselect All and Clear the Range, as it was.
   await select([callout.id]);
   await run("range.set", { in: 1, out: 2 });
@@ -3180,9 +3187,37 @@ test.skipIf(skip)("with more tracks than fit, scrolling up and down moves throug
   await page.wheel(x, box.y + box.h / 2, 300, 0);
   await arrived(() => false, 300);
   expect((await session()).timeline.start).toBeGreaterThan(start);
-  await run("timeline.scroll", { start: 0, top: 0 });
+  await run("timeline.scroll", { start: 0 });
+
+  // Scrolled down, a track header dragged up a row lands one row up, not a scroll's worth further.
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const below = doc().tracks[1]!.id;
+  await page.drag([box.x + 10, box.y + p.y + p.h / 2], [box.x + 10, box.y + p.y + p.h / 2 - 120]);
+  await arrived(() => doc().tracks.findIndex((t) => t.clips.some((c) => c.id === bottom.id)) === 1);
+  expect(doc().tracks.findIndex((t) => t.clips.some((c) => c.id === bottom.id))).toBe(1);
+  expect(doc().tracks[0]!.id).toBe(below);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await Bun.sleep(200);
+
+  // The timeline grown while scrolled to the foot: the bottom row is drawn at the foot, and a click there picks it.
+  const grow = (px: number) => page.evaluate(`(() => { const b = document.querySelector('canvas[data-timeline]').parentElement; b.style.flex = '0 0 ${px}px'; return 0; })()`);
+  await select([]);
+  await grow(box.h - 120);
+  await Bun.sleep(300);
+  await page.wheel(x, box.y + 60, 0, 2000);
+  await arrived(() => false, 300);
+  await grow(box.h);
+  await page.evaluate(`(() => { document.querySelector('canvas[data-timeline]').parentElement.style.flex = ''; return 0; })()`);
+  await Bun.sleep(300);
+  await page.click(box.x + p.xAt((bottom.start + bottom.duration / 2) / 705_600_000), box.y + box.h - 60);
+  await arrived(() => false, 300);
+  expect((await session()).selection).toContain(bottom.id);
+
+  // Tracks removed while scrolled: the offset goes with them, so tracks added later start at the top.
   for (const t of added) await run("track.remove", { track: t });
   await run("timeline.trackHeight", { height });
+  await Bun.sleep(300);
+  expect((await session()).timeline.top ?? 0).toBe(0);
   await select([]);
 }, 30_000);
 

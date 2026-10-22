@@ -143,6 +143,8 @@ export function App({ host }: { host: Host }) {
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
       if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;
+      // Return on a focused button or link presses it, as the keyboard user tabbed there to do.
+      if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button, a[href], [role=button], [role=menuitem], [role=tab]")) return;
       e.preventDefault();
       runAction(host, b);
     };

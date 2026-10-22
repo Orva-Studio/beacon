@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   planMove,
   rationalToNumber,
@@ -82,7 +82,13 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
+  // Rendered again on a resize, so hit testing reads the same clamped offset as drawing.
+  const [, setBoxHeight] = useState(0);
   const TOP = Math.min(session.timeline.top ?? 0, maxTop(tracks.length, TRACK, size.current.h));
+  // An offset past the tracks (some removed, the window grown) is let go, so tracks added later don't scroll to it.
+  useEffect(() => {
+    if (size.current.h && (session.timeline.top ?? 0) > TOP) run("timeline.scroll", { top: TOP });
+  }, [session.timeline.top, TOP]);
 
   const draw = () =>
     drawTimeline({ canvas, latest, size, staticLayer, dragState, settling, snapLine, pickedDiamond, loaded, flashes, HEADER, nested, clipTypes, label, redraw: () => drawRef.current(), dropHit, mediaHit });
@@ -93,6 +99,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       const r = el.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       size.current = { w: r.width, h: r.height };
+      setBoxHeight(r.height);
       const c = canvas.current!;
       c.width = Math.round(r.width * dpr);
       c.height = Math.round(r.height * dpr);
@@ -601,7 +608,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return;
           }
           if (d.kind === "track") {
-            dragState.current = { ...d, to: Math.min(tracks.length - 1, Math.max(0, Math.floor((y - RULER) / TRACK))) };
+            dragState.current = { ...d, to: Math.min(tracks.length - 1, Math.max(0, Math.floor((y - RULER + TOP) / TRACK))) };
             return draw();
           }
           if (d.kind === "height") return setHeight(e.clientY);
