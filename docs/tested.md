@@ -11,12 +11,14 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Film Look's Look menu previews a look on the canvas while the pointer (or ↑↓) is on it, with no edit, save or undo step; leaving the list, Esc, or playing shows the clip as it is; a click (or ↩) applies it in one step. The menu is Beacon's own list (`controls/list-select.tsx`) in place of the native one. 4K original, 1080p view: about 7 ms from hover to frame | 2026-10-21 | this commit | Core test (the view's pixels with a look previewed equal it applied, back exactly after; document, history and an export made meanwhile untouched; playing ends it) and UI flow (hover, off the list, ↓ and Esc, click; offscreen view's pixels) |
 | Lock Track (⌥⇧L) and Mute Track (⌥⇧M): the selected clips' tracks, else the track whose header was clicked last (its header lit while nothing is selected); all on if any is off, else all off, one undo step named as the header's buttons are; in Edit and the ⌄ track menu, the palette, Settings › Shortcuts and MCP (`edit_lockTrack`, `edit_muteTrack`, `track_focus`) | 2026-10-21 | this commit | UI flow (keys lock and unlock, mute and unmute the selected clip's track, one step each; the locked track's clip can't be picked; a header click then the keys unlock it) |
 | Choosing a look in Film Look's Look menu no longer shows a note of what it can't reproduce ("Not in Film Look, from…"), and takes away one left by an imported `.hlook` (whose note still shows) | 2026-10-22 | this commit | UI flow (no note after CineStill 800T; an import's note gone once a look is chosen; fails without the change) |
 
 ### Not checked yet
 
 - Film Look: choose a look; no "Not in Film Look…" note under the menu.
+- Film Look hover: add Film Look to a clip, open the Look menu and move over the looks: the canvas shows each; move off the list or press Esc: back as it was; ↑↓ preview, ↩ or a click applies (one undo step); check it feels smooth sweeping down the list on a 4K clip.
 - Lock Track / Mute Track: select a clip, ⌥⇧L locks its track (padlock lit, clip can't be picked), ⌥⇧L again unlocks; ⌥⇧M mutes and unmutes; with nothing selected, click a track's header and press the keys; both in Edit and the ⌄ menu.
 
 ## 0.10.2 (`fix/remember-easing`)

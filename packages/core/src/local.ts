@@ -38,6 +38,7 @@ import {
   SETTINGS_TABS,
   type SettingsTab,
   type SettingsPatch,
+  withEffectParams,
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -503,6 +504,7 @@ export class LocalCore implements BeaconCore {
     this.#recording.sessionChanged(p, session, changed);
     const view = p.view;
     if (!view || p.ticking) return;
+    if (changed.includes("playing") && session.playing) p.preview = undefined;
     if (changed.includes("playing") && !session.playing) view.pause();
     else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
     else if (changed.includes("playhead")) view.show(session.playhead);
@@ -575,7 +577,7 @@ export class LocalCore implements BeaconCore {
     const view = new LiveView(target, {
       registry: this.registry,
       cacheDir: this.cacheDir,
-      project: () => p.store.doc,
+      project: () => this.#shown(p),
       data: p.data.get,
       onTime: (t) => {
         p.ticking = true;
@@ -598,6 +600,35 @@ export class LocalCore implements BeaconCore {
     }
     this.#analyses.effectJobs(p);
     return view;
+  }
+
+  /** What the canvas shows: the document, with an effect previewed over it. */
+  #shown(p: OpenProject): Project {
+    const doc = p.store.doc;
+    if (!p.preview) return doc;
+    if (p.previewDoc?.doc === doc) return p.previewDoc.shown;
+    let shown = doc;
+    try {
+      shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
+    } catch {
+      // Its clip or effect is gone: nothing left to preview.
+      p.preview = undefined;
+    }
+    p.previewDoc = { doc, shown };
+    return shown;
+  }
+
+  /**
+   * Shows an effect with these params on the canvas without editing it (a look under the pointer); null shows it as
+   * it is again. The document, undo history, saves, agents and exports never see it; playing ends it.
+   */
+  async previewEffect(h: ProjectHandle, preview: { clip: string; effect: string; params: Record<string, unknown> } | null): Promise<void> {
+    const p = this.#get(h);
+    if (preview) withEffectParams(p.store.doc, this.registry, preview.clip, preview.effect, preview.params);
+    if (!preview && !p.preview) return;
+    p.preview = preview ?? undefined;
+    p.previewDoc = undefined;
+    p.view?.refresh();
   }
 
   /** The Media Bin's preview document: the asset alone, placed as importing it would, on a canvas of its picture's size. */

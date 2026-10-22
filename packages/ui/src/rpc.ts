@@ -18,6 +18,13 @@ export { canvasChange } from "./canvas-values";
 export type { CanvasMark };
 
 /** One shortcut from `keymaps/default.json`. */
+/** An effect's params shown on the canvas without an edit. */
+export interface EffectPreview {
+  clip: string;
+  effect: string;
+  params: Record<string, unknown>;
+}
+
 export interface Binding {
   keys: Keys;
   command: string;
@@ -297,6 +304,8 @@ export type AppRPC = {
       trackMenu: { params: { track: string | null }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
+      /** An effect shown with other params on the canvas only, or null to show it as it is (a look under the pointer). */
+      previewEffect: { params: { preview: EffectPreview | null }; response: RunReply };
       /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
       binFrame: { params: { asset: string; time: number }; response: string | null };
       /** Starts a media item's background analysis unless it is running (Remove Silences' missing transcripts). */

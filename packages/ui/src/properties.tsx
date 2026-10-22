@@ -6,7 +6,7 @@ import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -487,24 +487,24 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             <Row label="Look">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {def.presets && (
-                  <Select
+                  <ListSelect
                     value={preset?.id ?? ""}
                     title={preset?.description}
-                    onChange={(e) => {
-                      const p = def.presets!.find((x) => x.id === e.target.value);
-                      if (!p) return;
-                      host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
-                      setReport(undefined);
+                    options={[{ id: "", label: "Custom" }, ...def.presets.map((p) => ({ id: p.id, label: p.title, title: p.description }))]}
+                    onPreview={(id) => {
+                      const p = def.presets!.find((x) => x.id === id);
+                      host.previewEffect(p ? { clip: clip.id, effect: effect.id, params: p.params } : null);
+                    }}
+                    onChange={(id) => {
+                      const p = def.presets!.find((x) => x.id === id);
+                      if (p) {
+                        host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
+                        setReport(undefined);
+                      }
+                      host.previewEffect(null);
                     }}
                     data-effect-preset
-                  >
-                    <option value="">Custom</option>
-                    {def.presets.map((p) => (
-                      <option key={p.id} value={p.id} title={p.description}>
-                        {p.title}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 )}
                 {def.importFile && (
                   <Button look="quiet" title={`Read a look from a .${def.importFile.extensions[0]} file onto these sliders`} onClick={() => void importLook()} data-effect-import>

@@ -2246,16 +2246,25 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
   await ui.core.undo(ui.handle);
 });
 
+/** Opens Film Look's Look menu (Beacon's own list, 41 looks and Custom) and clicks a look. */
+async function pickLook(id: string) {
+  await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
+  await page.click(...(await centre("[data-effect-preset]")));
+  await page.until("document.querySelectorAll('[data-option]').length === 42");
+  await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
+  await page.click(...(await centre(`[data-option="${id}"]`)));
+  await page.until("!document.querySelector('[role=listbox]')");
+}
+
 test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with no note of what it can't do; split tone on hue sliders; Import .hlook… reads a file of your own; each one undo step", async () => {
   await run("effect.add", { clip: screen.id, type: "film-look" });
   await select([screen.id]);
   await run("inspector.tab", { tab: "effects" });
   const fx = () => clip(screen.id).effects.find((e) => e.type === "film-look")!;
   // Its defaults are hance's Default look.
-  await page.until("document.querySelector('[data-effect-preset]')?.value === 'default'");
-  expect(await page.evaluate<number>("document.querySelectorAll('[data-effect-preset] option').length")).toBe(42);
+  await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === 'default'");
   const undo = (await ui.core.history(ui.handle)).undo.length;
-  await page.evaluate("(() => { const s = document.querySelector('[data-effect-preset]'); s.value = 'cinestill-800t'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await pickLook("cinestill-800t");
   await arrived(() => fx().params.halation === 0.7);
   expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
@@ -2273,7 +2282,7 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   await arrived(() => Math.abs(fx().params.shadowHue as number - 180) <= 2);
   // A slider moved: no longer the look, Custom.
   await run("effect.set", { clip: screen.id, effect: fx().id, params: { fade: 0.5 } });
-  await page.until("document.querySelector('[data-effect-preset]')?.value === ''");
+  await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === ''");
   // Import .hlook…: Finder picks a file of your own.
   const file = join(dir, "mine.hlook");
   writeFileSync(file, JSON.stringify({ name: "Mine", params: { fade: 0.3, "white-balance": 2000 } }));
@@ -2285,7 +2294,7 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
   expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
   // A look chosen after it takes the note away.
-  await page.evaluate("(() => { const s = document.querySelector('[data-effect-preset]'); s.value = 'default'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await pickLook("default");
   await page.until("!document.querySelector('[data-effect-report]')");
   // Cancelled in Finder, nothing changes.
   ui.chooseFile(null);
@@ -2295,6 +2304,80 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
   for (let i = 0; i < 6; i++) await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
+}, 30_000);
+
+test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and the arrow keys, with no edit; leaving the list or Esc shows the clip as it is; a click applies in one step", async () => {
+  // The camera, which covers the screen until it is laid out.
+  const camera = clips().find((c) => c.type === "video")!;
+  await run("effect.add", { clip: camera.id, type: "film-look" });
+  await select([camera.id]);
+  await run("inspector.tab", { tab: "effects" });
+  const fx = () => clip(camera.id).effects.find((e) => e.type === "film-look")!;
+  await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === 'default'");
+  // The app's canvas is a native view; here an offscreen one shows what it would.
+  const view = ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: false });
+  try {
+    await run("playhead.set", { time: ticksToSeconds(camera.start) + 1 });
+    view.settle();
+    const pixels = () => Buffer.from(view.flush()!);
+    /** The canvas once it has changed from `from` (or, with `same`, become it). */
+    const shown = async (from: Buffer, same = false) => {
+      for (const end = Date.now() + 5000; Date.now() < end; await Bun.sleep(20)) {
+        const now = pixels();
+        if (now.equals(from) === same) return now;
+      }
+      throw new Error(same ? "the canvas didn't go back" : "the canvas didn't change");
+    };
+    const plain = pixels();
+    const doc = JSON.stringify(ui.core.doc(ui.handle));
+    const steps = (await ui.core.history(ui.handle)).undo.length;
+    const playhead = (await session()).playhead;
+
+    await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
+    await page.click(...(await centre("[data-effect-preset]")));
+    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    const over = async (id: string) => {
+      await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
+      await page.hover(...(await centre(`[data-option="${id}"]`)));
+    };
+    await over("cinestill-800t");
+    const cinestill = await shown(plain);
+    await over("tri-x-400");
+    const bw = await shown(cinestill);
+    expect(bw.equals(plain)).toBe(false);
+    expect(JSON.stringify(ui.core.doc(ui.handle))).toBe(doc);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+    // Off the list, the clip as it is; the list stays open.
+    await page.hover(...(await centre("[data-timeline]")));
+    await shown(plain, true);
+    expect(await has("[role=listbox]")).toBe(true);
+    // The keys move through the looks without moving the playhead; Esc closes and restores.
+    await page.key("ArrowDown", "ArrowDown");
+    const next = await shown(plain);
+    expect(next.equals(cinestill) || next.equals(bw)).toBe(false);
+    await page.key("Escape", "Escape");
+    await shown(plain, true);
+    await page.until("!document.querySelector('[role=listbox]')");
+    expect((await session()).playhead).toBe(playhead);
+    expect(JSON.stringify(ui.core.doc(ui.handle))).toBe(doc);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+
+    // A click applies the look under the pointer, in one step, and the canvas stays as previewed.
+    await page.click(...(await centre("[data-effect-preset]")));
+    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    await over("cinestill-800t");
+    await shown(cinestill, true);
+    await page.click(...(await centre('[data-option="cinestill-800t"]')));
+    await arrived(() => fx().params.halation === 0.7);
+    expect(fx().params.halation).toBe(0.7);
+    expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+    await page.until("!document.querySelector('[role=listbox]')");
+    await Bun.sleep(200);
+    expect(pixels().equals(cinestill)).toBe(true);
+  } finally {
+    ui.core.detachView(ui.handle);
+    while (clip(camera.id).effects.some((e) => e.type === "film-look")) await ui.core.undo(ui.handle);
+  }
 }, 30_000);
 
 test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a percentage", async () => {

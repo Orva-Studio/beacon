@@ -46,6 +46,8 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at, timing: dropTiming() })),
     captureFrame: () => commands.send(() => request("captureFrame", {})),
     frameImage: () => request("frameImage", {}),
+    // Coalesced: sweeping down a list sends only the newest look once the last one is in.
+    previewEffect: (preview) => commands.send(() => request("previewEffect", { preview }), "previewEffect"),
     binFrame: (asset, time) => request("binFrame", { asset, time }),
     analyze: (key, asset) => void request("analyze", { key, asset }),
     favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, ...(index !== undefined ? { index } : {}) })),

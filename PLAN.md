@@ -1979,6 +1979,10 @@ Film Look, from…") is gone (done 2026-10-22, the user's ask); an imported
   restores them exactly, no undo step or save; a click applies in one step;
   ↑↓/↩/Esc), and a core test that the overlay never reaches the document or
   an export.
+- **Done 2026-10-21:** as the spike says: `ListSelect` in `controls/`,
+  `LocalCore.previewEffect` (an overlay through `withEffectParams`, the view
+  only), the `previewEffect` RPC coalesced like a drag. Not an MCP tool (agents
+  see edits, not hovers). Hover to frame about 7 ms on a 4K original.
 
 #### AI B-roll and animations
 Generated footage or animation over a stretch of the talk, made from what is

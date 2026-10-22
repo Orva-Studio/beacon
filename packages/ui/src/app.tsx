@@ -3,7 +3,7 @@ import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session
 import { match, menuKey, runAction, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { Palette } from "./palette";
 import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
-import type { DroppedFile, Narrating, RunReply, TileMenu } from "./rpc";
+import type { DroppedFile, EffectPreview, Narrating, RunReply, TileMenu } from "./rpc";
 import { replica, useView } from "./store";
 import { Properties } from "./properties";
 import { ToolPanel, ToolRail } from "./sidebar";
@@ -54,6 +54,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   captureFrame(): void;
   /** The canvas at the playhead as a PNG data URL, at the canvas size (the eyedropper samples it). */
   frameImage(): Promise<string | null>;
+  /** Shows an effect with other params on the canvas without an edit (a look under the pointer); null ends it. */
+  previewEffect(preview: EffectPreview | null): void;
   binFrame(asset: string, time: number): Promise<string | null>;
   /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
   chooseFile(extensions: string[]): Promise<string | null>;

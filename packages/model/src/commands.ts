@@ -1,3 +1,4 @@
+import { produce } from "immer";
 import { z } from "zod";
 import { defineCommand, type CommandDef } from "./feature";
 import { isFree } from "./edit";
@@ -88,6 +89,15 @@ export const onTrack = (doc: Project, loc: ClipLocation, seconds: number): Ticks
 export function findClip(doc: Project, registry: FeatureRegistry, id: string): ClipLocation {
   for (const loc of walkClips(doc.tracks, registry)) if (loc.clip.id === id) return loc;
   throw new Error(`no clip "${id}"`);
+}
+
+/** The document with one effect's params laid over, the rest shared: shown without being an edit (a look under the pointer). */
+export function withEffectParams(doc: Project, registry: FeatureRegistry, clip: string, effect: string, params: Record<string, unknown>): Project {
+  return produce(doc, (d) => {
+    const fx = findClip(d as Project, registry, clip).clip.effects.find((e) => e.id === effect);
+    if (!fx) throw new Error(`clip "${clip}" has no effect "${effect}"`);
+    Object.assign(fx.params, params);
+  });
 }
 
 /** The clip and every clip linked to it in the same track list. */
