@@ -63,7 +63,7 @@ test.skipIf(!existsSync(AUDIO))(
     // Kept across launches.
     await core.setPreference("transcriber", "apple");
     await core.close(h);
-    expect((await (new LocalCore({ configDir: join(dir, "config") })).preferences())[0]!.value).toBe("apple");
+    expect((await new LocalCore({ configDir: join(dir, "config") }).preferences()).find((p) => p.id === "transcriber")!.value).toBe("apple");
   },
   120_000,
 );

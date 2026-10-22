@@ -1898,6 +1898,32 @@ test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being drag
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("an easing picked on an animation is the one new animations take, until another is picked", async () => {
+  await select([screen.id]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const added = async (at: number) => {
+    await run("playhead.set", { time: at });
+    await run("edit.addAnimation", {});
+    return clip(screen.id).animations.at(-1)!;
+  };
+  const pick = async (easing: string) => {
+    await page.until("!!document.querySelector('[data-animation-easing]')");
+    await page.evaluate(`(() => { const s = document.querySelector('[data-animation-easing]'); s.value = '${easing}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await arrived(() => clip(screen.id).animations.at(-1)!.easing === easing);
+    await arrived(() => ui.menus.includes(`setPreference:animationEasing=${easing}`));
+  };
+  await run("inspector.tab", { tab: "transform" });
+  expect((await added(2)).easing).toBe("easeInOut");
+  await pick("linear");
+  const next = await added(5);
+  expect(next.easing).toBe("linear");
+  expect((await ui.core.preferences()).find((p) => p.id === "animationEasing")?.value).toBe("linear");
+  await pick("easeInOut");
+  expect((await added(8)).easing).toBe("easeInOut");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await ui.core.setPreference("animationEasing", "easeInOut");
+}, 30_000);
+
 test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the diamond clicked turns red", async () => {
   await select([screen.id]);
   await run("playhead.set", { time: 4 });
