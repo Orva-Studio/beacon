@@ -2626,8 +2626,19 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
     for (let i = 0; i < 50 && (await review())?.silences?.selected.length !== n; i++) await Bun.sleep(50);
     return (await found()).silences.filter((x) => x.selected);
   };
+  // Every silence red, unpicked ones too; a picked one outlined in green.
+  const rgb = async (x: number, y: number) => (await page.evaluate<string>(timelinePixel(x - box.x, y - box.y))).split(",").map(Number) as [number, number, number];
+  const red = ([r, g]: [number, number, number]) => r > g + 30;
+  // The outline is stroked just outside the silence.
+  const leftEdge = (x: { start: number }) => [xAt(x.start) - 1, box.y + box.h - 20] as const;
+  expect(red(await rgb(...on(wide!)))).toBe(true);
+  expect(red(await rgb(...on(next!)))).toBe(true);
   await page.click(...on(wide!));
   expect((await picked(1)).map((x) => x.start)).toEqual([wide!.start]);
+  await page.until(`(([r, g]) => g > r + 30)(${timelinePixel(leftEdge(wide!)[0] - box.x, leftEdge(wide!)[1] - box.y)}.split(',').map(Number))`);
+  expect(red(await rgb(...on(wide!)))).toBe(true);
+  const [r, g] = await rgb(...leftEdge(next!));
+  expect(g > r + 30).toBe(false);
   await page.click(...on(next!), ["shift"]);
   expect((await picked(2)).map((x) => x.start).sort()).toEqual([wide!.start, next!.start].sort());
   await page.click(...on(wide!), ["shift"]);

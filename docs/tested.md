@@ -11,6 +11,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Remove Silences draws every silence found red, picked or not (no grey); the picked ones have a green (accent) outline | 2026-10-22 | this commit | UI flow (two silences red before a pick; after a click, the picked one's outline green and still red inside, the other without one) |
 | The command palette lists the Media Bin once something is typed: each medium by name, with its kind and picture (or its kind's icon), under Media Bin; choosing one puts it on the timeline at the playhead (`edit.addMedia`), selected. The empty palette is unchanged | 2026-10-22 | this commit | UI flow (no media before typing; the recording found by name, shows Recording and Media Bin; clicked, placed at 3 s and selected; screenshot looked at) |
 | Properties tabs by the leader: `: ]` the next tab, `: [` the one before, round the ends; `: E` the fx tab, or the Visual Effects panel on a clip with no effects. Session commands `inspector.step` and `inspector.effects` (MCP tools too), listed in Settings › Shortcuts and the palette | 2026-10-22 | this commit | UI flow (: E with no effects opens Visual Effects, with one the fx tab; : ] from fx wraps to the first, : [ back) |
 | The `:` popup marks a group (Color Label): its name in the accent tone with a › at the right, so it reads as opening more keys | 2026-10-22 | this commit | UI flow (the group's tone differs from a single key's; screenshot looked at) |
@@ -37,7 +38,7 @@ feature lands and when it is checked.
 - Linked drag: drag a recording's camera or audio quickly without selecting it first; the other follows the pointer the whole way, no jump on release.
 - Film Look: choose a look; no "Not in Film Look…" note under the menu.
 - Leader key: press : (⇧;) and read the popup; try : C R on a clip, : A on a recording, : P for the palette, Esc to drop it; does it feel better than the old keys? (Roll back = revert its commit.)
-- Remove Silences: open it, nothing is red; click silences (⇧ for more), Cut Selected / ⌫ cuts only those; Cut All cuts the rest; two stacked voices show the error.
+- Remove Silences: open it, every silence is red; click silences (they get a green outline) (⇧ for more), Cut Selected / ⌫ cuts only those; Cut All cuts the rest; two stacked voices show the error.
 - Auphonic: Settings › Audio, paste the Auphonic API key, Save; select a voice clip, Audio Effects › Auphonic, pick a preset, Clean (spends Auphonic minutes): the toast's stages, then the cleaned clip over the original, in sync, the original muted.
 - Clip Mute: audio tab › Mute on a clip; it goes quiet and faded, its volume kept.
 - Polish: Audio Effects › Polish on a voice clip; listen for clicks gone and softer "s" sounds; Sibilance slider audible; nothing out of sync.

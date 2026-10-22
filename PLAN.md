@@ -1952,6 +1952,12 @@ same offset on every frame.
   showed one clip and the others jumped on release. The ghost now adds the
   linked clips as `clip.move` does.
 
+#### Status messages clear themselves (the user, 2026-10-22)
+The top bar's grey line stayed until the next message. Now 5 s, a second more
+per 12 characters past 60, at most 10 s; a newer message restarts the time.
+"Can't move there" named an unnamed track `""`: now "Track N". **Done
+2026-10-22.**
+
 #### "open in another process" as a dialog (the user, 2026-10-22)
 Today a status line ("… is open in another process (pid … on …)"). Decided:
 no option to turn autosave off for it (two editors would still overwrite each
@@ -1973,7 +1979,7 @@ held by another LocalCore.
   Tested in `desktop/__tests__/windows.test.ts` against a real MCP server (the
   dialog is native, so not in the UI harness).
 
-#### NEXT: the user's notes after trying the leader key (2026-10-22)
+#### The user's notes after trying the leader key (2026-10-22)
 The user likes the leader key. Asked for, in this order after the two above:
 1. **Groups look like groups.** In the `:` popup, Color Label… didn't read as
    opening more keys: mark a group plainly (a chevron › and a different tone,
@@ -1993,6 +1999,9 @@ the accent tone with a › at the right, no count; `: E` jumps to the fx tab, or
 on a clip with no effects opens the Visual Effects panel; `: [` / `: ]` wrap
 around; the palette lists media only once something is typed, under a "Media
 Bin" group.
+**Done 2026-10-22**, all four, each its own commit (`inspector.step`,
+`inspector.effects`; palette media show their kind's icon until the bin has
+made their picture).
 
 #### A leader key (the user, 2026-10-22; a trial in its own commit)
 `:` (as in vi) then a key, with a popup of what can follow: : P palette, : A / : V

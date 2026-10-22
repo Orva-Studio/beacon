@@ -39,7 +39,7 @@ interface Props {
   trackMenu: (track: string | null) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
-  /** Spans marked across the tracks while something is reviewed (Remove Silences: red to cut, grey to keep). */
+  /** Spans marked across the tracks while something is reviewed (Remove Silences: every one red, the selected outlined). */
   marks?: TimelineMark[];
   /** A click on a mark (not by the playhead): Remove Silences flips it, or with ⌥ goes to it. */
   markClick?: (mark: TimelineMark, alt: boolean, shift: boolean) => void;

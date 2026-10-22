@@ -232,7 +232,7 @@ export function App({ host }: { host: Host }) {
                 retakes
                   ? retakeMarks(retakes)
                   : silences
-                    ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: s.selected ? "cut" : "keep" }))
+                    ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
                     : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
               }
               markClick={(m, alt, shift) =>
