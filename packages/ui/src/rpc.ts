@@ -183,7 +183,7 @@ export interface ExportSheet {
   /** Export Selection: the in/out range. */
   range?: { in: number; out: number };
   /** Export Selection with clips selected (it wins over the range): only those, over their span. */
-  clips?: { ids: string[]; in: number; out: number };
+  clips?: { ids: string[]; in: number; out: number; silent?: boolean };
   canvas: { width: number; height: number; fps: number };
 }
 

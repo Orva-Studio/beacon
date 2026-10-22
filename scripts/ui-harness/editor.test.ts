@@ -718,6 +718,9 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
   await page.key("e", "KeyE", ["meta"]);
   await page.until("!!document.querySelector('[data-export-only]')");
   expect(await page.evaluate<string | null>(label("Audio only"))).toBe("false");
+  // Nothing selected is heard: Audio only can't be ticked.
+  const disabled = (text: string) => page.evaluate<boolean>(`[...document.querySelectorAll('[role=checkbox]')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(text)})?.disabled ?? false`);
+  expect(await disabled("Audio only")).toBe(true);
   await page.evaluate("[...document.querySelectorAll('button')].find((b) => /^Options/.test(b.textContent ?? ''))?.click()");
   await page.until(`${label("Encode audio")} === "false"`);
   await page.key("Escape", "Escape");
@@ -728,6 +731,7 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
   await page.until("[...document.querySelectorAll('[role=checkbox]')].some((b) => b.getAttribute('aria-label') === 'Audio only')");
   expect(await has("[data-export-only]")).toBe(false);
   expect(await page.evaluate<string | null>(label("Audio only"))).toBe("false");
+  expect(await disabled("Audio only")).toBe(false);
   await page.key("Escape", "Escape");
 }, 90_000);
 

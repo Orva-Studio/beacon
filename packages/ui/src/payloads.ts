@@ -1,5 +1,6 @@
 import type { BeaconCore, CoreEvent } from "@beacon/core";
 import { isAudioFormat, ticksToSeconds, type Project, type Session } from "@beacon/model";
+import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } from "./rpc";
 
 /**
@@ -37,7 +38,7 @@ export const exportCanvas = ({ width, height, fps }: Project["settings"]) => ({ 
 /**
  * The Export sheet for ⌘E, or Export Selection… (`selection`, undefined with nothing to export): the selected clips
  * (only those, over their span), else the in/out range, else the whole project. Only audio clips start on the last
- * audio format; only pictures (screen, camera) on no audio track.
+ * audio format; with none (screen, camera), nothing is heard: no audio track, and no audio-only export.
  */
 export function exportSheetFor(o: {
   name: string;
@@ -58,7 +59,11 @@ export function exportSheetFor(o: {
     clips = { ids: chosen.map((c) => c.id), in: ticksToSeconds(Math.min(...chosen.map((c) => c.start))), out: ticksToSeconds(Math.max(...chosen.map((c) => c.start + c.duration))) };
     const traits = chosen.map((c) => o.traits(c.type));
     if (traits.every((t) => t.includes("audio") && !t.includes("visual"))) settings = { ...settings, format: o.audioFormat ?? "wav", audio: true };
-    else if (traits.every((t) => t.includes("visual") && !t.includes("audio")) && !isAudioFormat(settings.format)) settings = { ...settings, audio: false };
+    // A group or stitched clip may hold sound of its own.
+    else if (traits.every((t) => !t.includes("audio") && !t.includes("group") && !t.includes("stitched"))) {
+      clips.silent = true;
+      settings = { ...settings, audio: false, ...(isAudioFormat(settings.format) ? { format: DEFAULT_EXPORT.format } : {}) };
+    }
   }
   const selected = !!clips || (!!o.selection && !!range);
   return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings) };

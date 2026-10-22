@@ -71,6 +71,8 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
   // The selected clips, else a range on the timeline, are what gets exported unless unticked.
   const [selectionOnly, setSelectionOnly] = useState(!!(sheet.clips ?? sheet.range));
   const span = sheet.clips ?? sheet.range;
+  // Only pictures are being exported: there is nothing to hear.
+  const silent = !!sheet.clips?.silent && selectionOnly;
   // The format last picked on the other side of Audio only, to come back to.
   const [other, setOther] = useState<ExportSettings["format"]>(isAudioFormat(sheet.settings.format) ? DEFAULT_EXPORT.format : "wav");
   const set = (patch: Partial<ExportSettings>) => setS((x) => ({ ...x, ...patch }));
@@ -130,7 +132,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
           <Button onClick={() => setAdvanced((a) => !a)}>{advanced ? "Hide Options" : "Options…"}</Button>
         </Row>
         <Row label="">
-          <Check label="Audio only" checked={audioOnly} onChange={() => (setOther(s.format), pick(other))} />
+          <Check label="Audio only" checked={audioOnly} disabled={silent} title={silent ? "The selected clips have no sound" : undefined} onChange={() => (setOther(s.format), pick(other))} />
         </Row>
       </div>
       {advanced && (
@@ -210,7 +212,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
               <div className="mt-1 text-text-strong">Audio</div>
               {!audioOnly && (
                 <Row label="">
-                  <Check label="Encode audio" checked={s.audio} onChange={(audio) => set({ audio })} />
+                  <Check label="Encode audio" checked={s.audio} disabled={silent} title={silent ? "The selected clips have no sound" : undefined} onChange={(audio) => set({ audio })} />
                 </Row>
               )}
               {s.audio && s.format !== "wav" && (
