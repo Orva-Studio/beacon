@@ -24,6 +24,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Media an edit brings in (Clean with Auphonic's result, a paste, `asset.add`) gets the analyses an import's does: with the app's view open, its waveform and proxy, and its transcript. The cleaned clip had none (preview analyses started only on import, opening, Locate and Replace) | 2026-10-22 | this commit | UI flow (a view open, Clean: the cleaned media's waveform shows in the Media Bin; fails without the change) |
 | Clean with Auphonic's requests each use a connection of their own (Bun had kept a polling one for reuse and waited on it for good once Auphonic dropped it: a 143 KB download sat 12 min) and give up after 60 s (an upload or download 5 min), a read tried once more; the upload and start aren't retried, so no production is made twice | 2026-10-22 | this commit | Core test (the stand-in's first download never answers: given up and tried again, the clean finishes); the real download checked read-only with the user's key (302 to Cloudflare R2, which Bun asks without the key: 200 in 0.6 s) |
 | Clean with Auphonic lines Auphonic's file up itself (it refused the user's real result: 44.1 kHz stereo, 46 ms of encoder padding, 0.15 s longer): offsets measured at about 11 places with enough to go on, the padding taken off by the samples, rate, channels and length made the sent audio's, saved as `<name>.cleaned.m4a` and checked within 2 ms. Refused, Auphonic's file kept as `<name>.auphonic.m4a`, when the places disagree (a cut partway) or the length is off by over 0.5 s. A single small cut in the first seconds could pass | 2026-10-22 | this commit | Core test with an Auphonic-like stand-in (Echo lined up at 48 kHz and placed; Cutter refused, file kept; Snipper's 0.3 s cut at 100 s caught) and UI flow |
 | Clean with Auphonic takes whatever audio the preset makes, M4A first, then MP3, then WAV, FLAC and the rest (it refused all but WAV and FLAC, after Auphonic had cleaned and charged; the user's Usual-2 makes neither); still refused past 10 ms out of step | 2026-10-22 | this commit | Core test (a stand-in offering WAV, MP3 and M4A: the M4A taken, in step and as loud) and UI flow (WAV only: taken) |
@@ -46,6 +47,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Auphonic: the cleaned clip shows its waveform (on the timeline and in the Media Bin) within a few seconds.
 - Auphonic toast: the stage number and seconds tick; when done it says where the file is; the cleaned clip sits on a new track right above the audio.
 - Auphonic on a short clip: the upload is quick now (an M4A), and the cleaned clip sounds in sync.
 - Auphonic follows the selection: open it, click other audio clips (the summary follows), click empty timeline (the warning), Select All Audio (the heard audio selected).

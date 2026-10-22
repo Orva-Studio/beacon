@@ -518,10 +518,7 @@ export class LocalCore implements BeaconCore {
       });
       if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
       const plan = finish(this.#actionContext(p));
-      const had = new Set(Object.keys(p.store.doc.assets));
       const r = this.#applyPlan(p, plan, plan.label);
-      const added = Object.keys(p.store.doc.assets).filter((a) => !had.has(a));
-      if (added.length) this.#analyses.importAnalyses(p, added);
       return { label: plan.label, results: r.results };
     });
   }
@@ -794,6 +791,12 @@ export class LocalCore implements BeaconCore {
     } catch (e) {
       this.#emit(p, { kind: "error", message: `could not save ${p.path}: ${e instanceof Error ? e.message : e}` });
       throw new Error(`the change was made but could not be saved to ${p.path}: ${e instanceof Error ? e.message : e}`);
+    }
+    // Media an edit brought in (a task's result, a paste, asset.add), as an import would: waveforms, proxies, transcripts.
+    const added = (change.patches as { op: string; path: (string | number)[] }[]).flatMap((x) => (x.op === "add" && x.path[0] === "assets" && x.path.length === 2 && p.store.doc.assets[x.path[1]!] ? [String(x.path[1])] : []));
+    if (added.length) {
+      if (p.view) this.#analyses.previewJobs(p);
+      this.#analyses.importAnalyses(p, added);
     }
     return change;
   }

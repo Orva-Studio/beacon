@@ -3697,6 +3697,8 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     // The panel left open finds the key: the presets, with no reopening.
     await page.until("document.querySelector('[data-auphonic-preset]')?.value === 'p-u'");
     expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toContain("1 clip");
+    // A view open, as the app's window is: media an edit adds then gets its waveform with no one asking.
+    ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: true });
     await page.click(...(await centre("[data-auphonic-start]")));
     await page.until("!document.querySelector('[data-auphonic-review]')");
     await page.until("(document.querySelector('[data-task-state=running]')?.parentElement?.textContent ?? '').includes('Auphonic: Audio Processing')", 10_000);
@@ -3711,7 +3713,11 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     expect((clip(audio.id).props.audio as { muted: boolean }).muted).toBe(true);
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Clean with Auphonic");
     expect((await session()).selection).toEqual([cleaned.id]);
+    // Its media gets a waveform, as an import's does.
+    await run("panel.show", { tool: "media" });
+    await page.until(`!!document.querySelector('[data-asset="${cleaned.assetId}"] [data-waveform]')`, 60_000);
   } finally {
+    ui.core.detachView(ui.handle);
     fake.stop(true);
     delete process.env.BEACON_AUPHONIC_URL;
     delete process.env.BEACON_AUPHONIC_POLL_MS;
@@ -3720,7 +3726,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await run("panel.show", { tool: null });
     await select([]);
   }
-}, 60_000);
+}, 120_000);
 
 test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
   await page.evaluate(`(() => {
