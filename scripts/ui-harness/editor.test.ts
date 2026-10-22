@@ -3335,6 +3335,26 @@ test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audi
   await select([]);
 }, 30_000);
 
+test.skipIf(skip)("Polish in Audio Effects, double-clicked with audio selected: the clip gets it in one step, with Remove Clicks, Repair Clipping and Sibilance; again, it says it is already polished", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const audio = clips().find((c) => c.type === "audio")!;
+  await select([audio.id]);
+  await run("panel.show", { tool: "audioEffects", properties: true });
+  const tile = `[data-item="audio:polish"]`;
+  await page.until(`!!document.querySelector('${tile}')`);
+  await page.dblclick(...(await centre(tile)));
+  await arrived(() => clip(audio.id).effects.some((e) => e.type === "polish"));
+  expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("['Remove Clicks', 'Repair Clipping', 'Sibilance'].every((l) => document.body.innerText.includes(l))");
+  await page.dblclick(...(await centre(tile)));
+  await page.until("document.body.innerText.includes('already polished')");
+  expect(clip(audio.id).effects.filter((e) => e.type === "polish").length).toBe(1);
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 30_000);
+
 test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
   await page.evaluate(`(() => {
     window.__effects = [];

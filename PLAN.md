@@ -2133,6 +2133,13 @@ into Beacon, so audio is never edited outside it and nobody installs tuneup
   only costs nothing),
   `job_status` follows it, `audio.useCleaned` flips a clip back and forth.
 
+**Polish done 2026-10-21, as a live effect instead of a baked file:** an
+Audio Effects tile, Polish (`adeclick`, `adeclip`, `deesser` added to
+build-tools.ts), drawn like Noise Removal: free, offline, undoable, nothing
+written. The Auphonic job's Polish choice puts this effect on the cleaned clip
+rather than running a pass. Gotcha: these filters lose a seeked input's
+timestamps, so the chain ends in `asetpts=N/SR/TB`.
+
 **Decided (the user, 2026-10-21; Phase 11 since 2026-10-22):** built beside B-roll (both
 are paid cloud jobs reviewed in the sidebar); the selected part by default.
 **Open:** whether audio already cleaned is reused when exactly the same
