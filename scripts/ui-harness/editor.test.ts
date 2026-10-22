@@ -2243,7 +2243,7 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, a click flips one, Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
+test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and keep, ⌥-click flips one, a click picks one for ⌫ to cut alone; Apply cuts what it said in one undo step; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
@@ -2282,13 +2282,13 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await ui.core.undo(ui.handle);
   await shows(reviewed);
   const first = await found();
-  // The widest silence to cut, clicked in the middle of its band on the timeline: kept now.
+  // The widest silence to cut, ⌥-clicked in the middle of its band on the timeline: kept now.
   const target = first.silences.filter((x) => x.cut).sort((a, b) => b.end - b.start - (a.end - a.start))[0]!;
   const s = await session();
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   const header = headerWidth(ui.core.doc(ui.handle).tracks);
   const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20, ["alt"]);
   for (let i = 0; i < 50 && !(await review())?.silences?.flipped.length; i++) await Bun.sleep(50);
   const flipped = await found();
   expect(flipped.silences.find((x) => x.start === target.start)!.cut).toBe(false);
@@ -2310,6 +2310,28 @@ test.skipIf(skip)("Remove Silences reviews on the timeline: marks to cut and kee
   await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
   await page.until("!document.querySelector('[data-silence-review]')");
   expect(length()).toBeCloseTo(before, 3);
+
+  // A plain click picks a silence, keeping it as it was; ⌫ then cuts that one alone, one undo step.
+  await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+  await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
+  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("then ⌫ to cut it");
+  await page.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
+  await page.until("(document.querySelector('[data-one-at]')?.textContent ?? '').includes(' of ')");
+  const picked = (await review()) as { silences: { flipped: number[]; current?: number } };
+  expect(picked.silences.flipped).toEqual([]);
+  expect(picked.silences.current).toBeCloseTo(target.start, 2);
+  const cutUndo = (await ui.core.history(ui.handle)).undo.length;
+  await page.key("Backspace", "Backspace", [], ["deleteBackward"]);
+  await arrived(() => length() < before);
+  const each = (await ui.core.query(ui.handle, "transcript.silences", { min: 0.6, keep: 0.3, keepActive: false, flipped: [] })) as Found;
+  expect(each.silences.length).toBe(first.silences.length - 1);
+  expect(before - length()).toBeLessThan(target.end - target.start);
+  expect(before - length()).toBeGreaterThan(target.end - target.start - 0.5);
+  expect((await ui.core.history(ui.handle)).undo.length - cutUndo).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(length()).toBeCloseTo(before, 3);
+  await page.evaluate("document.querySelector('[data-silences-cancel]').click()");
+  await page.until("!document.querySelector('[data-silence-review]')");
   await run("panel.show", { tool: null });
 }, 150_000);
 

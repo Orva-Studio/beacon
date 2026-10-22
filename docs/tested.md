@@ -16,6 +16,7 @@ feature lands and when it is checked.
 | Remove Filler Words never cuts into a kept word: an edge that rounding to whole frames would take into a neighbour goes to the filler's side (it took 3–14 ms of one in 8 places on 3 of the user's takes, e.g. the "p" of "padding?") | 2026-10-21 | this commit | Core test (a touching "uh," and an "um" a few ms from each neighbour at 30 fps: no cut overlaps a kept word, one undo exact; fails without the fix); the probe over the user's takes: no filler cut into a kept word |
 
 | The timeline scrolls up and down when there are more tracks than fit: a vertical swipe or wheel moves through them (the bottom tracks were out of reach), a sideways one still moves through time, and with every track in view vertical still moves through time as before; rows under the ruler are hidden; `timeline.scroll` takes `top` for agents | 2026-10-21 | this commit | UI flow (tracks 120 points tall until they overflow: a wheel down scrolls to the last, a click there selects the bottom track's clip, a sideways wheel moves time; fails without the change) |
+| In Remove Silences' review a click on a silence picks it (outlined, one at a time on it) and ⌫ or Cut This One cuts that one alone, one undo step; ⌥-click keeps or cuts one (a click did); the panel says so | 2026-10-21 | this commit | UI flow (⌥-click flips; a click picks without flipping, ⌫ cuts only it in one undo step, the hint shows the user's Delete key; fails without the change) |
 | Codex review fixes: a title card before the talk kept whole by Remove Silences (it was cut with the pause after it) and to the frame with Keep 0; Remove Filler Words keeps a short word next to a filler and a word written overlapping one; a track header dragged while scrolled lands where dropped; clicks after the timeline is resized hit the rows drawn; the scroll offset let go when tracks are removed; ↩ on a focused button presses it | 2026-10-21 | this commit | Core tests (fillers, title card) and UI flows (scrolled reorder, resize, removed tracks, ↩ on Cancel); each fails without its fix |
 | A Shift-drag on the playhead takes the playhead with it: it follows the pointer as the time opens or closes and stays where the space ends (it stayed where the drag began) | 2026-10-21 | this commit | UI flow (the playhead drawn at the pointer mid-drag, then at 5.5 after opening time at 5 and at 2 after closing it back to the clip; fails without the fix) |
 
@@ -26,6 +27,7 @@ feature lands and when it is checked.
 - Scrolling up and down through the tracks on 3-shorts (8 tracks), and sideways through time.
 - Remove Filler Words on your Yeti take (2026-10-14 18.22.21): "Is it top, uh, padding?" at 57 s keeps the "p".
 - Shift-dragging the playhead left and right: the playhead moves with the clips.
+- Remove Silences: click a silence, then ⌫, cuts just that one; ⌥-click turns one to keep.
 
 ## Phase 10 (`phase-10`)
 
