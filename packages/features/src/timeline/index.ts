@@ -291,4 +291,16 @@ export const timeline = defineFeature({
   queries,
   normalize: packMagnetic,
   actions: [...actions, ...animationActions],
+  preferences: [
+    {
+      id: "animationEasing",
+      title: "Animation easing",
+      description: "How a new animation (Add Animation, ⇧A, an animation tile) moves; picking an easing on an animation makes it the one new animations take",
+      options: [
+        { id: "easeInOut", title: "Ease in and out", description: "Starts and ends gently" },
+        { id: "linear", title: "Linear", description: "The same speed throughout" },
+      ],
+      default: "easeInOut",
+    },
+  ],
 });

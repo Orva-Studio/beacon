@@ -638,7 +638,12 @@ function AnimationSection({ clip, id, host }: { clip: Clip; id: string; host: Ho
       <Row label="Easing">
         <Select
           value={anim.easing}
-          onChange={(e) => host.run("animation.set", { clip: clip.id, animation: id, easing: e.target.value }, "Animation Easing")}
+          data-animation-easing
+          onChange={(e) => {
+            host.run("animation.set", { clip: clip.id, animation: id, easing: e.target.value }, "Animation Easing");
+            // New animations take the easing last picked, until another is.
+            void host.setPreference("animationEasing", e.target.value);
+          }}
         >
           <option value="easeInOut">Ease in and out</option>
           <option value="linear">Linear</option>
