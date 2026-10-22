@@ -368,7 +368,7 @@ function openWindow(): Win {
         binMenu: (params) => menus.binMenu(params),
         tileMenu: (params) => void menus.tileMenu(params),
         recentMenu: ({ path }) => void menus.recentMenu(path),
-        dropFiles: ({ files, time, track }) => reply(() => projects.dropFiles(w, files, { time, track })),
+        dropFiles: ({ files, time, track, timing }) => reply(() => projects.dropFiles(w, files, { time, track }, timing)),
         trackMenu: (params) => menus.trackMenu(params),
         captureFrame: () =>
           reply(async () => {

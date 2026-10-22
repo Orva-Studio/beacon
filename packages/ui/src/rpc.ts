@@ -292,7 +292,7 @@ export type AppRPC = {
       /** Import Media…'s file picker (the Media Bin's Import tile). */
       importMedia: { params: {}; response: void };
       /** Files dragged in from Finder: imported at `time` on `track` (a drop on the timeline), else after the last clip. */
-      dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string }; response: RunReply };
+      dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string; timing?: { over?: number; drop?: number; read?: number } }; response: RunReply };
       /** A track's menu, or the track options (null). */
       trackMenu: { params: { track: string | null }; response: void };
       captureFrame: { params: {}; response: RunReply };

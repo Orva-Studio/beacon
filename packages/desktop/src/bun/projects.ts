@@ -265,8 +265,18 @@ export function createProjects(app: ProjectsApp) {
   }
 
   /** Files dropped or pasted on `w`, as Finder or the clipboard gave them; those with only their bytes saved into its project. */
-  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }) =>
-    importPaths(w, await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {}), at);
+  const dropFiles = async (w: ProjectWindow, files: DroppedFile[], at: { time?: number; track?: string }, timing: { over?: number; drop?: number; read?: number } = {}) => {
+    const got = Date.now();
+    const paths = await findDropped(files, w.current ? { folder: join(w.current.path, "media") } : {});
+    const found = Date.now();
+    const result = await importPaths(w, paths, at);
+    // Where a drop's time goes, from the drag's last move over the window to the clip on the timeline: always when it was slow.
+    if (process.env.BEACON_PROFILE || Date.now() - (timing.over ?? got) > 1000) {
+      const ms = (a?: number, b?: number) => (a === undefined || b === undefined ? "?" : `${b - a}`);
+      console.log(`[drop] ${files.map((f) => `${f.name} ${f.size} B${f.data === undefined ? "" : " +bytes"}`).join(", ")}: last over→drop ${ms(timing.over, timing.drop)} ms, read ${ms(timing.drop, timing.read)} ms, to main ${ms(timing.read, got)} ms, find ${found - got} ms, import ${Date.now() - found} ms`);
+    }
+    return result;
+  };
 
   /** File > New Project: `w` asks for the name, then `createProject`. */
   function newProject(w: ProjectWindow) {

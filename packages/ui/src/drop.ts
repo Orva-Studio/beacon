@@ -81,10 +81,15 @@ export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: 
  */
 export function acceptFiles(e: { dataTransfer: DataTransfer | null; preventDefault(): void }): boolean {
   if (!e.dataTransfer?.types.includes("Files")) return false;
+  timing.over = Date.now();
   e.preventDefault();
   e.dataTransfer.dropEffect = "copy";
   return true;
 }
+
+/** When the last drag of files was last over the window, dropped, and its files read (ms since the epoch), for `BEACON_PROFILE`. */
+const timing: { over?: number; drop?: number; read?: number } = {};
+export const dropTiming = () => ({ ...timing });
 
 /** Images up to this size travel with their bytes, for when they have no path to be found by (`DroppedFile.data`). */
 const CARRIED = 64 * 1024 * 1024;
@@ -103,13 +108,15 @@ const base64 = (f: Blob) =>
  * an image's bytes. Their list is taken at once: the event's `DataTransfer` is emptied once it is handled.
  */
 export function droppedFiles(dt: DataTransfer): Promise<DroppedFile[]> {
+  timing.drop = Date.now();
   const uris = dt.getData("text/uri-list").split(/\r?\n/).filter((u) => u.startsWith("file://"));
-  return Promise.all(
+  const read = Promise.all(
     [...dt.files].map(async (f, i) => {
       const data = f.type.startsWith("image/") && f.size <= CARRIED ? await base64(f) : undefined;
       return { name: f.name, size: f.size, lastModified: f.lastModified, ...(uris[i] ? { uri: uris[i] } : {}), ...(data !== undefined ? { data } : {}) };
     }),
   );
+  return read.then((files) => ((timing.read = Date.now()), files));
 }
 
 /** What Beacon puts on the system clipboard when it copies clips, so a later ⌘V knows an image copied since is newer. */
