@@ -21,7 +21,10 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
   const [preset, setPreset] = useState<string>();
   const [polish, setPolish] = useState(true);
   const [sibilance, setSibilance] = useState(0.2);
+  // Asked again when Settings closes: the key may just have been added there.
+  const settingsOpen = useView((v) => !!v.settings);
   useEffect(() => {
+    if (settingsOpen) return;
     let live = true;
     host.query("auphonic.presets").then(
       (p) => {
@@ -33,7 +36,7 @@ export function AuphonicPanel({ project, session, host }: { project: Project; se
       (e: Error) => live && setPresets({ error: e.message }),
     );
     return () => void (live = false);
-  }, [host]);
+  }, [host, settingsOpen]);
   const clips = project.tracks.flatMap((t) => t.clips).filter((c) => review.clips.includes(c.id));
   const seconds = clips.length ? ticksToSeconds(Math.max(...clips.map(clipEnd)) - Math.min(...clips.map((c) => c.start))) : 0;
   const ready = Array.isArray(presets) && !!preset && clips.length > 0;

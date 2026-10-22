@@ -1958,6 +1958,21 @@ the app, as `project_open` does). A lock left by a process that is gone is
 cleared without asking (check it already is). Test: a UI flow with the lock
 held by another LocalCore.
 
+#### Then: the user's notes after trying the leader key (2026-10-22)
+The user likes the leader key. Asked for, in this order after the two above:
+1. **Groups look like groups.** In the `:` popup, Color Label… didn't read as
+   opening more keys: mark a group plainly (a chevron › and a different tone,
+   or a count, "6 colours"), so it is clear more choices follow.
+2. **Properties tabs by the leader.** Leader keys to move the properties
+   panel's tab left and right (e.g. `: [` and `: ]`, or `: H` / `: L` vi-style:
+   ask, as `: L` is Lock Track), and one to jump to the fx (Effects) tab.
+3. **The command palette lists the Media Bin.** Every medium in the bin as a
+   palette entry (by name, with its kind); choosing one selects it in the bin
+   / adds it at the playhead (ask which).
+4. **Remove Silences: a green border on selected silences.** The user liked
+   the old green outline (`current`, accent) and wants it on the selected ones
+   (with or instead of the red fill: show both, ask).
+
 #### A leader key (the user, 2026-10-22; a trial in its own commit)
 `:` (as in vi) then a key, with a popup of what can follow: : P palette, : A / : V
 Delete Audio / Video, : U Unlink, : L / : M Lock / Mute Track, : S / : F Remove

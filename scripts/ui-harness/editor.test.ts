@@ -3493,8 +3493,6 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.evaluate("[...document.querySelectorAll('[data-auphonic-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
     await arrived(() => ui.menus.slice(menus).includes("app:app.settings:audio"));
     expect(ui.menus.slice(menus)).toContain("app:app.settings:audio");
-    await run("auphonic.close");
-    await page.until("!document.querySelector('[data-auphonic-review]')");
     await ui.core.uiOpen(ui.handle, "settings", "audio");
     const field = '[data-secret="auphonic-api-key"] input';
     await page.until(`!!document.querySelector('${field}')`);
@@ -3505,8 +3503,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     expect((await ui.core.secrets()).find((x) => x.id === "auphonic-api-key")!.set).toBe(true);
     await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
     await page.until("!document.querySelector('[data-settings-nav]')");
-
-    await page.dblclick(...(await centre(tile)));
+    // The panel left open finds the key: the presets, with no reopening.
     await page.until("document.querySelector('[data-auphonic-preset]')?.value === 'p-u'");
     expect(await page.evaluate<string>("document.querySelector('[data-auphonic-summary]').textContent")).toContain("1 clip");
     await page.click(...(await centre("[data-auphonic-start]")));
