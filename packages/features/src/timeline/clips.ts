@@ -21,6 +21,7 @@ import {
   ticksPerFrame,
   walkClips,
   type Clip,
+  type ClipLocation,
   type CommandContext,
   type FeatureRegistry,
   type Project,
@@ -158,6 +159,14 @@ function spaceTracks(doc: Project, track?: string): Track[] {
 
 function shiftLater(track: Track, from: Ticks, by: Ticks, except?: Clip) {
   for (const c of track.clips) if (c !== except && c.start >= from) c.start += by;
+}
+
+/** The earliest time on the clip's own track that shows: 0 on the timeline, the start of its group's window inside one. */
+function groupFloor(doc: Project, registry: FeatureRegistry, loc: ClipLocation): Ticks {
+  if (loc.tracks === doc.tracks) return 0;
+  for (const { clip } of walkClips(doc.tracks, registry))
+    for (const g of registry.groupsFor(clip.type)) if (g.nested && clip.props[g.id] && g.nested(clip.props[g.id]) === loc.tracks) return clip.mediaStart ?? 0;
+  return 0;
 }
 
 const one = (a: { clip?: string; clips?: string[] }) => (a.clip === undefined) !== (a.clips === undefined);
@@ -362,30 +371,47 @@ export const clipCommands = [
   defineCommand({
     id: "clip.extendFrame",
     description:
-      "Hold a video clip's last frame for `duration` seconds after it, as a new still clip (⌥-drag of a clip's end). `ripple` moves later clips on the track to make room. Returns the still's id",
-    args: z.strictObject({ clip: Id, duration: z.number().positive(), ripple: z.boolean().default(false) }),
-    apply(doc, { clip, duration, ripple }, ctx) {
-      const { clip: c, track } = findClip(doc, ctx.registry, clip);
+      "Hold a video clip's last frame for `duration` seconds after it, or with `edge: \"start\"` its first frame for `duration` before it, as a new still clip (⌥-drag of a clip's end or start). `ripple` moves the clips after it on the track to make room (with `start`, the clip too). Returns the still's id",
+    args: z.strictObject({ clip: Id, duration: z.number().positive(), edge: z.enum(["start", "end"]).default("end"), ripple: z.boolean().default(false) }),
+    apply(doc, { clip, duration, edge, ripple }, ctx) {
+      const loc = findClip(doc, ctx.registry, clip);
+      const { clip: c, track } = loc;
       unlocked(track);
       if (!ctx.registry.hasTrait(c.type, "video") || !c.assetId) throw new Error(`clip "${clip}" is not a video clip`);
-      const end = clipEnd(c);
-      const d = Math.max(ticksPerFrame(doc.settings.fps), snapSeconds(duration, doc.settings.fps));
-      if (ripple) shiftLater(track, end, d, c);
-      else if (!track.magnetic && !isFree(track, end, end + d)) throw new Error("there is media right after the clip; extend it with `ripple`");
+      const frame = ticksPerFrame(doc.settings.fps);
+      const d = Math.max(frame, snapSeconds(duration, doc.settings.fps));
+      // Room is made on the tracks of the clips linked to it too, so its sound stays with it.
+      const linked = withLinked(loc, true);
+      for (const l of linked) unlocked(l.track);
+      const make = (from: (l: ClipLocation) => Ticks, except?: boolean) => {
+        for (const l of linked) shiftLater(l.track, from(l), d, except ? l.clip : undefined);
+      };
+      let start: Ticks;
+      if (edge === "start") {
+        const room = ripple || track.magnetic;
+        start = room ? c.start : c.start - d;
+        if (room) make((l) => l.clip.start);
+        else if (start < groupFloor(doc, ctx.registry, loc) || !isFree(track, start, c.start))
+          throw new Error("there is media (or the start of the timeline or group) right before the clip; extend it with `ripple`");
+      } else {
+        start = clipEnd(c);
+        if (ripple) make((l) => clipEnd(l.clip), true);
+        else if (!track.magnetic && !isFree(track, start, start + d)) throw new Error("there is media right after the clip; extend it with `ripple`");
+      }
       const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const id = ctx.newId("clip");
       const still: Clip = {
         id,
         type: "still",
-        start: end,
+        start,
         duration: d,
-        mediaStart: mediaTimeAt(c, end - ticksPerFrame(doc.settings.fps)),
+        mediaStart: edge === "start" ? (c.mediaStart ?? 0) : mediaTimeAt(c, clipEnd(c) - frame),
         assetId: c.assetId,
         props: clone(Object.fromEntries(Object.entries(c.props).filter(([k]) => groups.has(k)))),
         effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };
-      track.clips.splice(track.clips.indexOf(c) + 1, 0, still);
+      track.clips.splice(track.clips.indexOf(c) + (edge === "start" ? 0 : 1), 0, still);
       return id;
     },
   }),

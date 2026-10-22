@@ -3028,6 +3028,58 @@ test.skipIf(skip)("deleting a caption's text character by character keeps the cu
   await select([]);
 }, 150_000);
 
+test.skipIf(skip)("⌥-dragging a video clip's start out holds its first frame before it (with ⇧ past the timeline's start), as ⌥-dragging its end holds its last frame after it", async () => {
+  await select([]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const from = ticksToSeconds(clip(screen.id).start);
+  // At the timeline's start, ⌥⇧ dragged past it makes room: the frame at 0, the clip and its sound moved on.
+  await run("timeline.view", { start: 0, end: 12 });
+  await Bun.sleep(300);
+  if (from === 0) {
+    await run("playhead.set", { time: 6 });
+    const zero = await timelinePlaces(screen.id);
+    const at0 = zero.box.y + zero.y + zero.h / 2;
+    await page.drag([zero.box.x + zero.xAt(0) + 2, at0], [zero.box.x + zero.xAt(0) - (zero.xAt(1) - zero.xAt(0)), at0], ["alt", "shift"]);
+    const track0 = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
+    await arrived(() => track0().clips.some((c) => c.type === "still"));
+    const held = track0().clips.find((c) => c.type === "still")!;
+    expect(ticksToSeconds(held.start)).toBe(0);
+    expect(ticksToSeconds(clip(screen.id).start)).toBeCloseTo(ticksToSeconds(held.duration), 3);
+    await ui.core.undo(ui.handle);
+    await Bun.sleep(200);
+  }
+  await run("timeline.insertSpace", { at: from, duration: 2 });
+  const s = from + 2;
+  const e = ticksToSeconds(clip(screen.id).start + clip(screen.id).duration);
+  await run("timeline.view", { start: 0, end: 12 });
+  await Bun.sleep(300);
+  const { y, h, xAt, box } = await timelinePlaces(screen.id);
+  const row = box.y + y + h / 2;
+  const track = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
+  const stills = () => track().clips.filter((c) => c.type === "still");
+
+  await page.drag([box.x + xAt(s) + 2, row], [box.x + xAt(s - 1), row], ["alt"]);
+  await arrived(() => stills().length === 1);
+  const before = stills()[0]!;
+  expect(ticksToSeconds(before.start)).toBeCloseTo(s - 1, 1);
+  expect(ticksToSeconds(before.start + before.duration)).toBeCloseTo(s, 3);
+  expect(before.mediaStart ?? 0).toBe(clip(screen.id).mediaStart ?? 0);
+  expect(ticksToSeconds(clip(screen.id).start)).toBeCloseTo(s, 3);
+  await ui.core.undo(ui.handle);
+  await Bun.sleep(200);
+
+  await run("timeline.view", { start: e - 6, end: e + 6 });
+  await Bun.sleep(300);
+  const end = await timelinePlaces(screen.id);
+  await page.drag([box.x + end.xAt(e) - 2, row], [box.x + end.xAt(e + 1), row], ["alt", "shift"]);
+  await arrived(() => stills().length === 1);
+  expect(ticksToSeconds(stills()[0]!.start)).toBeCloseTo(e, 3);
+  await ui.core.undo(ui.handle);
+
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+}, 30_000);
+
 test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead and on a gap, the clips moving as it drags; with ⌥ on a gap, only that track", async () => {
   await select([]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
