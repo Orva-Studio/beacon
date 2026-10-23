@@ -271,6 +271,8 @@ const brollPlan = defineAction({
   resolve: (args, ctx) => {
     const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
     const open = brollReview(ctx.session);
+    // A new plan replaces the shots: footage being made for them would have nowhere to go.
+    if (open?.shots.some((s) => s.making)) throw new Error("footage is being made for these shots: wait for it, or cancel it, before planning again");
     if (!open && !ctx.session.range && (args.from === undefined || args.to === undefined)) throw new Error("drag a range on the ruler over the words the B-roll should cover (or give `from` and `to`)");
     const from = args.from ?? open?.from ?? ctx.session.range!.in;
     const to = args.to ?? open?.to ?? ctx.session.range!.out;
@@ -352,7 +354,8 @@ function resolutionInput(asked: Record<string, unknown> | undefined, live: Limit
 async function makeShot(env: TaskEnv, token: string, model: VideoModel, live: Limits, resolution: Resolution, s: BrollShot, n: number, [w, h]: [number, number], dir: string, waiting: () => void): Promise<Made | undefined> {
   const seconds = lengthFor(live, s.end - s.start);
   const aspect = nearestAspect(live, w, h);
-  const words = s.prompt.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/).slice(0, 6).join(" ");
+  // Bounded, with room for the counter and suffixes after it: the whole prompt is in the .json.
+  const words = s.prompt.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 40).trim();
   const out = freeName(dir, `Shot ${n} - ${model.title} - ${words}`);
   try {
     const input: Record<string, unknown> = { prompt: s.prompt, aspect_ratio: aspect, duration: live.durationText ? String(seconds) : seconds, generate_audio: false, ...resolutionInput(model.resolutions[resolution], live) };
@@ -408,6 +411,7 @@ const brollGenerate = defineAction({
   resolve: ({ shots: ids }, ctx: ActionContext) => {
     const r = need(ctx.session);
     if (!r.shots.length) throw new Error("plan the shots first (broll.plan)");
+    if (r.planning) throw new Error("the shots are being planned again: wait for the new plan");
     const unknown = ids?.filter((x) => !r.shots.some((s) => s.id === x)) ?? [];
     if (unknown.length) throw new Error(`no shot ${unknown.join(", ")} in the review`);
     const shots = r.shots.filter((s) => (ids ? ids.includes(s.id) : !s.candidate) && !s.making);
@@ -473,6 +477,7 @@ const brollCompare = defineAction({
     const r = need(ctx.session);
     const s = r.shots.find((x) => x.id === shot);
     if (!s) throw new Error(`no shot "${shot}" in the review`);
+    if (r.planning) throw new Error("the shots are being planned again: wait for the new plan");
     if (s.making) throw new Error("that shot is being made already");
     const models = comparison(s.end - s.start, ctx.pref);
     const { limit } = brollSettings(ctx.pref);

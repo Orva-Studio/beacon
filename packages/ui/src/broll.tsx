@@ -148,7 +148,7 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
       {review.shots.length > 0 && (
         <div className="mt-3 flex flex-col gap-2" data-broll-shots>
           {review.shots.map((s, i) => (
-            <ShotCard key={s.id} shot={s} n={i + 1} cost={estimate?.shots.find((x) => x.id === s.id)} host={host} current={session.playhead >= s.start && session.playhead < s.end} show={() => show(s)} />
+            <ShotCard key={s.id} shot={s} n={i + 1} cost={estimate?.shots.find((x) => x.id === s.id)} host={host} current={session.playhead >= s.start && session.playhead < s.end} show={() => show(s)} planning={!!review.planning} />
           ))}
           {waiting.length > 0 && (
             <div className="flex flex-col gap-1.5 rounded-md bg-groove px-3 py-2" data-broll-estimate>
@@ -158,7 +158,7 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
               {estimate && estimate.limit > 0 && toMake > estimate.limit && <span className="text-caption text-warning">Over your {dollars(estimate.limit)} limit (Settings › AI).</span>}
               {estimate && tooLong && <span className="text-caption text-warning">Planned for longer shots than {estimate.model} makes ({estimate.longest} s): plan again.</span>}
               <span className="text-caption text-text-faint">Replicate charges your account; the files are kept in the project's media/B-roll folder.</span>
-              <Button look="primary" disabled={!estimate || making || tooLong || (estimate.limit > 0 && toMake > estimate.limit)} onClick={() => host.run("broll.generate")} data-broll-generate>
+              <Button look="primary" disabled={!estimate || making || !!review.planning || tooLong || (estimate.limit > 0 && toMake > estimate.limit)} onClick={() => host.run("broll.generate")} data-broll-generate>
                 {estimate ? `Generate ${dollars(toMake)}` : "Pricing…"}
               </Button>
             </div>
@@ -177,7 +177,7 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
   );
 }
 
-function ShotCard({ shot: s, n, cost, host, current, show }: { shot: BrollShot; n: number; cost?: Estimate["shots"][number]; host: Host; current: boolean; show: () => void }) {
+function ShotCard({ shot: s, n, cost, host, current, show, planning }: { shot: BrollShot; n: number; cost?: Estimate["shots"][number]; host: Host; current: boolean; show: () => void; planning: boolean }) {
   const [prompt, setPrompt] = useState(s.prompt);
   useEffect(() => setPrompt(s.prompt), [s.prompt]);
   const changed = !!s.candidate && s.candidate.prompt !== s.prompt;
@@ -218,12 +218,12 @@ function ShotCard({ shot: s, n, cost, host, current, show }: { shot: BrollShot; 
             {s.candidate && <span className="text-text-muted">{changed ? "Made from the old prompt" : `Made with ${s.candidate.model}`}</span>}
             {s.error && <span className="text-danger">{s.error}</span>}
             {(s.candidate || s.error) && (
-              <Button look="quiet" className="ml-auto" onClick={() => host.run("broll.generate", { shots: [s.id] })} data-broll-again>
+              <Button look="quiet" className="ml-auto" disabled={planning} onClick={() => host.run("broll.generate", { shots: [s.id] })} data-broll-again>
                 Make Again
               </Button>
             )}
             {cost && cost.compare.models > 1 && (
-              <Button look="quiet" className={s.candidate || s.error ? "" : "ml-auto"} title={`Make this shot with each of the ${cost.compare.models} models that can, to compare them in place`} onClick={() => host.run("broll.compare", { shot: s.id })} data-broll-compare>
+              <Button look="quiet" disabled={planning} className={s.candidate || s.error ? "" : "ml-auto"} title={`Make this shot with each of the ${cost.compare.models} models that can, to compare them in place`} onClick={() => host.run("broll.compare", { shot: s.id })} data-broll-compare>
                 Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
               </Button>
             )}

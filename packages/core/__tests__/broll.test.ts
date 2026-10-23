@@ -329,21 +329,35 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a generation cancelled is cancelled on 
   await waitJob(core, jobOf(await core.run(h, "broll.plan", { research: false, guide: "" })));
   expect(plans.at(-1)!.tools).toBeUndefined();
   const shot = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
-  await core.run(h, "broll.shot", { shot: shot.id, prompt: "[hold] a pan" });
+  // While footage is being made, planning again is refused; while a plan is being made, generating is.
+  await core.run(h, "broll.shot", { shot: shot.id, prompt: "[hold] waiting" });
+  const making = jobOf(await core.run(h, "broll.generate", { shots: [shot.id] }));
+  await expect(core.run(h, "broll.plan", {})).rejects.toThrow(/footage is being made for these shots/);
+  await core.cancelJob(making);
+  await expect(waitJob(core, making)).rejects.toThrow(/cancelled/);
+  const replanning = jobOf(await core.run(h, "broll.plan", { guide: "[late]" }));
+  await expect(core.run(h, "broll.generate", { shots: [shot.id] })).rejects.toThrow(/being planned again/);
+  await waitJob(core, replanning);
+  const fresh = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
+  // A prompt longer than a file name can be: the name is cut short, the prompt kept whole.
+  await core.run(h, "broll.shot", { shot: fresh.id, prompt: `${"x".repeat(300)} [refuse]` });
+  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", { shots: [fresh.id] })))).rejects.toThrow(/the model refused the prompt/);
+  await core.run(h, "broll.shot", { shot: fresh.id, prompt: "[hold] a pan" });
   const job = jobOf(await core.run(h, "broll.generate", {}));
   for (let i = 0; i < 100 && !predictions.some((p) => p.prompt === "[hold] a pan"); i++) await Bun.sleep(20);
+  const counted = cancelled.length;
   await core.cancelJob(job);
   await expect(waitJob(core, job)).rejects.toThrow(/cancelled/);
-  for (let i = 0; i < 100 && !cancelled.length; i++) await Bun.sleep(20);
-  expect(cancelled.length).toBeGreaterThan(0);
+  for (let i = 0; i < 100 && cancelled.length === counted; i++) await Bun.sleep(20);
+  expect(cancelled.length).toBe(counted + 1);
   const after = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
   expect(after).toMatchObject({ making: false });
   expect(after.error).toBeUndefined();
   expect(readdirSync(join(dir, "cancel.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toEqual([]);
 
   // Cancelled before Replicate answers that it started one: it is still cancelled there once it answers.
-  await core.run(h, "broll.shot", { shot: shot.id, prompt: "[late-start] a pan" });
-  const starting = jobOf(await core.run(h, "broll.generate", { shots: [shot.id] }));
+  await core.run(h, "broll.shot", { shot: fresh.id, prompt: "[late-start] a pan" });
+  const starting = jobOf(await core.run(h, "broll.generate", { shots: [fresh.id] }));
   for (let i = 0; i < 100 && !predictions.some((p) => p.prompt === "[late-start] a pan"); i++) await Bun.sleep(10);
   const before = cancelled.length;
   await core.cancelJob(starting);
