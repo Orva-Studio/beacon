@@ -624,7 +624,8 @@ export class LocalCore implements BeaconCore {
   #withCanvas(p: OpenProject, shot: Awaited<ReturnType<Snapshotter>>): Uint8Array {
     const s = p.session.state;
     if (!shot.canvas || s.playing) return shot.png;
-    const doc = p.store.doc;
+    // What the canvas shows, previews included (B-roll under review), as the window does.
+    const doc = this.#shown(p);
     const { x, y, width, height } = shot.canvas;
     const at = placeCanvas(doc.settings, { width, height }, s.canvas.zoom, s.canvas.pan ?? [0, 0], shot.scale);
     const [cw, ch] = [Math.round(doc.settings.width * at.k), Math.round(doc.settings.height * at.k)];

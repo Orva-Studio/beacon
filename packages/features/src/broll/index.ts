@@ -488,16 +488,30 @@ const brollCompare = defineAction({
           const ticking = setInterval(tell, 1000);
           try {
             const token = await keyOf(env.secret, TOKEN, "AI");
-            await Promise.all(
-              models.map(async ({ model, resolution }) => {
+            // Every model's schema first: the limit is checked at the lengths they make now, before any is paid for.
+            const read = await Promise.all(
+              models.map(async (m) => {
                 try {
-                  const live = await limits(token, model);
-                  if (s.end - s.start > live.durations.at(-1)! + 1e-3) return void results.push({ shot: s.id, error: `${model.title} makes ${live.durations.at(-1)} s at most` });
-                  const m = await makeShot(env, token, model, live, resolution, s, n, [w, h], dir, tell);
-                  if (m) results.push(m);
+                  return { ...m, live: await limits(token, m.model) };
                 } catch (e) {
-                  if (!jobSignal()?.aborted) results.push({ shot: s.id, error: `${model.title}: ${e instanceof Error ? e.message : String(e)}` });
+                  jobSignal()?.throwIfAborted();
+                  results.push({ shot: s.id, error: `${m.model.title}: ${e instanceof Error ? e.message : String(e)}` });
+                  return undefined;
                 }
+              }),
+            );
+            const able = read.flatMap((m) => {
+              if (!m) return [];
+              if (s.end - s.start <= m.live.durations.at(-1)! + 1e-3) return [m];
+              results.push({ shot: s.id, error: `${m.model.title} makes ${m.live.durations.at(-1)} s at most` });
+              return [];
+            });
+            const charged = able.reduce((sum, m) => sum + shotCost({ ...m.model, durations: m.live.durations }, m.resolution, s.end - s.start), 0);
+            if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} for ${able.length} models at the lengths they make now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
+            await Promise.all(
+              able.map(async ({ model, resolution, live }) => {
+                const m = await makeShot(env, token, model, live, resolution, s, n, [w, h], dir, tell);
+                if (m) results.push(m);
                 tell();
               }),
             );
