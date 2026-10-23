@@ -5,7 +5,7 @@ import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
 const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
-  { id: "openai-api-key", label: "OpenAI", use: "Transcribing (uploads audio), Best Take, planning B-roll", placeholder: "sk-…" },
+  { id: "openai-api-key", label: "OpenAI", use: "Planning B-roll; Best Take and transcribing only if picked in Transcripts (transcribing uploads audio)", placeholder: "sk-…" },
   { id: "replicate-api-token", label: "Replicate", use: "Making B-roll footage", placeholder: "r8_…" },
   { id: "auphonic-api-key", label: "Auphonic", use: "Clean with Auphonic (uploads audio)", placeholder: "Auphonic API key" },
 ];
