@@ -2179,6 +2179,16 @@ kind, research, region) prepares the review, `broll.generate` runs it,
   or 8 s; a drawn region is made at the nearer shape and cropped to fill, a
   shot at the next length up and trimmed to its span.
 
+**Decided (the user, 2026-10-23, later).**
+- **More models:** FLUX 3 (Black Forest Labs) and Seedance 2.5 join Veo
+  3.1 Fast, Seedance 2.0 and Kling 3.0 Pro in Settings › AI.
+- **The default is settled by a side-by-side run** on the user's footage:
+  one shot made with every model, each previewed in place, then the user
+  picks; Veo 3.1 Fast stays the default until then.
+- **Every API key in Settings › AI** (OpenAI, Replicate, Auphonic), each
+  with what it is for and who charges; Transcripts and Audio say where to
+  set the key their choice needs.
+
 **Progress (2026-10-23, `feat/ai-broll`).** Footage with a drawn region is
 built: the `broll` feature (review, `broll.plan`, `broll.generate`,
 `broll.apply`, `broll.estimate`), Settings › AI, the AI panel's B-roll tile,
