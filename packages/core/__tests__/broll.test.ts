@@ -128,6 +128,14 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   for (const j of imported.jobs) await core.cancelJob(j).catch(() => {});
   transcribed(core, Object.values(core.doc(h).assets)[0]!);
   const review = async () => (await core.session(h)).features.broll as BrollReview | undefined;
+  // The canvas, as the app's window shows it, two seconds in: the talk alone has no picture.
+  const view = core.attachView(h, { offscreen: { width: 480, height: 270 } }, { silent: true, proxies: false });
+  const canvas = () => {
+    view.show(2);
+    view.settle();
+    return Buffer.from(view.flush()!);
+  };
+  const plain = canvas();
 
   await expect(core.run(h, "broll.review", {})).rejects.toThrow(/drag a range on the ruler/);
   await core.run(h, "range.set", { in: 1, out: 13 });
@@ -197,6 +205,15 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   expect(kept.candidate?.path).toBe(first.candidate!.path);
   expect(kept.error).toMatch(/the model refused the prompt/);
 
+  // Shown in place on the canvas while the review is open, without being in the document; unticked, it goes.
+  const previewed = canvas();
+  expect(previewed.equals(plain)).toBe(false);
+  expect((await core.history(h)).undo.length).toBe(steps);
+  for (const s of made.shots) await core.run(h, "broll.shot", { shot: s.id, use: false });
+  expect(canvas().equals(plain)).toBe(true);
+  for (const s of made.shots) await core.run(h, "broll.shot", { shot: s.id, use: true });
+  expect(canvas().equals(previewed)).toBe(true);
+
   const before = core.doc(h);
   await core.run(h, "broll.apply", {});
   const history = (await core.history(h)).undo;
@@ -219,8 +236,12 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
     expect((640 - crop.top - crop.bottom) * k).toBeCloseTo(region[3]);
     expect(doc.assets[c.assetId!]!.derived.broll).toMatchObject({ model: "Veo 3.1 Fast" });
   }
+  // Applied, the canvas is what the preview showed; undone, as it was.
+  expect(canvas().equals(previewed)).toBe(true);
   await core.undo(h);
   expect(core.doc(h)).toEqual(before);
+  expect(canvas().equals(plain)).toBe(true);
+  core.detachView(h);
 }, 60_000);
 
 test.skipIf(!existsSync(AUDIO))("B-roll: a generation cancelled is cancelled on Replicate too, and the shot is no longer shown as being made", async () => {

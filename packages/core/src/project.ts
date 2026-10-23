@@ -13,7 +13,7 @@ export interface OpenProject {
   /** An effect shown with other params on the canvas only (a look under the pointer), and the document laid over last. */
   preview?: { clip: string; effect: string; params: Record<string, unknown> };
   /** What the canvas showed for this document and these features' editor state (previews derive from both). */
-  previewDoc?: { doc: Project; features: Record<string, unknown>; shown: Project };
+  previewDoc?: { doc: Project; features: Record<string, unknown>; effect: OpenProject["preview"]; shown: Project };
   /** Set while playback itself moves the playhead, so it isn't taken as a seek. */
   ticking: boolean;
   listeners: Set<(e: CoreEvent) => void>;

@@ -16,10 +16,11 @@ feature lands and when it is checked.
 | Generating: the model's live schema read first (only its fields sent), the nearest shape it makes, the shortest length covering the shot, audio off, one prediction per shot, polled; each file kept in `media/B-roll` with a `.json` of what made it, nothing in the document until Apply; the limit per generation refuses before anything is sent; a shot Replicate fails keeps what it had and says why; a cancelled job cancels its predictions on Replicate and clears the shots' Making | 2026-10-23 | this branch | core tests against a Replicate stand-in |
 | Apply: a B-roll track right above the talk, each shot's footage trimmed to its span, scaled to cover the region and cropped to it, the asset remembering prompt, model and cost; one undo step that undoes exactly | 2026-10-23 | this branch | core test |
 | Remove Retakes' OpenAI judge asks for medium reasoning effort | 2026-10-23 | this branch | retakes core tests pass |
+| The footage previewed in place on the canvas while the review is open: shown in its region at the playhead, not in the document or history; unticked shots leave it; once applied the canvas is exactly what the preview showed, and undone, as before. A look previewed (Film Look) still ends on play | 2026-10-23 | this branch | core test, an offscreen view's pixels (`broll.test.ts`); Film Look's preview test |
 
 ### Not checked yet
 
-- **The canvas preview in place** (the footage shown in its region on the canvas while the review is open, before Apply): headless has no renderer. In the app: generate, move the playhead over a shot (or click it on the timeline), and the canvas shows it as Apply would place it; Cancel removes it.
+- **The canvas preview in place, in the app's window:** generate, click a shot on the timeline, and the canvas shows it in its region as Apply would place it; Cancel removes it.
 - **The gate:** with your own OpenAI key and Replicate token (Settings › AI), a range of one of your takes planned with research, generated, reviewed and placed in a drawn region, the cost shown before it runs. Veo 3.1 Fast's price on Replicate is an estimate (about $0.15/s), worth comparing with what Replicate charges.
 - Seedance 2.0 and Kling 3.0 Pro (Settings › AI › Model): only Veo's schema was stood in for; the others' fields are read from Replicate on first use.
 - The B-roll tile's picture: `bun scripts/effect-art.ts generate b-roll` then `css` (OpenAI image generation on your key, a few cents).

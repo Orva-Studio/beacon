@@ -674,7 +674,7 @@ export class LocalCore implements BeaconCore {
   #shown(p: OpenProject): Project {
     const doc = p.store.doc;
     const { features } = p.session.state;
-    if (p.previewDoc?.doc === doc && p.previewDoc.features === features) return p.previewDoc.shown;
+    if (p.previewDoc?.doc === doc && p.previewDoc.features === features && p.previewDoc.effect === p.preview) return p.previewDoc.shown;
     let shown = doc;
     if (p.preview) {
       try {
@@ -697,7 +697,7 @@ export class LocalCore implements BeaconCore {
         console.error(`${f.id}'s preview:`, e);
       }
     }
-    p.previewDoc = { doc, features, shown };
+    p.previewDoc = { doc, features, effect: p.preview, shown };
     return shown;
   }
 
