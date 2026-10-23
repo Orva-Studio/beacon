@@ -15,7 +15,10 @@ export const brollReviewOf = (s: Session | undefined) => s?.features.broll as Br
 
 /** What `broll.estimate` answers. */
 interface Estimate {
+  /** What it was asked for: the shots and settings it priced. */
+  for: string;
   model: string;
+  longest: number;
   resolution: string;
   limit: number;
   total: number;
@@ -83,12 +86,16 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
   const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: review.from, to: review.to }, project);
   // Asked again when the shots or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
-  const estimate = useQuery<Estimate>(host, review.shots.length ? "broll.estimate" : "", {}, JSON.stringify([priced, review.shots.map((s) => [s.id, s.start, s.end])]));
+  const asked = JSON.stringify([priced, review.shots.map((s) => [s.id, s.start, s.end])]);
+  const answer = useQuery<Estimate>(host, review.shots.length ? "broll.estimate" : "", { for: asked });
+  // The last answer is kept while the next is asked: only one for these shots and settings prices Generate.
+  const estimate = answer?.for === asked ? answer : undefined;
   const settingsOpen = useView((v) => !!v.settings);
   const making = review.shots.some((s) => s.making);
   const waiting = review.shots.filter((s) => !s.candidate && !s.making);
   const toMake = estimate?.shots.filter((x) => waiting.some((s) => s.id === x.id)).reduce((sum, x) => sum + x.cost, 0) ?? 0;
   const ready = review.shots.some((s) => s.use && s.candidate) && !making;
+  const tooLong = !!estimate && waiting.some((s) => s.end - s.start > estimate.longest + 1e-3);
   const where = review.drawing ? "draw" : review.region ? "region" : "full";
   const [, , w, h] = review.region ?? [0, 0, project.settings.width, project.settings.height];
   const show = (s: BrollShot) => host.run("playhead.set", { time: s.start + 0.05 });
@@ -149,9 +156,10 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
                 {waiting.length === 1 ? "1 shot" : `${waiting.length} shots`} · about {dollars(toMake)} with {estimate?.model ?? "…"}, {estimate?.resolution ?? ""}
               </span>
               {estimate && estimate.limit > 0 && toMake > estimate.limit && <span className="text-caption text-warning">Over your {dollars(estimate.limit)} limit (Settings › AI).</span>}
+              {estimate && tooLong && <span className="text-caption text-warning">Planned for longer shots than {estimate.model} makes ({estimate.longest} s): plan again.</span>}
               <span className="text-caption text-text-faint">Replicate charges your account; the files are kept in the project's media/B-roll folder.</span>
-              <Button look="primary" disabled={making || (!!estimate && estimate.limit > 0 && toMake > estimate.limit)} onClick={() => host.run("broll.generate")} data-broll-generate>
-                Generate {dollars(toMake)}
+              <Button look="primary" disabled={!estimate || making || tooLong || (estimate.limit > 0 && toMake > estimate.limit)} onClick={() => host.run("broll.generate")} data-broll-generate>
+                {estimate ? `Generate ${dollars(toMake)}` : "Pricing…"}
               </Button>
             </div>
           )}

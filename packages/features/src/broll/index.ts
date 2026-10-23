@@ -335,6 +335,10 @@ const brollGenerate = defineAction({
     const shots = r.shots.filter((s) => (ids ? ids.includes(s.id) : !s.candidate) && !s.making);
     if (!shots.length) throw new Error(ids ? "those shots are being made already" : "every shot has footage: give `shots` to make one again");
     const { model, resolution, limit } = brollSettings(ctx.pref);
+    // Planned for a model that makes longer shots: made shorter, they would leave gaps when placed.
+    const longest = model.durations.at(-1)!;
+    const tooLong = shots.filter((s) => s.end - s.start > longest + 1e-3);
+    if (tooLong.length) throw new Error(`${tooLong.length === 1 ? "a shot is" : `${tooLong.length} shots are`} longer than ${model.title}'s ${longest} s: plan again for it`);
     const cost = estimate(shots, ctx.pref);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)}, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
     const [, , w, h] = regionOf(r, ctx.project);
@@ -355,6 +359,11 @@ const brollGenerate = defineAction({
           try {
             const token = await keyOf(env.secret, TOKEN, "AI");
             const live = await limits(token, model);
+            // Checked again by what the model makes now, before anything is paid for.
+            const max = live.durations.at(-1)!;
+            if (shots.some((s) => s.end - s.start > max + 1e-3)) throw new Error(`${model.title} now makes ${max} s at most, shorter than a shot: plan again`);
+            const charged = shots.reduce((sum, s) => sum + shotCost({ ...model, durations: live.durations }, resolution, s.end - s.start), 0);
+            if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} at the lengths ${model.title} makes now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             const aspect = nearestAspect({ aspects: live.aspects }, w, h);
             await Promise.all(
               shots.map(async (s) => {
@@ -463,13 +472,13 @@ export const broll = defineFeature({
   queries: [
     defineQuery({
       id: "broll.estimate",
-      description: "What generating the open review's shots would cost (dollars, by the chosen model's price per second), all of them and each, with the model and its resolution",
-      args: z.strictObject({}),
-      run: (_, { session, pref }) => {
+      description: "What generating the open review's shots would cost (dollars, by the chosen model's price per second), all of them and each, with the model and its resolution. `for` is echoed back, so a caller can tell the answer to its latest ask",
+      args: z.strictObject({ for: z.string().optional() }),
+      run: ({ for: asked }, { session, pref }) => {
         const r = session ? brollReview(session) : undefined;
         if (!r) throw new Error("B-roll's review isn't open: broll.review opens it");
         const { model, resolution, limit } = brollSettings(pref);
-        return { model: model.title, resolution, limit, total: estimate(r.shots, pref), shots: r.shots.map((s) => ({ id: s.id, seconds: lengthFor(model, s.end - s.start), cost: shotCost(model, resolution, s.end - s.start) })) };
+        return { for: asked, model: model.title, resolution, limit, longest: model.durations.at(-1), total: estimate(r.shots, pref), shots: r.shots.map((s) => ({ id: s.id, seconds: lengthFor(model, s.end - s.start), cost: shotCost(model, resolution, s.end - s.start) })) };
       },
     }),
   ],

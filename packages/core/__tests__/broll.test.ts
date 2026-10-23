@@ -46,7 +46,9 @@ const server = Bun.serve({
       const asked = JSON.stringify(body.input);
       // "[late]": answered after the test has moved on; "[nested]": a shot inside another, as a model can write.
       if (asked.includes("[late]")) await Bun.sleep(300);
-      const shots = asked.includes("[nested]")
+      const shots = asked.includes("[long]")
+        ? [{ start: 0, end: 12, prompt: "One long shot", why: "all" }]
+        : asked.includes("[nested]")
         ? [
             { start: 0, end: 8, prompt: "A wide shot", why: "a" },
             { start: 2, end: 4, prompt: "Inside the first", why: "b" },
@@ -275,6 +277,14 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a generation cancelled is cancelled on 
     [0, 8],
     [8, 12],
   ]);
+  // Planned for Kling (15 s shots), then Veo chosen (8 s): refused before anything is paid for, not made short.
+  await core.setPreference("brollModel", "kling-v3");
+  await waitJob(core, jobOf(await core.run(h, "broll.plan", { from: 0, to: 12, guide: "[long]" })));
+  expect(((await core.session(h)).features.broll as BrollReview).shots.map((s) => [s.start, s.end])).toEqual([[0, 12]]);
+  await core.setPreference("brollModel", "veo-3.1-fast");
+  const asked = predictions.length;
+  await expect(core.run(h, "broll.generate", {})).rejects.toThrow(/longer than Veo 3.1 Fast's 8 s: plan again/);
+  expect(predictions.length).toBe(asked);
   await core.run(h, "broll.close", {});
   await core.run(h, "range.set", { in: 0, out: 4 });
   await waitJob(core, jobOf(await core.run(h, "broll.plan", { research: false, guide: "" })));

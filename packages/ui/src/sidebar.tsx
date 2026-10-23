@@ -217,6 +217,7 @@ function useOffline(host: Host): string | undefined {
 /** Edits that read the media (its transcript, its recording's cursor) and change the whole timeline: each opens its review in the properties panel. */
 function AiPanel({ host }: { host: Host }) {
   const offline = useOffline(host);
+  const online = useOnline();
   return (
     <Panel title="AI">
       <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
@@ -227,7 +228,14 @@ function AiPanel({ host }: { host: Host }) {
       )}
       <div className="grid grid-cols-2 gap-2">
         {AI_TOOLS.map((t) => (
-          <ItemTile key={t.id} art={t.art} title={offline ? `Needs a transcript ${offline} can't make offline` : t.title} disabled={!!offline} onClick={() => t.start(host)} data-ai={t.id}>
+          <ItemTile
+            key={t.id}
+            art={t.art}
+            title={t.online && !online ? "Needs the internet: you're offline" : offline ? `Needs a transcript ${offline} can't make offline` : t.title}
+            disabled={!!offline || (!!t.online && !online)}
+            onClick={() => t.start(host)}
+            data-ai={t.id}
+          >
             {t.label}
           </ItemTile>
         ))}

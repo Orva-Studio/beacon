@@ -53,11 +53,12 @@ interface AiHost {
 }
 
 /** The AI panel's tools: each reviews on the timeline (opening its review in the properties panel), then applies. */
-export const AI_TOOLS: { id: string; label: string; title: string; art: string; start: (host: AiHost) => void }[] = [
+/** `online`: it always needs the internet (it calls a cloud service), whichever transcriber is chosen. */
+export const AI_TOOLS: { id: string; label: string; title: string; art: string; online?: boolean; start: (host: AiHost) => void }[] = [
   { id: "silences", label: "Remove Silences", title: "Shorten the pauses in speech, from its transcript (made on this Mac)", art: "remove-silences", start: (host) => review(host, "silences.review") },
   { id: "fillers", label: "Remove Filler Words", title: 'Cut "um", "uh" and the like where the transcript has them', art: "remove-fillers", start: (host) => review(host, "fillers.review") },
   { id: "retakes", label: "Remove Retakes", title: "Find lines said more than once (a restart, a sentence said again) and keep the best take", art: "remove-retakes", start: (host) => review(host, "retakes.review") },
-  { id: "broll", label: "B-roll", title: "Footage over the range on the ruler, planned from what is said there and made with AI (on your Replicate account), previewed in place before it is placed", art: "b-roll", start: (host) => review(host, "broll.review") },
+  { id: "broll", label: "B-roll", title: "Footage over the range on the ruler, planned from what is said there and made with AI (on your Replicate account), previewed in place before it is placed", art: "b-roll", online: true, start: (host) => review(host, "broll.review") },
   {
     id: "captions",
     label: "Captions",

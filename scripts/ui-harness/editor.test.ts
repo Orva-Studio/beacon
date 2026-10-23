@@ -460,17 +460,18 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 4");
-    expect(await greyed()).toEqual([false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 5");
+    expect(await greyed()).toEqual([false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([true, true, true, true]);
+    expect(await greyed()).toEqual([true, true, true, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false]);
+    // B-roll still needs the internet: OpenAI plans it, Replicate makes it.
+    expect(await greyed()).toEqual([false, false, false, true, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -488,7 +489,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -1527,7 +1528,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-4)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:captions"]);
+  expect(all.slice(-5)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -2425,7 +2426,7 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
 test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
   await page.until("!!document.querySelector('[data-settings-nav]')");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Audio", "Shortcuts"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Audio", "AI", "Shortcuts"]);
   const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
   const first = await size();
   for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
@@ -3896,9 +3897,9 @@ test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on th
 
     await press("[data-broll-plan]");
     await page.until("document.querySelectorAll('[data-broll-shot]').length === 2", 10_000);
-    // The cost before anything is made: two shots at Veo 3.1 Fast's 4 s.
+    // The cost before anything is made: two shots at Veo 3.1 Fast's 4 s, Generate off until it is priced.
+    await page.until("document.querySelector('[data-broll-generate]')?.textContent === 'Generate $1.20'");
     expect(await page.evaluate<string>("document.querySelector('[data-broll-estimate]').textContent")).toContain("2 shots · about $1.20 with Veo 3.1 Fast, 1080p");
-    expect(await page.evaluate<string>("document.querySelector('[data-broll-generate]').textContent")).toBe("Generate $1.20");
     expect(await page.evaluate<boolean>("document.querySelector('[data-broll-apply]').disabled")).toBe(true);
 
     // A token Replicate refuses: each shot says so, and can be made again.
