@@ -2172,6 +2172,8 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 - **Paid footage is kept:** each candidate is saved in the project's
   `media/B-roll` folder as it arrives, with its prompt, model and cost;
   Apply places only the picked ones.
+- **Medium reasoning effort for every OpenAI model Beacon calls** (the user,
+  2026-10-23): the B-roll planner and Remove Retakes' judge.
 - Known from the model (2026-10-23): Veo 3.1 Fast makes 16:9 or 9:16, 4, 6
   or 8 s; a drawn region is made at the nearer shape and cropped to fill, a
   shot at the next length up and trimmed to its span.
@@ -2445,6 +2447,23 @@ edit.
   Reset All, and a switch to turn learning off (as Imagen lets its profile
   be adjusted). Agents read the same list through the preferences, so they
   prepare reviews the user's way.
+- **Memory: sentences the user can read and write** (the user, 2026-10-23).
+  Settings gets a **Memory** tab: a list of single sentences, each one habit
+  ("I cut silences over 0.8 s but keep the breath before a sentence", "the
+  camera goes bottom-right at 30%, cropped to the face", "B-roll over every
+  product name, abstract footage, never people"). The user adds, edits and
+  deletes them; Beacon proposes new ones from repeated edits (the tallies
+  above, and repeated crops, positions and B-roll placements), added only
+  when the user accepts. The point: an agent asked for "a rough cut" over
+  MCP reads the memory first and edits the user's way (removes only the
+  silences they would, keeps the retakes they would, suggests B-roll where
+  they usually put it, of the kind they use). Agents read it through a query
+  (`memory.list`) and the MCP instructions say to; the reviews use the
+  tallies for their defaults, and the sentences explain them.
+  Open: whether a sentence is enforced as a rule (a number the review reads)
+  or only read by agents as text; per format (Short/long) as the tallies are;
+  whether agents may add sentences themselves (proposed, never saved
+  without the user).
 - Fits as its own feature folder with session state and a preference
   store; the reviews ask it for defaults rather than knowing about it.
   Open: per speaker as well as per format (a guest in an interview);
