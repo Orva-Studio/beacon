@@ -5,9 +5,9 @@ import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
 const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
-  { id: "openai-api-key", label: "OpenAI", use: "Planning B-roll; Best Take and transcribing only if picked in Transcripts (transcribing uploads audio)", placeholder: "sk-…" },
-  { id: "replicate-api-token", label: "Replicate", use: "Making B-roll footage", placeholder: "r8_…" },
-  { id: "auphonic-api-key", label: "Auphonic", use: "Clean with Auphonic (uploads audio)", placeholder: "Auphonic API key" },
+  { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
+  { id: "replicate-api-token", label: "Replicate", use: "For B-roll footage", placeholder: "r8_…" },
+  { id: "auphonic-api-key", label: "Auphonic", use: "For Clean with Auphonic", placeholder: "Auphonic API key" },
 ];
 
 /** A choice made elsewhere in Settings that waits for a key: once the key is saved here, it is made and Settings goes back. */
@@ -66,7 +66,7 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
   return (
     <div className="flex flex-col gap-3" data-ai-settings>
       <div className="text-label font-medium text-text-muted">API Keys</div>
-      <div className="-mt-2 text-caption text-text-faint">Kept in this Mac's Keychain. Each service charges your own account.</div>
+      <div className="-mt-2 text-caption text-text-faint">All optional: add one only for the features you use. Kept in this Mac's Keychain; each service charges your own account.</div>
       {KEYS.map((k) => {
         const secret = secrets.find((s) => s.id === k.id);
         return secret && <SecretRow key={k.id} secret={secret} label={k.label} use={k.use} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
