@@ -26,9 +26,9 @@ settings and dialogs for agents), is built and merged, released as v0.6.0
 with the app open, below). The review's three branches were merged
 2026-10-19 (#18, #19, #20). Phases 8.5, 9, 10 and 10.5 are merged
 (v0.7.0-v0.10.0; v0.10.1 fixed ⌥-dragging a clip's start, 2026-10-22).
-Next (order set 2026-10-22): **Phase 11** (lock and mute a track by keys,
-AI B-roll and animations, audio cleaning with Auphonic and the local
-polish), 12 (device frames, and a spike on AI camera angles), 13 (security
+Phase 11's first half shipped as v0.11.0 and v0.11.1 (2026-10-22: track
+keys, Clean with Auphonic, the Record dialog's permissions). Next (order set
+2026-10-22): **Phase 11's AI B-roll and animations** (on `feat/ai-broll`), 12 (device frames, and a spike on AI camera angles), 13 (security
 audit), 14 (Camtasia export) and 15 (Beacon learns how you edit).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
@@ -2159,6 +2159,22 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 - **Spending limit:** not a worry this phase (the user, 2026-10-22). The
   cost estimate is shown before anything runs; a limit per generation the
   user can set in Settings (off by default) is enough.
+
+**Decided (the user, 2026-10-23).**
+- **Settings › AI**, a new tab: the Replicate token, the B-roll model,
+  its resolution and the limit per generation; it points to the OpenAI key
+  where it already is.
+- **Planning and research by `gpt-6.1-sol`** (OpenAI's Responses API, its
+  `web_search` tool when Research is on).
+- **Candidates previewed on the canvas, in place:** with the review open, the
+  playhead over a shot shows its candidate in its region as it would look
+  applied; nothing is in the document until Apply.
+- **Paid footage is kept:** each candidate is saved in the project's
+  `media/B-roll` folder as it arrives, with its prompt, model and cost;
+  Apply places only the picked ones.
+- Known from the model (2026-10-23): Veo 3.1 Fast makes 16:9 or 9:16, 4, 6
+  or 8 s; a drawn region is made at the nearer shape and cropped to fill, a
+  shot at the next length up and trimmed to its span.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
