@@ -3,17 +3,11 @@ import type { PreferenceInfo, SecretInfo } from "@beacon/core";
 import { NumberBox, Select, SettingsRow as Row } from "./controls";
 import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
-/** Every API key Beacon keeps, in the order shown: what it is for, what is sent, who charges. */
-const KEYS: { id: string; label: string; sends: string; charges: string; placeholder: string }[] = [
-  {
-    id: "openai-api-key",
-    label: "OpenAI API Key",
-    sends: "Audio is uploaded to OpenAI when it transcribes; the words of retakes and of a B-roll range (not the audio) when it picks a take or plans B-roll",
-    charges: "OpenAI",
-    placeholder: "sk-…",
-  },
-  { id: "replicate-api-token", label: "Replicate API Token", sends: "Each B-roll shot's prompt and the region's shape are sent to Replicate", charges: "Replicate", placeholder: "r8_… from replicate.com › Account › API tokens" },
-  { id: "auphonic-api-key", label: "Auphonic API Key", sends: "Audio you clean with Auphonic is uploaded to it", charges: "Auphonic", placeholder: "From auphonic.com › Account Settings" },
+/** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
+const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
+  { id: "openai-api-key", label: "OpenAI", use: "Transcribing (uploads audio), Best Take, planning B-roll", placeholder: "sk-…" },
+  { id: "replicate-api-token", label: "Replicate", use: "Making B-roll footage", placeholder: "r8_…" },
+  { id: "auphonic-api-key", label: "Auphonic", use: "Clean with Auphonic (uploads audio)", placeholder: "Auphonic API key" },
 ];
 
 /** A choice made elsewhere in Settings that waits for a key: once the key is saved here, it is made and Settings goes back. */
@@ -51,11 +45,11 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
     await set(waiting.pref, waiting.value);
     waiting.back();
   };
-  const pick = (id: string, label: string) => {
+  const pick = (id: string, label: string, hint = true) => {
     const pref = prefs.find((p) => p.id === id);
     if (!pref) return null;
     return (
-      <Row label={label} hint={pref.options.find((o) => o.id === pref.value)?.description}>
+      <Row label={label} hint={hint ? pref.options.find((o) => o.id === pref.value)?.description : undefined}>
         <div className="w-56">
           <Select data-preference={id} value={pref.value} onChange={(e) => void set(id, e.target.value)}>
             {pref.options.map((o) => (
@@ -72,14 +66,15 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
   return (
     <div className="flex flex-col gap-3" data-ai-settings>
       <div className="text-label font-medium text-text-muted">API Keys</div>
+      <div className="-mt-2 text-caption text-text-faint">Kept in this Mac's Keychain. Each service charges your own account.</div>
       {KEYS.map((k) => {
         const secret = secrets.find((s) => s.id === k.id);
-        return secret && <SecretRow key={k.id} secret={secret} label={k.label} sends={k.sends} charges={k.charges} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
+        return secret && <SecretRow key={k.id} secret={secret} label={k.label} use={k.use} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
       })}
       <div className="mt-2 text-label font-medium text-text-muted">B-roll</div>
       {pick("brollModel", "Model")}
-      {pick("brollResolution", "Resolution")}
-      <Row label="Limit" hint="What one generation may cost at most, by the estimate shown before it runs; 0 is no limit.">
+      {pick("brollResolution", "Resolution", false)}
+      <Row label="Limit" hint="Per generation. 0 is no limit.">
         <div className="flex items-center gap-2" data-preference="brollLimit">
           <span className="text-text-muted">$</span>
           <NumberBox value={limit} digits={2} step={1} min={0} max={1000} width={70} onCommit={(v) => void set("brollLimit", String(Math.round(v * 100) / 100))} />

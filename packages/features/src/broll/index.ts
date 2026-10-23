@@ -550,7 +550,7 @@ export const broll = defineFeature({
       options: VIDEO_MODELS.map((m) => ({
         id: m.id,
         title: m.title,
-        description: `About $${(m.perSecond["1080p"] ?? m.perSecond["720p"])!.toFixed(2)} a second of footage; makes ${m.aspects.join(", ")}, ${m.durations[0]}-${m.durations.at(-1)} s a shot`,
+        description: `About $${(m.perSecond["1080p"] ?? m.perSecond["720p"])!.toFixed(2)}/s · ${m.aspects.length > 3 ? "most shapes" : m.aspects.join(", ")} · ${m.durations[0]}–${m.durations.at(-1)} s shots`,
         online: true,
       })),
       default: DEFAULT_MODEL,

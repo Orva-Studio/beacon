@@ -112,12 +112,11 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
   );
 }
 
-/** An API key a feature uses, saved in the Keychain or removed; what it sends and who charges, in its hint. */
-export function SecretRow({ secret, label, sends, charges, placeholder, host, saved: onSaved }: {
+/** An API key, saved in the Keychain or removed; what it is used for, in its hint. */
+export function SecretRow({ secret, label, use, placeholder, host, saved: onSaved }: {
   secret: SecretInfo;
   label: string;
-  sends: string;
-  charges: string;
+  use: string;
   placeholder: string;
   host: Pick<TranscriptsHost, "setSecret">;
   /** Told once it is saved or removed, with the preferences as they now are (removing it resets those that needed it). */
@@ -138,8 +137,8 @@ export function SecretRow({ secret, label, sends, charges, placeholder, host, sa
     <Row
       label={label}
       hint={
-        <div className="mt-1 text-caption text-text-faint">
-          <span className="text-warning">{sends}</span>, and {charges} charges your account. The key is kept in this Mac's Keychain, never in a file.
+        <div className="text-caption text-text-faint">
+          {use}
           {error && <div className="mt-1 text-danger">{error}</div>}
         </div>
       }
