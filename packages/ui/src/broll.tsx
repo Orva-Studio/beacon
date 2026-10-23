@@ -81,7 +81,9 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
   const [guide, setGuide] = useState(review.guide);
   useEffect(() => setGuide(review.guide), [review.guide]);
   const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: review.from, to: review.to }, project);
-  const estimate = useQuery<Estimate>(host, review.shots.length ? "broll.estimate" : "", {}, JSON.stringify(review.shots.map((s) => [s.id, s.start, s.end])));
+  // Asked again when the shots or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
+  const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
+  const estimate = useQuery<Estimate>(host, review.shots.length ? "broll.estimate" : "", {}, JSON.stringify([priced, review.shots.map((s) => [s.id, s.start, s.end])]));
   const settingsOpen = useView((v) => !!v.settings);
   const making = review.shots.some((s) => s.making);
   const waiting = review.shots.filter((s) => !s.candidate && !s.making);
@@ -126,7 +128,7 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
           {where === "draw" ? "Drag a rectangle on the canvas; it snaps to halves, thirds and the safe areas." : where === "region" ? `${Math.round(w)}×${Math.round(h)} px; drag its corners to change it.` : `${project.settings.width}×${project.settings.height} px, the whole canvas.`}
         </span>
       </div>
-      <Button disabled={review.planning || making || review.drawing} onClick={() => host.run("broll.plan")} data-broll-plan>
+      <Button disabled={!!review.planning || making || review.drawing} onClick={() => host.run("broll.plan")} data-broll-plan>
         {review.planning ? "Planning…" : review.shots.length ? "Plan Again" : "Plan Shots"}
       </Button>
       {review.error && (

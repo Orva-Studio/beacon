@@ -113,9 +113,17 @@ export async function planShots(r: PlanRequest, apiKey: string): Promise<{ resea
  */
 export function tile(shots: PlannedShot[], from: number, to: number, shortest: number, longest: number): PlannedShot[] {
   const sorted = shots.filter((s) => s.end > from && s.start < to && s.prompt.trim()).sort((a, b) => a.start - b.start);
-  if (!sorted.length) return [];
-  const ends = sorted.map((s, i) => (i === sorted.length - 1 ? to : Math.min(to, Math.max(s.end, from))));
-  let out = sorted.map((s, i) => ({ ...s, start: i ? ends[i - 1]! : from, end: ends[i]! })).filter((s) => s.end - s.start > 1e-3);
+  // Each starts where the last one kept ends: a shot inside the one before ([0, 8] then [2, 4]) is dropped, not overlapped.
+  let out: PlannedShot[] = [];
+  let at = from;
+  for (const s of sorted) {
+    const end = Math.min(to, s.end);
+    if (end - at <= 1e-3) continue;
+    out.push({ ...s, start: at, end });
+    at = end;
+  }
+  if (!out.length) return [];
+  out[out.length - 1] = { ...out.at(-1)!, end: to };
   // Short ones join a neighbour; a range shorter than `shortest` stays one shot.
   for (let i = 0; i < out.length && out.length > 1; ) {
     if (out[i]!.end - out[i]!.start >= shortest - 1e-3) i++;

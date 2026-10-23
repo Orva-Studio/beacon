@@ -43,11 +43,19 @@ const server = Bun.serve({
       if (key !== "Bearer openai-key") return Response.json({ error: { message: "bad key" } }, { status: 401 });
       const body = (await req.json()) as Record<string, unknown>;
       plans.push(body);
-      const from = 1;
-      const shots = [
-        { start: 0.5, end: 5, prompt: "A city skyline at dusk, slow aerial push-in", why: "the city" },
-        { start: 4.8, end: 16, prompt: "Hands typing on a laptop, shallow focus", why: "the work" },
-      ].map((s) => ({ ...s, start: s.start + from - 1 }));
+      const asked = JSON.stringify(body.input);
+      // "[late]": answered after the test has moved on; "[nested]": a shot inside another, as a model can write.
+      if (asked.includes("[late]")) await Bun.sleep(300);
+      const shots = asked.includes("[nested]")
+        ? [
+            { start: 0, end: 8, prompt: "A wide shot", why: "a" },
+            { start: 2, end: 4, prompt: "Inside the first", why: "b" },
+            { start: 3, end: 12, prompt: "The rest", why: "c" },
+          ]
+        : [
+            { start: 0.5, end: 5, prompt: "A city skyline at dusk, slow aerial push-in", why: "the city" },
+            { start: 4.8, end: 16, prompt: "Hands typing on a laptop, shallow focus", why: "the work" },
+          ];
       return Response.json({ output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: JSON.stringify({ research: "Found: the city", shots }) }] }] });
     }
     if (!url.pathname.startsWith("/replicate/")) return new Response("not found", { status: 404 });
@@ -144,7 +152,8 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
 
   // No OpenAI key: the job fails, and the review says why rather than planning forever.
   await expect(waitJob(core, jobOf(await core.run(h, "broll.plan", {})))).rejects.toThrow(/no OpenAI API key: add one in Settings › Transcripts/);
-  expect(await review()).toMatchObject({ planning: false, error: expect.stringMatching(/no OpenAI API key/) });
+  expect((await review())!.planning).toBeUndefined();
+  expect((await review())!.error).toMatch(/no OpenAI API key/);
 
   secrets.set("openai-api-key", "openai-key");
   // The top half of the canvas, as for a Short's B-roll above the face: taller than wide, so 9:16.
@@ -158,7 +167,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   // Tiled: from the range's start to its end, back to back, none over Veo's 8 s.
   const planned = (await review())!;
   expect(planned.notes).toBe("Found: the city");
-  expect(planned.planning).toBe(false);
+  expect(planned.planning).toBeUndefined();
   expect(planned.shots[0]!.start).toBe(1);
   expect(planned.shots.at(-1)!.end).toBe(13);
   for (const [i, s] of planned.shots.entries()) {
@@ -253,8 +262,22 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a generation cancelled is cancelled on 
   const imported = await core.import(h, [audio], { at: 0 });
   for (const j of imported.jobs) await core.cancelJob(j).catch(() => {});
   transcribed(core, Object.values(core.doc(h).assets)[0]!);
+  // A plan answered after its review's range changed is dropped; the review isn't left planning.
+  await core.run(h, "range.set", { in: 0, out: 12 });
+  const late = jobOf(await core.run(h, "broll.plan", { guide: "[late]" }));
+  await core.run(h, "broll.review", { from: 1, to: 9 });
+  await waitJob(core, late);
+  expect((await core.session(h)).features.broll).toMatchObject({ from: 1, to: 9, shots: [] });
+  expect(((await core.session(h)).features.broll as BrollReview).planning).toBeUndefined();
+  // A shot planned inside another is dropped, not overlapped (it would be paid for twice).
+  await waitJob(core, jobOf(await core.run(h, "broll.plan", { from: 0, to: 12, guide: "[nested]" })));
+  expect(((await core.session(h)).features.broll as BrollReview).shots.map((s) => [s.start, s.end])).toEqual([
+    [0, 8],
+    [8, 12],
+  ]);
+  await core.run(h, "broll.close", {});
   await core.run(h, "range.set", { in: 0, out: 4 });
-  await waitJob(core, jobOf(await core.run(h, "broll.plan", { research: false })));
+  await waitJob(core, jobOf(await core.run(h, "broll.plan", { research: false, guide: "" })));
   expect(plans.at(-1)!.tools).toBeUndefined();
   const shot = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
   await core.run(h, "broll.shot", { shot: shot.id, prompt: "[hold] a pan" });

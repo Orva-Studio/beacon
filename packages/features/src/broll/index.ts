@@ -56,7 +56,8 @@ export interface BrollReview {
   region: Rect | null;
   /** The canvas is taking a drawn region. */
   drawing: boolean;
-  planning?: boolean;
+  /** The plan being made: its request, so an answer for a review closed or moved since is dropped. */
+  planning?: string;
   /** What the planner's research found. */
   notes?: string;
   shots: BrollShot[];
@@ -119,7 +120,7 @@ const sessionCommands: SessionCommandDef[] = [
         ...given,
         from,
         to,
-        ...(moved ? { shots: [], notes: undefined, error: undefined } : {}),
+        ...(moved ? { shots: [], notes: undefined, error: undefined, planning: undefined } : {}),
       } satisfies BrollReview;
     },
   },
@@ -137,17 +138,18 @@ const sessionCommands: SessionCommandDef[] = [
   },
   {
     id: "broll.planned",
-    description: "Set the review's shots (broll.plan's job does, when OpenAI answers), or its `error`",
+    description: "Set the review's shots (broll.plan's job does, when OpenAI answers), or its `error`, for the plan `request` it is making; any other is dropped",
     args: z.strictObject({
+      request: z.string(),
       shots: z.array(z.strictObject({ start: z.number(), end: z.number(), prompt: z.string(), why: z.string() })).optional(),
       notes: z.string().optional(),
       error: z.string().optional(),
     }),
-    apply: (s, { shots, notes, error }: { shots?: { start: number; end: number; prompt: string; why: string }[]; notes?: string; error?: string }) => {
+    apply: (s, { request, shots, notes, error }: { request: string; shots?: { start: number; end: number; prompt: string; why: string }[]; notes?: string; error?: string }) => {
       const r = brollReview(s);
-      // Closed while it planned: what it planned is dropped (it cost a few cents).
-      if (!r) return;
-      r.planning = false;
+      // Closed, or its range changed, while it planned: what it planned is dropped (it cost a few cents).
+      if (r?.planning !== request) return;
+      r.planning = undefined;
       r.error = error;
       if (shots) {
         r.shots = shots.map((x) => ({ ...x, id: id(), use: true }));
@@ -158,8 +160,8 @@ const sessionCommands: SessionCommandDef[] = [
   {
     id: "broll.making",
     description: "Mark shots as being planned or made (broll.plan and broll.generate do)",
-    args: z.strictObject({ shots: z.array(z.string()).optional(), planning: z.boolean().optional() }),
-    apply: (s, { shots, planning }: { shots?: string[]; planning?: boolean }) => {
+    args: z.strictObject({ shots: z.array(z.string()).optional(), planning: z.string().optional() }),
+    apply: (s, { shots, planning }: { shots?: string[]; planning?: string }) => {
       const r = need(s);
       if (planning !== undefined) r.planning = planning;
       for (const x of r.shots) if (shots?.includes(x.id)) Object.assign(x, { making: true, error: undefined });
@@ -269,11 +271,12 @@ const brollPlan = defineAction({
     const { model } = brollSettings(ctx.pref);
     const aspect = nearestAspect(model, w, h);
     const text = (ws: typeof words) => ws.map((x) => x.text).join(" ");
+    const request = id();
     return {
       label: "Plan B-roll",
       before: [
         { command: "broll.review", args: given },
-        { command: "broll.making", args: { planning: true } },
+        { command: "broll.making", args: { planning: request } },
       ],
       task: {
         label: "Plan B-roll",
@@ -298,9 +301,9 @@ const brollPlan = defineAction({
           const shots = tile(plan.shots, from, to, model.durations[0]!, model.durations.at(-1)!);
           if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer range");
           env.progress(1, `${shots.length} shot${shots.length === 1 ? "" : "s"} planned: about $${estimate(shots, env.pref).toFixed(2)} to generate`);
-          return () => ({ label: "Plan B-roll", before: [{ command: "broll.planned", args: { shots, notes: plan.research } }] });
+          return () => ({ label: "Plan B-roll", before: [{ command: "broll.planned", args: { request, shots, notes: plan.research } }] });
         },
-        failed: (error) => [{ command: "broll.planned", args: { error: error === "cancelled" ? undefined : error } }],
+        failed: (error) => [{ command: "broll.planned", args: { request, ...(error === "cancelled" ? {} : { error }) } }],
       },
     };
   },
