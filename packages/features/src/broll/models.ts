@@ -1,7 +1,8 @@
 /**
- * The text-to-video models B-roll offers through Replicate (the user, 2026-10-21). Shapes and lengths are what the
- * models' pages said on 2026-10-23; `limits` reads the live schema before a generation, which wins. Prices are
- * Aug-Sep 2026 comparisons (PLAN), shown as estimates: Replicate's API doesn't give them.
+ * The text-to-video models B-roll offers through Replicate (the user, 2026-10-21 and 2026-10-23). Shapes and lengths
+ * are what the models' pages said on 2026-10-23; `limits` reads the live schema before a generation, which wins.
+ * Prices are third-party comparisons (PLAN), shown as estimates: Replicate's API doesn't give them, and FLUX 3's and
+ * Seedance 2.5's weren't found for Replicate, so theirs are the high end of what was reported.
  */
 export interface VideoModel {
   id: string;
@@ -41,6 +42,24 @@ export const VIDEO_MODELS: VideoModel[] = [
     perSecond: { "720p": 0.18 },
   },
   {
+    id: "flux-3",
+    title: "FLUX 3",
+    slug: "black-forest-labs/flux-3",
+    aspects: ["21:9", "2:1", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    durations: span(5, 20),
+    resolutions: { "720p": { resolution: "720p", draft: false }, "1080p": { resolution: "1080p", draft: false } },
+    perSecond: { "720p": 0.1, "1080p": 0.15 },
+  },
+  {
+    id: "seedance-2.5",
+    title: "Seedance 2.5",
+    slug: "bytedance/seedance-2.5",
+    aspects: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"],
+    durations: span(4, 30),
+    resolutions: { "720p": { resolution: "720p" }, "1080p": { resolution: "1080p" } },
+    perSecond: { "720p": 0.15, "1080p": 0.22 },
+  },
+  {
     id: "kling-v3",
     title: "Kling 3.0 Pro",
     slug: "kwaivgi/kling-v3-video",
@@ -63,9 +82,12 @@ export const ratio = (aspect: string) => {
   return w / h;
 };
 
-/** The model's shape nearest the region's, by how far apart their ratios are on a log scale (2:1 is as far from 1:1 as 1:2). */
+/**
+ * The model's shape nearest the region's, by how far apart their ratios are on a log scale (2:1 is as far from 1:1
+ * as 1:2); undefined for a model that picks its own (Seedance 2.5's "adaptive"), whose footage is cropped to fit.
+ */
 export const nearestAspect = (m: Pick<VideoModel, "aspects">, width: number, height: number) =>
-  m.aspects.reduce((best, a) => (Math.abs(Math.log(ratio(a) / (width / height))) < Math.abs(Math.log(ratio(best) / (width / height))) ? a : best));
+  m.aspects.length ? m.aspects.reduce((best, a) => (Math.abs(Math.log(ratio(a) / (width / height))) < Math.abs(Math.log(ratio(best) / (width / height))) ? a : best)) : undefined;
 
 /** The shortest length it makes that covers `seconds`, else its longest. */
 export const lengthFor = (m: Pick<VideoModel, "durations">, seconds: number) => m.durations.find((d) => d >= seconds - 1e-3) ?? m.durations.at(-1)!;

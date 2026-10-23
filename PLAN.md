@@ -2196,7 +2196,11 @@ the shots on the timeline, the region drawn on the canvas, and the footage
 previewed in place (the contract's `sessionPreview`; a task's `failed` steps
 clear what it marked busy). Checked headless against stand-ins
 (`docs/tested.md`); the preview in place and the gate are for the user's
-hand, with their keys. Animation (HyperFrames) next.
+hand, with their keys. Later the same day: FLUX 3 and Seedance 2.5 added,
+`broll.compare` (one shot with every model, each take kept and picked in
+place) for the side-by-side run, and every API key in Settings › AI (the
+Audio tab, which held only Auphonic's key, is gone). Animation (HyperFrames)
+next.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with

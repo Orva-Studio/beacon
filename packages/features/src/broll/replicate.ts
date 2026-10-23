@@ -7,8 +7,9 @@ const POLL_MS = () => Number(process.env.BEACON_REPLICATE_POLL_MS ?? 3000);
 /** Generations take a minute or several; past this one is given up (and cancelled on Replicate, so it stops charging). */
 const GIVE_UP_MS = 20 * 60_000;
 
-async function call<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
-  const job = jobSignal();
+/** `cancellable`: false lets a request the job no longer wants finish anyway (a prediction's creation, to cancel it by its id). */
+async function call<T>(token: string, url: string, init: RequestInit = {}, cancellable = true): Promise<T> {
+  const job = cancellable ? jobSignal() : undefined;
   const r = await fetch(url.startsWith("http") ? url : `${api()}${url}`, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init.headers },
@@ -32,24 +33,45 @@ async function call<T>(token: string, url: string, init: RequestInit = {}): Prom
 
 type Property = { enum?: unknown[]; minimum?: number; maximum?: number; allOf?: { $ref?: string }[]; $ref?: string; type?: string };
 
+/** What the model's live schema takes, over the table's. */
+export interface Limits {
+  /** Empty: it picks its own shape ("adaptive" alone), so none is sent. */
+  aspects: string[];
+  durations: number[];
+  /** Its duration is a string ("5", FLUX 3's), not a number. */
+  durationText: boolean;
+  /** The resolutions it lists, if it lists them. */
+  resolutions?: string[];
+  fields: Set<string>;
+}
+
 /**
- * The shapes and lengths the model's live schema allows, over the table's: Cog writes an enum as a `$ref` to a
- * schema of its own, a number range as minimum/maximum. Fields the schema doesn't have aren't sent.
+ * The shapes, lengths and resolutions the model's live schema allows, over the table's: Cog writes an enum as a
+ * `$ref` to a schema of its own, a number range as minimum/maximum. Fields the schema doesn't have aren't sent.
  */
-export async function limits(token: string, m: VideoModel): Promise<{ aspects: string[]; durations: number[]; fields: Set<string> }> {
+export async function limits(token: string, m: VideoModel): Promise<Limits> {
   const info = await call<{ latest_version?: { openapi_schema?: { components?: { schemas?: Record<string, { properties?: Record<string, Property>; enum?: unknown[] }> } } } }>(token, `/models/${m.slug}`);
   const schemas = info.latest_version?.openapi_schema?.components?.schemas ?? {};
   const props = schemas.Input?.properties;
-  if (!props) return { aspects: m.aspects, durations: m.durations, fields: new Set(["prompt", "aspect_ratio", "duration", "generate_audio", ...Object.values(m.resolutions).flatMap((r) => Object.keys(r!))]) };
+  if (!props) return { aspects: m.aspects, durations: m.durations, durationText: false, fields: new Set(["prompt", "aspect_ratio", "duration", "generate_audio", ...Object.values(m.resolutions).flatMap((r) => Object.keys(r!))]) };
   const enumOf = (p?: Property) => {
     const ref = p?.$ref ?? p?.allOf?.[0]?.$ref;
     return p?.enum ?? (ref ? schemas[ref.split("/").pop()!]?.enum : undefined);
   };
-  const aspects = (enumOf(props.aspect_ratio) as string[] | undefined)?.filter((a) => /^\d+:\d+$/.test(a)) ?? m.aspects;
+  const shapes = enumOf(props.aspect_ratio) as string[] | undefined;
   const d = props.duration;
-  const listed = (enumOf(d) as number[] | undefined)?.filter((x) => x > 0);
+  const lengths = enumOf(d);
+  const listed = lengths?.map(Number).filter((x) => Number.isFinite(x) && x > 0);
   const durations = listed?.length ? [...listed].sort((a, b) => a - b) : d?.minimum !== undefined && d.maximum !== undefined ? m.durations.filter((x) => x >= d.minimum! && x <= d.maximum!) : m.durations;
-  return { aspects: aspects.length ? aspects : m.aspects, durations: durations.length ? durations : m.durations, fields: new Set(Object.keys(props)) };
+  const resolutions = (enumOf(props.resolution) as string[] | undefined)?.filter((r) => typeof r === "string");
+  return {
+    // Listed without a single ratio ("adaptive", "auto"): the model picks.
+    aspects: shapes ? shapes.filter((a) => /^\d+:\d+$/.test(a)) : m.aspects,
+    durations: durations.length ? durations : m.durations,
+    durationText: d?.type === "string" || typeof lengths?.[0] === "string",
+    ...(resolutions?.length ? { resolutions } : {}),
+    fields: new Set(Object.keys(props)),
+  };
 }
 
 interface Prediction {
@@ -62,9 +84,11 @@ interface Prediction {
 
 /** Runs the model with `input` and downloads what it makes to `out`; `waiting` is told each poll. Cancelled on Replicate if the job is. */
 export async function generate(token: string, m: VideoModel, input: Record<string, unknown>, out: string, waiting: () => void): Promise<void> {
-  let p = await call<Prediction>(token, `/models/${m.slug}/predictions`, { method: "POST", body: JSON.stringify({ input }) });
+  // Replicate may start it before it answers: the answer is waited for even when the job is cancelled meanwhile, so it can be cancelled there too.
+  let p = await call<Prediction>(token, `/models/${m.slug}/predictions`, { method: "POST", body: JSON.stringify({ input }) }, false);
   const started = Date.now();
   try {
+    jobSignal()?.throwIfAborted();
     while (p.status === "starting" || p.status === "processing") {
       if (Date.now() - started > GIVE_UP_MS) throw new Error(`${m.title} took over ${GIVE_UP_MS / 60_000} minutes`);
       await Bun.sleep(POLL_MS());

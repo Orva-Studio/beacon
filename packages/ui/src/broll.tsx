@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { BrollReview, BrollShot, Rect } from "@beacon/features";
-import { Button, Check, Segmented, TextArea } from "./controls";
+import { Button, Check, Segmented, Select, TextArea } from "./controls";
 import { circle, COLOR, line, type CanvasMark } from "./canvas-marks";
 import type { Line } from "./canvas-snap";
 import { useShortcutTip } from "./keymap";
@@ -22,7 +22,7 @@ interface Estimate {
   resolution: string;
   limit: number;
   total: number;
-  shots: { id: string; seconds: number; cost: number }[];
+  shots: { id: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
 }
 
 const dollars = (v: number) => `$${v.toFixed(2)}`;
@@ -177,7 +177,7 @@ export function BrollPanel({ project, session, host }: { project: Project; sessi
   );
 }
 
-function ShotCard({ shot: s, n, cost, host, current, show }: { shot: BrollShot; n: number; cost?: { seconds: number; cost: number }; host: Host; current: boolean; show: () => void }) {
+function ShotCard({ shot: s, n, cost, host, current, show }: { shot: BrollShot; n: number; cost?: Estimate["shots"][number]; host: Host; current: boolean; show: () => void }) {
   const [prompt, setPrompt] = useState(s.prompt);
   useEffect(() => setPrompt(s.prompt), [s.prompt]);
   const changed = !!s.candidate && s.candidate.prompt !== s.prompt;
@@ -192,6 +192,24 @@ function ShotCard({ shot: s, n, cost, host, current, show }: { shot: BrollShot; 
       </div>
       <TextArea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt.trim() && prompt !== s.prompt && host.run("broll.shot", { shot: s.id, prompt: prompt.trim() })} data-broll-prompt />
       {s.why && <span className="text-caption text-text-faint">{s.why}</span>}
+      {s.candidate && !!s.others?.length && (
+        <Select
+          title="The footage this shot shows and places: each take it has made"
+          value={s.candidate.path}
+          onChange={(e) => {
+            host.run("broll.shot", { shot: s.id, pick: e.target.value });
+            show();
+          }}
+          data-broll-pick
+        >
+          {[s.candidate, ...s.others].map((c) => (
+            <option key={c.path} value={c.path}>
+              {c.model} · {dollars(c.cost)}
+              {c.prompt !== s.prompt ? " · earlier prompt" : ""}
+            </option>
+          ))}
+        </Select>
+      )}
       <div className="flex items-center gap-2 text-caption" data-broll-state={s.making ? "making" : s.candidate ? "made" : s.error ? "failed" : "planned"}>
         {s.making ? (
           <span className="text-text-muted">Making…</span>
@@ -202,6 +220,11 @@ function ShotCard({ shot: s, n, cost, host, current, show }: { shot: BrollShot; 
             {(s.candidate || s.error) && (
               <Button look="quiet" className="ml-auto" onClick={() => host.run("broll.generate", { shots: [s.id] })} data-broll-again>
                 Make Again
+              </Button>
+            )}
+            {cost && cost.compare.models > 1 && (
+              <Button look="quiet" className={s.candidate || s.error ? "" : "ml-auto"} title={`Make this shot with each of the ${cost.compare.models} models that can, to compare them in place`} onClick={() => host.run("broll.compare", { shot: s.id })} data-broll-compare>
+                Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
               </Button>
             )}
           </>

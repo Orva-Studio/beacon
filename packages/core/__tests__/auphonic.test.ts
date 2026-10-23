@@ -92,7 +92,7 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
 
   // No key yet: the job says where to add one.
   const noKey = (await core.run(h, "audio.clean", { preset: "Echo" })).results.at(-1) as { job: string };
-  await expect(waitJob(core, noKey.job)).rejects.toThrow(/no Auphonic API key: add one in Settings › Audio/);
+  await expect(waitJob(core, noKey.job)).rejects.toThrow(/no Auphonic API key: add one in Settings › AI/);
   secrets.set("auphonic-api-key", "test-key");
   expect(((await core.query(h, "auphonic.presets", {})) as { name: string }[]).map((p) => p.name)).toEqual(["Echo", "Cutter", "Snipper"]);
 

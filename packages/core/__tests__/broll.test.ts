@@ -78,9 +78,29 @@ const server = Bun.serve({
           },
         },
       });
-    if (path === "/models/google/veo-3.1-fast/predictions") {
+    // FLUX 3 as its page describes it: its length a string, "auto" or "5"-"20", any shape or "auto".
+    if (path === "/models/black-forest-labs/flux-3")
+      return Response.json({
+        latest_version: {
+          openapi_schema: {
+            components: {
+              schemas: {
+                Input: { properties: { prompt: { type: "string" }, aspect_ratio: { allOf: [{ $ref: "#/components/schemas/aspect_ratio" }] }, duration: { type: "string", allOf: [{ $ref: "#/components/schemas/duration" }] }, resolution: { type: "string" }, generate_audio: { type: "boolean" }, draft: { type: "boolean" } } },
+                aspect_ratio: { enum: ["auto", "21:9", "2:1", "16:9", "4:3", "1:1", "3:4", "9:16"] },
+                duration: { enum: ["auto", ...Array.from({ length: 16 }, (_, i) => String(i + 5))] },
+              },
+            },
+          },
+        },
+      });
+    // The other models: no schema read, so the table's.
+    if (/^\/models\/[\w.-]+\/[\w.-]+$/.test(path)) return Response.json({});
+    const posted = path.match(/^\/models\/([\w.-]+\/[\w.-]+)\/predictions$/);
+    if (posted) {
       const { input } = (await req.json()) as { input: Record<string, unknown> };
-      predictions.push(input);
+      predictions.push({ ...input, model: posted[1] });
+      // "[late-start]": started, but answered after the job is cancelled.
+      if (String(input.prompt).includes("[late-start]")) await Bun.sleep(400);
       const id = `pred-${predictions.length}`;
       state.set(id, { input, polls: 0 });
       return Response.json({ id, status: "starting", urls: { get: `${url.origin}/replicate/predictions/${id}`, cancel: `${url.origin}/replicate/predictions/${id}/cancel` } });
@@ -153,7 +173,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   expect(await review()).toMatchObject({ from: 1, to: 13, guide: "keep it abstract", research: true, region: null, shots: [] });
 
   // No OpenAI key: the job fails, and the review says why rather than planning forever.
-  await expect(waitJob(core, jobOf(await core.run(h, "broll.plan", {})))).rejects.toThrow(/no OpenAI API key: add one in Settings › Transcripts/);
+  await expect(waitJob(core, jobOf(await core.run(h, "broll.plan", {})))).rejects.toThrow(/no OpenAI API key: add one in Settings › AI/);
   expect((await review())!.planning).toBeUndefined();
   expect((await review())!.error).toMatch(/no OpenAI API key/);
 
@@ -193,9 +213,9 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   await waitJob(core, jobOf(await core.run(h, "broll.generate", {})));
   // Silent, in the region's shape, each shot at the shortest length that covers it, only fields the model has.
   for (const input of predictions) {
-    expect(input).toMatchObject({ aspect_ratio: "9:16", generate_audio: false, resolution: "1080p" });
+    expect(input).toMatchObject({ model: "google/veo-3.1-fast", aspect_ratio: "9:16", generate_audio: false, resolution: "1080p" });
     expect([4, 6, 8]).toContain(input.duration as number);
-    expect(Object.keys(input).sort()).toEqual(["aspect_ratio", "duration", "generate_audio", "prompt", "resolution"]);
+    expect(Object.keys(input).sort()).toEqual(["aspect_ratio", "duration", "generate_audio", "model", "prompt", "resolution"]);
   }
   const made = (await review())!;
   expect(made.shots.every((s) => s.candidate && !s.making && !s.error)).toBe(true);
@@ -224,6 +244,22 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   expect(canvas().equals(plain)).toBe(true);
   for (const s of made.shots) await core.run(h, "broll.shot", { shot: s.id, use: true });
   expect(canvas().equals(previewed)).toBe(true);
+
+  // One shot made with every model that can make it that long, side by side: each kept on the shot, picked in turn.
+  const second = made.shots[1]!;
+  const compared = predictions.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.compare", { shot: second.id })));
+  const asked = predictions.slice(compared);
+  expect(asked.map((p) => p.model).sort()).toEqual(["black-forest-labs/flux-3", "bytedance/seedance-2.0", "bytedance/seedance-2.5", "google/veo-3.1-fast", "kwaivgi/kling-v3-video"]);
+  // FLUX 3 has 1:1, nearer the 960×1080 region than 9:16: less is cropped.
+  expect(asked.find((p) => p.model === "black-forest-labs/flux-3")).toMatchObject({ duration: "8", aspect_ratio: "1:1", draft: false, generate_audio: false });
+  const takes = (await review())!.shots[1]!;
+  expect(takes.others).toHaveLength(5);
+  const flux = [takes.candidate!, ...takes.others!].find((c) => c.model === "FLUX 3")!;
+  await core.run(h, "broll.shot", { shot: second.id, pick: flux.path });
+  expect((await review())!.shots[1]!.candidate!.model).toBe("FLUX 3");
+  await core.run(h, "broll.shot", { shot: second.id, pick: second.candidate!.path });
+  expect((await review())!.shots[1]!.candidate!.path).toBe(second.candidate!.path);
 
   const before = core.doc(h);
   await core.run(h, "broll.apply", {});
@@ -301,4 +337,14 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a generation cancelled is cancelled on 
   expect(after).toMatchObject({ making: false });
   expect(after.error).toBeUndefined();
   expect(readdirSync(join(dir, "cancel.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toEqual([]);
+
+  // Cancelled before Replicate answers that it started one: it is still cancelled there once it answers.
+  await core.run(h, "broll.shot", { shot: shot.id, prompt: "[late-start] a pan" });
+  const starting = jobOf(await core.run(h, "broll.generate", { shots: [shot.id] }));
+  for (let i = 0; i < 100 && !predictions.some((p) => p.prompt === "[late-start] a pan"); i++) await Bun.sleep(10);
+  const before = cancelled.length;
+  await core.cancelJob(starting);
+  await expect(waitJob(core, starting)).rejects.toThrow(/cancelled/);
+  for (let i = 0; i < 100 && cancelled.length === before; i++) await Bun.sleep(20);
+  expect(cancelled.length).toBe(before + 1);
 }, 60_000);

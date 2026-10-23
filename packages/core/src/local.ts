@@ -685,7 +685,7 @@ export class LocalCore implements BeaconCore {
       }
     }
     for (const f of this.registry.features.values()) {
-      const steps = f.sessionPreview?.(p.session.state, shown);
+      const steps = f.sessionPreview?.(p.session.state, shown, this.registry);
       if (!steps?.length) continue;
       try {
         // The same ids each time it is shown, so the frames the preview decoded for one are found again.

@@ -17,11 +17,11 @@ export interface TranscriptsHost {
 }
 
 /**
- * A preference in Settings › Transcripts, with the API key its online option needs (kept in the Keychain): who
+ * A preference in Settings › Transcripts, and whether the API key its online option needs is set (in Settings › AI): who
  * transcribes (Whisper on this Mac, Apple's transcriber, or Whisper through OpenAI's API), with Whisper's model when
  * it is the one chosen; who picks the best take. `changed` gets every preference after a change, as a key is shared.
  */
-export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your audio is uploaded to OpenAI to be transcribed", offline, model, close, host, changed }: {
+export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your audio is uploaded to OpenAI to be transcribed", offline, model, close, host, changed, askKey }: {
   pref: PreferenceInfo;
   label?: string;
   /** What the online option sends, in the key's hint. */
@@ -32,6 +32,8 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
   close: () => void;
   host: TranscriptsHost;
   changed: (prefs: PreferenceInfo[]) => void;
+  /** An option whose key isn't set was chosen: the key is added in Settings › AI, which then chooses it. */
+  askKey: (pref: string, value: string) => void;
 }) {
   /** Shown, not yet applied: an option whose key isn't set waits for it. */
   const [choice, setChoice] = useState(pref.value);
@@ -40,7 +42,6 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
   useEffect(() => {
     if (pref.value !== applied.current) setChoice((applied.current = pref.value));
   }, [pref.value]);
-  const [key, setKey] = useState("");
   const [error, setError] = useState<string>();
   const option = pref.options.find((o) => o.id === choice)!;
   const online = useOnline();
@@ -55,19 +56,6 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
     setError(undefined);
     const o = pref.options.find((x) => x.id === value)!;
     if (!o.secret || o.secret.set) void apply(value);
-  };
-  const saveKey = async (value: string | null) => {
-    const r = await host.setSecret(option.secret!.id, value);
-    if (!r.ok) return setError(r.error);
-    setKey("");
-    const now = r.result!.find((p) => p.id === pref.id)!;
-    if (value === null) applied.current = now.value;
-    changed(r.result!);
-    if (value !== null) await apply(choice);
-    else {
-      setChoice(now.value);
-      setError(undefined);
-    }
   };
   return (
     <div className="contents" data-preference-row={pref.id}>
@@ -91,37 +79,16 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
         </Row>
       )}
       {option.secret && (
-        <Row
-          label="API Key"
-          hint={
-            <div className="mt-1 text-caption text-text-faint">
-              <span className="text-warning">{sends}</span>, and OpenAI charges your account. The key is kept in this Mac's Keychain, never in a
-              file.
-              {error && <div className="mt-1 text-danger">{error}</div>}
-            </div>
-          }
-        >
+        <Row label="API Key" hint={<span className="text-warning">{sends}, and OpenAI charges your account.</span>}>
           {option.secret.set ? (
-            <div className="flex items-center gap-3" data-api-key="set">
-              <span className="text-text-muted">Saved in the Keychain</span>
-              <Button look="quiet" onClick={() => void saveKey(null)}>
-                Remove
-              </Button>
-            </div>
+            <span className="text-text-muted" data-api-key="set">
+              Saved in Settings › AI
+            </span>
           ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-2" data-api-key="unset">
-              <input
-                {...PLAIN_TEXT}
-                type="password"
-                autoComplete="new-password"
-                placeholder="sk-…"
-                className="min-w-0 flex-1 rounded-md border border-transparent bg-chip px-2 py-1.5 text-text-strong outline-none focus:border-accent"
-                value={key}
-                onChange={(e) => (setKey(e.target.value), setError(undefined))}
-                onKeyDown={(e) => e.key === "Enter" && key.trim() && (e.stopPropagation(), void saveKey(key.trim()))}
-              />
-              <Button look="primary" disabled={!key.trim()} onClick={() => void saveKey(key.trim())}>
-                Save and Use
+            <div className="flex items-center gap-3" data-api-key="unset">
+              <span className="text-text-muted">Needs your OpenAI API key</span>
+              <Button look="primary" onClick={() => askKey(pref.id, choice)}>
+                Add Key in AI…
               </Button>
             </div>
           )}
@@ -145,8 +112,17 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
   );
 }
 
-/** An API key a feature uses (Auphonic's), saved in the Keychain or removed; what it sends and who charges, in its hint. */
-export function SecretRow({ secret, label, sends, charges, placeholder, host }: { secret: SecretInfo; label: string; sends: string; charges: string; placeholder: string; host: Pick<TranscriptsHost, "setSecret"> }) {
+/** An API key a feature uses, saved in the Keychain or removed; what it sends and who charges, in its hint. */
+export function SecretRow({ secret, label, sends, charges, placeholder, host, saved: onSaved }: {
+  secret: SecretInfo;
+  label: string;
+  sends: string;
+  charges: string;
+  placeholder: string;
+  host: Pick<TranscriptsHost, "setSecret">;
+  /** Told once it is saved or removed, with the preferences as they now are (removing it resets those that needed it). */
+  saved?: (set: boolean, prefs?: PreferenceInfo[]) => void;
+}) {
   const [saved, setSaved] = useState(secret.set);
   const [key, setKey] = useState("");
   const [error, setError] = useState<string>();
@@ -156,6 +132,7 @@ export function SecretRow({ secret, label, sends, charges, placeholder, host }: 
     setKey("");
     setError(undefined);
     setSaved(value !== null);
+    onSaved?.(value !== null, r.result);
   };
   return (
     <Row

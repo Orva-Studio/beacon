@@ -41,7 +41,7 @@ export function withPatch(settings: AppSettings, { snapshotFolder, ...rest }: Se
 }
 
 /** Settings' tabs, in order. */
-export const SETTINGS_TABS = ["general", "recording", "transcripts", "audio", "ai", "shortcuts"] as const;
+export const SETTINGS_TABS = ["general", "recording", "transcripts", "ai", "shortcuts"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /** The dialogs an agent can open in the app's window (`uiOpen`). */

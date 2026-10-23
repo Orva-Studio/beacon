@@ -104,7 +104,8 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   is said there, as a job; `broll_shot` changes a prompt; `broll_estimate`
   says what generating costs. Tell the user the cost and run
   `broll_generate` only when they say so (one candidate per shot; `shots` to
-  make one again); `broll_apply` when they say so places them on a B-roll
+  make one again; `broll_compare` makes one shot with every model, each kept
+  on the shot and chosen with `broll_shot` `pick`); `broll_apply` when they say so places them on a B-roll
   track above the talk, fitted to the region, one undo step. Footage made is
   kept in the project's `media/B-roll` folder even if never placed.
 - Film Look (a visual effect) gives clips one of hance's looks:

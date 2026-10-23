@@ -389,7 +389,7 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   const value = async () => (await ui.core.preferences()).find((p) => p.id === "transcriber")!.value;
   // Changing the transcriber transcribes the project's media again: not here (OpenAI's would be sent the test key).
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "transcripts" });
   await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
   expect(await has("[data-resource-row]")).toBe(true);
   // Apple's needs nothing: chosen at once, and the model isn't offered.
@@ -403,14 +403,22 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   expect(await page.evaluate<string>(`document.querySelector('[data-api-key]').closest('[tabindex="-1"]').innerText`)).toContain("uploaded to OpenAI");
   expect(await value()).toBe("apple");
   expect(ui.menus).not.toContain("setPreference:transcriber=openai");
-  await page.click(...(await centre('[data-api-key="unset"] input')));
+  // Every key is in Settings › AI: added there, OpenAI's is chosen and Settings comes back here.
+  await page.evaluate(`${button("Add Key in AI…")}.click()`);
+  await page.until(`!!document.querySelector('[data-secret="openai-api-key"] input')`);
+  await page.click(...(await centre('[data-secret="openai-api-key"] input')));
   await type("sk-test-123");
-  await page.evaluate(`${button("Save and Use")}.click()`);
-  await page.until("!!document.querySelector('[data-api-key=\"set\"]')");
+  await page.key("Enter", "Enter");
+  await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
   expect(ui.menus).toContain("setSecret:openai-api-key=set");
   expect(await value()).toBe("openai");
+  expect(await has('[data-api-key="set"]')).toBe(true);
   // An agent can't choose an option whose key is missing; without its key, OpenAI's goes back to Whisper.
-  await page.evaluate(`${button("Remove")}.click()`);
+  await page.evaluate(`document.querySelector('[data-section="ai"]').click()`);
+  await page.until(`document.querySelector('[data-secret="openai-api-key"]')?.dataset.apiKey === 'set'`);
+  await page.evaluate(`[...document.querySelectorAll('[data-secret="openai-api-key"] button')].find((b) => b.textContent === 'Remove').click()`);
+  await arrived(() => ui.menus.includes("setSecret:openai-api-key=removed"));
+  await page.evaluate(`document.querySelector('[data-section="transcripts"]').click()`);
   await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
   expect(await value()).toBe("whisper");
   await expect(ui.core.setPreference("transcriber", "openai")).rejects.toThrow(/only the user can add/);
@@ -424,16 +432,18 @@ test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: 
   const pick = (id: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-preference="${id}"]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   const value = async (id: string) => (await ui.core.preferences()).find((p) => p.id === id)!.value;
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences(), tab: "transcripts" });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "transcripts" });
   await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
   expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("Best Take");
   await pick("retake-judge", "openai");
   await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="unset"]')`);
   expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("not the audio");
   expect(await value("retake-judge")).toBe("beacon");
-  await page.click(...(await centre(`${row("retake-judge")} [data-api-key="unset"] input`)));
+  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Add Key in AI…').click()`);
+  await page.until(`!!document.querySelector('[data-secret="openai-api-key"] input')`);
+  await page.click(...(await centre('[data-secret="openai-api-key"] input')));
   await type("sk-test-456");
-  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Save and Use').click()`);
+  await page.key("Enter", "Enter");
   await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="set"]')`);
   expect(await value("retake-judge")).toBe("openai");
   // The key is the transcriber's too: OpenAI's there is chosen at once, with no key to type.
@@ -442,7 +452,11 @@ test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: 
   expect(await value("transcriber")).toBe("openai");
   await pick("transcriber", "whisper");
   await arrived(() => ui.menus.includes("setPreference:transcriber=whisper"));
-  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Remove').click()`);
+  await page.evaluate(`document.querySelector('[data-section="ai"]').click()`);
+  await page.until(`document.querySelector('[data-secret="openai-api-key"]')?.dataset.apiKey === 'set'`);
+  await page.evaluate(`[...document.querySelectorAll('[data-secret="openai-api-key"] button')].find((b) => b.textContent === 'Remove').click()`);
+  await page.until(`document.querySelector('[data-secret="openai-api-key"]')?.dataset.apiKey === 'unset'`);
+  await page.evaluate(`document.querySelector('[data-section="transcripts"]').click()`);
   await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
   expect(await value("retake-judge")).toBe("beacon");
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()`);
@@ -475,7 +489,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
-    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
+    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "transcripts" });
     await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
     expect(await page.evaluate<string>("document.querySelector('[data-offline]').textContent")).toContain("can't transcribe until you're back online");
     await page.evaluate("(() => { const s = document.querySelector('[data-transcriber]'); s.value = 'whisper'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
@@ -2426,7 +2440,7 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
 test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
   await page.until("!!document.querySelector('[data-settings-nav]')");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Audio", "AI", "Shortcuts"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "AI", "Shortcuts"]);
   const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
   const first = await size();
   for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
@@ -3724,7 +3738,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.until(`!!document.querySelector('${tile}')`);
     await page.dblclick(...(await centre(tile)));
     await page.until("!!document.querySelector('[data-auphonic-review]')");
-    await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › Audio')");
+    await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › AI')");
     expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
     // ⎋ closes it as Cancel does, the selection kept; opened again for the rest.
     await page.key("Escape", "Escape");
@@ -3750,12 +3764,12 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.until("!document.querySelector('[data-auphonic-none]')");
     if (muted) await run("track.set", { track: muted.id, muted: false });
     await select([audio.id]);
-    // Open Settings… goes to Settings › Audio, where the key is typed in and saved.
+    // Open Settings… goes to Settings › AI, where the key is typed in and saved.
     const menus = ui.menus.length;
     await page.evaluate("[...document.querySelectorAll('[data-auphonic-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
-    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:audio"));
-    expect(ui.menus.slice(menus)).toContain("app:app.settings:audio");
-    await ui.core.uiOpen(ui.handle, "settings", "audio");
+    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:ai"));
+    expect(ui.menus.slice(menus)).toContain("app:app.settings:ai");
+    await ui.core.uiOpen(ui.handle, "settings", "ai");
     const field = '[data-secret="auphonic-api-key"] input';
     await page.until(`!!document.querySelector('${field}')`);
     await page.click(...(await centre(field)));

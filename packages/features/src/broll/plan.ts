@@ -85,7 +85,7 @@ export async function planShots(r: PlanRequest, apiKey: string): Promise<{ resea
     }),
     signal: AbortSignal.any([AbortSignal.timeout(5 * 60_000), ...(job ? [job] : [])]),
   });
-  if (res.status === 401) throw new Error("OpenAI refused the API key: check it in Settings › Transcripts");
+  if (res.status === 401) throw new Error("OpenAI refused the API key: check it in Settings › AI");
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     const message = (() => {
