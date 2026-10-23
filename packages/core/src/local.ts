@@ -493,7 +493,7 @@ export class LocalCore implements BeaconCore {
 
   /** An action's background work; its edit is planned on the document as it is when the work is done. */
   #startTask(p: OpenProject, task: ActionTask): Job {
-    return this.#parts.startJob(p, "task", task.label, async (progress) => {
+    const job = this.#parts.startJob(p, "task", task.label, async (progress) => {
       const mediaDir = join(p.path, "media");
       mkdirSync(mediaDir, { recursive: true });
       const finish = await task.run({
@@ -509,6 +509,19 @@ export class LocalCore implements BeaconCore {
       const r = this.#applyPlan(p, plan, plan.label);
       return { label: plan.label, results: r.results };
     });
+    if (task.failed) {
+      job.done.catch((e: unknown) => {
+        if (this.#projects.get(p.path) !== p) return;
+        const message = e instanceof Error ? e.message : String(e);
+        const error = message === `${task.label}: cancelled` ? "cancelled" : message;
+        try {
+          for (const s of task.failed!(error)) p.session.run(s.command, s.args, p.store.doc);
+        } catch (err) {
+          console.error(err);
+        }
+      });
+    }
+    return job;
   }
 
   /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
@@ -558,6 +571,7 @@ export class LocalCore implements BeaconCore {
     this.#recording.sessionChanged(p, session, changed);
     const view = p.view;
     if (!view || p.ticking) return;
+    if (changed.includes("features") && [...this.registry.features.values()].some((f) => f.sessionPreview)) view.refresh();
     if (changed.includes("playing") && session.playing) p.preview = undefined;
     if (changed.includes("playing") && !session.playing) view.pause();
     else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
@@ -656,19 +670,34 @@ export class LocalCore implements BeaconCore {
     return view;
   }
 
-  /** What the canvas shows: the document, with an effect previewed over it. */
+  /** What the canvas shows: the document, with an effect previewed over it and what features' editor state previews. */
   #shown(p: OpenProject): Project {
     const doc = p.store.doc;
-    if (!p.preview) return doc;
-    if (p.previewDoc?.doc === doc) return p.previewDoc.shown;
+    const { features } = p.session.state;
+    if (p.previewDoc?.doc === doc && p.previewDoc.features === features) return p.previewDoc.shown;
     let shown = doc;
-    try {
-      shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
-    } catch {
-      // Its clip or effect is gone: nothing left to preview.
-      p.preview = undefined;
+    if (p.preview) {
+      try {
+        shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
+      } catch {
+        // Its clip or effect is gone: nothing left to preview.
+        p.preview = undefined;
+      }
     }
-    p.previewDoc = { doc, shown };
+    for (const f of this.registry.features.values()) {
+      const steps = f.sessionPreview?.(p.session.state, shown);
+      if (!steps?.length) continue;
+      try {
+        // The same ids each time it is shown, so the frames the preview decoded for one are found again.
+        let n = 0;
+        const scratch = new ProjectStore(this.registry, shown, { data: p.data.get, newId: (prefix) => `${prefix}-preview-${f.id}-${n++}` });
+        scratch.transaction("preview", (tx) => runSteps(tx, steps));
+        shown = scratch.doc;
+      } catch (e) {
+        console.error(`${f.id}'s preview:`, e);
+      }
+    }
+    p.previewDoc = { doc, features, shown };
     return shown;
   }
 

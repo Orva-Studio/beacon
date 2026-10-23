@@ -431,6 +431,8 @@ export interface ActionTask {
   /** The job's name ("Clean with Auphonic"). */
   label: string;
   run: (env: TaskEnv) => Promise<(ctx: ActionContext) => ActionPlan>;
+  /** Editor steps run when it fails or is cancelled (`error` says which), so state it marked as busy is cleared. */
+  failed?: (error: string) => ActionStep[];
 }
 
 export interface TaskEnv {
@@ -544,6 +546,11 @@ export interface Feature {
    * command its Cancel (⎋) runs, and the actions its Apply (↩) and Apply All (⇧↩) run (`reviews.*`).
    */
   panels?: { open: (s: Session) => boolean; cancel: string; apply: { action: string; args?: object }; applyAll?: { action: string; args?: object } }[];
+  /**
+   * Document steps the canvas shows applied while its editor state asks (B-roll's footage in place, before Apply):
+   * run on a copy, never in the document, its history, saves or exports.
+   */
+  sessionPreview?: (s: Session, project: Project) => ActionStep[] | undefined;
   /**
    * What of that state is kept with the project (its `editor.json`, never an undo step), restored when it is
    * opened; undefined keeps nothing. The safe areas shown are; a review isn't.

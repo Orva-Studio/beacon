@@ -1,0 +1,475 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
+import { jobSignal } from "@beacon/media";
+import { defineAction, defineFeature, defineQuery, ticksToSeconds, clipEnd, type ActionContext, type ActionStep, type Asset, type Preferences, type Project, type Session, type SessionCommandDef } from "@beacon/model";
+import { timelineWords } from "../transcript";
+import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution } from "./models";
+import { planShots, tile, PLAN_MODEL } from "./plan";
+import { generate, limits } from "./replicate";
+
+export { VIDEO_MODELS, videoModel, resolutionOf, shotCost, nearestAspect, lengthFor } from "./models";
+
+const TOKEN = "replicate-api-token";
+const OPENAI = "openai-api-key";
+/** Seconds of talk either side of the range the planner reads for context. */
+const CONTEXT = 15;
+
+/** A region of the canvas in canvas pixels from its top left: x, y, width, height. */
+export type Rect = [number, number, number, number];
+
+export interface BrollCandidate {
+  /** The file, in the project's `media/B-roll` folder. */
+  path: string;
+  /** As `asset.add` takes it, probed. */
+  asset: Omit<Asset, "id">;
+  prompt: string;
+  model: string;
+  aspect: string;
+  seconds: number;
+  /** Dollars, estimated from the model's price per second. */
+  cost: number;
+}
+
+export interface BrollShot {
+  id: string;
+  /** Timeline seconds. */
+  start: number;
+  end: number;
+  prompt: string;
+  why: string;
+  /** Placed by Apply: on unless the user unticks it. */
+  use: boolean;
+  candidate?: BrollCandidate;
+  /** Being made now (a job). */
+  making?: boolean;
+  error?: string;
+}
+
+/** B-roll's review, open in the properties panel: what it covers, how it is planned, and the shots. */
+export interface BrollReview {
+  from: number;
+  to: number;
+  guide: string;
+  research: boolean;
+  /** Where on the canvas it goes; null: the whole canvas. */
+  region: Rect | null;
+  /** The canvas is taking a drawn region. */
+  drawing: boolean;
+  planning?: boolean;
+  /** What the planner's research found. */
+  notes?: string;
+  shots: BrollShot[];
+  error?: string;
+}
+
+export const brollReview = (s: Session) => s.features.broll as BrollReview | undefined;
+
+const need = (s: Session) => {
+  const r = brollReview(s);
+  if (!r) throw new Error("B-roll's review isn't open: broll.review opens it");
+  return r;
+};
+
+const id = () => Math.random().toString(36).slice(2, 8);
+
+export const regionOf = (r: Pick<BrollReview, "region">, project: Project): Rect => r.region ?? [0, 0, project.settings.width, project.settings.height];
+
+/** The model, its resolution and the limit, as Settings › AI has them. */
+export const brollSettings = (pref: Preferences) => {
+  const model = videoModel(pref("brollModel"));
+  return { model, resolution: resolutionOf(model, pref("brollResolution")) as Resolution, limit: Number(pref("brollLimit")) || 0 };
+};
+
+/** What generating these shots costs, by the model's listed price. */
+export const estimate = (shots: Pick<BrollShot, "start" | "end">[], pref: Preferences) => {
+  const { model, resolution } = brollSettings(pref);
+  return shots.reduce((sum, s) => sum + shotCost(model, resolution, s.end - s.start), 0);
+};
+
+const RectSchema = z.tuple([z.number(), z.number(), z.number().positive(), z.number().positive()]);
+
+const sessionCommands: SessionCommandDef[] = [
+  {
+    id: "broll.review",
+    description:
+      "Open B-roll's review (the AI panel's B-roll tile does) over the range (`from`/`to` timeline seconds, else the range dragged on the ruler), or change it: `guide` (what to show or avoid), `research` (the planner searches the web for what is said), `region` ([x, y, width, height] canvas pixels from the top left, or null for the whole canvas), `drawing` (the canvas takes a drawn region). A new range drops the planned shots. Then broll.plan",
+    args: z.strictObject({
+      from: z.number().nonnegative().optional(),
+      to: z.number().positive().optional(),
+      guide: z.string().max(1000).optional(),
+      research: z.boolean().optional(),
+      region: RectSchema.nullable().optional(),
+      drawing: z.boolean().optional(),
+    }),
+    apply: (s, a: { from?: number; to?: number; guide?: string; research?: boolean; region?: Rect | null; drawing?: boolean }, { project }) => {
+      const was = brollReview(s);
+      const from = a.from ?? was?.from ?? s.range?.in;
+      const to = a.to ?? was?.to ?? s.range?.out;
+      if (from === undefined || to === undefined) throw new Error("drag a range on the ruler over the words the B-roll should cover (or give `from` and `to`)");
+      if (to - from < 0.5) throw new Error("the range is under half a second: B-roll needs a stretch of the talk");
+      if (a.region) {
+        const [x, y, w, h] = a.region;
+        if (x < -1 || y < -1 || x + w > project.settings.width + 1 || y + h > project.settings.height + 1) throw new Error(`the region must be inside the ${project.settings.width}×${project.settings.height} canvas`);
+      }
+      const moved = !!was && (Math.abs(was.from - from) > 1e-3 || Math.abs(was.to - to) > 1e-3);
+      const given = Object.fromEntries(Object.entries(a).filter(([k, v]) => v !== undefined && k !== "from" && k !== "to"));
+      s.features.broll = {
+        ...(was ?? { guide: "", research: true, region: null, drawing: false, shots: [] }),
+        ...given,
+        from,
+        to,
+        ...(moved ? { shots: [], notes: undefined, error: undefined } : {}),
+      } satisfies BrollReview;
+    },
+  },
+  {
+    id: "broll.shot",
+    description: "Change a planned shot: its `prompt` (broll.generate makes it again), or `use` (whether Apply places it)",
+    args: z.strictObject({ shot: z.string().min(1), prompt: z.string().min(1).max(2000).optional(), use: z.boolean().optional() }),
+    apply: (s, { shot, prompt, use }: { shot: string; prompt?: string; use?: boolean }) => {
+      const r = need(s);
+      const x = r.shots.find((x) => x.id === shot);
+      if (!x) throw new Error(`no shot "${shot}" in the review: ${r.shots.map((x) => x.id).join(", ") || "plan it first"}`);
+      if (prompt !== undefined) x.prompt = prompt;
+      if (use !== undefined) x.use = use;
+    },
+  },
+  {
+    id: "broll.planned",
+    description: "Set the review's shots (broll.plan's job does, when OpenAI answers), or its `error`",
+    args: z.strictObject({
+      shots: z.array(z.strictObject({ start: z.number(), end: z.number(), prompt: z.string(), why: z.string() })).optional(),
+      notes: z.string().optional(),
+      error: z.string().optional(),
+    }),
+    apply: (s, { shots, notes, error }: { shots?: { start: number; end: number; prompt: string; why: string }[]; notes?: string; error?: string }) => {
+      const r = brollReview(s);
+      // Closed while it planned: what it planned is dropped (it cost a few cents).
+      if (!r) return;
+      r.planning = false;
+      r.error = error;
+      if (shots) {
+        r.shots = shots.map((x) => ({ ...x, id: id(), use: true }));
+        r.notes = notes;
+      }
+    },
+  },
+  {
+    id: "broll.making",
+    description: "Mark shots as being planned or made (broll.plan and broll.generate do)",
+    args: z.strictObject({ shots: z.array(z.string()).optional(), planning: z.boolean().optional() }),
+    apply: (s, { shots, planning }: { shots?: string[]; planning?: boolean }) => {
+      const r = need(s);
+      if (planning !== undefined) r.planning = planning;
+      for (const x of r.shots) if (shots?.includes(x.id)) Object.assign(x, { making: true, error: undefined });
+    },
+  },
+  {
+    id: "broll.made",
+    description: "Give shots what was made for them, or why it failed (broll.generate's job does)",
+    args: z.strictObject({ results: z.array(z.strictObject({ shot: z.string(), candidate: z.unknown().optional(), error: z.string().optional() })) }),
+    apply: (s, { results }: { results: { shot: string; candidate?: BrollCandidate; error?: string }[] }) => {
+      const r = brollReview(s);
+      // Closed while it made them: the files are kept in media/B-roll.
+      if (!r) return;
+      for (const m of results) {
+        const x = r.shots.find((x) => x.id === m.shot);
+        if (!x) continue;
+        x.making = false;
+        x.error = m.error;
+        if (m.candidate) x.candidate = m.candidate;
+      }
+    },
+  },
+  {
+    id: "broll.close",
+    description: "Close B-roll's review without placing anything (footage made is kept in the project's media/B-roll folder)",
+    args: z.strictObject({}),
+    apply: (s) => void delete s.features.broll,
+  },
+];
+
+/**
+ * Where the B-roll track goes: right above the highest track with media over the range (the talk), so captions
+ * and annotations above it stay in front.
+ */
+function trackIndex(project: Project, from: number, to: number): number {
+  const over = project.tracks.flatMap((t, i) => (t.clips.some((c) => c.assetId && ticksToSeconds(c.start) < to && ticksToSeconds(clipEnd(c)) > from) ? [i] : []));
+  return over.length ? Math.max(...over) + 1 : project.tracks.length;
+}
+
+/** The candidate scaled to cover the region and cropped to it, centred: transform and crop as `clip.set` takes them. */
+function fitted(c: BrollCandidate, region: Rect, project: Project) {
+  const v = (c.asset.derived.media as { streams?: { kind: string; width?: number; height?: number }[] } | undefined)?.streams?.find((s) => s.kind === "video");
+  const [W, H] = [v?.width ?? 1280, v?.height ?? 720];
+  const [x, y, w, h] = region;
+  const k = Math.max(w / W, h / H);
+  const [cw, ch] = [(W - w / k) / 2, (H - h / k) / 2];
+  return {
+    transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: k, scaleY: k, rotation: 0, rotationX: 0, rotationY: 0 },
+    crop: { left: cw, right: cw, top: ch, bottom: ch },
+  };
+}
+
+/**
+ * The document steps that place the review's picked candidates: a B-roll track above the talk, each shot's footage
+ * over its span, fitted to the region. Apply runs them as one undo step; the canvas shows them while it is open.
+ */
+export function brollSteps(r: BrollReview, project: Project): ActionStep[] {
+  const shots = r.shots.filter((s) => s.use && s.candidate);
+  if (!shots.length) return [];
+  const region = regionOf(r, project);
+  const steps: ActionStep[] = [{ command: "track.add", args: { name: "B-roll", index: trackIndex(project, r.from, r.to) } }];
+  for (const s of shots) {
+    const c = s.candidate!;
+    const added = steps.length;
+    steps.push({ command: "asset.add", args: { ...c.asset, name: `B-roll: ${c.prompt.slice(0, 60)}`, derived: { ...c.asset.derived, broll: { prompt: c.prompt, model: c.model, cost: c.cost } } } });
+    const placed = steps.length;
+    const clip = (res: unknown[]) => (res[placed] as string[])[0]!;
+    steps.push({ command: "asset.place", args: (res: unknown[]) => ({ asset: res[added], time: s.start, track: res[0] }) });
+    steps.push({ command: "clip.trim", args: (res: unknown[]) => ({ clip: clip(res), end: s.end, linked: false }) });
+    steps.push({ command: "clip.set", args: (res: unknown[]) => ({ clip: clip(res), props: fitted(c, region, project) }) });
+  }
+  return steps;
+}
+
+const keyOf = async (secret: (id: string) => Promise<string | undefined>, which: string, where: string) => {
+  const key = await secret(which);
+  if (!key) throw new Error(`no ${which === TOKEN ? "Replicate API token" : "OpenAI API key"}: add one in Settings › ${where}`);
+  return key;
+};
+
+const minutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+
+const brollPlan = defineAction({
+  id: "broll.plan",
+  description:
+    "Plan B-roll over the open review's range (opening it with these settings first, as broll.review takes them): OpenAI reads what is said there (and searches the web for it with `research`) and writes a shot list, each shot's span, prompt and why, shown on the timeline with what generating it would cost. The words and the guide are sent to OpenAI, on the user's key. Runs as a job",
+  args: z.strictObject({
+    from: z.number().nonnegative().optional(),
+    to: z.number().positive().optional(),
+    guide: z.string().max(1000).optional(),
+    research: z.boolean().optional(),
+    region: RectSchema.nullable().optional(),
+  }),
+  resolve: (args, ctx) => {
+    const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+    const open = brollReview(ctx.session);
+    if (!open && !ctx.session.range && (args.from === undefined || args.to === undefined)) throw new Error("drag a range on the ruler over the words the B-roll should cover (or give `from` and `to`)");
+    const from = args.from ?? open?.from ?? ctx.session.range!.in;
+    const to = args.to ?? open?.to ?? ctx.session.range!.out;
+    const words = timelineWords(ctx.project, ctx.registry, ctx.data);
+    const said = words.filter((w) => w.end > from && w.start < to);
+    if (!said.length) throw new Error("nothing is said over the range yet: B-roll is planned from the transcript (wait for it, or pick a range with speech)");
+    const guide = args.guide ?? open?.guide ?? "";
+    const research = args.research ?? open?.research ?? true;
+    const region = args.region !== undefined ? args.region : (open?.region ?? null);
+    const [, , w, h] = regionOf({ region }, ctx.project);
+    const { model } = brollSettings(ctx.pref);
+    const aspect = nearestAspect(model, w, h);
+    const text = (ws: typeof words) => ws.map((x) => x.text).join(" ");
+    return {
+      label: "Plan B-roll",
+      before: [
+        { command: "broll.review", args: given },
+        { command: "broll.making", args: { planning: true } },
+      ],
+      task: {
+        label: "Plan B-roll",
+        run: async (env) => {
+          const key = await keyOf(env.secret, OPENAI, "Transcripts");
+          env.progress(0.1, research ? `${PLAN_MODEL}: researching and planning the shots` : `${PLAN_MODEL}: planning the shots`);
+          const plan = await planShots(
+            {
+              words: said.map((x) => ({ text: x.text, start: x.start, end: x.end })),
+              before: text(words.filter((x) => x.end <= from && x.start >= from - CONTEXT)),
+              after: text(words.filter((x) => x.start >= to && x.end <= to + CONTEXT)),
+              from,
+              to,
+              guide,
+              research,
+              aspect,
+              shortest: model.durations[0]!,
+              longest: model.durations.at(-1)!,
+            },
+            key,
+          );
+          const shots = tile(plan.shots, from, to, model.durations[0]!, model.durations.at(-1)!);
+          if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer range");
+          env.progress(1, `${shots.length} shot${shots.length === 1 ? "" : "s"} planned: about $${estimate(shots, env.pref).toFixed(2)} to generate`);
+          return () => ({ label: "Plan B-roll", before: [{ command: "broll.planned", args: { shots, notes: plan.research } }] });
+        },
+        failed: (error) => [{ command: "broll.planned", args: { error: error === "cancelled" ? undefined : error } }],
+      },
+    };
+  },
+});
+
+/** Taken by creating it, so two generations at once never pick the same name. */
+function freeName(dir: string, stem: string): string {
+  for (let n = 1; ; n++) {
+    const path = join(dir, `${stem}${n > 1 ? ` ${n}` : ""}.mp4`);
+    try {
+      writeFileSync(path, "", { flag: "wx" });
+      return path;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
+  }
+}
+
+const brollGenerate = defineAction({
+  id: "broll.generate",
+  description:
+    "Generate footage for the open review's shots (`shots`: their ids, to make one again; else every shot without footage) with the model chosen in Settings › AI, through Replicate on the user's token: each prompt and the region's shape are sent, and Replicate charges their account (the review shows the estimate). Each file is saved in the project's media/B-roll folder as it arrives, with its prompt, model and cost. Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
+  args: z.strictObject({ shots: z.array(z.string().min(1)).min(1).optional() }),
+  resolve: ({ shots: ids }, ctx: ActionContext) => {
+    const r = need(ctx.session);
+    if (!r.shots.length) throw new Error("plan the shots first (broll.plan)");
+    const unknown = ids?.filter((x) => !r.shots.some((s) => s.id === x)) ?? [];
+    if (unknown.length) throw new Error(`no shot ${unknown.join(", ")} in the review`);
+    const shots = r.shots.filter((s) => (ids ? ids.includes(s.id) : !s.candidate) && !s.making);
+    if (!shots.length) throw new Error(ids ? "those shots are being made already" : "every shot has footage: give `shots` to make one again");
+    const { model, resolution, limit } = brollSettings(ctx.pref);
+    const cost = estimate(shots, ctx.pref);
+    if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)}, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
+    const [, , w, h] = regionOf(r, ctx.project);
+    const label = `B-roll: ${shots.length === 1 ? "1 shot" : `${shots.length} shots`} with ${model.title}`;
+    const index = new Map(r.shots.map((s, i) => [s.id, i + 1]));
+    const results: { shot: string; candidate?: BrollCandidate; error?: string }[] = [];
+    return {
+      label: "Generate B-roll",
+      before: [{ command: "broll.making", args: { shots: shots.map((s) => s.id) } }],
+      task: {
+        label,
+        run: async (env) => {
+          const dir = join(env.mediaDir, "B-roll");
+          mkdirSync(dir, { recursive: true });
+          const started = Date.now();
+          const tell = () => env.progress(0.05 + (0.95 * results.length) / shots.length, `${results.filter((x) => x.candidate).length} of ${shots.length} made · ${minutes((Date.now() - started) / 1000)}`);
+          const ticking = setInterval(tell, 1000);
+          try {
+            const token = await keyOf(env.secret, TOKEN, "AI");
+            const live = await limits(token, model);
+            const aspect = nearestAspect({ aspects: live.aspects }, w, h);
+            await Promise.all(
+              shots.map(async (s) => {
+                const seconds = lengthFor({ durations: live.durations }, s.end - s.start);
+                const stem = `Shot ${index.get(s.id)} - ${s.prompt.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/).slice(0, 6).join(" ")}`;
+                const out = freeName(dir, stem);
+                try {
+                  const input: Record<string, unknown> = { prompt: s.prompt, aspect_ratio: aspect, duration: seconds, generate_audio: false, ...model.resolutions[resolution] };
+                  for (const k of Object.keys(input)) if (!live.fields.has(k)) delete input[k];
+                  await generate(token, model, input, out, tell);
+                  const candidate: BrollCandidate = { path: out, asset: await env.asset(out, "video"), prompt: s.prompt, model: model.title, aspect, seconds, cost: shotCost(model, resolution, seconds) };
+                  // Beside the file: what made it, should the review be closed before it is placed.
+                  writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ prompt: s.prompt, model: model.slug, resolution, aspect, seconds, estimatedCost: candidate.cost, made: new Date().toISOString() }, null, 2));
+                  results.push({ shot: s.id, candidate });
+                } catch (e) {
+                  rmSync(out, { force: true });
+                  if (!jobSignal()?.aborted) results.push({ shot: s.id, error: e instanceof Error ? e.message : String(e) });
+                }
+                tell();
+              }),
+            );
+            jobSignal()?.throwIfAborted();
+            const made = results.filter((x) => x.candidate).length;
+            const failed = results.filter((x) => x.error);
+            if (!made) throw new Error(failed[0]?.error ?? "nothing was made");
+            env.progress(1, [`${made} made, in the project's media/B-roll folder`, failed.length ? `${failed.length} failed: ${failed[0]!.error}` : ""].filter(Boolean).join("; "));
+            return () => ({ label: "Generate B-roll", before: [{ command: "broll.made", args: { results } }] });
+          } finally {
+            clearInterval(ticking);
+          }
+        },
+        // What was made before it failed or was cancelled is kept; the rest say why.
+        failed: (error) => [{ command: "broll.made", args: { results: [...results, ...shots.filter((s) => !results.some((x) => x.shot === s.id)).map((s) => ({ shot: s.id, ...(error === "cancelled" ? {} : { error }) }))] } }],
+      },
+    };
+  },
+});
+
+const brollApply = defineAction({
+  id: "broll.apply",
+  description:
+    "Place the open review's footage (the shots ticked that have it) on a new B-roll track above the talk, each over its span, fitted to the region, in one undo step, and close the review; the talk's audio is untouched. Only when the user asks",
+  args: z.strictObject({}),
+  resolve: (_, ctx) => {
+    const r = need(ctx.session);
+    if (r.shots.some((s) => s.making)) throw new Error("footage is still being made: wait for it, or untick those shots");
+    const steps = brollSteps(r, ctx.project);
+    if (!steps.length) throw new Error(r.shots.some((s) => s.candidate) ? "no shot with footage is ticked" : "no footage yet: generate the shots first (broll.generate)");
+    return {
+      label: "Add B-roll",
+      steps,
+      after: (res) => [
+        { command: "broll.close" },
+        { command: "selection.set", args: { clips: steps.flatMap((s, i) => (s.command === "asset.place" ? [(res[i] as string[])[0]!] : [])), linked: false } },
+      ],
+    };
+  },
+});
+
+/**
+ * AI B-roll: generated footage over a stretch of the talk, planned from what is said there (OpenAI, with web
+ * research), made through Replicate on the user's token, previewed in place on the canvas, placed in one undo step.
+ */
+export const broll = defineFeature({
+  id: "broll",
+  version: 1,
+  panels: [{ open: (s) => !!brollReview(s), cancel: "broll.close", apply: { action: "broll.apply" } }],
+  secrets: [{ id: TOKEN, title: "Replicate API token" }],
+  preferences: [
+    {
+      id: "brollModel",
+      title: "B-roll model",
+      description: "The text-to-video model B-roll's footage is made with, through Replicate on your token",
+      options: VIDEO_MODELS.map((m) => ({
+        id: m.id,
+        title: m.title,
+        description: `About $${(m.perSecond["1080p"] ?? m.perSecond["720p"])!.toFixed(2)} a second of footage; makes ${m.aspects.join(", ")}, ${m.durations[0]}-${m.durations.at(-1)} s a shot`,
+        secret: TOKEN,
+        online: true,
+      })),
+      default: DEFAULT_MODEL,
+    },
+    {
+      id: "brollResolution",
+      title: "B-roll resolution",
+      description: "720p or 1080p (a model without 1080p makes 720p)",
+      options: [
+        { id: "1080p", title: "1080p", description: "Sharper; some models charge more for it" },
+        { id: "720p", title: "720p", description: "Cheaper on some models" },
+      ],
+      default: "1080p",
+    },
+    {
+      id: "brollLimit",
+      title: "Limit per generation",
+      description: "Dollars one generation may cost at most, by the estimate; 0 is no limit",
+      options: [],
+      range: { min: 0, max: 1000 },
+      default: "0",
+    },
+  ],
+  sessionCommands,
+  sessionPreview: (s, project) => {
+    const r = brollReview(s);
+    return r ? brollSteps(r, project) : undefined;
+  },
+  queries: [
+    defineQuery({
+      id: "broll.estimate",
+      description: "What generating the open review's shots would cost (dollars, by the chosen model's price per second), all of them and each, with the model and its resolution",
+      args: z.strictObject({}),
+      run: (_, { session, pref }) => {
+        const r = session ? brollReview(session) : undefined;
+        if (!r) throw new Error("B-roll's review isn't open: broll.review opens it");
+        const { model, resolution, limit } = brollSettings(pref);
+        return { model: model.title, resolution, limit, total: estimate(r.shots, pref), shots: r.shots.map((s) => ({ id: s.id, seconds: lengthFor(model, s.end - s.start), cost: shotCost(model, resolution, s.end - s.start) })) };
+      },
+    }),
+  ],
+  actions: [brollPlan, brollGenerate, brollApply],
+});
