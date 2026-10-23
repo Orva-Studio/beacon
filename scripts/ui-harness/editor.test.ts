@@ -7,6 +7,7 @@ import { DerivedData } from "@beacon/render";
 import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
+import { tool } from "@beacon/media";
 import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
 
 /**
@@ -3799,6 +3800,144 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await select([]);
   }
 }, 120_000);
+
+test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on the canvas, shots planned (refused without a key, then by OpenAI's stand-in), made through Replicate's stand-in once its token is set, and placed over the shots in that region by Apply (↩), one undo step", async () => {
+  // OpenAI and Replicate, standing in for the real ones (which charge): one shot per 4 s of the range, footage in the shape asked.
+  const footage = (w: number, h: number) => {
+    const out = join(dir, `broll-${w}x${h}.mp4`);
+    const frames = 8 * 4;
+    if (!existsSync(out)) Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${w}x${h}`, "-r", "4", "-i", "-", "-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", out], { stdin: new Uint8Array(w * h * frames).fill(120) });
+    return out;
+  };
+  const made = new Map<string, Record<string, unknown>>();
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/openai/responses") {
+        const r = (await session()).features.broll as { from: number; to: number };
+        const cut = (r.from + r.to) / 2;
+        const shots = [
+          { start: r.from, end: cut, prompt: "A sunrise over hills, wide", why: "the start" },
+          { start: cut, end: r.to, prompt: "Hands on a keyboard, close", why: "the work" },
+        ];
+        return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ research: "", shots }) }] }] });
+      }
+      if (url.pathname.startsWith("/files/")) return new Response(Bun.file(join(dir, url.pathname.slice(7))));
+      if (req.headers.get("authorization") !== "Bearer r8-test") return Response.json({ detail: "Invalid token" }, { status: 401 });
+      if (url.pathname === "/models/google/veo-3.1-fast") return Response.json({});
+      if (url.pathname === "/models/google/veo-3.1-fast/predictions") {
+        const { input } = (await req.json()) as { input: Record<string, unknown> };
+        const id = `p${made.size}`;
+        made.set(id, input);
+        return Response.json({ id, status: "starting", urls: { get: `${url.origin}/predictions/${id}` } });
+      }
+      const input = made.get(url.pathname.split("/").pop()!);
+      if (!input) return new Response("", { status: 404 });
+      const [w, h] = input.aspect_ratio === "9:16" ? [360, 640] : [640, 360];
+      footage(w, h);
+      return Response.json({ status: "succeeded", output: `${url.origin}/files/broll-${w}x${h}.mp4` });
+    },
+  });
+  process.env.BEACON_OPENAI_URL = `${fake.url.origin}/openai`;
+  process.env.BEACON_REPLICATE_URL = fake.url.origin;
+  process.env.BEACON_REPLICATE_POLL_MS = "50";
+  // The review is taller than the window: its buttons are scrolled to before they are clicked.
+  const press = async (selector: string) => {
+    await page.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: "center" })`);
+    await page.click(...(await centre(selector)));
+  };
+  const until = async (ok: () => Promise<boolean>) => {
+    for (let i = 0; i < 250 && !(await ok()); i++) await Bun.sleep(20);
+  };
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("range.set", { in: 2, out: 10 });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=broll]')");
+    await page.evaluate("document.querySelector('[data-ai=broll]').click()");
+    await page.until("!!document.querySelector('[data-broll-review]')");
+    // The range and what is said in it.
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-range]').textContent")).toContain("8.0 s");
+    await page.until("!/^…$|no transcript/.test(document.querySelector('[data-broll-range] .line-clamp-4').textContent)", 120_000);
+    // Draw on Canvas, then a drag over the canvas's left half: snapped to its edges and centre line.
+    await page.evaluate("[...document.querySelectorAll('[data-broll-where] button')].find((b) => b.textContent.includes('Draw')).click()");
+    await page.until("document.querySelector('[data-canvas-overlay]').style.cursor === 'crosshair'");
+    // The canvas, by its thin border: the only marks drawn with nothing selected.
+    const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(
+      "(() => { const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect(); const ls = [...document.querySelectorAll('[data-canvas-overlay] svg line')]; const xs = ls.flatMap((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')]); const ys = ls.flatMap((l) => [+l.getAttribute('y1'), +l.getAttribute('y2')]); return { x: r.x + Math.min(...xs) + 0.5, y: r.y + Math.min(...ys) + 0.5, w: Math.max(...xs) - Math.min(...xs) - 1, h: Math.max(...ys) - Math.min(...ys) - 1 }; })()",
+    );
+    const { width, height } = ui.core.doc(ui.handle).settings;
+    const k = box.w / width;
+    const [ox, oy] = [box.x, box.y];
+    await page.drag([ox + 3, oy + 2], [ox + (width / 2) * k - 3, oy + height * k - 2]);
+    await until(async () => !!((await session()).features.broll as { region: unknown }).region);
+    expect((await session()).features.broll).toMatchObject({ region: [0, 0, width / 2, height], drawing: false });
+    await page.until("(document.querySelector('[data-broll-region]')?.textContent ?? '').includes('drag its corners')");
+
+    // No OpenAI key: it says so, with the way to Settings › AI.
+    await press("[data-broll-plan]");
+    await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('OpenAI API key')", 10_000);
+    const menus = ui.menus.length;
+    await page.evaluate("[...document.querySelectorAll('[data-broll-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
+    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:ai"));
+    await ui.core.uiOpen(ui.handle, "settings", "ai");
+    for (const [id, value] of [["openai-api-key", "sk-test"], ["replicate-api-token", "r8-wrong"]]) {
+      const field = `[data-secret="${id}"] input`;
+      await page.until(`!!document.querySelector('${field}')`);
+      await page.click(...(await centre(field)));
+      await type(value!);
+      await page.key("Enter", "Enter");
+      await page.until(`document.querySelector('[data-secret="${id}"]')?.dataset.apiKey === 'set'`);
+    }
+    expect(await page.evaluate<string>("document.querySelector('[data-preference=brollModel]').value")).toBe("veo-3.1-fast");
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+    await page.until("!document.querySelector('[data-settings-nav]')");
+
+    await press("[data-broll-plan]");
+    await page.until("document.querySelectorAll('[data-broll-shot]').length === 2", 10_000);
+    // The cost before anything is made: two shots at Veo 3.1 Fast's 4 s.
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-estimate]').textContent")).toContain("2 shots · about $1.20 with Veo 3.1 Fast, 1080p");
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-generate]').textContent")).toBe("Generate $1.20");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-broll-apply]').disabled")).toBe(true);
+
+    // A token Replicate refuses: each shot says so, and can be made again.
+    await press("[data-broll-generate]");
+    await page.until("[...document.querySelectorAll('[data-broll-state]')].every((s) => s.dataset.brollState === 'failed')", 10_000);
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-state]').textContent")).toContain("Replicate refused the API token");
+    await ui.core.setSecret("replicate-api-token", "r8-test");
+    await press("[data-broll-generate]");
+    await page.until("[...document.querySelectorAll('[data-broll-state]')].every((s) => s.dataset.brollState === 'made')", 20_000);
+    for (const input of made.values()) expect(input).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
+    // The shots on the timeline, made: the panel's Apply is on.
+    expect(await page.evaluate<boolean>("document.querySelector('[data-broll-apply]').disabled")).toBe(false);
+    await page.screenshot(join(dir, "broll-review.png"));
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-broll-review]')");
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add B-roll");
+    const doc = ui.core.doc(ui.handle);
+    const track = doc.tracks.find((t) => t.name === "B-roll")!;
+    expect(track.clips.map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual([
+      [2, 6],
+      [6, 10],
+    ]);
+    expect([...(await session()).selection].sort()).toEqual(track.clips.map((c) => c.id).sort());
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_OPENAI_URL;
+    delete process.env.BEACON_REPLICATE_URL;
+    delete process.env.BEACON_REPLICATE_POLL_MS;
+    await ui.core.setSecret("openai-api-key", null);
+    await ui.core.setSecret("replicate-api-token", null);
+    await run("broll.close").catch(() => {});
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("range.clear").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 240_000);
 
 test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
   await page.evaluate(`(() => {

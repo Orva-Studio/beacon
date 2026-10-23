@@ -96,6 +96,17 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   transcript is there). `retakes_review`, `retakes_keep` a take you judge
   better (read the takes' words), `retakes_apply` when the user says so. Of
   the takes after the kept one only what repeats the line is cut.
+- B-roll, generated footage over a stretch of the talk, the same way (it
+  spends the user's money: OpenAI plans it, Replicate makes it, on their
+  keys, set in Settings › AI): `broll_plan` with the range (`from`/`to`, or
+  the editor's in/out range), a `guide`, `research` and a `region` (canvas
+  pixels from the top left; none is the whole canvas) plans shots from what
+  is said there, as a job; `broll_shot` changes a prompt; `broll_estimate`
+  says what generating costs. Tell the user the cost and run
+  `broll_generate` only when they say so (one candidate per shot; `shots` to
+  make one again); `broll_apply` when they say so places them on a B-roll
+  track above the talk, fitted to the region, one undo step. Footage made is
+  kept in the project's `media/B-roll` folder even if never placed.
 - Film Look (a visual effect) gives clips one of hance's looks:
   `filmLook_looks` lists them (CineStill 800T, Portra 400…), `filmLook_load`
   puts one (or a `.hlook` file) on clips and answers what of it Film Look

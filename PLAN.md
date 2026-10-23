@@ -2162,8 +2162,9 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 
 **Decided (the user, 2026-10-23).**
 - **Settings › AI**, a new tab: the Replicate token, the B-roll model,
-  its resolution and the limit per generation; it points to the OpenAI key
-  where it already is.
+  its resolution and the limit per generation, and the OpenAI key (the same
+  Keychain item Transcripts' OpenAI options use: the Transcripts tab only
+  shows it once an OpenAI option is picked).
 - **Planning and research by `gpt-6.1-sol`** (OpenAI's Responses API, its
   `web_search` tool when Research is on).
 - **Candidates previewed on the canvas, in place:** with the review open, the
@@ -2177,6 +2178,15 @@ kind, research, region) prepares the review, `broll.generate` runs it,
 - Known from the model (2026-10-23): Veo 3.1 Fast makes 16:9 or 9:16, 4, 6
   or 8 s; a drawn region is made at the nearer shape and cropped to fill, a
   shot at the next length up and trimmed to its span.
+
+**Progress (2026-10-23, `feat/ai-broll`).** Footage with a drawn region is
+built: the `broll` feature (review, `broll.plan`, `broll.generate`,
+`broll.apply`, `broll.estimate`), Settings › AI, the AI panel's B-roll tile,
+the shots on the timeline, the region drawn on the canvas, and the footage
+previewed in place (the contract's `sessionPreview`; a task's `failed` steps
+clear what it marked busy). Checked headless against stand-ins
+(`docs/tested.md`); the preview in place and the gate are for the user's
+hand, with their keys. Animation (HyperFrames) next.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with

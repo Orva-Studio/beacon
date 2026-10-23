@@ -28,6 +28,8 @@ import { useTextEdit, type TextLine, type TextTarget } from "./text-edit";
 import { useQuery } from "./query";
 import { isFormField, useDialogsOpen } from "./controls";
 import { safeAreaLines, safeAreaMarks, useSafeAreas } from "./safe-areas";
+import { brollReviewOf, opposite, regionCorner, regionMarks, regionTo } from "./broll";
+import type { Rect } from "@beacon/features";
 import { canvasSnapping, type Guide } from "./canvas-snap";
 import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
@@ -134,6 +136,8 @@ type Drag =
   | { kind: "captionWidth"; key: string; sx: number; x0: number; width: number; style: CaptionPlace }
   /** A middle-button drag: `c`, the canvas point grabbed. */
   | { kind: "pan"; c: [number, number] }
+  /** B-roll's region drawn or resized: from `anchor` (canvas pixels), the corner that stays. */
+  | { kind: "region"; anchor: [number, number] }
   | { kind: "text" };
 
 /** Where captions sit (the captions' shared style): an edge or the middle on each axis, and canvas pixels in from it. */
@@ -252,6 +256,7 @@ export function CanvasOverlay({
    * box the core reports catches up (it is a round trip behind the pointer).
    */
   const [moved, setMoved] = useState<{ clip: string; x: number; y: number; done?: boolean }>();
+  const [regionDraft, setRegionDraft] = useState<Rect>();
   const caught = !!moved && !!reported && reported.clip === moved.clip && Math.abs(reported.box.x - moved.x) < 0.5 && Math.abs(reported.box.y - moved.y) < 0.5;
   useEffect(() => {
     if (moved?.done && caught) setMoved(undefined);
@@ -323,7 +328,10 @@ export function CanvasOverlay({
   const inTyped = (pt: [number, number]): [number, number] | undefined => (typed && typedM && inside(pt, typed.corners) ? apply(invert(typedM), ...pt) : undefined);
 
   const at = (x: number, y: number): [number, number] => [ox + x * k, oy + y * k];
+  const broll = brollReviewOf(session);
+  const region = regionDraft ?? broll?.region;
   const marks: CanvasMark[] = [
+    ...(broll && region ? regionMarks(region, at) : []),
     ...(safe.shown ? safeAreaMarks(safe.shown, at, k, CW, safe.hidden) : []),
     ...text.marks,
     // The canvas's thin grey border, just outside it.
@@ -374,7 +382,7 @@ export function CanvasOverlay({
       ref={box}
       data-canvas-overlay
       className="absolute inset-0"
-      style={picking ? { cursor: "crosshair" } : cropping ? { cursor: CROP_CURSOR } : space ? { cursor: drag.current?.kind === "pan" ? "grabbing" : "grab" } : undefined}
+      style={picking || broll?.drawing ? { cursor: "crosshair" } : cropping ? { cursor: CROP_CURSOR } : space ? { cursor: drag.current?.kind === "pan" ? "grabbing" : "grab" } : undefined}
       // Typing in place: a click in the box must not take focus from the unseen text field.
       onMouseDown={(e) => typing && e.preventDefault()}
       onPointerEnter={() => void (spaceRef.current.over = true)}
@@ -413,6 +421,14 @@ export function CanvasOverlay({
         }
         if (e.button !== 0) return;
         const pt = local(e);
+        // B-roll's region takes the drag while it is being drawn, or by a corner once it is.
+        const corner = broll?.region && !broll.drawing ? regionCorner(broll.region, pt, at) : undefined;
+        if (broll?.drawing || corner) {
+          e.preventDefault();
+          box.current!.setPointerCapture(e.pointerId);
+          drag.current = { kind: "region", anchor: corner ? opposite(broll!.region!, corner) : [(pt[0] - ox) / k, (pt[1] - oy) / k] };
+          return;
+        }
         const key = `canvas-${Date.now()}`;
         const handle = (e.target as HTMLElement).dataset.handle;
         const owner = (e.target as HTMLElement).dataset.clip;
@@ -474,6 +490,10 @@ export function CanvasOverlay({
         const d = drag.current;
         if (!d) return;
         const [px, py] = local(e);
+        if (d.kind === "region") {
+          setRegionDraft(regionTo(d.anchor, [(px - ox) / k, (py - oy) / k], CW, CH, k, safe.shown && !safe.hidden.includes("zones") ? safeAreaLines(safe.shown) : undefined, session.canvas.snapping));
+          return;
+        }
         if (d.kind === "text") {
           // Past the box's edge the selection keeps to the nearest offset.
           if (typedM) text.pointer("move", apply(invert(typedM), px, py));
@@ -582,6 +602,11 @@ export function CanvasOverlay({
       onPointerUp={(e) => {
         if (drag.current?.kind === "text") text.pointer("up", undefined);
         if (drag.current?.kind === "captionMove") setMoved((m) => m && { ...m, done: true });
+        if (drag.current?.kind === "region") {
+          // A click without a drag draws nothing: the canvas still waits for one.
+          if (regionDraft && regionDraft[2] >= 8 && regionDraft[3] >= 8) host.run("broll.review", { region: regionDraft, drawing: false });
+          setRegionDraft(undefined);
+        }
         drag.current = null;
         setGuides([]);
         setRotating(false);

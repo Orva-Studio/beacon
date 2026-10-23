@@ -429,7 +429,6 @@ export const broll = defineFeature({
         id: m.id,
         title: m.title,
         description: `About $${(m.perSecond["1080p"] ?? m.perSecond["720p"])!.toFixed(2)} a second of footage; makes ${m.aspects.join(", ")}, ${m.durations[0]}-${m.durations.at(-1)} s a shot`,
-        secret: TOKEN,
         online: true,
       })),
       default: DEFAULT_MODEL,

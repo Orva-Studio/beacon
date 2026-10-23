@@ -5,6 +5,25 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 11: AI B-roll (`feat/ai-broll`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| B-roll's review from the AI panel's tile over the ruler's range: the words said, Guide, Research, Where (Full Canvas, or a region drawn on the canvas, snapped to its edges, halves, thirds and the safe areas, resized by its corners), Plan Shots, each shot's prompt and cost, Generate with the total, Make Again, Apply (↩) | 2026-10-23 | this branch | UI flow (`B-roll from the AI panel…`) against stand-ins for OpenAI and Replicate: a region drawn over the left half, planning refused without a key with Open Settings… to Settings › AI, keys typed there, two shots planned at $1.20, a refused token shown per shot, then made at 9:16 with audio off, Apply one undo step placing them over [2, 6] and [6, 10] |
+| Planning: `gpt-6.1-sol` at medium effort through the Responses API, web search when Research is on, the range's words with their times and 15 s either side, the guide and the shape; the shot list tiled over the range (back to back, each within the model's lengths) | 2026-10-23 | this branch | core test (`broll.test.ts`): what is sent, and the tiling of overlapping and over-long shots |
+| Generating: the model's live schema read first (only its fields sent), the nearest shape it makes, the shortest length covering the shot, audio off, one prediction per shot, polled; each file kept in `media/B-roll` with a `.json` of what made it, nothing in the document until Apply; the limit per generation refuses before anything is sent; a shot Replicate fails keeps what it had and says why; a cancelled job cancels its predictions on Replicate and clears the shots' Making | 2026-10-23 | this branch | core tests against a Replicate stand-in |
+| Apply: a B-roll track right above the talk, each shot's footage trimmed to its span, scaled to cover the region and cropped to it, the asset remembering prompt, model and cost; one undo step that undoes exactly | 2026-10-23 | this branch | core test |
+| Remove Retakes' OpenAI judge asks for medium reasoning effort | 2026-10-23 | this branch | retakes core tests pass |
+
+### Not checked yet
+
+- **The canvas preview in place** (the footage shown in its region on the canvas while the review is open, before Apply): headless has no renderer. In the app: generate, move the playhead over a shot (or click it on the timeline), and the canvas shows it as Apply would place it; Cancel removes it.
+- **The gate:** with your own OpenAI key and Replicate token (Settings › AI), a range of one of your takes planned with research, generated, reviewed and placed in a drawn region, the cost shown before it runs. Veo 3.1 Fast's price on Replicate is an estimate (about $0.15/s), worth comparing with what Replicate charges.
+- Seedance 2.0 and Kling 3.0 Pro (Settings › AI › Model): only Veo's schema was stood in for; the others' fields are read from Replicate on first use.
+- The B-roll tile's picture: `bun scripts/effect-art.ts generate b-roll` then `css` (OpenAI image generation on your key, a few cents).
+
 ## 0.11.1 (`fix/ask-permissions-early`)
 
 ### Checked headless only (still to see by hand)

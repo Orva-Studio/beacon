@@ -24,6 +24,7 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
+import { BrollPanel, brollMarks, brollReviewOf } from "./broll";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
@@ -204,6 +205,8 @@ export function App({ host }: { host: Host }) {
             project &&
             (auphonicReviewOf(session) ? (
               <AuphonicPanel project={project} session={session} host={host} init={init} />
+            ) : brollReviewOf(session) ? (
+              <BrollPanel project={project} session={session} host={host} />
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
@@ -229,14 +232,19 @@ export function App({ host }: { host: Host }) {
               trackMenu={host.trackMenu}
               dropFiles={host.dropFiles}
               marks={
-                retakes
+                brollReviewOf(session)
+                  ? brollMarks(brollReviewOf(session)!, session.playhead)
+                  : retakes
                   ? retakeMarks(retakes)
                   : silences
                     ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
                     : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
               }
               markClick={(m, alt, shift) =>
-                retakes
+                brollReviewOf(session)
+                  ? // A shot clicked is shown: the playhead goes to its start, where the canvas shows its footage.
+                    host.run("playhead.set", { time: m.start + 0.05 })
+                  : retakes
                   ? // A click picks the line to look at; a click on one of its takes then keeps that one.
                     alt || !m.current
                     ? goTo(host, "retakes", m)

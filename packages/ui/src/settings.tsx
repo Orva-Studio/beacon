@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
+import { AiSettings } from "./ai-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
@@ -27,6 +28,7 @@ const SECTIONS: { id: SettingsTab; title: string }[] = [
   { id: "recording", title: "Recording" },
   { id: "transcripts", title: "Transcripts" },
   { id: "audio", title: "Audio" },
+  { id: "ai", title: "AI" },
   { id: "shortcuts", title: "Shortcuts" },
 ];
 
@@ -154,6 +156,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
               <SecretRow secret={auphonicKey} label="Auphonic API Key" sends="Audio you clean with Auphonic is uploaded to it" charges="Auphonic" placeholder="From auphonic.com › Account Settings" host={host} />
             </div>
           )}
+          {tab === "ai" && prefs && secrets && <AiSettings prefs={prefs} secrets={secrets} host={host} changed={setPrefs} />}
           {tab === "shortcuts" && <ShortcutsSettings host={host} />}
         </div>
       </div>
