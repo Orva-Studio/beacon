@@ -1,7 +1,7 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
-import { jobSignal } from "@beacon/media";
+import { jobSignal, runTool, tool } from "@beacon/media";
 import { defineAction, defineFeature, defineQuery, ticksToSeconds, clipEnd, type ActionContext, type ActionStep, type Asset, type Clip, type FeatureRegistry, type Preferences, type Project, type Session, type SessionCommandDef, type TaskEnv } from "@beacon/model";
 import { timelineWords } from "../transcript";
 import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution, type VideoModel } from "./models";
@@ -364,12 +364,17 @@ async function makeShot(env: TaskEnv, token: string, model: VideoModel, live: Li
     if (jobSignal()?.aborted) return undefined;
     return { shot: s.id, error: e instanceof Error ? e.message : String(e) };
   }
-  // Downloaded, it is kept whatever happens next: it was paid for.
+  // Downloaded, it is kept whatever happens next: it was paid for. What made it is written beside it first.
+  const cost = shotCost({ ...model, durations: live.durations }, resolution, s.end - s.start);
   try {
+    writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ prompt: s.prompt, model: model.slug, resolution, aspect: aspect ?? "the model's own", seconds, estimatedCost: cost, made: new Date().toISOString() }, null, 2));
+    // B-roll is silent: sound a model made anyway (one whose schema has no audio switch) is taken off the file.
+    const silent = `${out}.silent.mp4`;
+    await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", out, "-map", "0:v:0", "-c", "copy", "-an", silent]);
+    renameSync(silent, out);
     const asset = await env.asset(out, "video");
     const v = (asset.derived.media as { streams?: { kind: string; width?: number; height?: number }[] } | undefined)?.streams?.find((x) => x.kind === "video");
-    const candidate: BrollCandidate = { path: out, asset, prompt: s.prompt, model: model.title, aspect: aspect ?? `${v?.width}×${v?.height}`, seconds, cost: shotCost({ ...model, durations: live.durations }, resolution, s.end - s.start) };
-    writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ prompt: s.prompt, model: model.slug, resolution, aspect: candidate.aspect, seconds, estimatedCost: candidate.cost, made: new Date().toISOString() }, null, 2));
+    const candidate: BrollCandidate = { path: out, asset, prompt: s.prompt, model: model.title, aspect: aspect ?? `${v?.width}×${v?.height}`, seconds, cost };
     return { shot: s.id, candidate };
   } catch (e) {
     if (jobSignal()?.aborted) return undefined;

@@ -20,7 +20,8 @@ const footage = (w: number, h: number) => {
     const frames = 8 * 4;
     const raw = new Uint8Array(w * h * frames);
     for (let f = 0; f < frames; f++) raw.fill(40 + f * 6, f * w * h, (f + 1) * w * h);
-    Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${w}x${h}`, "-r", "4", "-i", "-", "-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", out], { stdin: raw });
+    // With sound, as a model whose schema has no audio switch sends it: Beacon must take it off.
+    Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${w}x${h}`, "-r", "4", "-i", "-", "-i", AUDIO, "-map", "0:v", "-map", "1:a", "-t", "8", "-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", "-c:a", "aac", out], { stdin: raw });
   }
   return out;
 };
@@ -224,6 +225,8 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
   const files = readdirSync(folder);
   expect(files.filter((f) => f.endsWith(".mp4"))).toHaveLength(made.shots.length);
   const sidecar = JSON.parse(readFileSync(join(folder, files.find((f) => f.endsWith(".json"))!), "utf8"));
+  // The sound the stand-in sent was taken off: footage is silent.
+  for (const s of made.shots) expect((s.candidate!.asset.derived.media as { streams: { kind: string }[] }).streams.map((x) => x.kind)).toEqual(["video"]);
   expect(sidecar).toMatchObject({ model: "google/veo-3.1-fast", aspect: "9:16", resolution: "1080p" });
   expect((await core.history(h)).undo.length).toBe(steps);
   expect(Object.keys(core.doc(h).assets)).toHaveLength(1);
