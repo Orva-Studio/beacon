@@ -10,10 +10,8 @@ import {
   defineFeature,
   defineQuery,
   eachRawClip,
-  editScope,
   findClip,
   nestedOf,
-  scopedProject,
   secondsToTicks,
   ticksToSeconds,
   type ActionContext,
@@ -160,6 +158,15 @@ const commands = [
       const s = streamOf(a, "video", 0);
       const region = regionOfClip(c, doc, ctx.registry);
       const fit = covering([s.width!, s.height!], region, doc);
+      // Animated crops are in the old picture's pixels: the same share of the new one's.
+      const [W, H] = visualSize(doc, ctx.registry, c) ?? [doc.settings.width, doc.settings.height];
+      const share = { left: s.width! / W, right: s.width! / W, top: s.height! / H, bottom: s.height! / H };
+      for (const a of c.animations ?? []) {
+        for (const side of ["left", "right", "top", "bottom"] as const) {
+          const v = a.to[`crop.${side}`];
+          if (typeof v === "number") a.to[`crop.${side}`] = v * share[side];
+        }
+      }
       // Animated scale ends are in the old picture's pixels: rescaled with it, a zoom still zooms the same.
       const was = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
       // A flipped clip stays flipped.
@@ -171,13 +178,14 @@ const commands = [
           if (typeof v === "number" && was[axis]) a.to[`transform.${axis}`] = (v * fit.transform[axis]) / was[axis];
         }
       }
-      // Animations are timed in media time: from the old in-point and speed to the new footage's (0, normal speed),
+      // Animations and effect spans are timed in media time: from the old in-point and speed to the new footage's (0, normal speed),
       // so each still happens where it did on the timeline.
       const [from, speed] = [c.mediaStart ?? 0, clipSpeed(c)];
       for (const a of c.animations ?? []) {
         a.end = Math.round((a.end - from) / speed);
         a.duration = Math.round(a.duration / speed);
       }
+      for (const fx of c.effects) if (fx.span) fx.span = { start: Math.round((fx.span.start - from) / speed), end: Math.round((fx.span.end - from) / speed) };
       c.assetId = asset;
       c.mediaStart = 0;
       // Made for the clip's length at normal speed: played faster, it would run out before the clip ends.
@@ -828,11 +836,10 @@ export const broll = defineFeature({
       id: "broll.words",
       description: "What is said under a B-roll clip (from the transcripts already made, narration inside groups too): what an empty prompt is made from",
       args: z.strictObject({ clip: z.string().min(1) }),
-      run: ({ clip: id }, { project, registry, data, session }) => {
-        const scope = editScope(project, session?.group, nestedOf(registry));
-        const tracks = scopedProject(project, scope).tracks;
-        const clip = tracks.flatMap((t) => t.clips).find((c) => c.id === id) ?? findClip(project, registry, id).clip;
-        return wordsUnder(clip, { project, registry, data });
+      run: ({ clip: id }, { project, registry, data }) => {
+        // Inside a group, opened or not: at its main-timeline time.
+        const at = findClip(project, registry, id);
+        return wordsUnder({ ...at.clip, start: at.clip.start + at.offset }, { project, registry, data });
       },
     }),
     defineQuery({

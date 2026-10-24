@@ -3,8 +3,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
-import { ticksToSeconds, type Asset, type Clip } from "@beacon/model";
-import { regionOfClip, type BrollProps, type BrollState } from "@beacon/features";
+import { secondsToTicks, ticksToSeconds, type Asset, type Clip } from "@beacon/model";
+import { regionOfClip, streamOf, type BrollProps, type BrollState } from "@beacon/features";
 import { DerivedData } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -363,8 +363,21 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   // Sped up, then given footage: back to normal speed, or 8 s of footage would run out halfway.
   await core.run(h, "clip.speed", { clips: [second.id], speed: 2 });
   expect(brolls()[1]!.speed).toBeDefined();
-  await core.run(h, "broll.use", { clip: second.id, asset: flux });
+  // An effect on part of it and an animated crop, then another take of another size: the effect where it was on the
+  // timeline, the crop the same share of the new picture.
+  const s0 = ticksToSeconds(brolls()[1]!.start);
+  const fx = (await core.run(h, "effect.add", { clip: second.id, type: "round-corners" })).results[0] as string;
+  await core.run(h, "effect.set", { clip: second.id, effect: fx, span: { start: s0 + 1, end: s0 + 2 } });
+  const wide = (c: Clip) => streamOf(core.doc(h).assets[c.assetId!]!, "video", 0).width!;
+  const was = wide(brolls()[1]!);
+  await core.run(h, "animation.add", { clip: second.id, end: s0 + 1, duration: 0.5, to: { "crop.left": was / 4 } });
+  const resized = takes.map((t) => t.assetId).find((id) => wide({ ...brolls()[1]!, assetId: id }) !== was)!;
+  await core.run(h, "broll.use", { clip: second.id, asset: resized });
   expect(brolls()[1]!.speed).toBeUndefined();
+  const after = brolls()[1]!;
+  const span = after.effects.find((e) => e.id === fx)!.span!;
+  expect([span.start, span.end].map((t) => Math.round(ticksToSeconds(after.start + t - (after.mediaStart ?? 0) - secondsToTicks(s0)) * 100) / 100)).toEqual([1, 2]);
+  expect(after.animations[0]!.to["crop.left"]).toBeCloseTo(wide(after) / 4, 3);
 
   // Copied into another project, the clip brings every take: each pasted, each pointing at an asset there.
   const other = await core.create({ path: join(dir, "other.beproj") });
@@ -376,8 +389,10 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(props(pasted).takes.some((t) => t.assetId === pasted.assetId)).toBe(true);
   await core.close(other);
 
-  // Grouped and opened, it is still B-roll to price and make.
+  // Grouped and opened, it is still B-roll to price and make; closed, the words under it are those at its place on the timeline.
+  const heard = await core.query(h, "broll.words", { clip: second.id });
   const group = (await core.run(h, "clip.group", { clips: [second.id] })).results[0] as string;
+  expect(await core.query(h, "broll.words", { clip: second.id })).toBe(heard);
   await core.run(h, "group.open", { clip: group });
   const priced = (await core.query(h, "broll.estimate", { clips: [second.id] })) as { clips: unknown[] };
   expect(priced.clips).toHaveLength(1);
