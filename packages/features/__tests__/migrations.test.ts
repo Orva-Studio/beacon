@@ -79,3 +79,13 @@ test("media v2: every clip's audio gets muted off, inside a group too; clips wit
   expect(out.tracks[0].clips[1].props.group.tracks[0].clips[0].props.audio.muted).toBe(false);
   expect(out.tracks[0].clips[2].props.audio).toBeUndefined();
 });
+
+test("broll v2: a B-roll clip's takes saved as bare asset ids become { assetId }, so the project opens", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 1;
+  doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", guide: "", research: true, takes: ["a1", "a2"] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(2);
+  expect((out.tracks[0]!.clips[0]!.props.broll as { takes: unknown }).takes).toEqual([{ assetId: "a1" }, { assetId: "a2" }]);
+});

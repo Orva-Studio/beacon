@@ -9,6 +9,7 @@ import {
   defineCommand,
   defineFeature,
   defineQuery,
+  eachRawClip,
   editScope,
   findClip,
   nestedOf,
@@ -654,9 +655,19 @@ const brollCompare = defineAction({
  * AI B-roll: placeholder clips over the talk whose footage is generated from a prompt (typed, or planned from the
  * words under them by OpenAI with web research), through Replicate on the user's token, and shown in the clip in place.
  */
+/** v2: takes as `{ assetId }` (they were bare ids), so copying a clip carries them. */
+function takesAsRefs(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as { takes?: unknown[] } | undefined;
+    if (Array.isArray(b?.takes)) b.takes = b.takes.map((t) => (typeof t === "string" ? { assetId: t } : t));
+  });
+  return doc;
+}
+
 export const broll = defineFeature({
   id: "broll",
-  version: 1,
+  version: 2,
+  migrations: [{ version: 2, migrate: takesAsRefs }],
   clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
   props: [
     {
