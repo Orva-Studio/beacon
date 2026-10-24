@@ -1400,6 +1400,40 @@
         ]
       },
       "command": "reviews.applyAll"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "t",
+            "modifiers": []
+          },
+          {
+            "key": "c",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "camera.toggle"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "t",
+            "modifiers": []
+          },
+          {
+            "key": "p",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "cursor.toggle"
     }
   ]
 }

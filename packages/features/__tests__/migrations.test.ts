@@ -79,3 +79,43 @@ test("media v2: every clip's audio gets muted off, inside a group too; clips wit
   expect(out.tracks[0].clips[1].props.group.tracks[0].clips[0].props.audio.muted).toBe(false);
   expect(out.tracks[0].clips[2].props.audio).toBeUndefined();
 });
+
+test("broll v2: a B-roll clip's takes saved as bare asset ids become { assetId }, so the project opens (and v3 follows)", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 1;
+  doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", guide: "", research: true, takes: ["a1", "a2"] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(5);
+  expect((out.tracks[0]!.clips[0]!.props.broll as { takes: unknown }).takes).toEqual([{ assetId: "a1" }, { assetId: "a2" }]);
+});
+
+test("broll v3: a B-roll clip's guide gives way to a style (None) and where its prompt comes from (Auto)", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 2;
+  doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", guide: "keep it abstract", research: true, takes: [] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(5);
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "", style: "none", source: "auto", manual: "", research: true, takes: [] });
+});
+
+test("broll v4: Prompt from Transcript becomes Manual, its typed prompt empty (still the words said), Auto's kept", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 3;
+  doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "because", style: "none", source: "transcript", research: true, takes: [] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(5);
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "because", style: "none", source: "manual", manual: "", research: true, takes: [] });
+});
+
+test("broll v5: a clip saved at v4 before Manual had its own prompt gets an empty one, so the project opens", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 4;
+  doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", style: "none", source: "auto", research: true, takes: [] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(5);
+  expect((out.tracks[0]!.clips[0]!.props.broll as { manual: string }).manual).toBe("");
+});

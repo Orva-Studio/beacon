@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
+import { AiSettings, type WaitingChoice } from "./ai-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
-import { SecretRow, TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
+import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
 import { ShortcutsSettings, type ShortcutsHost } from "./shortcuts-settings";
 
 export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost {
@@ -26,7 +27,7 @@ const SECTIONS: { id: SettingsTab; title: string }[] = [
   { id: "general", title: "General" },
   { id: "recording", title: "Recording" },
   { id: "transcripts", title: "Transcripts" },
-  { id: "audio", title: "Audio" },
+  { id: "ai", title: "AI" },
   { id: "shortcuts", title: "Shortcuts" },
 ];
 
@@ -56,7 +57,15 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
   const [prefs, setPrefs] = useState(preferences);
   const transcriber = prefs?.find((p) => p.id === "transcriber");
   const judge = prefs?.find((p) => p.id === "retake-judge");
-  const auphonicKey = secrets?.find((s) => s.id === "auphonic-api-key");
+  const [waiting, setWaiting] = useState<WaitingChoice>();
+  const [keys, setKeys] = useState(secrets);
+  // A choice whose key isn't set: the key is added in AI, which then makes the choice and comes back here.
+  const askKey = (from: SettingsTab) => (pref: string, value: string) => {
+    const secret = prefs?.find((p) => p.id === pref)?.options.find((o) => o.id === value)?.secret?.id;
+    if (!secret) return;
+    setWaiting({ pref, value, secret, back: () => (setWaiting(undefined), setTab(from)) });
+    setTab("ai");
+  };
   return (
     <Modal title="Settings" width={760} onClose={close}>
       <div className="flex gap-4" style={{ height: HEIGHT }} data-settings-window>
@@ -144,15 +153,14 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   close={close}
                   host={host}
                   changed={setPrefs}
+                  askKey={askKey("transcripts")}
                 />
               )}
-              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} />}
+              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} askKey={askKey("transcripts")} />}
             </div>
           )}
-          {tab === "audio" && auphonicKey && (
-            <div className="flex flex-col gap-3">
-              <SecretRow secret={auphonicKey} label="Auphonic API Key" sends="Audio you clean with Auphonic is uploaded to it" charges="Auphonic" placeholder="From auphonic.com › Account Settings" host={host} />
-            </div>
+          {tab === "ai" && prefs && keys && (
+            <AiSettings prefs={prefs} secrets={keys} host={host} changed={setPrefs} keySet={(id, set) => setKeys((all) => all?.map((k) => (k.id === id ? { ...k, set } : k)))} waiting={waiting} />
           )}
           {tab === "shortcuts" && <ShortcutsSettings host={host} />}
         </div>

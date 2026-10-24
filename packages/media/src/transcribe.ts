@@ -272,7 +272,7 @@ interface ApiSegment {
  * the chunks local Whisper gets: given minutes at once, it skips repeated phrases, the retakes an editor cuts.
  */
 async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: TranscribeOptions, language: string): Promise<{ words: Word[]; model: string }> {
-  if (!opts.apiKey) throw new Error("no OpenAI API key: add one in Settings › Transcripts");
+  if (!opts.apiKey) throw new Error("no OpenAI API key: add one in Settings › AI");
   const chunks = chunksOf(speech, pcm.length / RATE);
   const results: Word[][] = [];
   let done = 0;
@@ -295,7 +295,7 @@ async function openaiWords(pcm: Int16Array, speech: [number, number][], opts: Tr
     }
     if (!res!.ok) {
       const detail = ((await res!.json().catch(() => ({}))) as { error?: { message?: string } }).error?.message ?? res!.statusText;
-      throw new Error(res!.status === 401 ? "OpenAI refused the API key (Settings › Transcripts)" : `OpenAI's API: ${detail}`);
+      throw new Error(res!.status === 401 ? "OpenAI refused the API key: check it in Settings › AI" : `OpenAI's API: ${detail}`);
     }
     const json = (await res!.json()) as { words?: { word: string; start: number; end: number }[]; segments?: ApiSegment[] };
     opts.onProgress?.(++done / chunks.length);

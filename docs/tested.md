@@ -5,6 +5,56 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Dragging several picked clips (`feat/ai-broll`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Clips picked (click, ⌘-click) move together when one is dragged; ⌘ held as an unpicked clip is pressed and dragged adds it and drags them all; a clip picked alone moves alone | 2026-10-24 | this branch | UI flow (`clips picked with ⌘-click move together…`) |
+
+## Toggle Camera and Toggle Cursor on the leader key (`feat/ai-broll`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| On the leader key, a Toggle group: `: t c` Toggle Camera, `: t p` Toggle Cursor (also in Settings › Shortcuts): the selected screen or camera clips, else every one, hidden (opacity 0%) when any shows, else shown (100%), one undo step | 2026-10-24 | this branch | core test (`toggles.test.ts`, a real recording: both ways, and a selected piece alone), UI flow (the leader key: `: t` shows the group, `c` and `p`) |
+
+### Not checked yet
+
+- `: t c` and `: t p` in the app.
+
+## Phase 11: AI B-roll (`feat/ai-broll`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **Styles and the planner (2026-10-24):** a Style menu on the clip (None; Film looks; Product and tech; the user's own under Your styles; Add or Edit Styles… to Settings › AI), picking one in Auto writes the prompt again in it; Prompt from Auto (written as soon as the clip is added) or Transcript (the words shown, made with the style's wording); Plan by Apple's on-device model by default (Beacon cuts the shots at pauses, the model writes each scene; Apple Intelligence off says so) or OpenAI (Settings › AI › Planner, needs its key, Research only then); Settings › AI › Your Styles: New Style, Import File… (a skill's front matter or title names it), Edit, Delete; B-roll data v3 (guide → style, source) | 2026-10-24 | this branch | core tests (a beacon-writer stand-in, the style in its request, Apple off), migrations test, UI flow (`B-roll from the AI panel adds a clip…`); the real beacon-writer run by hand on this Mac (a scene in 2.3 s) |
+| **Prompt: Auto or Manual (2026-10-24):** Auto's prompt shown read only and written once (switching to Manual and back, or picking the clip again, writes nothing), Write Again a button; Manual a text box of its own starting from the words said and kept, the style's wording added when made; planning sets Auto again; B-roll data v4 (Transcript → Manual, its prompt empty: still the words said) | 2026-10-24 | this branch | migrations test, UI flow (`B-roll from the AI panel adds a clip…`) |
+| Plan's and Generate's toasts in numbered steps with a clock (Plan: thinking, searching the web, writing the shots, from OpenAI's stream; Generate: sent, being made, downloading; several clips or models: how many made and being made); a check on Replicate that fails is tried again (up to five in a row) instead of ending the generation; timeouts say which service and step; Plan is given up only after 2 minutes with nothing from OpenAI; the B-roll tab sits beside Visual Properties; the words placeholder follows a transcript finishing; Plan reads an opened group's narration; a scale animation is rescaled with new footage | 2026-10-24 | this branch | core tests (a streaming stand-in, slow and failing checks, a silent planner, a zoom), UI flow |
+| **B-roll as a clip (2026-10-24, replaces the review below):** the AI panel's tile adds a placeholder over the range (else at the playhead, 4 s) on a B-roll track above the talk, selected with its B-roll tab; empty, it draws nothing (a tinted box in the editor only); sized by its canvas handles; Plan writes its prompt from the words under it or splits a long one into shots in the same region; Generate (a typed prompt, or an empty one, which uses the words said under the clip and shows them as its placeholder, needs only Replicate) puts the footage into the clip in place, region kept, one undo step; Try N Models adds every model's take, `broll.use` picks one; planning and making refuse each other; a plan for a clip moved meanwhile is dropped; everything undoes exactly | 2026-10-24 | this branch | core tests (`broll.test.ts`, the canvas's pixels for the empty placeholder and the footage), UI flow (`B-roll from the AI panel adds a clip…`) |
+| B-roll's review from the AI panel's tile over the ruler's range: the words said, Guide, Research, Where (Full Canvas, or a region drawn on the canvas, snapped to its edges, halves, thirds and the safe areas, resized by its corners), Plan Shots, each shot's prompt and cost, Generate with the total, Make Again, Apply (↩) | 2026-10-23 | this branch | UI flow (`B-roll from the AI panel…`) against stand-ins for OpenAI and Replicate: a region drawn over the left half, planning refused without a key with Open Settings… to Settings › AI, keys typed there, two shots planned at $1.20, a refused token shown per shot, then made at 9:16 with audio off, Apply one undo step placing them over [2, 6] and [6, 10] |
+| Planning: `gpt-6.1-sol` at medium effort through the Responses API, web search when Research is on, the range's words with their times and 15 s either side, the guide and the shape; the shot list tiled over the range (back to back, each within the model's lengths) | 2026-10-23 | this branch | core test (`broll.test.ts`): what is sent, and the tiling of overlapping and over-long shots |
+| Generating: the model's live schema read first (only its fields sent), the nearest shape it makes, the shortest length covering the shot, audio off, one prediction per shot, polled; each file kept in `media/B-roll` with a `.json` of what made it, nothing in the document until Apply; the limit per generation refuses before anything is sent; a shot Replicate fails keeps what it had and says why; a cancelled job cancels its predictions on Replicate and clears the shots' Making | 2026-10-23 | this branch | core tests against a Replicate stand-in |
+| Apply: a B-roll track right above the talk, each shot's footage trimmed to its span, scaled to cover the region and cropped to it, the asset remembering prompt, model and cost; one undo step that undoes exactly | 2026-10-23 | this branch | core test |
+| Remove Retakes' OpenAI judge asks for medium reasoning effort | 2026-10-23 | this branch | retakes core tests pass |
+| More models (FLUX 3, Seedance 2.5): their live schemas read (FLUX 3's length sent as a string, its nearest shape 1:1 for a 960×1080 region); one shot made with every model that can (`broll.compare`, "Try 5 Models · $X"), each take kept on the shot and picked in turn; every API key in Settings › AI (Transcripts' OpenAI choice sends you there and comes back chosen; the Audio tab is gone, Auphonic's key is in AI); footage downloaded is kept even if reading it fails; a job cancelled before Replicate answers that it started a prediction cancels it there; a group holding media counts as the talk when placing B-roll | 2026-10-23 | this branch | core tests (compare with a FLUX 3 schema stand-in, cancel during creation), UI flows (Transcripts, Best Take, Settings tabs, Auphonic, B-roll) |
+| Agents' screenshots (`ui_snapshot`) draw the canvas with its preview (the B-roll under review), as the window shows it; Try N Models checks the limit at every model's live lengths before any is sent | 2026-10-23 | this branch | Codex review round four; the screenshot path only by reading (the app test needs Beacon dev closed) |
+| Generate is off until an estimate for the current shots and Settings › AI arrives; shots planned for a model with longer shots are refused before anything is sent ("plan again"); the limit is checked again at the lengths the model's live schema allows; offline, the B-roll tile is greyed whichever transcriber is chosen | 2026-10-23 | this branch | core test (Kling then Veo), UI flows (B-roll, offline) |
+| The footage previewed in place on the canvas while the review is open: shown in its region at the playhead, not in the document or history; unticked shots leave it; once applied the canvas is exactly what the preview showed, and undone, as before. A look previewed (Film Look) still ends on play | 2026-10-23 | this branch | core test, an offscreen view's pixels (`broll.test.ts`); Film Look's preview test |
+
+### Not checked yet
+
+- **B-roll as a clip in the app's window:** the tile adds a placeholder; drag, trim and resize it; Plan, Generate; the footage appears in the clip where the box was.
+- **The gate:** with your own OpenAI key and Replicate token (Settings › AI), a range of one of your takes planned with research, generated, reviewed and placed in a drawn region, the cost shown before it runs. Veo 3.1 Fast's price on Replicate is an estimate (about $0.15/s), worth comparing with what Replicate charges.
+- **Apple's planner in the app:** add a B-roll clip over speech: the prompt is written by Apple's model in a few seconds per shot; pick a style and it is written again; import one of your skill files in Settings › AI › Your Styles.
+- **The side-by-side run that picks the default model:** on a range of yours, a shot's "Try N Models" (about $3-4 for an 8 s shot), each take picked in the shot's Footage menu and seen in place; then say which becomes the default.
+- Seedance 2.0, Seedance 2.5 and Kling 3.0 Pro: only Veo's and FLUX 3's schemas were stood in for; the others' fields are read from Replicate on first use. Seedance 2.5 may pick its own shape (it documents only "adaptive"): its footage is then cropped to the region.
+- Prices: FLUX 3's and Seedance 2.5's on Replicate weren't found; the estimates use the high end reported elsewhere ($0.10-0.15/s and $0.15-0.22/s). Compare with what Replicate charges.
+- The B-roll tile's picture: `bun scripts/effect-art.ts generate b-roll` then `css` (OpenAI image generation on your key, a few cents).
+
 ## 0.11.1 (`fix/ask-permissions-early`)
 
 ### Checked headless only (still to see by hand)

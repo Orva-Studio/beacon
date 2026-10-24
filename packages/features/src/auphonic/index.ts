@@ -90,7 +90,7 @@ async function request(url: string, init: RequestInit, ms: number, what: string)
 
 async function call<T>(key: string, path: string, init: RequestInit = {}, ms = TIMEOUT_MS()): Promise<T> {
   const r = await request(`${api()}${path}`, { ...init, headers: { Authorization: `Bearer ${key}`, ...init.headers } }, ms, path.replace(/\?.*/, ""));
-  if (r.status === 401 || r.status === 403) throw new Error("Auphonic refused the API key: check it in Settings › Audio");
+  if (r.status === 401 || r.status === 403) throw new Error("Auphonic refused the API key: check it in Settings › AI");
   if (!r.ok) throw new Error(`Auphonic: ${path} failed (${r.status}) ${(await r.text()).slice(0, 300)}`);
   return (await r.json()) as T;
 }
@@ -102,7 +102,7 @@ const minutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.
 
 const keyOf = async (secret: ((id: string) => Promise<string | undefined>) | undefined) => {
   const key = await secret?.(KEY);
-  if (!key) throw new Error("no Auphonic API key: add one in Settings › Audio");
+  if (!key) throw new Error("no Auphonic API key: add one in Settings › AI");
   return key;
 };
 
@@ -336,7 +336,7 @@ export const auphonic = defineFeature({
   queries: [
     defineQuery({
       id: "auphonic.presets",
-      description: "The user's Auphonic presets, by name (needs their Auphonic API key, set in Settings › Audio)",
+      description: "The user's Auphonic presets, by name (needs their Auphonic API key, set in Settings › AI)",
       args: z.strictObject({}),
       run: async (_, ctx) => {
         const key = await keyOf(ctx.secret);

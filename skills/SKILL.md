@@ -96,6 +96,19 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   transcript is there). `retakes_review`, `retakes_keep` a take you judge
   better (read the takes' words), `retakes_apply` when the user says so. Of
   the takes after the kept one only what repeats the line is cut.
+- B-roll, generated footage over a stretch of the talk, is a clip: `broll_add`
+  puts a placeholder over the range (or at `time` for `duration`) on a B-roll
+  track above the talk, in a `region` (canvas pixels from the top left); move,
+  trim and size it like any clip. It shows nothing in an export until it has
+  footage. Its props (`clip_set` `broll`): `style` (an id from `broll_styles`:
+  built in, or the user's own from Settings › AI), `source` (`auto`: its
+  `prompt`, written by `broll_plan` from the words under it in its style, by
+  Apple's on-device model or OpenAI as Settings › AI says, a long clip split
+  into shots; `transcript`: the words said under it, as `broll_words` gives
+  them, with the style). Making footage spends the user's money through
+  Replicate: tell them `broll_estimate`'s cost and run `broll_generate` (or
+  `broll_compare`, every model side by side) only when they say so; the footage
+  goes into the clip in place, every take kept, `broll_use` picks one again.
 - Film Look (a visual effect) gives clips one of hance's looks:
   `filmLook_looks` lists them (CineStill 800T, Portra 400…), `filmLook_load`
   puts one (or a `.hlook` file) on clips and answers what of it Film Look

@@ -116,6 +116,21 @@ export const ClipboardSchema = z.strictObject({
 });
 export type Clipboard = z.infer<typeof ClipboardSchema>;
 
+/**
+ * Rewrites every `assetId` in a clip (its own, a feature's references in its props, nested clips') through `map`, as
+ * `assetIds` reads them: a pasted clip's assets after they were added under new ids.
+ */
+export function remapAssetIds(value: unknown, map: Map<string, string>): void {
+  if (Array.isArray(value)) for (const v of value) remapAssetIds(v, map);
+  else if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    for (const [k, v] of Object.entries(o)) {
+      if (k === "assetId" && typeof v === "string") o[k] = map.get(v) ?? v;
+      else remapAssetIds(v, map);
+    }
+  }
+}
+
 /** Every asset a clip uses, its own and those of clips nested in it (groups, stitched media). */
 function assetIds(value: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(value)) for (const v of value) assetIds(v, out);

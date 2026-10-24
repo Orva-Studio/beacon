@@ -99,7 +99,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
 
 /** Clips are coloured by kind; selection adds an accent border, and brightens audio. */
 const CLIP = { text: () => color("text-bright"), wave: () => color("wave"), badge: () => color("clip-badge") };
-const KIND: Record<string, string> = { screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation", caption: "clip-annotation" };
+const KIND: Record<string, string> = { broll: "clip-screen", screen: "clip-screen", video: "clip-screen", image: "clip-screen", still: "clip-screen", audio: "clip-audio", callout: "clip-annotation", region: "clip-annotation", caption: "clip-annotation" };
 
 /**
  * A clip's colour token: a recording's camera blue, other visual media (screen recordings, imported video
@@ -181,6 +181,8 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
   if (callout?.shape) return callout.shape === "rectangle" ? "Shape" : callout.shape[0]!.toUpperCase() + callout.shape.slice(1);
   const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
   if (caption) return wordsInWindow(clip, caption).map((w) => w.text).join(" ") || "Caption";
+  // B-roll without footage yet: what it will show.
+  if (clip.type === "broll") return ((b) => (b?.source === "manual" ? b.manual : b?.prompt))(clip.props.broll as { prompt?: string; manual?: string; source?: string } | undefined)?.trim() || "B-roll";
   const region = (clip.props.region as { kind?: string } | undefined)?.kind;
   if (region) return region[0]!.toUpperCase() + region.slice(1);
   return clip.type;

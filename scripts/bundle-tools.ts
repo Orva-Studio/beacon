@@ -21,7 +21,7 @@ export const STAGE = join(ENGINE, "target/bundle");
 /** The engine's own binaries, from its Cargo build. */
 const ENGINE_BINARIES = ["libbeacon_ffi.dylib", "beacon-worker", "beacon-recorder"];
 /** Beacon's own tools, from `bun run build:tools`. */
-const TOOL_BINARIES = ["ffmpeg", "ffprobe", "whisper-cli", "beacon-speech"];
+const TOOL_BINARIES = ["ffmpeg", "ffprobe", "whisper-cli", "beacon-speech", "beacon-writer"];
 /** Every file of the app's engine folder but the FFmpeg libraries. */
 export const ENGINE_FILES = ["beacon-mcp", ...ENGINE_BINARIES, ...TOOL_BINARIES];
 

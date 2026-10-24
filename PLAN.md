@@ -26,9 +26,9 @@ settings and dialogs for agents), is built and merged, released as v0.6.0
 with the app open, below). The review's three branches were merged
 2026-10-19 (#18, #19, #20). Phases 8.5, 9, 10 and 10.5 are merged
 (v0.7.0-v0.10.0; v0.10.1 fixed ⌥-dragging a clip's start, 2026-10-22).
-Next (order set 2026-10-22): **Phase 11** (lock and mute a track by keys,
-AI B-roll and animations, audio cleaning with Auphonic and the local
-polish), 12 (device frames, and a spike on AI camera angles), 13 (security
+Phase 11's first half shipped as v0.11.0 and v0.11.1 (2026-10-22: track
+keys, Clean with Auphonic, the Record dialog's permissions). Next (order set
+2026-10-22): **Phase 11's AI B-roll and animations** (on `feat/ai-broll`), 12 (device frames, and a spike on AI camera angles), 13 (security
 audit), 14 (Camtasia export) and 15 (Beacon learns how you edit).
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
@@ -2160,6 +2160,84 @@ kind, research, region) prepares the review, `broll.generate` runs it,
   cost estimate is shown before anything runs; a limit per generation the
   user can set in Settings (off by default) is enough.
 
+**Decided (the user, 2026-10-23).**
+- **Settings › AI**, a new tab: the Replicate token, the B-roll model,
+  its resolution and the limit per generation, and the OpenAI key (the same
+  Keychain item Transcripts' OpenAI options use: the Transcripts tab only
+  shows it once an OpenAI option is picked).
+- **Planning and research by `gpt-6.1-sol`** (OpenAI's Responses API, its
+  `web_search` tool when Research is on).
+- **Candidates previewed on the canvas, in place:** with the review open, the
+  playhead over a shot shows its candidate in its region as it would look
+  applied; nothing is in the document until Apply.
+- **Paid footage is kept:** each candidate is saved in the project's
+  `media/B-roll` folder as it arrives, with its prompt, model and cost;
+  Apply places only the picked ones.
+- **Medium reasoning effort for every OpenAI model Beacon calls** (the user,
+  2026-10-23): the B-roll planner and Remove Retakes' judge.
+- Known from the model (2026-10-23): Veo 3.1 Fast makes 16:9 or 9:16, 4, 6
+  or 8 s; a drawn region is made at the nearer shape and cropped to fill, a
+  shot at the next length up and trimmed to its span.
+
+**Decided (the user, 2026-10-23, later).**
+- **More models:** FLUX 3 (Black Forest Labs) and Seedance 2.5 join Veo
+  3.1 Fast, Seedance 2.0 and Kling 3.0 Pro in Settings › AI.
+- **The default is settled by a side-by-side run** on the user's footage:
+  one shot made with every model, each previewed in place, then the user
+  picks; Veo 3.1 Fast stays the default until then.
+- **Every API key in Settings › AI** (OpenAI, Replicate, Auphonic), each
+  with what it is for and who charges; Transcripts and Audio say where to
+  set the key their choice needs.
+
+**Decided (the user, 2026-10-24): B-roll is a clip, not a review.** The AI
+panel's B-roll tile adds a **B-roll placeholder clip** at the playhead (over
+the range when one is set) on a B-roll track above the talk; it is dragged
+and trimmed on the timeline for its span and moved and resized on the canvas
+with the usual handles for its region (the range and Draw on Canvas go). Its
+properties tab holds its prompt (typed, or written by Plan from the words
+under it: no OpenAI key needed to type one), guide and research, the cost,
+Generate, Make Again and Try N Models; the footage made goes into the clip
+in place, one undo step, its region kept, every take kept on the clip (and
+in the Media Bin) to pick again. A placeholder without footage is a box in
+the editor and nothing in an export. Plan on a placeholder longer than the
+model makes splits it into shots. The review panel and its preview go.
+
+**Decided (the user, 2026-10-24, after trying it).**
+- **Styles** replace the Guide box: a Style menu on the clip (None; Film looks:
+  Documentary, Vintage film, Black and white, Timelapse; Product and tech: Tech
+  abstract, Studio product shot, Macro close-up) and the user's own, app-wide in
+  **Settings › AI › B-roll Styles**: typed (a name and its wording) or imported
+  from a text file (a `.md` skill or `.txt`), edited and deleted there.
+- **Prompt from: Auto or Transcript**, per clip, Auto by default: Auto writes
+  the prompt from the words under the clip in its style (as soon as the clip is
+  added); Transcript uses the words as said, with the style.
+  **Changed (the user, 2026-10-24): Auto or Manual.** Auto's prompt is read
+  only, written once (Write Again writes it anew); Manual is a box to type in,
+  starting from the words said under the clip, with the style's wording added.
+  Each keeps its own prompt, so switching back and forth rewrites nothing. The
+  planner's "why" line isn't shown. B-roll data v4 turns Transcript into Manual.
+- **The planner is Apple's on-device model by default** (macOS 26's Foundation
+  Models: free, offline, no key), OpenAI (`gpt-6.1-sol`, with web research) the
+  other choice in Settings › AI. Research shows only with OpenAI.
+
+**Progress (2026-10-23, `feat/ai-broll`).** Footage with a drawn region is
+built: the `broll` feature (review, `broll.plan`, `broll.generate`,
+`broll.apply`, `broll.estimate`), Settings › AI, the AI panel's B-roll tile,
+the shots on the timeline, the region drawn on the canvas, and the footage
+previewed in place (the contract's `sessionPreview`; a task's `failed` steps
+clear what it marked busy). Checked headless against stand-ins
+(`docs/tested.md`); the preview in place and the gate are for the user's
+hand, with their keys. Later the same day: FLUX 3 and Seedance 2.5 added,
+`broll.compare` (one shot with every model, each take kept and picked in
+place) for the side-by-side run, and every API key in Settings › AI (the
+Audio tab, which held only Auphonic's key, is gone). 2026-10-24: rebuilt as
+a clip (the decision above): `broll.add`, `broll.plan`, `broll.generate`,
+`broll.compare`, the `broll.use` command and the clip's B-roll tab; the
+review, its timeline marks, the drawn region and the canvas preview are gone.
+Later: an empty prompt shows the words said under the clip and, left empty,
+Generate uses them (the user, 2026-10-24), so a first try needs no OpenAI key.
+Animation (HyperFrames) next.
+
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
@@ -2429,6 +2507,23 @@ edit.
   Reset All, and a switch to turn learning off (as Imagen lets its profile
   be adjusted). Agents read the same list through the preferences, so they
   prepare reviews the user's way.
+- **Memory: sentences the user can read and write** (the user, 2026-10-23).
+  Settings gets a **Memory** tab: a list of single sentences, each one habit
+  ("I cut silences over 0.8 s but keep the breath before a sentence", "the
+  camera goes bottom-right at 30%, cropped to the face", "B-roll over every
+  product name, abstract footage, never people"). The user adds, edits and
+  deletes them; Beacon proposes new ones from repeated edits (the tallies
+  above, and repeated crops, positions and B-roll placements), added only
+  when the user accepts. The point: an agent asked for "a rough cut" over
+  MCP reads the memory first and edits the user's way (removes only the
+  silences they would, keeps the retakes they would, suggests B-roll where
+  they usually put it, of the kind they use). Agents read it through a query
+  (`memory.list`) and the MCP instructions say to; the reviews use the
+  tallies for their defaults, and the sentences explain them.
+  Open: whether a sentence is enforced as a rule (a number the review reads)
+  or only read by agents as text; per format (Short/long) as the tallies are;
+  whether agents may add sentences themselves (proposed, never saved
+  without the user).
 - Fits as its own feature folder with session state and a preference
   store; the reviews ask it for defaults rather than knowing about it.
   Open: per speaker as well as per format (a guest in an interview);

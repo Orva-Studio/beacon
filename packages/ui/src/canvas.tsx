@@ -28,6 +28,7 @@ import { useTextEdit, type TextLine, type TextTarget } from "./text-edit";
 import { useQuery } from "./query";
 import { isFormField, useDialogsOpen } from "./controls";
 import { safeAreaLines, safeAreaMarks, useSafeAreas } from "./safe-areas";
+import { placeholderMarks } from "./broll";
 import { canvasSnapping, type Guide } from "./canvas-snap";
 import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
@@ -324,6 +325,8 @@ export function CanvasOverlay({
 
   const at = (x: number, y: number): [number, number] => [ox + x * k, oy + y * k];
   const marks: CanvasMark[] = [
+    // An empty B-roll placeholder draws nothing: its box shows where its footage will go.
+    ...placed.filter((p) => p.clip.type === "broll" && !p.clip.assetId).flatMap(placeholderMarks),
     ...(safe.shown ? safeAreaMarks(safe.shown, at, k, CW, safe.hidden) : []),
     ...text.marks,
     // The canvas's thin grey border, just outside it.

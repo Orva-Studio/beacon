@@ -10,6 +10,7 @@ import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, List
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
+import { BrollTab } from "./broll";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -88,6 +89,7 @@ function ClipProperties({
       {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
+      {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider
@@ -169,7 +171,8 @@ function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: 
       {picture && (
         <Section>
           <Slider unit="" label="Border" title="A border just inside the edge, following Round Corners: its thickness, 0 for none" value={border.thickness} max={100} onChange={(v, key) => edit("border", { thickness: Math.max(0, v) }, "Border", key)} />
-          <ColorRow label="Color" color={border.color} onChange={(color, key) => edit("border", { color }, "Border Color", key)} />
+          {/* No opacity of its own: beside the clip's, a second Opacity read as a duplicate that did nothing. */}
+          <ColorRow label="Color" color={border.color} opacity={false} onChange={(color, key) => edit("border", { color }, "Border Color", key)} />
         </Section>
       )}
     </>

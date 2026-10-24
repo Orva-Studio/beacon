@@ -51,9 +51,16 @@ export class Jobs {
     // Progress is reported each whole percent, so a window can show it without a flood of events.
     let shown = 0;
     this.#forgetFinished();
-    entry.done = jobProcesses
-      .run(entry.processes, () =>
+    // Listed before it starts: a job that reports progress before its first await is looked up by that report.
+    this.#jobs.set(id, entry);
+    // Cancelled, a job ends then, even if its work is stuck on something that can't be stopped (a connection the
+    // Mac's sleep left hanging): whatever that work does later is dropped.
+    const cancelled = new Promise<never>((_, reject) => entry.processes.abort!.signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true }));
+    cancelled.catch(() => {});
+    entry.done = Promise.race([
+      jobProcesses.run(entry.processes, () =>
         fn((f, stage) => {
+          if (entry.processes.cancelled) return;
           entry.info.progress = Math.min(1, Math.max(0, f));
           const staged = stage !== undefined && stage !== entry.info.stage;
           if (staged) entry.info.stage = stage;
@@ -62,8 +69,9 @@ export class Jobs {
             report();
           }
         }),
-      )
-      .then(
+      ),
+      cancelled,
+    ]).then(
         (result) => {
           Object.assign(entry.info, { state: "done", progress: 1, result });
           report();
@@ -77,7 +85,6 @@ export class Jobs {
       );
     // Failures are read through info(); an unawaited rejection must not crash the process.
     entry.done.catch(() => {});
-    this.#jobs.set(id, entry);
     report();
     return { id, done: entry.done };
   }
