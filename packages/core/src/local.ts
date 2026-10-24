@@ -571,7 +571,6 @@ export class LocalCore implements BeaconCore {
     this.#recording.sessionChanged(p, session, changed);
     const view = p.view;
     if (!view || p.ticking) return;
-    if (changed.includes("features") && [...this.registry.features.values()].some((f) => f.sessionPreview)) view.refresh();
     if (changed.includes("playing") && session.playing) p.preview = undefined;
     if (changed.includes("playing") && !session.playing) view.pause();
     else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
@@ -624,8 +623,7 @@ export class LocalCore implements BeaconCore {
   #withCanvas(p: OpenProject, shot: Awaited<ReturnType<Snapshotter>>): Uint8Array {
     const s = p.session.state;
     if (!shot.canvas || s.playing) return shot.png;
-    // What the canvas shows, previews included (B-roll under review), as the window does.
-    const doc = this.#shown(p);
+    const doc = p.store.doc;
     const { x, y, width, height } = shot.canvas;
     const at = placeCanvas(doc.settings, { width, height }, s.canvas.zoom, s.canvas.pan ?? [0, 0], shot.scale);
     const [cw, ch] = [Math.round(doc.settings.width * at.k), Math.round(doc.settings.height * at.k)];
@@ -671,34 +669,19 @@ export class LocalCore implements BeaconCore {
     return view;
   }
 
-  /** What the canvas shows: the document, with an effect previewed over it and what features' editor state previews. */
+  /** What the canvas shows: the document, with an effect previewed over it. */
   #shown(p: OpenProject): Project {
     const doc = p.store.doc;
-    const { features } = p.session.state;
-    if (p.previewDoc?.doc === doc && p.previewDoc.features === features && p.previewDoc.effect === p.preview) return p.previewDoc.shown;
+    if (!p.preview) return doc;
+    if (p.previewDoc?.doc === doc) return p.previewDoc.shown;
     let shown = doc;
-    if (p.preview) {
-      try {
-        shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
-      } catch {
-        // Its clip or effect is gone: nothing left to preview.
-        p.preview = undefined;
-      }
+    try {
+      shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
+    } catch {
+      // Its clip or effect is gone: nothing left to preview.
+      p.preview = undefined;
     }
-    for (const f of this.registry.features.values()) {
-      const steps = f.sessionPreview?.(p.session.state, shown, this.registry);
-      if (!steps?.length) continue;
-      try {
-        // The same ids each time it is shown, so the frames the preview decoded for one are found again.
-        let n = 0;
-        const scratch = new ProjectStore(this.registry, shown, { data: p.data.get, newId: (prefix) => `${prefix}-preview-${f.id}-${n++}` });
-        scratch.transaction("preview", (tx) => runSteps(tx, steps));
-        shown = scratch.doc;
-      } catch (e) {
-        console.error(`${f.id}'s preview:`, e);
-      }
-    }
-    p.previewDoc = { doc, features, effect: p.preview, shown };
+    p.previewDoc = { doc, shown };
     return shown;
   }
 

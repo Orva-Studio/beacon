@@ -8,6 +8,7 @@ import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
+import { regionOfClip } from "@beacon/features";
 import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
 
 /**
@@ -3816,8 +3817,8 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
   }
 }, 120_000);
 
-test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on the canvas, shots planned (refused without a key, then by OpenAI's stand-in), made through Replicate's stand-in once its token is set, and placed over the shots in that region by Apply (↩), one undo step", async () => {
-  // OpenAI and Replicate, standing in for the real ones (which charge): one shot per 4 s of the range, footage in the shape asked.
+test.skipIf(skip)("B-roll from the AI panel adds a clip over the range: sized on the canvas by its handles, its prompt planned from the words (refused without a key, which Settings › AI takes), its footage made through Replicate's stand-in and shown in the clip in place, one undo step", async () => {
+  // OpenAI and Replicate, standing in for the real ones (which charge): a prompt from the words, footage in the shape asked.
   const footage = (w: number, h: number) => {
     const out = join(dir, `broll-${w}x${h}.mp4`);
     const frames = 8 * 4;
@@ -3829,15 +3830,7 @@ test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on th
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
-      if (url.pathname === "/openai/responses") {
-        const r = (await session()).features.broll as { from: number; to: number };
-        const cut = (r.from + r.to) / 2;
-        const shots = [
-          { start: r.from, end: cut, prompt: "A sunrise over hills, wide", why: "the start" },
-          { start: cut, end: r.to, prompt: "Hands on a keyboard, close", why: "the work" },
-        ];
-        return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ research: "", shots }) }] }] });
-      }
+      if (url.pathname === "/openai/responses") return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ research: "", shots: [{ start: 0, end: 100, prompt: "A sunrise over hills, wide", why: "the start" }] }) }] }] });
       if (url.pathname.startsWith("/files/")) return new Response(Bun.file(join(dir, url.pathname.slice(7))));
       if (req.headers.get("authorization") !== "Bearer r8-test") return Response.json({ detail: "Invalid token" }, { status: 401 });
       if (url.pathname === "/models/google/veo-3.1-fast") return Response.json({});
@@ -3857,40 +3850,36 @@ test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on th
   process.env.BEACON_OPENAI_URL = `${fake.url.origin}/openai`;
   process.env.BEACON_REPLICATE_URL = fake.url.origin;
   process.env.BEACON_REPLICATE_POLL_MS = "50";
-  // The review is taller than the window: its buttons are scrolled to before they are clicked.
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const broll = () => clips().find((c) => c.type === "broll");
+  // The tab is taller than the window: its buttons are scrolled to before they are clicked.
   const press = async (selector: string) => {
     await page.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: "center" })`);
     await page.click(...(await centre(selector)));
   };
-  const until = async (ok: () => Promise<boolean>) => {
-    for (let i = 0; i < 250 && !(await ok()); i++) await Bun.sleep(20);
-  };
-  const steps = (await ui.core.history(ui.handle)).undo.length;
   try {
     await run("range.set", { in: 2, out: 10 });
     await run("panel.show", { tool: "ai" });
     await page.until("!!document.querySelector('[data-ai=broll]')");
     await page.evaluate("document.querySelector('[data-ai=broll]').click()");
-    await page.until("!!document.querySelector('[data-broll-review]')");
-    // The range and what is said in it.
-    expect(await page.evaluate<string>("document.querySelector('[data-broll-range]').textContent")).toContain("8.0 s");
-    await page.until("!/^…$|no transcript/.test(document.querySelector('[data-broll-range] .line-clamp-4').textContent)", 120_000);
-    // Draw on Canvas, then a drag over the canvas's left half: snapped to its edges and centre line.
-    await page.evaluate("[...document.querySelectorAll('[data-broll-where] button')].find((b) => b.textContent.includes('Draw')).click()");
-    await page.until("document.querySelector('[data-canvas-overlay]').style.cursor === 'crosshair'");
-    // The canvas, by its thin border: the only marks drawn with nothing selected.
-    const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(
-      "(() => { const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect(); const ls = [...document.querySelectorAll('[data-canvas-overlay] svg line')]; const xs = ls.flatMap((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')]); const ys = ls.flatMap((l) => [+l.getAttribute('y1'), +l.getAttribute('y2')]); return { x: r.x + Math.min(...xs) + 0.5, y: r.y + Math.min(...ys) + 0.5, w: Math.max(...xs) - Math.min(...xs) - 1, h: Math.max(...ys) - Math.min(...ys) - 1 }; })()",
-    );
+    // A clip over the range, selected, its B-roll tab open; empty, it is a box on the canvas.
+    await page.until("!!document.querySelector('[data-broll-tab]')");
+    const clip = broll()!;
+    expect([ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)]).toEqual([2, 10]);
+    expect((await session()).selection).toEqual([clip.id]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add B-roll");
+    await run("playhead.set", { time: 4 });
+    // Its right side dragged to the canvas's middle: half as wide, the left side kept.
     const { width, height } = ui.core.doc(ui.handle).settings;
-    const k = box.w / width;
-    const [ox, oy] = [box.x, box.y];
-    await page.drag([ox + 3, oy + 2], [ox + (width / 2) * k - 3, oy + height * k - 2]);
-    await until(async () => !!((await session()).features.broll as { region: unknown }).region);
-    expect((await session()).features.broll).toMatchObject({ region: [0, 0, width / 2, height], drawing: false });
-    await page.until("(document.querySelector('[data-broll-region]')?.textContent ?? '').includes('drag its corners')");
+    const handle = `[data-handle="e"][data-clip="${clip.id}"]`;
+    await page.until(`!!document.querySelector('${handle}')`);
+    const [hx, hy] = await centre(handle);
+    const [lx] = await centre(`[data-handle="w"][data-clip="${clip.id}"]`);
+    await page.drag([hx, hy], [(lx + hx) / 2, hy]);
+    await arrived(() => Math.abs(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry)[2] - width / 2) < 2);
+    expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
 
-    // No OpenAI key: it says so, with the way to Settings › AI.
+    // No OpenAI key: the tab says so, with the way to Settings › AI.
     await press("[data-broll-plan]");
     await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('OpenAI API key')", 10_000);
     const menus = ui.menus.length;
@@ -3905,40 +3894,27 @@ test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on th
       await page.key("Enter", "Enter");
       await page.until(`document.querySelector('[data-secret="${id}"]')?.dataset.apiKey === 'set'`);
     }
-    expect(await page.evaluate<string>("document.querySelector('[data-preference=brollModel]').value")).toBe("veo-3.1-fast");
     await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
     await page.until("!document.querySelector('[data-settings-nav]')");
 
+    // Planned: the prompt written from the words, the cost before anything is made.
     await press("[data-broll-plan]");
-    await page.until("document.querySelectorAll('[data-broll-shot]').length === 2", 10_000);
-    // The cost before anything is made: two shots at Veo 3.1 Fast's 4 s, Generate off until it is priced.
-    await page.until("document.querySelector('[data-broll-generate]')?.textContent === 'Generate $1.20'");
-    expect(await page.evaluate<string>("document.querySelector('[data-broll-estimate]').textContent")).toContain("2 shots · about $1.20 with Veo 3.1 Fast, 1080p");
-    expect(await page.evaluate<boolean>("document.querySelector('[data-broll-apply]').disabled")).toBe(true);
+    await page.until("document.querySelector('[data-broll-prompt]')?.value === 'A sunrise over hills, wide'", 10_000);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Plan B-roll");
+    await page.until("document.querySelector('[data-broll-generate]')?.textContent === 'Generate · $1.20'");
 
-    // A token Replicate refuses: each shot says so, and can be made again.
+    // A token Replicate refuses: the clip says so, and can be made again.
     await press("[data-broll-generate]");
-    await page.until("[...document.querySelectorAll('[data-broll-state]')].every((s) => s.dataset.brollState === 'failed')", 10_000);
-    expect(await page.evaluate<string>("document.querySelector('[data-broll-state]').textContent")).toContain("Replicate refused the API token");
+    await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('Replicate refused the API token')", 10_000);
     await ui.core.setSecret("replicate-api-token", "r8-test");
     await press("[data-broll-generate]");
-    await page.until("[...document.querySelectorAll('[data-broll-state]')].every((s) => s.dataset.brollState === 'made')", 20_000);
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
+    // Taller than wide (960×1080): made at 9:16, silent, then shown in the clip in its region.
     for (const input of made.values()) expect(input).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
-    // The shots on the timeline, made: the panel's Apply is on.
-    expect(await page.evaluate<boolean>("document.querySelector('[data-broll-apply]').disabled")).toBe(false);
-    await page.screenshot(join(dir, "broll-review.png"));
-    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
-
-    await page.key("Enter", "Enter");
-    await page.until("!document.querySelector('[data-broll-review]')");
-    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add B-roll");
-    const doc = ui.core.doc(ui.handle);
-    const track = doc.tracks.find((t) => t.name === "B-roll")!;
-    expect(track.clips.map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual([
-      [2, 6],
-      [6, 10],
-    ]);
-    expect([...(await session()).selection].sort()).toEqual(track.clips.map((c) => c.id).sort());
+    expect(broll()!.assetId).toBeDefined();
+    expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Generate B-roll");
+    await page.screenshot(join(dir, "broll-tab.png"));
   } finally {
     fake.stop(true);
     delete process.env.BEACON_OPENAI_URL;
@@ -3946,7 +3922,6 @@ test.skipIf(skip)("B-roll from the AI panel over the range: a region drawn on th
     delete process.env.BEACON_REPLICATE_POLL_MS;
     await ui.core.setSecret("openai-api-key", null);
     await ui.core.setSecret("replicate-api-token", null);
-    await run("broll.close").catch(() => {});
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("range.clear").catch(() => {});
     await run("panel.show", { tool: null });

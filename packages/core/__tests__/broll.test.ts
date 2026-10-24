@@ -3,8 +3,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
-import { ticksToSeconds, type Asset } from "@beacon/model";
-import type { BrollReview } from "@beacon/features";
+import { ticksToSeconds, type Asset, type Clip } from "@beacon/model";
+import { regionOfClip, type BrollProps, type BrollState } from "@beacon/features";
 import { DerivedData } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -149,16 +149,26 @@ async function waitJob(core: LocalCore, id: string) {
 
 const jobOf = (r: { results: unknown[] }) => (r.results.at(-1) as { job: string }).job;
 
-test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with research, generated through Replicate in the region's shape, kept in media/B-roll, placed over the shots in a region in one undo step that undoes exactly", async () => {
-  const secrets = new Map<string, string>();
-  const core = new LocalCore({ cacheDir: join(dir, "cache"), configDir: join(dir, "config"), secrets: { get: async (id) => secrets.get(id), set: async (id, v) => void (v === null ? secrets.delete(id) : secrets.set(id, v)) } });
-  const h = await core.create({ path: join(dir, "p.beproj") });
-  const audio = join(dir, "talk.m4a");
+
+/** A project with the fixture's talk, transcribed (a word every half second), and keys as given. */
+async function talk(name: string, keys: Record<string, string> = {}) {
+  const secrets = new Map(Object.entries(keys));
+  const core = new LocalCore({ cacheDir: join(dir, `cache-${name}`), configDir: join(dir, `config-${name}`), secrets: { get: async (id) => secrets.get(id), set: async (id, v) => void (v === null ? secrets.delete(id) : secrets.set(id, v)) } });
+  const h = await core.create({ path: join(dir, `${name}.beproj`) });
+  const audio = join(dir, `${name}.m4a`);
   copyFileSync(AUDIO, audio);
   const imported = await core.import(h, [audio], { at: 0 });
   for (const j of imported.jobs) await core.cancelJob(j).catch(() => {});
   transcribed(core, Object.values(core.doc(h).assets)[0]!);
-  const review = async () => (await core.session(h)).features.broll as BrollReview | undefined;
+  const brolls = () => core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "broll");
+  const state = async () => (await core.session(h)).features.broll as BrollState | undefined;
+  return { core, h, secrets, brolls, state };
+}
+
+const props = (c: Clip) => c.props.broll as BrollProps;
+
+test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a region, planned from the words under it (split into shots), its footage made through Replicate and shown in it in place, every take kept to pick again; an empty one shows nothing; all undoes exactly", async () => {
+  const { core, h, secrets, brolls, state } = await talk("main");
   // The canvas, as the app's window shows it, two seconds in: the talk alone has no picture.
   const view = core.attachView(h, { offscreen: { width: 480, height: 270 } }, { silent: true, proxies: false });
   const canvas = () => {
@@ -167,201 +177,183 @@ test.skipIf(!existsSync(AUDIO))("B-roll: planned from the range's words with res
     return Buffer.from(view.flush()!);
   };
   const plain = canvas();
+  const start = core.doc(h);
+  const steps = (await core.history(h)).undo.length;
 
-  await expect(core.run(h, "broll.review", {})).rejects.toThrow(/drag a range on the ruler/);
+  // Over the range, in the canvas's middle half (taller than wide, so Veo makes it 9:16), above the talk.
+  const { width, height } = start.settings;
+  const region: [number, number, number, number] = [width / 4, 0, width / 2, height];
   await core.run(h, "range.set", { in: 1, out: 13 });
-  await core.run(h, "broll.review", { guide: "keep it abstract" });
-  expect(await review()).toMatchObject({ from: 1, to: 13, guide: "keep it abstract", research: true, region: null, shots: [] });
+  await core.run(h, "broll.add", { region });
+  const [clip] = brolls();
+  expect(clip).toBeDefined();
+  expect([ticksToSeconds(clip!.start), ticksToSeconds(clip!.start + clip!.duration)]).toEqual([1, 13]);
+  const doc = core.doc(h);
+  const row = (id: string) => doc.tracks.findIndex((t) => t.clips.some((c) => c.id === id));
+  expect(doc.tracks[row(clip!.id)]!.name).toBe("B-roll");
+  expect(row(clip!.id)).toBe(row(doc.tracks.flatMap((t) => t.clips).find((c) => c.type === "audio")!.id) + 1);
+  expect(regionOfClip(clip!, doc, core.registry)).toEqual(region);
+  expect((await core.session(h)).selection).toEqual([clip!.id]);
+  expect((await core.session(h)).range).toBeNull();
+  expect((await core.history(h)).undo.at(-1)).toBe("Add B-roll");
+  // Empty, it draws nothing: an export shows nothing there.
+  expect(canvas().equals(plain)).toBe(true);
+  await expect(core.run(h, "broll.generate", {})).rejects.toThrow(/has no prompt: type one, or Plan it/);
 
-  // No OpenAI key: the job fails, and the review says why rather than planning forever.
+  // No OpenAI key: the job fails, and the clip says why rather than planning forever.
+  await core.run(h, "clip.set", { clip: clip!.id, props: { broll: { guide: "keep it abstract" } } });
   await expect(waitJob(core, jobOf(await core.run(h, "broll.plan", {})))).rejects.toThrow(/no OpenAI API key: add one in Settings › AI/);
-  expect((await review())!.planning).toBeUndefined();
-  expect((await review())!.error).toMatch(/no OpenAI API key/);
+  expect((await state())!.planning).toEqual([]);
+  expect((await state())!.errors[clip!.id]).toMatch(/no OpenAI API key/);
 
   secrets.set("openai-api-key", "openai-key");
-  // The top half of the canvas, as for a Short's B-roll above the face: taller than wide, so 9:16.
-  const { width, height } = core.doc(h).settings;
-  const region: [number, number, number, number] = [width / 4, 0, width / 2, height];
-  await waitJob(core, jobOf(await core.run(h, "broll.plan", { region })));
+  await waitJob(core, jobOf(await core.run(h, "broll.plan", {})));
   const sent = plans.at(-1)!;
   expect(sent).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "medium" }, tools: [{ type: "web_search" }] });
   expect(JSON.stringify(sent.input)).toContain("keep it abstract");
   expect(JSON.stringify(sent.input)).toContain("9:16");
-  // Tiled: from the range's start to its end, back to back, none over Veo's 8 s.
-  const planned = (await review())!;
-  expect(planned.notes).toBe("Found: the city");
-  expect(planned.planning).toBeUndefined();
-  expect(planned.shots[0]!.start).toBe(1);
-  expect(planned.shots.at(-1)!.end).toBe(13);
-  for (const [i, s] of planned.shots.entries()) {
-    if (i) expect(s.start).toBe(planned.shots[i - 1]!.end);
-    expect(s.end - s.start).toBeLessThanOrEqual(8);
-  }
-  const estimate = (await core.query(h, "broll.estimate", {})) as { total: number; model: string };
+  // 12 s is longer than Veo's 8: split into shots back to back over the same span, in the same region, one undo step.
+  const shots = brolls();
+  expect(shots.map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual([
+    [1, 5],
+    [5, 13],
+  ]);
+  expect(shots.map((c) => props(c).prompt)).toEqual(["A city skyline at dusk, slow aerial push-in", "Hands typing on a laptop, shallow focus"]);
+  for (const c of shots) expect(regionOfClip(c, core.doc(h), core.registry)).toEqual(region);
+  expect((await core.history(h)).undo.at(-1)).toBe("Plan B-roll");
+  expect((await state())!.errors[clip!.id]).toBeUndefined();
+  const estimate = (await core.query(h, "broll.estimate", { clips: shots.map((c) => c.id) })) as { total: number; model: string };
   expect(estimate.model).toBe("Veo 3.1 Fast");
-  expect(estimate.total).toBeGreaterThan(0);
+  expect(estimate.total).toBeCloseTo(0.15 * (4 + 8));
 
   // Over the limit set in Settings › AI, nothing is sent.
   await core.setPreference("brollLimit", String(estimate.total / 2));
-  await expect(core.run(h, "broll.generate", {})).rejects.toThrow(/over the \$[\d.]+ limit per generation/);
+  await expect(core.run(h, "broll.generate", { clips: shots.map((c) => c.id) })).rejects.toThrow(/over the \$[\d.]+ limit per generation/);
   await core.setPreference("brollLimit", "0");
-
-  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", {})))).rejects.toThrow(/no Replicate API token: add one in Settings › AI/);
-  expect((await review())!.shots.every((s) => !s.making && /Replicate API token/.test(s.error ?? ""))).toBe(true);
+  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: shots.map((c) => c.id) })))).rejects.toThrow(/no Replicate API token: add one in Settings › AI/);
+  expect((await state())!.making).toEqual([]);
   secrets.set("replicate-api-token", "replicate-token");
 
-  const steps = (await core.history(h)).undo.length;
-  await waitJob(core, jobOf(await core.run(h, "broll.generate", {})));
-  // Silent, in the region's shape, each shot at the shortest length that covers it, only fields the model has.
-  for (const input of predictions) {
+  const asked = predictions.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: shots.map((c) => c.id) })));
+  // Silent, in the region's shape, each at the shortest length that covers it, only fields the model has.
+  for (const input of predictions.slice(asked)) {
     expect(input).toMatchObject({ model: "google/veo-3.1-fast", aspect_ratio: "9:16", generate_audio: false, resolution: "1080p" });
-    expect([4, 6, 8]).toContain(input.duration as number);
     expect(Object.keys(input).sort()).toEqual(["aspect_ratio", "duration", "generate_audio", "model", "prompt", "resolution"]);
   }
-  const made = (await review())!;
-  expect(made.shots.every((s) => s.candidate && !s.making && !s.error)).toBe(true);
-  // Kept with the project as they arrive, each with what made it; nothing in the document or its history yet.
-  const folder = join(dir, "p.beproj", "media", "B-roll");
-  const files = readdirSync(folder);
-  expect(files.filter((f) => f.endsWith(".mp4"))).toHaveLength(made.shots.length);
-  const sidecar = JSON.parse(readFileSync(join(folder, files.find((f) => f.endsWith(".json"))!), "utf8"));
-  // The sound the stand-in sent was taken off: footage is silent.
-  for (const s of made.shots) expect((s.candidate!.asset.derived.media as { streams: { kind: string }[] }).streams.map((x) => x.kind)).toEqual(["video"]);
-  expect(sidecar).toMatchObject({ model: "google/veo-3.1-fast", aspect: "9:16", resolution: "1080p" });
-  expect((await core.history(h)).undo.length).toBe(steps);
-  expect(Object.keys(core.doc(h).assets)).toHaveLength(1);
-
-  // A shot made again with a new prompt; one Replicate can't make keeps what it had and says why.
-  const first = made.shots[0]!;
-  await core.run(h, "broll.shot", { shot: first.id, prompt: "[refuse] a street" });
-  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", { shots: [first.id] })))).rejects.toThrow(/the model refused the prompt/);
-  const kept = (await review())!.shots[0]!;
-  expect(kept.candidate?.path).toBe(first.candidate!.path);
-  expect(kept.error).toMatch(/the model refused the prompt/);
-
-  // Shown in place on the canvas while the review is open, without being in the document; unticked, it goes.
-  const previewed = canvas();
-  expect(previewed.equals(plain)).toBe(false);
-  expect((await core.history(h)).undo.length).toBe(steps);
-  for (const s of made.shots) await core.run(h, "broll.shot", { shot: s.id, use: false });
-  expect(canvas().equals(plain)).toBe(true);
-  for (const s of made.shots) await core.run(h, "broll.shot", { shot: s.id, use: true });
-  expect(canvas().equals(previewed)).toBe(true);
-
-  // One shot made with every model that can make it that long, side by side: each kept on the shot, picked in turn.
-  const second = made.shots[1]!;
-  const compared = predictions.length;
-  await waitJob(core, jobOf(await core.run(h, "broll.compare", { shot: second.id })));
-  const asked = predictions.slice(compared);
-  expect(asked.map((p) => p.model).sort()).toEqual(["black-forest-labs/flux-3", "bytedance/seedance-2.0", "bytedance/seedance-2.5", "google/veo-3.1-fast", "kwaivgi/kling-v3-video"]);
-  // FLUX 3 has 1:1, nearer the 960×1080 region than 9:16: less is cropped.
-  expect(asked.find((p) => p.model === "black-forest-labs/flux-3")).toMatchObject({ duration: "8", aspect_ratio: "1:1", draft: false, generate_audio: false });
-  const takes = (await review())!.shots[1]!;
-  expect(takes.others).toHaveLength(5);
-  const flux = [takes.candidate!, ...takes.others!].find((c) => c.model === "FLUX 3")!;
-  await core.run(h, "broll.shot", { shot: second.id, pick: flux.path });
-  expect((await review())!.shots[1]!.candidate!.model).toBe("FLUX 3");
-  await core.run(h, "broll.shot", { shot: second.id, pick: second.candidate!.path });
-  expect((await review())!.shots[1]!.candidate!.path).toBe(second.candidate!.path);
-
-  const before = core.doc(h);
-  await core.run(h, "broll.apply", {});
-  const history = (await core.history(h)).undo;
-  expect(history.length - steps).toBe(1);
-  expect(history.at(-1)).toBe("Add B-roll");
-  expect(await review()).toBeUndefined();
-  const doc = core.doc(h);
-  const talk = doc.tracks.findIndex((t) => t.clips.some((c) => c.assetId === Object.keys(before.assets)[0]));
-  const track = doc.tracks[talk + 1]!;
-  expect(track.name).toBe("B-roll");
-  expect(track.clips.map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual(made.shots.map((s) => [s.start, s.end]));
-  // Covering the region, centred in it, cropped to it: 360×640 footage into a 960×1080 box (on a 1920×1080 canvas).
-  for (const c of track.clips) {
-    const t = c.props.transform as { x: number; y: number; scaleX: number };
-    const crop = c.props.crop as { left: number; right: number; top: number; bottom: number };
-    const k = Math.max(region[2] / 360, region[3] / 640);
-    expect(t.scaleX).toBeCloseTo(k);
-    expect(t.x).toBeCloseTo(region[0] + region[2] / 2 - width / 2);
-    expect((360 - crop.left - crop.right) * k).toBeCloseTo(region[2]);
-    expect((640 - crop.top - crop.bottom) * k).toBeCloseTo(region[3]);
-    expect(doc.assets[c.assetId!]!.derived.broll).toMatchObject({ model: "Veo 3.1 Fast" });
+  expect(predictions.slice(asked).map((p) => p.duration).sort()).toEqual([4, 8]);
+  expect((await core.history(h)).undo.at(-1)).toBe("Generate B-roll");
+  // In each clip, in place: its region kept, the footage silent, the take in the Media Bin with what made it.
+  const made = brolls();
+  for (const c of made) {
+    expect(c.assetId).toBeDefined();
+    expect(props(c).takes).toEqual([c.assetId!]);
+    expect(c.props.brollBox).toBeUndefined();
+    const [x, y, w, h2] = regionOfClip(c, core.doc(h), core.registry);
+    expect([x, y, w, h2].map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
+    const a = core.doc(h).assets[c.assetId!]!;
+    expect((a.derived.media as { streams: { kind: string }[] }).streams.map((s) => s.kind)).toEqual(["video"]);
+    expect(a.derived.broll).toMatchObject({ model: "Veo 3.1 Fast", prompt: props(c).prompt });
   }
-  // Applied, the canvas is what the preview showed; undone, as it was.
-  expect(canvas().equals(previewed)).toBe(true);
-  await core.undo(h);
-  expect(core.doc(h)).toEqual(before);
+  const folder = join(dir, "main.beproj", "media", "B-roll");
+  expect(readdirSync(folder).filter((f) => f.endsWith(".mp4"))).toHaveLength(2);
+  expect(JSON.parse(readFileSync(join(folder, readdirSync(folder).find((f) => f.endsWith(".json"))!), "utf8"))).toMatchObject({ slug: "google/veo-3.1-fast", resolution: "1080p" });
+  const shown = canvas();
+  expect(shown.equals(plain)).toBe(false);
+
+  // One clip with every model that can make it, side by side: each take on the clip, the last shown, any picked again.
+  const second = made[1]!;
+  const before = predictions.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.compare", { clip: second.id })));
+  const compared = predictions.slice(before);
+  expect(compared.map((p) => p.model).sort()).toEqual(["black-forest-labs/flux-3", "bytedance/seedance-2.0", "bytedance/seedance-2.5", "google/veo-3.1-fast", "kwaivgi/kling-v3-video"]);
+  // FLUX 3: its length a string; 1:1 nearer the 960×1080 region than 9:16, so less is cropped.
+  expect(compared.find((p) => p.model === "black-forest-labs/flux-3")).toMatchObject({ duration: "8", aspect_ratio: "1:1", draft: false, generate_audio: false });
+  const takes = props(brolls()[1]!).takes;
+  expect(takes).toHaveLength(6);
+  const flux = takes.find((id) => (core.doc(h).assets[id]!.derived.broll as { model: string }).model === "FLUX 3")!;
+  await core.run(h, "broll.use", { clip: second.id, asset: flux });
+  const picked = brolls()[1]!;
+  expect(picked.assetId).toBe(flux);
+  expect(regionOfClip(picked, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
+  await core.run(h, "broll.use", { clip: second.id, asset: second.assetId! });
+
+  // Made again from a prompt the model refuses: the clip keeps what it had and says why.
+  const first = made[0]!;
+  await core.run(h, "clip.set", { clip: first.id, props: { broll: { prompt: "[refuse] a street" } } });
+  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: [first.id] })))).rejects.toThrow(/the model refused the prompt/);
+  expect(brolls()[0]!.assetId).toBe(first.assetId);
+  expect((await state())!.errors[first.id]).toMatch(/the model refused the prompt/);
+
+  // Every step undone, the document is as it was before the clip was added; the canvas too.
+  for (let n = (await core.history(h)).undo.length - steps; n > 0; n--) await core.undo(h);
+  expect(core.doc(h)).toEqual(start);
   expect(canvas().equals(plain)).toBe(true);
   core.detachView(h);
 }, 60_000);
 
-test.skipIf(!existsSync(AUDIO))("B-roll: a generation cancelled is cancelled on Replicate too, and the shot is no longer shown as being made", async () => {
-  const secrets = new Map([["openai-api-key", "openai-key"], ["replicate-api-token", "replicate-token"]]);
-  const core = new LocalCore({ cacheDir: join(dir, "cache-2"), configDir: join(dir, "config-2"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
-  const h = await core.create({ path: join(dir, "cancel.beproj") });
-  const audio = join(dir, "talk-2.m4a");
-  copyFileSync(AUDIO, audio);
-  const imported = await core.import(h, [audio], { at: 0 });
-  for (const j of imported.jobs) await core.cancelJob(j).catch(() => {});
-  transcribed(core, Object.values(core.doc(h).assets)[0]!);
-  // A plan answered after its review's range changed is dropped; the review isn't left planning.
-  await core.run(h, "range.set", { in: 0, out: 12 });
-  const late = jobOf(await core.run(h, "broll.plan", { guide: "[late]" }));
-  await core.run(h, "broll.review", { from: 1, to: 9 });
-  await waitJob(core, late);
-  expect((await core.session(h)).features.broll).toMatchObject({ from: 1, to: 9, shots: [] });
-  expect(((await core.session(h)).features.broll as BrollReview).planning).toBeUndefined();
-  // A shot planned inside another is dropped, not overlapped (it would be paid for twice).
-  await waitJob(core, jobOf(await core.run(h, "broll.plan", { from: 0, to: 12, guide: "[nested]" })));
-  expect(((await core.session(h)).features.broll as BrollReview).shots.map((s) => [s.start, s.end])).toEqual([
-    [0, 8],
-    [8, 12],
-  ]);
-  // Planned for Kling (15 s shots), then Veo chosen (8 s): refused before anything is paid for, not made short.
-  await core.setPreference("brollModel", "kling-v3");
-  await waitJob(core, jobOf(await core.run(h, "broll.plan", { from: 0, to: 12, guide: "[long]" })));
-  expect(((await core.session(h)).features.broll as BrollReview).shots.map((s) => [s.start, s.end])).toEqual([[0, 12]]);
-  await core.setPreference("brollModel", "veo-3.1-fast");
-  const asked = predictions.length;
-  await expect(core.run(h, "broll.generate", {})).rejects.toThrow(/longer than Veo 3.1 Fast's 8 s: plan again/);
-  expect(predictions.length).toBe(asked);
-  await core.run(h, "broll.close", {});
-  await core.run(h, "range.set", { in: 0, out: 4 });
-  await waitJob(core, jobOf(await core.run(h, "broll.plan", { research: false, guide: "" })));
-  expect(plans.at(-1)!.tools).toBeUndefined();
-  const shot = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
-  // While footage is being made, planning again is refused; while a plan is being made, generating is.
-  await core.run(h, "broll.shot", { shot: shot.id, prompt: "[hold] waiting" });
-  const making = jobOf(await core.run(h, "broll.generate", { shots: [shot.id] }));
-  await expect(core.run(h, "broll.plan", {})).rejects.toThrow(/footage is being made for these shots/);
+test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; planning and making refuse each other; a plan for a clip moved meanwhile is dropped; nested and too-long shots; long prompts; cancelling cancels on Replicate", async () => {
+  const { core, h, brolls, state } = await talk("races", { "replicate-api-token": "replicate-token" });
+  // Typed, with only a Replicate token.
+  await core.run(h, "broll.add", { time: 0, duration: 4, prompt: "[hold] a pan over hills" });
+  const [clip] = brolls();
+  const making = jobOf(await core.run(h, "broll.generate", {}));
+  for (let i = 0; i < 100 && !predictions.some((p) => p.prompt === "[hold] a pan over hills"); i++) await Bun.sleep(20);
+  // While it is made it can't be planned or made again.
+  await expect(core.run(h, "broll.plan", {})).rejects.toThrow(/being planned or made already/);
+  await expect(core.run(h, "broll.generate", {})).rejects.toThrow(/being planned or made already/);
+  const counted = cancelled.length;
   await core.cancelJob(making);
   await expect(waitJob(core, making)).rejects.toThrow(/cancelled/);
-  const replanning = jobOf(await core.run(h, "broll.plan", { guide: "[late]" }));
-  await expect(core.run(h, "broll.generate", { shots: [shot.id] })).rejects.toThrow(/being planned again/);
-  await waitJob(core, replanning);
-  const fresh = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
-  // A prompt longer than a file name can be: the name is cut short, the prompt kept whole.
-  await core.run(h, "broll.shot", { shot: fresh.id, prompt: `${"x".repeat(300)} [refuse]` });
-  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", { shots: [fresh.id] })))).rejects.toThrow(/the model refused the prompt/);
-  await core.run(h, "broll.shot", { shot: fresh.id, prompt: "[hold] a pan" });
-  const job = jobOf(await core.run(h, "broll.generate", {}));
-  for (let i = 0; i < 100 && !predictions.some((p) => p.prompt === "[hold] a pan"); i++) await Bun.sleep(20);
-  const counted = cancelled.length;
-  await core.cancelJob(job);
-  await expect(waitJob(core, job)).rejects.toThrow(/cancelled/);
   for (let i = 0; i < 100 && cancelled.length === counted; i++) await Bun.sleep(20);
   expect(cancelled.length).toBe(counted + 1);
-  const after = ((await core.session(h)).features.broll as BrollReview).shots[0]!;
-  expect(after).toMatchObject({ making: false });
-  expect(after.error).toBeUndefined();
-  expect(readdirSync(join(dir, "cancel.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toEqual([]);
+  expect(await state()).toMatchObject({ making: [] });
+  expect((await state())!.errors[clip!.id]).toBeUndefined();
+  expect(readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toEqual([]);
 
   // Cancelled before Replicate answers that it started one: it is still cancelled there once it answers.
-  await core.run(h, "broll.shot", { shot: fresh.id, prompt: "[late-start] a pan" });
-  const starting = jobOf(await core.run(h, "broll.generate", { shots: [fresh.id] }));
+  await core.run(h, "clip.set", { clip: clip!.id, props: { broll: { prompt: "[late-start] a pan" } } });
+  const starting = jobOf(await core.run(h, "broll.generate", {}));
   for (let i = 0; i < 100 && !predictions.some((p) => p.prompt === "[late-start] a pan"); i++) await Bun.sleep(10);
   const before = cancelled.length;
   await core.cancelJob(starting);
   await expect(waitJob(core, starting)).rejects.toThrow(/cancelled/);
   for (let i = 0; i < 100 && cancelled.length === before; i++) await Bun.sleep(20);
   expect(cancelled.length).toBe(before + 1);
+
+  // A prompt longer than a file name can be: the name is cut short, the prompt kept whole.
+  await core.run(h, "clip.set", { clip: clip!.id, props: { broll: { prompt: `${"x".repeat(300)} [refuse]` } } });
+  await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", {})))).rejects.toThrow(/the model refused the prompt/);
+
+  // A plan answered after its clip was moved is dropped, the clip as it is.
+  const withKey = await talk("plans", { "openai-api-key": "openai-key" });
+  await withKey.core.run(withKey.h, "broll.add", { time: 0, duration: 12 });
+  const [late] = withKey.brolls();
+  await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[late]" } } });
+  const planning = jobOf(await withKey.core.run(withKey.h, "broll.plan", {}));
+  await expect(withKey.core.run(withKey.h, "broll.generate", {})).rejects.toThrow(/being planned or made already|has no prompt/);
+  await withKey.core.run(withKey.h, "clip.move", { clip: late!.id, by: 1 });
+  await expect(waitJob(withKey.core, planning)).rejects.toThrow(/moved or trimmed while it was planned/);
+  expect((await withKey.state())!.planning).toEqual([]);
+  expect(props(withKey.brolls()[0]!).prompt).toBe("");
+
+  // A shot planned inside another is dropped, not overlapped (it would be paid for twice).
+  await withKey.core.run(withKey.h, "clip.move", { clip: late!.id, by: -1 });
+  await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[nested]" } } });
+  await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
+  expect(withKey.brolls().map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual([
+    [0, 8],
+    [8, 12],
+  ]);
+
+  // Planned for Kling (15 s shots), then Veo chosen (8 s): refused before anything is paid for, not made short.
+  await withKey.core.undo(withKey.h);
+  await withKey.core.setPreference("brollModel", "kling-v3");
+  await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[long]" } } });
+  await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
+  expect(withKey.brolls()).toHaveLength(1);
+  await withKey.core.setPreference("brollModel", "veo-3.1-fast");
+  const asked = predictions.length;
+  await expect(withKey.core.run(withKey.h, "broll.generate", { clips: [late!.id] })).rejects.toThrow(/longer than Veo 3.1 Fast's 8 s/);
+  expect(predictions.length).toBe(asked);
 }, 60_000);

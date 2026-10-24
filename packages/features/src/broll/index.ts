@@ -2,7 +2,27 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
-import { defineAction, defineFeature, defineQuery, ticksToSeconds, clipEnd, type ActionContext, type ActionStep, type Asset, type Clip, type FeatureRegistry, type Preferences, type Project, type Session, type SessionCommandDef, type TaskEnv } from "@beacon/model";
+import {
+  clipEnd,
+  defineAction,
+  defineCommand,
+  defineFeature,
+  defineQuery,
+  findClip,
+  secondsToTicks,
+  ticksToSeconds,
+  type ActionContext,
+  type ActionStep,
+  type Asset,
+  type Clip,
+  type FeatureRegistry,
+  type Preferences,
+  type Project,
+  type Session,
+  type SessionCommandDef,
+  type TaskEnv,
+} from "@beacon/model";
+import { streamOf, visualSize } from "../media";
 import { timelineWords } from "../transcript";
 import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution, type VideoModel } from "./models";
 import { planShots, tile, PLAN_MODEL } from "./plan";
@@ -12,72 +32,49 @@ export { VIDEO_MODELS, videoModel, resolutionOf, shotCost, nearestAspect, length
 
 const TOKEN = "replicate-api-token";
 const OPENAI = "openai-api-key";
-/** Seconds of talk either side of the range the planner reads for context. */
+/** Seconds of talk either side of a clip the planner reads for context. */
 const CONTEXT = 15;
+/** A placeholder added at the playhead lasts this long. */
+const PLACEHOLDER_SECONDS = 4;
 
 /** A region of the canvas in canvas pixels from its top left: x, y, width, height. */
 export type Rect = [number, number, number, number];
 
-export interface BrollCandidate {
-  /** The file, in the project's `media/B-roll` folder. */
-  path: string;
-  /** As `asset.add` takes it, probed. */
-  asset: Omit<Asset, "id">;
+/** What a B-roll clip asks for (`props.broll`), and the footage it has made: its takes, assets in the Media Bin. */
+const brollGroup = z.strictObject({
+  prompt: z.string().max(2000),
+  why: z.string(),
+  /** What to show or avoid, for Plan. */
+  guide: z.string().max(1000),
+  /** Plan searches the web for what is said. */
+  research: z.boolean(),
+  takes: z.array(z.string()),
+});
+export type BrollProps = z.infer<typeof brollGroup>;
+
+/** An empty placeholder's box (`props.brollBox`): its size on the canvas until it has footage, then gone. */
+const boxGroup = z.strictObject({ width: z.number().positive(), height: z.number().positive() });
+
+/** What made a take, on its asset (`derived.broll`). */
+export interface TakeInfo {
   prompt: string;
   model: string;
-  aspect: string;
-  seconds: number;
   /** Dollars, estimated from the model's price per second. */
   cost: number;
+  seconds: number;
 }
 
-export interface BrollShot {
-  id: string;
-  /** Timeline seconds. */
-  start: number;
-  end: number;
-  prompt: string;
-  why: string;
-  /** Placed by Apply: on unless the user unticks it. */
-  use: boolean;
-  /** The footage Apply places and the canvas previews. */
-  candidate?: BrollCandidate;
-  /** Its earlier footage (made again, or by other models), to pick instead. */
-  others?: BrollCandidate[];
-  /** Being made now (a job). */
-  making?: boolean;
-  error?: string;
+/** What B-roll is doing for which clips (`session.features.broll`): planned or made now, and why the last try failed. */
+export interface BrollState {
+  planning: string[];
+  making: string[];
+  errors: Record<string, string>;
 }
 
-/** B-roll's review, open in the properties panel: what it covers, how it is planned, and the shots. */
-export interface BrollReview {
-  from: number;
-  to: number;
-  guide: string;
-  research: boolean;
-  /** Where on the canvas it goes; null: the whole canvas. */
-  region: Rect | null;
-  /** The canvas is taking a drawn region. */
-  drawing: boolean;
-  /** The plan being made: its request, so an answer for a review closed or moved since is dropped. */
-  planning?: string;
-  /** What the planner's research found. */
-  notes?: string;
-  shots: BrollShot[];
-  error?: string;
-}
+const IDLE: BrollState = { planning: [], making: [], errors: {} };
+export const brollState = (s: Session) => (s.features.broll as BrollState | undefined) ?? IDLE;
 
-export const brollReview = (s: Session) => s.features.broll as BrollReview | undefined;
-
-const need = (s: Session) => {
-  const r = brollReview(s);
-  if (!r) throw new Error("B-roll's review isn't open: broll.review opens it");
-  return r;
-};
-
-const id = () => Math.random().toString(36).slice(2, 8);
-
-export const regionOf = (r: Pick<BrollReview, "region">, project: Project): Rect => r.region ?? [0, 0, project.settings.width, project.settings.height];
+export const brollOf = (c: Clip) => c.props.broll as BrollProps | undefined;
 
 /** The model, its resolution and the limit, as Settings › AI has them. */
 export const brollSettings = (pref: Preferences) => {
@@ -85,220 +82,185 @@ export const brollSettings = (pref: Preferences) => {
   return { model, resolution: resolutionOf(model, pref("brollResolution")) as Resolution, limit: Number(pref("brollLimit")) || 0 };
 };
 
-/** What generating these shots costs, by the model's listed price. */
-export const estimate = (shots: Pick<BrollShot, "start" | "end">[], pref: Preferences) => {
-  const { model, resolution } = brollSettings(pref);
-  return shots.reduce((sum, s) => sum + shotCost(model, resolution, s.end - s.start), 0);
-};
+const seconds = (c: Clip) => ticksToSeconds(c.duration);
 
-const RectSchema = z.tuple([z.number(), z.number(), z.number().positive(), z.number().positive()]);
-
-const sessionCommands: SessionCommandDef[] = [
-  {
-    id: "broll.review",
-    description:
-      "Open B-roll's review (the AI panel's B-roll tile does) over the range (`from`/`to` timeline seconds, else the range dragged on the ruler), or change it: `guide` (what to show or avoid), `research` (the planner searches the web for what is said), `region` ([x, y, width, height] canvas pixels from the top left, or null for the whole canvas), `drawing` (the canvas takes a drawn region). A new range drops the planned shots. Then broll.plan",
-    args: z.strictObject({
-      from: z.number().nonnegative().optional(),
-      to: z.number().positive().optional(),
-      guide: z.string().max(1000).optional(),
-      research: z.boolean().optional(),
-      region: RectSchema.nullable().optional(),
-      drawing: z.boolean().optional(),
-    }),
-    apply: (s, a: { from?: number; to?: number; guide?: string; research?: boolean; region?: Rect | null; drawing?: boolean }, { project }) => {
-      const was = brollReview(s);
-      const from = a.from ?? was?.from ?? s.range?.in;
-      const to = a.to ?? was?.to ?? s.range?.out;
-      if (from === undefined || to === undefined) throw new Error("drag a range on the ruler over the words the B-roll should cover (or give `from` and `to`)");
-      if (to - from < 0.5) throw new Error("the range is under half a second: B-roll needs a stretch of the talk");
-      if (a.region) {
-        const [x, y, w, h] = a.region;
-        if (x < -1 || y < -1 || x + w > project.settings.width + 1 || y + h > project.settings.height + 1) throw new Error(`the region must be inside the ${project.settings.width}×${project.settings.height} canvas`);
-      }
-      const moved = !!was && (Math.abs(was.from - from) > 1e-3 || Math.abs(was.to - to) > 1e-3);
-      const given = Object.fromEntries(Object.entries(a).filter(([k, v]) => v !== undefined && k !== "from" && k !== "to"));
-      s.features.broll = {
-        ...(was ?? { guide: "", research: true, region: null, drawing: false, shots: [] }),
-        ...given,
-        from,
-        to,
-        ...(moved ? { shots: [], notes: undefined, error: undefined, planning: undefined } : {}),
-      } satisfies BrollReview;
-    },
-  },
-  {
-    id: "broll.shot",
-    description: "Change a planned shot: its `prompt` (broll.generate makes it again), `use` (whether Apply places it), or `pick` (the path of footage it made before, to show and place instead)",
-    args: z.strictObject({ shot: z.string().min(1), prompt: z.string().min(1).max(2000).optional(), use: z.boolean().optional(), pick: z.string().min(1).optional() }),
-    apply: (s, { shot, prompt, use, pick }: { shot: string; prompt?: string; use?: boolean; pick?: string }) => {
-      const r = need(s);
-      const x = r.shots.find((x) => x.id === shot);
-      if (!x) throw new Error(`no shot "${shot}" in the review: ${r.shots.map((x) => x.id).join(", ") || "plan it first"}`);
-      if (prompt !== undefined) x.prompt = prompt;
-      if (use !== undefined) x.use = use;
-      if (pick !== undefined && pick !== x.candidate?.path) {
-        const other = x.others?.find((c) => c.path === pick);
-        if (!other) throw new Error(`shot "${shot}" made no ${pick}`);
-        x.others = [...x.others!.filter((c) => c !== other), ...(x.candidate ? [x.candidate] : [])];
-        x.candidate = other;
-      }
-    },
-  },
-  {
-    id: "broll.planned",
-    description: "Set the review's shots (broll.plan's job does, when OpenAI answers), or its `error`, for the plan `request` it is making; any other is dropped",
-    args: z.strictObject({
-      request: z.string(),
-      shots: z.array(z.strictObject({ start: z.number(), end: z.number(), prompt: z.string(), why: z.string() })).optional(),
-      notes: z.string().optional(),
-      error: z.string().optional(),
-    }),
-    apply: (s, { request, shots, notes, error }: { request: string; shots?: { start: number; end: number; prompt: string; why: string }[]; notes?: string; error?: string }) => {
-      const r = brollReview(s);
-      // Closed, or its range changed, while it planned: what it planned is dropped (it cost a few cents).
-      if (r?.planning !== request) return;
-      r.planning = undefined;
-      r.error = error;
-      if (shots) {
-        r.shots = shots.map((x) => ({ ...x, id: id(), use: true }));
-        r.notes = notes;
-      }
-    },
-  },
-  {
-    id: "broll.making",
-    description: "Mark shots as being planned or made (broll.plan and broll.generate do)",
-    args: z.strictObject({ shots: z.array(z.string()).optional(), planning: z.string().optional() }),
-    apply: (s, { shots, planning }: { shots?: string[]; planning?: string }) => {
-      const r = need(s);
-      if (planning !== undefined) r.planning = planning;
-      for (const x of r.shots) if (shots?.includes(x.id)) Object.assign(x, { making: true, error: undefined });
-    },
-  },
-  {
-    id: "broll.made",
-    description: "Give shots what was made for them, or why it failed (broll.generate's job does)",
-    args: z.strictObject({ results: z.array(z.strictObject({ shot: z.string(), candidate: z.unknown().optional(), error: z.string().optional() })) }),
-    apply: (s, { results }: { results: { shot: string; candidate?: BrollCandidate; error?: string }[] }) => {
-      const r = brollReview(s);
-      // Closed while it made them: the files are kept in media/B-roll.
-      if (!r) return;
-      for (const m of results) {
-        const x = r.shots.find((x) => x.id === m.shot);
-        if (!x) continue;
-        x.making = false;
-        x.error = m.error;
-        if (!m.candidate) continue;
-        if (x.candidate) x.others = [...(x.others ?? []), x.candidate];
-        x.candidate = m.candidate;
-      }
-    },
-  },
-  {
-    id: "broll.close",
-    description: "Close B-roll's review without placing anything (footage made is kept in the project's media/B-roll folder)",
-    args: z.strictObject({}),
-    apply: (s) => void delete s.features.broll,
-  },
-];
-
-/**
- * Where the B-roll track goes: right above the highest track with media over the range (the talk), so captions
- * and annotations above it stay in front.
- */
-function trackIndex(project: Project, registry: FeatureRegistry, from: number, to: number): number {
-  // A group holding media is the talk too: its picture would otherwise cover the B-roll.
-  const media = (c: Clip): boolean => !!c.assetId || registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id] && g.nested(c.props[g.id]).some((t) => t.clips.some(media)));
-  const over = project.tracks.flatMap((t, i) => (t.clips.some((c) => media(c) && ticksToSeconds(c.start) < to && ticksToSeconds(clipEnd(c)) > from) ? [i] : []));
-  return over.length ? Math.max(...over) + 1 : project.tracks.length;
+/** The models that can make a shot this long, each with what it would cost. */
+export function comparison(length: number, pref: Preferences) {
+  const asked = pref("brollResolution");
+  return VIDEO_MODELS.filter((m) => m.durations.at(-1)! >= length - 1e-3).map((m) => ({ model: m, resolution: resolutionOf(m, asked), cost: shotCost(m, resolutionOf(m, asked), length) }));
 }
 
-/** The candidate scaled to cover the region and cropped to it, centred: transform and crop as `clip.set` takes them. */
-function fitted(c: BrollCandidate, region: Rect, project: Project) {
-  const v = (c.asset.derived.media as { streams?: { kind: string; width?: number; height?: number }[] } | undefined)?.streams?.find((s) => s.kind === "video");
-  const [W, H] = [v?.width ?? 1280, v?.height ?? 720];
-  const [x, y, w, h] = region;
+/** Where a clip shows on the canvas: its content's visible part (after crop), scaled and placed; rotation aside. */
+export function regionOfClip(clip: Clip, project: Project, registry: FeatureRegistry): Rect {
+  const [W, H] = visualSize(project, registry, clip) ?? [project.settings.width, project.settings.height];
+  const t = { x: 0, y: 0, scaleX: 1, scaleY: 1, ...(clip.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY", number>> | undefined) };
+  const c = { left: 0, top: 0, right: 0, bottom: 0, ...(clip.props.crop as Partial<Record<"left" | "top" | "right" | "bottom", number>> | undefined) };
+  const [w, h] = [(W - c.left - c.right) * t.scaleX, (H - c.top - c.bottom) * t.scaleY];
+  const cx = project.settings.width / 2 + t.x + ((c.left - c.right) / 2) * t.scaleX;
+  const cy = project.settings.height / 2 - t.y + ((c.top - c.bottom) / 2) * t.scaleY;
+  return [cx - w / 2, cy - h / 2, w, h];
+}
+
+/** Footage `W`×`H` scaled to cover `region` and cropped to it, centred: transform and crop as props. */
+function covering([W, H]: [number, number], [x, y, w, h]: Rect, project: Project) {
   const k = Math.max(w / W, h / H);
   const [cw, ch] = [(W - w / k) / 2, (H - h / k) / 2];
   return {
-    transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: k, scaleY: k, rotation: 0, rotationX: 0, rotationY: 0 },
+    transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: k, scaleY: k },
     crop: { left: cw, right: cw, top: ch, bottom: ch },
   };
 }
 
-/**
- * The document steps that place the review's picked candidates: a B-roll track above the talk, each shot's footage
- * over its span, fitted to the region. Apply runs them as one undo step; the canvas shows them while it is open.
- */
-export function brollSteps(r: BrollReview, project: Project, registry: FeatureRegistry): ActionStep[] {
-  const shots = r.shots.filter((s) => s.use && s.candidate);
-  if (!shots.length) return [];
-  const region = regionOf(r, project);
-  const steps: ActionStep[] = [{ command: "track.add", args: { name: "B-roll", index: trackIndex(project, registry, r.from, r.to) } }];
-  for (const s of shots) {
-    const c = s.candidate!;
-    const added = steps.length;
-    steps.push({ command: "asset.add", args: { ...c.asset, name: `B-roll: ${c.prompt.slice(0, 60)}`, derived: { ...c.asset.derived, broll: { prompt: c.prompt, model: c.model, cost: c.cost } } } });
-    const placed = steps.length;
-    const clip = (res: unknown[]) => (res[placed] as string[])[0]!;
-    steps.push({ command: "asset.place", args: (res: unknown[]) => ({ asset: res[added], time: s.start, track: res[0] }) });
-    steps.push({ command: "clip.trim", args: (res: unknown[]) => ({ clip: clip(res), end: s.end, linked: false }) });
-    steps.push({ command: "clip.set", args: (res: unknown[]) => ({ clip: clip(res), props: fitted(c, region, project) }) });
-  }
-  return steps;
+/** A placeholder's props: a box the region's size, placed over it. */
+function placeholder(region: Rect, project: Project, props: Partial<BrollProps> = {}) {
+  const [x, y, w, h] = region;
+  return {
+    broll: { prompt: "", why: "", guide: "", research: true, takes: [], ...props } satisfies BrollProps,
+    brollBox: { width: w, height: h },
+    transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 },
+  };
 }
 
-const keyOf = async (secret: (id: string) => Promise<string | undefined>, which: string, where: string) => {
+const RectSchema = z.tuple([z.number(), z.number(), z.number().positive(), z.number().positive()]);
+
+const commands = [
+  defineCommand({
+    id: "broll.use",
+    description:
+      "Show `asset` (footage B-roll made) in a B-roll clip: the clip plays it from its start, scaled and cropped to the region it covers now, and keeps it among its takes. Picking an earlier take is the same command",
+    args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1) }),
+    apply(doc, { clip, asset }, ctx) {
+      const { clip: c } = findClip(doc, ctx.registry, clip);
+      const b = brollOf(c);
+      if (c.type !== "broll" || !b) throw new Error(`clip "${clip}" isn't B-roll`);
+      const a = doc.assets[asset];
+      if (!a) throw new Error(`no asset "${asset}"`);
+      const s = streamOf(a, "video", 0);
+      const region = regionOfClip(c, doc, ctx.registry);
+      const fit = covering([s.width!, s.height!], region, doc);
+      c.assetId = asset;
+      c.mediaStart = 0;
+      delete c.props.brollBox;
+      c.props.media = { stream: 0 };
+      c.props.transform = { ...(c.props.transform as object), ...fit.transform };
+      c.props.crop = fit.crop;
+      if (!b.takes.includes(asset)) b.takes.push(asset);
+      // Footage shorter than the clip: the clip ends with it.
+      c.duration = Math.min(c.duration, secondsToTicks(s.duration));
+    },
+  }),
+];
+
+const sessionCommands: SessionCommandDef[] = [
+  {
+    id: "broll.status",
+    description: "Mark B-roll clips as being planned or made, or not (broll.plan and broll.generate do), with why the last try failed (`error`, null to clear)",
+    args: z.strictObject({ clips: z.array(z.string()), planning: z.boolean().optional(), making: z.boolean().optional(), error: z.string().nullable().optional() }),
+    apply: (s, { clips, planning, making, error }: { clips: string[]; planning?: boolean; making?: boolean; error?: string | null }) => {
+      const was = brollState(s);
+      const mark = (list: string[], on?: boolean) => (on === undefined ? list : on ? [...new Set([...list, ...clips])] : list.filter((id) => !clips.includes(id)));
+      const errors = { ...was.errors };
+      for (const id of clips) if (error === null || planning || making) delete errors[id];
+      if (error) for (const id of clips) errors[id] = error;
+      s.features.broll = { planning: mark(was.planning, planning), making: mark(was.making, making), errors } satisfies BrollState;
+    },
+  },
+];
+
+/** Where a new B-roll track goes: right above the highest track with media (or a group of it) over the span, so captions above stay in front. */
+function trackIndex(project: Project, registry: FeatureRegistry, from: number, to: number): number {
+  const media = (c: Clip): boolean => (!!c.assetId && c.type !== "broll") || registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id] && g.nested(c.props[g.id]).some((t) => t.clips.some(media)));
+  const over = project.tracks.flatMap((t, i) => (t.clips.some((c) => media(c) && ticksToSeconds(c.start) < to && ticksToSeconds(clipEnd(c)) > from) ? [i] : []));
+  return over.length ? Math.max(...over) + 1 : project.tracks.length;
+}
+
+/** The B-roll clips an action works on: those given, else the selected ones. */
+function targets(ctx: ActionContext, ids?: string[]): Clip[] {
+  const all = ctx.project.tracks.flatMap((t) => t.clips);
+  const chosen = ids ? ids.map((id) => all.find((c) => c.id === id) ?? fail(`no clip "${id}" on the timeline`)) : all.filter((c) => ctx.session.selection.includes(c.id));
+  const broll = chosen.filter((c) => c.type === "broll");
+  if (!broll.length) throw new Error(ids ? "those clips aren't B-roll" : "select a B-roll clip first (the AI panel's B-roll tile adds one)");
+  return broll;
+}
+
+const fail = (message: string): never => {
+  throw new Error(message);
+};
+
+const keyOf = async (secret: (id: string) => Promise<string | undefined>, which: string) => {
   const key = await secret(which);
-  if (!key) throw new Error(`no ${which === TOKEN ? "Replicate API token" : "OpenAI API key"}: add one in Settings › ${where}`);
+  if (!key) throw new Error(`no ${which === TOKEN ? "Replicate API token" : "OpenAI API key"}: add one in Settings › AI`);
   return key;
 };
 
-const minutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const minutes = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+const brollAdd = defineAction({
+  id: "broll.add",
+  description:
+    "Add a B-roll placeholder clip (the AI panel's B-roll tile): over the in/out range if one is set, else at `time` (default the playhead) for `duration` seconds, on a B-roll track above the talk, covering `region` ([x, y, width, height] canvas pixels from the top left; default the whole canvas), with an optional `prompt`. It shows nothing in an export until it has footage: move and trim it like any clip, then broll.plan writes its prompt from the words under it, broll.generate makes it",
+  args: z.strictObject({
+    time: z.number().nonnegative().optional(),
+    duration: z.number().positive().optional(),
+    region: RectSchema.optional(),
+    prompt: z.string().max(2000).optional(),
+  }),
+  resolve: ({ time, duration, region, prompt }, ctx) => {
+    const range = time === undefined && duration === undefined ? ctx.session.range : null;
+    const from = range ? range.in : (time ?? ctx.session.playhead);
+    const length = range ? range.out - range.in : (duration ?? PLACEHOLDER_SECONDS);
+    const { width, height } = ctx.project.settings;
+    const props = placeholder(region ?? [0, 0, width, height], ctx.project, prompt ? { prompt } : {});
+    // An existing B-roll track free over the span takes it; else a new one above the talk.
+    const free = ctx.project.tracks.find((t) => t.name === "B-roll" && !t.locked && t.clips.every((c) => ticksToSeconds(clipEnd(c)) <= from || ticksToSeconds(c.start) >= from + length));
+    const steps: ActionStep[] = free
+      ? [{ command: "clip.place", args: { type: "broll", props, duration: length, time: from, track: free.id } }]
+      : [
+          { command: "track.add", args: { name: "B-roll", index: trackIndex(ctx.project, ctx.registry, from, from + length) } },
+          { command: "clip.place", args: (r: unknown[]) => ({ type: "broll", props, duration: length, time: from, track: r[0] }) },
+        ];
+    return {
+      label: "Add B-roll",
+      steps,
+      after: (r) => [
+        { command: "selection.set", args: { clips: [r.at(-1) as string], linked: false } },
+        { command: "inspector.tab", args: { tab: "broll" } },
+        ...(range ? [{ command: "range.clear" }] : []),
+      ],
+    };
+  },
+});
 
 const brollPlan = defineAction({
   id: "broll.plan",
   description:
-    "Plan B-roll over the open review's range (opening it with these settings first, as broll.review takes them): OpenAI reads what is said there (and searches the web for it with `research`) and writes a shot list, each shot's span, prompt and why, shown on the timeline with what generating it would cost. The words and the guide are sent to OpenAI, on the user's key. Runs as a job",
-  args: z.strictObject({
-    from: z.number().nonnegative().optional(),
-    to: z.number().positive().optional(),
-    guide: z.string().max(1000).optional(),
-    research: z.boolean().optional(),
-    region: RectSchema.nullable().optional(),
-  }),
-  resolve: (args, ctx) => {
-    const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
-    const open = brollReview(ctx.session);
-    // A new plan replaces the shots: footage being made for them would have nowhere to go.
-    if (open?.shots.some((s) => s.making)) throw new Error("footage is being made for these shots: wait for it, or cancel it, before planning again");
-    if (!open && !ctx.session.range && (args.from === undefined || args.to === undefined)) throw new Error("drag a range on the ruler over the words the B-roll should cover (or give `from` and `to`)");
-    const from = args.from ?? open?.from ?? ctx.session.range!.in;
-    const to = args.to ?? open?.to ?? ctx.session.range!.out;
+    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it: OpenAI reads the words (and searches the web for them with the clip's `research`), with its guide, on the user's key. A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
+  args: z.strictObject({ clip: z.string().min(1).optional() }),
+  resolve: ({ clip: id }, ctx) => {
+    const [clip] = targets(ctx, id ? [id] : undefined);
+    if (!clip) throw new Error("select a B-roll clip first");
+    const state = brollState(ctx.session);
+    if (state.planning.includes(clip.id) || state.making.includes(clip.id)) throw new Error("that clip is being planned or made already");
+    const b = brollOf(clip)!;
+    const [from, to] = [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
     const words = timelineWords(ctx.project, ctx.registry, ctx.data);
     const said = words.filter((w) => w.end > from && w.start < to);
-    if (!said.length) throw new Error("nothing is said over the range yet: B-roll is planned from the transcript (wait for it, or pick a range with speech)");
-    const guide = args.guide ?? open?.guide ?? "";
-    const research = args.research ?? open?.research ?? true;
-    const region = args.region !== undefined ? args.region : (open?.region ?? null);
-    const [, , w, h] = regionOf({ region }, ctx.project);
+    if (!said.length) throw new Error("nothing is said under the clip yet: B-roll is planned from the transcript (wait for it, move the clip over speech, or type a prompt)");
     const { model } = brollSettings(ctx.pref);
+    const [, , w, h] = regionOfClip(clip, ctx.project, ctx.registry);
+    if (b.takes.length && to - from > model.durations.at(-1)! + 1e-3) throw new Error(`the clip has footage and is longer than ${model.title} makes: trim it to ${model.durations.at(-1)} s to plan it again`);
     // A model that picks its own shape is told the region's, and its footage cropped to it.
     const aspect = nearestAspect(model, w, h) ?? `${Math.round(w)}:${Math.round(h)}`;
     const text = (ws: typeof words) => ws.map((x) => x.text).join(" ");
-    const request = id();
+    const shape = JSON.stringify([clip.start, clip.duration]);
     return {
       label: "Plan B-roll",
-      before: [
-        { command: "broll.review", args: given },
-        { command: "broll.making", args: { planning: request } },
-      ],
+      before: [{ command: "broll.status", args: { clips: [clip.id], planning: true } }],
       task: {
         label: "Plan B-roll",
         run: async (env) => {
-          const key = await keyOf(env.secret, OPENAI, "AI");
-          env.progress(0.1, research ? `${PLAN_MODEL}: researching and planning the shots` : `${PLAN_MODEL}: planning the shots`);
+          const key = await keyOf(env.secret, OPENAI);
+          env.progress(0.1, b.research ? `${PLAN_MODEL}: researching and planning the shots` : `${PLAN_MODEL}: planning the shots`);
           const plan = await planShots(
             {
               words: said.map((x) => ({ text: x.text, start: x.start, end: x.end })),
@@ -306,8 +268,8 @@ const brollPlan = defineAction({
               after: text(words.filter((x) => x.start >= to && x.end <= to + CONTEXT)),
               from,
               to,
-              guide,
-              research,
+              guide: b.guide,
+              research: b.research,
               aspect,
               shortest: model.durations[0]!,
               longest: model.durations.at(-1)!,
@@ -315,11 +277,27 @@ const brollPlan = defineAction({
             key,
           );
           const shots = tile(plan.shots, from, to, model.durations[0]!, model.durations.at(-1)!);
-          if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer range");
-          env.progress(1, `${shots.length} shot${shots.length === 1 ? "" : "s"} planned: about $${estimate(shots, env.pref).toFixed(2)} to generate`);
-          return () => ({ label: "Plan B-roll", before: [{ command: "broll.planned", args: { request, shots, notes: plan.research } }] });
+          if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer clip");
+          env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
+          return (now) => {
+            const loc = now.project.tracks.flatMap((t) => t.clips.map((c) => ({ c, t }))).find((x) => x.c.id === clip.id);
+            if (!loc) throw new Error("the B-roll clip was deleted while it was planned");
+            if (JSON.stringify([loc.c.start, loc.c.duration]) !== shape) throw new Error("the B-roll clip was moved or trimmed while it was planned: plan it again");
+            const done = [{ command: "broll.status", args: { clips: [clip.id], planning: false } }];
+            if (shots.length === 1) return { label: "Plan B-roll", steps: [{ command: "clip.set", args: { clip: clip.id, props: { broll: { prompt: shots[0]!.prompt, why: shots[0]!.why } } } }], after: () => done };
+            // Split: one placeholder per shot, each over its span, in the same place.
+            const { brollBox, transform, crop } = loc.c.props;
+            const steps: ActionStep[] = [
+              { command: "clip.remove", args: { clip: clip.id, linked: false } },
+              ...shots.map((s) => ({
+                command: "clip.place",
+                args: { type: "broll", props: { broll: { ...b, prompt: s.prompt, why: s.why, takes: [] }, brollBox, transform, ...(crop ? { crop } : {}) }, duration: s.end - s.start, time: s.start, track: loc.t.id },
+              })),
+            ];
+            return { label: "Plan B-roll", steps, after: (r) => [...done, { command: "selection.set", args: { clips: r.slice(1) as string[], linked: false } }] };
+          };
         },
-        failed: (error) => [{ command: "broll.planned", args: { request, ...(error === "cancelled" ? {} : { error }) } }],
+        failed: (error) => [{ command: "broll.status", args: { clips: [clip.id], planning: false, ...(error === "cancelled" ? {} : { error }) } }],
       },
     };
   },
@@ -338,7 +316,8 @@ function freeName(dir: string, stem: string): string {
   }
 }
 
-type Made = { shot: string; candidate?: BrollCandidate; error?: string };
+/** A take made for a clip, as `asset.add` takes it, or why there is none. */
+type Made = { clip: string; asset?: Omit<Asset, "id">; error?: string };
 
 /** The resolution input `asked` as the model lists them now: 1080p asked and missing, its best below. */
 function resolutionInput(asked: Record<string, unknown> | undefined, live: Limits): Record<string, unknown> {
@@ -348,156 +327,164 @@ function resolutionInput(asked: Record<string, unknown> | undefined, live: Limit
 }
 
 /**
- * One shot made with one model (`live`, what it takes now), saved in `dir` beside a `.json` of what made it: its
- * footage, or why there is none. A cancelled job's shot reports nothing.
+ * One clip's footage made with one model (`live`, what it takes now), saved in `dir` beside a `.json` of what made
+ * it: the asset, or why there is none. A cancelled job's clip reports nothing.
  */
-async function makeShot(env: TaskEnv, token: string, model: VideoModel, live: Limits, resolution: Resolution, s: BrollShot, n: number, [w, h]: [number, number], dir: string, waiting: () => void): Promise<Made | undefined> {
-  const seconds = lengthFor(live, s.end - s.start);
+async function makeTake(env: TaskEnv, token: string, model: VideoModel, live: Limits, resolution: Resolution, c: { id: string; prompt: string; length: number }, [w, h]: [number, number], dir: string, waiting: () => void): Promise<Made | undefined> {
+  const length = lengthFor(live, c.length);
   const aspect = nearestAspect(live, w, h);
   // Bounded, with room for the counter and suffixes after it: the whole prompt is in the .json.
-  const words = s.prompt.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 40).trim();
-  const out = freeName(dir, `Shot ${n} - ${model.title} - ${words}`);
+  const words = c.prompt.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 40).trim();
+  const out = freeName(dir, `${model.title} - ${words}`);
   try {
-    const input: Record<string, unknown> = { prompt: s.prompt, aspect_ratio: aspect, duration: live.durationText ? String(seconds) : seconds, generate_audio: false, ...resolutionInput(model.resolutions[resolution], live) };
+    const input: Record<string, unknown> = { prompt: c.prompt, aspect_ratio: aspect, duration: live.durationText ? String(length) : length, generate_audio: false, ...resolutionInput(model.resolutions[resolution], live) };
     for (const k of Object.keys(input)) if (input[k] === undefined || !live.fields.has(k)) delete input[k];
     await generate(token, model, input, out, waiting);
   } catch (e) {
     // Nothing paid for arrived: the file is a placeholder, or half a download.
     rmSync(out, { force: true });
     if (jobSignal()?.aborted) return undefined;
-    return { shot: s.id, error: e instanceof Error ? e.message : String(e) };
+    return { clip: c.id, error: e instanceof Error ? e.message : String(e) };
   }
   // Downloaded, it is kept whatever happens next: it was paid for. What made it is written beside it first.
-  const cost = shotCost({ ...model, durations: live.durations }, resolution, s.end - s.start);
+  const info: TakeInfo = { prompt: c.prompt, model: model.title, cost: shotCost({ ...model, durations: live.durations }, resolution, c.length), seconds: length };
   try {
-    writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ prompt: s.prompt, model: model.slug, resolution, aspect: aspect ?? "the model's own", seconds, estimatedCost: cost, made: new Date().toISOString() }, null, 2));
+    writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, slug: model.slug, resolution, aspect: aspect ?? "the model's own", made: new Date().toISOString() }, null, 2));
     // B-roll is silent: sound a model made anyway (one whose schema has no audio switch) is taken off the file.
     const silent = `${out}.silent.mp4`;
     await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", out, "-map", "0:v:0", "-c", "copy", "-an", silent]);
     renameSync(silent, out);
     const asset = await env.asset(out, "video");
-    const v = (asset.derived.media as { streams?: { kind: string; width?: number; height?: number }[] } | undefined)?.streams?.find((x) => x.kind === "video");
-    const candidate: BrollCandidate = { path: out, asset, prompt: s.prompt, model: model.title, aspect: aspect ?? `${v?.width}×${v?.height}`, seconds, cost };
-    return { shot: s.id, candidate };
+    return { clip: c.id, asset: { ...asset, name: `B-roll: ${c.prompt.slice(0, 60)}`, derived: { ...asset.derived, broll: info } } };
   } catch (e) {
     if (jobSignal()?.aborted) return undefined;
-    return { shot: s.id, error: `made, but couldn't be read (kept as ${basename(out)} in media/B-roll): ${e instanceof Error ? e.message : String(e)}` };
+    return { clip: c.id, error: `made, but couldn't be read (kept as ${basename(out)} in media/B-roll): ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
-/** The job's end: what was made goes to the review; with nothing made, the first reason fails the job. */
-function finished(env: TaskEnv, results: Made[]) {
+/**
+ * A generation's end: each take added to the Media Bin and shown in its clip (the last made for a clip is shown),
+ * one undo step; a clip deleted meanwhile still gets its takes in the bin. With nothing made, the first reason fails the job.
+ */
+function finished(env: TaskEnv, results: Made[], clips: string[], label: string) {
   jobSignal()?.throwIfAborted();
-  const made = results.filter((x) => x.candidate).length;
+  const made = results.filter((x) => x.asset);
   const failed = results.filter((x) => x.error);
-  if (!made) throw new Error(failed[0]?.error ?? "nothing was made");
-  env.progress(1, [`${made} made, in the project's media/B-roll folder`, failed.length ? `${failed.length} failed: ${failed[0]!.error}` : ""].filter(Boolean).join("; "));
-  return () => ({ label: "Generate B-roll", before: [{ command: "broll.made", args: { results } }] });
+  if (!made.length) throw new Error(failed[0]?.error ?? "nothing was made");
+  env.progress(1, [`${made.length} made, in the project's media/B-roll folder`, failed.length ? `${failed.length} failed: ${failed[0]!.error}` : ""].filter(Boolean).join("; "));
+  return (ctx: ActionContext) => {
+    const there = new Set(ctx.project.tracks.flatMap((t) => t.clips.map((c) => c.id)));
+    const steps: ActionStep[] = [];
+    for (const m of made) {
+      const added = steps.length;
+      steps.push({ command: "asset.add", args: m.asset });
+      if (there.has(m.clip)) steps.push({ command: "broll.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added] }) });
+    }
+    const errors = failed.filter((f) => !made.some((m) => m.clip === f.clip));
+    return {
+      label,
+      steps,
+      after: () => [
+        { command: "broll.status", args: { clips, making: false, error: null } },
+        ...errors.map((f) => ({ command: "broll.status", args: { clips: [f.clip], error: f.error } })),
+      ],
+    };
+  };
 }
 
-/** What was made before a job failed or was cancelled is kept; the shots with nothing say why. */
-const failedSteps = (results: Made[], shots: string[]) => (error: string) => [
-  { command: "broll.made", args: { results: [...results, ...shots.filter((id) => !results.some((x) => x.shot === id)).map((shot) => ({ shot, ...(error === "cancelled" ? {} : { error }) }))] } },
-];
-
 const progress = (env: TaskEnv, results: Made[], total: number, started: number) => () =>
-  env.progress(0.05 + (0.95 * results.length) / total, `${results.filter((x) => x.candidate).length} of ${total} made · ${minutes((Date.now() - started) / 1000)}`);
+  env.progress(0.05 + (0.95 * results.length) / total, `${results.filter((x) => x.asset).length} of ${total} made · ${minutes((Date.now() - started) / 1000)}`);
+
+const notReady = (ctx: ActionContext, clips: Clip[]) => {
+  const state = brollState(ctx.session);
+  const busy = clips.filter((c) => state.planning.includes(c.id) || state.making.includes(c.id));
+  if (busy.length) throw new Error(busy.length === clips.length ? "being planned or made already" : `${busy.length} of them are being planned or made already`);
+  const empty = clips.filter((c) => !brollOf(c)!.prompt.trim());
+  if (empty.length) throw new Error("a B-roll clip has no prompt: type one, or Plan it from the words under it");
+};
 
 const brollGenerate = defineAction({
   id: "broll.generate",
   description:
-    "Generate footage for the open review's shots (`shots`: their ids, to make one again; else every shot without footage) with the model chosen in Settings › AI, through Replicate on the user's token: each prompt and the region's shape are sent, and Replicate charges their account (the review shows the estimate). Each file is saved in the project's media/B-roll folder as it arrives, with its prompt, model and cost; a shot's earlier footage stays to pick again. Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
-  args: z.strictObject({ shots: z.array(z.string().min(1)).min(1).optional() }),
-  resolve: ({ shots: ids }, ctx: ActionContext) => {
-    const r = need(ctx.session);
-    if (!r.shots.length) throw new Error("plan the shots first (broll.plan)");
-    if (r.planning) throw new Error("the shots are being planned again: wait for the new plan");
-    const unknown = ids?.filter((x) => !r.shots.some((s) => s.id === x)) ?? [];
-    if (unknown.length) throw new Error(`no shot ${unknown.join(", ")} in the review`);
-    const shots = r.shots.filter((s) => (ids ? ids.includes(s.id) : !s.candidate) && !s.making);
-    if (!shots.length) throw new Error(ids ? "those shots are being made already" : "every shot has footage: give `shots` to make one again");
+    "Make footage for B-roll clips (`clips`, else the selected ones) from their prompts with the model chosen in Settings › AI, through Replicate on the user's token: each prompt and the clip's shape are sent, and Replicate charges their account (broll.estimate says how much). Each file is saved in the project's media/B-roll folder as it arrives; when it is done, each take is added to the Media Bin and shown in its clip, scaled and cropped to the clip's region, one undo step; earlier takes stay on the clip (broll.use picks one). Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
+  args: z.strictObject({ clips: z.array(z.string().min(1)).min(1).optional() }),
+  resolve: ({ clips: ids }, ctx) => {
+    const clips = targets(ctx, ids);
+    notReady(ctx, clips);
     const { model, resolution, limit } = brollSettings(ctx.pref);
-    // Planned for a model that makes longer shots: made shorter, they would leave gaps when placed.
     const longest = model.durations.at(-1)!;
-    const tooLong = shots.filter((s) => s.end - s.start > longest + 1e-3);
-    if (tooLong.length) throw new Error(`${tooLong.length === 1 ? "a shot is" : `${tooLong.length} shots are`} longer than ${model.title}'s ${longest} s: plan again for it`);
-    const cost = estimate(shots, ctx.pref);
+    const tooLong = clips.filter((c) => seconds(c) > longest + 1e-3);
+    if (tooLong.length) throw new Error(`${tooLong.length === 1 ? "a clip is" : `${tooLong.length} clips are`} longer than ${model.title}'s ${longest} s: trim it, or Plan it to split it into shots`);
+    const cost = clips.reduce((sum, c) => sum + shotCost(model, resolution, seconds(c)), 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)}, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
-    const [, , w, h] = regionOf(r, ctx.project);
-    const index = new Map(r.shots.map((s, i) => [s.id, i + 1]));
+    const shots = clips.map((c) => ({ id: c.id, prompt: brollOf(c)!.prompt, length: seconds(c), region: regionOfClip(c, ctx.project, ctx.registry) }));
+    const ids2 = clips.map((c) => c.id);
     const results: Made[] = [];
     return {
       label: "Generate B-roll",
-      before: [{ command: "broll.making", args: { shots: shots.map((s) => s.id) } }],
+      before: [{ command: "broll.status", args: { clips: ids2, making: true } }],
       task: {
-        label: `B-roll: ${shots.length === 1 ? "1 shot" : `${shots.length} shots`} with ${model.title}`,
+        label: `B-roll: ${clips.length === 1 ? "1 clip" : `${clips.length} clips`} with ${model.title}`,
         run: async (env) => {
           const dir = join(env.mediaDir, "B-roll");
           mkdirSync(dir, { recursive: true });
           const tell = progress(env, results, shots.length, Date.now());
           const ticking = setInterval(tell, 1000);
           try {
-            const token = await keyOf(env.secret, TOKEN, "AI");
+            const token = await keyOf(env.secret, TOKEN);
             const live = await limits(token, model);
             // Checked again by what the model makes now, before anything is paid for.
             const max = live.durations.at(-1)!;
-            if (shots.some((s) => s.end - s.start > max + 1e-3)) throw new Error(`${model.title} now makes ${max} s at most, shorter than a shot: plan again`);
-            const charged = shots.reduce((sum, s) => sum + shotCost({ ...model, durations: live.durations }, resolution, s.end - s.start), 0);
+            if (shots.some((s) => s.length > max + 1e-3)) throw new Error(`${model.title} now makes ${max} s at most, shorter than a clip: trim it`);
+            const charged = shots.reduce((sum, s) => sum + shotCost({ ...model, durations: live.durations }, resolution, s.length), 0);
             if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} at the lengths ${model.title} makes now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             await Promise.all(
               shots.map(async (s) => {
-                const m = await makeShot(env, token, model, live, resolution, s, index.get(s.id)!, [w, h], dir, tell);
+                const m = await makeTake(env, token, model, live, resolution, s, [s.region[2], s.region[3]], dir, tell);
                 if (m) results.push(m);
                 tell();
               }),
             );
-            return finished(env, results);
+            return finished(env, results, ids2, "Generate B-roll");
           } finally {
             clearInterval(ticking);
           }
         },
-        failed: failedSteps(results, shots.map((s) => s.id)),
+        failed: (error) => [{ command: "broll.status", args: { clips: ids2, making: false, ...(error === "cancelled" ? { error: null } : { error }) } }],
       },
     };
   },
 });
 
-/** The models that can make a shot this long, each with what it would cost. */
-export function comparison(seconds: number, pref: Preferences) {
-  const asked = pref("brollResolution");
-  return VIDEO_MODELS.filter((m) => m.durations.at(-1)! >= seconds - 1e-3).map((m) => ({ model: m, resolution: resolutionOf(m, asked), cost: shotCost(m, resolutionOf(m, asked), seconds) }));
-}
-
 const brollCompare = defineAction({
   id: "broll.compare",
   description:
-    "Make one shot of the open review with every model that can make it that long (Settings › AI's list, at its resolution), side by side: each is kept on the shot, the last made shown, the others picked with broll.shot `pick`, previewed in place, to choose a default model. Replicate charges the user's account for each (broll.estimate's `compare`); refused over the limit per generation. Runs as a job. Only when the user asks",
-  args: z.strictObject({ shot: z.string().min(1) }),
-  resolve: ({ shot }, ctx) => {
-    const r = need(ctx.session);
-    const s = r.shots.find((x) => x.id === shot);
-    if (!s) throw new Error(`no shot "${shot}" in the review`);
-    if (r.planning) throw new Error("the shots are being planned again: wait for the new plan");
-    if (s.making) throw new Error("that shot is being made already");
-    const models = comparison(s.end - s.start, ctx.pref);
+    "Make one B-roll clip (`clip`, else the selected one) with every model that can make it that long (Settings › AI's list, at its resolution), side by side: each take is added to the clip, the last made shown, the others picked with broll.use, to choose a default model. Replicate charges the user's account for each (broll.estimate's `compare`); refused over the limit per generation. Runs as a job. Only when the user asks",
+  args: z.strictObject({ clip: z.string().min(1).optional() }),
+  resolve: ({ clip: id }, ctx) => {
+    const [clip] = targets(ctx, id ? [id] : undefined);
+    if (!clip) throw new Error("select a B-roll clip first");
+    notReady(ctx, [clip]);
+    const length = seconds(clip);
+    const models = comparison(length, ctx.pref);
     const { limit } = brollSettings(ctx.pref);
     const cost = models.reduce((sum, m) => sum + m.cost, 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)} for ${models.length} models, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
-    const [, , w, h] = regionOf(r, ctx.project);
-    const n = r.shots.indexOf(s) + 1;
+    const region = regionOfClip(clip, ctx.project, ctx.registry);
+    const shot = { id: clip.id, prompt: brollOf(clip)!.prompt, length };
     const results: Made[] = [];
     return {
       label: "Compare B-roll models",
-      before: [{ command: "broll.making", args: { shots: [s.id] } }],
+      before: [{ command: "broll.status", args: { clips: [clip.id], making: true } }],
       task: {
-        label: `B-roll: shot ${n} with ${models.length} models`,
+        label: `B-roll: 1 clip with ${models.length} models`,
         run: async (env) => {
           const dir = join(env.mediaDir, "B-roll");
           mkdirSync(dir, { recursive: true });
           const tell = progress(env, results, models.length, Date.now());
           const ticking = setInterval(tell, 1000);
           try {
-            const token = await keyOf(env.secret, TOKEN, "AI");
+            const token = await keyOf(env.secret, TOKEN);
             // Every model's schema first: the limit is checked at the lengths they make now, before any is paid for.
             const read = await Promise.all(
               models.map(async (m) => {
@@ -505,66 +492,66 @@ const brollCompare = defineAction({
                   return { ...m, live: await limits(token, m.model) };
                 } catch (e) {
                   jobSignal()?.throwIfAborted();
-                  results.push({ shot: s.id, error: `${m.model.title}: ${e instanceof Error ? e.message : String(e)}` });
+                  results.push({ clip: clip.id, error: `${m.model.title}: ${e instanceof Error ? e.message : String(e)}` });
                   return undefined;
                 }
               }),
             );
             const able = read.flatMap((m) => {
               if (!m) return [];
-              if (s.end - s.start <= m.live.durations.at(-1)! + 1e-3) return [m];
-              results.push({ shot: s.id, error: `${m.model.title} makes ${m.live.durations.at(-1)} s at most` });
+              if (length <= m.live.durations.at(-1)! + 1e-3) return [m];
+              results.push({ clip: clip.id, error: `${m.model.title} makes ${m.live.durations.at(-1)} s at most` });
               return [];
             });
-            const charged = able.reduce((sum, m) => sum + shotCost({ ...m.model, durations: m.live.durations }, m.resolution, s.end - s.start), 0);
+            const charged = able.reduce((sum, m) => sum + shotCost({ ...m.model, durations: m.live.durations }, m.resolution, length), 0);
             if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} for ${able.length} models at the lengths they make now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             await Promise.all(
               able.map(async ({ model, resolution, live }) => {
-                const m = await makeShot(env, token, model, live, resolution, s, n, [w, h], dir, tell);
+                const m = await makeTake(env, token, model, live, resolution, shot, [region[2], region[3]], dir, tell);
                 if (m) results.push(m);
                 tell();
               }),
             );
-            return finished(env, results);
+            return finished(env, results, [clip.id], "Compare B-roll models");
           } finally {
             clearInterval(ticking);
           }
         },
-        failed: failedSteps(results, [s.id]),
+        failed: (error) => [{ command: "broll.status", args: { clips: [clip.id], making: false, ...(error === "cancelled" ? { error: null } : { error }) } }],
       },
     };
   },
 });
 
-const brollApply = defineAction({
-  id: "broll.apply",
-  description:
-    "Place the open review's footage (the shots ticked that have it) on a new B-roll track above the talk, each over its span, fitted to the region, in one undo step, and close the review; the talk's audio is untouched. Only when the user asks",
-  args: z.strictObject({}),
-  resolve: (_, ctx) => {
-    const r = need(ctx.session);
-    if (r.shots.some((s) => s.making)) throw new Error("footage is still being made: wait for it, or untick those shots");
-    const steps = brollSteps(r, ctx.project, ctx.registry);
-    if (!steps.length) throw new Error(r.shots.some((s) => s.candidate) ? "no shot with footage is ticked" : "no footage yet: generate the shots first (broll.generate)");
-    return {
-      label: "Add B-roll",
-      steps,
-      after: (res) => [
-        { command: "broll.close" },
-        { command: "selection.set", args: { clips: steps.flatMap((s, i) => (s.command === "asset.place" ? [(res[i] as string[])[0]!] : [])), linked: false } },
-      ],
-    };
-  },
-});
-
 /**
- * AI B-roll: generated footage over a stretch of the talk, planned from what is said there (OpenAI, with web
- * research), made through Replicate on the user's token, previewed in place on the canvas, placed in one undo step.
+ * AI B-roll: placeholder clips over the talk whose footage is generated from a prompt (typed, or planned from the
+ * words under them by OpenAI with web research), through Replicate on the user's token, and shown in the clip in place.
  */
 export const broll = defineFeature({
   id: "broll",
   version: 1,
-  panels: [{ open: (s) => !!brollReview(s), cancel: "broll.close", apply: { action: "broll.apply" } }],
+  clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
+  props: [
+    {
+      id: "broll",
+      description: "The B-roll a clip asks for: its prompt (and why), the guide and research Plan uses, and the takes made (asset ids)",
+      traits: ["broll"],
+      tab: { title: "B-roll", icon: "sparkle", order: 0 },
+      schema: brollGroup,
+      defaults: () => ({ prompt: "", why: "", guide: "", research: true, takes: [] }),
+      identity: true,
+    },
+    {
+      id: "brollBox",
+      description: "An empty B-roll placeholder's box, in canvas pixels before its transform; gone once it has footage",
+      traits: ["broll"],
+      schema: boxGroup,
+      defaults: () => ({ width: 1920, height: 1080 }),
+      size: (box: { width: number; height: number }) => [box.width, box.height],
+      identity: true,
+    },
+  ],
+  commands,
   secrets: [{ id: TOKEN, title: "Replicate API token" }],
   preferences: [
     {
@@ -599,25 +586,23 @@ export const broll = defineFeature({
     },
   ],
   sessionCommands,
-  sessionPreview: (s, project, registry) => {
-    const r = brollReview(s);
-    return r ? brollSteps(r, project, registry) : undefined;
-  },
   queries: [
     defineQuery({
       id: "broll.estimate",
-      description: "What generating the open review's shots would cost (dollars, by the chosen model's price per second), all of them and each, with the model and its resolution; each shot's `compare`: what broll.compare would cost, and with how many models. `for` is echoed back, so a caller can tell the answer to its latest ask",
-      args: z.strictObject({ for: z.string().optional() }),
-      run: ({ for: asked }, { session, pref }) => {
-        const r = session ? brollReview(session) : undefined;
-        if (!r) throw new Error("B-roll's review isn't open: broll.review opens it");
+      description:
+        "What making B-roll clips (`clips`, else the selected ones) would cost (dollars, by the chosen model's price per second), all of them and each, with the model, its resolution and longest shot; each clip's `compare`: what broll.compare would cost, and with how many models. `for` is echoed back, so a caller can tell the answer to its latest ask",
+      args: z.strictObject({ clips: z.array(z.string()).optional(), for: z.string().optional() }),
+      run: ({ clips: ids, for: asked }, { project, session, pref }) => {
+        const all = project.tracks.flatMap((t) => t.clips).filter((c) => c.type === "broll");
+        const clips = all.filter((c) => (ids ?? session?.selection ?? []).includes(c.id));
         const { model, resolution, limit } = brollSettings(pref);
-        return { for: asked, model: model.title, resolution, limit, longest: model.durations.at(-1), total: estimate(r.shots, pref), shots: r.shots.map((s) => {
-          const all = comparison(s.end - s.start, pref);
-          return { id: s.id, seconds: lengthFor(model, s.end - s.start), cost: shotCost(model, resolution, s.end - s.start), compare: { models: all.length, cost: all.reduce((sum, m) => sum + m.cost, 0) } };
-        }) };
+        const each = clips.map((c) => {
+          const versus = comparison(seconds(c), pref);
+          return { id: c.id, seconds: lengthFor(model, seconds(c)), cost: shotCost(model, resolution, seconds(c)), compare: { models: versus.length, cost: versus.reduce((sum, m) => sum + m.cost, 0) } };
+        });
+        return { for: asked, model: model.title, resolution, limit, longest: model.durations.at(-1), total: each.reduce((sum, c) => sum + c.cost, 0), clips: each };
       },
     }),
   ],
-  actions: [brollPlan, brollGenerate, brollCompare, brollApply],
+  actions: [brollAdd, brollPlan, brollGenerate, brollCompare],
 });

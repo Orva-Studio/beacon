@@ -547,11 +547,6 @@ export interface Feature {
    */
   panels?: { open: (s: Session) => boolean; cancel: string; apply: { action: string; args?: object }; applyAll?: { action: string; args?: object } }[];
   /**
-   * Document steps the canvas shows applied while its editor state asks (B-roll's footage in place, before Apply):
-   * run on a copy, never in the document, its history, saves or exports.
-   */
-  sessionPreview?: (s: Session, project: Project, registry: FeatureRegistry) => ActionStep[] | undefined;
-  /**
    * What of that state is kept with the project (its `editor.json`, never an undo step), restored when it is
    * opened; undefined keeps nothing. The safe areas shown are; a review isn't.
    */

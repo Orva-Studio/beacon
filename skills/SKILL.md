@@ -96,18 +96,17 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   transcript is there). `retakes_review`, `retakes_keep` a take you judge
   better (read the takes' words), `retakes_apply` when the user says so. Of
   the takes after the kept one only what repeats the line is cut.
-- B-roll, generated footage over a stretch of the talk, the same way (it
-  spends the user's money: OpenAI plans it, Replicate makes it, on their
-  keys, set in Settings › AI): `broll_plan` with the range (`from`/`to`, or
-  the editor's in/out range), a `guide`, `research` and a `region` (canvas
-  pixels from the top left; none is the whole canvas) plans shots from what
-  is said there, as a job; `broll_shot` changes a prompt; `broll_estimate`
-  says what generating costs. Tell the user the cost and run
-  `broll_generate` only when they say so (one candidate per shot; `shots` to
-  make one again; `broll_compare` makes one shot with every model, each kept
-  on the shot and chosen with `broll_shot` `pick`); `broll_apply` when they say so places them on a B-roll
-  track above the talk, fitted to the region, one undo step. Footage made is
-  kept in the project's `media/B-roll` folder even if never placed.
+- B-roll, generated footage over a stretch of the talk, is a clip: `broll_add`
+  puts a placeholder over the range (or at `time` for `duration`) on a B-roll
+  track above the talk, in a `region` (canvas pixels from the top left), with
+  an optional `prompt`; move, trim and size it like any clip. It shows nothing
+  in an export until it has footage. `broll_plan` writes its prompt from the
+  words under it (OpenAI, on the user's key; a clip longer than the model makes
+  is split into shots), or set `broll.prompt` with `clip_set`. Making footage
+  spends the user's money through Replicate: tell them `broll_estimate`'s cost
+  and run `broll_generate` (or `broll_compare`, every model side by side) only
+  when they say so; the footage goes into the clip in place, every take kept,
+  `broll_use` picks one again.
 - Film Look (a visual effect) gives clips one of hance's looks:
   `filmLook_looks` lists them (CineStill 800T, Portra 400…), `filmLook_load`
   puts one (or a `.hlook` file) on clips and answers what of it Film Look

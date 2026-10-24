@@ -58,7 +58,14 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   { id: "silences", label: "Remove Silences", title: "Shorten the pauses in speech, from its transcript (made on this Mac)", art: "remove-silences", start: (host) => review(host, "silences.review") },
   { id: "fillers", label: "Remove Filler Words", title: 'Cut "um", "uh" and the like where the transcript has them', art: "remove-fillers", start: (host) => review(host, "fillers.review") },
   { id: "retakes", label: "Remove Retakes", title: "Find lines said more than once (a restart, a sentence said again) and keep the best take", art: "remove-retakes", start: (host) => review(host, "retakes.review") },
-  { id: "broll", label: "B-roll", title: "Footage over the range on the ruler, planned from what is said there and made with AI (on your Replicate account), previewed in place before it is placed", art: "b-roll", online: true, start: (host) => review(host, "broll.review") },
+  {
+    id: "broll",
+    label: "B-roll",
+    title: "Add a B-roll clip at the playhead (or over the range): drag and trim it, size it on the canvas, then write or plan its prompt and make its footage with AI (on your Replicate account)",
+    art: "b-roll",
+    online: true,
+    start: (host) => review(host, "broll.add"),
+  },
   {
     id: "captions",
     label: "Captions",

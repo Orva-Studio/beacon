@@ -2212,8 +2212,11 @@ clear what it marked busy). Checked headless against stand-ins
 hand, with their keys. Later the same day: FLUX 3 and Seedance 2.5 added,
 `broll.compare` (one shot with every model, each take kept and picked in
 place) for the side-by-side run, and every API key in Settings › AI (the
-Audio tab, which held only Auphonic's key, is gone). Animation (HyperFrames)
-next.
+Audio tab, which held only Auphonic's key, is gone). 2026-10-24: rebuilt as
+a clip (the decision above): `broll.add`, `broll.plan`, `broll.generate`,
+`broll.compare`, the `broll.use` command and the clip's B-roll tab; the
+review, its timeline marks, the drawn region and the canvas preview are gone.
+Animation (HyperFrames) next.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with

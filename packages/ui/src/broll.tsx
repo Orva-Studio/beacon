@@ -1,235 +1,121 @@
 import { useEffect, useState } from "react";
-import type { Project, Session } from "@beacon/model";
-import type { BrollReview, BrollShot, Rect } from "@beacon/features";
-import { Button, Check, Segmented, Select, TextArea } from "./controls";
-import { circle, COLOR, line, type CanvasMark } from "./canvas-marks";
-import type { Line } from "./canvas-snap";
-import { useShortcutTip } from "./keymap";
+import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session } from "@beacon/model";
+import type { BrollProps, BrollState, TakeInfo } from "@beacon/features";
+import { Button, Check, Section, Select, TextArea } from "./controls";
+import { COLOR, line, type CanvasMark } from "./canvas-marks";
+import type { Placed } from "./canvas";
 import { useQuery } from "./query";
 import { useView } from "./store";
-import { clock } from "./time";
-import type { TimelineMark } from "./timeline-draw";
 import type { Host } from "./app";
-
-export const brollReviewOf = (s: Session | undefined) => s?.features.broll as BrollReview | undefined;
 
 /** What `broll.estimate` answers. */
 interface Estimate {
-  /** What it was asked for: the shots and settings it priced. */
+  /** What it was asked for: the clips and settings it priced. */
   for: string;
   model: string;
-  longest: number;
   resolution: string;
   limit: number;
-  total: number;
-  shots: { id: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
+  longest: number;
+  clips: { id: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
 }
 
 const dollars = (v: number) => `$${v.toFixed(2)}`;
 
-/** The shots over the range on the timeline: grey until made, green once made; the one under the playhead outlined. */
-export const brollMarks = (r: BrollReview, playhead: number): TimelineMark[] =>
-  r.shots.map((s) => ({ start: s.start, end: s.end, tone: s.candidate && s.use ? "take" : "keep", current: playhead >= s.start && playhead < s.end }));
+export const brollStateOf = (s: Session | undefined) => (s?.features.broll as BrollState | undefined) ?? { planning: [], making: [], errors: {} };
 
-/** A corner of the region within this many points of the pointer is grabbed. */
-const GRAB = 9;
-/** Edges snap from this many points away. */
-const SNAP = 8;
+/** A filled band: a square-ended line `width` points thick. */
+const band = (from: [number, number], to: [number, number], color: RGBA, width: number): CanvasMark => ({ kind: "line", from, to, width, color, butt: true });
 
-export type Corner = "nw" | "ne" | "se" | "sw";
-
-const corners = ([x, y, w, h]: Rect): Record<Corner, [number, number]> => ({ nw: [x, y], ne: [x + w, y], se: [x + w, y + h], sw: [x, y + h] });
-
-/** The corner of `r` under overlay point `pt`, if any. */
-export function regionCorner(r: Rect, pt: [number, number], at: (x: number, y: number) => [number, number]): Corner | undefined {
-  return (Object.entries(corners(r)) as [Corner, [number, number]][]).find(([, c]) => Math.hypot(at(...c)[0] - pt[0], at(...c)[1] - pt[1]) <= GRAB)?.[0];
+/**
+ * An empty B-roll placeholder on the canvas: a tinted box with a dashed-looking outline, so its region shows where
+ * nothing is drawn yet (exports show nothing there).
+ */
+export function placeholderMarks(p: Placed): CanvasMark[] {
+  const [a, b, c, d] = p.corners as [[number, number], [number, number], [number, number], [number, number]];
+  const tint: RGBA = [COLOR.hot[0], COLOR.hot[1], COLOR.hot[2], 0.14];
+  const mid = (u: [number, number], v: [number, number]): [number, number] => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+  // Filled by one band from the left edge's middle to the right's, as tall as the box (axis-aligned boxes).
+  const height = Math.hypot(d[0] - a[0], d[1] - a[1]);
+  return [band(mid(a, d), mid(b, c), tint, height), ...[a, b, c, d].map((q, i) => line(q, [a, b, c, d][(i + 1) % 4]!, COLOR.hot, 1.5))];
 }
 
 /**
- * The region from fixed corner `anchor` to `pt` (canvas pixels), each edge snapped to the canvas's edges,
- * halves and thirds, and to `extra` (the safe areas shown), within SNAP points at `k` points a pixel; clamped to the canvas.
+ * A B-roll clip's tab: its prompt (typed, or planned from the words under it), what Plan uses, the take shown and
+ * the others, and making it (or again, or with every model) with what that costs.
  */
-export function regionTo(anchor: [number, number], pt: [number, number], width: number, height: number, k: number, extra?: { x: Line[]; y: Line[] }, snapping = true): Rect {
-  const snap = (v: number, size: number, lines: Line[]) => {
-    if (!snapping) return v;
-    const targets = [0, size / 3, size / 2, (2 * size) / 3, size, ...lines.map((l) => l.at)];
-    const best = targets.reduce((b, t) => (Math.abs(t - v) < Math.abs(b - v) ? t : b), Infinity);
-    return Math.abs(best - v) * k <= SNAP ? best : v;
-  };
-  // A drag can start or end off the canvas: both corners are kept on it.
-  const [ax, x] = [anchor[0], pt[0]].map((v) => Math.min(width, Math.max(0, snap(v, width, extra?.x ?? [])))) as [number, number];
-  const [ay, y] = [anchor[1], pt[1]].map((v) => Math.min(height, Math.max(0, snap(v, height, extra?.y ?? [])))) as [number, number];
-  const [x0, x1] = [Math.min(ax, x), Math.max(ax, x)];
-  const [y0, y1] = [Math.min(ay, y), Math.max(ay, y)];
-  return [Math.round(x0), Math.round(y0), Math.max(1, Math.round(x1 - x0)), Math.max(1, Math.round(y1 - y0))];
-}
-
-/** The corner opposite `c`: it stays put while `c` is dragged. */
-export const opposite = (r: Rect, c: Corner): [number, number] => corners(r)[({ nw: "se", ne: "sw", se: "nw", sw: "ne" } as const)[c]];
-
-/** The region's outline on the canvas, with a handle at each corner to resize it. */
-export function regionMarks(r: Rect, at: (x: number, y: number) => [number, number]): CanvasMark[] {
-  const c = Object.values(corners(r));
-  return [...c.map((p, i) => line(at(...p), at(...c[(i + 1) % 4]!), COLOR.hot, 1.5)), ...c.map((p) => circle(at(...p), 5, COLOR.handle, COLOR.hot))];
-}
-
-/**
- * B-roll's review, in place of the properties panel (the AI panel's B-roll tile): the range and what is said in it,
- * a guide, research and where it goes; then the shots, each with its prompt, what it costs and the footage made;
- * Apply places them. The canvas shows the footage in place while it is open.
- */
-export function BrollPanel({ project, session, host }: { project: Project; session: Session; host: Host }) {
-  const review = brollReviewOf(session)!;
-  const tip = useShortcutTip();
-  const [guide, setGuide] = useState(review.guide);
-  useEffect(() => setGuide(review.guide), [review.guide]);
-  const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: review.from, to: review.to }, project);
-  // Asked again when the shots or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
+export function BrollTab({ clip, project, session, host }: { clip: Clip; project: Project; session: Session; host: Host }) {
+  const b = clip.props.broll as BrollProps;
+  const state = brollStateOf(session);
+  const planning = state.planning.includes(clip.id);
+  const making = state.making.includes(clip.id);
+  const busy = planning || making;
+  const error = state.errors[clip.id];
+  const [prompt, setPrompt] = useState(b.prompt);
+  const [guide, setGuide] = useState(b.guide);
+  useEffect(() => setPrompt(b.prompt), [b.prompt]);
+  useEffect(() => setGuide(b.guide), [b.guide]);
+  const set = (fields: Partial<BrollProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { broll: fields } }, label);
+  // Asked again when the clip's length or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
-  const asked = JSON.stringify([priced, review.shots.map((s) => [s.id, s.start, s.end])]);
-  const answer = useQuery<Estimate>(host, review.shots.length ? "broll.estimate" : "", { for: asked });
-  // The last answer is kept while the next is asked: only one for these shots and settings prices Generate.
+  const asked = JSON.stringify([priced, clip.id, clip.duration]);
+  const answer = useQuery<Estimate>(host, "broll.estimate", { clips: [clip.id], for: asked });
   const estimate = answer?.for === asked ? answer : undefined;
+  const cost = estimate?.clips[0];
+  const tooLong = !!estimate && ticksToSeconds(clip.duration) > estimate.longest + 1e-3;
+  const over = !!estimate && !!cost && estimate.limit > 0 && cost.cost > estimate.limit;
   const settingsOpen = useView((v) => !!v.settings);
-  const making = review.shots.some((s) => s.making);
-  const waiting = review.shots.filter((s) => !s.candidate && !s.making);
-  const toMake = estimate?.shots.filter((x) => waiting.some((s) => s.id === x.id)).reduce((sum, x) => sum + x.cost, 0) ?? 0;
-  const ready = review.shots.some((s) => s.use && s.candidate) && !making;
-  const tooLong = !!estimate && waiting.some((s) => s.end - s.start > estimate.longest + 1e-3);
-  const where = review.drawing ? "draw" : review.region ? "region" : "full";
-  const [, , w, h] = review.region ?? [0, 0, project.settings.width, project.settings.height];
-  const show = (s: BrollShot) => host.run("playhead.set", { time: s.start + 0.05 });
+  const takes = b.takes.filter((id) => project.assets[id]);
+  const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
+  const ready = !!prompt.trim() && !!estimate && !busy && !tooLong && !over;
   return (
-    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-broll-review>
-      <div className="mb-3 text-title font-semibold text-text-strong">B-roll</div>
-      <div className="mb-3 rounded-md bg-groove px-3 py-2" data-broll-range>
-        <div className="text-label text-text-muted">
-          {clock(review.from)}–{clock(review.to)} · {(review.to - review.from).toFixed(1)} s
+    <Section>
+      <div className="flex flex-col gap-3 py-1" data-broll-tab>
+        <label className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Prompt</span>
+          <TextArea rows={4} placeholder="What the footage shows: subject, action, setting, camera" value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
+          {b.why && <span className="text-caption text-text-faint">{b.why}</span>}
+        </label>
+        <div className="flex flex-col gap-2 rounded-md bg-groove px-3 py-2">
+          <Button disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
+            {planning ? "Planning…" : b.prompt ? "Plan Again from the Words" : "Plan from the Words"}
+          </Button>
+          <TextArea rows={2} placeholder="Guide (optional): a city at night; keep it abstract" value={guide} onChange={(e) => setGuide(e.target.value)} onBlur={() => guide !== b.guide && set({ guide }, "B-roll Guide")} data-broll-guide />
+          <Check label="Research the topic" title="Plan searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />
+          <span className="text-caption text-text-faint">Planning needs an OpenAI key; a clip longer than the model makes is split into shots.</span>
         </div>
-        <div className="mt-1 line-clamp-4 text-caption text-text">{said === undefined ? "…" : said.length ? said.map((x) => x.text).join(" ") : "Nothing is said here yet (no transcript)."}</div>
-      </div>
-      <label className="mb-3 flex flex-col gap-1">
-        <span className="text-label font-medium text-text-muted">Guide (optional)</span>
-        <TextArea rows={2} placeholder="Show a city at night; keep it abstract" value={guide} onChange={(e) => setGuide(e.target.value)} onBlur={() => guide !== review.guide && host.run("broll.review", { guide })} data-broll-guide />
-      </label>
-      <div className="mb-3 flex flex-col gap-1">
-        <span className="text-label font-medium text-text-muted">Kind</span>
-        <Segmented value="footage" options={[{ value: "footage", label: "Footage", icon: null }]} onChange={() => {}} data-broll-kind />
-        <span className="text-caption text-text-faint">Animation (titles, numbers, diagrams drawn here) comes next.</span>
-      </div>
-      <div className="mb-3">
-        <Check label="Research the topic" title="The planner searches the web for the names, products and places said, so the shots show the right thing" checked={review.research} onChange={(on) => host.run("broll.review", { research: on })} data-broll-research />
-      </div>
-      <div className="mb-3 flex flex-col gap-1">
-        <span className="text-label font-medium text-text-muted">Where</span>
-        <Segmented
-          value={where === "full" ? "full" : "draw"}
-          options={[
-            { value: "full", label: "Full Canvas", icon: null },
-            { value: "draw", label: "Draw on Canvas", icon: null },
-          ]}
-          onChange={(v) => host.run("broll.review", v === "full" ? { region: null, drawing: false } : { drawing: true })}
-          data-broll-where
-        />
-        <span className="text-caption text-text-faint" data-broll-region>
-          {where === "draw" ? "Drag a rectangle on the canvas; it snaps to halves, thirds and the safe areas." : where === "region" ? `${Math.round(w)}×${Math.round(h)} px; drag its corners to change it.` : `${project.settings.width}×${project.settings.height} px, the whole canvas.`}
+        {takes.length > 1 && (
+          <label className="flex flex-col gap-1">
+            <span className="text-label font-medium text-text-muted">Footage</span>
+            <Select value={clip.assetId ?? ""} onChange={(e) => host.run("broll.use", { clip: clip.id, asset: e.target.value }, "Pick B-roll Take")} data-broll-pick>
+              {takes.map((id) => (
+                <option key={id} value={id}>
+                  {info(id)?.model ?? assetName(project.assets[id]!)} · {dollars(info(id)?.cost ?? 0)}
+                  {info(id) && info(id)!.prompt !== b.prompt ? " · earlier prompt" : ""}
+                </option>
+              ))}
+            </Select>
+          </label>
+        )}
+        {error && (
+          <div className="flex flex-col items-start gap-2 text-danger" data-broll-error>
+            {error}
+            {/API (key|token)/.test(error) && !settingsOpen && <Button onClick={() => host.app("app.settings:ai")}>Open Settings…</Button>}
+          </div>
+        )}
+        {tooLong && <span className="text-caption text-warning">Longer than {estimate!.model} makes ({estimate!.longest} s): trim it, or Plan to split it.</span>}
+        {over && <span className="text-caption text-warning">Over your {dollars(estimate!.limit)} limit (Settings › AI).</span>}
+        <Button look="primary" disabled={!ready} onClick={() => host.run("broll.generate", { clips: [clip.id] })} data-broll-generate>
+          {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
+        </Button>
+        {cost && cost.compare.models > 1 && (
+          <Button look="quiet" disabled={!prompt.trim() || busy} title={`Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
+            Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
+          </Button>
+        )}
+        <span className="text-caption text-text-faint">
+          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder.
         </span>
       </div>
-      <Button disabled={!!review.planning || making || review.drawing} onClick={() => host.run("broll.plan")} data-broll-plan>
-        {review.planning ? "Planning…" : review.shots.length ? "Plan Again" : "Plan Shots"}
-      </Button>
-      {review.error && (
-        <div className="mt-2 flex flex-col items-start gap-2 text-danger" data-broll-error>
-          {review.error}
-          {/API (key|token)/.test(review.error) && !settingsOpen && <Button onClick={() => host.app("app.settings:ai")}>Open Settings…</Button>}
-        </div>
-      )}
-      {review.notes && <div className="mt-2 rounded-md bg-groove px-3 py-2 text-caption text-text-muted" data-broll-notes>{review.notes}</div>}
-      {review.shots.length > 0 && (
-        <div className="mt-3 flex flex-col gap-2" data-broll-shots>
-          {review.shots.map((s, i) => (
-            <ShotCard key={s.id} shot={s} n={i + 1} cost={estimate?.shots.find((x) => x.id === s.id)} host={host} current={session.playhead >= s.start && session.playhead < s.end} show={() => show(s)} planning={!!review.planning} />
-          ))}
-          {waiting.length > 0 && (
-            <div className="flex flex-col gap-1.5 rounded-md bg-groove px-3 py-2" data-broll-estimate>
-              <span>
-                {waiting.length === 1 ? "1 shot" : `${waiting.length} shots`} · about {dollars(toMake)} with {estimate?.model ?? "…"}, {estimate?.resolution ?? ""}
-              </span>
-              {estimate && estimate.limit > 0 && toMake > estimate.limit && <span className="text-caption text-warning">Over your {dollars(estimate.limit)} limit (Settings › AI).</span>}
-              {estimate && tooLong && <span className="text-caption text-warning">Planned for longer shots than {estimate.model} makes ({estimate.longest} s): plan again.</span>}
-              <span className="text-caption text-text-faint">Replicate charges your account; the files are kept in the project's media/B-roll folder.</span>
-              <Button look="primary" disabled={!estimate || making || !!review.planning || tooLong || (estimate.limit > 0 && toMake > estimate.limit)} onClick={() => host.run("broll.generate")} data-broll-generate>
-                {estimate ? `Generate ${dollars(toMake)}` : "Pricing…"}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-      <div className="mt-auto flex justify-end gap-2 pt-4">
-        <Button onClick={() => host.run("broll.close")} data-broll-cancel>
-          Cancel{tip("reviews.cancel")}
-        </Button>
-        <Button look="primary" disabled={!ready} onClick={() => host.run("broll.apply")} data-broll-apply>
-          Apply{tip("reviews.apply")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function ShotCard({ shot: s, n, cost, host, current, show, planning }: { shot: BrollShot; n: number; cost?: Estimate["shots"][number]; host: Host; current: boolean; show: () => void; planning: boolean }) {
-  const [prompt, setPrompt] = useState(s.prompt);
-  useEffect(() => setPrompt(s.prompt), [s.prompt]);
-  const changed = !!s.candidate && s.candidate.prompt !== s.prompt;
-  return (
-    <div className={`flex flex-col gap-1.5 rounded-md border px-3 py-2 ${current ? "border-accent" : "border-divider"}`} data-broll-shot={s.id}>
-      <div className="flex items-center gap-2">
-        <Check checked={s.use} title="Place this shot on Apply" onChange={(on) => host.run("broll.shot", { shot: s.id, use: on })} data-broll-use />
-        <button className="text-label font-medium text-text-strong hover:underline" title="Show it on the canvas" onClick={show}>
-          Shot {n} · {clock(s.start)}–{clock(s.end)}
-        </button>
-        <span className="ml-auto text-caption text-text-faint">{cost ? `${cost.seconds} s · ${dollars(cost.cost)}` : ""}</span>
-      </div>
-      <TextArea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt.trim() && prompt !== s.prompt && host.run("broll.shot", { shot: s.id, prompt: prompt.trim() })} data-broll-prompt />
-      {s.why && <span className="text-caption text-text-faint">{s.why}</span>}
-      {s.candidate && !!s.others?.length && (
-        <Select
-          title="The footage this shot shows and places: each take it has made"
-          value={s.candidate.path}
-          onChange={(e) => {
-            host.run("broll.shot", { shot: s.id, pick: e.target.value });
-            show();
-          }}
-          data-broll-pick
-        >
-          {[s.candidate, ...s.others].map((c) => (
-            <option key={c.path} value={c.path}>
-              {c.model} · {dollars(c.cost)}
-              {c.prompt !== s.prompt ? " · earlier prompt" : ""}
-            </option>
-          ))}
-        </Select>
-      )}
-      <div className="flex items-center gap-2 text-caption" data-broll-state={s.making ? "making" : s.candidate ? "made" : s.error ? "failed" : "planned"}>
-        {s.making ? (
-          <span className="text-text-muted">Making…</span>
-        ) : (
-          <>
-            {s.candidate && <span className="text-text-muted">{changed ? "Made from the old prompt" : `Made with ${s.candidate.model}`}</span>}
-            {s.error && <span className="text-danger">{s.error}</span>}
-            {(s.candidate || s.error) && (
-              <Button look="quiet" className="ml-auto" disabled={planning} onClick={() => host.run("broll.generate", { shots: [s.id] })} data-broll-again>
-                Make Again
-              </Button>
-            )}
-            {cost && cost.compare.models > 1 && (
-              <Button look="quiet" disabled={planning} className={s.candidate || s.error ? "" : "ml-auto"} title={`Make this shot with each of the ${cost.compare.models} models that can, to compare them in place`} onClick={() => host.run("broll.compare", { shot: s.id })} data-broll-compare>
-                Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
-              </Button>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+    </Section>
   );
 }

@@ -10,6 +10,7 @@ import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, List
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
+import { BrollTab } from "./broll";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -88,6 +89,7 @@ function ClipProperties({
       {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
+      {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider
