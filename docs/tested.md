@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Dragging several picked clips (`feat/ai-broll`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Clips picked (click, ⌘-click) move together when one is dragged; ⌘ held as an unpicked clip is pressed and dragged adds it and drags them all; a clip picked alone moves alone | 2026-10-24 | this branch | UI flow (`clips picked with ⌘-click move together…`) |
+
 ## Toggle Camera and Toggle Cursor on the leader key (`feat/ai-broll`)
 
 ### Checked headless only (still to see by hand)

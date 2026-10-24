@@ -1794,6 +1794,54 @@ test.skipIf(skip)("dragging a clip above the top track drops it on a new top tra
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("clips picked with ⌘-click move together when one of them is dragged; a clip picked alone moves alone", async () => {
+  await select([]);
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("playhead.set", { time: 9 });
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(screen.id), await timelinePlaces(camera.id)];
+  const { box, xAt } = scr;
+  const at = (p: { y: number; h: number }, t: number): [number, number] => [box.x + xAt(t), box.y + p.y + p.h / 2];
+  await page.click(...at(scr, 3));
+  await Bun.sleep(300);
+  await page.click(...at(cam, 3), ["meta"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([screen.id, camera.id, audio.id].sort());
+  const before = new Map([screen, camera, audio].map((c) => [c.id, clip(c.id).start]));
+  const [x, y] = at(scr, 3);
+  await page.drag([x, y], [x + xAt(4) - xAt(3), y]);
+  await Bun.sleep(300);
+  const moved = [...before].map(([id, start]) => clip(id).start - start);
+  expect(moved[0]).toBeGreaterThan(0);
+  expect(new Set(moved).size).toBe(1);
+  await ui.core.undo(ui.handle);
+
+  // ⌘ held as an unpicked clip is pressed and dragged: it joins the picked ones and they all move.
+  await page.click(...at(scr, 3));
+  await Bun.sleep(300);
+  const [cx, cy] = at(cam, 3);
+  await page.drag([cx, cy], [cx + xAt(4) - xAt(3), cy], ["meta"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([screen.id, camera.id, audio.id].sort());
+  const dragged = [...before].map(([id, start]) => clip(id).start - start);
+  expect(dragged[0]).toBeGreaterThan(0);
+  expect(new Set(dragged).size).toBe(1);
+  await ui.core.undo(ui.handle);
+
+  await page.click(...at(scr, 3));
+  await Bun.sleep(300);
+  expect((await session()).selection).toEqual([screen.id]);
+  await page.drag([x, y], [x + xAt(4) - xAt(3), y]);
+  await Bun.sleep(300);
+  expect(clip(screen.id).start).toBeGreaterThan(before.get(screen.id)!);
+  expect(clip(camera.id).start).toBe(before.get(camera.id)!);
+  await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

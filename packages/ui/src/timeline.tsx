@@ -375,7 +375,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   const startMove = (press: PressDrag, e: React.PointerEvent) => {
     const { session } = latest.current;
-    const ids = session.selection.includes(press.clip) ? session.selection : press.ripple ? [...session.selection, press.clip] : [press.clip];
+    const picked = session.selection.includes(press.clip);
+    // ⌘ (or ⇧) on a clip not picked yet adds it, and the drag takes it with the others.
+    if (!picked && press.toggle) run("selection.set", { clips: [press.clip], toggle: true, linked: true });
+    const ids = picked ? session.selection : press.ripple || press.toggle ? [...session.selection, press.clip] : [press.clip];
     dragState.current = { ...planned(ids, 0, 0, press.ripple), x0: press.x0, y0: press.y0 };
     updateMove(e);
   };
