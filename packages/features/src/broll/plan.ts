@@ -219,12 +219,14 @@ export function cutsFor(r: Pick<PlanRequest, "words" | "from" | "to" | "shortest
   const pauses = r.words.slice(1).map((w, i) => (r.words[i]!.end + w.start) / 2);
   const cuts = [r.from];
   for (let k = 1; k < n; k++) {
-    const even = r.from + ((r.to - r.from) * k) / n;
+    const last = cuts.at(-1)!;
+    // What's left spread evenly over the shots left, so a cut moved to a pause earlier is made up for.
+    const even = last + (r.to - last) / (n - k + 1);
     // The shots left after a cut must still cover the rest within the model's lengths, or one would be split again (and paid for).
     const left = n - k;
-    const fits = (p: number) => p - cuts.at(-1)! >= r.shortest && p - cuts.at(-1)! <= r.longest && r.to - p <= left * r.longest + 1e-6 && r.to - p >= left * r.shortest - 1e-6;
-    const near = pauses.filter((p) => Math.abs(p - even) <= 1.5 && fits(p)).sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
-    cuts.push(near ?? even);
+    const [lo, hi] = [Math.max(last + r.shortest, r.to - left * r.longest), Math.min(last + r.longest, r.to - left * r.shortest)];
+    const near = pauses.filter((p) => Math.abs(p - even) <= 1.5 && p >= lo - 1e-6 && p <= hi + 1e-6).sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
+    cuts.push(near ?? Math.min(Math.max(even, lo), hi));
   }
   return [...cuts, r.to].slice(1).map((end, i) => [cuts[i]!, end]);
 }
