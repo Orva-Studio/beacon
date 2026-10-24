@@ -4040,6 +4040,7 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("range.clear").catch(() => {});
     await run("panel.show", { tool: null });
+    await run("playhead.set", { time: 0 });
     await select([]);
   }
 }, 240_000);
