@@ -102,7 +102,8 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   an optional `prompt`; move, trim and size it like any clip. It shows nothing
   in an export until it has footage. `broll_plan` writes its prompt from the
   words under it (OpenAI, on the user's key; a clip longer than the model makes
-  is split into shots), or set `broll.prompt` with `clip_set`. Making footage
+  is split into shots), or set `broll.prompt` with `clip_set`; left empty, the
+  words said under the clip are its prompt (no OpenAI key needed). Making footage
   spends the user's money through Replicate: tell them `broll_estimate`'s cost
   and run `broll_generate` (or `broll_compare`, every model side by side) only
   when they say so; the footage goes into the clip in place, every take kept,

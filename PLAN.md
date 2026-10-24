@@ -2216,6 +2216,8 @@ Audio tab, which held only Auphonic's key, is gone). 2026-10-24: rebuilt as
 a clip (the decision above): `broll.add`, `broll.plan`, `broll.generate`,
 `broll.compare`, the `broll.use` command and the clip's B-roll tab; the
 review, its timeline marks, the drawn region and the canvas preview are gone.
+Later: an empty prompt shows the words said under the clip and, left empty,
+Generate uses them (the user, 2026-10-24), so a first try needs no OpenAI key.
 Animation (HyperFrames) next.
 
 **Gate:** a range of one of the user's takes planned (with research),

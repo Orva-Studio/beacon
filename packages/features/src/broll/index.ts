@@ -414,18 +414,35 @@ function finished(env: TaskEnv, results: Made[], clips: string[], label: string)
 const progress = (env: TaskEnv, results: Made[], total: number, started: number) => () =>
   env.progress(0.05 + (0.95 * results.length) / total, `${results.filter((x) => x.asset).length} of ${total} made · ${minutes((Date.now() - started) / 1000)}`);
 
+/** What is said under a clip on the timeline, from the transcript already made (by whichever transcriber). */
+export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "registry" | "data">): string {
+  const [from, to] = [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
+  return timelineWords(ctx.project, ctx.registry, ctx.data)
+    .filter((w) => w.end > from && w.start < to)
+    .map((w) => w.text)
+    .join(" ")
+    .trim();
+}
+
+/** The prompt a clip is made from: its own, else the words said under it (so a first try needs no OpenAI key). */
+function promptFor(clip: Clip, ctx: ActionContext): string {
+  const own = brollOf(clip)!.prompt.trim();
+  if (own) return own;
+  const words = wordsUnder(clip, ctx);
+  if (!words) throw new Error("a B-roll clip has no prompt and nothing is said under it: type one");
+  return `Footage illustrating: "${words}"`;
+}
+
 const notReady = (ctx: ActionContext, clips: Clip[]) => {
   const state = brollState(ctx.session);
   const busy = clips.filter((c) => state.planning.includes(c.id) || state.making.includes(c.id));
   if (busy.length) throw new Error(busy.length === clips.length ? "being planned or made already" : `${busy.length} of them are being planned or made already`);
-  const empty = clips.filter((c) => !brollOf(c)!.prompt.trim());
-  if (empty.length) throw new Error("a B-roll clip has no prompt: type one, or Plan it from the words under it");
 };
 
 const brollGenerate = defineAction({
   id: "broll.generate",
   description:
-    "Make footage for B-roll clips (`clips`, else the selected ones) from their prompts with the model chosen in Settings › AI, through Replicate on the user's token: each prompt and the clip's shape are sent, and Replicate charges their account (broll.estimate says how much). Each file is saved in the project's media/B-roll folder as it arrives; when it is done, each take is added to the Media Bin and shown in its clip, scaled and cropped to the clip's region, one undo step; earlier takes stay on the clip (broll.use picks one). Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
+    "Make footage for B-roll clips (`clips`, else the selected ones) from their prompts (an empty one: the words said under the clip) with the model chosen in Settings › AI, through Replicate on the user's token: each prompt and the clip's shape are sent, and Replicate charges their account (broll.estimate says how much). Each file is saved in the project's media/B-roll folder as it arrives; when it is done, each take is added to the Media Bin and shown in its clip, scaled and cropped to the clip's region, one undo step; earlier takes stay on the clip (broll.use picks one). Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
   args: z.strictObject({ clips: z.array(z.string().min(1)).min(1).optional() }),
   resolve: ({ clips: ids }, ctx) => {
     const clips = targets(ctx, ids);
@@ -436,7 +453,7 @@ const brollGenerate = defineAction({
     if (tooLong.length) throw new Error(`${tooLong.length === 1 ? "a clip is" : `${tooLong.length} clips are`} longer than ${model.title}'s ${longest} s: trim it, or Plan it to split it into shots`);
     const cost = clips.reduce((sum, c) => sum + shotCost(model, resolution, seconds(c)), 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)}, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
-    const shots = clips.map((c) => ({ id: c.id, prompt: brollOf(c)!.prompt, length: seconds(c), region: regionOfClip(c, ctx.project, ctx.registry) }));
+    const shots = clips.map((c) => ({ id: c.id, prompt: promptFor(c, ctx), length: seconds(c), region: regionOfClip(c, ctx.project, ctx.registry) }));
     const ids2 = clips.map((c) => c.id);
     const results: Made[] = [];
     return {
@@ -490,7 +507,7 @@ const brollCompare = defineAction({
     const cost = models.reduce((sum, m) => sum + m.cost, 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)} for ${models.length} models, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
     const region = regionOfClip(clip, ctx.project, ctx.registry);
-    const shot = { id: clip.id, prompt: brollOf(clip)!.prompt, length };
+    const shot = { id: clip.id, prompt: promptFor(clip, ctx), length };
     const results: Made[] = [];
     return {
       label: "Compare B-roll models",

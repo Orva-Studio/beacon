@@ -64,16 +64,22 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const tooLong = !!estimate && ticksToSeconds(clip.duration) > estimate.longest + 1e-3;
   const over = !!estimate && !!cost && estimate.limit > 0 && cost.cost > estimate.limit;
   const settingsOpen = useView((v) => !!v.settings);
+  // What is said under the clip (the transcript already made): the prompt's placeholder, and its prompt if left empty.
+  const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: ticksToSeconds(clip.start), to: ticksToSeconds(clip.start + clip.duration) }, project)
+    ?.map((w) => w.text)
+    .join(" ")
+    .trim();
   const takes = b.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
-  const ready = !!prompt.trim() && !!estimate && !busy && !tooLong && !over;
+  const ready = (!!prompt.trim() || !!said) && !!estimate && !busy && !tooLong && !over;
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-broll-tab>
         <label className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Prompt</span>
-          <TextArea rows={4} placeholder="What the footage shows: subject, action, setting, camera" value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
+          <TextArea rows={4} placeholder={said ? `“${said}”` : "What the footage shows: subject, action, setting, camera"} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
           {b.why && <span className="text-caption text-text-faint">{b.why}</span>}
+          {!prompt.trim() && said && <span className="text-caption text-text-faint">Left empty, the words said here are the prompt. Type your own, or Plan for a better one.</span>}
         </label>
         <div className="flex flex-col gap-2 rounded-md bg-groove px-3 py-2">
           <Button disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
@@ -81,7 +87,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           </Button>
           <TextArea rows={2} placeholder="Guide (optional): a city at night; keep it abstract" value={guide} onChange={(e) => setGuide(e.target.value)} onBlur={() => guide !== b.guide && set({ guide }, "B-roll Guide")} data-broll-guide />
           <Check label="Research the topic" title="Plan searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />
-          <span className="text-caption text-text-faint">Planning needs an OpenAI key; a clip longer than the model makes is split into shots.</span>
+          <span className="text-caption text-text-faint">Plan turns the words into a shot with OpenAI (its key); a clip longer than the model makes is split into shots.</span>
         </div>
         {takes.length > 1 && (
           <label className="flex flex-col gap-1">
@@ -108,7 +114,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
         </Button>
         {cost && cost.compare.models > 1 && (
-          <Button look="quiet" disabled={!prompt.trim() || busy} title={`Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
+          <Button look="quiet" disabled={(!prompt.trim() && !said) || busy} title={`Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
             Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
           </Button>
         )}

@@ -204,7 +204,6 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect((await core.history(h)).undo.at(-1)).toBe("Add B-roll");
   // Empty, it draws nothing: an export shows nothing there.
   expect(canvas().equals(plain)).toBe(true);
-  await expect(core.run(h, "broll.generate", {})).rejects.toThrow(/has no prompt: type one, or Plan it/);
 
   // No OpenAI key: the job fails, and the clip says why rather than planning forever.
   await core.run(h, "clip.set", { clip: clip!.id, props: { broll: { guide: "keep it abstract" } } });
@@ -335,6 +334,16 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
 
 test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; planning and making refuse each other; a plan for a clip moved meanwhile is dropped; nested and too-long shots; long prompts; cancelling cancels on Replicate", async () => {
   const { core, h, brolls, state } = await talk("races", { "replicate-api-token": "replicate-token" });
+  // Left empty, with only a Replicate token: the words said under it are the prompt.
+  await core.run(h, "broll.add", { time: 20, duration: 2 });
+  const fromWords = predictions.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", {})));
+  // The stand-in transcript's words from 20 to 22 s.
+  expect(predictions[fromWords]!.prompt).toBe('Footage illustrating: "word word word word"');
+  await core.undo(h);
+  await core.undo(h);
+
+  const footageBefore = readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4")).length;
   // Typed, with only a Replicate token.
   await core.run(h, "broll.add", { time: 0, duration: 4, prompt: "[hold] a pan over hills" });
   const [clip] = brolls();
@@ -350,7 +359,8 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   expect(cancelled.length).toBe(counted + 1);
   expect(await state()).toMatchObject({ making: [] });
   expect((await state())!.errors[clip!.id]).toBeUndefined();
-  expect(readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toEqual([]);
+  // Nothing paid for arrived: no file left for it.
+  expect(readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toHaveLength(footageBefore);
 
   // Cancelled before Replicate answers that it started one: it is still cancelled there once it answers.
   await core.run(h, "clip.set", { clip: clip!.id, props: { broll: { prompt: "[late-start] a pan" } } });
