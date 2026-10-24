@@ -48,7 +48,8 @@ const brollGroup = z.strictObject({
   guide: z.string().max(1000),
   /** Plan searches the web for what is said. */
   research: z.boolean(),
-  takes: z.array(z.string()),
+  /** As `{ assetId }`, so copying and pasting the clip carries every take along (any `assetId` is a reference). */
+  takes: z.array(z.strictObject({ assetId: z.string() })),
 });
 export type BrollProps = z.infer<typeof brollGroup>;
 
@@ -146,7 +147,7 @@ const commands = [
       c.props.media = { stream: 0 };
       c.props.transform = { ...(c.props.transform as object), ...fit.transform };
       c.props.crop = fit.crop;
-      if (!b.takes.includes(asset)) b.takes.push(asset);
+      if (!b.takes.some((t) => t.assetId === asset)) b.takes.push({ assetId: asset });
       // Footage shorter than the clip: the clip ends with it.
       c.duration = Math.min(c.duration, secondsToTicks(s.duration));
     },
@@ -178,7 +179,8 @@ function trackIndex(project: Project, registry: FeatureRegistry, from: number, t
 
 /** The B-roll clips an action works on: those given, else the selected ones. */
 function targets(ctx: ActionContext, ids?: string[]): Clip[] {
-  const all = ctx.project.tracks.flatMap((t) => t.clips);
+  // What the editor is editing: an opened group's clips, at main-timeline times.
+  const all = ctx.scope.tracks.flatMap((t) => t.clips);
   const chosen = ids ? ids.map((id) => all.find((c) => c.id === id) ?? fail(`no clip "${id}" on the timeline`)) : all.filter((c) => ctx.session.selection.includes(c.id));
   const broll = chosen.filter((c) => c.type === "broll");
   if (!broll.length) throw new Error(ids ? "those clips aren't B-roll" : "select a B-roll clip first (the AI panel's B-roll tile adds one)");
@@ -255,7 +257,16 @@ const brollPlan = defineAction({
     // A model that picks its own shape is told the region's, and its footage cropped to it.
     const aspect = nearestAspect(model, w, h) ?? `${Math.round(w)}:${Math.round(h)}`;
     const text = (ws: typeof words) => ws.map((x) => x.text).join(" ");
-    const shape = JSON.stringify([clip.start, clip.duration]);
+    // Where the clip is, wherever it is (a group opened or closed meanwhile), in main-timeline ticks.
+    const shapeOf = (project: Project, registry: FeatureRegistry) => {
+      try {
+        const at = findClip(project, registry, clip.id);
+        return JSON.stringify([at.clip.start + at.offset, at.clip.duration]);
+      } catch {
+        return undefined;
+      }
+    };
+    const shape = shapeOf(ctx.project, ctx.registry);
     return {
       label: "Plan B-roll",
       before: [{ command: "broll.status", args: { clips: [clip.id], planning: true } }],
@@ -284,9 +295,9 @@ const brollPlan = defineAction({
           if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer clip");
           env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
           return (now) => {
-            const loc = now.project.tracks.flatMap((t) => t.clips.map((c) => ({ c }))).find((x) => x.c.id === clip.id);
-            if (!loc) throw new Error("the B-roll clip was deleted while it was planned");
-            if (JSON.stringify([loc.c.start, loc.c.duration]) !== shape) throw new Error("the B-roll clip was moved or trimmed while it was planned: plan it again");
+            const was = shapeOf(now.project, now.registry);
+            if (!was) throw new Error("the B-roll clip was deleted while it was planned");
+            if (was !== shape) throw new Error("the B-roll clip was moved or trimmed while it was planned: plan it again");
             const done = [{ command: "broll.status", args: { clips: [clip.id], planning: false } }];
             if (shots.length === 1) return { label: "Plan B-roll", steps: [{ command: "clip.set", args: { clip: clip.id, props: { broll: { prompt: shots[0]!.prompt, why: shots[0]!.why } } } }], after: () => done };
             // Split where the shots meet, as the editor splits a clip (its effects, animations and look kept), from the
@@ -542,7 +553,7 @@ export const broll = defineFeature({
   props: [
     {
       id: "broll",
-      description: "The B-roll a clip asks for: its prompt (and why), the guide and research Plan uses, and the takes made (asset ids)",
+      description: "The B-roll a clip asks for: its prompt (and why), the guide and research Plan uses, and the takes made (`{ assetId }`)",
       traits: ["broll"],
       tab: { title: "B-roll", icon: "sparkle", order: 0 },
       schema: brollGroup,
@@ -600,9 +611,16 @@ export const broll = defineFeature({
       description:
         "What making B-roll clips (`clips`, else the selected ones) would cost (dollars, by the chosen model's price per second), all of them and each, with the model, its resolution and longest shot; each clip's `compare`: what broll.compare would cost, and with how many models. `for` is echoed back, so a caller can tell the answer to its latest ask",
       args: z.strictObject({ clips: z.array(z.string()).optional(), for: z.string().optional() }),
-      run: ({ clips: ids, for: asked }, { project, session, pref }) => {
-        const all = project.tracks.flatMap((t) => t.clips).filter((c) => c.type === "broll");
-        const clips = all.filter((c) => (ids ?? session?.selection ?? []).includes(c.id));
+      run: ({ clips: ids, for: asked }, { project, registry, session, pref }) => {
+        // Anywhere, inside groups too.
+        const clips = (ids ?? session?.selection ?? []).flatMap((id) => {
+          try {
+            const { clip } = findClip(project, registry, id);
+            return clip.type === "broll" ? [clip] : [];
+          } catch {
+            return [];
+          }
+        });
         const { model, resolution, limit } = brollSettings(pref);
         const each = clips.map((c) => {
           const versus = comparison(seconds(c), pref);

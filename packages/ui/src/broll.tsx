@@ -64,7 +64,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const tooLong = !!estimate && ticksToSeconds(clip.duration) > estimate.longest + 1e-3;
   const over = !!estimate && !!cost && estimate.limit > 0 && cost.cost > estimate.limit;
   const settingsOpen = useView((v) => !!v.settings);
-  const takes = b.takes.filter((id) => project.assets[id]);
+  const takes = b.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
   const ready = !!prompt.trim() && !!estimate && !busy && !tooLong && !over;
   return (

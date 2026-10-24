@@ -253,7 +253,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   const made = brolls();
   for (const c of made) {
     expect(c.assetId).toBeDefined();
-    expect(props(c).takes).toEqual([c.assetId!]);
+    expect(props(c).takes).toEqual([{ assetId: c.assetId! }]);
     expect(c.props.brollBox).toBeUndefined();
     const [x, y, w, h2] = regionOfClip(c, core.doc(h), core.registry);
     expect([x, y, w, h2].map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
@@ -277,7 +277,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(compared.find((p) => p.model === "black-forest-labs/flux-3")).toMatchObject({ duration: "8", aspect_ratio: "1:1", draft: false, generate_audio: false });
   const takes = props(brolls()[1]!).takes;
   expect(takes).toHaveLength(6);
-  const flux = takes.find((id) => (core.doc(h).assets[id]!.derived.broll as { model: string }).model === "FLUX 3")!;
+  const flux = takes.map((t) => t.assetId).find((id) => (core.doc(h).assets[id]!.derived.broll as { model: string }).model === "FLUX 3")!;
   await core.run(h, "broll.use", { clip: second.id, asset: flux });
   const picked = brolls()[1]!;
   expect(picked.assetId).toBe(flux);
@@ -295,6 +295,29 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(brolls()[1]!.speed).toBeDefined();
   await core.run(h, "broll.use", { clip: second.id, asset: flux });
   expect(brolls()[1]!.speed).toBeUndefined();
+
+  // Copied into another project, the clip brings every take: each pasted, each pointing at an asset there.
+  const other = await core.create({ path: join(dir, "other.beproj") });
+  await core.run(h, "clipboard.copy", { clips: [second.id] });
+  await core.run(other, "edit.paste", {});
+  const pasted = core.doc(other).tracks.flatMap((t) => t.clips).find((c) => c.type === "broll")!;
+  expect(props(pasted).takes).toHaveLength(6);
+  for (const t of props(pasted).takes) expect(core.doc(other).assets[t.assetId]).toBeDefined();
+  expect(props(pasted).takes.some((t) => t.assetId === pasted.assetId)).toBe(true);
+  await core.close(other);
+
+  // Grouped and opened, it is still B-roll to price and make.
+  const group = (await core.run(h, "clip.group", { clips: [second.id] })).results[0] as string;
+  await core.run(h, "group.open", { clip: group });
+  const priced = (await core.query(h, "broll.estimate", { clips: [second.id] })) as { clips: unknown[] };
+  expect(priced.clips).toHaveLength(1);
+  const madeBefore = props(core.doc(h).tracks.flatMap((t) => t.clips).flatMap((c) => [c, ...((c.props.group as { tracks?: { clips: Clip[] }[] } | undefined)?.tracks?.flatMap((t) => t.clips) ?? [])]).find((c) => c.id === second.id)!).takes.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: [second.id] })));
+  const inside = core.doc(h).tracks.flatMap((t) => t.clips).flatMap((c) => (c.props.group as { tracks?: { clips: Clip[] }[] } | undefined)?.tracks?.flatMap((t) => t.clips) ?? []).find((c) => c.id === second.id)!;
+  expect(props(inside).takes).toHaveLength(madeBefore + 1);
+  await core.run(h, "group.close", {});
+  await core.undo(h);
+  await core.undo(h);
 
   // Made again from a prompt the model refuses: the clip keeps what it had and says why.
   const first = made[0]!;

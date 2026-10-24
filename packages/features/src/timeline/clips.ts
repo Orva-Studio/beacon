@@ -20,6 +20,7 @@ import {
   shiftIn as moveInPoint,
   snapSeconds,
   ticksPerFrame,
+  remapAssetIds,
   walkClips,
   type Clip,
   type ClipLocation,
@@ -454,7 +455,7 @@ export const clipCommands = [
         const copy = copyClip(clip, ctx);
         copy.start = t0 + clip.start;
         if (copy.linkId) copy.linkId = copiedLink(links, copy.linkId, ctx);
-        for (const { clip: c } of walkClips([{ id: "", name: "", clips: [copy] }], ctx.registry)) if (c.assetId) c.assetId = assets.get(c.assetId) ?? c.assetId;
+        remapAssetIds(copy, assets);
         to.clips.push(copy);
         to.clips.sort((x, y) => x.start - y.start);
         out.push(copy.id);
