@@ -76,8 +76,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const said = useQuery<string>(host, "broll.words", { clip: clip.id }, again);
   const takes = b.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
-  // Something to make it from: Auto's prompt, or the words said (Transcript's, or Auto's before it is written).
-  const prompted = (auto && !!prompt.trim()) || !!said;
+  // Something to make it from: its prompt, or (still empty) the words said.
+  const prompted = !!prompt.trim() || !!said;
   const ready = prompted && !!estimate && !busy && !tooLong && !over;
   const groups = [...new Set((styles ?? []).map((s) => s.group))];
   return (
@@ -116,23 +116,29 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           </Select>
         </label>
         <div className="flex flex-col gap-1">
-          <span className="text-label font-medium text-text-muted">Prompt from</span>
+          <span className="text-label font-medium text-text-muted">Prompt</span>
           <Segmented
             value={b.source}
             options={[
               { value: "auto", label: "Auto", icon: null },
-              { value: "transcript", label: "Transcript", icon: null },
+              { value: "manual", label: "Manual", icon: null },
             ]}
             onChange={(source) => {
-              set({ source }, "B-roll Prompt From");
-              if (source === "auto" && !b.prompt) host.run("broll.plan", { clip: clip.id });
+              // Manual starts from the words said; Auto writes its own.
+              if (source === "manual") set({ source, prompt: said ?? "", why: "" }, "B-roll Prompt: Manual");
+              else {
+                set({ source, prompt: "", why: "" }, "B-roll Prompt: Auto");
+                host.run("broll.plan", { clip: clip.id });
+              }
             }}
             data-broll-source
           />
         </div>
         {auto ? (
-          <label className="flex flex-col gap-1">
-            <TextArea rows={4} placeholder={planning ? "Writing the prompt…" : "Written from the words under the clip, in its style"} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
+          <div className="flex flex-col gap-1">
+            <div className={`rounded-md bg-groove px-3 py-2 text-caption ${b.prompt ? "text-text" : "text-text-faint"}`} data-broll-prompt>
+              {planning ? "Writing the prompt…" : b.prompt || "Written from the words under the clip, in its style"}
+            </div>
             {b.why && <span className="text-caption text-text-faint">{b.why}</span>}
             <div className="flex items-center gap-2">
               <Button look="quiet" disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
@@ -143,11 +149,12 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
             <span className="text-caption text-text-faint">
               {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
             </span>
-          </label>
-        ) : (
-          <div className="rounded-md bg-groove px-3 py-2 text-caption text-text" data-broll-words>
-            {said ? `“${said}”` : "Nothing is said under this clip yet."}
           </div>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <TextArea rows={4} placeholder={said || "Describe the shot"} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
+            <span className="text-caption text-text-faint">Starts from the words said under the clip; the style's wording is added.</span>
+          </label>
         )}
         {takes.length > 1 && (
           <label className="flex flex-col gap-1">

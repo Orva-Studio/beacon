@@ -53,8 +53,8 @@ const brollGroup = z.strictObject({
   why: z.string(),
   /** How it looks: a style's id (built in, or the user's own in Settings › AI). */
   style: z.string(),
-  /** Where its prompt comes from: written by the planner ("auto"), or the words said under it ("transcript"). */
-  source: z.enum(["auto", "transcript"]),
+  /** Where its prompt comes from: written by the planner ("auto"), or typed ("manual", starting from the words said under it). */
+  source: z.enum(["auto", "manual"]),
   /** Plan searches the web for what is said (OpenAI's planner only). */
   research: z.boolean(),
   /** As `{ assetId }`, so copying and pasting the clip carries every take along (any `assetId` is a reference). */
@@ -357,13 +357,13 @@ const brollPlan = defineAction({
             if (!was) throw new Error("the B-roll clip was deleted while it was planned");
             if (was !== shape) throw new Error("the B-roll clip was moved or trimmed while it was planned: plan it again");
             const done = [{ command: "broll.status", args: { clips: [clip.id], planning: false } }];
-            if (shots.length === 1) return { label: "Plan B-roll", steps: [{ command: "clip.set", args: { clip: clip.id, props: { broll: { prompt: shots[0]!.prompt, why: shots[0]!.why } } } }], after: () => done };
+            if (shots.length === 1) return { label: "Plan B-roll", steps: [{ command: "clip.set", args: { clip: clip.id, props: { broll: { prompt: shots[0]!.prompt, why: shots[0]!.why, source: "auto" } } } }], after: () => done };
             // Split where the shots meet, as the editor splits a clip (its effects, animations and look kept), from the
             // last boundary back so the clip itself stays the first shot; each piece then gets its shot's prompt.
             const cuts = shots.slice(1).map((s) => s.start).reverse();
             const steps: ActionStep[] = cuts.map((at) => ({ command: "clip.split", args: { at, clips: [clip.id], linked: false } }));
             const piece = (r: unknown[], k: number) => (k === 0 ? clip.id : (r[cuts.length - k] as string[])[0]!);
-            steps.push(...shots.map((s, k) => ({ command: "clip.set", args: (r: unknown[]) => ({ clip: piece(r, k), props: { broll: { prompt: s.prompt, why: s.why } } }) })));
+            steps.push(...shots.map((s, k) => ({ command: "clip.set", args: (r: unknown[]) => ({ clip: piece(r, k), props: { broll: { prompt: s.prompt, why: s.why, source: "auto" } } }) })));
             return { label: "Plan B-roll", steps, after: (r) => [...done, { command: "selection.set", args: { clips: shots.map((_, k) => piece(r, k)), linked: false } }] };
           };
         },
@@ -526,15 +526,15 @@ export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "reg
 }
 
 /**
- * The prompt a clip is made from: Auto, its prompt (written in its style by Plan, or typed); Transcript, or an Auto
- * one still empty, the words said under it with the style's wording (so a first try needs no planner at all).
+ * The prompt a clip is made from: Auto, the one Plan wrote in its style; Manual, the one typed, with the style's
+ * wording. Either one still empty: the words said under it with the style's wording (so a first try needs no planner).
  */
 function promptFor(clip: Clip, ctx: ActionContext): string {
   const b = brollOf(clip)!;
-  if (b.source === "auto" && b.prompt.trim()) return b.prompt.trim();
-  const words = wordsUnder(clip, ctx);
-  if (!words) throw new Error("nothing is said under this B-roll clip: type a prompt (Prompt from: Auto)");
   const look = styleOf(b.style, ctx.pref).text.slice(0, PROMPT_STYLE_CHARS);
+  if (b.prompt.trim()) return b.source === "auto" ? b.prompt.trim() : [b.prompt.trim(), look].filter(Boolean).join(" ");
+  const words = wordsUnder(clip, ctx);
+  if (!words) throw new Error("nothing is said under this B-roll clip: type a prompt (Prompt: Manual)");
   return [`Footage illustrating: "${words}".`, look].filter(Boolean).join(" ");
 }
 
@@ -693,18 +693,28 @@ function stylesNotGuides(doc: unknown): unknown {
   return doc;
 }
 
+/** v4: Prompt from Transcript became Manual (the user, 2026-10-24); its empty prompt still means the words said. */
+function manualNotTranscript(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as Record<string, unknown> | undefined;
+    if (b?.source === "transcript") Object.assign(b, { source: "manual", prompt: "", why: "" });
+  });
+  return doc;
+}
+
 export const broll = defineFeature({
   id: "broll",
-  version: 3,
+  version: 4,
   migrations: [
     { version: 2, migrate: takesAsRefs },
     { version: 3, migrate: stylesNotGuides },
+    { version: 4, migrate: manualNotTranscript },
   ],
   clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
   props: [
     {
       id: "broll",
-      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, written by Plan; transcript, the words said under it), research for OpenAI's planner, and the takes made (`{ assetId }`)",
+      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, written by Plan; manual, typed, with the style's wording added), research for OpenAI's planner, and the takes made (`{ assetId }`)",
       traits: ["broll"],
       // Beside Visual Properties (1), where annotations have theirs.
       tab: { title: "B-roll", icon: "sparkle", order: 2 },

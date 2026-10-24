@@ -3839,7 +3839,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
   }
 }, 120_000);
 
-test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, a style picked (the prompt written again in it), Prompt from Transcript showing the words, and its footage made from them in that style through Replicate's stand-in, one undo step", async () => {
+test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, a style picked (the prompt written again in it), Prompt: Manual starting from the words said, and its footage made from them in that style through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {
     const out = join(dir, `broll-${w}x${h}.mp4`);
@@ -3894,7 +3894,7 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     const clip = broll()!;
     expect([ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)]).toEqual([2, 10]);
     expect((await session()).selection).toEqual([clip.id]);
-    await page.until("document.querySelector('[data-broll-prompt]')?.value === 'An on-device scene'", 20_000);
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'An on-device scene'", 20_000);
     // The B-roll tab sits beside Visual Properties.
     expect(await page.evaluate<string[]>("[...document.querySelectorAll('.bg-tabbar button')].map((t) => t.getAttribute('title'))")).toEqual(["Visual Properties", "B-roll"]);
     await run("playhead.set", { time: 4 });
@@ -3910,15 +3910,16 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     // A style of the user's own: listed under Your styles; picked, the prompt is written again in it.
     expect(await page.evaluate<string>("[...document.querySelectorAll('[data-broll-style] optgroup')].map((g) => g.label).join('|')")).toBe("Film looks|Product and tech|Your styles");
     await choose("[data-broll-style]", "my-16mm");
-    await page.until("document.querySelector('[data-broll-prompt]')?.value === 'A grainy 16mm scene'", 20_000);
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'", 20_000);
     expect(props().style).toBe("my-16mm");
 
-    // Prompt from Transcript: the words said under it, shown as they are.
+    // Auto's prompt is read only; Manual is typed, starting from the words said under it.
+    expect(await has("textarea[data-broll-prompt]")).toBe(false);
     await press('[data-broll-source] button:nth-child(2)');
-    await page.until("!!document.querySelector('[data-broll-words]')");
-    expect(props().source).toBe("transcript");
+    await page.until("!!document.querySelector('textarea[data-broll-prompt]')");
     const words = (await ui.core.query(ui.handle, "broll.words", { clip: clip.id })) as string;
-    expect(await page.evaluate<string>("document.querySelector('[data-broll-words]').textContent")).toBe(`“${words}”`);
+    expect(props()).toMatchObject({ source: "manual", prompt: words, why: "" });
+    await page.until(`document.querySelector('textarea[data-broll-prompt]').value === ${JSON.stringify(words)}`);
 
     // No Replicate token: the tab says so, with the way to Settings › AI, where the planner is Apple's by default.
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Generate')");
@@ -3947,11 +3948,10 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
 
     await press("[data-broll-generate]");
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
-    // Made from the words, in the style; taller than wide (960×1080), so 9:16; silent; shown in the clip in its region.
+    // Made from the Manual prompt as typed, in the style; taller than wide (960×1080), so 9:16; silent; shown in the clip in its region.
     const sent = [...made.values()].at(-1)!;
     expect(sent).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
-    expect(String(sent.prompt)).toContain(`Footage illustrating: "${words}".`);
-    expect(String(sent.prompt)).toContain("Grainy 16mm, warm tones, handheld");
+    expect(sent.prompt).toBe(`${words} Grainy 16mm, warm tones, handheld`);
     expect(broll()!.assetId).toBeDefined();
     expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Generate B-roll");

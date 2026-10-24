@@ -2211,6 +2211,10 @@ model makes splits it into shots. The review panel and its preview go.
 - **Prompt from: Auto or Transcript**, per clip, Auto by default: Auto writes
   the prompt from the words under the clip in its style (as soon as the clip is
   added); Transcript uses the words as said, with the style.
+  **Changed (the user, 2026-10-24): Auto or Manual.** Auto's prompt is read
+  only (Write Again writes it anew); Manual is a box to type in, starting from
+  the words said under the clip, with the style's wording added. B-roll data v4
+  turns Transcript into Manual.
 - **The planner is Apple's on-device model by default** (macOS 26's Foundation
   Models: free, offline, no key), OpenAI (`gpt-6.1-sol`, with web research) the
   other choice in Settings › AI. Research shows only with OpenAI.
