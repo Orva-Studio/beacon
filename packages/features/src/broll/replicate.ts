@@ -10,11 +10,18 @@ const GIVE_UP_MS = 20 * 60_000;
 /** `cancellable`: false lets a request the job no longer wants finish anyway (a prediction's creation, to cancel it by its id). */
 async function call<T>(token: string, url: string, init: RequestInit = {}, cancellable = true): Promise<T> {
   const job = cancellable ? jobSignal() : undefined;
-  const r = await fetch(url.startsWith("http") ? url : `${api()}${url}`, {
-    ...init,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init.headers },
-    signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(job ? [job] : [])]),
-  });
+  let r: Response;
+  try {
+    r = await fetch(url.startsWith("http") ? url : `${api()}${url}`, {
+      ...init,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init.headers },
+      signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(job ? [job] : [])]),
+    });
+  } catch (e) {
+    job?.throwIfAborted();
+    if ((e as Error).name === "TimeoutError") throw new Error(`Replicate didn't answer within a minute (${init.method === "POST" ? "starting it" : "asking how it is going"}): try again`);
+    throw new Error(`couldn't reach Replicate: ${(e as Error).message}`);
+  }
   if (r.status === 401 || r.status === 403) throw new Error("Replicate refused the API token: check it in Settings › AI");
   if (r.status === 402) throw new Error("Replicate says the account needs credit or billing set up (replicate.com/account/billing)");
   if (!r.ok) {
@@ -82,19 +89,35 @@ interface Prediction {
   urls?: { get?: string; cancel?: string };
 }
 
-/** Runs the model with `input` and downloads what it makes to `out`; `waiting` is told each poll. Cancelled on Replicate if the job is. */
-export async function generate(token: string, m: VideoModel, input: Record<string, unknown>, out: string, waiting: () => void): Promise<void> {
+/** Where a generation is: sent and waiting its turn, being made, or downloading. */
+export type MakeStage = "queued" | "making" | "downloading";
+
+/** Checks of how it is going that fail in a row (Replicate slow or unreachable) before the generation is given up. */
+const MISSES = 5;
+
+/**
+ * Runs the model with `input` and downloads what it makes to `out`; `stage` is told where it is at each check. Cancelled
+ * on Replicate if the job is. A check that fails is tried again: one slow answer mustn't lose footage being paid for.
+ */
+export async function generate(token: string, m: VideoModel, input: Record<string, unknown>, out: string, stage: (s: MakeStage) => void): Promise<void> {
   // Replicate may start it before it answers: the answer is waited for even when the job is cancelled meanwhile, so it can be cancelled there too.
   let p = await call<Prediction>(token, `/models/${m.slug}/predictions`, { method: "POST", body: JSON.stringify({ input }) }, false);
   const started = Date.now();
   try {
     jobSignal()?.throwIfAborted();
+    let misses = 0;
     while (p.status === "starting" || p.status === "processing") {
+      stage(p.status === "starting" ? "queued" : "making");
       if (Date.now() - started > GIVE_UP_MS) throw new Error(`${m.title} took over ${GIVE_UP_MS / 60_000} minutes`);
       await Bun.sleep(POLL_MS());
       jobSignal()?.throwIfAborted();
-      p = await call<Prediction>(token, p.urls?.get ?? `/predictions/${p.id}`);
-      waiting();
+      try {
+        p = await call<Prediction>(token, p.urls?.get ?? `/predictions/${p.id}`);
+        misses = 0;
+      } catch (e) {
+        jobSignal()?.throwIfAborted();
+        if (++misses >= MISSES) throw e;
+      }
     }
   } catch (e) {
     // Not awaited past the job's end: a cancel that fails leaves Replicate to finish it, charged as it would be.
@@ -104,9 +127,16 @@ export async function generate(token: string, m: VideoModel, input: Record<strin
   if (p.status !== "succeeded") throw new Error(`${m.title} ${p.status === "canceled" ? "was cancelled on Replicate" : `couldn't make it: ${p.error ?? "no reason given"}`}`);
   const url = Array.isArray(p.output) ? p.output[0] : p.output;
   if (!url) throw new Error(`${m.title} made no file`);
+  stage("downloading");
   const job = jobSignal();
-  // Its file links (replicate.delivery) need no token, and shouldn't be sent one: they aren't Replicate's API.
-  const got = await fetch(url, { signal: AbortSignal.any([AbortSignal.timeout(5 * 60_000), ...(job ? [job] : [])]) });
-  if (!got.ok) throw new Error(`the footage couldn't be downloaded (${got.status})`);
-  await Bun.write(out, got);
+  try {
+    // Its file links (replicate.delivery) need no token, and shouldn't be sent one: they aren't Replicate's API.
+    const got = await fetch(url, { signal: AbortSignal.any([AbortSignal.timeout(5 * 60_000), ...(job ? [job] : [])]) });
+    if (!got.ok) throw new Error(`the footage couldn't be downloaded (${got.status})`);
+    await Bun.write(out, got);
+  } catch (e) {
+    job?.throwIfAborted();
+    if ((e as Error).name === "TimeoutError") throw new Error("the footage took over 5 minutes to download: Make Again, or check your connection");
+    throw e;
+  }
 }

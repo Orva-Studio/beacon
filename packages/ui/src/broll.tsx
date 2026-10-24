@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session } from "@beacon/model";
 import type { BrollProps, BrollState, TakeInfo } from "@beacon/features";
 import { Button, Check, Section, Select, TextArea } from "./controls";
@@ -65,7 +65,10 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const over = !!estimate && !!cost && estimate.limit > 0 && cost.cost > estimate.limit;
   const settingsOpen = useView((v) => !!v.settings);
   // What is said under the clip (the transcript already made): the prompt's placeholder, and its prompt if left empty.
-  const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: ticksToSeconds(clip.start), to: ticksToSeconds(clip.start + clip.duration) }, project)
+  // Asked again when a transcript is finished too: that changes no document.
+  const transcribing = useView((v) => Object.keys(v.transcribing).join());
+  const again = useMemo(() => ({}), [project, transcribing]);
+  const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: ticksToSeconds(clip.start), to: ticksToSeconds(clip.start + clip.duration) }, again)
     ?.map((w) => w.text)
     .join(" ")
     .trim();

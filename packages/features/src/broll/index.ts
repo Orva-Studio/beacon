@@ -25,8 +25,8 @@ import {
 import { streamOf, visualSize } from "../media";
 import { timelineWords } from "../transcript";
 import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution, type VideoModel } from "./models";
-import { planShots, tile, PLAN_MODEL } from "./plan";
-import { generate, limits, type Limits } from "./replicate";
+import { planShots, tile, PLAN_MODEL, type PlanStage } from "./plan";
+import { generate, limits, type Limits, type MakeStage } from "./replicate";
 
 export { VIDEO_MODELS, videoModel, resolutionOf, shotCost, nearestAspect, lengthFor } from "./models";
 
@@ -139,6 +139,14 @@ const commands = [
       const s = streamOf(a, "video", 0);
       const region = regionOfClip(c, doc, ctx.registry);
       const fit = covering([s.width!, s.height!], region, doc);
+      // Animated scale ends are in the old picture's pixels: rescaled with it, a zoom still zooms the same.
+      const was = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
+      for (const a of c.animations ?? []) {
+        for (const axis of ["scaleX", "scaleY"] as const) {
+          const v = a.to[`transform.${axis}`];
+          if (typeof v === "number" && was[axis]) a.to[`transform.${axis}`] = (v * fit.transform[axis]) / was[axis];
+        }
+      }
       c.assetId = asset;
       c.mediaStart = 0;
       // Made for the clip's length at normal speed: played faster, it would run out before the clip ends.
@@ -248,7 +256,7 @@ const brollPlan = defineAction({
     if (state.planning.includes(clip.id) || state.making.includes(clip.id)) throw new Error("that clip is being planned or made already");
     const b = brollOf(clip)!;
     const [from, to] = [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
-    const words = timelineWords(ctx.project, ctx.registry, ctx.data);
+    const words = heardWords(ctx);
     const said = words.filter((w) => w.end > from && w.start < to);
     if (!said.length) throw new Error("nothing is said under the clip yet: B-roll is planned from the transcript (wait for it, move the clip over speech, or type a prompt)");
     const { model } = brollSettings(ctx.pref);
@@ -274,7 +282,20 @@ const brollPlan = defineAction({
         label: "Plan B-roll",
         run: async (env) => {
           const key = await keyOf(env.secret, OPENAI);
-          env.progress(0.1, b.research ? `${PLAN_MODEL}: researching and planning the shots` : `${PLAN_MODEL}: planning the shots`);
+          // Numbered steps with a ticking clock, as Clean with Auphonic's: the stream says which, the clock that it is still going.
+          const order: PlanStage[] = b.research ? ["thinking", "searching", "writing"] : ["thinking", "writing"];
+          const says: Record<PlanStage, string> = { thinking: `${PLAN_MODEL} is thinking`, searching: "Searching the web", writing: "Writing the shots" };
+          const started = Date.now();
+          let at: PlanStage = "thinking";
+          let since = started;
+          const tell = () => {
+            const n = order.indexOf(at);
+            // No percentage from OpenAI: each step creeps on towards the next.
+            const value = (n + 1 - 1 / (1 + (Date.now() - since) / 20_000)) / order.length;
+            env.progress(Math.min(0.95, value), `${n + 1} of ${order.length} · ${says[at]} · ${minutes((Date.now() - started) / 1000)}`);
+          };
+          const ticking = setInterval(tell, 1000);
+          tell();
           const plan = await planShots(
             {
               words: said.map((x) => ({ text: x.text, start: x.start, end: x.end })),
@@ -289,7 +310,12 @@ const brollPlan = defineAction({
               longest: model.durations.at(-1)!,
             },
             key,
-          );
+            (s) => {
+              if (!order.includes(s) || order.indexOf(s) <= order.indexOf(at)) return;
+              [at, since] = [s, Date.now()];
+              tell();
+            },
+          ).finally(() => clearInterval(ticking));
           // A clip with footage keeps one shot: it gets a new prompt, not a split (its box went with the footage).
           const shots = tile(plan.shots, from, to, b.takes.length ? to - from : model.durations[0]!, model.durations.at(-1)!);
           if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer clip");
@@ -342,7 +368,7 @@ function resolutionInput(asked: Record<string, unknown> | undefined, live: Limit
  * One clip's footage made with one model (`live`, what it takes now), saved in `dir` beside a `.json` of what made
  * it: the asset, or why there is none. A cancelled job's clip reports nothing.
  */
-async function makeTake(env: TaskEnv, token: string, model: VideoModel, live: Limits, resolution: Resolution, c: { id: string; prompt: string; length: number }, [w, h]: [number, number], dir: string, waiting: () => void): Promise<Made | undefined> {
+async function makeTake(env: TaskEnv, token: string, model: VideoModel, live: Limits, resolution: Resolution, c: { id: string; prompt: string; length: number }, [w, h]: [number, number], dir: string, stage: (s: MakeStage) => void): Promise<Made | undefined> {
   const length = lengthFor(live, c.length);
   const aspect = nearestAspect(live, w, h);
   // Bounded, with room for the counter and suffixes after it: the whole prompt is in the .json.
@@ -351,7 +377,7 @@ async function makeTake(env: TaskEnv, token: string, model: VideoModel, live: Li
   try {
     const input: Record<string, unknown> = { prompt: c.prompt, aspect_ratio: aspect, duration: live.durationText ? String(length) : length, generate_audio: false, ...resolutionInput(model.resolutions[resolution], live) };
     for (const k of Object.keys(input)) if (input[k] === undefined || !live.fields.has(k)) delete input[k];
-    await generate(token, model, input, out, waiting);
+    await generate(token, model, input, out, stage);
   } catch (e) {
     // Nothing paid for arrived: the file is a placeholder, or half a download.
     rmSync(out, { force: true });
@@ -411,13 +437,56 @@ function finished(env: TaskEnv, results: Made[], clips: string[], label: string)
   };
 }
 
-const progress = (env: TaskEnv, results: Made[], total: number, started: number) => () =>
-  env.progress(0.05 + (0.95 * results.length) / total, `${results.filter((x) => x.asset).length} of ${total} made · ${minutes((Date.now() - started) / 1000)}`);
+const STEPS: MakeStage[] = ["queued", "making", "downloading"];
+
+/**
+ * A generation's toast, ticking each second: one take in numbered steps (sent, being made, downloading), as Clean
+ * with Auphonic's; several, how many are made and being made. Replicate gives no percentage: each step creeps on.
+ */
+function tracker(env: TaskEnv, model: (key: string) => string, total: number) {
+  const started = Date.now();
+  const at = new Map<string, { stage: MakeStage; since: number }>();
+  let done = 0;
+  const clock = () => minutes((Date.now() - started) / 1000);
+  const tell = () => {
+    if (total === 1) {
+      const [key, now] = [...at.entries()][0] ?? ["", { stage: "queued" as MakeStage, since: started }];
+      const n = STEPS.indexOf(now.stage);
+      const says = { queued: "Sent to Replicate, waiting its turn", making: `${model(key)} is making it`, downloading: "Downloading" }[now.stage];
+      return env.progress(Math.min(0.95, (n + 1 - 1 / (1 + (Date.now() - now.since) / 30_000)) / STEPS.length), `${n + 1} of ${STEPS.length} · ${says} · ${clock()}`);
+    }
+    const making = [...at.values()].filter((x) => x.stage !== "queued").length;
+    env.progress(0.05 + (0.95 * done) / total, [`${done} of ${total} made`, making ? `${making} being made` : "", clock()].filter(Boolean).join(" · "));
+  };
+  return {
+    tell,
+    stage: (key: string) => (stage: MakeStage) => {
+      if (at.get(key)?.stage !== stage) at.set(key, { stage, since: Date.now() });
+      tell();
+    },
+    done: (key: string) => {
+      at.delete(key);
+      done++;
+      tell();
+    },
+  };
+}
+
+/**
+ * The words heard on the timeline and in the group being edited (whose clips are at main-timeline times), from the
+ * transcripts already made: narration inside an opened group counts too.
+ */
+function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data" | "scope">) {
+  const top = timelineWords(ctx.project, ctx.registry, ctx.data);
+  if (!ctx.scope.group) return top;
+  const inner = timelineWords({ ...ctx.project, tracks: ctx.scope.tracks }, ctx.registry, ctx.data);
+  return [...top, ...inner].sort((a, b) => a.start - b.start);
+}
 
 /** What is said under a clip on the timeline, from the transcript already made (by whichever transcriber). */
-export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "registry" | "data">): string {
+export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "registry" | "data" | "scope">): string {
   const [from, to] = [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
-  return timelineWords(ctx.project, ctx.registry, ctx.data)
+  return heardWords(ctx)
     .filter((w) => w.end > from && w.start < to)
     .map((w) => w.text)
     .join(" ")
@@ -464,8 +533,8 @@ const brollGenerate = defineAction({
         run: async (env) => {
           const dir = join(env.mediaDir, "B-roll");
           mkdirSync(dir, { recursive: true });
-          const tell = progress(env, results, shots.length, Date.now());
-          const ticking = setInterval(tell, 1000);
+          const track = tracker(env, () => model.title, shots.length);
+          const ticking = setInterval(track.tell, 1000);
           try {
             const token = await keyOf(env.secret, TOKEN);
             const live = await limits(token, model);
@@ -476,9 +545,9 @@ const brollGenerate = defineAction({
             if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} at the lengths ${model.title} makes now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             await Promise.all(
               shots.map(async (s) => {
-                const m = await makeTake(env, token, model, live, resolution, s, [s.region[2], s.region[3]], dir, tell);
+                const m = await makeTake(env, token, model, live, resolution, s, [s.region[2], s.region[3]], dir, track.stage(s.id));
                 if (m) results.push(m);
-                tell();
+                track.done(s.id);
               }),
             );
             return finished(env, results, ids2, "Generate B-roll");
@@ -517,8 +586,8 @@ const brollCompare = defineAction({
         run: async (env) => {
           const dir = join(env.mediaDir, "B-roll");
           mkdirSync(dir, { recursive: true });
-          const tell = progress(env, results, models.length, Date.now());
-          const ticking = setInterval(tell, 1000);
+          const track = tracker(env, (key) => key, models.length);
+          const ticking = setInterval(track.tell, 1000);
           try {
             const token = await keyOf(env.secret, TOKEN);
             // Every model's schema first: the limit is checked at the lengths they make now, before any is paid for.
@@ -529,6 +598,7 @@ const brollCompare = defineAction({
                 } catch (e) {
                   jobSignal()?.throwIfAborted();
                   results.push({ clip: clip.id, error: `${m.model.title}: ${e instanceof Error ? e.message : String(e)}` });
+                  track.done(m.model.title);
                   return undefined;
                 }
               }),
@@ -537,15 +607,16 @@ const brollCompare = defineAction({
               if (!m) return [];
               if (length <= m.live.durations.at(-1)! + 1e-3) return [m];
               results.push({ clip: clip.id, error: `${m.model.title} makes ${m.live.durations.at(-1)} s at most` });
+              track.done(m.model.title);
               return [];
             });
             const charged = able.reduce((sum, m) => sum + shotCost({ ...m.model, durations: m.live.durations }, m.resolution, length), 0);
             if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} for ${able.length} models at the lengths they make now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             await Promise.all(
               able.map(async ({ model, resolution, live }) => {
-                const m = await makeTake(env, token, model, live, resolution, shot, [region[2], region[3]], dir, tell);
+                const m = await makeTake(env, token, model, live, resolution, shot, [region[2], region[3]], dir, track.stage(model.title));
                 if (m) results.push(m);
-                tell();
+                track.done(model.title);
               }),
             );
             return finished(env, results, [clip.id], "Compare B-roll models");
@@ -572,7 +643,8 @@ export const broll = defineFeature({
       id: "broll",
       description: "The B-roll a clip asks for: its prompt (and why), the guide and research Plan uses, and the takes made (`{ assetId }`)",
       traits: ["broll"],
-      tab: { title: "B-roll", icon: "sparkle", order: 0 },
+      // Beside Visual Properties (1), where annotations have theirs.
+      tab: { title: "B-roll", icon: "sparkle", order: 2 },
       schema: brollGroup,
       defaults: () => ({ prompt: "", why: "", guide: "", research: true, takes: [] }),
       identity: true,

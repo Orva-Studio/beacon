@@ -3,6 +3,8 @@ import { jobSignal } from "@beacon/media";
 /** The user's pick (2026-10-23), at medium effort as every OpenAI model Beacon calls. */
 export const PLAN_MODEL = "gpt-6.1-sol";
 const api = () => process.env.BEACON_OPENAI_URL ?? "https://api.openai.com/v1";
+/** How long the planner may send nothing before it is given up; a test shortens it. */
+const IDLE_MS = () => Number(process.env.BEACON_OPENAI_IDLE_MS ?? 120_000);
 
 export interface PlannedShot {
   start: number;
@@ -67,15 +69,74 @@ const USER = (r: PlanRequest) =>
     .filter(Boolean)
     .join("\n\n");
 
-/** A shot list from OpenAI's Responses API (its web search when asked), as JSON to the schema. */
-export async function planShots(r: PlanRequest, apiKey: string): Promise<{ research: string; shots: PlannedShot[] }> {
+/** What the planner is doing, as its streamed events say: thinking, searching the web, then writing the shots. */
+export type PlanStage = "thinking" | "searching" | "writing";
+
+/** The stage an event of the Responses API's stream starts, if it starts one. */
+const stageOf = (type: string): PlanStage | undefined =>
+  type.startsWith("response.web_search_call") ? "searching" : type.startsWith("response.output_text") ? "writing" : type.startsWith("response.reasoning") || type === "response.created" ? "thinking" : undefined;
+
+type Reply = { output?: { type: string; content?: { type: string; text?: string }[] }[] };
+
+/**
+ * The finished response from a streamed reply (server-sent events), telling `stage` as the stream moves on; a plain
+ * JSON reply (a stand-in's) is taken as it is.
+ */
+async function streamed(res: Response, stage: (s: PlanStage) => void, alive: () => void): Promise<Reply> {
+  if (!res.headers.get("content-type")?.includes("text/event-stream")) return (await res.json()) as Reply;
+  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  let last: PlanStage | undefined;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error("OpenAI's answer stopped before it was finished");
+    alive();
+    buffer += value;
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const data = block.split("\n").find((l) => l.startsWith("data: "))?.slice(6);
+      if (!data || data === "[DONE]") continue;
+      const event = JSON.parse(data) as { type: string; response?: Reply & { error?: { message?: string } } };
+      if (event.type === "response.completed") return event.response!;
+      if (event.type === "response.failed" || event.type === "error") throw new Error(`OpenAI couldn't plan the shots: ${event.response?.error?.message ?? "no reason given"}`);
+      const next = stageOf(event.type);
+      if (next && next !== last) stage((last = next));
+    }
+  }
+}
+
+/** A shot list from OpenAI's Responses API (its web search when asked), as JSON to the schema, its stages told as it goes. */
+export async function planShots(r: PlanRequest, apiKey: string, stage: (s: PlanStage) => void = () => {}): Promise<{ research: string; shots: PlannedShot[] }> {
   const job = jobSignal();
+  // Given up only after IDLE_MS with nothing from OpenAI: research can take minutes, each event says it is still going.
+  const idle = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const alive = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => idle.abort(), IDLE_MS());
+  };
+  alive();
+  try {
+    return await ask(r, apiKey, stage, alive, AbortSignal.any([idle.signal, ...(job ? [job] : [])]));
+  } catch (e) {
+    job?.throwIfAborted();
+    if (idle.signal.aborted) throw new Error(`OpenAI sent nothing for ${Math.round(IDLE_MS() / 60_000)} minutes while planning: try again`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function ask(r: PlanRequest, apiKey: string, stage: (s: PlanStage) => void, alive: () => void, signal: AbortSignal): Promise<{ research: string; shots: PlannedShot[] }> {
   const res = await fetch(`${api()}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: PLAN_MODEL,
       reasoning: { effort: "medium" },
+      stream: true,
       ...(r.research ? { tools: [{ type: "web_search" }] } : {}),
       input: [
         { role: "system", content: SYSTEM(r) },
@@ -83,7 +144,7 @@ export async function planShots(r: PlanRequest, apiKey: string): Promise<{ resea
       ],
       text: { format: { type: "json_schema", name: "broll_plan", strict: true, schema: SCHEMA } },
     }),
-    signal: AbortSignal.any([AbortSignal.timeout(5 * 60_000), ...(job ? [job] : [])]),
+    signal,
   });
   if (res.status === 401) throw new Error("OpenAI refused the API key: check it in Settings › AI");
   if (!res.ok) {
@@ -97,7 +158,7 @@ export async function planShots(r: PlanRequest, apiKey: string): Promise<{ resea
     })();
     throw new Error(`OpenAI couldn't plan the shots (${res.status}${message ? `: ${message}` : ""})`);
   }
-  const reply = (await res.json()) as { output?: { type: string; content?: { type: string; text?: string }[] }[] };
+  const reply = await streamed(res, stage, alive);
   const text = reply.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text;
   try {
     const out = JSON.parse(text ?? "") as { research?: string; shots?: PlannedShot[] };

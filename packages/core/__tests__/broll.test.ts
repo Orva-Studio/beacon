@@ -45,6 +45,29 @@ const server = Bun.serve({
       const body = (await req.json()) as Record<string, unknown>;
       plans.push(body);
       const asked = JSON.stringify(body.input);
+      // "[silent]": nothing comes back.
+      if (asked.includes("[silent]")) return new Promise<Response>(() => {});
+      // "[stream]": answered as OpenAI streams, event by event, slowly enough for each stage to be seen.
+      if (asked.includes("[stream]")) {
+        const events = [
+          { type: "response.created" },
+          { type: "response.reasoning_summary_text.delta" },
+          { type: "response.web_search_call.in_progress" },
+          { type: "response.web_search_call.completed" },
+          { type: "response.output_text.delta", delta: "{" },
+          { type: "response.completed", response: { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ research: "", shots: [{ start: 0, end: 100, prompt: "Streamed", why: "s" }] }) }] }] } },
+        ];
+        const body = new ReadableStream({
+          async start(c) {
+            for (const e of events) {
+              c.enqueue(new TextEncoder().encode(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`));
+              await Bun.sleep(150);
+            }
+            c.close();
+          },
+        });
+        return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+      }
       // "[late]": answered after the test has moved on; "[nested]": a shot inside another, as a model can write.
       if (asked.includes("[late]")) await Bun.sleep(300);
       const shots = asked.includes("[frames]")
@@ -120,7 +143,13 @@ const server = Bun.serve({
       return Response.json({ id: m![1], status: "canceled" });
     }
     const prompt = String(p.input.prompt);
-    if (prompt.includes("[hold]") || p.polls++ < 1) return Response.json({ id: m![1], status: "processing" });
+    // "[steps]": slow enough at each stage to be seen; "[flaky]": the first two checks fail, as a busy server's can.
+    if (prompt.includes("[steps]")) await Bun.sleep(120);
+    if (prompt.includes("[flaky]") && p.polls < 2) {
+      p.polls++;
+      return new Response("busy", { status: 503 });
+    }
+    if (prompt.includes("[hold]") || p.polls++ < (prompt.includes("[steps]") ? 3 : 1)) return Response.json({ id: m![1], status: p.polls === 1 && prompt.includes("[steps]") ? "starting" : "processing" });
     if (prompt.includes("[refuse]")) return Response.json({ id: m![1], status: "failed", error: "the model refused the prompt" });
     const [w, h] = p.input.aspect_ratio === "9:16" ? [360, 640] : [640, 360];
     footage(w, h);
@@ -239,8 +268,13 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect((await state())!.making).toEqual([]);
   secrets.set("replicate-api-token", "replicate-token");
 
+  // A zoom on the placeholder (scale 1 → 1.2 in its box's pixels) still zooms by 1.2 once it shows footage.
+  await core.run(h, "animation.add", { clip: shots[0]!.id, end: 4, duration: 2, to: { "transform.scaleX": 1.2, "transform.scaleY": 1.2 } });
   const asked = predictions.length;
   await waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: shots.map((c) => c.id) })));
+  const zoomed = brolls()[0]!;
+  const base = (zoomed.props.transform as { scaleX: number }).scaleX;
+  expect(zoomed.animations[0]!.to["transform.scaleX"]).toBeCloseTo(base * 1.2);
   // Silent, in the region's shape, each at the shortest length that covers it, only fields the model has.
   for (const input of predictions.slice(asked)) {
     expect(input).toMatchObject({ model: "google/veo-3.1-fast", aspect_ratio: "9:16", generate_audio: false, resolution: "1080p" });
@@ -343,6 +377,24 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   await core.undo(h);
   await core.undo(h);
 
+  // Made in numbered steps with a clock; checks that fail are tried again rather than losing the footage.
+  await core.run(h, "broll.add", { time: 20, duration: 2, prompt: "[steps] a field" });
+  const stepping = jobOf(await core.run(h, "broll.generate", {}));
+  const seen = new Set<string>();
+  for (;;) {
+    const j = await core.job(stepping);
+    if (j.stage) seen.add(j.stage.replace(/ · \d+:\d\d$/, ""));
+    if (j.state !== "running") break;
+    await Bun.sleep(10);
+  }
+  expect([...seen].filter((s) => / of 3 /.test(s))).toEqual(["1 of 3 · Sent to Replicate, waiting its turn", "2 of 3 · Veo 3.1 Fast is making it", "3 of 3 · Downloading"]);
+  await core.run(h, "clip.set", { clip: brolls().find((c) => props(c).prompt === "[steps] a field")!.id, props: { broll: { prompt: "[flaky] a field" } } });
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", {})));
+  await core.undo(h);
+  await core.undo(h);
+  await core.undo(h);
+  await core.undo(h);
+
   const footageBefore = readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4")).length;
   // Typed, with only a Replicate token.
   await core.run(h, "broll.add", { time: 0, duration: 4, prompt: "[hold] a pan over hills" });
@@ -387,6 +439,27 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   await expect(waitJob(withKey.core, planning)).rejects.toThrow(/moved or trimmed while it was planned/);
   expect((await withKey.state())!.planning).toEqual([]);
   expect(props(withKey.brolls()[0]!).prompt).toBe("");
+
+  // Streamed, its steps are told as they happen, numbered, with the time it has taken.
+  await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[stream]" } } });
+  const streaming = jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id }));
+  const stages = new Set<string>();
+  for (;;) {
+    const j = await withKey.core.job(streaming);
+    if (j.stage) stages.add(j.stage.replace(/ · \d+:\d\d$/, ""));
+    if (j.state !== "running") break;
+    await Bun.sleep(20);
+  }
+  expect(plans.at(-1)).toMatchObject({ stream: true });
+  expect([...stages].filter((s) => / of 3 /.test(s))).toEqual(["1 of 3 · gpt-6.1-sol is thinking", "2 of 3 · Searching the web", "3 of 3 · Writing the shots"]);
+  expect(props(withKey.brolls()[0]!).prompt).toBe("Streamed");
+  // 12 s split in two for Veo: back to one clip for what follows.
+  await withKey.core.undo(withKey.h);
+  // Nothing from OpenAI for the idle limit: given up, saying so.
+  process.env.BEACON_OPENAI_IDLE_MS = "300";
+  await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[silent]" } } });
+  await expect(waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })))).rejects.toThrow(/OpenAI sent nothing for 0 minutes while planning/);
+  delete process.env.BEACON_OPENAI_IDLE_MS;
 
   // A shot planned inside another is dropped, not overlapped (it would be paid for twice); the split keeps the clip's
   // own look (an effect here) on every piece.
