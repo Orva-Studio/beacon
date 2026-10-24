@@ -40,6 +40,12 @@ test.skipIf(!existsSync(RECORDING))("Toggle Camera and Toggle Cursor hide a reco
   const after = clips().filter((c) => c.type === "video");
   expect(after.map((c) => opacity("transform", c))).toEqual([1, 0]);
   expect(after[0]!.id).toBe(first!.id);
+  // The selected piece's track locked: refused, the other piece left as it is.
+  const track = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === second!.id))!;
+  await core.run(h, "track.set", { track: track.id, locked: true });
+  await expect(core.run(h, "camera.toggle", {})).rejects.toThrow(/locked track/);
+  expect(clips().filter((c) => c.type === "video").map((c) => opacity("transform", c))).toEqual([1, 0]);
+  await core.run(h, "track.set", { track: track.id, locked: false });
 
   // A fade animated in still hides with the rest: its block ends at 0 too, then at 100% when shown, one undo step.
   await core.run(h, "selection.set", { clips: [first!.id], linked: false });

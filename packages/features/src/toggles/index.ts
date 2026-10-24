@@ -12,9 +12,11 @@ function toggle(id: string, what: string, kind: (c: Clip, ctx: ActionContext) =>
     description: `Toggle the ${what} between hidden (opacity 0%) and shown (100%): the selected ${what} clips, else every one on the timeline. Any of them showing: all are hidden; else all are shown`,
     args: z.strictObject({}),
     resolve: (_, ctx) => {
-      const all = ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips.filter((c) => kind(c, ctx)));
-      const picked = all.filter((c) => ctx.session.selection.includes(c.id));
-      const clips = picked.length ? picked : all;
+      const tracks = ctx.scope.tracks.map((t) => ({ locked: !!t.locked, clips: t.clips.filter((c) => kind(c, ctx)) }));
+      const picked = tracks.flatMap((t) => t.clips.filter((c) => ctx.session.selection.includes(c.id)).map((c) => ({ c, locked: t.locked })));
+      // A selection is what's meant even when it's locked: never every other one instead.
+      if (picked.length && picked.every((p) => p.locked)) throw new Error(`the selected ${what} is on a locked track`);
+      const clips = picked.length ? picked.filter((p) => !p.locked).map((p) => p.c) : tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
       if (!clips.length) throw new Error(`no ${what} on the timeline`);
       const field = `${group}.opacity`;
       const showing = clips.some((c) => of(c) > 0 || c.animations.some((a) => typeof a.to[field] === "number" && (a.to[field] as number) > 0));
