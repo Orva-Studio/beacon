@@ -53,8 +53,11 @@ interface AiHost {
 }
 
 /** The AI panel's tools: each reviews on the timeline (opening its review in the properties panel), then applies. */
-/** `online`: it always needs the internet (it calls a cloud service), whichever transcriber is chosen. */
-export const AI_TOOLS: { id: string; label: string; title: string; art: string; online?: boolean; start: (host: AiHost) => void }[] = [
+/**
+ * `online`: it always needs the internet (it calls a cloud service), whichever transcriber is chosen. `transcript:
+ * false`: it works without one (a prompt can be typed), so a transcriber that can't run offline doesn't stop it.
+ */
+export const AI_TOOLS: { id: string; label: string; title: string; art: string; online?: boolean; transcript?: false; start: (host: AiHost) => void }[] = [
   { id: "silences", label: "Remove Silences", title: "Shorten the pauses in speech, from its transcript (made on this Mac)", art: "remove-silences", start: (host) => review(host, "silences.review") },
   { id: "fillers", label: "Remove Filler Words", title: 'Cut "um", "uh" and the like where the transcript has them', art: "remove-fillers", start: (host) => review(host, "fillers.review") },
   { id: "retakes", label: "Remove Retakes", title: "Find lines said more than once (a restart, a sentence said again) and keep the best take", art: "remove-retakes", start: (host) => review(host, "retakes.review") },
@@ -63,6 +66,7 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
     label: "B-roll",
     title: "Add a B-roll clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size it on the canvas, pick a style, and make its footage with AI (on your Replicate account)",
     art: "b-roll",
+    transcript: false,
     // Prompt from Auto: its prompt written as soon as it is added (a clip added where nothing is said says so).
     start: (host) => {
       review(host, "broll.add");

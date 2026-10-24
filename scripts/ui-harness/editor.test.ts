@@ -487,7 +487,8 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     expect(await greyed()).toEqual([false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([true, true, true, true, true]);
+    // B-roll's prompt can be typed: it needs no transcript.
+    expect(await greyed()).toEqual([true, true, true, false, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.

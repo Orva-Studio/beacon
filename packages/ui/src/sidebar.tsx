@@ -231,8 +231,8 @@ function AiPanel({ host }: { host: Host }) {
           <ItemTile
             key={t.id}
             art={t.art}
-            title={t.online && !online ? "Needs the internet: you're offline" : offline ? `Needs a transcript ${offline} can't make offline` : t.title}
-            disabled={!!offline || (!!t.online && !online)}
+            title={t.online && !online ? "Needs the internet: you're offline" : offline && t.transcript !== false ? `Needs a transcript ${offline} can't make offline` : t.title}
+            disabled={(!!offline && t.transcript !== false) || (!!t.online && !online)}
             onClick={() => t.start(host)}
             data-ai={t.id}
           >
