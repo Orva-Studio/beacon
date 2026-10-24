@@ -2202,6 +2202,19 @@ in the Media Bin) to pick again. A placeholder without footage is a box in
 the editor and nothing in an export. Plan on a placeholder longer than the
 model makes splits it into shots. The review panel and its preview go.
 
+**Decided (the user, 2026-10-24, after trying it).**
+- **Styles** replace the Guide box: a Style menu on the clip (None; Film looks:
+  Documentary, Vintage film, Black and white, Timelapse; Product and tech: Tech
+  abstract, Studio product shot, Macro close-up) and the user's own, app-wide in
+  **Settings › AI › B-roll Styles**: typed (a name and its wording) or imported
+  from a text file (a `.md` skill or `.txt`), edited and deleted there.
+- **Prompt from: Auto or Transcript**, per clip, Auto by default: Auto writes
+  the prompt from the words under the clip in its style (as soon as the clip is
+  added); Transcript uses the words as said, with the style.
+- **The planner is Apple's on-device model by default** (macOS 26's Foundation
+  Models: free, offline, no key), OpenAI (`gpt-6.1-sol`, with web research) the
+  other choice in Settings › AI. Research shows only with OpenAI.
+
 **Progress (2026-10-23, `feat/ai-broll`).** Footage with a drawn region is
 built: the `broll` feature (review, `broll.plan`, `broll.generate`,
 `broll.apply`, `broll.estimate`), Settings › AI, the AI panel's B-roll tile,
