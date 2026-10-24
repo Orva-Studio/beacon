@@ -418,11 +418,17 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   const said = await core.query(h, "broll.words", { clip: brolls()[0]!.id });
   expect(said).toBe("word word word word");
   const narration = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio").map((c) => c.id);
-  await core.run(h, "clip.group", { clips: narration });
+  const group = (await core.run(h, "clip.group", { clips: narration })).results[0] as string;
   expect(await core.query(h, "broll.words", { clip: brolls()[0]!.id })).toBe(said);
-  await core.undo(h);
-  await core.undo(h);
-  await core.undo(h);
+  // Grouped again, a group in a group; then sped up (20–22 s now hears 25–27.5 s of the talk: five words, not four); then its track muted.
+  const outer = (await core.run(h, "clip.group", { clips: [group] })).results[0] as string;
+  expect(await core.query(h, "broll.words", { clip: brolls()[0]!.id })).toBe(said);
+  await core.run(h, "clip.speed", { clips: [outer], speed: 1.25 });
+  expect(await core.query(h, "broll.words", { clip: brolls()[0]!.id })).toBe("word word word word word");
+  const parent = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === outer))!;
+  await core.run(h, "track.set", { track: parent.id, muted: true });
+  expect(await core.query(h, "broll.words", { clip: brolls()[0]!.id })).toBe("");
+  for (let n = 0; n < 6; n++) await core.undo(h);
 
   // Made in numbered steps with a clock; checks that fail are tried again rather than losing the footage.
   await core.run(h, "broll.add", { time: 20, duration: 2, prompt: "[steps] a field" });

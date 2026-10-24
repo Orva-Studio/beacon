@@ -26,6 +26,7 @@ import {
   type Session,
   type SessionCommandDef,
   type TaskEnv,
+  type Track,
 } from "@beacon/model";
 import { streamOf, visualSize } from "../media";
 import { timelineWords } from "../transcript";
@@ -514,18 +515,28 @@ function tracker(env: TaskEnv, model: (key: string) => string, total: number) {
 }
 
 /**
- * The words heard on the timeline and inside its groups, opened or not (their clips at main-timeline times, within
- * each group's span): narration grouped with its picture counts too.
+ * The words heard on the timeline and inside its groups at every level, opened or not, on unmuted tracks: each
+ * group's words mapped through its start and speed onto the timeline, within its span. Narration grouped with its
+ * picture counts too.
  */
 function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
   const nested = nestedOf(ctx.registry);
-  const inner = ctx.project.tracks.flatMap((t) => t.clips).flatMap((g) => {
-    const scope = editScope(ctx.project, g.id, nested);
-    if (!scope.group) return [];
-    const [from, to] = [ticksToSeconds(g.start), ticksToSeconds(clipEnd(g))];
-    return timelineWords(scopedProject(ctx.project, scope), ctx.registry, ctx.data).filter((w) => w.end > from && w.start < to);
-  });
-  return [...timelineWords(ctx.project, ctx.registry, ctx.data), ...inner].sort((a, b) => a.start - b.start);
+  const heard = (tracks: Track[]): { text: string; start: number; end: number }[] => [
+    ...timelineWords({ ...ctx.project, tracks }, ctx.registry, ctx.data),
+    ...tracks
+      .filter((t) => !t.muted)
+      .flatMap((t) => t.clips)
+      .flatMap((g) => {
+        const inner = nested(g);
+        if (!inner) return [];
+        const [from, to, at, speed] = [ticksToSeconds(g.start), ticksToSeconds(clipEnd(g)), ticksToSeconds(g.mediaStart ?? 0), clipSpeed(g)];
+        const out = (s: number) => from + (s - at) / speed;
+        return heard(inner)
+          .map((w) => ({ ...w, start: out(w.start), end: out(w.end) }))
+          .filter((w) => w.end > from && w.start < to);
+      }),
+  ];
+  return heard(ctx.project.tracks).sort((a, b) => a.start - b.start);
 }
 
 /** What is said under a clip on the timeline, from the transcript already made (by whichever transcriber). */
