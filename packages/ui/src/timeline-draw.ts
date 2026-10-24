@@ -182,7 +182,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
   const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
   if (caption) return wordsInWindow(clip, caption).map((w) => w.text).join(" ") || "Caption";
   // B-roll without footage yet: what it will show.
-  if (clip.type === "broll") return (clip.props.broll as { prompt?: string } | undefined)?.prompt?.trim() || "B-roll";
+  if (clip.type === "broll") return ((b) => (b?.source === "manual" ? b.manual : b?.prompt))(clip.props.broll as { prompt?: string; manual?: string; source?: string } | undefined)?.trim() || "B-roll";
   const region = (clip.props.region as { kind?: string } | undefined)?.kind;
   if (region) return region[0]!.toUpperCase() + region.slice(1);
   return clip.type;

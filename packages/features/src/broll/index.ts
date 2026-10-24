@@ -53,8 +53,10 @@ const brollGroup = z.strictObject({
   why: z.string(),
   /** How it looks: a style's id (built in, or the user's own in Settings › AI). */
   style: z.string(),
-  /** Where its prompt comes from: written by the planner ("auto"), or typed ("manual", starting from the words said under it). */
+  /** Which prompt it is made from: the one the planner wrote (`prompt`, "auto"), or the one typed (`manual`). */
   source: z.enum(["auto", "manual"]),
+  /** The prompt typed (Manual), starting from the words said under the clip; kept while Auto is chosen. */
+  manual: z.string().max(2000),
   /** Plan searches the web for what is said (OpenAI's planner only). */
   research: z.boolean(),
   /** As `{ assetId }`, so copying and pasting the clip carries every take along (any `assetId` is a reference). */
@@ -132,7 +134,7 @@ function covering([W, H]: [number, number], [x, y, w, h]: Rect, project: Project
 function placeholder(region: Rect, project: Project, props: Partial<BrollProps> = {}) {
   const [x, y, w, h] = region;
   return {
-    broll: { prompt: "", why: "", style: NONE, source: "auto", research: true, takes: [], ...props } satisfies BrollProps,
+    broll: { prompt: "", why: "", style: NONE, source: "auto", manual: "", research: true, takes: [], ...props } satisfies BrollProps,
     brollBox: { width: w, height: h },
     transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 },
   };
@@ -532,7 +534,8 @@ export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "reg
 function promptFor(clip: Clip, ctx: ActionContext): string {
   const b = brollOf(clip)!;
   const look = styleOf(b.style, ctx.pref).text.slice(0, PROMPT_STYLE_CHARS);
-  if (b.prompt.trim()) return b.source === "auto" ? b.prompt.trim() : [b.prompt.trim(), look].filter(Boolean).join(" ");
+  if (b.source === "auto" && b.prompt.trim()) return b.prompt.trim();
+  if (b.source === "manual" && b.manual.trim()) return [b.manual.trim(), look].filter(Boolean).join(" ");
   const words = wordsUnder(clip, ctx);
   if (!words) throw new Error("nothing is said under this B-roll clip: type a prompt (Prompt: Manual)");
   return [`Footage illustrating: "${words}".`, look].filter(Boolean).join(" ");
@@ -693,11 +696,13 @@ function stylesNotGuides(doc: unknown): unknown {
   return doc;
 }
 
-/** v4: Prompt from Transcript became Manual (the user, 2026-10-24); its empty prompt still means the words said. */
+/** v4: Prompt from Transcript became Manual, typed in a prompt of its own (the user, 2026-10-24); empty, it is still the words said. */
 function manualNotTranscript(doc: unknown): unknown {
   eachRawClip(doc, (o) => {
     const b = o.props?.broll as Record<string, unknown> | undefined;
-    if (b?.source === "transcript") Object.assign(b, { source: "manual", prompt: "", why: "" });
+    if (!b) return;
+    b.manual ??= "";
+    if (b.source === "transcript") b.source = "manual";
   });
   return doc;
 }
@@ -714,12 +719,12 @@ export const broll = defineFeature({
   props: [
     {
       id: "broll",
-      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, written by Plan; manual, typed, with the style's wording added), research for OpenAI's planner, and the takes made (`{ assetId }`)",
+      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, `prompt` as Plan wrote it; manual, `manual` as typed, with the style's wording added), research for OpenAI's planner, and the takes made (`{ assetId }`)",
       traits: ["broll"],
       // Beside Visual Properties (1), where annotations have theirs.
       tab: { title: "B-roll", icon: "sparkle", order: 2 },
       schema: brollGroup,
-      defaults: () => ({ prompt: "", why: "", style: NONE, source: "auto", research: true, takes: [] }),
+      defaults: () => ({ prompt: "", why: "", style: NONE, source: "auto", manual: "", research: true, takes: [] }),
       identity: true,
     },
     {

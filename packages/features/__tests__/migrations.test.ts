@@ -97,15 +97,15 @@ test("broll v3: a B-roll clip's guide gives way to a style (None) and where its 
   doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", guide: "keep it abstract", research: true, takes: [] } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
   expect(out.features.broll).toBe(4);
-  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "", style: "none", source: "auto", research: true, takes: [] });
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "", style: "none", source: "auto", manual: "", research: true, takes: [] });
 });
 
-test("broll v4: Prompt from Transcript becomes Manual with an empty prompt, still the words said", () => {
+test("broll v4: Prompt from Transcript becomes Manual, its typed prompt empty (still the words said), Auto's kept", () => {
   const registry = createRegistry();
   const doc = createProject(registry) as any;
   doc.features.broll = 3;
   doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "because", style: "none", source: "transcript", research: true, takes: [] } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
   expect(out.features.broll).toBe(4);
-  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "", why: "", style: "none", source: "manual", research: true, takes: [] });
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "because", style: "none", source: "manual", manual: "", research: true, takes: [] });
 });

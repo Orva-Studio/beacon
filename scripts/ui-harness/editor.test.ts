@@ -46,6 +46,14 @@ const timelinePlaces = async (clipId: string) => {
   const [box, header] = [await timelineBox(), headerWidth(tracks)];
   return { ...clipBox(row, s.timeline.trackHeight, s.timeline.top ?? 0), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
 };
+/** Where a clip's middle (or its visible part's) is on the page. */
+const timelineClipCentre = async (id: string): Promise<[number, number]> => {
+  const { box, xAt, y, h } = await timelinePlaces(id);
+  const c = clip(id);
+  const s = await session();
+  const [a, b] = [Math.max(ticksToSeconds(c.start), s.timeline.start), Math.min(ticksToSeconds(c.start + c.duration), s.timeline.end)];
+  return [box.x + xAt((a + b) / 2), box.y + y + h / 2];
+};
 /** Page code reading a timeline canvas pixel's RGB (canvas points) as "r,g,b". */
 const timelinePixel = (x: number, y: number) =>
   `(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${y} * k), 1, 1).data].slice(0, 3).join(); })()`;
@@ -3896,7 +3904,8 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     return out;
   };
   const writer = join(dir, "beacon-writer");
-  writeFileSync(writer, `#!/bin/sh\nif grep -q "16mm" "$1"; then echo '{"prompt":"A grainy 16mm scene","why":"v"}'; else echo '{"prompt":"An on-device scene","why":"d"}'; fi\n`, { mode: 0o755 });
+  const writes = join(dir, "broll-writes");
+  writeFileSync(writer, `#!/bin/sh\necho x >> "${writes}"\nif grep -q "16mm" "$1"; then echo '{"prompt":"A grainy 16mm scene","why":"v"}'; else echo '{"prompt":"An on-device scene","why":"d"}'; fi\n`, { mode: 0o755 });
   const made = new Map<string, Record<string, unknown>>();
   const fake = Bun.serve({
     port: 0,
@@ -3923,7 +3932,7 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
   process.env.BEACON_REPLICATE_POLL_MS = "50";
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const broll = () => clips().find((c) => c.type === "broll");
-  const props = () => broll()!.props.broll as { prompt: string; style: string; source: string };
+  const props = () => broll()!.props.broll as { prompt: string; style: string; source: string; manual: string };
   // The tab is taller than the window: its controls are scrolled to before they are used.
   const press = async (selector: string) => {
     await page.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: "center" })`);
@@ -3960,14 +3969,32 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     await choose("[data-broll-style]", "my-16mm");
     await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'", 20_000);
     expect(props().style).toBe("my-16mm");
+    // Written once: picking another clip and this one again doesn't write it anew.
+    const written = readFileSync(writes, "utf8").length;
+    await page.click(...(await timelineClipCentre(callout.id)));
+    await page.until(`!document.querySelector('[data-broll-tab]')`);
+    await page.click(...(await timelineClipCentre(clip.id)));
+    await page.until(`!!document.querySelector('[data-broll-tab]')`);
+    await Bun.sleep(1500);
+    expect(readFileSync(writes, "utf8").length).toBe(written);
 
     // Auto's prompt is read only; Manual is typed, starting from the words said under it.
     expect(await has("textarea[data-broll-prompt]")).toBe(false);
     await press('[data-broll-source] button:nth-child(2)');
     await page.until("!!document.querySelector('textarea[data-broll-prompt]')");
     const words = (await ui.core.query(ui.handle, "broll.words", { clip: clip.id })) as string;
-    expect(props()).toMatchObject({ source: "manual", prompt: words, why: "" });
+    expect(props()).toMatchObject({ source: "manual", manual: words, prompt: "A grainy 16mm scene" });
     await page.until(`document.querySelector('textarea[data-broll-prompt]').value === ${JSON.stringify(words)}`);
+    // Back to Auto and to Manual again: each keeps its prompt, Auto's not written anew, Manual's as typed.
+    await run("clip.set", { clip: clip.id, props: { broll: { manual: `${words} at dusk` } } });
+    await press('[data-broll-source] button:nth-child(1)');
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
+    await press('[data-broll-source] button:nth-child(1)');
+    await press('[data-broll-source] button:nth-child(2)');
+    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === ${JSON.stringify(`${words} at dusk`)}`);
+    await Bun.sleep(500);
+    expect(readFileSync(writes, "utf8").length).toBe(written);
+    await run("clip.set", { clip: clip.id, props: { broll: { manual: words } } });
 
     // No Replicate token: the tab says so, with the way to Settings › AI, where the planner is Apple's by default.
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Generate')");

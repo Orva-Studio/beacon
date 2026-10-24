@@ -53,8 +53,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const making = state.making.includes(clip.id);
   const busy = planning || making;
   const error = state.errors[clip.id];
-  const [prompt, setPrompt] = useState(b.prompt);
-  useEffect(() => setPrompt(b.prompt), [b.prompt]);
+  const [manual, setManual] = useState(b.manual);
+  useEffect(() => setManual(b.manual), [b.manual]);
   const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
@@ -77,7 +77,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const takes = b.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
   // Something to make it from: its prompt, or (still empty) the words said.
-  const prompted = !!prompt.trim() || !!said;
+  const prompted = !!(auto ? b.prompt : manual).trim() || !!said;
   const ready = prompted && !!estimate && !busy && !tooLong && !over;
   const groups = [...new Set((styles ?? []).map((s) => s.group))];
   return (
@@ -124,12 +124,10 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               { value: "manual", label: "Manual", icon: null },
             ]}
             onChange={(source) => {
-              // Manual starts from the words said; Auto writes its own.
-              if (source === "manual") set({ source, prompt: said ?? "", why: "" }, "B-roll Prompt: Manual");
-              else {
-                set({ source, prompt: "", why: "" }, "B-roll Prompt: Auto");
-                host.run("broll.plan", { clip: clip.id });
-              }
+              if (source === b.source) return;
+              // Each keeps its prompt: Manual's starts from the words said, Auto's is written once.
+              set(source === "manual" && !b.manual ? { source, manual: said ?? "" } : { source }, source === "manual" ? "B-roll Prompt: Manual" : "B-roll Prompt: Auto");
+              if (source === "auto" && !b.prompt) host.run("broll.plan", { clip: clip.id });
             }}
             data-broll-source
           />
@@ -139,9 +137,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
             <div className={`rounded-md bg-groove px-3 py-2 text-caption ${b.prompt ? "text-text" : "text-text-faint"}`} data-broll-prompt>
               {planning ? "Writing the prompt…" : b.prompt || "Written from the words under the clip, in its style"}
             </div>
-            {b.why && <span className="text-caption text-text-faint">{b.why}</span>}
             <div className="flex items-center gap-2">
-              <Button look="quiet" disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
+              <Button disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
                 {planning ? "Writing…" : b.prompt ? "Write Again" : "Write the Prompt"}
               </Button>
               {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
@@ -152,7 +149,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           </div>
         ) : (
           <label className="flex flex-col gap-1">
-            <TextArea rows={4} placeholder={said || "Describe the shot"} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
+            <TextArea rows={4} placeholder={said || "Describe the shot"} value={manual} onChange={(e) => setManual(e.target.value)} onBlur={() => manual !== b.manual && set({ manual }, "B-roll Prompt")} data-broll-prompt />
             <span className="text-caption text-text-faint">Starts from the words said under the clip; the style's wording is added.</span>
           </label>
         )}
@@ -163,7 +160,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               {takes.map((id) => (
                 <option key={id} value={id}>
                   {info(id)?.model ?? assetName(project.assets[id]!)} · {dollars(info(id)?.cost ?? 0)}
-                  {info(id) && info(id)!.prompt !== b.prompt ? " · earlier prompt" : ""}
+                  {info(id) && info(id)!.prompt !== (auto ? b.prompt : b.manual) ? " · earlier prompt" : ""}
                 </option>
               ))}
             </Select>
