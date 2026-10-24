@@ -212,16 +212,14 @@
       "command": "edit.unlink"
     },
     {
-      "id": "cursor.toggle",
-      "name": "Toggle Cursor",
-      "command": "cursor.toggle",
-      "palette": true
+      "id": "camera.toggle",
+      "name": "Toggle: Camera",
+      "command": "camera.toggle"
     },
     {
-      "id": "camera.toggle",
-      "name": "Toggle Camera",
-      "command": "camera.toggle",
-      "palette": true
+      "id": "cursor.toggle",
+      "name": "Toggle: Cursor",
+      "command": "cursor.toggle"
     },
     {
       "id": "edit.lockTrack",

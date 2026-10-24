@@ -34,8 +34,6 @@ export interface ActionListing {
   description?: string;
   /** Why its keys can't be changed (Cut, Copy and Paste are macOS's own). */
   fixed?: string;
-  /** Listed in the command palette too, under Commands. */
-  palette?: boolean;
 }
 
 /** An action with its keys, as Settings › Shortcuts and the palette list it. */
@@ -49,7 +47,6 @@ export interface ShortcutInfo {
   /** Whether `keys` are the default ones. */
   standard: boolean;
   fixed?: string;
-  palette?: boolean;
 }
 
 const NAMED: Record<string, string> = {

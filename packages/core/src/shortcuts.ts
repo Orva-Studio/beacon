@@ -37,7 +37,6 @@ export function shortcutList(overrides: KeymapOverrides, describe: (command: str
       keys: own && !a.fixed ? own : defaultKeys(a.id),
       standard: !own || !!a.fixed,
       ...(a.fixed ? { fixed: a.fixed } : {}),
-      ...(a.palette ? { palette: true } : {}),
     };
   });
 }

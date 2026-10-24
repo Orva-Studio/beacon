@@ -1398,6 +1398,28 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   await page.until("!document.querySelector('[data-leader]')");
   await arrived(() => (clip(audio.id).props.label as { color?: string } | undefined)?.color === "red");
   expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Color Label");
+  // : t, the Toggle group: c hides the camera, p the cursor (every one, with none selected).
+  const selected = [...(await session()).selection];
+  await select([]);
+  const camera = () => clips().find((c) => c.type === "video" && ui.core.doc(ui.handle).assets[c.assetId ?? ""]?.kind === "recording")!;
+  const shown2 = (c: { props: Record<string, unknown> }, group: string) => (c.props[group] as { opacity?: number } | undefined)?.opacity ?? 1;
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("t", "KeyT");
+  await page.until("[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent === 'CCamera')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)")).toContain("PCursor");
+  await page.key("c", "KeyC");
+  await arrived(() => shown2(camera(), "transform") === 0);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Hide Camera");
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("t", "KeyT");
+  await page.key("p", "KeyP");
+  await arrived(() => shown2(clips().find((c) => c.type === "screen")!, "cursor") === 0);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Hide Cursor");
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await select(selected);
   // Esc, a click elsewhere and a key that follows nothing each drop it, doing nothing.
   const playhead = (await session()).playhead;
   await semi();
@@ -1543,7 +1565,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-7)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:captions", "action:cursor.toggle", "action:camera.toggle"]);
+  expect(all.slice(-5)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -1576,17 +1598,6 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await clear();
   await type("pauses");
   await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'ai:silences'");
-  // A command: Toggle Camera hides the recording's camera, and again shows it.
-  await clear();
-  await type("toggle camera");
-  await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'action:camera.toggle'");
-  await page.key("Enter", "Enter");
-  const camera = () => clips().find((c) => c.type === "video" && ui.core.doc(ui.handle).assets[c.assetId ?? ""]?.kind === "recording")!;
-  await arrived(() => (camera().props.transform as { opacity: number }).opacity === 0);
-  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Hide Camera");
-  await ui.core.undo(ui.handle);
-  await page.key("k", "KeyK", ["meta"]);
-  await open();
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-palette]')");
   await select([]);
