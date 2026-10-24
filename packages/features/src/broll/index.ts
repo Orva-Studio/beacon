@@ -557,9 +557,26 @@ function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
   return heard(ctx.project.tracks).sort((a, b) => a.start - b.start);
 }
 
+/** Where a clip plays on the timeline, in seconds, inside groups at any level too: through each group's start and speed. */
+function timelineSpan(id: string, project: Project, registry: FeatureRegistry): [number, number] | undefined {
+  const nested = nestedOf(registry);
+  const find = (tracks: Track[]): [number, number] | undefined => {
+    for (const c of tracks.flatMap((t) => t.clips)) {
+      if (c.id === id) return [ticksToSeconds(c.start), ticksToSeconds(clipEnd(c))];
+      const inner = nested(c);
+      const span = inner && find(inner);
+      if (!span) continue;
+      const out = (s: number) => ticksToSeconds(c.start) + (s - ticksToSeconds(c.mediaStart ?? 0)) / clipSpeed(c);
+      return [out(span[0]), out(span[1])];
+    }
+    return undefined;
+  };
+  return find(project.tracks);
+}
+
 /** What is said under a clip on the timeline, from the transcript already made (by whichever transcriber). */
 export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "registry" | "data">): string {
-  const [from, to] = [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
+  const [from, to] = timelineSpan(clip.id, ctx.project, ctx.registry) ?? [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
   return heardWords(ctx)
     .filter((w) => w.end > from && w.start < to)
     .map((w) => w.text)
@@ -842,9 +859,7 @@ export const broll = defineFeature({
       description: "What is said under a B-roll clip (from the transcripts already made, narration inside groups too): what an empty prompt is made from",
       args: z.strictObject({ clip: z.string().min(1) }),
       run: ({ clip: id }, { project, registry, data }) => {
-        // Inside a group, opened or not: at its main-timeline time.
-        const at = findClip(project, registry, id);
-        return wordsUnder({ ...at.clip, start: at.clip.start + at.offset }, { project, registry, data });
+        return wordsUnder(findClip(project, registry, id).clip, { project, registry, data });
       },
     }),
     defineQuery({

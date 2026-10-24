@@ -400,6 +400,18 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   const heard = await core.query(h, "broll.words", { clip: second.id });
   const group = (await core.run(h, "clip.group", { clips: [second.id] })).results[0] as string;
   expect(await core.query(h, "broll.words", { clip: second.id })).toBe(heard);
+  // The group sped up (twice as fast), the clip plays in half the time from the group's start: the words there.
+  const g0 = ticksToSeconds(core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === group)!.start);
+  await core.run(h, "clip.speed", { clips: [group], speed: 2 });
+  const placed = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === group)!;
+  const inner = (placed.props.group as { tracks: { clips: Clip[] }[] }).tracks.flatMap((t) => t.clips).find((c) => c.id === second.id)!;
+  const local = (t: number) => g0 + (ticksToSeconds(t) - ticksToSeconds(placed.mediaStart ?? 0)) / 2;
+  const ids = new Set(brolls().map((c) => c.id));
+  await core.run(h, "broll.add", { time: local(inner.start), duration: local(inner.start + inner.duration) - local(inner.start) });
+  const twin = brolls().find((c) => !ids.has(c.id))!;
+  expect(await core.query(h, "broll.words", { clip: second.id })).toBe(await core.query(h, "broll.words", { clip: twin.id }));
+  await core.undo(h);
+  await core.undo(h);
   await core.run(h, "group.open", { clip: group });
   const priced = (await core.query(h, "broll.estimate", { clips: [second.id] })) as { clips: unknown[] };
   expect(priced.clips).toHaveLength(1);
