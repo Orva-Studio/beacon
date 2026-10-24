@@ -776,13 +776,23 @@ function manualNotTranscript(doc: unknown): unknown {
   return doc;
 }
 
+/** v5: Manual's own prompt for projects saved at v4 before it had one. */
+function manualPrompt(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as Record<string, unknown> | undefined;
+    if (b) b.manual ??= "";
+  });
+  return doc;
+}
+
 export const broll = defineFeature({
   id: "broll",
-  version: 4,
+  version: 5,
   migrations: [
     { version: 2, migrate: takesAsRefs },
     { version: 3, migrate: stylesNotGuides },
     { version: 4, migrate: manualNotTranscript },
+    { version: 5, migrate: manualPrompt },
   ],
   clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
   props: [
