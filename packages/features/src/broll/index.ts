@@ -114,7 +114,8 @@ export function regionOfClip(clip: Clip, project: Project, registry: FeatureRegi
   const [W, H] = visualSize(project, registry, clip) ?? [project.settings.width, project.settings.height];
   const t = { x: 0, y: 0, scaleX: 1, scaleY: 1, ...(clip.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY", number>> | undefined) };
   const c = { left: 0, top: 0, right: 0, bottom: 0, ...(clip.props.crop as Partial<Record<"left" | "top" | "right" | "bottom", number>> | undefined) };
-  const [w, h] = [(W - c.left - c.right) * t.scaleX, (H - c.top - c.bottom) * t.scaleY];
+  // A flip (a negative scale) mirrors the picture in place: the region is the same size.
+  const [w, h] = [Math.abs((W - c.left - c.right) * t.scaleX), Math.abs((H - c.top - c.bottom) * t.scaleY)];
   const cx = project.settings.width / 2 + t.x + ((c.left - c.right) / 2) * t.scaleX;
   const cy = project.settings.height / 2 - t.y + ((c.top - c.bottom) / 2) * t.scaleY;
   return [cx - w / 2, cy - h / 2, w, h];
@@ -161,6 +162,9 @@ const commands = [
       const fit = covering([s.width!, s.height!], region, doc);
       // Animated scale ends are in the old picture's pixels: rescaled with it, a zoom still zooms the same.
       const was = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
+      // A flipped clip stays flipped.
+      fit.transform.scaleX *= Math.sign(was.scaleX) || 1;
+      fit.transform.scaleY *= Math.sign(was.scaleY) || 1;
       for (const a of c.animations ?? []) {
         for (const axis of ["scaleX", "scaleY"] as const) {
           const v = a.to[`transform.${axis}`];
@@ -531,9 +535,10 @@ function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
         if (!inner) return [];
         const [from, to, at, speed] = [ticksToSeconds(g.start), ticksToSeconds(clipEnd(g)), ticksToSeconds(g.mediaStart ?? 0), clipSpeed(g)];
         const out = (s: number) => from + (s - at) / speed;
+        // A word cut by the group's trim is heard only as far as the group plays.
         return heard(inner)
-          .map((w) => ({ ...w, start: out(w.start), end: out(w.end) }))
-          .filter((w) => w.end > from && w.start < to);
+          .map((w) => ({ ...w, start: Math.max(from, out(w.start)), end: Math.min(to, out(w.end)) }))
+          .filter((w) => w.end > w.start);
       }),
   ];
   return heard(ctx.project.tracks).sort((a, b) => a.start - b.start);

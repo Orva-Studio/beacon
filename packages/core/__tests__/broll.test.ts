@@ -341,6 +341,17 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   const picked = brolls()[1]!;
   expect(picked.assetId).toBe(flux);
   expect(regionOfClip(picked, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
+  // Flipped, then given another take: still flipped, over the same region, its crop as unflipped.
+  const tr = (c: Clip) => c.props.transform as { scaleX: number; scaleY: number };
+  await core.run(h, "clip.set", { clip: second.id, props: { transform: { scaleX: -tr(picked).scaleX } } });
+  expect(regionOfClip(brolls()[1]!, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
+  await core.run(h, "broll.use", { clip: second.id, asset: takes.find((t) => t.assetId !== flux)!.assetId });
+  const flipped = brolls()[1]!;
+  expect(tr(flipped).scaleX).toBeLessThan(0);
+  expect(tr(flipped).scaleY).toBeGreaterThan(0);
+  expect(regionOfClip(flipped, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
+  await core.undo(h);
+  await core.undo(h);
   await core.run(h, "broll.use", { clip: second.id, asset: second.assetId! });
 
   // Planned again with footage: one shot, a new prompt; the footage stays (its box went with it, so no split).
