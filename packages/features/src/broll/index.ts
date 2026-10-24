@@ -130,8 +130,9 @@ export function regionOfClip(clip: Clip, project: Project, registry: FeatureRegi
 function covering([W, H]: [number, number], [w, h]: [number, number], [dx, dy]: [number, number]) {
   const k = Math.max(w / W, h / H);
   const [totalX, totalY] = [Math.max(0, W - w / k), Math.max(0, H - h / k)];
-  const [offX, offY] = [dx / k, dy / k];
-  // Never below 0 (the crop schema's floor): footage too narrow to keep the offset is cropped as far as it goes.
+  // Footage with too little to spare keeps its visible size: the offset goes only as far as the spare picture does.
+  const [offX, offY] = [Math.min(totalX, Math.max(-totalX, dx / k)), Math.min(totalY, Math.max(-totalY, dy / k))];
+  // Never below 0 (the crop schema's floor): a float's last bit can make a side a hair negative.
   const side = (total: number, off: number): [number, number] => [Math.max(0, (total + off) / 2), Math.max(0, (total - off) / 2)];
   const [left, right] = side(totalX, offX);
   const [top, bottom] = side(totalY, offY);

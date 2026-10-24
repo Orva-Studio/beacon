@@ -375,8 +375,10 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   // Cropped further off-centre than the footage can spare: what the crop can't keep, the clip's place does.
   await core.run(h, "clip.set", { clip: second.id, props: { crop: { left: 400, right: 0, top: 200, bottom: 0 } } });
   const far = visibleCentre(brolls()[1]!);
+  const size = (c: Clip) => regionOfClip(c, core.doc(h), core.registry).slice(2).map((v) => Math.round(v * 100) / 100);
+  const sized = size(brolls()[1]!);
   await core.run(h, "broll.use", { clip: second.id, asset: brolls()[1]!.assetId! });
-  expect(visibleCentre(brolls()[1]!)).toEqual(far);
+  expect([visibleCentre(brolls()[1]!), size(brolls()[1]!)]).toEqual([far, sized]);
   await core.undo(h);
   await core.undo(h);
   await core.undo(h);
