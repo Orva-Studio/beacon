@@ -149,9 +149,10 @@ const commands = [
       "Show `asset` (footage B-roll made) in a B-roll clip: the clip plays it from its start, scaled and cropped to the region it covers now, and keeps it among its takes. Picking an earlier take is the same command",
     args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1) }),
     apply(doc, { clip, asset }, ctx) {
-      const { clip: c } = findClip(doc, ctx.registry, clip);
+      const { clip: c, track } = findClip(doc, ctx.registry, clip);
       const b = brollOf(c);
       if (c.type !== "broll" || !b) throw new Error(`clip "${clip}" isn't B-roll`);
+      if (track.locked) throw new Error(`track "${track.name}" is locked`);
       const a = doc.assets[asset];
       if (!a) throw new Error(`no asset "${asset}"`);
       const s = streamOf(a, "video", 0);
@@ -445,21 +446,27 @@ function finished(env: TaskEnv, results: Made[], clips: string[], label: string)
   if (!made.length) throw new Error(failed[0]?.error ?? "nothing was made");
   env.progress(1, [`${made.length} made, in the project's media/B-roll folder`, failed.length ? `${failed.length} failed: ${failed[0]!.error}` : ""].filter(Boolean).join("; "));
   return (ctx: ActionContext) => {
-    // Grouped meanwhile, a clip is inside its group: still there.
-    const there = (id: string) => {
+    // Grouped meanwhile, a clip is inside its group: still there. Locked meanwhile, it is left as it is.
+    const where = (id: string) => {
       try {
-        return !!findClip(ctx.project, ctx.registry, id);
+        return findClip(ctx.project, ctx.registry, id);
       } catch {
-        return false;
+        return undefined;
       }
     };
     const steps: ActionStep[] = [];
+    const locked: string[] = [];
     for (const m of made) {
       const added = steps.length;
       steps.push({ command: "asset.add", args: m.asset });
-      if (there(m.clip)) steps.push({ command: "broll.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added] }) });
+      const at = where(m.clip);
+      if (at?.track.locked) locked.push(m.clip);
+      else if (at) steps.push({ command: "broll.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added] }) });
     }
-    const errors = failed.filter((f) => !made.some((m) => m.clip === f.clip));
+    const errors = [
+      ...failed.filter((f) => !made.some((m) => m.clip === f.clip)),
+      ...locked.map((clip) => ({ clip, error: "its track is locked: the footage is in the Media Bin" })),
+    ];
     return {
       label,
       steps,

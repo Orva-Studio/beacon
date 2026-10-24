@@ -386,6 +386,19 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(brolls()[0]!.assetId).toBe(first.assetId);
   expect((await state())!.errors[first.id]).toMatch(/the model refused the prompt/);
 
+  // On a locked track, footage isn't put in the clip: picking a take is refused, and a take made meanwhile stays in the Media Bin.
+  await core.run(h, "clip.set", { clip: first.id, props: { broll: { prompt: "a street" } } });
+  const track = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === first.id))!;
+  const making = jobOf(await core.run(h, "broll.generate", { clips: [first.id] }));
+  await core.run(h, "track.set", { track: track.id, locked: true });
+  const assets = Object.keys(core.doc(h).assets).length;
+  await waitJob(core, making);
+  expect(Object.keys(core.doc(h).assets)).toHaveLength(assets + 1);
+  expect(brolls()[0]!.assetId).toBe(first.assetId);
+  expect((await state())!.errors[first.id]).toMatch(/track is locked/);
+  await expect(core.run(h, "broll.use", { clip: first.id, asset: props(brolls()[0]!).takes[0]!.assetId })).rejects.toThrow(/is locked/);
+  await core.run(h, "track.set", { track: track.id, locked: false });
+
   // Every step undone, the document is as it was before the clip was added; the canvas too.
   for (let n = (await core.history(h)).undo.length - steps; n > 0; n--) await core.undo(h);
   expect(core.doc(h)).toEqual(start);

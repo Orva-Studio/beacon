@@ -87,6 +87,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           <span className="text-label font-medium text-text-muted">Style</span>
           <Select
             value={b.style}
+            // A prompt being written is in the style it started with: changed once it's done.
+            disabled={busy}
             onChange={(e) => {
               if (e.target.value === ADD) return void host.app("app.settings:ai");
               set({ style: e.target.value }, "B-roll Style");
