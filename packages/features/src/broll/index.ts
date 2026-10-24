@@ -10,7 +10,6 @@ import {
   defineQuery,
   findClip,
   secondsToTicks,
-  snapSeconds,
   ticksToSeconds,
   type ActionContext,
   type ActionStep,
@@ -214,12 +213,13 @@ const brollAdd = defineAction({
     const length = range ? range.out - range.in : (duration ?? PLACEHOLDER_SECONDS);
     const { width, height } = ctx.project.settings;
     const props = placeholder(region ?? [0, 0, width, height], ctx.project, prompt ? { prompt } : {});
-    // An existing B-roll track free over the span takes it; else a new one above the talk.
-    const free = ctx.project.tracks.find((t) => t.name === "B-roll" && !t.locked && t.clips.every((c) => ticksToSeconds(clipEnd(c)) <= from || ticksToSeconds(c.start) >= from + length));
+    // An existing B-roll track above the talk, free over the span, takes it; else a new one above the talk.
+    const above = trackIndex(ctx.project, ctx.registry, from, from + length);
+    const free = ctx.project.tracks.find((t, i) => i >= above && t.name === "B-roll" && !t.locked && t.clips.every((c) => ticksToSeconds(clipEnd(c)) <= from || ticksToSeconds(c.start) >= from + length));
     const steps: ActionStep[] = free
       ? [{ command: "clip.place", args: { type: "broll", props, duration: length, time: from, track: free.id } }]
       : [
-          { command: "track.add", args: { name: "B-roll", index: trackIndex(ctx.project, ctx.registry, from, from + length) } },
+          { command: "track.add", args: { name: "B-roll", index: above } },
           { command: "clip.place", args: (r: unknown[]) => ({ type: "broll", props, duration: length, time: from, track: r[0] }) },
         ];
     return {
@@ -284,24 +284,18 @@ const brollPlan = defineAction({
           if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer clip");
           env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
           return (now) => {
-            const loc = now.project.tracks.flatMap((t) => t.clips.map((c) => ({ c, t }))).find((x) => x.c.id === clip.id);
+            const loc = now.project.tracks.flatMap((t) => t.clips.map((c) => ({ c }))).find((x) => x.c.id === clip.id);
             if (!loc) throw new Error("the B-roll clip was deleted while it was planned");
             if (JSON.stringify([loc.c.start, loc.c.duration]) !== shape) throw new Error("the B-roll clip was moved or trimmed while it was planned: plan it again");
             const done = [{ command: "broll.status", args: { clips: [clip.id], planning: false } }];
             if (shots.length === 1) return { label: "Plan B-roll", steps: [{ command: "clip.set", args: { clip: clip.id, props: { broll: { prompt: shots[0]!.prompt, why: shots[0]!.why } } } }], after: () => done };
-            // Split: one placeholder per shot, each over its span, in the same place. Shared boundaries are snapped to
-            // frames first, so each shot ends exactly where the next starts.
-            const at = (t: number) => ticksToSeconds(snapSeconds(t, now.project.settings.fps));
-            const spans = shots.map((s) => ({ s, start: at(s.start), end: at(s.end) })).filter((x) => x.end > x.start);
-            const { brollBox, transform, crop } = loc.c.props;
-            const steps: ActionStep[] = [
-              { command: "clip.remove", args: { clip: clip.id, linked: false } },
-              ...spans.map(({ s, start, end }) => ({
-                command: "clip.place",
-                args: { type: "broll", props: { broll: { ...b, prompt: s.prompt, why: s.why, takes: [] }, brollBox, transform, ...(crop ? { crop } : {}) }, duration: end - start, time: start, track: loc.t.id },
-              })),
-            ];
-            return { label: "Plan B-roll", steps, after: (r) => [...done, { command: "selection.set", args: { clips: r.slice(1) as string[], linked: false } }] };
+            // Split where the shots meet, as the editor splits a clip (its effects, animations and look kept), from the
+            // last boundary back so the clip itself stays the first shot; each piece then gets its shot's prompt.
+            const cuts = shots.slice(1).map((s) => s.start).reverse();
+            const steps: ActionStep[] = cuts.map((at) => ({ command: "clip.split", args: { at, clips: [clip.id], linked: false } }));
+            const piece = (r: unknown[], k: number) => (k === 0 ? clip.id : (r[cuts.length - k] as string[])[0]!);
+            steps.push(...shots.map((s, k) => ({ command: "clip.set", args: (r: unknown[]) => ({ clip: piece(r, k), props: { broll: { prompt: s.prompt, why: s.why } } }) })));
+            return { label: "Plan B-roll", steps, after: (r) => [...done, { command: "selection.set", args: { clips: shots.map((_, k) => piece(r, k)), linked: false } }] };
           };
         },
         failed: (error) => [{ command: "broll.status", args: { clips: [clip.id], planning: false, ...(error === "cancelled" ? {} : { error }) } }],
@@ -380,12 +374,19 @@ function finished(env: TaskEnv, results: Made[], clips: string[], label: string)
   if (!made.length) throw new Error(failed[0]?.error ?? "nothing was made");
   env.progress(1, [`${made.length} made, in the project's media/B-roll folder`, failed.length ? `${failed.length} failed: ${failed[0]!.error}` : ""].filter(Boolean).join("; "));
   return (ctx: ActionContext) => {
-    const there = new Set(ctx.project.tracks.flatMap((t) => t.clips.map((c) => c.id)));
+    // Grouped meanwhile, a clip is inside its group: still there.
+    const there = (id: string) => {
+      try {
+        return !!findClip(ctx.project, ctx.registry, id);
+      } catch {
+        return false;
+      }
+    };
     const steps: ActionStep[] = [];
     for (const m of made) {
       const added = steps.length;
       steps.push({ command: "asset.add", args: m.asset });
-      if (there.has(m.clip)) steps.push({ command: "broll.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added] }) });
+      if (there(m.clip)) steps.push({ command: "broll.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added] }) });
     }
     const errors = failed.filter((f) => !made.some((m) => m.clip === f.clip));
     return {

@@ -355,14 +355,17 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   expect((await withKey.state())!.planning).toEqual([]);
   expect(props(withKey.brolls()[0]!).prompt).toBe("");
 
-  // A shot planned inside another is dropped, not overlapped (it would be paid for twice).
+  // A shot planned inside another is dropped, not overlapped (it would be paid for twice); the split keeps the clip's
+  // own look (an effect here) on every piece.
   await withKey.core.run(withKey.h, "clip.move", { clip: late!.id, by: -1 });
+  await withKey.core.run(withKey.h, "effect.add", { clip: late!.id, type: "drop-shadow" });
   await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[nested]" } } });
   await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
   expect(withKey.brolls().map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual([
     [0, 8],
     [8, 12],
   ]);
+  expect(withKey.brolls().map((c) => c.effects.map((e) => e.type))).toEqual([["drop-shadow"], ["drop-shadow"]]);
 
   // Boundaries between frames (Kling, which makes 3 s shots, keeps all three): snapped once, shared, so the shots butt up and the plan goes through.
   await withKey.core.undo(withKey.h);
