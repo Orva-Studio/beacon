@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { PreferenceInfo, SecretInfo } from "@beacon/core";
-import { NumberBox, Select, SettingsRow as Row } from "./controls";
+import { Button, NumberBox, Select, SettingsRow as Row, TextArea, TextInput } from "./controls";
+import { styleFromFile, type CustomStyle } from "@beacon/features/src/broll/styles";
 import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
@@ -72,6 +73,7 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
         return secret && <SecretRow key={k.id} secret={secret} label={k.label} use={k.use} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
       })}
       <div className="mt-2 text-label font-medium text-text-muted">B-roll</div>
+      {pick("brollPlanner", "Planner")}
       {pick("brollModel", "Model")}
       {pick("brollResolution", "Resolution", false)}
       <Row label="Limit" hint="Per generation. 0 is no limit.">
@@ -80,7 +82,87 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
           <NumberBox value={limit} digits={2} step={1} min={0} max={1000} width={70} onCommit={(v) => void set("brollLimit", String(Math.round(v * 100) / 100))} />
         </div>
       </Row>
+      <StylesList value={prefs.find((p) => p.id === "brollStyles")?.value ?? "[]"} save={(list) => void set("brollStyles", JSON.stringify(list))} />
       {error && <div className="text-danger">{error}</div>}
+    </div>
+  );
+}
+
+/**
+ * The user's own B-roll styles: each a name and the wording added to its prompts (and given to the planner as its
+ * guide), typed here or read from a text file (a `.md` skill, a `.txt`); every project's Style menu lists them.
+ */
+function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]) => void }) {
+  const list = (() => {
+    try {
+      return JSON.parse(value) as CustomStyle[];
+    } catch {
+      return [];
+    }
+  })();
+  const [editing, setEditing] = useState<CustomStyle>();
+  const file = useRef<HTMLInputElement>(null);
+  const put = (s: CustomStyle) => save(list.some((x) => x.id === s.id) ? list.map((x) => (x.id === s.id ? s : x)) : [...list, s]);
+  const fresh = (name: string, text: string): CustomStyle => ({ id: `style-${Date.now().toString(36)}`, name, text });
+  return (
+    <div className="flex flex-col gap-2" data-broll-styles>
+      <Row label="Your Styles" hint="Added to every prompt of a clip that picks it, and the planner's guide. A skill's front matter or title names it.">
+        <div className="flex gap-2">
+          <Button onClick={() => setEditing(fresh("", ""))} data-broll-style-new>
+            New Style
+          </Button>
+          <Button onClick={() => file.current?.click()} data-broll-style-import>
+            Import File…
+          </Button>
+          <input
+            ref={file}
+            type="file"
+            accept=".md,.markdown,.txt"
+            className="hidden"
+            data-broll-style-file
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              const { name, text } = styleFromFile(f.name, await f.text());
+              if (text) setEditing(fresh(name, text));
+            }}
+          />
+        </div>
+      </Row>
+      {list.map((s) => (
+        <Row key={s.id} label="" hint={s.text.length > 120 ? `${s.text.slice(0, 120)}…` : s.text}>
+          <div className="flex min-w-0 flex-1 items-center gap-2" data-broll-style={s.id}>
+            <span className="min-w-0 flex-1 truncate text-text-strong">{s.name}</span>
+            <Button look="quiet" onClick={() => setEditing(s)}>
+              Edit
+            </Button>
+            <Button look="quiet" onClick={() => save(list.filter((x) => x.id !== s.id))}>
+              Delete
+            </Button>
+          </div>
+        </Row>
+      ))}
+      {editing && (
+        <div className="ml-[152px] flex flex-col gap-2 rounded-md bg-groove p-3" data-broll-style-editor>
+          <TextInput placeholder="Name: Grainy 16mm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} data-broll-style-name />
+          <TextArea rows={5} placeholder="The look, in words: grainy 16mm, warm tones, handheld, shallow depth of field" value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })} data-broll-style-text />
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setEditing(undefined)}>Cancel</Button>
+            <Button
+              look="primary"
+              disabled={!editing.name.trim() || !editing.text.trim()}
+              onClick={() => {
+                put({ ...editing, name: editing.name.trim(), text: editing.text.trim() });
+                setEditing(undefined);
+              }}
+              data-broll-style-save
+            >
+              Save Style
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

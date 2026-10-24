@@ -51,6 +51,8 @@ export class Jobs {
     // Progress is reported each whole percent, so a window can show it without a flood of events.
     let shown = 0;
     this.#forgetFinished();
+    // Listed before it starts: a job that reports progress before its first await is looked up by that report.
+    this.#jobs.set(id, entry);
     entry.done = jobProcesses
       .run(entry.processes, () =>
         fn((f, stage) => {
@@ -77,7 +79,6 @@ export class Jobs {
       );
     // Failures are read through info(); an unawaited rejection must not crash the process.
     entry.done.catch(() => {});
-    this.#jobs.set(id, entry);
     report();
     return { id, done: entry.done };
   }

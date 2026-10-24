@@ -1074,7 +1074,9 @@ export class LocalCore implements BeaconCore {
 
   async setPreference(id: string, value: string): Promise<void> {
     // A slider's last setting (a range) decides no analysis, so it mustn't restart transcripts.
-    if ((await this.#config.setPreference(id, value)) && !this.registry.preferences.get(id)!.range) this.#analyses.preferenceChanged();
+    const def = this.registry.preferences.get(id)!;
+    // A slider's setting or a feature's list isn't a choice analyzers make their data by.
+    if ((await this.#config.setPreference(id, value)) && !def.range && !def.schema) this.#analyses.preferenceChanged();
   }
 
   async secrets(): Promise<SecretInfo[]> {

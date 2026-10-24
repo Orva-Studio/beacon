@@ -3817,20 +3817,21 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
   }
 }, 120_000);
 
-test.skipIf(skip)("B-roll from the AI panel adds a clip over the range: sized on the canvas by its handles, its prompt planned from the words (refused without a key, which Settings › AI takes), its footage made through Replicate's stand-in and shown in the clip in place, one undo step", async () => {
-  // OpenAI and Replicate, standing in for the real ones (which charge): a prompt from the words, footage in the shape asked.
+test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, a style picked (the prompt written again in it), Prompt from Transcript showing the words, and its footage made from them in that style through Replicate's stand-in, one undo step", async () => {
+  // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {
     const out = join(dir, `broll-${w}x${h}.mp4`);
     const frames = 8 * 4;
     if (!existsSync(out)) Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${w}x${h}`, "-r", "4", "-i", "-", "-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", out], { stdin: new Uint8Array(w * h * frames).fill(120) });
     return out;
   };
+  const writer = join(dir, "beacon-writer");
+  writeFileSync(writer, `#!/bin/sh\nif grep -q "16mm" "$1"; then echo '{"prompt":"A grainy 16mm scene","why":"v"}'; else echo '{"prompt":"An on-device scene","why":"d"}'; fi\n`, { mode: 0o755 });
   const made = new Map<string, Record<string, unknown>>();
   const fake = Bun.serve({
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
-      if (url.pathname === "/openai/responses") return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ research: "", shots: [{ start: 0, end: 100, prompt: "A sunrise over hills, wide", why: "the start" }] }) }] }] });
       if (url.pathname.startsWith("/files/")) return new Response(Bun.file(join(dir, url.pathname.slice(7))));
       if (req.headers.get("authorization") !== "Bearer r8-test") return Response.json({ detail: "Invalid token" }, { status: 401 });
       if (url.pathname === "/models/google/veo-3.1-fast") return Response.json({});
@@ -3847,27 +3848,33 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range: sized on
       return Response.json({ status: "succeeded", output: `${url.origin}/files/broll-${w}x${h}.mp4` });
     },
   });
-  process.env.BEACON_OPENAI_URL = `${fake.url.origin}/openai`;
+  process.env.BEACON_WRITER = writer;
   process.env.BEACON_REPLICATE_URL = fake.url.origin;
   process.env.BEACON_REPLICATE_POLL_MS = "50";
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const broll = () => clips().find((c) => c.type === "broll");
-  // The tab is taller than the window: its buttons are scrolled to before they are clicked.
+  const props = () => broll()!.props.broll as { prompt: string; style: string; source: string };
+  // The tab is taller than the window: its controls are scrolled to before they are used.
   const press = async (selector: string) => {
     await page.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: "center" })`);
     await page.click(...(await centre(selector)));
   };
+  const choose = (selector: string, value: string) =>
+    page.evaluate(`(() => { const s = document.querySelector(${JSON.stringify(selector)}); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await ui.core.setPreference("brollStyles", JSON.stringify([{ id: "my-16mm", name: "My 16mm", text: "Grainy 16mm, warm tones, handheld" }]));
   try {
     await run("range.set", { in: 2, out: 10 });
     await run("panel.show", { tool: "ai" });
     await page.until("!!document.querySelector('[data-ai=broll]')");
     await page.evaluate("document.querySelector('[data-ai=broll]').click()");
-    // A clip over the range, selected, its B-roll tab open; empty, it is a box on the canvas.
+    // A clip over the range, selected, its B-roll tab open, its prompt written on this Mac with no key.
     await page.until("!!document.querySelector('[data-broll-tab]')");
     const clip = broll()!;
     expect([ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)]).toEqual([2, 10]);
     expect((await session()).selection).toEqual([clip.id]);
-    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add B-roll");
+    await page.until("document.querySelector('[data-broll-prompt]')?.value === 'An on-device scene'", 20_000);
+    // The B-roll tab sits beside Visual Properties.
+    expect(await page.evaluate<string[]>("[...document.querySelectorAll('.bg-tabbar button')].map((t) => t.getAttribute('title'))")).toEqual(["Visual Properties", "B-roll"]);
     await run("playhead.set", { time: 4 });
     // Its right side dragged to the canvas's middle: half as wide, the left side kept.
     const { width, height } = ui.core.doc(ui.handle).settings;
@@ -3877,51 +3884,62 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range: sized on
     const [lx] = await centre(`[data-handle="w"][data-clip="${clip.id}"]`);
     await page.drag([hx, hy], [(lx + hx) / 2, hy]);
     await arrived(() => Math.abs(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry)[2] - width / 2) < 2);
-    expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
 
-    // No OpenAI key: the tab says so, with the way to Settings › AI.
-    await press("[data-broll-plan]");
-    await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('OpenAI API key')", 10_000);
-    const menus = ui.menus.length;
-    await page.evaluate("[...document.querySelectorAll('[data-broll-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
-    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:ai"));
+    // A style of the user's own: listed under Your styles; picked, the prompt is written again in it.
+    expect(await page.evaluate<string>("[...document.querySelectorAll('[data-broll-style] optgroup')].map((g) => g.label).join('|')")).toBe("Film looks|Product and tech|Your styles");
+    await choose("[data-broll-style]", "my-16mm");
+    await page.until("document.querySelector('[data-broll-prompt]')?.value === 'A grainy 16mm scene'", 20_000);
+    expect(props().style).toBe("my-16mm");
+
+    // Prompt from Transcript: the words said under it, shown as they are.
+    await press('[data-broll-source] button:nth-child(2)');
+    await page.until("!!document.querySelector('[data-broll-words]')");
+    expect(props().source).toBe("transcript");
+    const words = (await ui.core.query(ui.handle, "broll.words", { clip: clip.id })) as string;
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-words]').textContent")).toBe(`“${words}”`);
+
+    // No Replicate token: the tab says so, with the way to Settings › AI, where the planner is Apple's by default.
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Generate')");
+    await press("[data-broll-generate]");
+    await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('Replicate API token')", 10_000);
     await ui.core.uiOpen(ui.handle, "settings", "ai");
-    for (const [id, value] of [["openai-api-key", "sk-test"], ["replicate-api-token", "r8-wrong"]]) {
-      const field = `[data-secret="${id}"] input`;
-      await page.until(`!!document.querySelector('${field}')`);
-      await page.click(...(await centre(field)));
-      await type(value!);
-      await page.key("Enter", "Enter");
-      await page.until(`document.querySelector('[data-secret="${id}"]')?.dataset.apiKey === 'set'`);
-    }
+    await page.until("document.querySelector('[data-preference=brollPlanner]')?.value === 'apple'");
+    expect(await has('[data-broll-style="my-16mm"]')).toBe(true);
+    // A new style of the user's own, typed: kept app-wide and listed with the others.
+    await press("[data-broll-style-new]");
+    await press("[data-broll-style-name]");
+    await type("Neon night");
+    await press("[data-broll-style-text]");
+    await type("Neon-lit city at night, wet streets, reflections");
+    await press("[data-broll-style-save]");
+    await arrived(() => ui.menus.some((m) => m.startsWith("setPreference:brollStyles=") && m.includes("Neon night")));
+    const saved = JSON.parse((await ui.core.preferences()).find((p) => p.id === "brollStyles")!.value) as { name: string; text: string }[];
+    expect(saved.map((x) => x.name)).toEqual(["My 16mm", "Neon night"]);
+    expect(saved[1]!.text).toBe("Neon-lit city at night, wet streets, reflections");
+    await press('[data-secret="replicate-api-token"] input');
+    await type("r8-test");
+    await page.key("Enter", "Enter");
+    await page.until(`document.querySelector('[data-secret="replicate-api-token"]')?.dataset.apiKey === 'set'`);
     await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
     await page.until("!document.querySelector('[data-settings-nav]')");
 
-    // Planned: the prompt written from the words, the cost before anything is made.
-    await press("[data-broll-plan]");
-    await page.until("document.querySelector('[data-broll-prompt]')?.value === 'A sunrise over hills, wide'", 10_000);
-    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Plan B-roll");
-    await page.until("document.querySelector('[data-broll-generate]')?.textContent === 'Generate · $1.20'");
-
-    // A token Replicate refuses: the clip says so, and can be made again.
-    await press("[data-broll-generate]");
-    await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('Replicate refused the API token')", 10_000);
-    await ui.core.setSecret("replicate-api-token", "r8-test");
     await press("[data-broll-generate]");
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
-    // Taller than wide (960×1080): made at 9:16, silent, then shown in the clip in its region.
-    for (const input of made.values()) expect(input).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
+    // Made from the words, in the style; taller than wide (960×1080), so 9:16; silent; shown in the clip in its region.
+    const sent = [...made.values()].at(-1)!;
+    expect(sent).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
+    expect(String(sent.prompt)).toContain(`Footage illustrating: "${words}".`);
+    expect(String(sent.prompt)).toContain("Grainy 16mm, warm tones, handheld");
     expect(broll()!.assetId).toBeDefined();
     expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Generate B-roll");
-    await page.screenshot(join(dir, "broll-tab.png"));
   } finally {
     fake.stop(true);
-    delete process.env.BEACON_OPENAI_URL;
+    delete process.env.BEACON_WRITER;
     delete process.env.BEACON_REPLICATE_URL;
     delete process.env.BEACON_REPLICATE_POLL_MS;
-    await ui.core.setSecret("openai-api-key", null);
     await ui.core.setSecret("replicate-api-token", null);
+    await ui.core.setPreference("brollStyles", "[]");
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("range.clear").catch(() => {});
     await run("panel.show", { tool: null });

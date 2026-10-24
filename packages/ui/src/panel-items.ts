@@ -61,10 +61,14 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "broll",
     label: "B-roll",
-    title: "Add a B-roll clip at the playhead (or over the range): drag and trim it, size it on the canvas, then write or plan its prompt and make its footage with AI (on your Replicate account)",
+    title: "Add a B-roll clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size it on the canvas, pick a style, and make its footage with AI (on your Replicate account)",
     art: "b-roll",
     online: true,
-    start: (host) => review(host, "broll.add"),
+    // Prompt from Auto: its prompt written as soon as it is added (a clip added where nothing is said says so).
+    start: (host) => {
+      review(host, "broll.add");
+      host.run("broll.plan", {});
+    },
   },
   {
     id: "captions",

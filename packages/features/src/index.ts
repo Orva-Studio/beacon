@@ -49,7 +49,7 @@ export * from "./broll";
  * content space, `transform` maps them to the canvas, then effects.
  * Editing-only features come last.
  */
-export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, removeBackground, transform, lut, filmLook, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, polish, auphonic, broll, zoom, transcript, labels, safeAreas];
+export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, removeBackground, transform, lut, filmLook, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, polish, auphonic, zoom, transcript, broll, labels, safeAreas];
 
 export function createRegistry(): FeatureRegistry {
   return new FeatureRegistry(FEATURES);

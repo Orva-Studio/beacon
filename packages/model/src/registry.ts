@@ -71,6 +71,8 @@ export class FeatureRegistry {
       if (p.range) {
         const v = Number(p.default);
         if (p.options.length || !(v >= p.range.min && v <= p.range.max)) throw new Error(`preference "${p.id}": a range takes no options and a default inside it`);
+      } else if (p.schema) {
+        if (p.options.length || !p.schema.safeParse(JSON.parse(p.default)).success) throw new Error(`preference "${p.id}": a schema takes no options and a default it accepts`);
       } else if (!p.options.some((o) => o.id === p.default)) throw new Error(`preference "${p.id}": default "${p.default}" isn't one of its options`);
       for (const o of p.options) if (o.secret && !this.secrets.has(o.secret)) throw new Error(`preference "${p.id}": option "${o.id}" needs secret "${o.secret}", which no feature registers`);
     }

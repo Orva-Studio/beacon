@@ -1,4 +1,7 @@
-import { jobSignal } from "@beacon/media";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { jobSignal, runTool, tool } from "@beacon/media";
 
 /** The user's pick (2026-10-23), at medium effort as every OpenAI model Beacon calls. */
 export const PLAN_MODEL = "gpt-6.1-sol";
@@ -20,7 +23,8 @@ export interface PlanRequest {
   after: string;
   from: number;
   to: number;
-  guide: string;
+  /** The look every prompt follows (a style's wording, or a skill's instructions); empty: none asked for. */
+  style: string;
   research: boolean;
   /** The footage's shape ("16:9") and the lengths a shot may run, in seconds. */
   aspect: string;
@@ -52,15 +56,17 @@ const SYSTEM = (r: PlanRequest) =>
     `Cover ${r.from.toFixed(2)}-${r.to.toFixed(2)} s with shots back to back, no gaps: the first starts at ${r.from.toFixed(2)}, the last ends at ${r.to.toFixed(2)}, each from ${r.shortest} to ${r.longest} s, cut where a sentence or phrase ends (the word times say where).`,
     "Each shot's prompt is for a text-to-video model: one continuous shot (subject, action, setting, camera, light, style), concrete and visual, showing what is being said at that moment.",
     `The footage is ${r.aspect}, silent. Never ask for readable text, captions, logos, user interfaces or real people's faces: these models get them wrong.`,
+    r.style ? `Every prompt follows this look, put in its own words:\n${r.style}` : "",
     r.research
       ? "Search the web first for the names, products, places and terms said, so the prompts show the right thing (what it looks like, where it is); say what you found in `research`."
       : "Leave `research` empty.",
     "`why`: under 12 words, what in the talk the shot illustrates.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
 const USER = (r: PlanRequest) =>
   [
-    r.guide ? `The editor's guide: ${r.guide}` : "",
     r.before ? `Said just before (context only): ${r.before}` : "",
     "Said over the range, each word with its start time:",
     r.words.map((w) => `${w.start.toFixed(2)} ${w.text}`).join("\n"),
@@ -196,4 +202,66 @@ export function tile(shots: PlannedShot[], from: number, to: number, shortest: n
     const each = (s.end - s.start) / n;
     return Array.from({ length: n }, (_, k) => ({ ...s, start: s.start + k * each, end: k === n - 1 ? s.end : s.start + (k + 1) * each }));
   });
+}
+
+/** Beacon's helper for Apple's on-device model; a test points it at a stand-in. */
+const writer = () => process.env.BEACON_WRITER ?? tool("beacon-writer");
+/** Apple's model reads about 4,000 tokens: a long style (a skill) is cut to what fits beside the words. */
+const ON_DEVICE_STYLE_CHARS = 1500;
+
+/**
+ * Where a clip's shots are cut on the device's path, chosen here rather than by the small model: as few as fit the
+ * model's longest shot, each cut moved to the nearest pause between words (within a second and a half), the lengths
+ * kept within the model's.
+ */
+export function cutsFor(r: Pick<PlanRequest, "words" | "from" | "to" | "shortest" | "longest">): [number, number][] {
+  const n = Math.max(1, Math.ceil((r.to - r.from) / r.longest - 1e-6));
+  const pauses = r.words.slice(1).map((w, i) => (r.words[i]!.end + w.start) / 2);
+  const cuts = [r.from];
+  for (let k = 1; k < n; k++) {
+    const even = r.from + ((r.to - r.from) * k) / n;
+    const near = pauses.filter((p) => Math.abs(p - even) <= 1.5 && p - cuts.at(-1)! >= r.shortest && p - cuts.at(-1)! <= r.longest).sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
+    cuts.push(near ?? even);
+  }
+  return [...cuts, r.to].slice(1).map((end, i) => [cuts[i]!, end]);
+}
+
+/**
+ * A shot list from Apple's on-device model (macOS 26's Foundation Models, through beacon-writer): free, offline, no
+ * key, no web research. Beacon cuts the shots (`cutsFor`); the model writes each one's scene from the words said over
+ * it. When Apple Intelligence can't run, says why (turn it on, or pick OpenAI in Settings › AI).
+ */
+export async function planOnDevice(r: PlanRequest, shot: (n: number, of: number) => void = () => {}): Promise<{ research: string; shots: PlannedShot[] }> {
+  const dir = mkdtempSync(join(tmpdir(), "beacon-plan-"));
+  try {
+    const instructions = [
+      "You write B-roll for a talking-head video: generated footage shown while the speaker talks, illustrating what they say.",
+      `The footage is ${r.aspect} and silent. Never ask for readable text, captions, logos, user interfaces or real people.`,
+      r.style ? `Look: ${r.style.slice(0, ON_DEVICE_STYLE_CHARS)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const spans = cutsFor(r);
+    const shots: PlannedShot[] = [];
+    for (const [k, [start, end]] of spans.entries()) {
+      shot(k + 1, spans.length);
+      const said = r.words.filter((w) => w.end > start && w.start < end).map((w) => w.text).join(" ");
+      const request = join(dir, `shot-${k}.json`);
+      writeFileSync(request, JSON.stringify({ instructions, prompt: `The speaker says, over this shot: "${said || r.before.split(" ").slice(-20).join(" ")}"` }));
+      let out: string;
+      try {
+        out = await runTool([writer(), request]);
+      } catch (e) {
+        jobSignal()?.throwIfAborted();
+        // Its own words (what to turn on, or to pick instead), not the tool's exit code.
+        throw new Error((e as Error).message.replace(/^.*? exited with \d+: /, ""));
+      }
+      const scene = JSON.parse(out) as { prompt?: string; why?: string };
+      if (!scene.prompt) throw new Error("Apple's on-device model wrote no scene");
+      shots.push({ start, end, prompt: scene.prompt, why: scene.why ?? "" });
+    }
+    return { research: "", shots };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

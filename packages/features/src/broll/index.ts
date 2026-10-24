@@ -30,10 +30,12 @@ import {
 import { streamOf, visualSize } from "../media";
 import { timelineWords } from "../transcript";
 import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution, type VideoModel } from "./models";
-import { planShots, tile, PLAN_MODEL, type PlanStage } from "./plan";
+import { planOnDevice, planShots, tile, PLAN_MODEL, type PlanStage } from "./plan";
+import { allStyles, CustomStylesSchema, NONE, PROMPT_STYLE_CHARS, styleOf, STYLES_PREF } from "./styles";
 import { generate, limits, type Limits, type MakeStage } from "./replicate";
 
 export { VIDEO_MODELS, videoModel, resolutionOf, shotCost, nearestAspect, lengthFor } from "./models";
+export { BUILT_IN, styleFromFile, type CustomStyle, type Style } from "./styles";
 
 const TOKEN = "replicate-api-token";
 const OPENAI = "openai-api-key";
@@ -49,9 +51,11 @@ export type Rect = [number, number, number, number];
 const brollGroup = z.strictObject({
   prompt: z.string().max(2000),
   why: z.string(),
-  /** What to show or avoid, for Plan. */
-  guide: z.string().max(1000),
-  /** Plan searches the web for what is said. */
+  /** How it looks: a style's id (built in, or the user's own in Settings › AI). */
+  style: z.string(),
+  /** Where its prompt comes from: written by the planner ("auto"), or the words said under it ("transcript"). */
+  source: z.enum(["auto", "transcript"]),
+  /** Plan searches the web for what is said (OpenAI's planner only). */
   research: z.boolean(),
   /** As `{ assetId }`, so copying and pasting the clip carries every take along (any `assetId` is a reference). */
   takes: z.array(z.strictObject({ assetId: z.string() })),
@@ -128,7 +132,7 @@ function covering([W, H]: [number, number], [x, y, w, h]: Rect, project: Project
 function placeholder(region: Rect, project: Project, props: Partial<BrollProps> = {}) {
   const [x, y, w, h] = region;
   return {
-    broll: { prompt: "", why: "", guide: "", research: true, takes: [], ...props } satisfies BrollProps,
+    broll: { prompt: "", why: "", style: NONE, source: "auto", research: true, takes: [], ...props } satisfies BrollProps,
     brollBox: { width: w, height: h },
     transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 },
   };
@@ -266,7 +270,7 @@ const brollAdd = defineAction({
 const brollPlan = defineAction({
   id: "broll.plan",
   description:
-    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it: OpenAI reads the words (and searches the web for them with the clip's `research`), with its guide, on the user's key. A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
+    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it, in its style: by the planner chosen in Settings › AI (Apple's on-device model, free and offline, by default; or OpenAI on the user's key, which also searches the web with the clip's `research`). A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const [clip] = targets(ctx, id ? [id] : undefined);
@@ -279,6 +283,7 @@ const brollPlan = defineAction({
     const said = words.filter((w) => w.end > from && w.start < to);
     if (!said.length) throw new Error("nothing is said under the clip yet: B-roll is planned from the transcript (wait for it, move the clip over speech, or type a prompt)");
     const { model } = brollSettings(ctx.pref);
+    const planner = ctx.pref("brollPlanner");
     const [, , w, h] = regionOfClip(clip, ctx.project, ctx.registry);
     if (b.takes.length && to - from > model.durations.at(-1)! + 1e-3) throw new Error(`the clip has footage and is longer than ${model.title} makes: trim it to ${model.durations.at(-1)} s to plan it again`);
     // A model that picks its own shape is told the region's, and its footage cropped to it.
@@ -300,44 +305,51 @@ const brollPlan = defineAction({
       task: {
         label: "Plan B-roll",
         run: async (env) => {
-          const key = await keyOf(env.secret, OPENAI);
-          // Numbered steps with a ticking clock, as Clean with Auphonic's: the stream says which, the clock that it is still going.
-          const order: PlanStage[] = b.research ? ["thinking", "searching", "writing"] : ["thinking", "writing"];
-          const says: Record<PlanStage, string> = { thinking: `${PLAN_MODEL} is thinking`, searching: "Searching the web", writing: "Writing the shots" };
+          const request = {
+            words: said.map((x) => ({ text: x.text, start: x.start, end: x.end })),
+            before: text(words.filter((x) => x.end <= from && x.start >= from - CONTEXT)),
+            after: text(words.filter((x) => x.start >= to && x.end <= to + CONTEXT)),
+            from,
+            to,
+            style: styleOf(b.style, env.pref).text,
+            research: b.research && planner === "openai",
+            aspect,
+            shortest: b.takes.length ? to - from : model.durations[0]!,
+            longest: model.durations.at(-1)!,
+          };
           const started = Date.now();
-          let at: PlanStage = "thinking";
-          let since = started;
+          // Numbered steps with a ticking clock, as Clean with Auphonic's.
+          let step = { n: 1, of: 1, text: "", since: started };
           const tell = () => {
-            const n = order.indexOf(at);
-            // No percentage from OpenAI: each step creeps on towards the next.
-            const value = (n + 1 - 1 / (1 + (Date.now() - since) / 20_000)) / order.length;
-            env.progress(Math.min(0.95, value), `${n + 1} of ${order.length} · ${says[at]} · ${minutes((Date.now() - started) / 1000)}`);
+            // No percentage from either model: each step creeps on towards the next.
+            const value = (step.n - 1 / (1 + (Date.now() - step.since) / 20_000)) / step.of;
+            env.progress(Math.min(0.95, value), `${step.n} of ${step.of} · ${step.text} · ${minutes((Date.now() - started) / 1000)}`);
+          };
+          const say = (n: number, of: number, text: string) => {
+            step = { n, of, text, since: n === step.n ? step.since : Date.now() };
+            tell();
           };
           const ticking = setInterval(tell, 1000);
-          tell();
-          const plan = await planShots(
-            {
-              words: said.map((x) => ({ text: x.text, start: x.start, end: x.end })),
-              before: text(words.filter((x) => x.end <= from && x.start >= from - CONTEXT)),
-              after: text(words.filter((x) => x.start >= to && x.end <= to + CONTEXT)),
-              from,
-              to,
-              guide: b.guide,
-              research: b.research,
-              aspect,
-              shortest: model.durations[0]!,
-              longest: model.durations.at(-1)!,
-            },
-            key,
-            (s) => {
-              if (!order.includes(s) || order.indexOf(s) <= order.indexOf(at)) return;
-              [at, since] = [s, Date.now()];
-              tell();
-            },
-          ).finally(() => clearInterval(ticking));
+          let plan: Awaited<ReturnType<typeof planShots>>;
+          try {
+            if (planner === "apple") {
+              plan = await planOnDevice(request, (n, of) => say(n, of, of === 1 ? "Apple's on-device model is writing the shot" : `Apple's on-device model is writing shot ${n}`));
+            } else {
+              const key = await keyOf(env.secret, OPENAI);
+              // OpenAI's stream says which step it is on.
+              const order: PlanStage[] = request.research ? ["thinking", "searching", "writing"] : ["thinking", "writing"];
+              const says: Record<PlanStage, string> = { thinking: `${PLAN_MODEL} is thinking`, searching: "Searching the web", writing: "Writing the shots" };
+              say(1, order.length, says.thinking);
+              plan = await planShots(request, key, (s) => {
+                if (order.indexOf(s) > step.n - 1) say(order.indexOf(s) + 1, order.length, says[s]);
+              });
+            }
+          } finally {
+            clearInterval(ticking);
+          }
           // A clip with footage keeps one shot: it gets a new prompt, not a split (its box went with the footage).
           const shots = tile(plan.shots, from, to, b.takes.length ? to - from : model.durations[0]!, model.durations.at(-1)!);
-          if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer clip");
+          if (!shots.length) throw new Error("no shots were planned: try another style, or a longer clip");
           env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
           return (now) => {
             const was = shapeOf(now.project, now.registry);
@@ -512,13 +524,17 @@ export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "reg
     .trim();
 }
 
-/** The prompt a clip is made from: its own, else the words said under it (so a first try needs no OpenAI key). */
+/**
+ * The prompt a clip is made from: Auto, its prompt (written in its style by Plan, or typed); Transcript, or an Auto
+ * one still empty, the words said under it with the style's wording (so a first try needs no planner at all).
+ */
 function promptFor(clip: Clip, ctx: ActionContext): string {
-  const own = brollOf(clip)!.prompt.trim();
-  if (own) return own;
+  const b = brollOf(clip)!;
+  if (b.source === "auto" && b.prompt.trim()) return b.prompt.trim();
   const words = wordsUnder(clip, ctx);
-  if (!words) throw new Error("a B-roll clip has no prompt and nothing is said under it: type one");
-  return `Footage illustrating: "${words}"`;
+  if (!words) throw new Error("nothing is said under this B-roll clip: type a prompt (Prompt from: Auto)");
+  const look = styleOf(b.style, ctx.pref).text.slice(0, PROMPT_STYLE_CHARS);
+  return [`Footage illustrating: "${words}".`, look].filter(Boolean).join(" ");
 }
 
 const notReady = (ctx: ActionContext, clips: Clip[]) => {
@@ -664,20 +680,35 @@ function takesAsRefs(doc: unknown): unknown {
   return doc;
 }
 
+/** v3: a style and where the prompt comes from in place of the guide (the user, 2026-10-24); a clip's guide is dropped. */
+function stylesNotGuides(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as Record<string, unknown> | undefined;
+    if (!b) return;
+    delete b.guide;
+    b.style ??= NONE;
+    b.source ??= "auto";
+  });
+  return doc;
+}
+
 export const broll = defineFeature({
   id: "broll",
-  version: 2,
-  migrations: [{ version: 2, migrate: takesAsRefs }],
+  version: 3,
+  migrations: [
+    { version: 2, migrate: takesAsRefs },
+    { version: 3, migrate: stylesNotGuides },
+  ],
   clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
   props: [
     {
       id: "broll",
-      description: "The B-roll a clip asks for: its prompt (and why), the guide and research Plan uses, and the takes made (`{ assetId }`)",
+      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, written by Plan; transcript, the words said under it), research for OpenAI's planner, and the takes made (`{ assetId }`)",
       traits: ["broll"],
       // Beside Visual Properties (1), where annotations have theirs.
       tab: { title: "B-roll", icon: "sparkle", order: 2 },
       schema: brollGroup,
-      defaults: () => ({ prompt: "", why: "", guide: "", research: true, takes: [] }),
+      defaults: () => ({ prompt: "", why: "", style: NONE, source: "auto", research: true, takes: [] }),
       identity: true,
     },
     {
@@ -716,6 +747,24 @@ export const broll = defineFeature({
       default: "1080p",
     },
     {
+      id: "brollPlanner",
+      title: "B-roll planner",
+      description: "Who writes a B-roll clip's prompt from the words under it (Prompt from: Auto)",
+      options: [
+        { id: "apple", title: "Apple, on this Mac", description: "Apple's on-device model: free, offline, no key. Needs Apple Intelligence (macOS 26); no web research" },
+        { id: "openai", title: "OpenAI", description: "gpt-6.1-sol with your OpenAI API key: the words are sent to OpenAI, which charges your account; can research the topic on the web", secret: OPENAI, online: true },
+      ],
+      default: "apple",
+    },
+    {
+      id: STYLES_PREF,
+      title: "B-roll styles",
+      description: "Your own B-roll styles: each a name and the wording added to its prompts (typed, or from a text file such as a skill)",
+      options: [],
+      schema: CustomStylesSchema,
+      default: "[]",
+    },
+    {
       id: "brollLimit",
       title: "Limit per generation",
       description: "Dollars one generation may cost at most, by the estimate; 0 is no limit",
@@ -726,6 +775,12 @@ export const broll = defineFeature({
   ],
   sessionCommands,
   queries: [
+    defineQuery({
+      id: "broll.styles",
+      description: "The styles a B-roll clip can pick (its `broll.style`): the built-in ones and the user's own (Settings › AI), each with its id, name, group and wording",
+      args: z.strictObject({}),
+      run: (_, { pref }) => allStyles(pref),
+    }),
     defineQuery({
       id: "broll.words",
       description: "What is said under a B-roll clip (from the transcripts already made, an opened group's narration too): what an empty prompt is made from",

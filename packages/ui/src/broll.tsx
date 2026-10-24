@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session } from "@beacon/model";
-import type { BrollProps, BrollState, TakeInfo } from "@beacon/features";
-import { Button, Check, Section, Select, TextArea } from "./controls";
+import type { BrollProps, BrollState, Style, TakeInfo } from "@beacon/features";
+import { Button, Check, Section, Segmented, Select, TextArea } from "./controls";
 import { COLOR, line, type CanvasMark } from "./canvas-marks";
 import type { Placed } from "./canvas";
 import { useQuery } from "./query";
@@ -20,6 +20,9 @@ interface Estimate {
 }
 
 const dollars = (v: number) => `$${v.toFixed(2)}`;
+
+/** The Style menu's last item: opens Settings › AI, where the user's own styles are added and edited. */
+const ADD = "__add__";
 
 export const brollStateOf = (s: Session | undefined) => (s?.features.broll as BrollState | undefined) ?? { planning: [], making: [], errors: {} };
 
@@ -51,9 +54,10 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const busy = planning || making;
   const error = state.errors[clip.id];
   const [prompt, setPrompt] = useState(b.prompt);
-  const [guide, setGuide] = useState(b.guide);
   useEffect(() => setPrompt(b.prompt), [b.prompt]);
-  useEffect(() => setGuide(b.guide), [b.guide]);
+  const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
+  const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
+  const auto = b.source === "auto";
   const set = (fields: Partial<BrollProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { broll: fields } }, label);
   // Asked again when the clip's length or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
@@ -72,24 +76,79 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const said = useQuery<string>(host, "broll.words", { clip: clip.id }, again);
   const takes = b.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
-  const ready = (!!prompt.trim() || !!said) && !!estimate && !busy && !tooLong && !over;
+  // Something to make it from: Auto's prompt, or the words said (Transcript's, or Auto's before it is written).
+  const prompted = (auto && !!prompt.trim()) || !!said;
+  const ready = prompted && !!estimate && !busy && !tooLong && !over;
+  const groups = [...new Set((styles ?? []).map((s) => s.group))];
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-broll-tab>
         <label className="flex flex-col gap-1">
-          <span className="text-label font-medium text-text-muted">Prompt</span>
-          <TextArea rows={4} placeholder={said ? `“${said}”` : "What the footage shows: subject, action, setting, camera"} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
-          {b.why && <span className="text-caption text-text-faint">{b.why}</span>}
-          {!prompt.trim() && said && <span className="text-caption text-text-faint">Left empty, the words said here are the prompt. Type your own, or Plan for a better one.</span>}
+          <span className="text-label font-medium text-text-muted">Style</span>
+          <Select
+            value={b.style}
+            onChange={(e) => {
+              if (e.target.value === ADD) return void host.app("app.settings:ai");
+              set({ style: e.target.value }, "B-roll Style");
+              // Auto's prompt is written in the style: written again in the new one.
+              if (auto && b.prompt) host.run("broll.plan", { clip: clip.id });
+            }}
+            data-broll-style
+          >
+            {groups.map((g) =>
+              g ? (
+                <optgroup key={g} label={g}>
+                  {styles!.filter((s) => s.group === g).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : (
+                styles!.filter((s) => !s.group).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))
+              ),
+            )}
+            <option value={ADD}>Add or Edit Styles…</option>
+          </Select>
         </label>
-        <div className="flex flex-col gap-2 rounded-md bg-groove px-3 py-2">
-          <Button disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
-            {planning ? "Planning…" : b.prompt ? "Plan Again from the Words" : "Plan from the Words"}
-          </Button>
-          <TextArea rows={2} placeholder="Guide (optional): a city at night; keep it abstract" value={guide} onChange={(e) => setGuide(e.target.value)} onBlur={() => guide !== b.guide && set({ guide }, "B-roll Guide")} data-broll-guide />
-          <Check label="Research the topic" title="Plan searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />
-          <span className="text-caption text-text-faint">Plan turns the words into a shot with OpenAI (its key); a clip longer than the model makes is split into shots.</span>
+        <div className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Prompt from</span>
+          <Segmented
+            value={b.source}
+            options={[
+              { value: "auto", label: "Auto", icon: null },
+              { value: "transcript", label: "Transcript", icon: null },
+            ]}
+            onChange={(source) => {
+              set({ source }, "B-roll Prompt From");
+              if (source === "auto" && !b.prompt) host.run("broll.plan", { clip: clip.id });
+            }}
+            data-broll-source
+          />
         </div>
+        {auto ? (
+          <label className="flex flex-col gap-1">
+            <TextArea rows={4} placeholder={planning ? "Writing the prompt…" : "Written from the words under the clip, in its style"} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt !== b.prompt && set({ prompt }, "B-roll Prompt")} data-broll-prompt />
+            {b.why && <span className="text-caption text-text-faint">{b.why}</span>}
+            <div className="flex items-center gap-2">
+              <Button look="quiet" disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
+                {planning ? "Writing…" : b.prompt ? "Write Again" : "Write the Prompt"}
+              </Button>
+              {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
+            </div>
+            <span className="text-caption text-text-faint">
+              {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
+            </span>
+          </label>
+        ) : (
+          <div className="rounded-md bg-groove px-3 py-2 text-caption text-text" data-broll-words>
+            {said ? `“${said}”` : "Nothing is said under this clip yet."}
+          </div>
+        )}
         {takes.length > 1 && (
           <label className="flex flex-col gap-1">
             <span className="text-label font-medium text-text-muted">Footage</span>
@@ -115,7 +174,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
         </Button>
         {cost && cost.compare.models > 1 && (
-          <Button look="quiet" disabled={(!prompt.trim() && !said) || busy} title={`Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
+          <Button look="quiet" disabled={!prompted || busy} title={`Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
             Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
           </Button>
         )}

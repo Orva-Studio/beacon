@@ -225,6 +225,11 @@ export interface PreferenceDef {
   default: string;
   /** A number in this range instead of one of `options` (then none), kept as its text: a slider's last setting. */
   range?: { min: number; max: number };
+  /**
+   * A value of its own shape instead of one of `options` (then none), kept as JSON text and checked against this
+   * schema: a list a feature keeps app-wide (B-roll's own styles).
+   */
+  schema?: z.ZodType;
 }
 
 /** A credential an analyzer needs (an API key): kept in the macOS Keychain, never in a file; set by the user. */
