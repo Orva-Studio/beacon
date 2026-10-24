@@ -3,8 +3,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { tool } from "@beacon/media";
-import { secondsToTicks, ticksToSeconds, type Asset, type Clip } from "@beacon/model";
-import { regionOfClip, streamOf, type BrollProps, type BrollState } from "@beacon/features";
+import { apply, compose, rotate, scale, secondsToTicks, ticksToSeconds, translate, type Asset, type Clip } from "@beacon/model";
+import { regionOfClip, streamOf, visualSize, type BrollProps, type BrollState } from "@beacon/features";
 import { DerivedData } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -350,6 +350,22 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(tr(flipped).scaleX).toBeLessThan(0);
   expect(tr(flipped).scaleY).toBeGreaterThan(0);
   expect(regionOfClip(flipped, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
+  await core.undo(h);
+  await core.undo(h);
+  // Turned, with an uneven crop: a take picked again keeps the visible part where it was.
+  // As the canvas draws it: the crop's middle, in the content's pixels, through the clip's placement.
+  const visibleCentre = (c: Clip) => {
+    const doc = core.doc(h);
+    const [W, H] = visualSize(doc, core.registry, c)!;
+    const t = c.props.transform as { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
+    const k = { left: 0, right: 0, top: 0, bottom: 0, ...(c.props.crop as object) } as Record<"left" | "right" | "top" | "bottom", number>;
+    const m = compose(translate(doc.settings.width / 2 + t.x, doc.settings.height / 2 - t.y), compose(rotate(t.rotation), compose(scale(t.scaleX, t.scaleY), translate(-W / 2, -H / 2))));
+    return apply(m, (k.left + W - k.right) / 2, (k.top + H - k.bottom) / 2).map((v) => Math.round(v * 100) / 100);
+  };
+  await core.run(h, "clip.set", { clip: second.id, props: { transform: { rotation: 0.5 }, crop: { left: 200, right: 0, top: 60, bottom: 0 } } });
+  const turned = visibleCentre(brolls()[1]!);
+  await core.run(h, "broll.use", { clip: second.id, asset: brolls()[1]!.assetId! });
+  expect(visibleCentre(brolls()[1]!)).toEqual(turned);
   await core.undo(h);
   await core.undo(h);
   await core.run(h, "broll.use", { clip: second.id, asset: second.assetId! });

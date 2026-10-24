@@ -107,15 +107,18 @@ export function comparison(length: number, pref: Preferences, over = 1e-3) {
   return VIDEO_MODELS.filter((m) => m.durations.at(-1)! >= length - over).map((m) => ({ model: m, resolution: resolutionOf(m, asked), cost: shotCost(m, resolutionOf(m, asked), length) }));
 }
 
-/** Where a clip shows on the canvas: its content's visible part (after crop), scaled and placed; rotation aside. */
+/** Where a clip shows on the canvas: its content's visible part (after crop), scaled and placed; its size before rotation. */
 export function regionOfClip(clip: Clip, project: Project, registry: FeatureRegistry): Rect {
   const [W, H] = visualSize(project, registry, clip) ?? [project.settings.width, project.settings.height];
-  const t = { x: 0, y: 0, scaleX: 1, scaleY: 1, ...(clip.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY", number>> | undefined) };
+  const t = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, ...(clip.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY" | "rotation", number>> | undefined) };
   const c = { left: 0, top: 0, right: 0, bottom: 0, ...(clip.props.crop as Partial<Record<"left" | "top" | "right" | "bottom", number>> | undefined) };
   // A flip (a negative scale) mirrors the picture in place: the region is the same size.
   const [w, h] = [Math.abs((W - c.left - c.right) * t.scaleX), Math.abs((H - c.top - c.bottom) * t.scaleY)];
-  const cx = project.settings.width / 2 + t.x + ((c.left - c.right) / 2) * t.scaleX;
-  const cy = project.settings.height / 2 - t.y + ((c.top - c.bottom) / 2) * t.scaleY;
+  // An uneven crop moves the visible part's centre off the clip's, turned with the clip (canvas pixels, y down).
+  const [dx, dy] = [((c.left - c.right) / 2) * t.scaleX, ((c.top - c.bottom) / 2) * t.scaleY];
+  const [cos, sin] = [Math.cos(t.rotation), Math.sin(t.rotation)];
+  const cx = project.settings.width / 2 + t.x + cos * dx + sin * dy;
+  const cy = project.settings.height / 2 - t.y - sin * dx + cos * dy;
   return [cx - w / 2, cy - h / 2, w, h];
 }
 
