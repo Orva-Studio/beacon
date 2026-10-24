@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Toggle Cursor and Toggle Camera (`feat/ai-broll`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| The command palette's Commands: Toggle Cursor and Toggle Camera (also in Settings › Shortcuts, to give them keys): the selected screen or camera clips, else every one, hidden (opacity 0%) when any shows, else shown (100%), one undo step | 2026-10-24 | this branch | core test (`toggles.test.ts`, a real recording: both ways, and a selected piece alone), UI flow (the palette: "toggle camera", Enter) |
+
+### Not checked yet
+
+- ⌘K, "toggle cursor" and "toggle camera", in the app.
+
 ## Phase 11: AI B-roll (`feat/ai-broll`)
 
 ### Checked headless only (still to see by hand)

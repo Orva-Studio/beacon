@@ -42,6 +42,7 @@ export function Palette({ host }: { host: PaletteHost }) {
 function PaletteUi({ host }: { host: PaletteHost }) {
   const init = useView((v) => v.init);
   const favorites = useView((v) => v.favorites);
+  const shortcuts = useView((v) => v.shortcuts);
   const assets = useView((v) => v.project?.assets);
   const thumbs = useView((v) => v.thumbs);
   const [query, setQuery] = useState("");
@@ -50,8 +51,10 @@ function PaletteUi({ host }: { host: PaletteHost }) {
   const entries = useMemo(() => {
     const items = allItems(init).map((it): Entry & { favorite: string } => ({ id: it.favorite, favorite: it.favorite, name: it.label, description: it.title, group: it.group, art: it.art, starred: favorites.includes(it.favorite), start: (h) => h.run(it.command, it.args) }));
     const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
-    return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...tools];
-  }, [init, favorites]);
+    // Actions marked for it (keymaps/actions.json `palette`): run as their keys would.
+    const commands = shortcuts.filter((a) => a.palette).map((a): Entry => ({ id: `action:${a.id}`, name: a.name, description: a.description, group: "Commands", starred: false, start: (h) => h.run(a.command, a.args ?? {}) }));
+    return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...tools, ...commands];
+  }, [init, favorites, shortcuts]);
   const media = useMemo(
     () =>
       // As the bin: a LUT or other file a feature imported isn't media to place.

@@ -1,0 +1,36 @@
+import { z } from "zod";
+import { defineAction, defineFeature, type ActionContext, type Clip } from "@beacon/model";
+
+/**
+ * Show or hide a kind of clip's picture in one go (the user, 2026-10-24: from the command palette): the selected ones
+ * of that kind, else every one on the timeline (locked tracks left alone). Any showing: all hidden (0%); else all
+ * shown (100%). One undo step.
+ */
+function toggle(id: string, what: string, kind: (c: Clip, ctx: ActionContext) => boolean, group: string, of: (c: Clip) => number) {
+  return defineAction({
+    id,
+    description: `Toggle the ${what} between hidden (opacity 0%) and shown (100%): the selected ${what} clips, else every one on the timeline. Any of them showing: all are hidden; else all are shown`,
+    args: z.strictObject({}),
+    resolve: (_, ctx) => {
+      const all = ctx.scope.tracks.filter((t) => !t.locked).flatMap((t) => t.clips.filter((c) => kind(c, ctx)));
+      const picked = all.filter((c) => ctx.session.selection.includes(c.id));
+      const clips = picked.length ? picked : all;
+      if (!clips.length) throw new Error(`no ${what} on the timeline`);
+      const showing = clips.some((c) => of(c) > 0);
+      const label = `${showing ? "Hide" : "Show"} ${what[0]!.toUpperCase()}${what.slice(1)}`;
+      return { label, steps: [{ command: "clip.set", args: { clips: clips.map((c) => c.id), props: { [group]: { opacity: showing ? 0 : 1 } } } }] };
+    },
+  });
+}
+
+const opacity = (group: string) => (c: Clip) => ((c.props[group] as { opacity?: number } | undefined)?.opacity ?? 1);
+
+export const toggles = defineFeature({
+  id: "toggles",
+  version: 1,
+  actions: [
+    toggle("cursor.toggle", "cursor", (c, ctx) => ctx.registry.hasTrait(c.type, "cursor") && c.type === "screen", "cursor", opacity("cursor")),
+    // A recording's camera: its video that isn't the screen.
+    toggle("camera.toggle", "camera", (c, ctx) => c.type === "video" && ctx.project.assets[c.assetId ?? ""]?.kind === "recording", "transform", opacity("transform")),
+  ],
+});
