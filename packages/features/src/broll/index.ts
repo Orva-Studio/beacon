@@ -158,7 +158,7 @@ const commands = [
       const s = streamOf(a, "video", 0);
       const region = regionOfClip(c, doc, ctx.registry);
       const fit = covering([s.width!, s.height!], region, doc);
-      const was = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
+      const was = { x: 0, y: 0, scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY", number>> | undefined) };
       // Animated crops are in the old picture's pixels: what each crops past the base crop, in canvas pixels, is kept past the new one's.
       const base = { left: 0, right: 0, top: 0, bottom: 0, ...(c.props.crop as Partial<Record<"left" | "right" | "top" | "bottom", number>> | undefined) };
       const ratio = { x: Math.abs(was.scaleX) / fit.transform.scaleX, y: Math.abs(was.scaleY) / fit.transform.scaleY };
@@ -176,6 +176,11 @@ const commands = [
         for (const axis of ["scaleX", "scaleY"] as const) {
           const v = a.to[`transform.${axis}`];
           if (typeof v === "number" && was[axis]) a.to[`transform.${axis}`] = (v * fit.transform[axis]) / was[axis];
+        }
+        // Animated positions move as far from the new base position as they did from the old one.
+        for (const axis of ["x", "y"] as const) {
+          const v = a.to[`transform.${axis}`];
+          if (typeof v === "number") a.to[`transform.${axis}`] = v + fit.transform[axis] - was[axis];
         }
       }
       // Animations and effect spans are timed in media time: from the old in-point and speed to the new footage's (0, normal speed),

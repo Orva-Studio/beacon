@@ -370,7 +370,9 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   await core.run(h, "effect.set", { clip: second.id, effect: fx, span: { start: s0 + 1, end: s0 + 2 } });
   const wide = (c: Clip) => streamOf(core.doc(h).assets[c.assetId!]!, "video", 0).width!;
   const was = wide(brolls()[1]!);
-  await core.run(h, "animation.add", { clip: second.id, end: s0 + 1, duration: 0.5, to: { "crop.left": was / 4 } });
+  const baseX = (c: Clip) => (c.props.transform as { x?: number }).x ?? 0;
+  const movedBy = 200;
+  await core.run(h, "animation.add", { clip: second.id, end: s0 + 1, duration: 0.5, to: { "crop.left": was / 4, "transform.x": baseX(brolls()[1]!) + movedBy } });
   const fitted = (c: Clip) => [((c.props.crop as { left?: number } | undefined)?.left ?? 0), Math.abs((c.props.transform as { scaleX: number }).scaleX)] as const;
   const [oldLeft, oldScale] = fitted(brolls()[1]!);
   const resized = takes.map((t) => t.assetId).find((id) => wide({ ...brolls()[1]!, assetId: id }) !== was)!;
@@ -381,6 +383,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect([span.start, span.end].map((t) => Math.round(ticksToSeconds(after.start + t - (after.mediaStart ?? 0) - secondsToTicks(s0)) * 100) / 100)).toEqual([1, 2]);
   const [newLeft, newScale] = fitted(after);
   expect(wide(after)).not.toBe(was);
+  expect((after.animations[0]!.to["transform.x"] as number) - baseX(after)).toBeCloseTo(movedBy, 6);
   expect(after.animations[0]!.to["crop.left"]).toBeCloseTo(newLeft + ((was / 4 - oldLeft) * oldScale) / newScale, 3);
 
   // Copied into another project, the clip brings every take: each pasted, each pointing at an asset there.
