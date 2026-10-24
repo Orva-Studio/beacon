@@ -158,20 +158,20 @@ const commands = [
       const s = streamOf(a, "video", 0);
       const region = regionOfClip(c, doc, ctx.registry);
       const fit = covering([s.width!, s.height!], region, doc);
-      // Animated crops are in the old picture's pixels: the same share of the new one's.
-      const [W, H] = visualSize(doc, ctx.registry, c) ?? [doc.settings.width, doc.settings.height];
-      const share = { left: s.width! / W, right: s.width! / W, top: s.height! / H, bottom: s.height! / H };
+      const was = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
+      // Animated crops are in the old picture's pixels: what each crops past the base crop, in canvas pixels, is kept past the new one's.
+      const base = { left: 0, right: 0, top: 0, bottom: 0, ...(c.props.crop as Partial<Record<"left" | "right" | "top" | "bottom", number>> | undefined) };
+      const ratio = { x: Math.abs(was.scaleX) / fit.transform.scaleX, y: Math.abs(was.scaleY) / fit.transform.scaleY };
       for (const a of c.animations ?? []) {
         for (const side of ["left", "right", "top", "bottom"] as const) {
           const v = a.to[`crop.${side}`];
-          if (typeof v === "number") a.to[`crop.${side}`] = v * share[side];
+          if (typeof v === "number") a.to[`crop.${side}`] = fit.crop[side] + (v - base[side]) * (side === "left" || side === "right" ? ratio.x : ratio.y);
         }
       }
-      // Animated scale ends are in the old picture's pixels: rescaled with it, a zoom still zooms the same.
-      const was = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
       // A flipped clip stays flipped.
       fit.transform.scaleX *= Math.sign(was.scaleX) || 1;
       fit.transform.scaleY *= Math.sign(was.scaleY) || 1;
+      // Animated scale ends are in the old picture's pixels too: rescaled with it, a zoom still zooms the same.
       for (const a of c.animations ?? []) {
         for (const axis of ["scaleX", "scaleY"] as const) {
           const v = a.to[`transform.${axis}`];

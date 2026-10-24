@@ -364,20 +364,24 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   await core.run(h, "clip.speed", { clips: [second.id], speed: 2 });
   expect(brolls()[1]!.speed).toBeDefined();
   // An effect on part of it and an animated crop, then another take of another size: the effect where it was on the
-  // timeline, the crop the same share of the new picture.
+  // timeline, the crop cutting as much more of the canvas past the new base crop.
   const s0 = ticksToSeconds(brolls()[1]!.start);
   const fx = (await core.run(h, "effect.add", { clip: second.id, type: "round-corners" })).results[0] as string;
   await core.run(h, "effect.set", { clip: second.id, effect: fx, span: { start: s0 + 1, end: s0 + 2 } });
   const wide = (c: Clip) => streamOf(core.doc(h).assets[c.assetId!]!, "video", 0).width!;
   const was = wide(brolls()[1]!);
   await core.run(h, "animation.add", { clip: second.id, end: s0 + 1, duration: 0.5, to: { "crop.left": was / 4 } });
+  const fitted = (c: Clip) => [((c.props.crop as { left?: number } | undefined)?.left ?? 0), Math.abs((c.props.transform as { scaleX: number }).scaleX)] as const;
+  const [oldLeft, oldScale] = fitted(brolls()[1]!);
   const resized = takes.map((t) => t.assetId).find((id) => wide({ ...brolls()[1]!, assetId: id }) !== was)!;
   await core.run(h, "broll.use", { clip: second.id, asset: resized });
   expect(brolls()[1]!.speed).toBeUndefined();
   const after = brolls()[1]!;
   const span = after.effects.find((e) => e.id === fx)!.span!;
   expect([span.start, span.end].map((t) => Math.round(ticksToSeconds(after.start + t - (after.mediaStart ?? 0) - secondsToTicks(s0)) * 100) / 100)).toEqual([1, 2]);
-  expect(after.animations[0]!.to["crop.left"]).toBeCloseTo(wide(after) / 4, 3);
+  const [newLeft, newScale] = fitted(after);
+  expect(wide(after)).not.toBe(was);
+  expect(after.animations[0]!.to["crop.left"]).toBeCloseTo(newLeft + ((was / 4 - oldLeft) * oldScale) / newScale, 3);
 
   // Copied into another project, the clip brings every take: each pasted, each pointing at an asset there.
   const other = await core.create({ path: join(dir, "other.beproj") });
