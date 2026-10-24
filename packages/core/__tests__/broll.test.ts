@@ -29,7 +29,8 @@ const footage = (w: number, h: number) => {
 /**
  * OpenAI's Responses API and Replicate, standing in for the real ones (which charge). The planner answers with
  * shots that overlap and run long, as a model can, for Beacon to tile; Replicate makes footage in the shape asked,
- * a prompt saying "[hold]" stays processing until cancelled, and one saying "[refuse]" fails.
+ * a prompt saying "[hold]" stays processing until cancelled, one saying "[refuse]" fails, and one saying "[stall]" is
+ * made but its download stops partway.
  */
 const plans: Record<string, unknown>[] = [];
 const predictions: Record<string, unknown>[] = [];
@@ -92,6 +93,8 @@ const server = Bun.serve({
     }
     if (!url.pathname.startsWith("/replicate/")) return new Response("not found", { status: 404 });
     const path = url.pathname.slice("/replicate".length);
+    // A download that starts and then stops, as one the Mac's sleep cut off does.
+    if (path === "/files/stall.mp4") return new Response(new ReadableStream({ start: (c) => c.enqueue(new Uint8Array(1000)) }), { headers: { "content-length": "100000" } });
     if (path.startsWith("/files/")) return new Response(Bun.file(join(dir, path.slice("/files/".length))));
     if (key !== "Bearer replicate-token") return Response.json({ detail: "Invalid token" }, { status: 401 });
     if (path === "/models/google/veo-3.1-fast")
@@ -151,6 +154,7 @@ const server = Bun.serve({
     }
     if (prompt.includes("[hold]") || p.polls++ < (prompt.includes("[steps]") ? 3 : 1)) return Response.json({ id: m![1], status: p.polls === 1 && prompt.includes("[steps]") ? "starting" : "processing" });
     if (prompt.includes("[refuse]")) return Response.json({ id: m![1], status: "failed", error: "the model refused the prompt" });
+    if (prompt.includes("[stall]")) return Response.json({ id: m![1], status: "succeeded", output: `${url.origin}/replicate/files/stall.mp4` });
     const [w, h] = p.input.aspect_ratio === "9:16" ? [360, 640] : [640, 360];
     footage(w, h);
     return Response.json({ id: m![1], status: "succeeded", output: `${url.origin}/replicate/files/${w}x${h}.mp4` });
@@ -352,7 +356,6 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(regionOfClip(flipped, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
   await core.undo(h);
   await core.undo(h);
-  // Turned, with an uneven crop: a take picked again keeps the visible part where it was.
   // As the canvas draws it: the crop's middle, in the content's pixels, through the clip's placement.
   const visibleCentre = (c: Clip) => {
     const doc = core.doc(h);
@@ -362,10 +365,19 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
     const m = compose(translate(doc.settings.width / 2 + t.x, doc.settings.height / 2 - t.y), compose(rotate(t.rotation), compose(scale(t.scaleX, t.scaleY), translate(-W / 2, -H / 2))));
     return apply(m, (k.left + W - k.right) / 2, (k.top + H - k.bottom) / 2).map((v) => Math.round(v * 100) / 100);
   };
-  await core.run(h, "clip.set", { clip: second.id, props: { transform: { rotation: 0.5 }, crop: { left: 200, right: 0, top: 60, bottom: 0 } } });
+  // Turned, with an uneven crop: a take picked again keeps the visible part where it was (the crop as far off-centre
+  // as the footage can spare, the clip's place the rest).
+  await core.run(h, "clip.set", { clip: second.id, props: { transform: { rotation: 0.5 }, crop: { left: 40, right: 0, top: 10, bottom: 0 } } });
   const turned = visibleCentre(brolls()[1]!);
   await core.run(h, "broll.use", { clip: second.id, asset: brolls()[1]!.assetId! });
   expect(visibleCentre(brolls()[1]!)).toEqual(turned);
+  await core.undo(h);
+  // Cropped further off-centre than the footage can spare: what the crop can't keep, the clip's place does.
+  await core.run(h, "clip.set", { clip: second.id, props: { crop: { left: 400, right: 0, top: 200, bottom: 0 } } });
+  const far = visibleCentre(brolls()[1]!);
+  await core.run(h, "broll.use", { clip: second.id, asset: brolls()[1]!.assetId! });
+  expect(visibleCentre(brolls()[1]!)).toEqual(far);
+  await core.undo(h);
   await core.undo(h);
   await core.undo(h);
   await core.run(h, "broll.use", { clip: second.id, asset: second.assetId! });
@@ -449,6 +461,12 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
 
   // On a locked track, footage isn't put in the clip: picking a take is refused, and a take made meanwhile stays in the Media Bin.
   await core.run(h, "clip.set", { clip: first.id, props: { broll: { prompt: "a street" } } });
+  // Named twice, a clip is still made (and paid for) once.
+  const once = predictions.length;
+  const twice = jobOf(await core.run(h, "broll.generate", { clips: [first.id, first.id] }));
+  await waitJob(core, twice);
+  expect(predictions.length - once).toBe(1);
+  await core.undo(h);
   const track = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === first.id))!;
   const making = jobOf(await core.run(h, "broll.generate", { clips: [first.id] }));
   await core.run(h, "track.set", { track: track.id, locked: true });
@@ -530,6 +548,25 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   for (let i = 0; i < 100 && cancelled.length === counted; i++) await Bun.sleep(20);
   expect(cancelled.length).toBe(counted + 1);
   expect(await state()).toMatchObject({ making: [] });
+
+  // A download that stops (the Mac slept): given up once nothing has come for a while, the clip as it was; and
+  // cancelled while it hangs, it ends at once.
+  await core.run(h, "clip.set", { clip: clip!.id, props: { broll: { prompt: "[stall] a pan over hills" } } });
+  process.env.BEACON_REPLICATE_STALL_MS = "300";
+  try {
+    await expect(waitJob(core, jobOf(await core.run(h, "broll.generate", {})))).rejects.toThrow(/stopped downloading/);
+    expect(brolls()[0]!.assetId).toBeUndefined();
+    process.env.BEACON_REPLICATE_STALL_MS = "600000";
+    const hanging = jobOf(await core.run(h, "broll.generate", {}));
+    for (let i = 0; i < 200 && (await core.job(hanging)).stage !== "1 of 1 · downloading" && !(await core.job(hanging)).stage?.includes("ownload"); i++) await Bun.sleep(20);
+    const asked = Date.now();
+    await core.cancelJob(hanging);
+    await expect(waitJob(core, hanging)).rejects.toThrow(/cancelled/);
+    expect(Date.now() - asked).toBeLessThan(1000);
+    expect(await state()).toMatchObject({ making: [] });
+  } finally {
+    delete process.env.BEACON_REPLICATE_STALL_MS;
+  }
   expect((await state())!.errors[clip!.id]).toBeUndefined();
   // Nothing paid for arrived: no file left for it.
   expect(readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4"))).toHaveLength(footageBefore);

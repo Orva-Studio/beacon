@@ -122,15 +122,20 @@ export function regionOfClip(clip: Clip, project: Project, registry: FeatureRegi
   return [cx - w / 2, cy - h / 2, w, h];
 }
 
-/** Footage `W`×`H` scaled to cover `region` and cropped to it, centred: transform and crop as props. */
-function covering([W, H]: [number, number], [x, y, w, h]: Rect, project: Project) {
+/**
+ * Footage `W`×`H` scaled to cover a `w`×`h` region and cropped to it, its crop as far off-centre (in canvas pixels) as
+ * the clip's was by `[dx, dy]`: the clip keeps its position, so the visible part stays where it was however the clip
+ * is turned, tilted or flipped.
+ */
+function covering([W, H]: [number, number], [w, h]: [number, number], [dx, dy]: [number, number]) {
   const k = Math.max(w / W, h / H);
-  // Never below 0 (the crop schema's floor): a float's last bit can make a fitting side a hair negative.
-  const [cw, ch] = [Math.max(0, (W - w / k) / 2), Math.max(0, (H - h / k) / 2)];
-  return {
-    transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: k, scaleY: k },
-    crop: { left: cw, right: cw, top: ch, bottom: ch },
-  };
+  const [totalX, totalY] = [Math.max(0, W - w / k), Math.max(0, H - h / k)];
+  const [offX, offY] = [dx / k, dy / k];
+  // Never below 0 (the crop schema's floor): footage too narrow to keep the offset is cropped as far as it goes.
+  const side = (total: number, off: number): [number, number] => [Math.max(0, (total + off) / 2), Math.max(0, (total - off) / 2)];
+  const [left, right] = side(totalX, offX);
+  const [top, bottom] = side(totalY, offY);
+  return { scale: k, crop: { left, right, top, bottom } };
 }
 
 /** A placeholder's props: a box the region's size, placed over it. */
@@ -159,31 +164,34 @@ const commands = [
       const a = doc.assets[asset];
       if (!a) throw new Error(`no asset "${asset}"`);
       const s = streamOf(a, "video", 0);
-      const region = regionOfClip(c, doc, ctx.registry);
-      const fit = covering([s.width!, s.height!], region, doc);
-      const was = { x: 0, y: 0, scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY", number>> | undefined) };
-      // Animated crops are in the old picture's pixels: what each crops past the base crop, in canvas pixels, is kept past the new one's.
+      const [, , w, h] = regionOfClip(c, doc, ctx.registry);
+      const was = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, ...(c.props.transform as Partial<Record<"x" | "y" | "scaleX" | "scaleY" | "rotation", number>> | undefined) };
       const base = { left: 0, right: 0, top: 0, bottom: 0, ...(c.props.crop as Partial<Record<"left" | "right" | "top" | "bottom", number>> | undefined) };
-      const ratio = { x: Math.abs(was.scaleX) / fit.transform.scaleX, y: Math.abs(was.scaleY) / fit.transform.scaleY };
+      const off: [number, number] = [(base.left - base.right) * Math.abs(was.scaleX), (base.top - base.bottom) * Math.abs(was.scaleY)];
+      const fit = covering([s.width!, s.height!], [w, h], off);
+      // A flipped clip stays flipped.
+      const scale = { scaleX: fit.scale * (Math.sign(was.scaleX) || 1), scaleY: fit.scale * (Math.sign(was.scaleY) || 1) };
+      // Footage with too little to spare to crop that far off-centre: the clip moves the rest of the way, turned with it.
+      const [remX, remY] = [((off[0] - (fit.crop.left - fit.crop.right) * fit.scale) / 2) * Math.sign(scale.scaleX), ((off[1] - (fit.crop.top - fit.crop.bottom) * fit.scale) / 2) * Math.sign(scale.scaleY)];
+      const [cos, sin] = [Math.cos(was.rotation), Math.sin(was.rotation)];
+      const move = { x: cos * remX + sin * remY, y: -(-sin * remX + cos * remY) };
+      // Animated crops are in the old picture's pixels: what each crops past the base crop, in canvas pixels, is kept past the new one's.
+      const ratio = { x: Math.abs(was.scaleX) / fit.scale, y: Math.abs(was.scaleY) / fit.scale };
       for (const a of c.animations ?? []) {
         for (const side of ["left", "right", "top", "bottom"] as const) {
           const v = a.to[`crop.${side}`];
           if (typeof v === "number") a.to[`crop.${side}`] = fit.crop[side] + (v - base[side]) * (side === "left" || side === "right" ? ratio.x : ratio.y);
         }
       }
-      // A flipped clip stays flipped.
-      fit.transform.scaleX *= Math.sign(was.scaleX) || 1;
-      fit.transform.scaleY *= Math.sign(was.scaleY) || 1;
       // Animated scale ends are in the old picture's pixels too: rescaled with it, a zoom still zooms the same.
       for (const a of c.animations ?? []) {
         for (const axis of ["scaleX", "scaleY"] as const) {
           const v = a.to[`transform.${axis}`];
-          if (typeof v === "number" && was[axis]) a.to[`transform.${axis}`] = (v * fit.transform[axis]) / was[axis];
+          if (typeof v === "number" && was[axis]) a.to[`transform.${axis}`] = (v * scale[axis]) / was[axis];
         }
-        // Animated positions move as far from the new base position as they did from the old one.
         for (const axis of ["x", "y"] as const) {
           const v = a.to[`transform.${axis}`];
-          if (typeof v === "number") a.to[`transform.${axis}`] = v + fit.transform[axis] - was[axis];
+          if (typeof v === "number") a.to[`transform.${axis}`] = v + move[axis];
         }
       }
       // Animations and effect spans are timed in media time: from the old in-point and speed to the new footage's (0, normal speed),
@@ -200,7 +208,7 @@ const commands = [
       delete c.speed;
       delete c.props.brollBox;
       c.props.media = { stream: 0 };
-      c.props.transform = { ...(c.props.transform as object), ...fit.transform };
+      c.props.transform = { ...(c.props.transform as object), ...scale, x: was.x + move.x, y: was.y + move.y };
       c.props.crop = fit.crop;
       if (!b.takes.some((t) => t.assetId === asset)) b.takes.push({ assetId: asset });
       // Footage shorter than the clip: the clip ends with it.
@@ -236,7 +244,8 @@ function trackIndex(project: Project, registry: FeatureRegistry, from: number, t
 function targets(ctx: ActionContext, ids?: string[]): Clip[] {
   // What the editor is editing: an opened group's clips, at main-timeline times.
   const all = ctx.scope.tracks.flatMap((t) => t.clips);
-  const chosen = ids ? ids.map((id) => all.find((c) => c.id === id) ?? fail(`no clip "${id}" on the timeline`)) : all.filter((c) => ctx.session.selection.includes(c.id));
+  // Each clip once: a repeated id mustn't make (and charge for) it twice.
+  const chosen = ids ? [...new Set(ids)].map((id) => all.find((c) => c.id === id) ?? fail(`no clip "${id}" on the timeline`)) : all.filter((c) => ctx.session.selection.includes(c.id));
   const broll = chosen.filter((c) => c.type === "broll");
   if (!broll.length) throw new Error(ids ? "those clips aren't B-roll" : "select a B-roll clip first (the AI panel's B-roll tile adds one)");
   return broll;
