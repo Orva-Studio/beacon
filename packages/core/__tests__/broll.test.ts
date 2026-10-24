@@ -370,6 +370,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   await core.run(h, "group.open", { clip: group });
   const priced = (await core.query(h, "broll.estimate", { clips: [second.id] })) as { clips: unknown[] };
   expect(priced.clips).toHaveLength(1);
+  await expect(core.run(h, "broll.add", {})).rejects.toThrow(/close the group/);
   const madeBefore = props(core.doc(h).tracks.flatMap((t) => t.clips).flatMap((c) => [c, ...((c.props.group as { tracks?: { clips: Clip[] }[] } | undefined)?.tracks?.flatMap((t) => t.clips) ?? [])]).find((c) => c.id === second.id)!).takes.length;
   await waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: [second.id] })));
   const inside = core.doc(h).tracks.flatMap((t) => t.clips).flatMap((c) => (c.props.group as { tracks?: { clips: Clip[] }[] } | undefined)?.tracks?.flatMap((t) => t.clips) ?? []).find((c) => c.id === second.id)!;

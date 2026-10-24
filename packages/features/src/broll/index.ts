@@ -241,6 +241,7 @@ const brollAdd = defineAction({
     prompt: z.string().max(2000).optional(),
   }),
   resolve: ({ time, duration, region, prompt }, ctx) => {
+    if (ctx.scope.group) throw new Error("close the group (⌃⇧U) to add B-roll");
     const range = time === undefined && duration === undefined ? ctx.session.range : null;
     const from = range ? range.in : (time ?? ctx.session.playhead);
     const length = range ? range.out - range.in : (duration ?? PLACEHOLDER_SECONDS);
