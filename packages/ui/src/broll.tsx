@@ -4,6 +4,7 @@ import type { BrollProps, BrollState, Style, TakeInfo } from "@beacon/features";
 import { Button, Check, Section, Segmented, Select, TextArea } from "./controls";
 import { COLOR, line, type CanvasMark } from "./canvas-marks";
 import type { Placed } from "./canvas";
+import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { useView } from "./store";
 import type { Host } from "./app";
@@ -58,6 +59,9 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
+  // Adding and Apple's planner work offline; Replicate, and OpenAI's planner, need the internet.
+  const online = useOnline();
+  const offline = "Needs the internet: you're offline";
   const set = (fields: Partial<BrollProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { broll: fields } }, label);
   // Asked again when the clip's length or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
@@ -78,7 +82,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
   // Something to make it from: its prompt, or (still empty) the words said.
   const prompted = !!(auto ? b.prompt : manual).trim() || !!said;
-  const ready = prompted && !!estimate && !busy && !tooLong && !over;
+  const ready = prompted && !!estimate && !busy && !tooLong && !over && online;
   const groups = [...new Set((styles ?? []).map((s) => s.group))];
   return (
     <Section>
@@ -141,7 +145,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               {planning ? "Writing the prompt…" : b.prompt || "Written from the words under the clip, in its style"}
             </div>
             <div className="flex items-center gap-2">
-              <Button disabled={busy} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
+              <Button disabled={busy || (planner === "openai" && !online)} title={planner === "openai" && !online ? offline : undefined} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
                 {planning ? "Writing…" : b.prompt ? "Write Again" : "Write the Prompt"}
               </Button>
               {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
@@ -177,11 +181,11 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
         )}
         {tooLong && <span className="text-caption text-warning">Longer than {estimate!.model} makes ({estimate!.longest} s): trim it, or Plan to split it.</span>}
         {over && <span className="text-caption text-warning">Over your {dollars(estimate!.limit)} limit (Settings › AI).</span>}
-        <Button look="primary" disabled={!ready} onClick={() => host.run("broll.generate", { clips: [clip.id] })} data-broll-generate>
+        <Button look="primary" disabled={!ready} title={online ? undefined : offline} onClick={() => host.run("broll.generate", { clips: [clip.id] })} data-broll-generate>
           {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
         </Button>
         {cost && cost.compare.models > 1 && (
-          <Button look="quiet" disabled={!prompted || busy} title={`Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
+          <Button look="quiet" disabled={!prompted || busy || !online} title={!online ? offline : `Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
             Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
           </Button>
         )}

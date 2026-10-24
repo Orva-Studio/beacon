@@ -493,8 +493,8 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
-    // B-roll still needs the internet: OpenAI plans it, Replicate makes it.
-    expect(await greyed()).toEqual([false, false, false, true, false]);
+    // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
+    expect(await greyed()).toEqual([false, false, false, false, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
