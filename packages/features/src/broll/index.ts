@@ -4,6 +4,7 @@ import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
 import {
   clipEnd,
+  clipSpeed,
   defineAction,
   defineCommand,
   defineFeature,
@@ -114,7 +115,8 @@ export function regionOfClip(clip: Clip, project: Project, registry: FeatureRegi
 /** Footage `W`×`H` scaled to cover `region` and cropped to it, centred: transform and crop as props. */
 function covering([W, H]: [number, number], [x, y, w, h]: Rect, project: Project) {
   const k = Math.max(w / W, h / H);
-  const [cw, ch] = [(W - w / k) / 2, (H - h / k) / 2];
+  // Never below 0 (the crop schema's floor): a float's last bit can make a fitting side a hair negative.
+  const [cw, ch] = [Math.max(0, (W - w / k) / 2), Math.max(0, (H - h / k) / 2)];
   return {
     transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: k, scaleY: k },
     crop: { left: cw, right: cw, top: ch, bottom: ch },
@@ -155,6 +157,13 @@ const commands = [
           const v = a.to[`transform.${axis}`];
           if (typeof v === "number" && was[axis]) a.to[`transform.${axis}`] = (v * fit.transform[axis]) / was[axis];
         }
+      }
+      // Animations are timed in media time: from the old in-point and speed to the new footage's (0, normal speed),
+      // so each still happens where it did on the timeline.
+      const [from, speed] = [c.mediaStart ?? 0, clipSpeed(c)];
+      for (const a of c.animations ?? []) {
+        a.end = Math.round((a.end - from) / speed);
+        a.duration = Math.round(a.duration / speed);
       }
       c.assetId = asset;
       c.mediaStart = 0;
