@@ -2189,6 +2189,19 @@ kind, research, region) prepares the review, `broll.generate` runs it,
   with what it is for and who charges; Transcripts and Audio say where to
   set the key their choice needs.
 
+**Decided (the user, 2026-10-24): B-roll is a clip, not a review.** The AI
+panel's B-roll tile adds a **B-roll placeholder clip** at the playhead (over
+the range when one is set) on a B-roll track above the talk; it is dragged
+and trimmed on the timeline for its span and moved and resized on the canvas
+with the usual handles for its region (the range and Draw on Canvas go). Its
+properties tab holds its prompt (typed, or written by Plan from the words
+under it: no OpenAI key needed to type one), guide and research, the cost,
+Generate, Make Again and Try N Models; the footage made goes into the clip
+in place, one undo step, its region kept, every take kept on the clip (and
+in the Media Bin) to pick again. A placeholder without footage is a box in
+the editor and nothing in an export. Plan on a placeholder longer than the
+model makes splits it into shots. The review panel and its preview go.
+
 **Progress (2026-10-23, `feat/ai-broll`).** Footage with a drawn region is
 built: the `broll` feature (review, `broll.plan`, `broll.generate`,
 `broll.apply`, `broll.estimate`), Settings › AI, the AI panel's B-roll tile,
