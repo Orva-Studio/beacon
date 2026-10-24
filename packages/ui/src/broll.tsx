@@ -61,17 +61,15 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const answer = useQuery<Estimate>(host, "broll.estimate", { clips: [clip.id], for: asked });
   const estimate = answer?.for === asked ? answer : undefined;
   const cost = estimate?.clips[0];
-  const tooLong = !!estimate && ticksToSeconds(clip.duration) > estimate.longest + 1e-3;
+  // A frame over is fine: the footage ends a frame early (broll.generate's allowance).
+  const tooLong = !!estimate && ticksToSeconds(clip.duration) > estimate.longest + project.settings.fps.den / project.settings.fps.num + 1e-3;
   const over = !!estimate && !!cost && estimate.limit > 0 && cost.cost > estimate.limit;
   const settingsOpen = useView((v) => !!v.settings);
   // What is said under the clip (the transcript already made): the prompt's placeholder, and its prompt if left empty.
   // Asked again when a transcript is finished too: that changes no document.
   const transcribing = useView((v) => Object.keys(v.transcribing).join());
   const again = useMemo(() => ({}), [project, transcribing]);
-  const said = useQuery<{ text: string }[]>(host, "transcript.get", { format: "words", from: ticksToSeconds(clip.start), to: ticksToSeconds(clip.start + clip.duration) }, again)
-    ?.map((w) => w.text)
-    .join(" ")
-    .trim();
+  const said = useQuery<string>(host, "broll.words", { clip: clip.id }, again);
   const takes = b.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.broll as TakeInfo | undefined;
   const ready = (!!prompt.trim() || !!said) && !!estimate && !busy && !tooLong && !over;

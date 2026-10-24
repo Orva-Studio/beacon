@@ -8,7 +8,10 @@ import {
   defineCommand,
   defineFeature,
   defineQuery,
+  editScope,
   findClip,
+  nestedOf,
+  scopedProject,
   secondsToTicks,
   ticksToSeconds,
   type ActionContext,
@@ -85,10 +88,16 @@ export const brollSettings = (pref: Preferences) => {
 
 const seconds = (c: Clip) => ticksToSeconds(c.duration);
 
+/**
+ * How far past a model's longest shot a clip may run: a frame (and a hair). A cut rounded to a frame at 29.97 fps
+ * makes an 8 s shot 8.008 s; the footage is 8 s and the clip ends with it, a frame early.
+ */
+const OVER = (project: Project) => project.settings.fps.den / project.settings.fps.num + 1e-3;
+
 /** The models that can make a shot this long, each with what it would cost. */
-export function comparison(length: number, pref: Preferences) {
+export function comparison(length: number, pref: Preferences, over = 1e-3) {
   const asked = pref("brollResolution");
-  return VIDEO_MODELS.filter((m) => m.durations.at(-1)! >= length - 1e-3).map((m) => ({ model: m, resolution: resolutionOf(m, asked), cost: shotCost(m, resolutionOf(m, asked), length) }));
+  return VIDEO_MODELS.filter((m) => m.durations.at(-1)! >= length - over).map((m) => ({ model: m, resolution: resolutionOf(m, asked), cost: shotCost(m, resolutionOf(m, asked), length) }));
 }
 
 /** Where a clip shows on the canvas: its content's visible part (after crop), scaled and placed; rotation aside. */
@@ -518,11 +527,12 @@ const brollGenerate = defineAction({
     notReady(ctx, clips);
     const { model, resolution, limit } = brollSettings(ctx.pref);
     const longest = model.durations.at(-1)!;
-    const tooLong = clips.filter((c) => seconds(c) > longest + 1e-3);
+    const tooLong = clips.filter((c) => seconds(c) > longest + OVER(ctx.project));
     if (tooLong.length) throw new Error(`${tooLong.length === 1 ? "a clip is" : `${tooLong.length} clips are`} longer than ${model.title}'s ${longest} s: trim it, or Plan it to split it into shots`);
     const cost = clips.reduce((sum, c) => sum + shotCost(model, resolution, seconds(c)), 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)}, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
     const shots = clips.map((c) => ({ id: c.id, prompt: promptFor(c, ctx), length: seconds(c), region: regionOfClip(c, ctx.project, ctx.registry) }));
+    const over = OVER(ctx.project);
     const ids2 = clips.map((c) => c.id);
     const results: Made[] = [];
     return {
@@ -540,7 +550,7 @@ const brollGenerate = defineAction({
             const live = await limits(token, model);
             // Checked again by what the model makes now, before anything is paid for.
             const max = live.durations.at(-1)!;
-            if (shots.some((s) => s.length > max + 1e-3)) throw new Error(`${model.title} now makes ${max} s at most, shorter than a clip: trim it`);
+            if (shots.some((s) => s.length > max + over)) throw new Error(`${model.title} now makes ${max} s at most, shorter than a clip: trim it`);
             const charged = shots.reduce((sum, s) => sum + shotCost({ ...model, durations: live.durations }, resolution, s.length), 0);
             if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} at the lengths ${model.title} makes now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             await Promise.all(
@@ -571,12 +581,13 @@ const brollCompare = defineAction({
     if (!clip) throw new Error("select a B-roll clip first");
     notReady(ctx, [clip]);
     const length = seconds(clip);
-    const models = comparison(length, ctx.pref);
+    const models = comparison(length, ctx.pref, OVER(ctx.project));
     const { limit } = brollSettings(ctx.pref);
     const cost = models.reduce((sum, m) => sum + m.cost, 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)} for ${models.length} models, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
     const region = regionOfClip(clip, ctx.project, ctx.registry);
     const shot = { id: clip.id, prompt: promptFor(clip, ctx), length };
+    const over = OVER(ctx.project);
     const results: Made[] = [];
     return {
       label: "Compare B-roll models",
@@ -605,7 +616,7 @@ const brollCompare = defineAction({
             );
             const able = read.flatMap((m) => {
               if (!m) return [];
-              if (length <= m.live.durations.at(-1)! + 1e-3) return [m];
+              if (length <= m.live.durations.at(-1)! + over) return [m];
               results.push({ clip: clip.id, error: `${m.model.title} makes ${m.live.durations.at(-1)} s at most` });
               track.done(m.model.title);
               return [];
@@ -696,6 +707,17 @@ export const broll = defineFeature({
   sessionCommands,
   queries: [
     defineQuery({
+      id: "broll.words",
+      description: "What is said under a B-roll clip (from the transcripts already made, an opened group's narration too): what an empty prompt is made from",
+      args: z.strictObject({ clip: z.string().min(1) }),
+      run: ({ clip: id }, { project, registry, data, session }) => {
+        const scope = editScope(project, session?.group, nestedOf(registry));
+        const tracks = scopedProject(project, scope).tracks;
+        const clip = tracks.flatMap((t) => t.clips).find((c) => c.id === id) ?? findClip(project, registry, id).clip;
+        return wordsUnder(clip, { project, registry, data, scope: { tracks, group: scope.group } });
+      },
+    }),
+    defineQuery({
       id: "broll.estimate",
       description:
         "What making B-roll clips (`clips`, else the selected ones) would cost (dollars, by the chosen model's price per second), all of them and each, with the model, its resolution and longest shot; each clip's `compare`: what broll.compare would cost, and with how many models. `for` is echoed back, so a caller can tell the answer to its latest ask",
@@ -712,7 +734,7 @@ export const broll = defineFeature({
         });
         const { model, resolution, limit } = brollSettings(pref);
         const each = clips.map((c) => {
-          const versus = comparison(seconds(c), pref);
+          const versus = comparison(seconds(c), pref, OVER(project));
           return { id: c.id, seconds: lengthFor(model, seconds(c)), cost: shotCost(model, resolution, seconds(c)), compare: { models: versus.length, cost: versus.reduce((sum, m) => sum + m.cost, 0) } };
         });
         return { for: asked, model: model.title, resolution, limit, longest: model.durations.at(-1), total: each.reduce((sum, c) => sum + c.cost, 0), clips: each };

@@ -395,6 +395,12 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   await core.undo(h);
   await core.undo(h);
 
+  // A frame over Veo's 8 s (a cut rounded to a frame) is made, not refused: the footage ends a frame early.
+  await core.run(h, "broll.add", { time: 24, duration: 8 + 1 / 30, prompt: "a frame over" });
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", {})));
+  await core.undo(h);
+  await core.undo(h);
+
   const footageBefore = readdirSync(join(dir, "races.beproj", "media", "B-roll")).filter((f) => f.endsWith(".mp4")).length;
   // Typed, with only a Replicate token.
   await core.run(h, "broll.add", { time: 0, duration: 4, prompt: "[hold] a pan over hills" });
