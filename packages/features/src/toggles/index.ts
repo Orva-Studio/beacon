@@ -16,9 +16,13 @@ function toggle(id: string, what: string, kind: (c: Clip, ctx: ActionContext) =>
       const picked = all.filter((c) => ctx.session.selection.includes(c.id));
       const clips = picked.length ? picked : all;
       if (!clips.length) throw new Error(`no ${what} on the timeline`);
-      const showing = clips.some((c) => of(c) > 0);
+      const field = `${group}.opacity`;
+      const showing = clips.some((c) => of(c) > 0 || c.animations.some((a) => typeof a.to[field] === "number" && (a.to[field] as number) > 0));
       const label = `${showing ? "Hide" : "Show"} ${what[0]!.toUpperCase()}${what.slice(1)}`;
-      return { label, steps: [{ command: "clip.set", args: { clips: clips.map((c) => c.id), props: { [group]: { opacity: showing ? 0 : 1 } } } }] };
+      const opacity = showing ? 0 : 1;
+      // Animated opacity would bring the picture back after its block: each block's end goes the same way.
+      const animated = clips.flatMap((c) => c.animations.filter((a) => field in a.to).map((a) => ({ command: "animation.set", args: { clip: c.id, animation: a.id, to: { ...a.to, [field]: opacity } } })));
+      return { label, steps: [{ command: "clip.set", args: { clips: clips.map((c) => c.id), props: { [group]: { opacity } } } }, ...animated] };
     },
   });
 }

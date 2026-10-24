@@ -117,7 +117,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
             <option value={ADD}>Add or Edit Styles…</option>
           </Select>
         </label>
-        <div className="flex flex-col gap-1">
+        <div className={`flex flex-col gap-1 ${planning ? "opacity-50" : ""}`}>
           <span className="text-label font-medium text-text-muted">Prompt</span>
           <Segmented
             value={b.source}
@@ -126,7 +126,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               { value: "manual", label: "Manual", icon: null },
             ]}
             onChange={(source) => {
-              if (source === b.source) return;
+              // Plan sets Auto when it's done: a choice made meanwhile would be undone.
+              if (source === b.source || planning) return;
               // Each keeps its prompt: Manual's starts from the words said, Auto's is written once.
               set(source === "manual" && !b.manual ? { source, manual: said ?? "" } : { source }, source === "manual" ? "B-roll Prompt: Manual" : "B-roll Prompt: Auto");
               if (source === "auto" && !b.prompt) host.run("broll.plan", { clip: clip.id });

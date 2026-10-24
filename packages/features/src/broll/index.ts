@@ -514,18 +514,22 @@ function tracker(env: TaskEnv, model: (key: string) => string, total: number) {
 }
 
 /**
- * The words heard on the timeline and in the group being edited (whose clips are at main-timeline times), from the
- * transcripts already made: narration inside an opened group counts too.
+ * The words heard on the timeline and inside its groups, opened or not (their clips at main-timeline times, within
+ * each group's span): narration grouped with its picture counts too.
  */
-function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data" | "scope">) {
-  const top = timelineWords(ctx.project, ctx.registry, ctx.data);
-  if (!ctx.scope.group) return top;
-  const inner = timelineWords({ ...ctx.project, tracks: ctx.scope.tracks }, ctx.registry, ctx.data);
-  return [...top, ...inner].sort((a, b) => a.start - b.start);
+function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
+  const nested = nestedOf(ctx.registry);
+  const inner = ctx.project.tracks.flatMap((t) => t.clips).flatMap((g) => {
+    const scope = editScope(ctx.project, g.id, nested);
+    if (!scope.group) return [];
+    const [from, to] = [ticksToSeconds(g.start), ticksToSeconds(clipEnd(g))];
+    return timelineWords(scopedProject(ctx.project, scope), ctx.registry, ctx.data).filter((w) => w.end > from && w.start < to);
+  });
+  return [...timelineWords(ctx.project, ctx.registry, ctx.data), ...inner].sort((a, b) => a.start - b.start);
 }
 
 /** What is said under a clip on the timeline, from the transcript already made (by whichever transcriber). */
-export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "registry" | "data" | "scope">): string {
+export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "registry" | "data">): string {
   const [from, to] = [ticksToSeconds(clip.start), ticksToSeconds(clipEnd(clip))];
   return heardWords(ctx)
     .filter((w) => w.end > from && w.start < to)
@@ -806,13 +810,13 @@ export const broll = defineFeature({
     }),
     defineQuery({
       id: "broll.words",
-      description: "What is said under a B-roll clip (from the transcripts already made, an opened group's narration too): what an empty prompt is made from",
+      description: "What is said under a B-roll clip (from the transcripts already made, narration inside groups too): what an empty prompt is made from",
       args: z.strictObject({ clip: z.string().min(1) }),
       run: ({ clip: id }, { project, registry, data, session }) => {
         const scope = editScope(project, session?.group, nestedOf(registry));
         const tracks = scopedProject(project, scope).tracks;
         const clip = tracks.flatMap((t) => t.clips).find((c) => c.id === id) ?? findClip(project, registry, id).clip;
-        return wordsUnder(clip, { project, registry, data, scope: { tracks, group: scope.group } });
+        return wordsUnder(clip, { project, registry, data });
       },
     }),
     defineQuery({

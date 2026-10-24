@@ -40,4 +40,15 @@ test.skipIf(!existsSync(RECORDING))("Toggle Camera and Toggle Cursor hide a reco
   const after = clips().filter((c) => c.type === "video");
   expect(after.map((c) => opacity("transform", c))).toEqual([1, 0]);
   expect(after[0]!.id).toBe(first!.id);
+
+  // A fade animated in still hides with the rest: its block ends at 0 too, then at 100% when shown, one undo step.
+  await core.run(h, "selection.set", { clips: [first!.id], linked: false });
+  await core.run(h, "animation.add", { clip: first!.id, end: 1, duration: 0.5, to: { "transform.opacity": 1, "transform.scaleX": 1.2 } });
+  const steps = (await core.history(h)).undo.length;
+  const block = () => clips().find((c) => c.id === first!.id)!.animations[0]!.to;
+  await core.run(h, "camera.toggle", {});
+  expect([opacity("transform", clips().find((c) => c.id === first!.id)), block()["transform.opacity"], block()["transform.scaleX"]]).toEqual([0, 0, 1.2]);
+  expect((await core.history(h)).undo.length).toBe(steps + 1);
+  await core.run(h, "camera.toggle", {});
+  expect(block()["transform.opacity"]).toBe(1);
 }, 60_000);

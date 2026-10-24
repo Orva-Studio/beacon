@@ -414,6 +414,13 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   await waitJob(core, jobOf(await core.run(h, "broll.generate", {})));
   // The stand-in transcript's words from 20 to 22 s.
   expect(predictions[fromWords]!.prompt).toBe('Footage illustrating: "word word word word".');
+  // The narration grouped (and the group closed), its words are still under the clip.
+  const said = await core.query(h, "broll.words", { clip: brolls()[0]!.id });
+  expect(said).toBe("word word word word");
+  const narration = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio").map((c) => c.id);
+  await core.run(h, "clip.group", { clips: narration });
+  expect(await core.query(h, "broll.words", { clip: brolls()[0]!.id })).toBe(said);
+  await core.undo(h);
   await core.undo(h);
   await core.undo(h);
 
