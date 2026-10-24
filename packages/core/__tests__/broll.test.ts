@@ -47,7 +47,13 @@ const server = Bun.serve({
       const asked = JSON.stringify(body.input);
       // "[late]": answered after the test has moved on; "[nested]": a shot inside another, as a model can write.
       if (asked.includes("[late]")) await Bun.sleep(300);
-      const shots = asked.includes("[long]")
+      const shots = asked.includes("[frames]")
+        ? [
+            { start: 0, end: 4.02, prompt: "One", why: "a" },
+            { start: 4.02, end: 8.04, prompt: "Two", why: "b" },
+            { start: 8.04, end: 12.1, prompt: "Three", why: "c" },
+          ]
+        : asked.includes("[long]")
         ? [{ start: 0, end: 12, prompt: "One long shot", why: "all" }]
         : asked.includes("[nested]")
         ? [
@@ -278,6 +284,18 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(regionOfClip(picked, core.doc(h), core.registry).map((v, i) => Math.abs(v - region[i]!) < 0.5)).toEqual([true, true, true, true]);
   await core.run(h, "broll.use", { clip: second.id, asset: second.assetId! });
 
+  // Planned again with footage: one shot, a new prompt; the footage stays (its box went with it, so no split).
+  await waitJob(core, jobOf(await core.run(h, "broll.plan", { clip: second.id })));
+  expect(brolls()).toHaveLength(2);
+  expect(brolls()[1]!.assetId).toBe(second.assetId);
+  // The stand-in's first shot ends where this clip starts: the second's prompt is the one under it.
+  expect(props(brolls()[1]!).prompt).toBe("Hands typing on a laptop, shallow focus");
+  // Sped up, then given footage: back to normal speed, or 8 s of footage would run out halfway.
+  await core.run(h, "clip.speed", { clips: [second.id], speed: 2 });
+  expect(brolls()[1]!.speed).toBeDefined();
+  await core.run(h, "broll.use", { clip: second.id, asset: flux });
+  expect(brolls()[1]!.speed).toBeUndefined();
+
   // Made again from a prompt the model refuses: the clip keeps what it had and says why.
   const first = made[0]!;
   await core.run(h, "clip.set", { clip: first.id, props: { broll: { prompt: "[refuse] a street" } } });
@@ -345,6 +363,15 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
     [0, 8],
     [8, 12],
   ]);
+
+  // Boundaries between frames (Kling, which makes 3 s shots, keeps all three): snapped once, shared, so the shots butt up and the plan goes through.
+  await withKey.core.undo(withKey.h);
+  await withKey.core.setPreference("brollModel", "kling-v3");
+  await withKey.core.run(withKey.h, "clip.set", { clip: late!.id, props: { broll: { guide: "[frames]" } } });
+  await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
+  const framed = withKey.brolls();
+  expect(framed).toHaveLength(3);
+  for (const [i, c] of framed.entries()) if (i) expect(c.start).toBe(framed[i - 1]!.start + framed[i - 1]!.duration);
 
   // Planned for Kling (15 s shots), then Veo chosen (8 s): refused before anything is paid for, not made short.
   await withKey.core.undo(withKey.h);

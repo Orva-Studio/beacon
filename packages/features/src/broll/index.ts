@@ -10,6 +10,7 @@ import {
   defineQuery,
   findClip,
   secondsToTicks,
+  snapSeconds,
   ticksToSeconds,
   type ActionContext,
   type ActionStep,
@@ -140,6 +141,8 @@ const commands = [
       const fit = covering([s.width!, s.height!], region, doc);
       c.assetId = asset;
       c.mediaStart = 0;
+      // Made for the clip's length at normal speed: played faster, it would run out before the clip ends.
+      delete c.speed;
       delete c.props.brollBox;
       c.props.media = { stream: 0 };
       c.props.transform = { ...(c.props.transform as object), ...fit.transform };
@@ -276,7 +279,8 @@ const brollPlan = defineAction({
             },
             key,
           );
-          const shots = tile(plan.shots, from, to, model.durations[0]!, model.durations.at(-1)!);
+          // A clip with footage keeps one shot: it gets a new prompt, not a split (its box went with the footage).
+          const shots = tile(plan.shots, from, to, b.takes.length ? to - from : model.durations[0]!, model.durations.at(-1)!);
           if (!shots.length) throw new Error("OpenAI planned no shots: try a guide, or a longer clip");
           env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
           return (now) => {
@@ -285,13 +289,16 @@ const brollPlan = defineAction({
             if (JSON.stringify([loc.c.start, loc.c.duration]) !== shape) throw new Error("the B-roll clip was moved or trimmed while it was planned: plan it again");
             const done = [{ command: "broll.status", args: { clips: [clip.id], planning: false } }];
             if (shots.length === 1) return { label: "Plan B-roll", steps: [{ command: "clip.set", args: { clip: clip.id, props: { broll: { prompt: shots[0]!.prompt, why: shots[0]!.why } } } }], after: () => done };
-            // Split: one placeholder per shot, each over its span, in the same place.
+            // Split: one placeholder per shot, each over its span, in the same place. Shared boundaries are snapped to
+            // frames first, so each shot ends exactly where the next starts.
+            const at = (t: number) => ticksToSeconds(snapSeconds(t, now.project.settings.fps));
+            const spans = shots.map((s) => ({ s, start: at(s.start), end: at(s.end) })).filter((x) => x.end > x.start);
             const { brollBox, transform, crop } = loc.c.props;
             const steps: ActionStep[] = [
               { command: "clip.remove", args: { clip: clip.id, linked: false } },
-              ...shots.map((s) => ({
+              ...spans.map(({ s, start, end }) => ({
                 command: "clip.place",
-                args: { type: "broll", props: { broll: { ...b, prompt: s.prompt, why: s.why, takes: [] }, brollBox, transform, ...(crop ? { crop } : {}) }, duration: s.end - s.start, time: s.start, track: loc.t.id },
+                args: { type: "broll", props: { broll: { ...b, prompt: s.prompt, why: s.why, takes: [] }, brollBox, transform, ...(crop ? { crop } : {}) }, duration: end - start, time: start, track: loc.t.id },
               })),
             ];
             return { label: "Plan B-roll", steps, after: (r) => [...done, { command: "selection.set", args: { clips: r.slice(1) as string[], linked: false } }] };
