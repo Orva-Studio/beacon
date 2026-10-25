@@ -39,6 +39,8 @@ export interface ViewState {
   jobFailed: Record<string, string>;
   /** Captions asked for before the transcript was there: made when it is. */
   captionsPending?: boolean;
+  /** B-roll clips whose style was picked while their take was made: Auto's prompt is written again in it once the take is in. */
+  brollRestyles?: string[];
   /** Proxies finished since the current run of them began (the top bar's "N of M"). */
   prepared: number;
   /** Whether each asset has a proxy (a quick-to-seek copy). */
@@ -122,7 +124,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
+    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, captionsPending: false, brollRestyles: [], prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -283,6 +285,10 @@ export const replica = {
   },
   pendCaptions(captionsPending: boolean) {
     set({ captionsPending });
+  },
+  restyleBroll(clip: string, pending: boolean) {
+    const was = (state.brollRestyles ?? []).filter((id) => id !== clip);
+    set({ brollRestyles: pending ? [...was, clip] : was });
   },
   editText(editingText: string | undefined) {
     set({ editingText });

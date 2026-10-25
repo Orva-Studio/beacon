@@ -6,7 +6,7 @@ import { COLOR, line, type CanvasMark } from "./canvas-marks";
 import type { Placed } from "./canvas";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 import type { Host } from "./app";
 
 /** What `broll.estimate` answers. */
@@ -43,6 +43,20 @@ export function placeholderMarks(p: Placed): CanvasMark[] {
   return [band(mid(a, d), mid(b, c), tint, height), ...[a, b, c, d].map((q, i) => line(q, [a, b, c, d][(i + 1) % 4]!, COLOR.hot, 1.5))];
 }
 
+/** Writes Auto's prompt again in a style picked while its take was made, once the take is in, whether or not its tab is still open. */
+export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined) {
+  const pending = useView((v) => v.brollRestyles ?? []);
+  const making = brollStateOf(session).making;
+  useEffect(() => {
+    for (const id of pending) {
+      if (making.includes(id)) continue;
+      replica.restyleBroll(id, false);
+      const b = project?.tracks.flatMap((t) => t.clips).find((c) => c.id === id)?.props.broll as BrollProps | undefined;
+      if (b?.source === "auto" && b.prompt) host.run("broll.plan", { clip: id });
+    }
+  }, [pending, making]);
+}
+
 /**
  * A B-roll clip's tab: its prompt (typed, or planned from the words under it), what Plan uses, the take shown and
  * the others, and making it (or again, or with every model) with what that costs.
@@ -56,14 +70,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(b.manual);
   useEffect(() => setManual(b.manual), [b.manual]);
-  // A style picked while Auto's take is being made: its prompt can't be written again until the take is done.
-  const [restyled, setRestyled] = useState(false);
-  useEffect(() => setRestyled(false), [clip.id]);
-  useEffect(() => {
-    if (making || !restyled) return;
-    setRestyled(false);
-    if (b.source === "auto" && b.prompt) host.run("broll.plan", { clip: clip.id });
-  }, [making, restyled]);
+  const restyled = useView((v) => !!v.brollRestyles?.includes(clip.id));
   const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
@@ -106,7 +113,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               if (e.target.value === ADD) return void host.app("app.settings:ai");
               set({ style: e.target.value }, "B-roll Style");
               // Auto's prompt is written in the style: written again in the new one.
-              if (auto && b.prompt) making ? setRestyled(true) : host.run("broll.plan", { clip: clip.id });
+              if (auto && b.prompt) making ? replica.restyleBroll(clip.id, true) : host.run("broll.plan", { clip: clip.id });
             }}
             data-broll-style
           >

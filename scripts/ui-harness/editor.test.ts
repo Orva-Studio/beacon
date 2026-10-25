@@ -4056,10 +4056,16 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     expect(props().style).toBe("none");
     await Bun.sleep(500);
     expect(readFileSync(writes, "utf8").length).toBe(before);
+    // Written again even with another clip picked meanwhile, its tab closed.
+    await page.click(...(await timelineClipCentre(callout.id)));
+    await page.until(`!document.querySelector('[data-broll-tab]')`);
     hold = false;
+    await arrived(() => props().prompt === "An on-device scene", 20_000);
+    expect(props().prompt).toBe("An on-device scene");
+    expect(readFileSync(writes, "utf8").length).toBeGreaterThan(before);
+    await page.click(...(await timelineClipCentre(clip.id)));
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
-    await arrived(() => readFileSync(writes, "utf8").length > before);
-    await page.until("!document.querySelector('[data-broll-restyled]')");
+    expect(await has("[data-broll-restyled]")).toBe(false);
   } finally {
     hold = false;
     fake.stop(true);
