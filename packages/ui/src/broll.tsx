@@ -56,6 +56,14 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(b.manual);
   useEffect(() => setManual(b.manual), [b.manual]);
+  // A style picked while Auto's take is being made: its prompt can't be written again until the take is done.
+  const [restyled, setRestyled] = useState(false);
+  useEffect(() => setRestyled(false), [clip.id]);
+  useEffect(() => {
+    if (making || !restyled) return;
+    setRestyled(false);
+    if (b.source === "auto" && b.prompt) host.run("broll.plan", { clip: clip.id });
+  }, [making, restyled]);
   const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
@@ -92,12 +100,13 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           <Select
             value={b.style}
             // A prompt being written is in the style it started with: changed once it's done.
-            disabled={busy}
+            disabled={planning}
+            title={planning ? "The prompt is being written in this style: pick another once it's done" : undefined}
             onChange={(e) => {
               if (e.target.value === ADD) return void host.app("app.settings:ai");
               set({ style: e.target.value }, "B-roll Style");
               // Auto's prompt is written in the style: written again in the new one.
-              if (auto && b.prompt) host.run("broll.plan", { clip: clip.id });
+              if (auto && b.prompt) making ? setRestyled(true) : host.run("broll.plan", { clip: clip.id });
             }}
             data-broll-style
           >
@@ -148,8 +157,12 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               <Button disabled={busy || (planner === "openai" && !online)} title={planner === "openai" && !online ? offline : undefined} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
                 {planning ? "Writing…" : b.prompt ? "Write Again" : "Write the Prompt"}
               </Button>
+              <Button look="quiet" disabled={!b.prompt || planning} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: b.prompt }, "Copy B-roll Prompt to Manual")} data-broll-copy>
+                Copy to Manual
+              </Button>
               {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             </div>
+            {restyled && <span className="text-caption text-warning" data-broll-restyled>Written again in the new style once this take is made.</span>}
             <span className="text-caption text-text-faint">
               {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
             </span>
