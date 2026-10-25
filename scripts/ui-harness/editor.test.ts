@@ -3908,6 +3908,7 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
   const writes = join(dir, "broll-writes");
   writeFileSync(writer, `#!/bin/sh\necho x >> "${writes}"\nif grep -q "16mm" "$1"; then echo '{"prompt":"A grainy 16mm scene","why":"v"}'; else echo '{"prompt":"An on-device scene","why":"d"}'; fi\n`, { mode: 0o755 });
   const made = new Map<string, Record<string, unknown>>();
+  let hold = false;
   const fake = Bun.serve({
     port: 0,
     async fetch(req) {
@@ -3923,6 +3924,7 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
       }
       const input = made.get(url.pathname.split("/").pop()!);
       if (!input) return new Response("", { status: 404 });
+      if (hold) return Response.json({ status: "processing", urls: { get: url.href } });
       const [w, h] = input.aspect_ratio === "9:16" ? [360, 640] : [640, 360];
       footage(w, h);
       return Response.json({ status: "succeeded", output: `${url.origin}/files/broll-${w}x${h}.mp4` });
@@ -3995,7 +3997,16 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === ${JSON.stringify(`${words} at dusk`)}`);
     await Bun.sleep(500);
     expect(readFileSync(writes, "utf8").length).toBe(written);
-    await run("clip.set", { clip: clip.id, props: { broll: { manual: words } } });
+    // Auto's prompt copied to Manual, to edit: one undo step.
+    await press('[data-broll-source] button:nth-child(1)');
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
+    await press("[data-broll-copy]");
+    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === 'A grainy 16mm scene'`);
+    expect(props()).toMatchObject({ source: "manual", manual: "A grainy 16mm scene", prompt: "A grainy 16mm scene" });
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Copy B-roll Prompt to Manual");
+    await ui.core.undo(ui.handle);
+    expect(props()).toMatchObject({ source: "auto", manual: `${words} at dusk` });
+    await run("clip.set", { clip: clip.id, props: { broll: { source: "manual", manual: words } } });
 
     // No Replicate token: the tab says so, with the way to Settings › AI, where the planner is Apple's by default.
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Generate')");
@@ -4031,7 +4042,32 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     expect(broll()!.assetId).toBeDefined();
     expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Generate B-roll");
+
+    // While Auto's take is made the style can still be picked: its prompt is written again in it once the take is in.
+    await press('[data-broll-source] button:nth-child(1)');
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
+    hold = true;
+    await press("[data-broll-generate]");
+    await page.until("document.querySelector('[data-broll-generate]')?.textContent === 'Making…'", 10_000);
+    expect(await page.evaluate<boolean>("document.querySelector('[data-broll-style]').disabled")).toBe(false);
+    const before = readFileSync(writes, "utf8").length;
+    await choose("[data-broll-style]", "none");
+    await page.until("!!document.querySelector('[data-broll-restyled]')");
+    expect(props().style).toBe("none");
+    await Bun.sleep(500);
+    expect(readFileSync(writes, "utf8").length).toBe(before);
+    // Written again even with another clip picked meanwhile, its tab closed.
+    await page.click(...(await timelineClipCentre(callout.id)));
+    await page.until(`!document.querySelector('[data-broll-tab]')`);
+    hold = false;
+    await arrived(() => props().prompt === "An on-device scene", 20_000);
+    expect(props().prompt).toBe("An on-device scene");
+    expect(readFileSync(writes, "utf8").length).toBeGreaterThan(before);
+    await page.click(...(await timelineClipCentre(clip.id)));
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
+    expect(await has("[data-broll-restyled]")).toBe(false);
   } finally {
+    hold = false;
     fake.stop(true);
     delete process.env.BEACON_WRITER;
     delete process.env.BEACON_REPLICATE_URL;

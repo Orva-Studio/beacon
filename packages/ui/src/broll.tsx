@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session } from "@beacon/model";
+import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session, type Track } from "@beacon/model";
 import type { BrollProps, BrollState, Style, TakeInfo } from "@beacon/features";
 import { Button, Check, Section, Segmented, Select, TextArea } from "./controls";
 import { COLOR, line, type CanvasMark } from "./canvas-marks";
 import type { Placed } from "./canvas";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 import type { Host } from "./app";
+import { innerTracks, timelineView } from "./timeline-draw";
 
 /** What `broll.estimate` answers. */
 interface Estimate {
@@ -43,6 +44,36 @@ export function placeholderMarks(p: Placed): CanvasMark[] {
   return [band(mid(a, d), mid(b, c), tint, height), ...[a, b, c, d].map((q, i) => line(q, [a, b, c, d][(i + 1) % 4]!, COLOR.hot, 1.5))];
 }
 
+/** Writes Auto's prompt again in a style picked while its take was made, once the take is in, whether or not its tab is still open. */
+export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined, nested: Record<string, string>) {
+  const pending = useView((v) => v.brollRestyles);
+  const { making, errors } = brollStateOf(session);
+  useEffect(() => {
+    if (!project || !session) return;
+    // Plan finds a clip in the timeline open (the main one, or a group's): one elsewhere waits until it is open again.
+    const shown = timelineView(project, session, nested).project.tracks;
+    for (const id of pending) {
+      if (making.includes(id)) continue;
+      const clip = clipIn(project.tracks, id, nested);
+      if (clip && !shown.some((t) => t.clips.some((c) => c.id === id))) continue;
+      replica.restyleBroll(id, false);
+      // Written again it would clear why the take failed: Write Again, once that's read.
+      if (errors[id]) continue;
+      const b = clip?.props.broll as BrollProps | undefined;
+      if (b?.source === "auto" && b.prompt) host.run("broll.plan", { clip: id });
+    }
+  }, [pending, making, session?.group]);
+}
+
+/** A clip by id, inside groups too. */
+function clipIn(tracks: Track[], id: string, nested: Record<string, string>): Clip | undefined {
+  for (const c of tracks.flatMap((t) => t.clips)) {
+    const inner = c.id === id ? c : innerTracks(c, nested) && clipIn(innerTracks(c, nested)!, id, nested);
+    if (inner) return inner;
+  }
+  return undefined;
+}
+
 /**
  * A B-roll clip's tab: its prompt (typed, or planned from the words under it), what Plan uses, the take shown and
  * the others, and making it (or again, or with every model) with what that costs.
@@ -56,6 +87,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(b.manual);
   useEffect(() => setManual(b.manual), [b.manual]);
+  const restyled = useView((v) => v.brollRestyles.includes(clip.id));
   const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
@@ -92,12 +124,13 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           <Select
             value={b.style}
             // A prompt being written is in the style it started with: changed once it's done.
-            disabled={busy}
+            disabled={planning}
+            title={planning ? "The prompt is being written in this style: pick another once it's done" : undefined}
             onChange={(e) => {
               if (e.target.value === ADD) return void host.app("app.settings:ai");
               set({ style: e.target.value }, "B-roll Style");
               // Auto's prompt is written in the style: written again in the new one.
-              if (auto && b.prompt) host.run("broll.plan", { clip: clip.id });
+              if (auto && b.prompt) making ? replica.restyleBroll(clip.id, true) : host.run("broll.plan", { clip: clip.id });
             }}
             data-broll-style
           >
@@ -148,8 +181,12 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               <Button disabled={busy || (planner === "openai" && !online)} title={planner === "openai" && !online ? offline : undefined} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
                 {planning ? "Writing…" : b.prompt ? "Write Again" : "Write the Prompt"}
               </Button>
+              <Button look="quiet" disabled={!b.prompt || planning} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: b.prompt }, "Copy B-roll Prompt to Manual")} data-broll-copy>
+                Copy to Manual
+              </Button>
               {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             </div>
+            {restyled && <span className="text-caption text-warning" data-broll-restyled>Written again in the new style once this take is made.</span>}
             <span className="text-caption text-text-faint">
               {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
             </span>

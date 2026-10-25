@@ -5,6 +5,16 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## B-roll thumbnails, Copy to Manual, Style while making (`fix/broll-thumbnails`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| A clip's timeline thumbnail is made again when its footage or first frame changes (a B-roll take arriving or picked, a start trimmed), not only on reopening; an unchanged project makes none | 2026-10-25 | this branch | the window's thumbnail sender run on a `LocalCore` (a start trimmed: a new thumbnail; on `main`: none) |
+| B-roll's Copy to Manual: Auto's prompt becomes Manual's, to edit, one undo step | 2026-10-25 | this branch | UI flow (`B-roll from the AI panel…`) |
+| B-roll's Style menu works while a take is being made (greyed only while the prompt is written, saying why); in Auto the prompt is written again in the new style once the take is in, a line saying so meanwhile | 2026-10-25 | this branch | UI flow (`B-roll from the AI panel…`, Replicate's stand-in holding the take) |
+
 ## Dragging several picked clips (`feat/ai-broll`)
 
 ### Checked headless only (still to see by hand)
