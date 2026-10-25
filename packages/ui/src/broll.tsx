@@ -8,7 +8,7 @@ import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
-import { innerTracks } from "./timeline-draw";
+import { innerTracks, timelineView } from "./timeline-draw";
 
 /** What `broll.estimate` answers. */
 interface Estimate {
@@ -49,15 +49,20 @@ export function useBrollRestyles(host: Host, session: Session | undefined, proje
   const pending = useView((v) => v.brollRestyles);
   const { making, errors } = brollStateOf(session);
   useEffect(() => {
+    if (!project || !session) return;
+    // Plan finds a clip in the timeline open (the main one, or a group's): one elsewhere waits until it is open again.
+    const shown = timelineView(project, session, nested).project.tracks;
     for (const id of pending) {
       if (making.includes(id)) continue;
+      const clip = clipIn(project.tracks, id, nested);
+      if (clip && !shown.some((t) => t.clips.some((c) => c.id === id))) continue;
       replica.restyleBroll(id, false);
       // Written again it would clear why the take failed: Write Again, once that's read.
       if (errors[id]) continue;
-      const b = clipIn(project?.tracks ?? [], id, nested)?.props.broll as BrollProps | undefined;
+      const b = clip?.props.broll as BrollProps | undefined;
       if (b?.source === "auto" && b.prompt) host.run("broll.plan", { clip: id });
     }
-  }, [pending, making]);
+  }, [pending, making, session?.group]);
 }
 
 /** A clip by id, inside groups too. */
