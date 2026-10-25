@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## A clip's thumbnail follows what it shows (`fix/broll-thumbnails`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| A clip's timeline thumbnail is made again when its footage or first frame changes (a B-roll take arriving or picked, a start trimmed), not only on reopening; an unchanged project makes none | 2026-10-25 | this branch | the window's thumbnail sender run on a `LocalCore` (a start trimmed: a new thumbnail; on `main`: none) |
+
 ## Dragging several picked clips (`feat/ai-broll`)
 
 ### Checked headless only (still to see by hand)

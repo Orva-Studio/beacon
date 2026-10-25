@@ -6,7 +6,7 @@ const THUMB_HEIGHT = 64;
 export function createWindowMedia(app: App) {
   const { core, message } = app;
 
-  const thumbs = new Map<string, string>();
+  const thumbs = new Map<string, { shows: string; png: string }>();
   let thumbing = false;
   /** Asked for while a pass was running: its list may miss new clips. */
   let thumbAgain = false;
@@ -21,15 +21,19 @@ export function createWindowMedia(app: App) {
     try {
       const h = current.path;
       const doc = core.doc(h);
-      const todo = [...Object.keys(doc.assets).map((id) => `asset:${id}`), ...doc.tracks.flatMap((t) => t.clips.map((c) => c.id))].filter((id) => !thumbs.has(id));
+      // A clip keeps its id when what it shows changes (a B-roll placeholder given its footage, another take picked).
+      const todo = [
+        ...Object.keys(doc.assets).map((id) => ({ id: `asset:${id}`, shows: "" })),
+        ...doc.tracks.flatMap((t) => t.clips.map((c) => ({ id: c.id, shows: `${c.assetId ?? ""}@${c.mediaStart ?? 0}` }))),
+      ].filter(({ id, shows }) => thumbs.get(id)?.shows !== shows);
       // A few at a time: each is an ffmpeg decode, and a large project has hundreds.
       for (let i = 0; i < todo.length && app.current()?.path === h; i += 3) {
         const batch: Record<string, string> = {};
         await Promise.all(
-          todo.slice(i, i + 3).map(async (id) => {
+          todo.slice(i, i + 3).map(async ({ id, shows }) => {
             const png = await (id.startsWith("asset:") ? core.assetThumbnail(h, id.slice(6), THUMB_HEIGHT * 2) : core.thumbnail(h, id, THUMB_HEIGHT)).catch(() => undefined);
-            thumbs.set(id, png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : "");
-            if (png?.length) batch[id] = thumbs.get(id)!;
+            thumbs.set(id, { shows, png: png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : "" });
+            if (png?.length) batch[id] = thumbs.get(id)!.png;
           }),
         );
         if (Object.keys(batch).length) message("media", { thumbs: batch });
