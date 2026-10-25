@@ -47,11 +47,13 @@ export function placeholderMarks(p: Placed): CanvasMark[] {
 /** Writes Auto's prompt again in a style picked while its take was made, once the take is in, whether or not its tab is still open. */
 export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined, nested: Record<string, string>) {
   const pending = useView((v) => v.brollRestyles);
-  const making = brollStateOf(session).making;
+  const { making, errors } = brollStateOf(session);
   useEffect(() => {
     for (const id of pending) {
       if (making.includes(id)) continue;
       replica.restyleBroll(id, false);
+      // Written again it would clear why the take failed: Write Again, once that's read.
+      if (errors[id]) continue;
       const b = clipIn(project?.tracks ?? [], id, nested)?.props.broll as BrollProps | undefined;
       if (b?.source === "auto" && b.prompt) host.run("broll.plan", { clip: id });
     }

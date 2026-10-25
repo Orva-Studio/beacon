@@ -32,8 +32,10 @@ export function createWindowMedia(app: App) {
         await Promise.all(
           todo.slice(i, i + 3).map(async ({ id, shows }) => {
             const png = await (id.startsWith("asset:") ? core.assetThumbnail(h, id.slice(6), THUMB_HEIGHT * 2) : core.thumbnail(h, id, THUMB_HEIGHT)).catch(() => undefined);
+            const had = !!thumbs.get(id)?.png;
             thumbs.set(id, { shows, png: png?.length ? `data:image/png;base64,${Buffer.from(png).toString("base64")}` : "" });
-            if (png?.length) batch[id] = thumbs.get(id)!.png;
+            // An empty one too when there was one: its footage removed (a take undone), the clip shows none.
+            if (png?.length || had) batch[id] = thumbs.get(id)!.png;
           }),
         );
         if (Object.keys(batch).length) message("media", { thumbs: batch });
