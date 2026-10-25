@@ -45,7 +45,7 @@ export function placeholderMarks(p: Placed): CanvasMark[] {
 
 /** Writes Auto's prompt again in a style picked while its take was made, once the take is in, whether or not its tab is still open. */
 export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined) {
-  const pending = useView((v) => v.brollRestyles ?? []);
+  const pending = useView((v) => v.brollRestyles);
   const making = brollStateOf(session).making;
   useEffect(() => {
     for (const id of pending) {
@@ -70,7 +70,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(b.manual);
   useEffect(() => setManual(b.manual), [b.manual]);
-  const restyled = useView((v) => !!v.brollRestyles?.includes(clip.id));
+  const restyled = useView((v) => v.brollRestyles.includes(clip.id));
   const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
