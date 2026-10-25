@@ -493,7 +493,7 @@ export class LocalCore implements BeaconCore {
 
   /** An action's background work; its edit is planned on the document as it is when the work is done. */
   #startTask(p: OpenProject, task: ActionTask): Job {
-    return this.#parts.startJob(p, "task", task.label, async (progress) => {
+    const job = this.#parts.startJob(p, "task", task.label, async (progress) => {
       const mediaDir = join(p.path, "media");
       mkdirSync(mediaDir, { recursive: true });
       const finish = await task.run({
@@ -509,6 +509,19 @@ export class LocalCore implements BeaconCore {
       const r = this.#applyPlan(p, plan, plan.label);
       return { label: plan.label, results: r.results };
     });
+    if (task.failed) {
+      job.done.catch((e: unknown) => {
+        if (this.#projects.get(p.path) !== p) return;
+        const message = e instanceof Error ? e.message : String(e);
+        const error = message === `${task.label}: cancelled` ? "cancelled" : message;
+        try {
+          for (const s of task.failed!(error)) p.session.run(s.command, s.args, p.store.doc);
+        } catch (err) {
+          console.error(err);
+        }
+      });
+    }
+    return job;
   }
 
   /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
@@ -1061,7 +1074,9 @@ export class LocalCore implements BeaconCore {
 
   async setPreference(id: string, value: string): Promise<void> {
     // A slider's last setting (a range) decides no analysis, so it mustn't restart transcripts.
-    if ((await this.#config.setPreference(id, value)) && !this.registry.preferences.get(id)!.range) this.#analyses.preferenceChanged();
+    const def = this.registry.preferences.get(id)!;
+    // A slider's setting or a feature's list isn't a choice analyzers make their data by.
+    if ((await this.#config.setPreference(id, value)) && !def.range && !def.schema) this.#analyses.preferenceChanged();
   }
 
   async secrets(): Promise<SecretInfo[]> {

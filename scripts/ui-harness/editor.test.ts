@@ -7,6 +7,8 @@ import { DerivedData } from "@beacon/render";
 import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
+import { tool } from "@beacon/media";
+import { regionOfClip } from "@beacon/features";
 import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
 
 /**
@@ -43,6 +45,14 @@ const timelinePlaces = async (clipId: string) => {
   const row = tracks.length - 1 - tracks.findIndex((t) => t.clips.some((k) => k.id === clipId));
   const [box, header] = [await timelineBox(), headerWidth(tracks)];
   return { ...clipBox(row, s.timeline.trackHeight, s.timeline.top ?? 0), xAt: (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header), box };
+};
+/** Where a clip's middle (or its visible part's) is on the page. */
+const timelineClipCentre = async (id: string): Promise<[number, number]> => {
+  const { box, xAt, y, h } = await timelinePlaces(id);
+  const c = clip(id);
+  const s = await session();
+  const [a, b] = [Math.max(ticksToSeconds(c.start), s.timeline.start), Math.min(ticksToSeconds(c.start + c.duration), s.timeline.end)];
+  return [box.x + xAt((a + b) / 2), box.y + y + h / 2];
 };
 /** Page code reading a timeline canvas pixel's RGB (canvas points) as "r,g,b". */
 const timelinePixel = (x: number, y: number) =>
@@ -388,7 +398,7 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   const value = async () => (await ui.core.preferences()).find((p) => p.id === "transcriber")!.value;
   // Changing the transcriber transcribes the project's media again: not here (OpenAI's would be sent the test key).
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "transcripts" });
   await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
   expect(await has("[data-resource-row]")).toBe(true);
   // Apple's needs nothing: chosen at once, and the model isn't offered.
@@ -402,14 +412,22 @@ test.skipIf(skip)("Settings › Transcripts picks the transcriber; OpenAI's wait
   expect(await page.evaluate<string>(`document.querySelector('[data-api-key]').closest('[tabindex="-1"]').innerText`)).toContain("uploaded to OpenAI");
   expect(await value()).toBe("apple");
   expect(ui.menus).not.toContain("setPreference:transcriber=openai");
-  await page.click(...(await centre('[data-api-key="unset"] input')));
+  // Every key is in Settings › AI: added there, OpenAI's is chosen and Settings comes back here.
+  await page.evaluate(`${button("Add Key in AI…")}.click()`);
+  await page.until(`!!document.querySelector('[data-secret="openai-api-key"] input')`);
+  await page.click(...(await centre('[data-secret="openai-api-key"] input')));
   await type("sk-test-123");
-  await page.evaluate(`${button("Save and Use")}.click()`);
-  await page.until("!!document.querySelector('[data-api-key=\"set\"]')");
+  await page.key("Enter", "Enter");
+  await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
   expect(ui.menus).toContain("setSecret:openai-api-key=set");
   expect(await value()).toBe("openai");
+  expect(await has('[data-api-key="set"]')).toBe(true);
   // An agent can't choose an option whose key is missing; without its key, OpenAI's goes back to Whisper.
-  await page.evaluate(`${button("Remove")}.click()`);
+  await page.evaluate(`document.querySelector('[data-section="ai"]').click()`);
+  await page.until(`document.querySelector('[data-secret="openai-api-key"]')?.dataset.apiKey === 'set'`);
+  await page.evaluate(`[...document.querySelectorAll('[data-secret="openai-api-key"] button')].find((b) => b.textContent === 'Remove').click()`);
+  await arrived(() => ui.menus.includes("setSecret:openai-api-key=removed"));
+  await page.evaluate(`document.querySelector('[data-section="transcripts"]').click()`);
   await page.until("document.querySelector('[data-transcriber]')?.value === 'whisper'");
   expect(await value()).toBe("whisper");
   await expect(ui.core.setPreference("transcriber", "openai")).rejects.toThrow(/only the user can add/);
@@ -423,16 +441,18 @@ test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: 
   const pick = (id: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-preference="${id}"]'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   const value = async (id: string) => (await ui.core.preferences()).find((p) => p.id === id)!.value;
   ui.core.setAutomatic((analyzer) => analyzer !== "transcript");
-  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences(), tab: "transcripts" });
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [], preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "transcripts" });
   await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
   expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("Best Take");
   await pick("retake-judge", "openai");
   await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="unset"]')`);
   expect(await page.evaluate<string>(`document.querySelector('${row("retake-judge")}').innerText`)).toContain("not the audio");
   expect(await value("retake-judge")).toBe("beacon");
-  await page.click(...(await centre(`${row("retake-judge")} [data-api-key="unset"] input`)));
+  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Add Key in AI…').click()`);
+  await page.until(`!!document.querySelector('[data-secret="openai-api-key"] input')`);
+  await page.click(...(await centre('[data-secret="openai-api-key"] input')));
   await type("sk-test-456");
-  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Save and Use').click()`);
+  await page.key("Enter", "Enter");
   await page.until(`!!document.querySelector('${row("retake-judge")} [data-api-key="set"]')`);
   expect(await value("retake-judge")).toBe("openai");
   // The key is the transcriber's too: OpenAI's there is chosen at once, with no key to type.
@@ -441,7 +461,11 @@ test.skipIf(skip)("Settings › Best Take picks who keeps the best of a retake: 
   expect(await value("transcriber")).toBe("openai");
   await pick("transcriber", "whisper");
   await arrived(() => ui.menus.includes("setPreference:transcriber=whisper"));
-  await page.evaluate(`[...document.querySelectorAll('${row("retake-judge")} button')].find((b) => b.textContent === 'Remove').click()`);
+  await page.evaluate(`document.querySelector('[data-section="ai"]').click()`);
+  await page.until(`document.querySelector('[data-secret="openai-api-key"]')?.dataset.apiKey === 'set'`);
+  await page.evaluate(`[...document.querySelectorAll('[data-secret="openai-api-key"] button')].find((b) => b.textContent === 'Remove').click()`);
+  await page.until(`document.querySelector('[data-secret="openai-api-key"]')?.dataset.apiKey === 'unset'`);
+  await page.evaluate(`document.querySelector('[data-section="transcripts"]').click()`);
   await page.until(`document.querySelector('[data-preference="retake-judge"]')?.value === 'beacon'`);
   expect(await value("retake-judge")).toBe("beacon");
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()`);
@@ -459,21 +483,23 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 4");
-    expect(await greyed()).toEqual([false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 5");
+    expect(await greyed()).toEqual([false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([true, true, true, true]);
+    // B-roll's prompt can be typed: it needs no transcript.
+    expect(await greyed()).toEqual([true, true, true, false, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false]);
+    // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
+    expect(await greyed()).toEqual([false, false, false, false, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
-    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), tab: "transcripts" });
+    ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", resources: [model], preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "transcripts" });
     await page.until("document.querySelector('[data-transcriber]')?.value === 'openai'");
     expect(await page.evaluate<string>("document.querySelector('[data-offline]').textContent")).toContain("can't transcribe until you're back online");
     await page.evaluate("(() => { const s = document.querySelector('[data-transcriber]'); s.value = 'whisper'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
@@ -487,7 +513,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -1381,6 +1407,28 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   await page.until("!document.querySelector('[data-leader]')");
   await arrived(() => (clip(audio.id).props.label as { color?: string } | undefined)?.color === "red");
   expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Color Label");
+  // : t, the Toggle group: c hides the camera, p the cursor (every one, with none selected).
+  const selected = [...(await session()).selection];
+  await select([]);
+  const camera = () => clips().find((c) => c.type === "video" && ui.core.doc(ui.handle).assets[c.assetId ?? ""]?.kind === "recording")!;
+  const shown2 = (c: { props: Record<string, unknown> }, group: string) => (c.props[group] as { opacity?: number } | undefined)?.opacity ?? 1;
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("t", "KeyT");
+  await page.until("[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent === 'CCamera')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)")).toContain("PCursor");
+  await page.key("c", "KeyC");
+  await arrived(() => shown2(camera(), "transform") === 0);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Hide Camera");
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("t", "KeyT");
+  await page.key("p", "KeyP");
+  await arrived(() => shown2(clips().find((c) => c.type === "screen")!, "cursor") === 0);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Hide Cursor");
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await select(selected);
   // Esc, a click elsewhere and a key that follows nothing each drop it, doing nothing.
   const playhead = (await session()).playhead;
   await semi();
@@ -1526,7 +1574,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-4)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:captions"]);
+  expect(all.slice(-5)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -1752,6 +1800,54 @@ test.skipIf(skip)("dragging a clip above the top track drops it on a new top tra
   expect(tracks.length).toBe(before + 1);
   expect(tracks.at(-1)!.clips.map((c) => c.id)).toEqual([target.id]);
   await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("clips picked with ⌘-click move together when one of them is dragged; a clip picked alone moves alone", async () => {
+  await select([]);
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("playhead.set", { time: 9 });
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(screen.id), await timelinePlaces(camera.id)];
+  const { box, xAt } = scr;
+  const at = (p: { y: number; h: number }, t: number): [number, number] => [box.x + xAt(t), box.y + p.y + p.h / 2];
+  await page.click(...at(scr, 3));
+  await Bun.sleep(300);
+  await page.click(...at(cam, 3), ["meta"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([screen.id, camera.id, audio.id].sort());
+  const before = new Map([screen, camera, audio].map((c) => [c.id, clip(c.id).start]));
+  const [x, y] = at(scr, 3);
+  await page.drag([x, y], [x + xAt(4) - xAt(3), y]);
+  await Bun.sleep(300);
+  const moved = [...before].map(([id, start]) => clip(id).start - start);
+  expect(moved[0]).toBeGreaterThan(0);
+  expect(new Set(moved).size).toBe(1);
+  await ui.core.undo(ui.handle);
+
+  // ⌘ held as an unpicked clip is pressed and dragged: it joins the picked ones and they all move.
+  await page.click(...at(scr, 3));
+  await Bun.sleep(300);
+  const [cx, cy] = at(cam, 3);
+  await page.drag([cx, cy], [cx + xAt(4) - xAt(3), cy], ["meta"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([screen.id, camera.id, audio.id].sort());
+  const dragged = [...before].map(([id, start]) => clip(id).start - start);
+  expect(dragged[0]).toBeGreaterThan(0);
+  expect(new Set(dragged).size).toBe(1);
+  await ui.core.undo(ui.handle);
+
+  await page.click(...at(scr, 3));
+  await Bun.sleep(300);
+  expect((await session()).selection).toEqual([screen.id]);
+  await page.drag([x, y], [x + xAt(4) - xAt(3), y]);
+  await Bun.sleep(300);
+  expect(clip(screen.id).start).toBeGreaterThan(before.get(screen.id)!);
+  expect(clip(camera.id).start).toBe(before.get(camera.id)!);
+  await ui.core.undo(ui.handle);
+  await select([]);
   await run("timeline.zoom", { to: "fit" });
 });
 
@@ -2424,7 +2520,7 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
 test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
   await page.until("!!document.querySelector('[data-settings-nav]')");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "Audio", "Shortcuts"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "AI", "Shortcuts"]);
   const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
   const first = await size();
   for (const section of ["recording", "transcripts", "shortcuts", "general"]) {
@@ -3722,7 +3818,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.until(`!!document.querySelector('${tile}')`);
     await page.dblclick(...(await centre(tile)));
     await page.until("!!document.querySelector('[data-auphonic-review]')");
-    await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › Audio')");
+    await page.until("(document.querySelector('[data-auphonic-error]')?.textContent ?? '').includes('Settings › AI')");
     expect(await page.evaluate<boolean>("document.querySelector('[data-auphonic-start]').disabled")).toBe(true);
     // ⎋ closes it as Cancel does, the selection kept; opened again for the rest.
     await page.key("Escape", "Escape");
@@ -3748,12 +3844,12 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await page.until("!document.querySelector('[data-auphonic-none]')");
     if (muted) await run("track.set", { track: muted.id, muted: false });
     await select([audio.id]);
-    // Open Settings… goes to Settings › Audio, where the key is typed in and saved.
+    // Open Settings… goes to Settings › AI, where the key is typed in and saved.
     const menus = ui.menus.length;
     await page.evaluate("[...document.querySelectorAll('[data-auphonic-error] button')].find((b) => b.textContent.includes('Open Settings')).click()");
-    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:audio"));
-    expect(ui.menus.slice(menus)).toContain("app:app.settings:audio");
-    await ui.core.uiOpen(ui.handle, "settings", "audio");
+    await arrived(() => ui.menus.slice(menus).includes("app:app.settings:ai"));
+    expect(ui.menus.slice(menus)).toContain("app:app.settings:ai");
+    await ui.core.uiOpen(ui.handle, "settings", "ai");
     const field = '[data-secret="auphonic-api-key"] input';
     await page.until(`!!document.querySelector('${field}')`);
     await page.click(...(await centre(field)));
@@ -3799,6 +3895,156 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await select([]);
   }
 }, 120_000);
+
+test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, a style picked (the prompt written again in it), Prompt: Manual starting from the words said, and its footage made from them in that style through Replicate's stand-in, one undo step", async () => {
+  // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
+  const footage = (w: number, h: number) => {
+    const out = join(dir, `broll-${w}x${h}.mp4`);
+    const frames = 8 * 4;
+    if (!existsSync(out)) Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${w}x${h}`, "-r", "4", "-i", "-", "-c:v", "h264_videotoolbox", "-pix_fmt", "yuv420p", out], { stdin: new Uint8Array(w * h * frames).fill(120) });
+    return out;
+  };
+  const writer = join(dir, "beacon-writer");
+  const writes = join(dir, "broll-writes");
+  writeFileSync(writer, `#!/bin/sh\necho x >> "${writes}"\nif grep -q "16mm" "$1"; then echo '{"prompt":"A grainy 16mm scene","why":"v"}'; else echo '{"prompt":"An on-device scene","why":"d"}'; fi\n`, { mode: 0o755 });
+  const made = new Map<string, Record<string, unknown>>();
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname.startsWith("/files/")) return new Response(Bun.file(join(dir, url.pathname.slice(7))));
+      if (req.headers.get("authorization") !== "Bearer r8-test") return Response.json({ detail: "Invalid token" }, { status: 401 });
+      if (url.pathname === "/models/google/veo-3.1-fast") return Response.json({});
+      if (url.pathname === "/models/google/veo-3.1-fast/predictions") {
+        const { input } = (await req.json()) as { input: Record<string, unknown> };
+        const id = `p${made.size}`;
+        made.set(id, input);
+        return Response.json({ id, status: "starting", urls: { get: `${url.origin}/predictions/${id}` } });
+      }
+      const input = made.get(url.pathname.split("/").pop()!);
+      if (!input) return new Response("", { status: 404 });
+      const [w, h] = input.aspect_ratio === "9:16" ? [360, 640] : [640, 360];
+      footage(w, h);
+      return Response.json({ status: "succeeded", output: `${url.origin}/files/broll-${w}x${h}.mp4` });
+    },
+  });
+  process.env.BEACON_WRITER = writer;
+  process.env.BEACON_REPLICATE_URL = fake.url.origin;
+  process.env.BEACON_REPLICATE_POLL_MS = "50";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const broll = () => clips().find((c) => c.type === "broll");
+  const props = () => broll()!.props.broll as { prompt: string; style: string; source: string; manual: string };
+  // The tab is taller than the window: its controls are scrolled to before they are used.
+  const press = async (selector: string) => {
+    await page.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: "center" })`);
+    await page.click(...(await centre(selector)));
+  };
+  const choose = (selector: string, value: string) =>
+    page.evaluate(`(() => { const s = document.querySelector(${JSON.stringify(selector)}); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await ui.core.setPreference("brollStyles", JSON.stringify([{ id: "my-16mm", name: "My 16mm", text: "Grainy 16mm, warm tones, handheld" }]));
+  try {
+    await run("range.set", { in: 2, out: 10 });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=broll]')");
+    await page.evaluate("document.querySelector('[data-ai=broll]').click()");
+    // A clip over the range, selected, its B-roll tab open, its prompt written on this Mac with no key.
+    await page.until("!!document.querySelector('[data-broll-tab]')");
+    const clip = broll()!;
+    expect([ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)]).toEqual([2, 10]);
+    expect((await session()).selection).toEqual([clip.id]);
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'An on-device scene'", 20_000);
+    // The B-roll tab sits beside Visual Properties.
+    expect(await page.evaluate<string[]>("[...document.querySelectorAll('.bg-tabbar button')].map((t) => t.getAttribute('title'))")).toEqual(["Visual Properties", "B-roll"]);
+    await run("playhead.set", { time: 4 });
+    // Its right side dragged to the canvas's middle: half as wide, the left side kept.
+    const { width, height } = ui.core.doc(ui.handle).settings;
+    const handle = `[data-handle="e"][data-clip="${clip.id}"]`;
+    await page.until(`!!document.querySelector('${handle}')`);
+    const [hx, hy] = await centre(handle);
+    const [lx] = await centre(`[data-handle="w"][data-clip="${clip.id}"]`);
+    await page.drag([hx, hy], [(lx + hx) / 2, hy]);
+    await arrived(() => Math.abs(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry)[2] - width / 2) < 2);
+
+    // A style of the user's own: listed under Your styles; picked, the prompt is written again in it.
+    expect(await page.evaluate<string>("[...document.querySelectorAll('[data-broll-style] optgroup')].map((g) => g.label).join('|')")).toBe("Film looks|Product and tech|Your styles");
+    await choose("[data-broll-style]", "my-16mm");
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'", 20_000);
+    expect(props().style).toBe("my-16mm");
+    // Written once: picking another clip and this one again doesn't write it anew.
+    const written = readFileSync(writes, "utf8").length;
+    await page.click(...(await timelineClipCentre(callout.id)));
+    await page.until(`!document.querySelector('[data-broll-tab]')`);
+    await page.click(...(await timelineClipCentre(clip.id)));
+    await page.until(`!!document.querySelector('[data-broll-tab]')`);
+    await Bun.sleep(1500);
+    expect(readFileSync(writes, "utf8").length).toBe(written);
+
+    // Auto's prompt is read only; Manual is typed, starting from the words said under it.
+    expect(await has("textarea[data-broll-prompt]")).toBe(false);
+    await press('[data-broll-source] button:nth-child(2)');
+    await page.until("!!document.querySelector('textarea[data-broll-prompt]')");
+    const words = (await ui.core.query(ui.handle, "broll.words", { clip: clip.id })) as string;
+    expect(props()).toMatchObject({ source: "manual", manual: words, prompt: "A grainy 16mm scene" });
+    await page.until(`document.querySelector('textarea[data-broll-prompt]').value === ${JSON.stringify(words)}`);
+    // Back to Auto and to Manual again: each keeps its prompt, Auto's not written anew, Manual's as typed.
+    await run("clip.set", { clip: clip.id, props: { broll: { manual: `${words} at dusk` } } });
+    await press('[data-broll-source] button:nth-child(1)');
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
+    await press('[data-broll-source] button:nth-child(1)');
+    await press('[data-broll-source] button:nth-child(2)');
+    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === ${JSON.stringify(`${words} at dusk`)}`);
+    await Bun.sleep(500);
+    expect(readFileSync(writes, "utf8").length).toBe(written);
+    await run("clip.set", { clip: clip.id, props: { broll: { manual: words } } });
+
+    // No Replicate token: the tab says so, with the way to Settings › AI, where the planner is Apple's by default.
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Generate')");
+    await press("[data-broll-generate]");
+    await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('Replicate API token')", 10_000);
+    await ui.core.uiOpen(ui.handle, "settings", "ai");
+    await page.until("document.querySelector('[data-preference=brollPlanner]')?.value === 'apple'");
+    expect(await has('[data-broll-style="my-16mm"]')).toBe(true);
+    // A new style of the user's own, typed: kept app-wide and listed with the others.
+    await press("[data-broll-style-new]");
+    await press("[data-broll-style-name]");
+    await type("Neon night");
+    await press("[data-broll-style-text]");
+    await type("Neon-lit city at night, wet streets, reflections");
+    await press("[data-broll-style-save]");
+    await arrived(() => ui.menus.some((m) => m.startsWith("setPreference:brollStyles=") && m.includes("Neon night")));
+    const saved = JSON.parse((await ui.core.preferences()).find((p) => p.id === "brollStyles")!.value) as { name: string; text: string }[];
+    expect(saved.map((x) => x.name)).toEqual(["My 16mm", "Neon night"]);
+    expect(saved[1]!.text).toBe("Neon-lit city at night, wet streets, reflections");
+    await press('[data-secret="replicate-api-token"] input');
+    await type("r8-test");
+    await page.key("Enter", "Enter");
+    await page.until(`document.querySelector('[data-secret="replicate-api-token"]')?.dataset.apiKey === 'set'`);
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+    await page.until("!document.querySelector('[data-settings-nav]')");
+
+    await press("[data-broll-generate]");
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
+    // Made from the Manual prompt as typed, in the style; taller than wide (960×1080), so 9:16; silent; shown in the clip in its region.
+    const sent = [...made.values()].at(-1)!;
+    expect(sent).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
+    expect(sent.prompt).toBe(`${words} Grainy 16mm, warm tones, handheld`);
+    expect(broll()!.assetId).toBeDefined();
+    expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Generate B-roll");
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_WRITER;
+    delete process.env.BEACON_REPLICATE_URL;
+    delete process.env.BEACON_REPLICATE_POLL_MS;
+    await ui.core.setSecret("replicate-api-token", null);
+    await ui.core.setPreference("brollStyles", "[]");
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("range.clear").catch(() => {});
+    await run("panel.show", { tool: null });
+    await run("playhead.set", { time: 0 });
+    await select([]);
+  }
+}, 240_000);
 
 test.skipIf(skip)("files dragged in from Finder are taken as a copy over the timeline and the rest of the window, so Finder doesn't animate them back", async () => {
   await page.evaluate(`(() => {

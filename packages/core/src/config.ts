@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ZodType } from "zod";
 import {
   AppSettingsSchema,
   DEFAULT_APP_SETTINGS,
@@ -21,6 +22,15 @@ import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } fro
  * The app's own choices, kept as JSON files in one folder (and secrets in the Keychain): preferences, favourites,
  * settings and keys. Each change is written at once and told to `emit`, for the app's windows and agents.
  */
+/** JSON text a schema preference accepts. */
+function fits(schema: ZodType, value: string): boolean {
+  try {
+    return schema.safeParse(JSON.parse(value)).success;
+  } catch {
+    return false;
+  }
+}
+
 const inRange = (v: string, r: { min: number; max: number }) => v.trim() !== "" && Number(v) >= r.min && Number(v) <= r.max;
 
 export class AppConfig {
@@ -45,7 +55,7 @@ export class AppConfig {
     const def = this.registry.preferences.get(id);
     if (!def) throw new Error(`no preference "${id}"`);
     const v = this.#prefs[id];
-    return v !== undefined && (def.range ? inRange(v, def.range) : def.options.some((o) => o.id === v)) ? v : def.default;
+    return v !== undefined && (def.range ? inRange(v, def.range) : def.schema ? fits(def.schema, v) : def.options.some((o) => o.id === v)) ? v : def.default;
   };
 
   /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
@@ -92,6 +102,15 @@ export class AppConfig {
     if (!def) throw new Error(`no preference "${id}"; there are: ${[...this.registry.preferences.keys()].join(", ")}`);
     if (def.range) {
       if (!inRange(value, def.range)) throw new Error(`${def.title}: "${value}" isn't a number from ${def.range.min} to ${def.range.max}`);
+    } else if (def.schema) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        throw new Error(`${def.title}: not JSON`);
+      }
+      const r = def.schema.safeParse(parsed);
+      if (!r.success) throw new Error(`${def.title}: ${formatIssues(r.error)}`);
     } else {
       const option = def.options.find((o) => o.id === value);
       if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);

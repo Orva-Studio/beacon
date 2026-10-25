@@ -186,18 +186,24 @@ async function buildWhisper() {
   writeFileSync(stampFile("whisper"), s);
 }
 
-const SPEECH = join(import.meta.dir, "../packages/engine/speech/beacon-speech.swift");
-/** SpeechTranscriber is macOS 26's: this tool alone needs it, so it alone targets 26. */
+/** Beacon's Swift helpers: Apple's on-device transcriber (beacon-speech) and language model (beacon-writer). */
+const SWIFT_TOOLS = ["beacon-speech", "beacon-writer"].map((name) => ({ name, source: join(import.meta.dir, `../packages/engine/speech/${name}.swift`) }));
+/** SpeechTranscriber and Foundation Models are macOS 26's: these tools alone need it, so they alone target 26. */
 const SPEECH_FLAGS = ["-O", "-target", "arm64-apple-macosx26.0"];
-const speechStamp = () => stamp("speech", readFileSync(SPEECH, "utf8"), SPEECH_FLAGS);
+const swiftStamp = (t: (typeof SWIFT_TOOLS)[number]) => stamp(t.name, readFileSync(t.source, "utf8"), SPEECH_FLAGS);
 
 async function buildSpeech() {
-  const s = speechStamp();
-  if (fresh("speech", s)) return console.log("beacon-speech: up to date");
-  console.log("building beacon-speech…");
-  mkdirSync(join(OUT, "bin"), { recursive: true });
-  await $`xcrun swiftc ${SPEECH_FLAGS} ${SPEECH} -o ${join(OUT, "bin/beacon-speech")}`.quiet();
-  writeFileSync(stampFile("speech"), s);
+  for (const t of SWIFT_TOOLS) {
+    const s = swiftStamp(t);
+    if (fresh(t.name, s)) {
+      console.log(`${t.name}: up to date`);
+      continue;
+    }
+    console.log(`building ${t.name}…`);
+    mkdirSync(join(OUT, "bin"), { recursive: true });
+    await $`xcrun swiftc ${SPEECH_FLAGS} ${t.source} -o ${join(OUT, `bin/${t.name}`)}`.quiet();
+    writeFileSync(stampFile(t.name), s);
+  }
 }
 
 /** Nothing built may load a library from Homebrew, Nix or anywhere else this Mac happens to have. */

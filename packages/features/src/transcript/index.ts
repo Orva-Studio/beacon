@@ -814,7 +814,7 @@ export const transcript = defineFeature({
         const transcript = env.data<TranscriptData>("transcript");
         if (!transcript) throw new Error("no transcript yet: the takes are judged from it");
         const apiKey = await env.secret("openai-api-key");
-        if (!apiKey) throw new Error("no OpenAI API key: add one in Settings › Transcripts");
+        if (!apiKey) throw new Error("no OpenAI API key: add one in Settings › AI");
         const found = new Map<string, { takes: string[]; said: string[]; then: string }>();
         for (const t of Object.values(transcript.streams)) {
           for (const o of JUDGED) {

@@ -225,6 +225,11 @@ export interface PreferenceDef {
   default: string;
   /** A number in this range instead of one of `options` (then none), kept as its text: a slider's last setting. */
   range?: { min: number; max: number };
+  /**
+   * A value of its own shape instead of one of `options` (then none), kept as JSON text and checked against this
+   * schema: a list a feature keeps app-wide (B-roll's own styles).
+   */
+  schema?: z.ZodType;
 }
 
 /** A credential an analyzer needs (an API key): kept in the macOS Keychain, never in a file; set by the user. */
@@ -431,6 +436,8 @@ export interface ActionTask {
   /** The job's name ("Clean with Auphonic"). */
   label: string;
   run: (env: TaskEnv) => Promise<(ctx: ActionContext) => ActionPlan>;
+  /** Editor steps run when it fails or is cancelled (`error` says which), so state it marked as busy is cleared. */
+  failed?: (error: string) => ActionStep[];
 }
 
 export interface TaskEnv {
