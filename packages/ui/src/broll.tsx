@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session } from "@beacon/model";
+import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session, type Track } from "@beacon/model";
 import type { BrollProps, BrollState, Style, TakeInfo } from "@beacon/features";
 import { Button, Check, Section, Segmented, Select, TextArea } from "./controls";
 import { COLOR, line, type CanvasMark } from "./canvas-marks";
@@ -8,6 +8,7 @@ import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
+import { innerTracks } from "./timeline-draw";
 
 /** What `broll.estimate` answers. */
 interface Estimate {
@@ -44,17 +45,26 @@ export function placeholderMarks(p: Placed): CanvasMark[] {
 }
 
 /** Writes Auto's prompt again in a style picked while its take was made, once the take is in, whether or not its tab is still open. */
-export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined) {
+export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined, nested: Record<string, string>) {
   const pending = useView((v) => v.brollRestyles);
   const making = brollStateOf(session).making;
   useEffect(() => {
     for (const id of pending) {
       if (making.includes(id)) continue;
       replica.restyleBroll(id, false);
-      const b = project?.tracks.flatMap((t) => t.clips).find((c) => c.id === id)?.props.broll as BrollProps | undefined;
+      const b = clipIn(project?.tracks ?? [], id, nested)?.props.broll as BrollProps | undefined;
       if (b?.source === "auto" && b.prompt) host.run("broll.plan", { clip: id });
     }
   }, [pending, making]);
+}
+
+/** A clip by id, inside groups too. */
+function clipIn(tracks: Track[], id: string, nested: Record<string, string>): Clip | undefined {
+  for (const c of tracks.flatMap((t) => t.clips)) {
+    const inner = c.id === id ? c : innerTracks(c, nested) && clipIn(innerTracks(c, nested)!, id, nested);
+    if (inner) return inner;
+  }
+  return undefined;
 }
 
 /**

@@ -93,7 +93,7 @@ export function App({ host }: { host: Host }) {
   const fillers = useFillers(host, session, project);
   const retakes = useRetakes(host, session, project);
   useCaptionsPending(host);
-  useBrollRestyles(host, session, project);
+  useBrollRestyles(host, session, project, init?.nested ?? NO_NESTED);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);
