@@ -39,9 +39,10 @@ export { CONTRACT as MOTION_CONTRACT, page as motionPage } from "./html";
 const TRACK = "Motion graphics";
 const OPENAI = "openai-api-key";
 const ANTHROPIC = "anthropic-api-key";
-/** Who writes it, by the Motion tab's choice, as the user reads it. */
+const FIRECRAWL = "firecrawl-api-key";
+/** Who writes it, as the user reads it. */
 const WHO: Record<string, string> = { openai: "OpenAI", claude: "Claude", apple: "Apple's on-device model" };
-/** Who writes motion graphics: its own choice, on the Motion tab, apart from B-roll's planner. */
+/** Who writes motion graphics: its own choice, in Settings › AI, apart from B-roll's planner. */
 const PLANNER = "motionPlanner";
 /** A placeholder added at the playhead lasts this long. */
 const PLACEHOLDER_SECONDS = 4;
@@ -210,8 +211,8 @@ function saidUnder(clip: Clip, ctx: ActionContext): Said {
 
 const key = (env: { secret: (id: string) => Promise<string | undefined> }, planner: string) => async () =>
   planner === "claude"
-    ? ((await env.secret(ANTHROPIC)) ?? fail("no Anthropic API key: add one in Settings › AI, or choose another model on the Motion tab"))
-    : ((await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose another model on the Motion tab"));
+    ? ((await env.secret(ANTHROPIC)) ?? fail("no Anthropic API key: add one in Settings › AI, or choose another maker in Settings › AI"))
+    : ((await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose another maker in Settings › AI"));
 
 /** What drawing a clip needs, read from it when the action starts: its box (as it shows now), length and Look. */
 function drawing(clip: Clip, ctx: ActionContext) {
@@ -334,7 +335,7 @@ const refer = defineAction({
 const write = defineAction({
   id: "motion.write",
   description:
-    "Write a motion graphics clip's Auto prompt (`clip`, else the selected one) from what is said under it: one sentence saying what it shows, with its exact words, by the model chosen on the Motion tab (preference motionPlanner: Apple's on-device model by default, OpenAI or Claude). Runs as a job",
+    "Write a motion graphics clip's Auto prompt (`clip`, else the selected one) from what is said under it: one sentence saying what it shows, with its exact words, by the model chosen in Settings › AI (preference motionPlanner: OpenAI by default, Claude or Apple's on-device model). Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
@@ -427,7 +428,7 @@ function shown(label: string, clips: string[], made: Drawn[]) {
 const make = defineAction({
   id: "motion.make",
   description:
-    "Make a motion graphics clip (`clip`, else the selected one) from its prompt (Auto's or Manual's; still empty, the words said under it): the model chosen on the Motion tab writes it as an HTML composition, the clip's Look its default design, timed to the words said (OpenAI or Claude designs it; Apple's on-device model picks a title, lower third, number, list or text for a template), with a background of its own unless the prompt asks for alpha (transparent, no background), and WebKit draws it at the size of the clip's box, with its transparency, into the project's media/Motion graphics folder; shown in the clip as a new take with who made it (`by`) and what it was charged (`cost`, dollars), one undo step. Runs as a job",
+    "Make a motion graphics clip (`clip`, else the selected one) from its prompt (Auto's or Manual's; still empty, the words said under it): the model chosen in Settings › AI writes it as an HTML composition, the clip's Look its default design, timed to the words said (OpenAI or Claude designs it; Apple's on-device model picks a title, lower third, number, list or text for a template), with a background of its own unless the prompt asks for alpha (transparent, no background), and WebKit draws it at the size of the clip's box, with its transparency, into the project's media/Motion graphics folder; shown in the clip as a new take with who made it (`by`) and what it was charged (`cost`, dollars), one undo step. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
@@ -439,7 +440,7 @@ const make = defineAction({
     if (!prompt) throw new Error("the clip has no prompt and nothing is said under it: type a prompt (Manual)");
     const planner = String(ctx.pref(PLANNER));
     const reference = m.reference ? ctx.project.assets[m.reference]?.path : undefined;
-    if (reference && planner === "apple") throw new Error("a reference image needs OpenAI or Claude to make it: choose one on the Motion tab, or remove the image");
+    if (reference && planner === "apple") throw new Error("a reference image needs OpenAI or Claude to make it: choose one in Settings › AI, or remove the image");
     const d = drawing(clip, ctx);
     const ids = [clip.id];
     return {
@@ -450,7 +451,8 @@ const make = defineAction({
         run: async (env) => {
           env.progress(0.05, planner === "apple" ? "Apple's on-device model is picking the graphic" : `${WHO[planner] ?? planner} is designing the graphic`);
           const meter = { cost: 0 };
-          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}) }, planner, key(env, planner), meter);
+          const web = { key: await env.secret(FIRECRAWL), progress: (stage: string) => env.progress(0.15, stage) };
+          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}) }, planner, key(env, planner), meter, web);
           env.progress(0.3, "Drawing it");
           const asset = await draw(env, html, d, prompt, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
           env.progress(1, "Made");
@@ -599,19 +601,21 @@ export const motion = defineFeature({
   commands,
   sessionCommands,
   actions: [add, refer, write, make, render],
-  secrets: [{ id: ANTHROPIC, title: "Anthropic API key" }],
+  secrets: [
+    { id: ANTHROPIC, title: "Anthropic API key" },
+    { id: FIRECRAWL, title: "Firecrawl API key" },
+  ],
   preferences: [
     {
       id: PLANNER,
       title: "Motion graphics made by",
-      description: "Who writes motion graphics (Make) and their Auto prompts: Apple's model, OpenAI or Claude; picked on the Motion tab",
+      description: "Who writes motion graphics (Make) and their Auto prompts: OpenAI (the default), Claude or Apple's model; picked in Settings › AI",
       options: [
         { id: "apple", title: "Apple, on this Mac", description: "Apple's on-device model fills a template (a title, lower third, number, list or text): free, offline, no key, but plain" },
         { id: "openai", title: "OpenAI", description: "gpt-6.1-sol with your OpenAI API key designs each graphic in HTML (3D, maps, any style, a reference image), about $0.10–0.20 a Make on your account", secret: OPENAI, online: true },
         { id: "claude", title: "Claude", description: "Claude Opus 5.5 with your Anthropic API key designs each graphic in HTML (3D, maps, any style, a reference image), about $0.20–0.35 a Make on your account", secret: ANTHROPIC, online: true },
       ],
-      // Keyless, as every preference's default is: removing the key falls back to it.
-      default: "apple",
+      default: "openai",
     },
     {
       id: "motionLook",

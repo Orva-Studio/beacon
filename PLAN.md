@@ -2478,6 +2478,32 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   model menu beyond the maker (the user asked; one tuned model each is
   enough for now). Not yet seen with a real call: the user's Anthropic key
   is at its limit until 2026-11-01 (item 2's comparison runs then).
+- **Made by in Settings only, OpenAI by default (the user, 2026-10-26,
+  built):** the Motion tab no longer has Made by; Settings › AI › Motion
+  Graphics does. A preference's default may now need a key (config: the
+  default can always be chosen, and removing a key falls back to it); Make
+  then says where to add the key.
+- **The web, through Firecrawl (the user, 2026-10-26, built):** the user
+  asked for the real Firecrawl logo and got a lookalike. The author (OpenAI
+  or Claude) now has three tools, run by Beacon through Firecrawl's REST API
+  (keyless, about 1,000 credits a month per IP; an optional Firecrawl key in
+  Settings › AI): `web_search` (pages, and images when asked), `brand` (the
+  branding format: name, logo, colours, fonts; the logo downloaded) and
+  `image` (a download, up to 1.5 MB). A downloaded image is an asset the
+  page uses as `asset:ID`, put in as `data:` when the answer comes back, so
+  the page stays offline and redraws need nothing; an SVG under 20 KB is
+  shown to the author to inline and animate. Up to 8 rounds, then it must
+  answer. A real run drew Firecrawl's own flame and wordmark in its colours.
+- **Next, in order (the user, 2026-10-26):** Revise with a prompt and Edit
+  Code with a live preview (item 5 above's editing); **Sign in with
+  ChatGPT** for the OpenAI maker (asked how easy: OpenAI's self-serve flow
+  covers open-source and personal, locally run apps; a paid Beacon needs
+  OpenAI's waitlist. OAuth in the browser with PKCE and dynamic client
+  registration, `chatgpt.tokens.use.direct`, tokens in the Keychain and
+  refreshed hourly; the Responses API then needs `stream: true`,
+  `store: false`, no system-role items (`instructions` instead) and no
+  sampling fields; Plus and Pro only, the user's weekly per-app cap). Asked
+  whether to build it.
 Done since they were planned here: HyperFrames' catalog, guidance and seek
 conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
 B-roll items, captions for a selection and the user's notes to Phase 11.5;

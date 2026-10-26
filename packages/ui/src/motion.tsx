@@ -74,7 +74,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const reference = m.reference ? project.assets[m.reference] : undefined;
   const by = m.takes[m.shown]?.by;
   const designed = by === "openai" || by === "claude";
-  const cost = typicalCost(project, planner ?? "apple");
+  const cost = typicalCost(project, planner ?? "openai");
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-motion-tab>
@@ -104,19 +104,6 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           </div>
           {look && <span className="text-caption text-text-faint">{look.description}.</span>}
         </label>
-        <div className="flex flex-col gap-1">
-          <span className="text-label font-medium text-text-muted">Made by</span>
-          <Segmented
-            value={planner ?? "apple"}
-            options={[
-              { value: "apple", label: "Apple · Free", icon: null },
-              { value: "openai", label: "OpenAI", icon: null },
-              { value: "claude", label: "Claude", icon: null },
-            ]}
-            onChange={(v) => v !== planner && void host.setPreference("motionPlanner", v)}
-            data-motion-planner
-          />
-        </div>
         <div className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Words</span>
           <Segmented
@@ -197,7 +184,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             </Button>
           )}
           <span className="text-caption text-text-faint">
-            {reference && planner === "apple" ? "Needs OpenAI or Claude: choose one under Made by." : "Make recreates its design and animates it."}
+            {reference && planner === "apple" ? "Needs OpenAI or Claude: choose one in Settings › AI › Motion Graphics." : "Make recreates its design and animates it."}
           </span>
         </div>
         {m.takes.length > 1 && (

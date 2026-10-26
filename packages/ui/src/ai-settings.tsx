@@ -8,6 +8,7 @@ import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
   { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, motion graphics made by OpenAI, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
   { id: "anthropic-api-key", label: "Anthropic", use: "For motion graphics made by Claude", placeholder: "sk-ant-…" },
+  { id: "firecrawl-api-key", label: "Firecrawl", use: "Optional: motion graphics search the web (real logos, icons) keyless, about 1,000 lookups a month; a free key gives more", placeholder: "fc-…" },
   { id: "replicate-api-token", label: "Replicate", use: "For B-roll footage", placeholder: "r8_…" },
   { id: "auphonic-api-key", label: "Auphonic", use: "For Clean with Auphonic", placeholder: "Auphonic API key" },
 ];

@@ -9,6 +9,7 @@ import { examples, INDEX, named, type CatalogItem } from "./catalog";
 import { CRAFT } from "./craft";
 import { CONTRACT, css, fill, template, wantsAlpha } from "./html";
 import type { Look } from "./looks";
+import { TOOLS, WEB_GUIDE, Web } from "./web";
 
 const api = () => process.env.BEACON_OPENAI_URL ?? "https://api.openai.com/v1";
 /** Claude's best model for design and code (2026-10-26), at the same medium effort as OpenAI's. */
@@ -53,7 +54,7 @@ export interface Meter {
 }
 
 /** One question to the model that writes motion graphics, answered as JSON to `schema`; the user's turn is text and any images. */
-export type Ask = <T>(name: string, schema: object, system: string, text: string, images?: string[], effort?: "low" | "medium") => Promise<T>;
+export type Ask = <T>(name: string, schema: object, system: string, text: string, images?: string[], effort?: "low" | "medium", web?: Web) => Promise<T>;
 
 /** An image file's media type and its bytes in base64. */
 function imageData(path: string) {
@@ -61,94 +62,134 @@ function imageData(path: string) {
   return { mime: ext === "jpg" ? "image/jpeg" : `image/${ext}`, data: readFileSync(path).toString("base64") };
 }
 
-/** OpenAI's Responses API, answering JSON to `schema`. */
-async function openai<T>(apiKey: string, name: string, schema: object, system: string, text: string, images: string[], effort: string, meter?: Meter): Promise<T> {
+/** OpenAI's Responses API, answering JSON to `schema`; with `web`, it may call its tools first, round by round. */
+async function openai<T>(apiKey: string, name: string, schema: object, system: string, text: string, images: string[], effort: string, meter?: Meter, web?: Web): Promise<T> {
   const user = images.length
     ? [{ type: "input_text", text }, ...images.map((p) => ({ type: "input_image", image_url: `data:${imageData(p).mime};base64,${imageData(p).data}`, detail: "high" }))]
     : text;
-  const res = await fetch(`${api()}/responses`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: PLAN_MODEL,
-      reasoning: { effort },
-      input: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      text: { format: { type: "json_schema", name, strict: true, schema } },
-    }),
-    ...(jobSignal() ? { signal: jobSignal()! } : {}),
-  });
-  if (res.status === 401) throw new Error("OpenAI refused the API key: check it in Settings › AI");
-  if (!res.ok) {
-    const body = (await res.text().catch(() => "")).slice(0, 300);
-    throw new Error(`OpenAI couldn't write the motion graphic (${res.status}${body ? `: ${body}` : ""})`);
-  }
-  const reply = (await res.json()) as {
-    output?: { type: string; content?: { type: string; text?: string }[] }[];
-    usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
-  };
-  const u = reply.usage;
-  if (u && meter) {
-    const cached = u.input_tokens_details?.cached_tokens ?? 0;
-    meter.cost += (((u.input_tokens ?? 0) - cached) * PLAN_PRICE.input + cached * PLAN_PRICE.cached + (u.output_tokens ?? 0) * PLAN_PRICE.output) / 1e6;
-  }
-  const answer = reply.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text;
-  try {
-    return JSON.parse(answer ?? "") as T;
-  } catch {
-    throw new Error("OpenAI's answer wasn't JSON");
+  const input: object[] = [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+  for (let round = 0; ; round++) {
+    const res = await fetch(`${api()}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: PLAN_MODEL,
+        reasoning: { effort },
+        input,
+        text: { format: { type: "json_schema", name, strict: true, schema } },
+        ...(web ? { tools: TOOLS.map((t) => ({ type: "function", ...t, strict: true })), tool_choice: web.more(round) ? "auto" : "none" } : {}),
+      }),
+      ...(jobSignal() ? { signal: jobSignal()! } : {}),
+    });
+    if (res.status === 401) throw new Error("OpenAI refused the API key: check it in Settings › AI");
+    if (!res.ok) {
+      const body = (await res.text().catch(() => "")).slice(0, 300);
+      throw new Error(`OpenAI couldn't write the motion graphic (${res.status}${body ? `: ${body}` : ""})`);
+    }
+    const reply = (await res.json()) as {
+      output?: { type: string; content?: { type: string; text?: string }[]; call_id?: string; name?: string; arguments?: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
+    };
+    const u = reply.usage;
+    if (u && meter) {
+      const cached = u.input_tokens_details?.cached_tokens ?? 0;
+      meter.cost += (((u.input_tokens ?? 0) - cached) * PLAN_PRICE.input + cached * PLAN_PRICE.cached + (u.output_tokens ?? 0) * PLAN_PRICE.output) / 1e6;
+    }
+    const calls = (reply.output ?? []).filter((o) => o.type === "function_call");
+    if (web && calls.length) {
+      input.push(...(reply.output ?? []));
+      for (const c of calls) input.push({ type: "function_call_output", call_id: c.call_id, output: await web.run(c.name ?? "", parseArgs(c.arguments)) });
+      continue;
+    }
+    const answer = reply.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text;
+    try {
+      return JSON.parse(answer ?? "") as T;
+    } catch {
+      throw new Error("OpenAI's answer wasn't JSON");
+    }
   }
 }
 
-/** Claude through Anthropic's Messages API, streamed (a long answer), answering JSON to `schema`. */
-async function claude<T>(apiKey: string, schema: object, system: string, text: string, images: string[], effort: "low" | "medium", meter?: Meter): Promise<T> {
+const parseArgs = (json: string | undefined): Record<string, unknown> => {
+  try {
+    const v = JSON.parse(json ?? "{}") as unknown;
+    return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+};
+
+/** Claude through Anthropic's Messages API, streamed (a long answer), answering JSON to `schema`; with `web`, it may call its tools first. */
+async function claude<T>(apiKey: string, schema: object, system: string, text: string, images: string[], effort: "low" | "medium", meter?: Meter, web?: Web): Promise<T> {
   const client = new Anthropic({ apiKey, ...(process.env.BEACON_ANTHROPIC_URL ? { baseURL: process.env.BEACON_ANTHROPIC_URL } : {}) });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [
     ...images.map((p): Anthropic.Beta.BetaContentBlockParam => ({ type: "image", source: { type: "base64", media_type: imageData(p).mime as "image/png", data: imageData(p).data } })),
     { type: "text", text },
   ];
-  let msg: Anthropic.Beta.BetaMessage;
-  try {
-    msg = await client.beta.messages
-      .stream(
-        {
-          model: CLAUDE_MODEL,
-          max_tokens: 64000,
-          // When a safety classifier declines, the request runs again on a model Anthropic picks for that.
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-          thinking: { type: "adaptive" },
-          output_config: { effort, format: { type: "json_schema", schema: schema as Record<string, unknown> } },
-          system,
-          messages: [{ role: "user", content }],
-        },
-        jobSignal() ? { signal: jobSignal()! } : {},
-      )
-      .finalMessage();
-  } catch (e) {
-    jobSignal()?.throwIfAborted();
-    if (e instanceof Anthropic.AuthenticationError) throw new Error("Anthropic refused the API key: check it in Settings › AI");
-    if (e instanceof Anthropic.APIError) throw new Error(`Claude couldn't write the motion graphic (${e.status ?? "no answer"}: ${e.message.slice(0, 300)})`);
-    throw e;
-  }
-  const u = msg.usage;
-  if (meter) meter.cost += (u.input_tokens * CLAUDE_PRICE.input + (u.cache_creation_input_tokens ?? 0) * CLAUDE_PRICE.cacheWrite + (u.cache_read_input_tokens ?? 0) * CLAUDE_PRICE.cached + u.output_tokens * CLAUDE_PRICE.output) / 1e6;
-  if (msg.stop_reason === "refusal") throw new Error("Claude declined to write this motion graphic: reword the prompt, or make it with OpenAI");
-  if (msg.stop_reason === "max_tokens") throw new Error("Claude's answer ran too long: try again, or ask for a simpler graphic");
-  const answer = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-  try {
-    return JSON.parse(answer) as T;
-  } catch {
-    throw new Error("Claude's answer wasn't JSON");
+  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content }];
+  for (let round = 0; ; round++) {
+    let msg: Anthropic.Beta.BetaMessage;
+    try {
+      msg = await client.beta.messages
+        .stream(
+          {
+            model: CLAUDE_MODEL,
+            max_tokens: 64000,
+            // When a safety classifier declines, the request runs again on a model Anthropic picks for that.
+            betas: ["server-side-fallback-2026-07-01"],
+            fallbacks: "default",
+            thinking: { type: "adaptive" },
+            output_config: { effort, format: { type: "json_schema", schema: schema as Record<string, unknown> } },
+            system,
+            messages,
+            ...(web
+              ? {
+                  tools: TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters, eager_input_streaming: true })),
+                  tool_choice: web.more(round) ? { type: "auto" as const } : { type: "none" as const },
+                }
+              : {}),
+          },
+          jobSignal() ? { signal: jobSignal()! } : {},
+        )
+        .finalMessage();
+    } catch (e) {
+      jobSignal()?.throwIfAborted();
+      if (e instanceof Anthropic.AuthenticationError) throw new Error("Anthropic refused the API key: check it in Settings › AI");
+      if (e instanceof Anthropic.APIError) throw new Error(`Claude couldn't write the motion graphic (${e.status ?? "no answer"}: ${e.message.slice(0, 300)})`);
+      throw e;
+    }
+    const u = msg.usage;
+    if (meter) meter.cost += (u.input_tokens * CLAUDE_PRICE.input + (u.cache_creation_input_tokens ?? 0) * CLAUDE_PRICE.cacheWrite + (u.cache_read_input_tokens ?? 0) * CLAUDE_PRICE.cached + u.output_tokens * CLAUDE_PRICE.output) / 1e6;
+    if (msg.stop_reason === "refusal") throw new Error("Claude declined to write this motion graphic: reword the prompt, or make it with OpenAI");
+    if (msg.stop_reason === "max_tokens") throw new Error("Claude's answer ran too long: try again, or ask for a simpler graphic");
+    if (web && msg.stop_reason === "tool_use") {
+      messages.push({ role: "assistant", content: msg.content as Anthropic.Beta.BetaContentBlockParam[] });
+      const results: Anthropic.Beta.BetaContentBlockParam[] = [];
+      for (const b of msg.content) {
+        if (b.type !== "tool_use") continue;
+        // Streamed tool input can come back cut short: anything that isn't an object is answered as an error.
+        const ok = b.input && typeof b.input === "object" && !Array.isArray(b.input);
+        results.push({ type: "tool_result", tool_use_id: b.id, ...(ok ? { content: await web.run(b.name, b.input as Record<string, unknown>) } : { content: "error: the tool's input wasn't valid JSON: call it again", is_error: true }) });
+      }
+      messages.push({ role: "user", content: results });
+      continue;
+    }
+    const answer = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    try {
+      return JSON.parse(answer) as T;
+    } catch {
+      throw new Error("Claude's answer wasn't JSON");
+    }
   }
 }
 
-/** Who writes motion graphics, by the Motion tab's choice: OpenAI or Claude, with the user's key. */
+/** Who writes motion graphics, by the user's choice: OpenAI or Claude, with the user's key. */
 export function author(planner: string, apiKey: string, meter?: Meter): Ask {
-  return (name, schema, system, text, images = [], effort = "medium") =>
-    planner === "claude" ? claude(apiKey, schema, system, text, images, effort, meter) : openai(apiKey, name, schema, system, text, images, effort, meter);
+  return (name, schema, system, text, images = [], effort = "medium", web) =>
+    planner === "claude" ? claude(apiKey, schema, system, text, images, effort, meter, web) : openai(apiKey, name, schema, system, text, images, effort, meter, web);
 }
 
 const IDEA_SCHEMA = { type: "object", additionalProperties: false, required: ["prompt", "why"], properties: { prompt: { type: "string" }, why: { type: "string" } } };
@@ -232,6 +273,7 @@ export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system
           "A reference image is attached: recreate its design as closely as you can in HTML, CSS and SVG (its layout, type, colours, shapes, textures and the feel of its imagery), fitted to this box, then bring it to life: build it up piece by piece and keep it moving, following the craft above. The brief says what it shows and what to change; where the brief and the image differ, the brief wins. Draw everything yourself: the image itself isn't in the page.",
         ]
       : []),
+    WEB_GUIDE,
     "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
     "Answer with `html`: the inside of <body> only.",
   ].join("\n\n");
@@ -253,7 +295,7 @@ export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system
  * design and the prompt overriding it, timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
  * over the whole clip and box.
  */
-export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>, meter?: Meter): Promise<string> {
+export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>, meter?: Meter, web?: { key?: string; progress?: (stage: string) => void }): Promise<string> {
   if (planner === "apple") {
     const piece = await onDevice<Omit<Piece, "start" | "end" | "area">>(
       "piece",
@@ -268,8 +310,9 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
   }
   const ask = author(planner, await key(), meter);
   const { system, user } = await authorBrief(r, ask);
-  const out = await ask<{ html: string }>("motion_graphic", HTML_SCHEMA, system, user, r.reference ? [r.reference] : []);
-  const html = String(out.html ?? "").trim();
+  const tools = new Web(web?.key, web?.progress);
+  const out = await ask<{ html: string }>("motion_graphic", HTML_SCHEMA, system, user, r.reference ? [r.reference] : [], "medium", tools);
+  const html = tools.resolve(String(out.html ?? "").trim());
   if (!html) throw new Error(`${planner === "claude" ? "Claude" : "OpenAI"} wrote no motion graphic: try again, or reword the prompt`);
   // Its own document wrapper, if it wrote one anyway: only the inside of <body> is kept.
   return html.replace(/^[\s\S]*<body[^>]*>/i, "").replace(/<\/body>[\s\S]*$/i, "");
