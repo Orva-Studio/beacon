@@ -2396,6 +2396,12 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   its composition format, its seek adapters (GSAP, Web Animations, Lottie,
   three.js), its catalog blocks as templates and as examples for the AI, and
   its skills' design guidance; files vendored and pinned, not installed.
+- **Captions for a selection** (the user, 2026-10-26): Captions with an in/out
+  range (else selected clips) captions only that span. `captions.create` takes
+  `from`/`to`, captions words starting inside it and replaces only the
+  captions overlapping it, keeping the rest; `captions.add` passes the range
+  (or the selection's extent), the whole timeline when there is neither. One
+  style for the track as now. A UI-harness flow and a `docs/tested.md` entry.
 - **Motion graphics: three.js** for 3D text, logos and particles, vendored and
   pinned, loaded from beside the page (no network), after the HTML pipeline.
 
