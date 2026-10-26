@@ -1,7 +1,11 @@
 import type { RGBA } from "@beacon/model";
 import type { Piece } from "./blocks";
 import type { Look } from "./looks";
+import map from "./kits/map.js" with { type: "text" };
+import countries from "./vendor/countries-50m.json" with { type: "text" };
 import gsap from "./vendor/gsap.min.js" with { type: "text" };
+import three from "./vendor/three.min.js" with { type: "text" };
+import topojson from "./vendor/topojson-client.min.js" with { type: "text" };
 
 export type Timing = "speech" | "together";
 
@@ -50,8 +54,11 @@ The Look is the default design, as variables: var(--heading) and var(--body) fon
 Animate, every way seekable (Beacon seeks the page to each frame's time; there is no real time):
 - CSS @keyframes animations, their animation-delay in seconds from the clip's start.
 - GSAP 3 (the global gsap, core only, no plugins): tweens and timelines built when the page loads, positioned in seconds from the clip's start. Optionally register a paused timeline as window.__timelines = { main: tl }.
-- window.__frame = (t) => { ... }: called with each frame's time in seconds, for anything drawn from the time.
-No requestAnimationFrame, timers, transitions or Date.now(): they don't follow the seek.
+- window.__frame = (t) => { ... }: called with each frame's time in seconds, for anything drawn from the time: a <canvas> (2D or WebGL), particles, a shader.
+No requestAnimationFrame, timers, transitions, Date.now() or Math.random(): they don't follow the seek. Randomness comes from a seeded generator (e.g. mulberry32), and a particle's position is a function of t, not of the frame before.
+Libraries, used by naming them (each is there when the page uses it):
+- THREE: three.js 0.186 (core, no addons) for 3D: new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true }), its canvas appended to the page, and renderer.render(scene, camera) inside window.__frame(t) after setting the scene for t. Shadows, lights, materials, CanvasTexture for text on meshes.
+- BeaconMap: real world geography (Natural Earth countries). const m = BeaconMap.create({ width, height, center: [lon, lat], zoom: 1, projection: "mercator" | "equirectangular" }) gives m.land, m.borders, m.country("Japan"), m.graticule(15) as SVG path data in page pixels, m.project([lon, lat]) → [x, y], and m.arc(from, to, bend) a curved route between two [lon, lat] as path data. zoom 1 fits 360° of longitude to the width; centre on the region the story is in (the Pacific for San Francisco → Tokyo: center [-170, 35]). To zoom in during the clip, scale a wrapper around the <svg> with transform-origin at the projected point and vector-effect: non-scaling-stroke on strokes. A non-scaling stroke measures stroke-dasharray and stroke-dashoffset in screen pixels, so a line drawn on with dashes inside a scaled group must multiply them by the scale (or skip non-scaling-stroke on it and divide its stroke-width instead).
 Optional helpers Beacon animates in the Look's entrance:
 - span.w: one word that comes in when it is said, data-t="<seconds from the clip's start>" (from the word times given). Keep a space between words; in a flex or grid row, give the row a gap.
 - .in: any element that comes in at data-t="<seconds>" (a card, a bar, a line not said aloud). An .in without data-t holding .w words comes in with its first word, so a card never shows empty.
@@ -59,6 +66,17 @@ Optional helpers Beacon animates in the Look's entrance:
 Everything fades out at the clip's end by itself.
 Background: unless the brief asks for alpha (transparent, no background, over the video), fill the whole box with a background you choose for this graphic (a colour, a gradient, soft light), coming in with a short fade; it covers the video. Asked for alpha, leave the page transparent so the video shows, and keep text readable over video (a card, a shadow).
 Size cards and bars to their content (width: fit-content, inline-flex), not stretched across the box. Lay out in px within the box, text large enough to read on a phone and inside the box with a margin.`;
+
+/** Libraries a composition may use, each inlined (they are large: GSAP 70 KB, three.js 750 KB, the map 760 KB) only into a page that names it. */
+const KITS = [
+  {
+    used: /\bgsap\b/,
+    // Held at 0 before the composition's scripts run, so their tweens start at the clip's start, and kept when done so a seek back finds them.
+    scripts: [gsap, "gsap.globalTimeline.pause(0); gsap.globalTimeline.autoRemoveChildren = false;"],
+  },
+  { used: /\bTHREE\b/, scripts: [three] },
+  { used: /\bBeaconMap\b/, scripts: [topojson, `const BEACON_COUNTRIES = ${countries};`, map] },
+];
 
 /** Whether a brief asks for the video to show through: else a graphic has a background of its own. */
 export const wantsAlpha = (brief: string) => /\b(alpha|transparent|transparency|see-through|no background|without (a )?background|over the (video|footage|speaker|talk))\b/i.test(brief);
@@ -73,11 +91,9 @@ export function page(body: string, env: PageEnv): string {
   const s = look.shadow;
   const shadow = s ? `${(Math.cos(s.angle) * s.offset * k).toFixed(1)}px ${(-Math.sin(s.angle) * s.offset * k).toFixed(1)}px ${(s.blur * k).toFixed(1)}px ${css(s.color, s.opacity)}` : "none";
   const d = (0.6 / look.speed).toFixed(3);
-  // Only pages that use it carry it: 70 KB.
-  const animator = /\bgsap\b/.test(body)
-    ? // Held at 0 before the composition's scripts run, so their tweens start at the clip's start, and kept when done so a seek back finds them.
-      `<script>${gsap}</script>\n<script>gsap.globalTimeline.pause(0); gsap.globalTimeline.autoRemoveChildren = false;</script>`
-    : "";
+  const libraries = KITS.filter((kit) => kit.used.test(body))
+    .map((kit) => kit.scripts.map((js) => `<script>${js}</script>`).join("\n"))
+    .join("\n");
   return `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
@@ -91,7 +107,7 @@ ${keyframes(look)}
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes out { from { opacity: 1; } to { opacity: 0; } }
 </style>
-${animator}</head>
+${libraries}</head>
 <body><div id="beacon-stage">
 ${body}
 </div>

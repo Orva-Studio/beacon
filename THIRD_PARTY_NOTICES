@@ -64,6 +64,30 @@ package (packages/features/src/motion/vendor/gsap.min.js, SHA-256
 license banner kept. It is loaded only into the pages motion graphics are
 drawn from, to animate what an AI model writes.
 
+three.js, world-atlas and TopoJSON
+----------------------------------
+Motion graphics' pages may use three.js 0.186.1 (https://threejs.org,
+Copyright 2010-2026 three.js authors, MIT License), bundled into one script
+from the npm package by scripts/vendor-motion.ts; a world map from
+world-atlas 2.0.2 (https://github.com/topojson/world-atlas, Copyright
+2013-2019 Michael Bostock, ISC License), whose data is Natural Earth's
+1:50m countries (https://www.naturalearthdata.com, public domain); and
+topojson-client 3.1.0 (https://github.com/topojson/topojson-client,
+Copyright 2019 Mike Bostock, ISC License). Each is inlined only into a page
+that uses it.
+
+HyperFrames
+-----------
+Motion graphics' author is shown examples from HyperFrames' registry
+(https://github.com/heygen-com/hyperframes, commit
+2d1b5cfbd2ffff65bdd342d78ce64a7dd36c4695, Copyright HeyGen, licensed under
+the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0):
+the code of its blocks and components, without their images, sounds and
+fonts and without the CDN script tags, in
+packages/features/src/motion/catalog.json (scripts/vendor-motion-catalog.ts).
+The author's motion guidance (packages/features/src/motion/craft.ts) is
+condensed from HyperFrames' prompting guide and motion reference.
+
 Other dependencies
 ------------------
 Beacon's npm and Rust dependencies are under their own licenses, as stated

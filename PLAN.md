@@ -2388,6 +2388,29 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   written back to back get a space, flex and grid rows a gap; an `.in` with
   no `data-t` comes in with its first word (no empty card); cards sized to
   content in the guidance.
+- **HyperFrames' examples replicated** (the user, 2026-10-26: "create fresh
+  Beacon projects and see if you can replicate these", prompting/examples,
+  "With registry blocks and source material"). Four of its eight are one
+  graphic each (stat count-up, tweet card, map route, logo sting); each made
+  in a fresh project, one motion clip over the canvas, by `motion.make`
+  (OpenAI), frame sheets beside HyperFrames' renders. Baseline (the looser
+  contract alone): three close, the map wrong (made-up continents, the arc
+  the long way round). New primitives, each inlined only into a page that
+  uses it: **BeaconMap** (Natural Earth countries, projected, centred
+  anywhere, arcs), **three.js** 0.186.1 (WebGL draws and seeks in
+  beacon-html, checked), Math.random/timers ruled out for seeded,
+  t-driven particles; the author's **craft** guidance (HyperFrames' motion
+  rules: density, depth, eases by role, overlap, one spectacle beat) and a
+  **catalog** of HyperFrames' 406 blocks and components (Apache 2.0): a
+  brief naming one gets its code as the base, else OpenAI picks up to three
+  from the index first. After them all four match HyperFrames' closely
+  (map: Pacific-centred, the arc meeting the pin through the zoom; sting:
+  particles into the wordmark, a vortex into the white lockup). The other
+  four (product launch from a URL, explainer, PR video, beat-synced
+  slideshow) are whole narrated films: they need TTS, music and its beat
+  grid, page screenshots and generated images, and several scenes: not
+  one motion clip. Next for them, with the user: AI images (a background
+  or a set of plates), then a "film" made of several motion clips.
 - **The brief picks the background** (the user, 2026-10-26, built): no
   Background setting on the Motion tab. A graphic has a background of its own
   (the AI chooses it for the brief; a template fills the box in the Look's
