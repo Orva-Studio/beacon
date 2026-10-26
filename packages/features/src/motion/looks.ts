@@ -23,8 +23,6 @@ export interface Look {
   easing: Easing;
   /** Faster above 1. */
   speed: number;
-  /** The motion blur effect's intensity on moving parts; 0 is none. */
-  motionBlur: number;
 }
 
 const WHITE: RGBA = [1, 1, 1, 1];
@@ -44,12 +42,11 @@ export const LOOKS: Look[] = [
     entrance: "rise",
     easing: "backOut",
     speed: 1,
-    motionBlur: 0,
   },
   {
     id: "bold",
     name: "Bold",
-    description: "Heavy condensed capitals in yellow and white, a hard shadow; pieces punch in with motion blur",
+    description: "Heavy condensed type in yellow and white, a hard shadow; pieces punch in",
     heading: { font: "DIN Condensed", weight: 700 },
     body: { font: "Avenir Next", weight: 700 },
     text: WHITE,
@@ -59,7 +56,6 @@ export const LOOKS: Look[] = [
     entrance: "scale",
     easing: "backOut",
     speed: 1.3,
-    motionBlur: 1,
   },
   {
     id: "editorial",
@@ -74,12 +70,11 @@ export const LOOKS: Look[] = [
     entrance: "rise",
     easing: "easeOut",
     speed: 0.75,
-    motionBlur: 0,
   },
   {
     id: "tech",
     name: "Tech",
-    description: "Monospaced type, a cyan accent and glow on a dark card; pieces slide in with motion blur",
+    description: "Monospaced type, a cyan accent and glow on a dark card; pieces slide in",
     heading: { font: "Menlo", weight: 700 },
     body: { font: "Menlo", weight: 400 },
     text: [0.9, 0.98, 1, 1],
@@ -89,7 +84,6 @@ export const LOOKS: Look[] = [
     entrance: "slide",
     easing: "easeOut",
     speed: 1.15,
-    motionBlur: 0.8,
   },
   {
     id: "minimal",
@@ -104,7 +98,6 @@ export const LOOKS: Look[] = [
     entrance: "wipe",
     easing: "easeInOut",
     speed: 1,
-    motionBlur: 0,
   },
 ];
 

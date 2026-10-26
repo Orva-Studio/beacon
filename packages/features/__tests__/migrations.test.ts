@@ -120,15 +120,29 @@ test("broll v5: a clip saved at v4 before Manual had its own prompt gets an empt
   expect((out.tracks[0]!.clips[0]!.props.broll as { manual: string }).manual).toBe("");
 });
 
-test("motion v2: a motion graphics clip made before Looks gets Clean and no background, inside a group too, so it opens", () => {
+test("motion v2 then v3: a motion graphics clip made before Looks, then from callouts, becomes an HTML one: its takes' pieces templates, its group a box to draw again, its background a backdrop; inside a group too", () => {
   const registry = createRegistry();
   const doc = createProject(registry) as any;
   doc.features.motion = 1;
-  const motion = (id: string) => ({ id, type: "motion", start: 0, duration: 10, props: { motion: { prompt: "", why: "", source: "manual", manual: "Hi", takes: [], shown: -1 }, group: { width: 1920, height: 1080, tracks: [] } }, effects: [], animations: [] });
+  const piece = { kind: "title", start: 0, end: 4, area: "full", text: "Hello there", detail: "", value: 0, prefix: "", suffix: "", items: [] };
+  const motion = (id: string) => ({
+    id,
+    type: "motion",
+    start: 0,
+    duration: 10,
+    props: { motion: { prompt: "", why: "", source: "manual", manual: "Hi", takes: [{ prompt: "Hi", pieces: [piece] }], shown: 0 }, group: { width: 960, height: 540, tracks: [] } },
+    effects: [],
+    animations: [],
+  });
   const group = { id: "g1", type: "group", start: 20, duration: 10, props: { group: { width: 1920, height: 1080, tracks: [{ id: "t2", name: "", clips: [motion("c2")] }] } }, effects: [], animations: [] };
   doc.tracks = [{ id: "t1", name: "Motion graphics", clips: [motion("c1"), group] }];
   const out = migrateProject(doc, registry);
-  expect(out.features.motion).toBe(2);
+  expect(out.features.motion).toBe(3);
   const inner = (out.tracks[0]!.clips[1]!.props.group as { tracks: { clips: { props: Record<string, unknown> }[] }[] }).tracks[0]!.clips[0]!;
-  for (const c of [out.tracks[0]!.clips[0]!, inner]) expect(c.props.motion).toMatchObject({ look: "clean", background: "none", manual: "Hi" });
+  for (const c of [out.tracks[0]!.clips[0]!, inner]) {
+    expect(c.props.motion).toMatchObject({ look: "clean", backdrop: { kind: "none" }, timing: "speech", manual: "Hi" });
+    expect((c.props.motion as { takes: { html: string }[] }).takes[0]!.html).toContain("Hello");
+    expect(c.props.group).toBeUndefined();
+    expect(c.props.motionBox).toEqual({ width: 960, height: 540 });
+  }
 });

@@ -58,6 +58,14 @@ const timelineClipCentre = async (id: string): Promise<[number, number]> => {
 const timelinePixel = (x: number, y: number) =>
   `(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${y} * k), 1, 1).data].slice(0, 3).join(); })()`;
 /** Waits until what the page sends back (a menu, settings) has arrived, rather than for a fixed time. */
+/** Until no motion graphic is being written or made (a drawing on its way). */
+const motionIdle = async (ms = 20_000) => {
+  for (const end = Date.now() + ms; Date.now() < end; ) {
+    const m = (await session()).features.motion as { making: string[]; writing: string[] } | undefined;
+    if (!m?.making.length && !m?.writing.length) return;
+    await Bun.sleep(50);
+  }
+};
 const arrived = async (ok: () => boolean, ms = 5000) => {
   for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await Bun.sleep(20);
 };
@@ -100,8 +108,8 @@ test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at the playhead (nothing drawn), a prompt typed and Made builds it in its box, one undo step; Make Again keeps the first as a take to pick", async () => {
-  // Apple's on-device model, standing in for beacon-writer: a name is a lower third, anything else a title.
+test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at the playhead (nothing drawn); a prompt typed and Made is drawn from HTML into the clip with its transparency, one undo step; Make Again keeps the first as a take to pick; a Look, a background colour or the timing draws it again; Use for All", async () => {
+  // Apple's on-device model, standing in for beacon-writer: a name is a lower third, anything else a title. WebKit draws for real.
   const writer = join(dir, "motion-writer");
   writeFileSync(
     writer,
@@ -122,14 +130,9 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     expect(track.name).toBe("Motion graphics");
     expect(ticksToSeconds(motion().start)).toBeCloseTo(2, 3);
     expect((await session()).selection).toEqual([motion().id]);
-    await page.until("!!document.querySelector('[data-motion-tab]')");
     // Empty, it draws nothing.
-    const texts = (at: number) => {
-      const sources = new Map<string, SourceDef>();
-      evaluate(ui.core.doc(ui.handle), ui.core.registry, secondsToTicks(at), { sources });
-      return [...sources.values()].flatMap((d) => (d.kind === "text" ? [d.text] : []));
-    };
-    expect(texts(3)).not.toContain("Sarah Chen");
+    expect(motion().assetId).toBeUndefined();
+    await page.until("!!document.querySelector('[data-motion-tab]')");
     // The tile writes Auto's prompt as it adds the clip (or says nothing is said there): Manual once that's done.
     await page.until("!document.querySelector('[data-motion-tab]').textContent.includes('Writing')", 10_000);
     await page.evaluate(`[...document.querySelectorAll('[data-motion-source] button')].find((b) => b.textContent === 'Manual').click()`);
@@ -139,53 +142,63 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     const before = (await ui.core.history(ui.handle)).undo.length;
     await page.evaluate("document.querySelector('[data-motion-make]').scrollIntoView({ block: 'center' })");
     await page.click(...(await centre("[data-motion-make]")));
-    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again'", 15_000);
-    const m = () => motion().props.motion as { manual: string; takes: { prompt: string; pieces: { kind: string }[] }[]; shown: number };
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again'", 20_000);
+    type Takes = { manual: string; look: string; timing: string; backdrop: { kind: string; color: number[] }; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
+    const m = () => motion().props.motion as Takes;
     expect(m().manual).toBe("Sarah Chen, head of design");
-    expect(m().takes.map((t) => t.pieces[0]!.kind)).toEqual(["lowerThird"]);
-    const inner = () => (motion().props.group as { tracks: { name: string }[] }).tracks.map((t) => t.name);
-    expect(inner()).toContain("Sarah Chen");
-    expect(inner()).toContain("Head of Design");
-    expect(texts(3)).toContain("Sarah Chen");
+    expect(m().takes[0]!.html).toContain("Sarah");
+    const drawn = () => ui.core.doc(ui.handle).assets[motion().assetId!]!;
+    expect(drawn().path).toMatch(/Motion graphics\/Sarah Chen head of design\.mov$/);
     // The typed prompt (kept as it was left) and the make: each its own step.
     expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 2);
+    const first = motion().assetId;
     await page.evaluate(`(() => { const t = document.querySelector('textarea[data-motion-prompt]'); t.focus(); t.select(); })()`);
     await type("Hello there");
     await page.click(...(await centre("[data-motion-make]")));
-    await arrived(() => m().takes.length === 2, 15_000);
+    await arrived(() => m().takes.length === 2, 20_000);
     expect(m().shown).toBe(1);
-    expect(inner()).toEqual(["Hello", "there"]);
+    expect(m().takes[1]!.html).toContain("Hello");
     await page.until("!!document.querySelector('[data-motion-pick]')");
     await page.evaluate(`(() => { const s = document.querySelector('[data-motion-pick]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await arrived(() => m().shown === 0);
-    expect(inner()).toContain("Sarah Chen");
-    // A Look restyles it (and is the one new motion graphics take); a Card goes behind it.
-    const fonts = () => (motion().props.group as { tracks: { clips: Clip[] }[] }).tracks.flatMap((t) => t.clips.map((c) => (c.props.callout as { text?: { font: string } }).text?.font)).filter(Boolean);
+    expect(motion().assetId).toBe(first);
+    // A Look draws it again (no AI) and is the one new motion graphics take.
+    const html = () => readFileSync(drawn().path.replace(/\.mov$/, ".html"), "utf8");
     await page.evaluate(`(() => { const s = document.querySelector('[data-motion-look]'); s.value = 'tech'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-    await arrived(() => (motion().props.motion as { look: string }).look === "tech");
-    expect(fonts().every((f) => f === "Menlo")).toBe(true);
-    expect(inner()).toContain("Sarah Chen");
+    await arrived(() => motion().assetId !== first, 20_000);
+    expect(m().look).toBe("tech");
+    expect(html()).toContain("Menlo");
     await arrived(() => ui.menus.includes("setPreference:motionLook=tech"));
-    await page.evaluate(`[...document.querySelectorAll('[data-motion-background] button')].find((b) => b.textContent === 'Card').click()`);
-    await arrived(() => (motion().props.motion as { background: string }).background === "card");
-    const first = (motion().props.group as { tracks: { clips: Clip[] }[] }).tracks[0]!.clips[0]!;
-    expect((first.props.callout as { shape: string }).shape).toBe("rectangle");
+    // A full background, in a colour with its opacity; then the words all at once.
+    const lit = motion().assetId;
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-background] button')].find((b) => b.textContent === 'Full').click()`);
+    await arrived(() => motion().assetId !== lit, 20_000);
+    expect(m().backdrop.kind).toBe("full");
+    expect(html()).toContain("beacon-backdrop");
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-timing] button')].find((b) => b.textContent === 'All at Once').click()`);
+    await arrived(() => m().timing === "together");
     // Use for All gives every motion graphic the Look, one undo step.
     await run("motion.add", { time: 20, prompt: "Hello there" });
     const other = clips().filter((c) => c.type === "motion").find((c) => c.id !== motion().id)!;
-    expect((other.props.motion as { look: string }).look).toBe("tech");
+    expect((other.props.motion as Takes).look).toBe("tech");
     await run("motion.style", { clips: [other.id], look: "bold" });
+    await select([motion().id]);
+    await page.until("!!document.querySelector('[data-motion-look-all]')");
+    await motionIdle();
     const all = (await ui.core.history(ui.handle)).undo.length;
     await page.evaluate("document.querySelector('[data-motion-look-all]').click()");
-    await arrived(() => clips().filter((c) => c.type === "motion").every((c) => (c.props.motion as { look: string }).look === "tech"));
+    await arrived(() => clips().filter((c) => c.type === "motion").every((c) => (c.props.motion as Takes).look === "tech"));
     expect((await ui.core.history(ui.handle)).undo.length).toBe(all + 1);
+    // Use for All draws them again once its change settles.
+    await Bun.sleep(800);
+    await motionIdle();
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     expect(clips().some((c) => c.type === "motion")).toBe(false);
   } finally {
     delete process.env.BEACON_WRITER;
     await ui.core.setPreference("motionLook", "clean");
   }
-}, 40_000);
+}, 90_000);
 
 test.skipIf(skip)("a counting text callout shows its number counting from From to To, edited in its Count rows", async () => {
   await select([callout.id]);

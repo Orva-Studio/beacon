@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
 import { PLAN_MODEL } from "../broll/plan";
-import { AREAS, KIND_GUIDE, KINDS, PieceSchema, type Piece } from "./blocks";
+import { KIND_GUIDE, KINDS, PieceSchema, tidy, type Piece } from "./blocks";
+import { CONTRACT, template } from "./html";
+import type { Look } from "./looks";
 
 const api = () => process.env.BEACON_OPENAI_URL ?? "https://api.openai.com/v1";
 const writer = () => process.env.BEACON_WRITER ?? tool("beacon-writer");
@@ -84,9 +85,6 @@ export async function writeIdea(said: Said, planner: string, key: () => Promise<
   return { prompt: out.prompt.trim(), why: String(out.why ?? "") };
 }
 
-const { $schema: _, ...pieceSchema } = z.toJSONSchema(PieceSchema);
-const PIECES_SCHEMA = { type: "object", additionalProperties: false, required: ["pieces"], properties: { pieces: { type: "array", items: pieceSchema } } };
-
 /** Only what a kind uses, the rest emptied: the on-device model fills fields it shouldn't. */
 function forKind(p: Piece, prompt: string): Piece {
   const empty: Piece = { ...p, detail: "", value: 0, prefix: "", suffix: "", items: [] };
@@ -107,12 +105,23 @@ function forKind(p: Piece, prompt: string): Piece {
   }
 }
 
+export interface ComposeRequest {
+  prompt: string;
+  said: Said;
+  length: number;
+  width: number;
+  height: number;
+  look: Look;
+}
+
+const HTML_SCHEMA = { type: "object", additionalProperties: false, required: ["html"], properties: { html: { type: "string" } } };
+
 /**
- * The graphic composed from its prompt in a box `width`×`height` lasting `length` seconds: OpenAI picks, mixes, times
- * and places the pieces, to when their words are said; Apple's smaller model picks the one piece it is, which Beacon
- * shows over the whole clip and box.
+ * The graphic's composition (the inside of its page's <body>) from its prompt: OpenAI writes it, designed in the Look
+ * and timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
+ * over the whole clip and box.
  */
-export async function compose(r: { prompt: string; said: Said; length: number; width: number; height: number }, planner: string, key: () => Promise<string>): Promise<Piece[]> {
+export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>): Promise<string> {
   if (planner !== "openai") {
     const piece = await onDevice<Omit<Piece, "start" | "end" | "area">>(
       "piece",
@@ -120,21 +129,21 @@ export async function compose(r: { prompt: string; said: Said; length: number; w
       r.prompt,
     );
     const p = PieceSchema.safeParse({ ...piece, start: 0, end: r.length, area: "full" });
-    if (!p.success) throw new Error("Apple's on-device model wrote a graphic Beacon can't draw: try again, or reword the prompt");
-    return [forKind(p.data, r.prompt)];
+    const usable = p.success ? tidy(forKind(p.data, r.prompt), r.length) : undefined;
+    if (!usable) throw new Error("Apple's on-device model wrote a graphic Beacon can't draw: try again, or reword the prompt");
+    return template(usable, r.said.words, r);
   }
   const system = [
-    `You compose an on-screen motion graphic for a talking-head or screen-recording video, shown in a box ${Math.round(r.width)}×${Math.round(r.height)} pixels over the talk, for ${r.length.toFixed(2)} s.`,
-    `Build it from 1 to 3 pieces of these kinds:\n${VOCABULARY}`,
-    `Each piece: \`start\` and \`end\` in seconds from the clip's start (0 to ${r.length.toFixed(2)}), timed to when its words are said; \`area\` one of ${AREAS.join(", ")} (thirds and halves of the box). Pieces showing at the same time go in different areas. Fields a kind doesn't use: "" or 0 or [].`,
-    "Keep words short and exact: a title is 2 to 6 words, list items a few words each.",
-  ].join("\n");
-  const user = [`The graphic: ${r.prompt}`, r.said.words.length ? `Said under the clip, each word with its time from the clip's start:\n${timed(r.said)}` : ""].filter(Boolean).join("\n\n");
-  const out = await openai<{ pieces: unknown[] }>(await key(), "motion_graphic", PIECES_SCHEMA, system, user);
-  const pieces = (out.pieces ?? []).flatMap((p) => {
-    const parsed = PieceSchema.safeParse(p);
-    return parsed.success ? [parsed.data] : [];
-  });
-  if (!pieces.length) throw new Error("OpenAI composed nothing Beacon can draw: try again, or reword the prompt");
-  return pieces;
+    `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s, in the "${r.look.name}" Look (${r.look.description}).`,
+    CONTRACT,
+    `Good motion graphics, like a skilled motion designer's: one clear idea, few words, strong hierarchy (one large line, a smaller one), generous spacing, the accent used sparingly, a card or bar behind text that sits over busy video. Kinds that work: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; mix them only when what is said calls for it.`,
+    "Time it to the speech: each word comes in as it is said (data-t from the word times), so the text follows the voice.",
+    "Answer with `html`: the inside of <body> only.",
+  ].join("\n\n");
+  const user = [`The graphic: ${r.prompt}`, r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly."].join("\n\n");
+  const out = await openai<{ html: string }>(await key(), "motion_graphic", HTML_SCHEMA, system, user);
+  const html = String(out.html ?? "").trim();
+  if (!html) throw new Error("OpenAI wrote no motion graphic: try again, or reword the prompt");
+  // Its own document wrapper, if it wrote one anyway: only the inside of <body> is kept.
+  return html.replace(/^[\s\S]*<body[^>]*>/i, "").replace(/<\/body>[\s\S]*$/i, "");
 }

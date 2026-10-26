@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Clip, Project, Session, Track } from "@beacon/model";
-import type { Look, MotionProps, MotionState } from "@beacon/features";
-import { Button, Section, Segmented, Select, TextArea } from "./controls";
+import type { Clip, Project, RGBA, Session } from "@beacon/model";
+import type { Backdrop, Look, MotionProps, MotionState } from "@beacon/features";
+import { Button, ColorRow, Section, Segmented, Select, TextArea } from "./controls";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { useView } from "./store";
@@ -10,17 +10,35 @@ import type { Host } from "./app";
 export const motionStateOf = (s: Session | undefined) => (s?.features.motion as MotionState | undefined) ?? { writing: [], making: [], errors: {} };
 
 /** A motion graphics clip with nothing made yet: its box shows on the canvas, nothing in an export. */
-export const isEmptyMotion = (c: Clip) => c.type === "motion" && !(c.props.group as { tracks: Track[] } | undefined)?.tracks.length;
+export const isEmptyMotion = (c: Clip) => c.type === "motion" && !c.assetId;
 
-/** What a take shows, in a few words: its pieces' kinds and first words. */
-const takeName = (t: MotionProps["takes"][number]) =>
-  t.pieces.map((p) => (p.kind === "list" ? `List: ${p.items[0] ?? ""}` : p.kind === "number" ? `${p.prefix}${p.value}${p.suffix}` : p.text)).join(" + ").slice(0, 60);
+/** A take in the Take menu: its prompt, in a few words. */
+const takeName = (t: MotionProps["takes"][number]) => (t.prompt.length > 50 ? `${t.prompt.slice(0, 50)}…` : t.prompt) || "Untitled";
+
+/** Clips waiting to be drawn again after their style changed: a colour dragged draws once, when it settles. */
+const redraws = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** A style change, then the clips made drawn again in it (motion.render), once changes stop for a moment. */
+function restyle(host: Host, clips: Clip[], style: { look?: string; backdrop?: Backdrop; timing?: string }, label: string, key?: string, all = false) {
+  host.run("motion.style", { ...(all ? {} : { clips: clips.map((c) => c.id) }), ...style }, label, key);
+  const made = clips.filter((c) => (c.props.motion as MotionProps).shown >= 0).map((c) => c.id);
+  if (!made.length) return;
+  const id = made.join();
+  clearTimeout(redraws.get(id));
+  redraws.set(
+    id,
+    setTimeout(() => {
+      redraws.delete(id);
+      host.run("motion.render", { clips: made });
+    }, 600),
+  );
+}
 
 /**
  * A motion graphics clip's tab: its prompt (written from the words under it, or typed), making it (or again), and the
  * takes made, to pick one again.
  */
-export function MotionTab({ clip, session, host }: { clip: Clip; project: Project; session: Session; host: Host }) {
+export function MotionTab({ clip, project, session, host }: { clip: Clip; project: Project; session: Session; host: Host }) {
   const m = clip.props.motion as MotionProps;
   const state = motionStateOf(session);
   const writing = state.writing.includes(clip.id);
@@ -53,7 +71,7 @@ export function MotionTab({ clip, session, host }: { clip: Clip; project: Projec
               value={m.look}
               title={look?.description}
               onChange={(e) => {
-                host.run("motion.style", { clips: [clip.id], look: e.target.value }, "Motion Graphics Look");
+                restyle(host, [clip], { look: e.target.value }, "Motion Graphics Look");
                 // New motion graphics take the Look last picked, so a video's graphics match.
                 void host.setPreference("motionLook", e.target.value);
               }}
@@ -65,7 +83,7 @@ export function MotionTab({ clip, session, host }: { clip: Clip; project: Projec
                 </option>
               ))}
             </Select>
-            <Button look="quiet" title="Give every motion graphic in this project this Look" onClick={() => host.run("motion.style", { look: m.look }, "Motion Graphics Look for All")} data-motion-look-all>
+            <Button look="quiet" title="Give every motion graphic in this project this Look" onClick={() => restyle(host, project.tracks.flatMap((t) => t.clips).filter((c) => c.type === "motion"), { look: m.look }, "Motion Graphics Look for All", undefined, true)} data-motion-look-all>
               Use for All
             </Button>
           </div>
@@ -74,14 +92,29 @@ export function MotionTab({ clip, session, host }: { clip: Clip; project: Projec
         <div className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Background</span>
           <Segmented
-            value={m.background}
+            value={m.backdrop.kind}
             options={[
               { value: "none", label: "None", icon: null },
-              { value: "dim", label: "Dim", icon: null },
+              { value: "full", label: "Full", icon: null },
               { value: "card", label: "Card", icon: null },
             ]}
-            onChange={(background) => background !== m.background && host.run("motion.style", { clips: [clip.id], background }, "Motion Graphics Background")}
+            onChange={(kind) => kind !== m.backdrop.kind && restyle(host, [clip], { backdrop: { ...m.backdrop, kind } }, "Motion Graphics Background")}
             data-motion-background
+          />
+          {m.backdrop.kind !== "none" && (
+            <ColorRow label="Colour" color={m.backdrop.color} onChange={(color: RGBA, key) => restyle(host, [clip], { backdrop: { ...m.backdrop, color } }, "Motion Graphics Background Colour", key)} />
+          )}
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Words</span>
+          <Segmented
+            value={m.timing}
+            options={[
+              { value: "speech", label: "As Said", icon: null },
+              { value: "together", label: "All at Once", icon: null },
+            ]}
+            onChange={(timing) => timing !== m.timing && restyle(host, [clip], { timing }, "Motion Graphics Timing")}
+            data-motion-timing
           />
         </div>
         <div className={`flex flex-col gap-1 ${writing ? "opacity-50" : ""}`}>
@@ -155,11 +188,16 @@ export function MotionTab({ clip, session, host }: { clip: Clip; project: Projec
         >
           {making ? "Making…" : m.takes.length ? "Make Again" : "Make"}
         </Button>
+        {m.shown >= 0 && (
+          <Button look="quiet" disabled={busy} title="Draw it again at its box's size and length now, after resizing or trimming it (no AI)" onClick={() => host.run("motion.render", { clips: [clip.id] })} data-motion-render>
+            Draw Again
+          </Button>
+        )}
         <span className="text-caption text-text-faint">
           {planner === "openai"
             ? "Composed by OpenAI (your key): it can mix a few pieces, timed to the words."
             : "Made by Apple's model on this Mac: one piece over the whole clip. OpenAI (Settings › AI) can mix a few, timed to the words."}{" "}
-          Double-click the clip to open it and edit a word.
+          Drawn with transparency into the project's media/Motion graphics folder.
         </span>
       </div>
     </Section>

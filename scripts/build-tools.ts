@@ -186,8 +186,8 @@ async function buildWhisper() {
   writeFileSync(stampFile("whisper"), s);
 }
 
-/** Beacon's Swift helpers: Apple's on-device transcriber (beacon-speech) and language model (beacon-writer). */
-const SWIFT_TOOLS = ["beacon-speech", "beacon-writer"].map((name) => ({ name, source: join(import.meta.dir, `../packages/engine/speech/${name}.swift`) }));
+/** Beacon's Swift helpers: Apple's on-device transcriber (beacon-speech) and language model (beacon-writer), and WebKit drawing an HTML page's frames (beacon-html). */
+const SWIFT_TOOLS = ["beacon-speech", "beacon-writer", "beacon-html"].map((name) => ({ name, source: join(import.meta.dir, `../packages/engine/speech/${name}.swift`) }));
 /** SpeechTranscriber and Foundation Models are macOS 26's: these tools alone need it, so they alone target 26. */
 const SPEECH_FLAGS = ["-O", "-target", "arm64-apple-macosx26.0"];
 const swiftStamp = (t: (typeof SWIFT_TOOLS)[number]) => stamp(t.name, readFileSync(t.source, "utf8"), SPEECH_FLAGS);

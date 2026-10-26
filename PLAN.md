@@ -2337,6 +2337,24 @@ ProRes 4444 with alpha (`prores_videotoolbox -profile:v 4444 -pix_fmt bgra`,
 0.26 s, `yuva444p12le`), and Beacon draws it over the take with its
 transparency: a gradient card, clip-path wipe and blur-in words all render.
 Not possible pre-rendered: `backdrop-filter` (the talk isn't behind the page).
+**Built (2026-10-26):** `beacon-html` (packages/engine/speech, built and
+bundled like beacon-writer) and `renderHtml` in @beacon/media; the motion clip
+plays its drawing as B-roll plays its footage (data v3: takes keep their HTML
+and drawing; `motionBox` until drawn; a Look, `backdrop` in any colour and
+opacity, `timing`); `motion.make` (OpenAI writes the composition to a contract:
+the Look's CSS variables, `.w` words timed `data-t`, `.in`, `.count`; Apple's
+model picks a kind for a template), `motion.render` (drawn again, no AI),
+`motion.style`, `motion.use`. The page has a Content Security Policy: no
+network, no scripts but Beacon's runtime.
+**Compared with HyperFrames (2026-10-26):** one design (a gradient card, a
+kicker timed to the speech, "Lead enrichment" popping in, a line drawing on),
+written for each, both rendered transparent and laid over the same take: the
+frames match; HyperFrames (Chrome, 4 workers) 10.9 s, beacon-html 4.9 s for
+4.6 s at 1080p30. Only difference: WebKit's Avenir Next at 800 is the heavier
+cut. So the gap the user saw was the author (Apple's template), not the
+renderer. Next: OpenAI writing with HyperFrames' design guidance and blocks as
+examples, GSAP allowed (vendored, pinned) so its blocks port, and an Exit
+choice (Fade, the default 0.35 s fade today; Cut; Slide Out).
 - **Decided (the user, 2026-10-26):** text follows the speech by default (each
   word in as it is said, from the transcript's word times), "all at once" the
   other choice. The B-roll-style flow stays (placeholder, box, prompt, Make,
@@ -2345,6 +2363,19 @@ Not possible pre-rendered: `backdrop-filter` (the talk isn't behind the page).
   model fills a template. Looks become CSS themes. HyperFrames' composition
   format (`data-start`, `data-duration`, seekable timelines) is followed where
   it fits; GSAP, if used, is vendored and pinned.
+
+**Next after motion graphics (the user, 2026-10-26).**
+- **B-roll: the model picked on the clip.** The tab's Footage menu becomes the
+  model menu, each with its price (Settings › AI's model is only the default);
+  takes stay pickable.
+- **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
+  or two more), in place of the film and product groups.
+- **Motion graphics: borrow from HyperFrames** (Apache 2.0, its NOTICE kept):
+  its composition format, its seek adapters (GSAP, Web Animations, Lottie,
+  three.js), its catalog blocks as templates and as examples for the AI, and
+  its skills' design guidance; files vendored and pinned, not installed.
+- **Motion graphics: three.js** for 3D text, logos and particles, vendored and
+  pinned, loaded from beside the page (no network), after the HTML pipeline.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
