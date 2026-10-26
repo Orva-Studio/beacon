@@ -2616,6 +2616,11 @@ Phase 11 so it can close with motion graphics.
   takes stay pickable.
 - **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
   or two more), in place of the film and product groups.
+- **An effect from the command palette focuses its first input** (the user,
+  2026-10-26): picking an effect (Visual or Audio Effects, an annotation) in the
+  palette adds it as now, then opens its properties and puts the caret in its
+  first input; Tab and ⇧Tab move through the inputs in order (sliders' value
+  boxes, menus, colour wells included), Esc back to the timeline.
 
 **Gate:** each item has its UI-harness flow (or core test) and a
 `docs/tested.md` entry; the user checks them by hand.
