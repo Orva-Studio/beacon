@@ -2442,6 +2442,25 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   its composition format, its seek adapters (GSAP, Web Animations, Lottie,
   three.js), its catalog blocks as templates and as examples for the AI, and
   its skills' design guidance; files vendored and pinned, not installed.
+- **The user's notes from using Beacon (2026-10-26)**, after motion graphics:
+  1. **A large video dragged from Finder** doesn't land at once: the drag
+     snaps back to Finder unless held over the timeline for a second.
+     Likely the drop waits on something slow (probing or copying the file)
+     before it accepts; it should accept at once and show a placeholder
+     while the file is read. `BEACON_PROFILE=1` prints the drop's steps
+     (`[drop]`) to find which.
+  2. **Drag below the lowest track to make a new one**, as dragging above
+     the top track does (a new track at the bottom).
+  3. **Sliders are hard to hit**: widen their hit area (the thumb and the
+     track, e.g. a taller invisible hit box), across every slider in
+     `controls/`.
+  4. **Text highlighting**: a highlight behind words (a marker swipe) in
+     text and captions; which (callouts, captions, both) and how it looks
+     to settle with the user.
+  5. **Remove Silences misses a pause split across a cut**: a short silence
+     at the end of one clip and another at the start of the next, each under
+     the minimum, are together a silence the tool should find. Measure
+     silence along the timeline (across adjacent clips), not per clip.
 - **Captions for a selection** (the user, 2026-10-26): Captions with an in/out
   range (else selected clips) captions only that span. `captions.create` takes
   `from`/`to`, captions words starting inside it and replaces only the
