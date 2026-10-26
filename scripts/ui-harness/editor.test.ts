@@ -166,7 +166,10 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     const before = (await ui.core.history(ui.handle)).undo.length;
     await page.evaluate("document.querySelector('[data-motion-make]').scrollIntoView({ block: 'center' })");
     await page.click(...(await centre("[data-motion-make]")));
+    // While it's made, the tab says the clip can still be edited.
+    await page.until("!!document.querySelector('[data-motion-making-note]')", 10_000);
     await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again · Free'", 20_000);
+    expect(await page.evaluate("!document.querySelector('[data-motion-making-note]')")).toBe(true);
     type Takes = { manual: string; look: string; timing: string; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
     const m = () => motion().props.motion as Takes;
     expect(m().manual).toBe("Sarah Chen, head of design");

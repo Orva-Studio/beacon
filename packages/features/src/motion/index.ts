@@ -13,6 +13,7 @@ import {
   secondsToTicks,
   ticksToSeconds,
   type ActionContext,
+  type ActionPlan,
   type ActionStep,
   type Asset,
   type Clip,
@@ -207,16 +208,6 @@ function saidUnder(clip: Clip, ctx: ActionContext): Said {
   };
 }
 
-/** Where the clip is and how long, so an answer that arrives after it moved or was trimmed isn't put in the wrong place. */
-function shapeOf(id: string, ctx: Pick<ActionContext, "project" | "registry">) {
-  try {
-    const at = findClip(ctx.project, ctx.registry, id);
-    return JSON.stringify([at.clip.start + at.offset, at.clip.duration]);
-  } catch {
-    return undefined;
-  }
-}
-
 const key = (env: { secret: (id: string) => Promise<string | undefined> }, planner: string) => async () =>
   planner === "claude"
     ? ((await env.secret(ANTHROPIC)) ?? fail("no Anthropic API key: add one in Settings › AI, or choose another model on the Motion tab"))
@@ -352,7 +343,6 @@ const write = defineAction({
     const said = saidUnder(clip, ctx);
     if (!said.words.length) throw new Error("nothing is said under the clip yet: wait for the transcript, move the clip over speech, or type a prompt (Manual)");
     const planner = String(ctx.pref(PLANNER));
-    const shape = shapeOf(clip.id, ctx);
     const ids = [clip.id];
     return {
       label: "Write Motion Graphics Prompt",
@@ -364,9 +354,11 @@ const write = defineAction({
           const idea = await writeIdea(said, planner, key(env, planner));
           env.progress(1, "Prompt written");
           return (now) => {
-            const was = shapeOf(clip.id, now);
-            if (!was) throw new Error("the motion graphics clip was deleted while its prompt was written");
-            if (was !== shape) throw new Error("the motion graphics clip was moved or trimmed while its prompt was written: write it again");
+            try {
+              findClip(now.project, now.registry, clip.id);
+            } catch {
+              throw new Error("the motion graphics clip was deleted while its prompt was written");
+            }
             return {
               label: "Write Motion Graphics Prompt",
               steps: [{ command: "clip.set", args: { clip: clip.id, props: { motion: { prompt: idea.prompt, why: idea.why, source: "auto" } } } }],
@@ -380,21 +372,55 @@ const write = defineAction({
   },
 });
 
-type Drawn = { clip: string; asset: Omit<Asset, "id">; shape: string | undefined } & ({ html: string; prompt: string; cost: number; by: string } | { take: number });
+type Drawn = { clip: string; asset: Omit<Asset, "id">; html: string; name: string; d: ReturnType<typeof drawing> } & ({ cost: number; by: string } | { take: number });
 
-/** The end of a make or a render: each drawing added to the Media Bin and shown in its clip, one undo step. */
+/**
+ * The end of a make or a render: each drawing added to the Media Bin and shown in its clip, one undo step. A clip
+ * resized, trimmed or restyled while it was made is drawn again to fit first (no AI, so what the AI wrote is kept).
+ */
 function shown(label: string, clips: string[], made: Drawn[]) {
-  return (now: ActionContext) => {
+  return (now: ActionContext): ActionPlan => {
     const steps: ActionStep[] = [];
+    const again: Drawn[] = [];
     for (const m of made) {
-      const was = shapeOf(m.clip, now);
-      if (!was) throw new Error("the motion graphics clip was deleted while it was made");
-      if (was !== m.shape) throw new Error("the motion graphics clip was moved or trimmed while it was made: make it again");
+      let clip: Clip;
+      try {
+        clip = findClip(now.project, now.registry, m.clip).clip;
+      } catch {
+        throw new Error("the motion graphics clip was deleted while it was made");
+      }
+      const d = drawing(clip, now);
+      if (page(m.html, d) !== page(m.html, m.d)) {
+        again.push({ ...m, d });
+        continue;
+      }
       const added = steps.length;
       steps.push({ command: "asset.add", args: m.asset });
-      steps.push({ command: "motion.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added], ...("html" in m ? { html: m.html, prompt: m.prompt, cost: m.cost, by: m.by } : { take: m.take }) }) });
+      steps.push({ command: "motion.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added], ...("take" in m ? { take: m.take } : { html: m.html, prompt: m.name, cost: m.cost, by: m.by }) }) });
     }
-    return { label, steps, after: () => [{ command: "motion.status", args: { clips, making: false } }] };
+    const redrawn = again.map((m) => m.clip);
+    const done = clips.filter((c) => !redrawn.includes(c));
+    return {
+      label,
+      steps,
+      after: () => (done.length ? [{ command: "motion.status", args: { clips: done, making: false } }] : []),
+      ...(again.length
+        ? {
+            task: {
+              label: "Draw Motion Graphics to Fit",
+              run: async (env: TaskEnv) => {
+                const fit: Drawn[] = [];
+                for (const [k, m] of again.entries()) {
+                  const asset = await draw(env, m.html, m.d, m.name, (f) => env.progress((k + f) / again.length, "The clip changed while it was made: drawing it again to fit"));
+                  fit.push({ ...m, asset });
+                }
+                return shown(label, redrawn, fit);
+              },
+              failed: (error: string) => [{ command: "motion.status", args: { clips: redrawn, making: false, ...(error === "cancelled" ? {} : { error }) } }],
+            },
+          }
+        : {}),
+    };
   };
 }
 
@@ -415,7 +441,6 @@ const make = defineAction({
     const reference = m.reference ? ctx.project.assets[m.reference]?.path : undefined;
     if (reference && planner === "apple") throw new Error("a reference image needs OpenAI or Claude to make it: choose one on the Motion tab, or remove the image");
     const d = drawing(clip, ctx);
-    const shape = shapeOf(clip.id, ctx);
     const ids = [clip.id];
     return {
       label: "Make Motion Graphics",
@@ -429,7 +454,7 @@ const make = defineAction({
           env.progress(0.3, "Drawing it");
           const asset = await draw(env, html, d, prompt, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
           env.progress(1, "Made");
-          return shown("Make Motion Graphics", ids, [{ clip: clip.id, asset, html, prompt, shape, cost: meter.cost, by: planner }]);
+          return shown("Make Motion Graphics", ids, [{ clip: clip.id, asset, html, name: prompt, d, cost: meter.cost, by: planner }]);
         },
         failed: (error) => [{ command: "motion.status", args: { clips: ids, making: false, ...(error === "cancelled" ? {} : { error }) } }],
       },
@@ -449,7 +474,7 @@ const render = defineAction({
     if (clips.some((c) => busy.writing.includes(c.id) || busy.making.includes(c.id))) throw new Error("that clip is being written or made already");
     const jobs = clips.flatMap((c) => {
       const m = motionOf(c)!;
-      const job = { clip: c.id, take: m.shown, html: m.takes[m.shown]!.html, prompt: m.takes[m.shown]!.prompt, d: drawing(c, ctx), shape: shapeOf(c.id, ctx) };
+      const job = { clip: c.id, take: m.shown, html: m.takes[m.shown]!.html, prompt: m.takes[m.shown]!.prompt, d: drawing(c, ctx) };
       // Drawn from this very page already (a Look or timing the composition doesn't use): nothing would change.
       const drawn = c.assetId ? ctx.project.assets[c.assetId]?.path.replace(/\.mov$/, ".html") : undefined;
       return drawn && existsSync(drawn) && readFileSync(drawn, "utf8") === page(job.html, job.d) ? [] : [job];
@@ -465,7 +490,7 @@ const render = defineAction({
           const made: Drawn[] = [];
           for (const [k, j] of jobs.entries()) {
             const asset = await draw(env, j.html, j.d, j.prompt, (f) => env.progress((k + f) / jobs.length, `Drawing ${k + 1} of ${jobs.length}`));
-            made.push({ clip: j.clip, asset, take: j.take, shape: j.shape });
+            made.push({ clip: j.clip, asset, take: j.take, html: j.html, name: j.prompt, d: j.d });
           }
           env.progress(1, "Drawn");
           return shown("Draw Motion Graphics", all, made);

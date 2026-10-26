@@ -507,6 +507,7 @@ export class LocalCore implements BeaconCore {
       if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
       const plan = finish(this.#actionContext(p));
       const r = this.#applyPlan(p, plan, plan.label);
+      if (plan.task) this.#startTask(p, plan.task);
       return { label: plan.label, results: r.results };
     });
     if (task.failed) {

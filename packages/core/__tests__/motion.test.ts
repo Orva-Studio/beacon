@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MotionProps, MotionState } from "@beacon/features";
+import { secondsToTicks } from "@beacon/model";
 import { LocalCore } from "../src";
 
 const dir = mkdtempSync(join(tmpdir(), "beacon-motion-"));
@@ -13,12 +14,15 @@ const dir = mkdtempSync(join(tmpdir(), "beacon-motion-"));
  * absence, so the page carries GSAP and the map; asked to pick examples from the catalog, it picks `x-post`.
  */
 const asked: Record<string, unknown>[] = [];
+/** While set, the stand-in answers only once it resolves: the clip can be changed while it is made. */
+let hold: Promise<void> | undefined;
 const server = Bun.serve({
   port: 0,
   async fetch(req) {
     if (req.headers.get("authorization") !== "Bearer openai-key") return Response.json({ error: { message: "bad key" } }, { status: 401 });
     const body = (await req.json()) as { text: { format: { name: string } } };
     asked.push(body);
+    await hold;
     const answer =
       body.text.format.name === "motion_examples"
         ? { names: ["x-post"] }
@@ -104,6 +108,43 @@ test("motion graphics designed by OpenAI as HTML, with examples from the catalog
   expect(m().takes).toHaveLength(2);
   await core.close(h);
 }, 60_000);
+
+test("a clip resized and lengthened while it is made keeps what the AI wrote: drawn again to fit, with no AI, then shown; one take", async () => {
+  const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
+  const core = new LocalCore({ configDir: join(dir, "config-fit"), cacheDir: join(dir, "cache"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  await core.setPreference("motionPlanner", "openai");
+  const h = await core.create({ path: join(dir, "fit.beproj") });
+  await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Three wins, on the x-post block" });
+  const id = (await core.session(h)).selection[0]!;
+  const clip = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!;
+  await core.run(h, "clip.set", { clip: id, props: { motionBox: { width: 960, height: 540 } } });
+  let release!: () => void;
+  hold = new Promise((r) => (release = r));
+  const calls = asked.length;
+  await core.run(h, "motion.make", {});
+  for (let i = 0; i < 300 && asked.length === calls; i++) await Bun.sleep(20);
+  await core.run(h, "clip.set", { clip: id, props: { motionBox: { width: 640, height: 360 } } });
+  await core.run(h, "clip.trim", { clip: id, end: 3 });
+  release();
+  hold = undefined;
+  await settled(core);
+  const state = (await core.session(h)).features.motion as MotionState;
+  expect(state.errors[id]).toBeUndefined();
+  expect(state.making).not.toContain(id);
+  expect(asked.length).toBe(calls + 1);
+  const m = clip().props.motion as MotionProps;
+  expect(m.takes).toHaveLength(1);
+  expect(m.shown).toBe(0);
+  const drawn = core.doc(h).assets[clip().assetId!]!;
+  const video = (drawn.derived.media as { streams: { kind: string; width?: number; height?: number; duration: number }[] }).streams.find((s) => s.kind === "video")!;
+  expect([video.width, video.height]).toEqual([640, 360]);
+  expect(video.duration).toBeCloseTo(3, 1);
+  expect(clip().duration).toBe(secondsToTicks(3));
+  expect(clip().assetId).toBe(m.takes[0]!.assetId!);
+  // Only the drawing to fit is in the Media Bin: the one made at the old size never was.
+  expect(Object.values(core.doc(h).assets).filter((a) => a.path.endsWith(".mov"))).toHaveLength(1);
+  await core.close(h);
+});
 
 test("a reference image: copied into the project's media, sent to OpenAI with the brief to recreate and animate; Apple's model is refused; removed in one step", async () => {
   const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);

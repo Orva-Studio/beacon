@@ -228,6 +228,11 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
         >
           {making ? "Making…" : `${m.takes.length ? "Make Again" : "Make"} · ${planner === "apple" ? "Free" : `~$${cost.toFixed(2)}`}`}
         </Button>
+        {making && (
+          <span className="text-caption text-text-muted" data-motion-making-note>
+            Keep editing meanwhile: if you resize, trim or restyle the clip, it's drawn again to fit when it arrives.
+          </span>
+        )}
         {m.shown >= 0 && (
           <Button look="quiet" disabled={busy} title="Draw it again at its box's size and length now, after resizing or trimming it (no AI)" onClick={() => host.run("motion.render", { clips: [clip.id] })} data-motion-render>
             Draw Again
