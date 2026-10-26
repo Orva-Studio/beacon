@@ -2443,6 +2443,12 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
    words ($9.1M MRR; London → New York): both kept the design closely.
 2. **OpenAI vs Claude** on the same briefs (HyperFrames' four single-graphic
    examples are a ready set), both keys; keep OpenAI, add Claude if it wins.
+   **Ready, blocked (2026-10-26):** `authorBrief` (`c21bfbd`) gives both
+   the same system and user messages; a scratch script sends them to Claude
+   Opus 5.5 (SDK, adaptive thinking, effort medium as OpenAI's, structured
+   JSON) for the four HyperFrames prompts and the two reference stills. The
+   Anthropic key in the user's shell is at its usage limit until
+   2026-11-01; run then (or with another key the user gives).
 3. **The footage under a graphic** (punch-in, picture-in-picture, split),
    face awareness (Vision) so overlays keep clear of the speaker, and an
    **Exit** choice (Fade, Cut, Slide Out).
