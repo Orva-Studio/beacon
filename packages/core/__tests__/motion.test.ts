@@ -82,6 +82,13 @@ test("motion graphics designed by OpenAI as HTML, with examples from the catalog
   expect(clip().assetId).not.toBe(drawn.id);
   expect(m().takes).toHaveLength(1);
   expect(readFileSync(core.doc(h).assets[clip().assetId!]!.path.replace(/\.mov$/, ".html"), "utf8")).toContain("Menlo");
+  // Drawn again with nothing changed (a Look or timing the composition doesn't use): left as it is, no new file.
+  const kept = clip().assetId;
+  const files = Object.keys(core.doc(h).assets).length;
+  await core.run(h, "motion.render", { clips: [id] });
+  await settled(core);
+  expect(clip().assetId).toBe(kept);
+  expect(Object.keys(core.doc(h).assets).length).toBe(files);
   // A brief naming a catalog item gets it as its base, with no picking.
   await core.run(h, "clip.set", { clip: id, props: { motion: { source: "manual", manual: "Three wins, on the apple-money-count block" } } });
   const before = asked.length;

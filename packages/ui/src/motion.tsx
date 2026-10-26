@@ -72,6 +72,8 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const looks = useQuery<Look[]>(host, "motion.looks");
   const look = looks?.find((l) => l.id === m.look);
   const reference = m.reference ? project.assets[m.reference] : undefined;
+  const by = m.takes[m.shown]?.by;
+  const designed = by === "openai" || by === "claude";
   const cost = typicalCost(project, planner ?? "apple");
   return (
     <Section>
@@ -126,6 +128,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             onChange={(timing) => timing !== m.timing && restyle(host, [clip], { timing }, "Motion Graphics Timing")}
             data-motion-timing
           />
+          {designed && <span className="text-caption text-text-faint">Designed with its own look and timing: Look and Words change only the parts that use them.</span>}
         </div>
         <div className={`flex flex-col gap-1 ${writing ? "opacity-50" : ""}`}>
           <span className="text-label font-medium text-text-muted">Prompt</span>

@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { renderHtml } from "@beacon/media";
@@ -440,17 +440,21 @@ const make = defineAction({
 const render = defineAction({
   id: "motion.render",
   description:
-    "Draw motion graphics clips (`clips`, else the selected ones) again from the take each shows, with no AI: in their Look and timing as they are now, at their box's size and length now (after motion.style, a resize or a trim). Runs as a job",
+    "Draw motion graphics clips (`clips`, else the selected ones) again from the take each shows, with no AI: in their Look and timing as they are now, at their box's size and length now (after motion.style, a resize or a trim). A clip whose drawing would come out the same (a Look or timing its composition doesn't use) is left as it is. Runs as a job",
   args: z.strictObject({ clips: z.array(z.string().min(1)).optional() }),
   resolve: ({ clips: ids }, ctx) => {
     const clips = targets(ctx, ids).filter((c) => motionOf(c)!.shown >= 0);
     if (!clips.length) throw new Error("nothing to draw again: make the motion graphic first");
     const busy = motionState(ctx.session);
     if (clips.some((c) => busy.writing.includes(c.id) || busy.making.includes(c.id))) throw new Error("that clip is being written or made already");
-    const jobs = clips.map((c) => {
+    const jobs = clips.flatMap((c) => {
       const m = motionOf(c)!;
-      return { clip: c.id, take: m.shown, html: m.takes[m.shown]!.html, prompt: m.takes[m.shown]!.prompt, d: drawing(c, ctx), shape: shapeOf(c.id, ctx) };
+      const job = { clip: c.id, take: m.shown, html: m.takes[m.shown]!.html, prompt: m.takes[m.shown]!.prompt, d: drawing(c, ctx), shape: shapeOf(c.id, ctx) };
+      // Drawn from this very page already (a Look or timing the composition doesn't use): nothing would change.
+      const drawn = c.assetId ? ctx.project.assets[c.assetId]?.path.replace(/\.mov$/, ".html") : undefined;
+      return drawn && existsSync(drawn) && readFileSync(drawn, "utf8") === page(job.html, job.d) ? [] : [job];
     });
+    if (!jobs.length) return { label: "Draw Motion Graphics", steps: [] };
     const all = jobs.map((j) => j.clip);
     return {
       label: "Draw Motion Graphics",

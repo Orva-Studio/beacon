@@ -94,7 +94,9 @@ export function page(body: string, env: PageEnv): string {
   const libraries = KITS.filter((kit) => kit.used.test(body))
     .map((kit) => kit.scripts.map((js) => `<script>${js}</script>`).join("\n"))
     .join("\n");
+  // Its size and length are part of what it is: drawn again, a page that differs only in them is a different drawing.
   return `<!doctype html>
+<!-- ${Math.round(env.width)}×${Math.round(env.height)}, ${env.length.toFixed(3)} s -->
 <html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
 <style>
