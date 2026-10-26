@@ -30,8 +30,8 @@ const takeName = (t: MotionProps["takes"][number]) => (t.prompt.length > 50 ? `$
 const redraws = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** A style change, then the clips made drawn again in it (motion.render), once changes stop for a moment. */
-function restyle(host: Host, clips: Clip[], style: { look?: string; timing?: string }, label: string, key?: string, all = false) {
-  host.run("motion.style", { ...(all ? {} : { clips: clips.map((c) => c.id) }), ...style }, label, key);
+function restyle(host: Host, clips: Clip[], style: { look?: string; timing?: string }, label: string, key?: string) {
+  host.run("motion.style", { clips: clips.map((c) => c.id), ...style }, label, key);
   const made = clips.filter((c) => (c.props.motion as MotionProps).shown >= 0).map((c) => c.id);
   if (!made.length) return;
   const id = made.join();
@@ -98,9 +98,6 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
                 </option>
               ))}
             </Select>
-            <Button look="quiet" title="Give every motion graphic in this project this Look" onClick={() => restyle(host, project.tracks.flatMap((t) => t.clips).filter((c) => c.type === "motion"), { look: m.look }, "Motion Graphics Look for All", undefined, true)} data-motion-look-all>
-              Use for All
-            </Button>
           </div>
           {look && <span className="text-caption text-text-faint">{look.description}.</span>}
         </label>

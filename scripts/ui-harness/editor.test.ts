@@ -134,7 +134,7 @@ test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at the playhead (nothing drawn); a prompt typed and Made is drawn from HTML into the clip with its transparency, one undo step; Make Again keeps the first as a take to pick; a Look, a background colour or the timing draws it again; Use for All", async () => {
+test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at the playhead (nothing drawn); a prompt typed and Made is drawn from HTML into the clip with its transparency, one undo step; Make Again keeps the first as a take to pick; a Look, a background colour or the timing draws it again", async () => {
   // Apple's on-device model, standing in for beacon-writer: a name is a lower third, anything else a title. WebKit draws for real.
   const writer = join(dir, "motion-writer");
   writeFileSync(
@@ -223,20 +223,8 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await page.until("(document.querySelector('[data-motion-reference]')?.textContent ?? '') === 'reference.png'");
     await page.evaluate("document.querySelector('[data-motion-reference-remove]').click()");
     await arrived(() => !(motion().props.motion as { reference?: string }).reference);
-    // Use for All gives every motion graphic the Look, one undo step.
-    await run("motion.add", { time: 20, prompt: "Hello there" });
-    const other = clips().filter((c) => c.type === "motion").find((c) => c.id !== motion().id)!;
-    expect((other.props.motion as Takes).look).toBe("tech");
-    await run("motion.style", { clips: [other.id], look: "bold" });
-    await select([motion().id]);
-    await page.until("!!document.querySelector('[data-motion-look-all]')");
-    await motionIdle();
-    const all = (await ui.core.history(ui.handle)).undo.length;
-    await page.evaluate("document.querySelector('[data-motion-look-all]').click()");
-    await arrived(() => clips().filter((c) => c.type === "motion").every((c) => (c.props.motion as Takes).look === "tech"));
-    expect((await ui.core.history(ui.handle)).undo.length).toBe(all + 1);
-    // Use for All draws them again once its change settles.
-    await Bun.sleep(800);
+    // No Use for All: each graphic's Look is its own.
+    expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-look-all]')")).toBe(true);
     await motionIdle();
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     expect(clips().some((c) => c.type === "motion")).toBe(false);
