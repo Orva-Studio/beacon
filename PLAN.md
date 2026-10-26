@@ -2561,6 +2561,13 @@ Phase 11 so it can close with motion graphics.
      at the end of one clip and another at the start of the next, each under
      the minimum, are together a silence the tool should find. Measure
      silence along the timeline (across adjacent clips), not per clip.
+  6. **The eyedropper from a dialog** (Project Settings, opened by the
+     canvas's right-click): a click on the canvas closes the dialog, since
+     its backdrop covers the canvas, so the canvas colour can't be picked
+     from the picture. While the colour picker's eyedropper is on, the
+     backdrop lets clicks through to the canvas (and doesn't close), the
+     canvas isn't dimmed, and the picked colour lands in the dialog's
+     picker, as it does in the properties panel.
 - **Captions for a selection** (the user, 2026-10-26): Captions with an in/out
   range (else selected clips) captions only that span. `captions.create` takes
   `from`/`to`, captions words starting inside it and replaces only the
