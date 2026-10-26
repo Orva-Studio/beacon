@@ -2270,6 +2270,17 @@ clips.
 - **Order:** easings, counter, the catalog with Title, then Lower third,
   Number, List, then the planner and the tile; a UI flow and `tested.md`
   for each.
+- **Changed (the user, 2026-10-26, after trying the form): it works as B-roll
+  does.** The tile adds a **motion graphics placeholder clip** at the playhead
+  (over the range when set) on a track above the talk: trimmed on the timeline
+  for when, its box moved and resized on the canvas for where. Its tab holds a
+  **prompt**, Auto (written from the words under it) or Manual (typed), as
+  B-roll's; **Make** has the AI **compose** it in the box from text, shapes and
+  animation blocks, with the catalog's blocks (Title, Lower third, Number,
+  List) as its vocabulary, so it can mix them. **The clip keeps its prompt**
+  (replacing "a block is a plain group"): Make Again, earlier takes to pick
+  from, and it opens like a group to edit a word. The form under the tiles
+  goes.
 - **Progress (2026-10-26):** easings (`4409d19`, checked by hand), the counter
   (`919c0fb`), the `motion` feature with Title (`motion.add`, `motion.fill`,
   `motion.blocks`). Next: Lower third, Number, List.
