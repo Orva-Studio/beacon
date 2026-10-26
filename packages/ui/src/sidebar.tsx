@@ -8,6 +8,7 @@ import { Button, Check, DeviceSelect, Icon, ItemTile, LevelMeter, RailButton, ty
 import { HEADPHONES, useCountdown, useNarrationSpan, useRecordLevels } from "./record";
 import { MediaBin } from "./media-bin";
 import { CaptionsWaiting } from "./captions";
+import { MotionForm } from "./motion";
 import { useView } from "./store";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
@@ -241,6 +242,7 @@ function AiPanel({ host }: { host: Host }) {
         ))}
       </div>
       <CaptionsWaiting />
+      <MotionForm host={host} />
     </Panel>
   );
 }

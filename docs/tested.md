@@ -17,6 +17,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| The AI panel's Motion Graphics tile opens a form under the tiles (scrolled into view, the first field focused): a block (Title), its fields, Cancel and Apply (↩); Apply adds the block at the playhead (or over the range), greyed until the required fields are typed; Cancel adds nothing | 2026-10-26 | this branch | UI flow (`the AI panel's Motion Graphics tile…`), screenshot |
 | `motion.add` with the Title block: a plain group on a Motion graphics track above the talk (over the range when set), a word per track laid out as the renderer lays the line out, each coming in (rising with Overshoot, fading in) a little after the one before, an optional smaller line under it, all fading out at the end; Text annotation's font and drop shadow; one undo step; bad fields refused; `motion.blocks` lists the blocks | 2026-10-26 | this branch | UI flow (`a Title block is a plain group…`); a frame sheet of a Title over a real take looked at |
 | A counting text callout (`callout.count`): `{n}` in its text (else the whole text) counts From → To over Seconds from the clip's start, easing out, with thousands separators; Count rows in Annotation Properties | 2026-10-26 | this branch | UI flow (`a counting text callout…`), the scene's text checked at 0, 1 and 3 s |
 

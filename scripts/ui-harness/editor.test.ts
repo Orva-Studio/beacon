@@ -129,6 +129,30 @@ test.skipIf(skip)("a Title block is a plain group on a Motion graphics track: a 
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
 });
 
+test.skipIf(skip)("the AI panel's Motion Graphics tile opens a form: a title typed and applied is added at the playhead; Cancel adds nothing", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("playhead.set", { time: 2 });
+  await run("panel.show", { tool: "ai" });
+  await page.until("!!document.querySelector('[data-ai=\"motion\"]')");
+  await page.click(...(await centre('[data-ai="motion"]')));
+  await page.until("!!document.querySelector('[data-motion-field=\"text\"]')");
+  expect(await page.evaluate<boolean>("document.querySelector('[data-motion-add]').disabled")).toBe(true);
+  await page.click(...(await centre('[data-motion-field="text"]')));
+  await type("Hello there");
+  await page.click(...(await centre("[data-motion-add]")));
+  await arrived(() => ui.core.doc(ui.handle).tracks.some((t) => t.name === "Motion graphics"));
+  const group = ui.core.doc(ui.handle).tracks.find((t) => t.name === "Motion graphics")!.clips[0]!;
+  expect(ticksToSeconds(group.start)).toBeCloseTo(2, 3);
+  expect((group.props.group as { tracks: { name: string }[] }).tracks.map((t) => t.name)).toEqual(["Hello", "there"]);
+  await page.until("!document.querySelector('[data-motion-form]')");
+  await ui.core.undo(ui.handle);
+  await page.click(...(await centre('[data-ai="motion"]')));
+  await page.until("!!document.querySelector('[data-motion-form]')");
+  await page.evaluate(`[...document.querySelectorAll('[data-motion-form] button')].find((b) => b.textContent === 'Cancel').click()`);
+  await page.until("!document.querySelector('[data-motion-form]')");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+}, 20_000);
+
 test.skipIf(skip)("a counting text callout shows its number counting from From to To, edited in its Count rows", async () => {
   await select([callout.id]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
@@ -536,19 +560,19 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 5");
-    expect(await greyed()).toEqual([false, false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 6");
+    expect(await greyed()).toEqual([false, false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    // B-roll's prompt can be typed: it needs no transcript.
-    expect(await greyed()).toEqual([true, true, true, false, true]);
+    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript.
+    expect(await greyed()).toEqual([true, true, true, false, false, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
     // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
-    expect(await greyed()).toEqual([false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -566,7 +590,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -1627,7 +1651,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-5)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:captions"]);
+  expect(all.slice(-6)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 

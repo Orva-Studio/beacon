@@ -74,6 +74,14 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
     },
   },
   {
+    id: "motion",
+    label: "Motion Graphics",
+    title: "Add a motion graphic at the playhead (or over the range): a title whose words come in one after another, made of text clips in a group you can open and edit",
+    art: "text",
+    transcript: false,
+    start: () => replica.openMotion(true),
+  },
+  {
     id: "captions",
     label: "Captions",
     title: "Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it",
