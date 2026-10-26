@@ -11,6 +11,7 @@ import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
 import { BrollTab } from "./broll";
+import { MotionTab } from "./motion";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -90,6 +91,7 @@ function ClipProperties({
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
       {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
+      {tab?.id === "motion" && <MotionTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider

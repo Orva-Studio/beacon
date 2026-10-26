@@ -100,58 +100,71 @@ test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("a Title block is a plain group on a Motion graphics track: a word per track, coming in one after another, one undo step", async () => {
-  const before = ui.core.doc(ui.handle).tracks.length;
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  await expect(run("motion.add", { block: "title", fields: { text: "" }, time: 1 })).rejects.toThrow(/Title/);
-  await run("motion.add", { block: "title", fields: { text: "Ship it today", subtitle: "Three words" }, time: 1 });
-  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
-  const track = ui.core.doc(ui.handle).tracks.find((t) => t.name === "Motion graphics")!;
-  const group = track.clips[0]!;
-  expect(group.type).toBe("group");
-  expect(ticksToSeconds(group.start)).toBeCloseTo(1, 3);
-  expect(ticksToSeconds(group.duration)).toBeCloseTo(4, 3);
-  expect((await session()).selection).toEqual([group.id]);
-  const inner = (group.props.group as { tracks: { name: string; clips: Clip[] }[] }).tracks;
-  expect(inner.map((t) => t.name)).toEqual(["Ship", "it", "today", "Three words"]);
-  // Each word starts later than the one before, and ends where it was laid out, left to right on one line.
-  const words = inner.slice(0, 3).map((t) => t.clips[0]!);
-  const comesIn = words.map((c) => Math.min(...c.animations.map((a) => a.end - a.duration)));
-  expect(comesIn[1]!).toBeGreaterThan(comesIn[0]!);
-  expect(comesIn[2]!).toBeGreaterThan(comesIn[1]!);
-  const xs = words.map((c) => (c.props.transform as { x: number }).x);
-  expect(xs[0]!).toBeLessThan(xs[1]!);
-  expect(xs[1]!).toBeLessThan(xs[2]!);
-  expect(words.every((c) => (c.props.transform as { opacity: number }).opacity === 0)).toBe(true);
-  await page.until(`!!document.querySelector('canvas[data-timeline]')`);
-  await ui.core.undo(ui.handle);
-  expect(ui.core.doc(ui.handle).tracks.length).toBe(before);
-  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
-});
-
-test.skipIf(skip)("the AI panel's Motion Graphics tile opens a form: a title typed and applied is added at the playhead; Cancel adds nothing", async () => {
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  await run("playhead.set", { time: 2 });
-  await run("panel.show", { tool: "ai" });
-  await page.until("!!document.querySelector('[data-ai=\"motion\"]')");
-  await page.click(...(await centre('[data-ai="motion"]')));
-  await page.until("!!document.querySelector('[data-motion-field=\"text\"]')");
-  expect(await page.evaluate<boolean>("document.querySelector('[data-motion-add]').disabled")).toBe(true);
-  await page.click(...(await centre('[data-motion-field="text"]')));
-  await type("Hello there");
-  await page.click(...(await centre("[data-motion-add]")));
-  await arrived(() => ui.core.doc(ui.handle).tracks.some((t) => t.name === "Motion graphics"));
-  const group = ui.core.doc(ui.handle).tracks.find((t) => t.name === "Motion graphics")!.clips[0]!;
-  expect(ticksToSeconds(group.start)).toBeCloseTo(2, 3);
-  expect((group.props.group as { tracks: { name: string }[] }).tracks.map((t) => t.name)).toEqual(["Hello", "there"]);
-  await page.until("!document.querySelector('[data-motion-form]')");
-  await ui.core.undo(ui.handle);
-  await page.click(...(await centre('[data-ai="motion"]')));
-  await page.until("!!document.querySelector('[data-motion-form]')");
-  await page.evaluate(`[...document.querySelectorAll('[data-motion-form] button')].find((b) => b.textContent === 'Cancel').click()`);
-  await page.until("!document.querySelector('[data-motion-form]')");
-  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
-}, 20_000);
+test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at the playhead (nothing drawn), a prompt typed and Made builds it in its box, one undo step; Make Again keeps the first as a take to pick", async () => {
+  // Apple's on-device model, standing in for beacon-writer: a name is a lower third, anything else a title.
+  const writer = join(dir, "motion-writer");
+  writeFileSync(
+    writer,
+    `#!/bin/sh\nif grep -q '"kind":"idea"' "$1"; then echo '{"prompt":"A title: Hello there","why":"greets"}'; exit 0; fi\nif grep -q Sarah "$1"; then echo '{"kind":"lowerThird","text":"Sarah Chen","detail":"Head of Design","value":0,"prefix":"","suffix":"","items":[]}'; else echo '{"kind":"title","text":"Hello there","detail":"","value":0,"prefix":"","suffix":"","items":[]}'; fi\n`,
+    { mode: 0o755 },
+  );
+  process.env.BEACON_WRITER = writer;
+  try {
+    await select([]);
+    const steps = (await ui.core.history(ui.handle)).undo.length;
+    await run("playhead.set", { time: 2 });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=motion]')");
+    await page.evaluate("document.querySelector('[data-ai=motion]').click()");
+    await arrived(() => clips().some((c) => c.type === "motion"));
+    const motion = () => clips().find((c) => c.type === "motion")!;
+    const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.includes(motion()))!;
+    expect(track.name).toBe("Motion graphics");
+    expect(ticksToSeconds(motion().start)).toBeCloseTo(2, 3);
+    expect((await session()).selection).toEqual([motion().id]);
+    await page.until("!!document.querySelector('[data-motion-tab]')");
+    // Empty, it draws nothing.
+    const texts = (at: number) => {
+      const sources = new Map<string, SourceDef>();
+      evaluate(ui.core.doc(ui.handle), ui.core.registry, secondsToTicks(at), { sources });
+      return [...sources.values()].flatMap((d) => (d.kind === "text" ? [d.text] : []));
+    };
+    expect(texts(3)).not.toContain("Sarah Chen");
+    // The tile writes Auto's prompt as it adds the clip (or says nothing is said there): Manual once that's done.
+    await page.until("!document.querySelector('[data-motion-tab]').textContent.includes('Writing')", 10_000);
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-source] button')].find((b) => b.textContent === 'Manual').click()`);
+    await page.until("document.querySelector('[data-motion-prompt]')?.tagName === 'TEXTAREA'");
+    await page.evaluate("document.querySelector('textarea[data-motion-prompt]').focus()");
+    await type("Sarah Chen, head of design");
+    const before = (await ui.core.history(ui.handle)).undo.length;
+    await page.evaluate("document.querySelector('[data-motion-make]').scrollIntoView({ block: 'center' })");
+    await page.click(...(await centre("[data-motion-make]")));
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again'", 15_000);
+    const m = () => motion().props.motion as { manual: string; takes: { prompt: string; pieces: { kind: string }[] }[]; shown: number };
+    expect(m().manual).toBe("Sarah Chen, head of design");
+    expect(m().takes.map((t) => t.pieces[0]!.kind)).toEqual(["lowerThird"]);
+    const inner = () => (motion().props.group as { tracks: { name: string }[] }).tracks.map((t) => t.name);
+    expect(inner()).toContain("Sarah Chen");
+    expect(inner()).toContain("Head of Design");
+    expect(texts(3)).toContain("Sarah Chen");
+    // The typed prompt (kept as it was left) and the make: each its own step.
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 2);
+    await page.evaluate(`(() => { const t = document.querySelector('textarea[data-motion-prompt]'); t.focus(); t.select(); })()`);
+    await type("Hello there");
+    await page.click(...(await centre("[data-motion-make]")));
+    await arrived(() => m().takes.length === 2, 15_000);
+    expect(m().shown).toBe(1);
+    expect(inner()).toEqual(["Hello", "there"]);
+    await page.until("!!document.querySelector('[data-motion-pick]')");
+    await page.evaluate(`(() => { const s = document.querySelector('[data-motion-pick]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await arrived(() => m().shown === 0);
+    expect(inner()).toContain("Sarah Chen");
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    expect(clips().some((c) => c.type === "motion")).toBe(false);
+  } finally {
+    delete process.env.BEACON_WRITER;
+  }
+}, 40_000);
 
 test.skipIf(skip)("a counting text callout shows its number counting from From to To, edited in its Count rows", async () => {
   await select([callout.id]);

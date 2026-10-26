@@ -76,10 +76,14 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "motion",
     label: "Motion Graphics",
-    title: "Add a motion graphic at the playhead (or over the range): a title whose words come in one after another, made of text clips in a group you can open and edit",
+    title: "Add a motion graphics clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size its box on the canvas, then Make it into a title, name, number or list",
     art: "text",
     transcript: false,
-    start: () => replica.openMotion(true),
+    // Prompt from Auto: written as soon as it is added (a clip added where nothing is said says so).
+    start: (host) => {
+      review(host, "motion.add");
+      host.run("motion.write", {});
+    },
   },
   {
     id: "captions",

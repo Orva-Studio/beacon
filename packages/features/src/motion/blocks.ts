@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Easing, TextSpec } from "@beacon/model";
+import type { Easing, RGBA, TextSpec } from "@beacon/model";
 import type { TextLine } from "@beacon/media";
 
 /** An animation block of a part, in seconds from the part's start. */
@@ -10,7 +10,7 @@ export interface PartAnimation {
   to: Record<string, unknown>;
 }
 
-/** A clip a block makes, in seconds from the block's start; ids are given when it is placed. */
+/** A clip a piece makes, in seconds from the clip's start; ids are given when it is placed. */
 export interface Part {
   type: string;
   start: number;
@@ -20,35 +20,89 @@ export interface Part {
   animations: PartAnimation[];
 }
 
-export interface BlockEnv {
-  /** The canvas, in pixels: the block's group is drawn on one this size. */
+/** Where in the box a piece goes. */
+export const AREAS = ["full", "top", "middle", "bottom", "left", "right"] as const;
+export type Area = (typeof AREAS)[number];
+
+export const KINDS = ["title", "lowerThird", "number", "list", "text"] as const;
+export type Kind = (typeof KINDS)[number];
+
+/**
+ * One piece of a composition, as the AI writes it: what it is, its words, when it shows (seconds from the clip's
+ * start) and where in the box. Fields a kind doesn't use are empty.
+ */
+export const PieceSchema = z.strictObject({
+  kind: z.enum(KINDS),
+  start: z.number(),
+  end: z.number(),
+  area: z.enum(AREAS),
+  /** The title, the name (lower third), the label under a number, or the line of text. */
+  text: z.string().max(120),
+  /** The line under a title, or the role under a name. */
+  detail: z.string().max(120),
+  /** A number's value, and what goes before and after it ("$", "%"). */
+  value: z.number(),
+  prefix: z.string().max(8),
+  suffix: z.string().max(12),
+  /** A list's items. */
+  items: z.array(z.string().max(80)).max(6),
+});
+export type Piece = z.infer<typeof PieceSchema>;
+
+/** What the kinds are, for the AI and for agents. */
+export const KIND_GUIDE: Record<Kind, string> = {
+  title: "a few large words coming in one after another (`text`), an optional smaller line under them (`detail`)",
+  lowerThird: "a name (`text`) and a role or place (`detail`) on a bar that wipes in, low and to the left",
+  number: "a number counting up to `value`, with `prefix` / `suffix` (\"$\", \"%\", \"x\") and a label under it (`text`)",
+  list: "2 to 5 short `items`, each coming in after the one before, with a dot",
+  text: "one line of text (`text`)",
+};
+
+export interface Look {
+  /** The Text annotation's look (font, colour, its drop shadow), which pieces start from. */
+  spec: Omit<TextSpec, "width" | "height" | "scale" | "text">;
+  effects: Part["effects"];
+}
+
+export interface BuildEnv {
+  /** The box, in pixels: the clip's group canvas. */
   width: number;
   height: number;
-  /** Seconds the block lasts. */
+  /** Seconds the clip lasts. */
   length: number;
-  /** The Text annotation's look (font, colour, its drop shadow), which blocks start from. */
-  text: { spec: Omit<TextSpec, "width" | "height" | "scale">; effects: Part["effects"] };
+  look: Look;
   layout: (spec: TextSpec) => TextLine[];
 }
 
-export interface BlockDef<F = any> {
-  id: string;
-  title: string;
-  description: string;
-  fields: z.ZodType<F>;
-  /** Seconds it lasts when not given. */
-  seconds: number;
-  /** Tracks of parts, bottom → top. */
-  build: (fields: F, env: BlockEnv) => Part[][];
-}
+/** Where pieces sit: x, y, width, height in box pixels from its top left. */
+type Rect = [number, number, number, number];
 
-const defineBlock = <F>(b: BlockDef<F>) => b;
-
-/** Seconds a word takes to come in; the next starts a little after. */
-const WORD_IN = 0.6;
-/** The longest the words take to start, however many there are. */
+const ACCENT: RGBA = [0.24, 0.86, 0.52, 1];
+const BAR: RGBA = [0.05, 0.05, 0.06, 0.78];
+/** Seconds a part takes to come in; the next starts a little after. */
+const IN = 0.6;
 const STAGGER_MAX = 0.8;
 const OUT = 0.35;
+
+export function areaRect(area: Area, w: number, h: number): Rect {
+  switch (area) {
+    case "full":
+      return [0, 0, w, h];
+    case "top":
+      return [0, 0, w, h / 3];
+    case "middle":
+      return [0, h / 3, w, h / 3];
+    case "bottom":
+      return [0, (2 * h) / 3, w, h / 3];
+    case "left":
+      return [0, 0, w / 2, h];
+    case "right":
+      return [w / 2, 0, w / 2, h];
+  }
+}
+
+/** Pixels per design point in a rect: text sizes below are for a 1920-wide strip at least 400 tall. */
+const unit = ([, , w, h]: Rect) => Math.min(w / 1920, h / 400);
 
 /** Non-space runs of a laid-out line, as offsets into the text. */
 function wordsOf(text: string, line: TextLine): [number, number][] {
@@ -63,93 +117,230 @@ function wordsOf(text: string, line: TextLine): [number, number][] {
   return out;
 }
 
-/** Shrinks the text until it fits in `lines` lines across `width`. */
-function fit(env: BlockEnv, base: TextSpec, lines: number): { spec: TextSpec; laid: TextLine[] } {
+/** The text shrunk until it fits in `lines` lines and `height` pixels. */
+function fit(env: BuildEnv, base: TextSpec, lines: number, height: number): { spec: TextSpec; laid: TextLine[] } {
   let spec = base;
   let laid = env.layout(spec);
-  for (let n = 0; n < 8 && laid.length > lines; n++) {
+  const tall = (l: TextLine[]) => (l.length ? l.at(-1)!.bottom - l[0]!.top : 0);
+  for (let n = 0; n < 12 && (laid.length > lines || tall(laid) > height); n++) {
     spec = { ...spec, size: spec.size * 0.88 };
     laid = env.layout(spec);
   }
   return { spec, laid };
 }
 
-/** A text callout part whose box is centred at canvas pixels `cx`, `cy` (from the top left). */
-function textPart(env: BlockEnv, spec: TextSpec, text: string, box: [number, number], centre: [number, number], start: number, length: number): Part {
-  const { width: _w, height: _h, scale: _s, ...look } = spec;
+const textSpec = (env: BuildEnv, text: string, size: number, weight: number, width: number, align: TextSpec["align"] = "center"): TextSpec => ({
+  ...env.look.spec,
+  text,
+  size,
+  weight,
+  width,
+  height: 10_000,
+  align,
+  valign: "top",
+  scale: 1,
+});
+
+const placeAt = (env: BuildEnv, cx: number, cy: number) => ({ x: cx - env.width / 2, y: env.height / 2 - cy, scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 });
+
+/** A text part whose box is centred at box pixels `cx`, `cy`. */
+function textPart(env: BuildEnv, spec: TextSpec, text: string, box: [number, number], [cx, cy]: [number, number], piece: Piece, shadow = true): Part {
+  const { width: _w, height: _h, scale: _s, text: _t, ...look } = spec;
   return {
     type: "callout",
-    start,
-    duration: length,
+    start: piece.start,
+    duration: piece.end - piece.start,
     props: {
-      callout: { shape: "text", width: box[0], height: box[1], cornerRadius: 0, text: { ...look, text, align: "center", valign: "center" } },
-      transform: { x: centre[0] - env.width / 2, y: env.height / 2 - centre[1], scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 },
+      callout: { shape: "text", width: box[0], height: box[1], cornerRadius: 0, text: { ...look, text, valign: "center" } },
+      transform: placeAt(env, cx, cy),
     },
-    effects: env.text.effects.map((fx) => ({ ...fx, params: { ...fx.params } })),
+    effects: shadow ? env.look.effects.map((fx) => ({ ...fx, params: { ...fx.params } })) : [],
     animations: [],
   };
 }
 
-/** Comes in from `rise` pixels below, fading in, starting at `at`; fades out at the end when there is time. */
-function inAndOut(part: Part, at: number, rise: number, length: number) {
-  const t = part.props.transform as { y: number; opacity: number };
-  const y = t.y;
-  t.y = y - rise;
-  t.opacity = 0;
-  part.animations.push({ end: at + WORD_IN * 0.7, duration: WORD_IN * 0.7, easing: "easeOut", to: { "transform.opacity": 1 } });
-  part.animations.push({ end: at + WORD_IN, duration: WORD_IN, easing: "backOut", to: { "transform.y": y } });
-  if (length - OUT > at + WORD_IN + 0.3) part.animations.push({ end: length, duration: OUT, easing: "easeIn", to: { "transform.opacity": 0 } });
+function boxPart(env: BuildEnv, size: [number, number], [cx, cy]: [number, number], fill: RGBA, radius: number, piece: Piece): Part {
+  return {
+    type: "callout",
+    start: piece.start,
+    duration: piece.end - piece.start,
+    props: { callout: { shape: "rectangle", width: size[0], height: size[1], cornerRadius: radius, fill }, transform: placeAt(env, cx, cy) },
+    effects: [],
+    animations: [],
+  };
 }
 
-export const title = defineBlock({
-  id: "title",
-  title: "Title",
-  description: "Large words coming in one after another, with an optional line under them",
-  fields: z.strictObject({
-    text: z.string().trim().min(1).max(80).describe("The title: a few words"),
-    subtitle: z.string().trim().max(120).optional().describe("A smaller line under it"),
-  }),
-  seconds: 4,
-  build({ text, subtitle }, env) {
-    const k = env.height / 1080;
-    const boxWidth = env.width * 0.8;
-    const base: TextSpec = { ...env.text.spec, text, weight: 700, size: 132 * k, width: boxWidth, height: env.height, align: "center", valign: "top", scale: 1 };
-    const { spec, laid } = fit(env, base, 2);
-    const sub = subtitle ? { ...spec, text: subtitle, weight: 400, size: spec.size * 0.4, height: env.height, color: [...spec.color.slice(0, 3), spec.color[3] * 0.85] as TextSpec["color"] } : undefined;
-    const subLines = sub ? fit(env, sub, 2) : undefined;
-    const top = laid[0]!.top;
-    const titleHeight = laid.at(-1)!.bottom - top;
-    const gap = 24 * k;
-    const subHeight = subLines ? subLines.laid.at(-1)!.bottom - subLines.laid[0]!.top : 0;
-    // The title and its line are centred on the canvas together.
-    const y0 = (env.height - titleHeight - (subLines ? gap + subHeight : 0)) / 2;
-    const left = (env.width - boxWidth) / 2;
-    const words = laid.flatMap((line) => wordsOf(text, line).map(([s, e]) => ({ line, s, e })));
-    const step = Math.min(0.08, STAGGER_MAX / Math.max(1, words.length - 1));
-    const pad = spec.size * 0.3;
-    const parts = words.map(({ line, s, e }, i) => {
-      const [x0, x1] = [line.carets[s - line.start]!, line.carets[e - line.start]!];
-      const h = (line.bottom - line.top) * 1.4;
-      const part = textPart(env, spec, text.slice(s, e), [x1 - x0 + 2 * pad, h], [left + (x0 + x1) / 2, y0 + (line.top + line.bottom) / 2 - top], 0, env.length);
-      inAndOut(part, i * step, 40 * k, env.length);
-      return part;
-    });
-    if (subLines) {
-      const lines = subLines.laid;
-      const h = lines.at(-1)!.bottom - lines[0]!.top;
-      const part = textPart(env, subLines.spec, subtitle!, [boxWidth, h * 1.3], [env.width / 2, y0 + titleHeight + gap + h / 2], 0, env.length);
-      inAndOut(part, (words.length - 1) * step + WORD_IN * 0.5, 20 * k, env.length);
-      parts.push(part);
-    }
-    // Each on its own track: they all last the whole block.
-    return parts.map((p) => [p]);
-  },
-});
+/** Fades out over the piece's last moments, when it lasts long enough for that. */
+function fadeOut(part: Part, after: number) {
+  if (part.duration - OUT > after + 0.3) part.animations.push({ end: part.duration, duration: OUT, easing: "easeIn", to: { "transform.opacity": 0 } });
+}
 
-export const BLOCKS: BlockDef[] = [title];
+/** Comes in at `at` (seconds into the piece) from `dx`, `dy` box pixels away (y down), fading in; fades out at its end. */
+function comeIn(part: Part, at: number, dx: number, dy: number, easing: Easing = "backOut") {
+  const t = part.props.transform as { x: number; y: number; opacity: number };
+  const [x, y] = [t.x, t.y];
+  t.x = x + dx;
+  t.y = y - dy;
+  t.opacity = 0;
+  part.animations.push({ end: at + IN * 0.7, duration: IN * 0.7, easing: "easeOut", to: { "transform.opacity": 1 } });
+  part.animations.push({ end: at + IN, duration: IN, easing, to: { ...(dx ? { "transform.x": x } : {}), ...(dy ? { "transform.y": y } : {}) } });
+  fadeOut(part, at + IN);
+}
 
-export function blockOf(id: string): BlockDef {
-  const b = BLOCKS.find((x) => x.id === id);
-  if (!b) throw new Error(`no motion graphics block "${id}"; there are: ${BLOCKS.map((x) => x.id).join(", ")}`);
-  return b;
+/** Large words coming in one after another, a smaller line under them. */
+function title(p: Piece, r: Rect, env: BuildEnv): Part[] {
+  const u = unit(r);
+  const [x, y, w, h] = r;
+  const boxWidth = w * 0.9;
+  const sub = p.detail.trim();
+  const { spec, laid } = fit(env, textSpec(env, p.text, 132 * u, 700, boxWidth), 2, h * (sub ? 0.6 : 0.85));
+  const under = sub ? fit(env, textSpec(env, sub, spec.size * 0.4, 400, boxWidth), 2, h * 0.25) : undefined;
+  const top = laid[0]!.top;
+  const titleHeight = laid.at(-1)!.bottom - top;
+  const gap = spec.size * 0.2;
+  const subHeight = under ? under.laid.at(-1)!.bottom - under.laid[0]!.top : 0;
+  const y0 = y + (h - titleHeight - (under ? gap + subHeight : 0)) / 2;
+  const left = x + (w - boxWidth) / 2;
+  const words = laid.flatMap((line) => wordsOf(p.text, line).map(([s, e]) => ({ line, s, e })));
+  const step = Math.min(0.08, STAGGER_MAX / Math.max(1, words.length - 1));
+  const pad = spec.size * 0.3;
+  const parts = words.map(({ line, s, e }, i) => {
+    const [x0, x1] = [line.carets[s - line.start]!, line.carets[e - line.start]!];
+    const part = textPart(env, spec, p.text.slice(s, e), [x1 - x0 + 2 * pad, (line.bottom - line.top) * 1.4], [left + (x0 + x1) / 2, y0 + (line.top + line.bottom) / 2 - top], p);
+    comeIn(part, i * step, 0, 40 * u);
+    return part;
+  });
+  if (under) {
+    const color = [...under.spec.color.slice(0, 3), under.spec.color[3] * 0.85] as RGBA;
+    const part = textPart(env, { ...under.spec, color }, sub, [boxWidth, subHeight * 1.3], [x + w / 2, y0 + titleHeight + gap + subHeight / 2], p);
+    comeIn(part, (words.length - 1) * step + IN * 0.5, 0, 20 * u);
+    parts.push(part);
+  }
+  return parts;
+}
+
+/** A name and a role on a bar that wipes in from the left, low and to the left of the area. */
+function lowerThird(p: Piece, r: Rect, env: BuildEnv): Part[] {
+  const [x, y, w, h] = r;
+  const u = Math.min(w / 1920, h / 1080) * 1.6;
+  const role = p.detail.trim();
+  const name = fit(env, textSpec(env, p.text, 56 * u, 700, w * 0.7, "left"), 1, h * 0.2);
+  const sub = role ? fit(env, textSpec(env, role, name.spec.size * 0.6, 400, w * 0.7, "left"), 1, h * 0.12) : undefined;
+  const widthOf = (l: TextLine[]) => Math.max(...l.map((line) => line.carets.at(-1)! - line.carets[0]!));
+  const lineH = (l: TextLine[]) => l.at(-1)!.bottom - l[0]!.top;
+  const pad = 28 * u;
+  const stripe = 8 * u;
+  const textW = Math.max(widthOf(name.laid), sub ? widthOf(sub.laid) : 0);
+  const [barW, barH] = [textW + 2 * pad + stripe, lineH(name.laid) + (sub ? lineH(sub.laid) + 6 * u : 0) + 2 * pad * 0.7];
+  const [bx, by] = [x + w * 0.06, y + h * 0.88 - barH];
+  const bar = boxPart(env, [barW, barH], [bx + barW / 2, by + barH / 2], BAR, 6 * u, p);
+  const accent = boxPart(env, [stripe, barH], [bx + stripe / 2, by + barH / 2], ACCENT, 0, p);
+  // The bar wipes in: its crop from the right shrinks to nothing.
+  (bar.props as Record<string, unknown>).crop = { left: 0, top: 0, right: barW, bottom: 0 };
+  bar.animations.push({ end: IN, duration: IN, easing: "easeOut", to: { "crop.right": 0 } });
+  fadeOut(bar, IN);
+  const accentPart = accent;
+  (accentPart.props.transform as { opacity: number }).opacity = 0;
+  accentPart.animations.push({ end: 0.15, duration: 0.15, easing: "easeOut", to: { "transform.opacity": 1 } });
+  fadeOut(accentPart, 0.15);
+  const tx = bx + stripe + pad;
+  const top = by + pad * 0.7;
+  const namePart = textPart(env, name.spec, p.text, [w * 0.7, lineH(name.laid) * 1.3], [tx + (w * 0.7) / 2, top + lineH(name.laid) / 2], p, false);
+  comeIn(namePart, IN * 0.5, -30 * u, 0, "easeOut");
+  const parts = [bar, accentPart, namePart];
+  if (sub) {
+    const color = [...sub.spec.color.slice(0, 3), sub.spec.color[3] * 0.8] as RGBA;
+    const part = textPart(env, { ...sub.spec, color }, role, [w * 0.7, lineH(sub.laid) * 1.3], [tx + (w * 0.7) / 2, top + lineH(name.laid) + 6 * u + lineH(sub.laid) / 2], p, false);
+    comeIn(part, IN * 0.75, -30 * u, 0, "easeOut");
+    parts.push(part);
+  }
+  return parts;
+}
+
+/** A big number counting up to its value, a label under it. */
+function number(p: Piece, r: Rect, env: BuildEnv): Part[] {
+  const [x, y, w, h] = r;
+  const u = unit(r);
+  const label = p.text.trim();
+  const decimals = Number.isInteger(p.value) ? 0 : Math.min(2, (String(p.value).split(".")[1] ?? "").length);
+  const shown = `${p.prefix}${new Intl.NumberFormat("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(p.value)}${p.suffix}`;
+  const big = fit(env, textSpec(env, shown, 220 * u, 700, w * 0.9), 1, h * (label ? 0.6 : 0.85));
+  const under = label ? fit(env, textSpec(env, label, big.spec.size * 0.26, 500, w * 0.9), 2, h * 0.25) : undefined;
+  const lineH = (l: TextLine[]) => l.at(-1)!.bottom - l[0]!.top;
+  const gap = big.spec.size * 0.08;
+  const total = lineH(big.laid) + (under ? gap + lineH(under.laid) : 0);
+  const y0 = y + (h - total) / 2;
+  const count = textPart(env, big.spec, `${p.prefix}{n}${p.suffix}`, [w * 0.95, lineH(big.laid) * 1.3], [x + w / 2, y0 + lineH(big.laid) / 2], p);
+  (count.props.callout as Record<string, unknown>).count = { from: 0, to: p.value, seconds: Math.min(1.6, Math.max(0.4, (p.end - p.start) * 0.45)), decimals };
+  const t = count.props.transform as { scaleX: number; scaleY: number; opacity: number };
+  t.scaleX = t.scaleY = 0.85;
+  t.opacity = 0;
+  count.animations.push({ end: 0.3, duration: 0.3, easing: "easeOut", to: { "transform.opacity": 1 } });
+  count.animations.push({ end: IN, duration: IN, easing: "backOut", to: { "transform.scaleX": 1, "transform.scaleY": 1 } });
+  fadeOut(count, IN);
+  const parts = [count];
+  if (under) {
+    const part = textPart(env, under.spec, label, [w * 0.9, lineH(under.laid) * 1.3], [x + w / 2, y0 + lineH(big.laid) + gap + lineH(under.laid) / 2], p);
+    comeIn(part, IN * 0.6, 0, 20 * u);
+    parts.push(part);
+  }
+  return parts;
+}
+
+/** Items one under another, each with a dot, coming in after the one before. */
+function list(p: Piece, r: Rect, env: BuildEnv): Part[] {
+  const [x, y, w, h] = r;
+  const items = p.items.map((s) => s.trim()).filter(Boolean).slice(0, 5);
+  if (!items.length) return [];
+  const u = unit(r);
+  const textW = w * 0.8;
+  let size = 64 * u;
+  const heightAt = (s: number) => items.length * s * 1.6;
+  while (heightAt(size) > h * 0.9 && size > 8) size *= 0.9;
+  const fitted = items.map((it) => fit(env, textSpec(env, it, size, 500, textW, "left"), 1, size * 1.6));
+  size = Math.min(...fitted.map((f) => f.spec.size));
+  const row = size * 1.6;
+  const y0 = y + (h - items.length * row) / 2;
+  const dot = size * 0.32;
+  // The list is centred on its widest item, not on the text boxes (as wide as the area allows).
+  const widest = Math.max(...items.map((it) => Math.max(...env.layout(textSpec(env, it, size, 500, textW, "left")).map((l) => l.carets.at(-1)! - l.carets[0]!))));
+  const left = x + (w - widest - dot * 3) / 2;
+  const step = Math.min(0.3, Math.max(0.12, (p.end - p.start - IN - 0.5) / Math.max(1, items.length)));
+  return items.flatMap((it, i) => {
+    const cy = y0 + row * (i + 0.5);
+    const d = boxPart(env, [dot, dot], [left + dot / 2, cy], ACCENT, dot / 2, p);
+    comeIn(d, i * step, -24 * u, 0, "easeOut");
+    const spec = { ...fitted[i]!.spec, size };
+    const t = textPart(env, spec, it, [textW, row], [left + dot * 3 + textW / 2, cy], p);
+    comeIn(t, i * step + 0.06, -24 * u, 0, "easeOut");
+    return [d, t];
+  });
+}
+
+function text(p: Piece, r: Rect, env: BuildEnv): Part[] {
+  const [x, y, w, h] = r;
+  const u = unit(r);
+  const { spec, laid } = fit(env, textSpec(env, p.text, 72 * u, 600, w * 0.9), 2, h * 0.8);
+  const part = textPart(env, spec, p.text, [w * 0.9, (laid.at(-1)!.bottom - laid[0]!.top) * 1.3], [x + w / 2, y + h / 2], p);
+  comeIn(part, 0, 0, 24 * u);
+  return [part];
+}
+
+const BUILDERS: Record<Kind, (p: Piece, r: Rect, env: BuildEnv) => Part[]> = { title, lowerThird, number, list, text };
+
+/** A piece made usable: inside the clip, at least half a second long, with what its kind needs. */
+export function tidy(p: Piece, length: number): Piece | undefined {
+  const start = Math.min(Math.max(0, p.start), Math.max(0, length - 0.5));
+  const end = Math.min(length, Math.max(start + 0.5, p.end));
+  const piece = { ...p, start, end, text: p.text.trim(), detail: p.detail.trim() };
+  const needs = p.kind === "list" ? piece.items.some((s) => s.trim()) : p.kind === "number" ? Number.isFinite(p.value) : !!piece.text;
+  return needs && end - start >= 0.5 - 1e-6 ? piece : undefined;
+}
+
+/** A composition's pieces as parts, each on its own track (bottom → top), in the box. */
+export function build(pieces: Piece[], env: BuildEnv): Part[] {
+  return pieces.flatMap((raw) => {
+    const p = tidy(raw, env.length);
+    return p ? BUILDERS[p.kind](p, areaRect(p.area, env.width, env.height), env) : [];
+  });
 }

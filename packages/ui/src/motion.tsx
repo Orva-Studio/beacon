@@ -1,82 +1,126 @@
-import { useCallback, useState } from "react";
-import type { Host } from "./app";
-import { Button, Select, TextInput } from "./controls";
+import { useEffect, useMemo, useState } from "react";
+import type { Clip, Project, Session, Track } from "@beacon/model";
+import type { MotionProps, MotionState } from "@beacon/features";
+import { Button, Section, Segmented, Select, TextArea } from "./controls";
+import { useOnline } from "./online";
 import { useQuery } from "./query";
-import { replica, useView } from "./store";
+import { useView } from "./store";
+import type { Host } from "./app";
 
-/** A block as `motion.blocks` lists it: its fields as JSON Schema. */
-interface Block {
-  id: string;
-  title: string;
-  description: string;
-  seconds: number;
-  fields: { properties: Record<string, { description?: string; maxLength?: number }>; required?: string[] };
-}
+export const motionStateOf = (s: Session | undefined) => (s?.features.motion as MotionState | undefined) ?? { writing: [], making: [], errors: {} };
 
-const labelOf = (key: string) => key[0]!.toUpperCase() + key.slice(1);
+/** A motion graphics clip with nothing made yet: its box shows on the canvas, nothing in an export. */
+export const isEmptyMotion = (c: Clip) => c.type === "motion" && !(c.props.group as { tracks: Track[] } | undefined)?.tracks.length;
 
-/** Under the AI panel's tiles: a block and its fields, added at the playhead (or over the range) with `motion.add`. */
-export function MotionForm({ host }: { host: Host }) {
-  const open = useView((v) => !!v.motionForm);
-  const blocks = useQuery<Block[]>(host, open ? "motion.blocks" : "");
-  const [picked, pick] = useState<string>();
-  const [values, setValues] = useState<Record<string, string>>({});
-  // Below the tiles it can open out of sight: brought into view once, as it appears.
-  const shown = useCallback((el: HTMLDivElement | null) => el?.scrollIntoView({ block: "nearest" }), []);
-  if (!open || !blocks?.length) return null;
-  const block = blocks.find((b) => b.id === picked) ?? blocks[0]!;
-  const keys = Object.keys(block.fields.properties);
-  const required = block.fields.required ?? [];
-  const ready = required.every((k) => values[k]?.trim());
-  const close = () => {
-    setValues({});
-    replica.openMotion(false);
-  };
-  const add = () => {
-    if (!ready) return;
-    const fields = Object.fromEntries(keys.flatMap((k) => (values[k]?.trim() ? [[k, values[k]!.trim()]] : [])));
-    host.run("motion.add", { block: block.id, fields });
-    close();
-  };
+/** What a take shows, in a few words: its pieces' kinds and first words. */
+const takeName = (t: MotionProps["takes"][number]) =>
+  t.pieces.map((p) => (p.kind === "list" ? `List: ${p.items[0] ?? ""}` : p.kind === "number" ? `${p.prefix}${p.value}${p.suffix}` : p.text)).join(" + ").slice(0, 60);
+
+/**
+ * A motion graphics clip's tab: its prompt (written from the words under it, or typed), making it (or again), and the
+ * takes made, to pick one again.
+ */
+export function MotionTab({ clip, session, host }: { clip: Clip; project: Project; session: Session; host: Host }) {
+  const m = clip.props.motion as MotionProps;
+  const state = motionStateOf(session);
+  const writing = state.writing.includes(clip.id);
+  const making = state.making.includes(clip.id);
+  const busy = writing || making;
+  const error = state.errors[clip.id];
+  const [manual, setManual] = useState(m.manual);
+  useEffect(() => setManual(m.manual), [m.manual]);
+  const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
+  const online = useOnline();
+  const needsNet = planner === "openai" && !online;
+  const offline = "Needs the internet: you're offline (OpenAI is the planner)";
+  const settingsOpen = useView((v) => !!v.settings);
+  const auto = m.source === "auto";
+  const set = (fields: Partial<MotionProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { motion: fields } }, label);
+  const transcribing = useView((v) => Object.keys(v.transcribing).join());
+  const again = useMemo(() => ({}), [clip.start, clip.duration, transcribing]);
+  const said = useQuery<string>(host, "broll.words", { clip: clip.id }, again);
+  const prompted = !!(auto ? m.prompt : manual).trim() || !!said;
   return (
-    <div className="mt-3 rounded-md bg-groove px-3 py-3 text-label text-text" ref={shown} data-motion-form>
-      <Select className="mb-2 w-full" value={block.id} onChange={(e) => pick(e.target.value)} data-motion-block>
-        {blocks.map((b) => (
-          <option key={b.id} value={b.id}>
-            {b.title}
-          </option>
-        ))}
-      </Select>
-      <div className="mb-3 text-caption text-text-faint">{block.description}</div>
-      {keys.map((k, i) => (
-        <label key={k} className="mb-2 block">
-          <span className="mb-1 block text-text-muted">
-            {labelOf(k)}
-            {required.includes(k) ? "" : " (optional)"}
-          </span>
-          <TextInput
-            className="w-full"
-            autoFocus={i === 0}
-            value={values[k] ?? ""}
-            placeholder={block.fields.properties[k]!.description}
-            maxLength={block.fields.properties[k]!.maxLength}
-            data-motion-field={k}
-            onChange={(e) => setValues({ ...values, [k]: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") add();
-              if (e.key === "Escape") close();
+    <Section>
+      <div className="flex flex-col gap-3 py-1" data-motion-tab>
+        <div className={`flex flex-col gap-1 ${writing ? "opacity-50" : ""}`}>
+          <span className="text-label font-medium text-text-muted">Prompt</span>
+          <Segmented
+            value={m.source}
+            options={[
+              { value: "auto", label: "Auto", icon: null },
+              { value: "manual", label: "Manual", icon: null },
+            ]}
+            onChange={(source) => {
+              if (source === m.source || writing) return;
+              set(source === "manual" && !m.manual ? { source, manual: m.prompt || said || "" } : { source }, source === "manual" ? "Motion Graphics Prompt: Manual" : "Motion Graphics Prompt: Auto");
+              if (source === "auto" && !m.prompt) host.run("motion.write", { clip: clip.id });
             }}
+            data-motion-source
           />
-        </label>
-      ))}
-      <div className="mt-3 flex justify-end gap-2">
-        <Button look="quiet" onClick={close}>
-          Cancel
+        </div>
+        {auto ? (
+          <div className="flex flex-col gap-1">
+            <div className={`rounded-md bg-groove px-3 py-2 text-caption ${m.prompt ? "text-text" : "text-text-faint"}`} data-motion-prompt>
+              {writing ? "Writing the prompt…" : m.prompt || "Written from the words under the clip"}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button disabled={busy || needsNet} title={needsNet ? offline : undefined} onClick={() => host.run("motion.write", { clip: clip.id })} data-motion-write>
+                {writing ? "Writing…" : m.prompt ? "Write Again" : "Write the Prompt"}
+              </Button>
+              <Button look="quiet" disabled={!m.prompt || writing} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: m.prompt }, "Copy Motion Graphics Prompt to Manual")}>
+                Copy to Manual
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <TextArea
+              rows={4}
+              placeholder={said || 'Describe it: "a title: Ship faster", "Sarah Chen, head of design", "87% counting up, revenue growth"'}
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
+              onBlur={() => manual !== m.manual && set({ manual }, "Motion Graphics Prompt")}
+              data-motion-prompt
+            />
+            <span className="text-caption text-text-faint">A title, a name and role, a number, a list, or a line of text, with the words to show.</span>
+          </label>
+        )}
+        {m.takes.length > 1 && (
+          <label className="flex flex-col gap-1">
+            <span className="text-label font-medium text-text-muted">Take</span>
+            <Select value={String(m.shown)} onChange={(e) => host.run("motion.use", { clip: clip.id, take: Number(e.target.value) }, "Pick Motion Graphics Take")} data-motion-pick>
+              {m.takes.map((t, i) => (
+                <option key={i} value={i}>
+                  {i + 1}. {takeName(t)}
+                </option>
+              ))}
+            </Select>
+          </label>
+        )}
+        {error && (
+          <div className="flex flex-col items-start gap-2 text-danger" data-motion-error>
+            {error}
+            {/API key|Apple Intelligence/.test(error) && !settingsOpen && <Button onClick={() => host.app("app.settings:ai")}>Open Settings…</Button>}
+          </div>
+        )}
+        <Button
+          look="primary"
+          disabled={!prompted || busy || needsNet}
+          title={needsNet ? offline : undefined}
+          // The prompt being typed is kept as the box loses focus, before this click: it's the one made.
+          onClick={() => host.run("motion.make", { clip: clip.id })}
+          data-motion-make
+        >
+          {making ? "Making…" : m.takes.length ? "Make Again" : "Make"}
         </Button>
-        <Button disabled={!ready} onClick={add} data-motion-add>
-          Apply
-        </Button>
+        <span className="text-caption text-text-faint">
+          {planner === "openai"
+            ? "Composed by OpenAI (your key): it can mix a few pieces, timed to the words."
+            : "Made by Apple's model on this Mac: one piece over the whole clip. OpenAI (Settings › AI) can mix a few, timed to the words."}{" "}
+          Double-click the clip to open it and edit a word.
+        </span>
       </div>
-    </div>
+    </Section>
   );
 }

@@ -2282,8 +2282,39 @@ clips.
   from, and it opens like a group to edit a word. The form under the tiles
   goes.
 - **Progress (2026-10-26):** easings (`4409d19`, checked by hand), the counter
-  (`919c0fb`), the `motion` feature with Title (`motion.add`, `motion.fill`,
-  `motion.blocks`). Next: Lower third, Number, List.
+  (`919c0fb`); then, as B-roll: the `motion` clip type (a group with a prompt),
+  `motion.add`, `motion.write` (Auto's prompt), `motion.make` (composed),
+  `motion.use` (a take built in the box), `motion.kinds`; the kinds Title,
+  Lower third, Number, List and Text, each in a part of the box (full, thirds,
+  halves). **Apple's on-device model picks one piece** over the whole clip and
+  box (asked to compose several, it mixed kinds that didn't fit and timed them
+  to single words); **OpenAI mixes up to three**, timed to the words. Planner:
+  Settings › AI's B-roll planner. Not yet: a real OpenAI run (paid, the user's
+  go-ahead), art for the tile (it borrows Text's).
+
+**Motion graphics: Looks, backgrounds and icons (the user, 2026-10-26).**
+What made HyperFrames' graphics look good is design held to throughout (type,
+palette, shadow, motion), not more kinds; Beacon had the effects (any installed
+font, drop shadow with colour, motion blur) but the pieces used none of them.
+- **Looks**, like B-roll's Styles: a heading and a body font, the text, accent
+  and card colours, a shadow (colour, blur, offset) or none, and motion (how
+  pieces come in: rise, slide, scale or wipe; easing; speed; motion blur).
+  Built in: Clean, Bold, Editorial, Tech, Minimal; the user's own later in
+  Settings › AI. **Per project, with a per-clip override** (the user's go,
+  2026-10-26): the project's Look is used by every motion graphic that hasn't
+  its own. Changing it rebuilds them. The user picks it, not the AI (Apple's
+  model can't design): the composer lays pieces out in it.
+- **Backgrounds** behind a graphic, per clip: None, Dim (the talk darkened in
+  the box), Card (a rounded card in the Look's card colour). A blurred talk
+  needs a backdrop blur the renderer doesn't have: later, as are gradients.
+- **Icons from icons.computer** (the user, 2026-10-26): app icons (3,062, PNG),
+  searched through Firecrawl's Alexandria (`icons-computer/icons/search`, 5
+  credits a search, on the user's Firecrawl key in Settings › AI). A piece can
+  carry an app's icon (beside a lower third's name, a list item, a title); the
+  PNG is kept in the project's media. Its rights notice: icons belong to their
+  owners, no licence granted; Beacon says so where an icon is picked.
+- Order: Looks (built in, project + clip) → backgrounds → icons → the user's
+  own Looks in Settings → letter-by-letter, blur-in, gradients.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
