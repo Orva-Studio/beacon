@@ -9,6 +9,7 @@ import {
   TRACK_HEIGHT,
   trackName,
   trimBounds,
+  mediaBounds,
   type Clip,
   type Track,
   type Project,
@@ -640,6 +641,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             // Edges stop at the clips beside them, as the command does; Shift (ripple) pushes them instead.
             if (!e.shiftKey) {
               const [lo, hi] = trimBounds(track, clip);
+              t = Math.min(Math.max(t, ticksToSeconds(lo)), ticksToSeconds(hi));
+            }
+            // Nor past where its media begins or ends, as the command stops them; ⌥ on video extends a frame there instead.
+            if (!(video && e.altKey)) {
+              const [lo, hi] = mediaBounds(project, clip, clipTypes[clip.type]?.includes("hold") ?? false);
               t = Math.min(Math.max(t, ticksToSeconds(lo)), ticksToSeconds(hi));
             }
             const frame = 1 / rationalToNumber(project.settings.fps);

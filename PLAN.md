@@ -2881,6 +2881,27 @@ HyperFrames' renders as the single graphics were.
 
 ## 16. Backlog (ideas parked, not scheduled)
 
+### New video models found and added by themselves (the user, 2026-10-26; later)
+Kling 4.0 came out but isn't on Replicate yet (checked 2026-10-26: Replicate's
+Kling goes up to 3.0; Kling's own API isn't open; WaveSpeed and Atlas Cloud
+have it at $0.157 / $0.235 a second), so B-roll can't offer it. Instead of
+checking by hand:
+- **A scheduled check** (a CI job or a cloud agent, daily or weekly) searches
+  Replicate's API (`/v1/search`, the text-to-video collection, the owners
+  Beacon already uses: google, bytedance, kwaivgi, black-forest-labs) for
+  text-to-video models not in `VIDEO_MODELS`, and for new versions of those
+  that are.
+- For each, it reads the model's schema (durations, aspects, resolutions,
+  the input names) and its price, makes a test generation within a set
+  budget, and opens a PR adding it to `broll/models.ts` with the clip and
+  the cost.
+- Merged and green, it **cuts a new release** (version bump, notes, the
+  usual build), so the app offers the model without anyone noticing first.
+  Whether a model is added without the user's look is theirs to decide; by
+  default the PR waits for their go.
+- The same for motion graphics' and B-roll planners' text models (a newer
+  GPT or Claude), and for prices that change.
+
 ### Film Look: looks as favourites (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own
   (Custom in the Look menu) saved under a name, starred into Favorites like

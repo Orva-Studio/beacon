@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   editedValue,
   apply,
+  invert,
   compose,
   fromAffine,
   mediaTimeAt,
@@ -320,7 +321,8 @@ export function CanvasOverlay({
             } : undefined
           );
         })();
-  const text = useTextEdit(target, typedM, () => setTyping(null));
+  const typedAt = useRef<[number, number]>(undefined);
+  const text = useTextEdit(target, typedM, () => setTyping(null), typedAt);
   /** A point in the typed text's box units, if inside its box. */
   const inTyped = (pt: [number, number]): [number, number] | undefined => (typed && typedM && inside(pt, typed.corners) ? apply(invert(typedM), ...pt) : undefined);
 
@@ -447,6 +449,7 @@ export function CanvasOverlay({
         // A callout's or a caption's text is typed in place after a double-click.
         if (hit && e.detail === 2 && (isCaption(hit) || (hit.clip.props.callout as { text?: unknown } | undefined)?.text)) {
           host.run("inspector.tab", { tab: isCaption(hit) ? "caption" : "callout" });
+          typedAt.current = pt;
           setTyping(hit.clip.id);
           return;
         }
@@ -639,8 +642,4 @@ function Grips({ p, onHot, crop, caption }: { p: Placed; onHot: (on: boolean) =>
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-function invert(m: Affine): Affine {
-  const [a, b, c, d, e, f] = m;
-  const det = a * d - b * c;
-  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
-}
+

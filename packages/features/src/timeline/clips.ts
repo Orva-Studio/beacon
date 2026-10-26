@@ -16,7 +16,7 @@ import {
   pasteBase,
   planMove,
   trimBounds,
-  secondsToTicks,
+  mediaBounds,
   shiftIn as moveInPoint,
   snapSeconds,
   ticksPerFrame,
@@ -38,7 +38,6 @@ import {
   IdSchema as Id,
   SecondsSchema as Seconds,
 } from "@beacon/model";
-import { clipStream, mediaInfo, streamOf } from "../media";
 
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
 
@@ -62,28 +61,6 @@ const holds = (registry: FeatureRegistry, clip: Clip) => registry.hasTrait(clip.
 function shiftIn(clip: Clip, delta: Ticks, registry: FeatureRegistry) {
   moveInPoint(clip, delta, holds(registry, clip));
   if (clip.assetId && (clip.mediaStart ?? 0) < 0) throw new Error(`clip "${clip.id}" would start before its media`);
-}
-
-/** Furthest timeline time a clip's end can reach before its media runs out; unbounded for stills, images and groups. */
-function latestEnd(doc: Project, clip: Clip, registry: FeatureRegistry): Ticks {
-  const asset = clip.assetId ? doc.assets[clip.assetId] : undefined;
-  if (!asset?.derived.media || asset.kind === "image" || holds(registry, clip)) return Infinity;
-  const stream = (() => {
-    try {
-      return streamOf(asset, clip.type === "audio" ? "audio" : "video", clipStream(clip));
-    } catch {
-      return undefined;
-    }
-  })();
-  if (!stream) return Infinity;
-  const length = secondsToTicks(stream.duration || mediaInfo(asset).duration);
-  return clip.start + Math.floor((length - (clip.mediaStart ?? 0)) / clipSpeed(clip));
-}
-
-/** Earliest timeline time a clip's start can reach before its media begins. */
-function earliestStart(clip: Clip, registry: FeatureRegistry): Ticks {
-  if (!clip.assetId || holds(registry, clip)) return -Infinity;
-  return clip.start - Math.floor((clip.mediaStart ?? 0) / clipSpeed(clip));
 }
 
 /** A deep copy under a new id; clips nested in it (a group's, a stitched clip's pieces) get new ids too, as ids are unique across the document. */
@@ -277,7 +254,7 @@ export const clipCommands = [
         // Edges stop at the clips beside them; a ripple trim moves them instead.
         const [lo, hi] = ripple ? [-Infinity, Infinity] : trimBounds(track, c);
         if (s !== undefined) {
-          const to = Math.max(s, earliestStart(c, ctx.registry), lo);
+          const to = Math.max(s, mediaBounds(doc, c, holds(ctx.registry, c))[0], lo);
           shiftIn(c, to - c.start, ctx.registry);
           if (ripple) {
             c.start = oldStart;
@@ -285,7 +262,7 @@ export const clipCommands = [
           }
         }
         if (e !== undefined) {
-          c.duration = Math.min(e, latestEnd(doc, c, ctx.registry), hi) - c.start;
+          c.duration = Math.min(e, mediaBounds(doc, c, holds(ctx.registry, c))[1], hi) - c.start;
           if (ripple) shiftLater(track, oldEnd, clipEnd(c) - oldEnd, c);
         }
         if (c.duration <= 0) throw new Error(`clip "${c.id}" would be empty`);
@@ -304,7 +281,7 @@ export const clipCommands = [
       Object.assign(a, { path, fingerprint, derived });
       const uses = [...walkClips(doc.tracks, ctx.registry)].filter((l) => l.clip.assetId === asset);
       for (const { clip, track } of uses) {
-        const end = latestEnd(doc, clip, ctx.registry);
+        const end = mediaBounds(doc, clip, holds(ctx.registry, clip))[1];
         if (end <= clip.start) track.clips.splice(track.clips.indexOf(clip), 1);
         else if (clipEnd(clip) > end) clip.duration = end - clip.start;
       }

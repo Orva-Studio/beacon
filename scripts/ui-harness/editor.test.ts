@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { assetName, EASINGS, ease, evaluate, keysLabel, projectDuration, secondsToTicks, ticksToSeconds, type Clip, type SourceDef } from "@beacon/model";
+import { assetName, EASINGS, ease, evaluate, keysLabel, mediaBounds, projectDuration, secondsToTicks, ticksToSeconds, trimBounds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
@@ -344,6 +344,21 @@ test.skipIf(skip)("a double-click on a text callout types into it on the canvas,
   expect((clip(callout.id).props.callout as { text: { text: string } }).text.text).toBe("Hello");
   await page.until(`[...document.querySelectorAll('svg line')].some(l => l.getAttribute('stroke-width') === '1.5')`, 3000);
   await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("a double-click on a word of a text callout starts typing with that word selected, not all of the text", async () => {
+  await select([callout.id]);
+  const spec = (clip(callout.id).props.callout as { text: Record<string, unknown> }).text;
+  await run("clip.set", { clip: callout.id, props: { callout: { text: { ...spec, text: "one two three" } } } });
+  // Inside the text box's right edge, clear of its handles: past the last word, so the nearest word is "three".
+  const [x, y] = await page.evaluate<[number, number]>(`(() => { const g = [...document.querySelectorAll('[data-clip]')].map(e => e.getBoundingClientRect()); const xs = g.map(r => r.x + r.width / 2), ys = g.map(r => r.y + r.height / 2); return [Math.max(...xs) - 24, (Math.min(...ys) + Math.max(...ys)) / 2]; })()`);
+  await page.evaluate(`(() => { const el = document.elementFromPoint(${x}, ${y}); for (const t of ['pointerdown','mousedown']) el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: ${x}, clientY: ${y}, button: 0, detail: 2, pointerId: 1 })); })()`);
+  await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
+  await page.until(`(() => { const f = document.activeElement; return f.selectionEnd - f.selectionStart === 5 && f.value.slice(f.selectionStart, f.selectionEnd) === 'three'; })()`, 3000);
+  await page.evaluate("document.execCommand('insertText', false, 'four')");
+  await arrived(() => (clip(callout.id).props.callout as { text: { text: string } }).text.text === "one two four");
+  await page.key("Escape", "Escape");
+  await run("clip.set", { clip: callout.id, props: { callout: { text: spec } } });
 });
 
 test.skipIf(skip)("the Y dial tilts a clip in perspective and its outline follows", async () => {
@@ -2448,6 +2463,45 @@ test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being drag
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("a clip's edge dragged past where its media ends stops there while dragging, not only once dropped", async () => {
+  await select([]);
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  const doc = ui.core.doc(ui.handle);
+  const c = doc.tracks.flatMap((t) => t.clips).find((k) => k.id === screen.id)!;
+  const track = doc.tracks.find((t) => t.clips.includes(c))!;
+  const end = ticksToSeconds(c.start + c.duration);
+  const media = ticksToSeconds(mediaBounds(doc, c, false)[1]);
+  expect(media).toBeLessThanOrEqual(ticksToSeconds(trimBounds(track, c)[1]));
+  // Shortened first, so there is media left past its end to drag over, then past it.
+  await run("clip.trim", { clip: c.id, end: end - 4 });
+  const short = end - 4;
+  await run("timeline.view", { start: Math.max(0, media - 10), end: media + 4 });
+  await Bun.sleep(1800);
+  const s = await session();
+  const header = headerWidth(doc.tracks);
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const row = doc.tracks.length - 1 - doc.tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
+  const xAt = (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const top = clipBox(row, s.timeline.trackHeight).y;
+  const yellow = async (right: number) => {
+    const [r, g, b] = await page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${right - 6 - 17} * k), Math.round(${top + 4 + 3} * k), 1, 1).data]; })()`);
+    return r! > 200 && g! > 160 && b! < 120;
+  };
+  const y = box.y + top + s.timeline.trackHeight / 2;
+  await page.down(box.x + xAt(short) - 2, y);
+  await page.move(box.x + xAt(short + 1), y);
+  await page.move(box.x + xAt(media + 2.5), y);
+  await Bun.sleep(200);
+  // The badge rides the edge: at the media's end, not where the pointer is.
+  expect([await yellow(xAt(media)), await yellow(xAt(media + 2.5))]).toEqual([true, false]);
+  await page.up(box.x + xAt(media + 2.5), y);
+  await arrived(() => Math.abs(ticksToSeconds(clip(screen.id).start + clip(screen.id).duration) - media) < 0.05);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an easing picked on an animation is the one new animations take, until another is picked", async () => {
   await select([screen.id]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
@@ -3631,6 +3685,8 @@ test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snappi
   await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
   const times = words().map((w) => w.start);
   const typed = ["Edited", ...words().slice(1).map((w) => w.text)].join(" ");
+  // The double-click picked the word under it: all of the line, as ⌘A does, then typed over.
+  await page.evaluate("document.execCommand('selectAll')");
   await page.evaluate(`document.execCommand('insertText', false, ${JSON.stringify(typed)})`);
   await arrived(() => words()[0]!.text === "Edited");
   expect(words().map((w) => w.start)).toEqual(times);
