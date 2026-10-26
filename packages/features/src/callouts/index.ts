@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineFeature, defineQuery, IDENTITY, RgbaSchema, solidLayer, walkClips, ticksToSeconds, type CamtasiaObject, type ClipEval, type EvalContext, type RGBA, type VisualLayer } from "@beacon/model";
+import { defineFeature, defineQuery, ease, IDENTITY, RgbaSchema, solidLayer, walkClips, ticksToSeconds, type CamtasiaObject, type ClipEval, type EvalContext, type RGBA, type VisualLayer } from "@beacon/model";
 import { fontFamilies, textLayout } from "@beacon/media";
 import { flattenPath, trimLines } from "./svg-path";
 
@@ -33,6 +33,15 @@ const calloutSchema = z.strictObject({
       viewBox: z.tuple([z.number(), z.number()]),
       /** Seconds to draw the stroke from the clip's start. */
       drawTime: z.number().nonnegative(),
+    })
+    .optional(),
+  /** A counter: `{n}` in the text (else the whole text) counts from `from` to `to` over `seconds` from the clip's start, easing out. */
+  count: z
+    .strictObject({
+      from: z.number(),
+      to: z.number(),
+      seconds: z.number().nonnegative(),
+      decimals: z.number().int().min(0).max(4),
     })
     .optional(),
 });
@@ -113,14 +122,24 @@ function evaluateCallout(e: ClipEval, ctx: EvalContext) {
     return;
   }
   if (!c.text) return;
+  const text = c.count ? countText(c.text.text, c.count, ticksToSeconds(e.time - e.clip.start)) : c.text.text;
   const main: VisualLayer = {
     kind: "visual",
-    content: { type: "source", source: ctx.source({ kind: "text", ...c.text, width: c.width, height: c.height, scale: rasterScale(e) }) },
+    content: { type: "source", source: ctx.source({ kind: "text", ...c.text, text, width: c.width, height: c.height, scale: rasterScale(e) }) },
     size,
     transform: IDENTITY,
   };
   e.layers.push(main);
   e.main = main;
+}
+
+/** A counter's text at `since` seconds into its clip, with thousands separators. */
+export function countText(text: string, count: NonNullable<Callout["count"]>, since: number): string {
+  const k = count.seconds > 0 ? ease("easeOut", since / count.seconds) : 1;
+  const n = new Intl.NumberFormat("en-US", { minimumFractionDigits: count.decimals, maximumFractionDigits: count.decimals }).format(
+    count.from + (count.to - count.from) * k,
+  );
+  return text.includes("{n}") ? text.replaceAll("{n}", n) : n;
 }
 
 /** `.cmproj` def values are plain or `{ defaultValue }`. */

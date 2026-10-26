@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { assetName, EASINGS, ease, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
+import { assetName, EASINGS, ease, evaluate, keysLabel, projectDuration, secondsToTicks, ticksToSeconds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
@@ -98,6 +98,30 @@ test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays
   await page.key("ArrowUp", "ArrowUp");
   expect(await page.evaluate<string>("document.activeElement.value")).toBe("100");
   await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("a counting text callout shows its number counting from From to To, edited in its Count rows", async () => {
+  await select([callout.id]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const text = (clip(callout.id).props.callout as { text: Record<string, unknown> }).text;
+  await run("clip.set", { clips: [callout.id], props: { callout: { text: { ...text, text: "${n}M" }, count: { from: 0, to: 1000, seconds: 2, decimals: 0 } } } });
+  await run("inspector.tab", { tab: "callout" });
+  await page.until("[...document.querySelectorAll('span')].some(s => s.textContent === 'Decimals')");
+  await page.evaluate(`[...document.querySelectorAll('span')].find(s => s.textContent === 'To').parentElement.querySelector('span.cursor-text').click()`);
+  await page.until("document.activeElement?.tagName === 'INPUT'");
+  await type("2500");
+  await page.key("Enter", "Enter");
+  await arrived(() => (clip(callout.id).props.callout as { count: { to: number } }).count.to === 2500);
+  expect((clip(callout.id).props.callout as { count: { to: number } }).count.to).toBe(2500);
+  const shown = (seconds: number) => {
+    const sources = new Map<string, SourceDef>();
+    evaluate(ui.core.doc(ui.handle), ui.core.registry, clip(callout.id).start + secondsToTicks(seconds), { sources });
+    return [...sources.values()].flatMap((d) => (d.kind === "text" ? [d.text] : []));
+  };
+  expect(shown(0)).toContain("$0M");
+  expect(shown(1).some((t) => /^\$[\d,]+M$/.test(t) && t !== "$0M" && t !== "$2,500M")).toBe(true);
+  expect(shown(3)).toContain("$2,500M");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
 });
 
 test.skipIf(skip)("the colour picker sets a colour from a preset and from its square, one undo step a drag", async () => {
@@ -2327,7 +2351,7 @@ test.skipIf(skip)("an easing picked on an animation is the one new animations ta
   expect((await ui.core.preferences()).find((p) => p.id === "animationEasing")?.value).toBe("linear");
   await pick("easeInOut");
   expect((await added(8)).easing).toBe("easeInOut");
-  expect(await page.evaluate("[...document.querySelector('[data-animation-easing]').options].map((o) => o.value).join()")).toBe(EASINGS.map((e) => e.id).join());
+  expect(await page.evaluate<string>("[...document.querySelector('[data-animation-easing]').options].map((o) => o.value).join()")).toBe(EASINGS.map((e) => e.id).join());
   await pick("backOut");
   const back = await added(11);
   expect(back.easing).toBe("backOut");

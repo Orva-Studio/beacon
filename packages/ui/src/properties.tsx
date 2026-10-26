@@ -263,7 +263,8 @@ function FontRows({ font, weight, installed, set, label }: { font: string; weigh
   );
 }
 
-type CalloutProp = { shape: string; cornerRadius: number; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
+type Count = { from: number; to: number; seconds: number; decimals: number };
+type CalloutProp = { shape: string; cornerRadius: number; count?: Count; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
 
 /** Annotation properties, what the user changes: text, font, size, colour; a shape's fill, outline and corners. */
 function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host }) {
@@ -303,6 +304,7 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
           </Row>
         </Section>
       )}
+      {c.count && <CountRows count={c.count} set={(fields, label) => edit("callout", { count: { ...c.count!, ...fields } }, label)} />}
       {c.shape !== "text" && (
         <Section>
           <ColorRow label="Fill" color={c.fill} onChange={(fill, key) => edit("callout", { fill }, "Fill", key)} />
@@ -312,6 +314,31 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
         </Section>
       )}
     </>
+  );
+}
+
+/** A counter's numbers: `{n}` in the text counts from From to To over Seconds. */
+function CountRows({ count, set }: { count: Count; set: (fields: Partial<Count>, label: string) => void }) {
+  return (
+    <Section>
+      <div className="mb-3 font-semibold text-text-strong">Count</div>
+      <Row label="From" title="The number shown as the clip starts">
+        <div className="flex-1" />
+        <NumberBox value={count.from} digits={count.decimals} onCommit={(from) => set({ from }, "Count From")} />
+      </Row>
+      <Row label="To" title="The number it counts up (or down) to">
+        <div className="flex-1" />
+        <NumberBox value={count.to} digits={count.decimals} onCommit={(to) => set({ to }, "Count To")} />
+      </Row>
+      <Row label="Seconds" title="How long it takes, from the clip's start">
+        <div className="flex-1" />
+        <NumberBox value={count.seconds} unit=" s" digits={2} min={0} onCommit={(seconds) => set({ seconds: Math.max(0, seconds) }, "Count Length")} />
+      </Row>
+      <Row label="Decimals">
+        <div className="flex-1" />
+        <NumberBox value={count.decimals} digits={0} min={0} max={4} onCommit={(v) => set({ decimals: Math.round(Math.min(4, Math.max(0, v))) }, "Count Decimals")} />
+      </Row>
+    </Section>
   );
 }
 
