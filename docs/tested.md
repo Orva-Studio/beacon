@@ -7,12 +7,17 @@ feature lands and when it is checked.
 
 ## Phase 11: motion graphics (`phase-11-motion-graphics`)
 
+### Checked by hand
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Three more easings on an animation: Ease out, Ease in and Overshoot (goes past its target, then settles), in the easing menu, Settings' Animation easing and MCP; the one picked is the one new animations take | 2026-10-26 | `4409d19` | the user, in the app; UI flow (`an easing picked on an animation…`) |
+
 ### Checked headless only (still to see by hand)
 
 | What | Date | Commit | How |
 |---|---|---|---|
 | A counting text callout (`callout.count`): `{n}` in its text (else the whole text) counts From → To over Seconds from the clip's start, easing out, with thousands separators; Count rows in Annotation Properties | 2026-10-26 | this branch | UI flow (`a counting text callout…`), the scene's text checked at 0, 1 and 3 s |
-| Three more easings on an animation: Ease out, Ease in and Overshoot (goes past its target, then settles), in the easing menu, Settings' Animation easing and MCP; the one picked is the one new animations take | 2026-10-26 | this branch | UI flow (`an easing picked on an animation…`) |
 
 ## B-roll thumbnails, Copy to Manual, Style while making (`fix/broll-thumbnails`)
 
