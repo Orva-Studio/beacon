@@ -2238,6 +2238,39 @@ Later: an empty prompt shows the words said under the clip and, left empty,
 Generate uses them (the user, 2026-10-24), so a first try needs no OpenAI key.
 Animation (HyperFrames) next.
 
+**Motion graphics: Beacon's own, learning from HyperFrames (the user,
+2026-10-26; branch `phase-11-motion-graphics`).** HyperFrames (HeyGen, Apache
+2.0) renders HTML in headless Chrome; Beacon doesn't embed it (no Chrome, no
+render step, nothing opaque). It borrows the ideas: a catalog of blocks with
+fields to fill, text animated word by word with a stagger, wipes and
+draw-ons, counters, good easing curves, and later brand tokens (their
+`frame.md`). Drawn live by the wgpu renderer, so a graphic scrubs, exports
+as previewed and stays sharp. This is a deliberate exception to "no library
+of preset animations" (§1): blocks are presets that expand into ordinary
+clips.
+- **A block is a group (the user, 2026-10-26).** Adding one places a plain
+  group of callouts with animation blocks, one undo step; afterwards it is
+  edited as any group (no fields to re-fill).
+- **First blocks (the user, 2026-10-26):** Title, Lower third, Number, List.
+- **The planner picks and fills (the user, 2026-10-26):** as B-roll's Auto,
+  it reads the words under the range (or around the playhead) and picks the
+  block and its fields (Apple's on-device model by default, OpenAI the other
+  choice); fields can be typed instead.
+- **What is already there:** callouts (text, rectangle, sketch draw-on),
+  animation blocks on transform (position, scale, rotation, opacity) and crop
+  (a wipe is an animated crop), groups.
+- **What is new:** (1) easings beyond linear and ease in/out: ease out, ease
+  in, and an overshoot (back out), in the schema, the easing menu and MCP;
+  (2) a counter: a text callout whose number counts from one value to another
+  over a span; (3) word-by-word text: a block lays its text out with
+  `textLayout` and places one callout per word, each with its own delay
+  (no renderer change); (4) the `motion` feature: the catalog, `motion.blocks`,
+  `motion.add` (block, fields, at, length), `motion.plan` (words → block and
+  fields), and an AI panel tile.
+- **Order:** easings, counter, the catalog with Title, then Lower third,
+  Number, List, then the planner and the tile; a UI flow and `tested.md`
+  for each.
+
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
