@@ -3,12 +3,6 @@ import type { Piece } from "./blocks";
 import type { Look } from "./looks";
 import gsap from "./vendor/gsap.min.js" with { type: "text" };
 
-/** Behind a graphic in its box: nothing, the whole box filled, or a rounded card; in any colour and opacity. */
-export interface Backdrop {
-  kind: "none" | "full" | "card";
-  color: RGBA;
-}
-
 export type Timing = "speech" | "together";
 
 export interface PageEnv {
@@ -19,11 +13,10 @@ export interface PageEnv {
   look: Look;
   /** The Text annotation's font: a Look's when it names none. */
   fallbackFont: string;
-  backdrop: Backdrop;
   timing: Timing;
 }
 
-const css = (c: RGBA, alpha = c[3]) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${+alpha.toFixed(3)})`;
+export const css = (c: RGBA, alpha = c[3]) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${+alpha.toFixed(3)})`;
 const font = (f: string, fallback: string) => `"${(f || fallback).replace(/"/g, "")}", "${fallback.replace(/"/g, "")}", "Helvetica Neue", sans-serif`;
 const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
@@ -64,19 +57,21 @@ Optional helpers Beacon animates in the Look's entrance:
 - .in: any element that comes in at data-t="<seconds>" (a card, a bar, a line not said aloud). An .in without data-t holding .w words comes in with its first word, so a card never shows empty.
 - .count: a number counting from data-from to data-to over data-for seconds from data-t (data-decimals, data-prefix, data-suffix); leave it empty.
 Everything fades out at the clip's end by itself.
+Background: unless the brief asks for alpha (transparent, no background, over the video), fill the whole box with a background you choose for this graphic (a colour, a gradient, soft light), coming in with a short fade; it covers the video. Asked for alpha, leave the page transparent so the video shows, and keep text readable over video (a card, a shadow).
 Size cards and bars to their content (width: fit-content, inline-flex), not stretched across the box. Lay out in px within the box, text large enough to read on a phone and inside the box with a margin.`;
 
-/** The whole page a composition is drawn in: the Look as CSS variables, the backdrop, Beacon's helpers and its seekable runtime. */
+/** Whether a brief asks for the video to show through: else a graphic has a background of its own. */
+export const wantsAlpha = (brief: string) => /\b(alpha|transparent|transparency|see-through|no background|without (a )?background|over the (video|footage|speaker|talk))\b/i.test(brief);
+
+/** A background filling the box, fading in as the clip starts: a template's when its brief doesn't ask for alpha. */
+export const fill = (background: string) => `<div data-beacon-fill style="position: absolute; inset: 0; background: ${background}; animation: fade 0.3s ease-out both;"></div>`;
+
+/** The whole page a composition is drawn in: the Look as CSS variables, Beacon's helpers and its seekable runtime. */
 export function page(body: string, env: PageEnv): string {
   const { look } = env;
   const k = env.height / 1080;
   const s = look.shadow;
   const shadow = s ? `${(Math.cos(s.angle) * s.offset * k).toFixed(1)}px ${(-Math.sin(s.angle) * s.offset * k).toFixed(1)}px ${(s.blur * k).toFixed(1)}px ${css(s.color, s.opacity)}` : "none";
-  const inset = Math.min(env.width, env.height) * 0.05;
-  const backdrop =
-    env.backdrop.kind === "none"
-      ? ""
-      : `#beacon-backdrop { position: absolute; ${env.backdrop.kind === "card" ? `inset: ${inset}px; border-radius: ${inset * 0.6}px;` : "inset: 0;"} background: ${css(env.backdrop.color)}; animation: fade 0.3s ease-out both; }`;
   const d = (0.6 / look.speed).toFixed(3);
   // Only pages that use it carry it: 70 KB.
   const animator = /\bgsap\b/.test(body)
@@ -91,14 +86,13 @@ export function page(body: string, env: PageEnv): string {
 html, body { margin: 0; width: ${Math.round(env.width)}px; height: ${Math.round(env.height)}px; overflow: hidden; background: transparent; }
 body { position: relative; font-family: var(--body); font-weight: var(--body-weight); color: var(--text); -webkit-font-smoothing: antialiased; }
 #beacon-stage { position: absolute; inset: 0; animation: out 0.35s ease-in both; animation-delay: ${Math.max(0, env.length - 0.35).toFixed(3)}s; }
-${backdrop}
 .w, .in { display: inline-block; animation: come var(--come) var(--ease) both; }
 ${keyframes(look)}
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes out { from { opacity: 1; } to { opacity: 0; } }
 </style>
 ${animator}</head>
-<body><div id="beacon-stage">${backdrop ? '<div id="beacon-backdrop"></div>' : ""}
+<body><div id="beacon-stage">
 ${body}
 </div>
 <script>

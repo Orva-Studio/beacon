@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Clip, Project, RGBA, Session } from "@beacon/model";
-import type { Backdrop, Look, MotionProps, MotionState } from "@beacon/features";
-import { Button, ColorRow, Section, Segmented, Select, TextArea } from "./controls";
+import type { Clip, Project, Session } from "@beacon/model";
+import type { Look, MotionProps, MotionState } from "@beacon/features";
+import { Button, Section, Segmented, Select, TextArea } from "./controls";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { useView } from "./store";
@@ -19,7 +19,7 @@ const takeName = (t: MotionProps["takes"][number]) => (t.prompt.length > 50 ? `$
 const redraws = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** A style change, then the clips made drawn again in it (motion.render), once changes stop for a moment. */
-function restyle(host: Host, clips: Clip[], style: { look?: string; backdrop?: Backdrop; timing?: string }, label: string, key?: string, all = false) {
+function restyle(host: Host, clips: Clip[], style: { look?: string; timing?: string }, label: string, key?: string, all = false) {
   host.run("motion.style", { ...(all ? {} : { clips: clips.map((c) => c.id) }), ...style }, label, key);
   const made = clips.filter((c) => (c.props.motion as MotionProps).shown >= 0).map((c) => c.id);
   if (!made.length) return;
@@ -89,22 +89,6 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           </div>
           {look && <span className="text-caption text-text-faint">{look.description}.</span>}
         </label>
-        <div className="flex flex-col gap-1">
-          <span className="text-label font-medium text-text-muted">Background</span>
-          <Segmented
-            value={m.backdrop.kind}
-            options={[
-              { value: "none", label: "None", icon: null },
-              { value: "full", label: "Full", icon: null },
-              { value: "card", label: "Card", icon: null },
-            ]}
-            onChange={(kind) => kind !== m.backdrop.kind && restyle(host, [clip], { backdrop: { ...m.backdrop, kind } }, "Motion Graphics Background")}
-            data-motion-background
-          />
-          {m.backdrop.kind !== "none" && (
-            <ColorRow label="Colour" color={m.backdrop.color} onChange={(color: RGBA, key) => restyle(host, [clip], { backdrop: { ...m.backdrop, color } }, "Motion Graphics Background Colour", key)} />
-          )}
-        </div>
         <div className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Words</span>
           <Segmented

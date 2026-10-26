@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { jobSignal, runTool, tool } from "@beacon/media";
 import { PLAN_MODEL } from "../broll/plan";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy, type Piece } from "./blocks";
-import { CONTRACT, template } from "./html";
+import { CONTRACT, css, fill, template, wantsAlpha } from "./html";
 import type { Look } from "./looks";
 
 const api = () => process.env.BEACON_OPENAI_URL ?? "https://api.openai.com/v1";
@@ -131,7 +131,8 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
     const p = PieceSchema.safeParse({ ...piece, start: 0, end: r.length, area: "full" });
     const usable = p.success ? tidy(forKind(p.data, r.prompt), r.length) : undefined;
     if (!usable) throw new Error("Apple's on-device model wrote a graphic Beacon can't draw: try again, or reword the prompt");
-    return template(usable, r.said.words, r);
+    const background = wantsAlpha(r.prompt) ? "" : fill(css(r.look.card, 1));
+    return background + template(usable, r.said.words, r);
   }
   const system = [
     `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,

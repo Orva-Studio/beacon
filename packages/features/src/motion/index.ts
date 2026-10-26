@@ -10,7 +10,6 @@ import {
   defineQuery,
   eachRawClip,
   findClip,
-  RgbaSchema,
   secondsToTicks,
   ticksToSeconds,
   type ActionContext,
@@ -19,6 +18,7 @@ import {
   type Clip,
   type CommandContext,
   type Project,
+  type RGBA,
   type Session,
   type SessionCommandDef,
   type TaskEnv,
@@ -28,12 +28,12 @@ import { streamOf } from "../media";
 import { heardWords, regionOfClip, timelineSpan, trackIndex } from "../broll";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy } from "./blocks";
 import { compose, writeIdea, type Said } from "./compose";
-import { page, template, type Backdrop } from "./html";
+import { css, page, template } from "./html";
 import { DEFAULT_LOOK, lookOf, LOOKS } from "./looks";
 
 export { KINDS, KIND_GUIDE, type Piece } from "./blocks";
 export { LOOKS, type Look } from "./looks";
-export { CONTRACT as MOTION_CONTRACT, page as motionPage, type Backdrop } from "./html";
+export { CONTRACT as MOTION_CONTRACT, page as motionPage } from "./html";
 
 const TRACK = "Motion graphics";
 const OPENAI = "openai-api-key";
@@ -44,8 +44,6 @@ const CONTEXT = 10;
 /** Frames per second motion graphics are drawn at, whatever the project's: smooth, and quick to draw. */
 const FPS = 30;
 
-const BackdropSchema = z.strictObject({ kind: z.enum(["none", "full", "card"]), color: RgbaSchema });
-
 const motionGroup = z.strictObject({
   /** Auto's prompt, as Write wrote it from the words under the clip, and why. */
   prompt: z.string().max(1000),
@@ -53,9 +51,8 @@ const motionGroup = z.strictObject({
   /** Which prompt it is made from: Auto's (`prompt`) or the one typed (`manual`). */
   source: z.enum(["auto", "manual"]),
   manual: z.string().max(1000),
-  /** Its design (a Look's id), what is behind it, and whether words come in as they are said or all at once. */
+  /** Its design (a Look's id), and whether words come in as they are said or all at once. */
   look: z.string(),
-  backdrop: BackdropSchema,
   timing: z.enum(["speech", "together"]),
   /** Every composition made (the inside of its page's body) and its drawing, an earlier one picked again; `shown` is the one in the clip. */
   takes: z.array(z.strictObject({ prompt: z.string(), html: z.string(), assetId: z.string().optional() })),
@@ -76,7 +73,6 @@ const IDLE: MotionState = { writing: [], making: [], errors: {} };
 export const motionState = (s: Session) => (s.features.motion as MotionState | undefined) ?? IDLE;
 export const motionOf = (c: Clip) => c.props.motion as MotionProps | undefined;
 
-const NO_BACKDROP: Backdrop = { kind: "none", color: [0, 0, 0, 0.6] };
 
 const fail = (message: string): never => {
   throw new Error(message);
@@ -136,16 +132,15 @@ const commands = [
   defineCommand({
     id: "motion.style",
     description:
-      "Change motion graphics clips' Look (`look`, a motion.looks id), what is behind them (`backdrop`: none, the whole box `full`, or a rounded `card`, in `color` RGBA with its opacity) or `timing` (speech: each word as it is said; together: all at once): `clips`, else every motion graphic in the project (Use for All). Their drawings change once motion.render draws them again",
-    args: z.strictObject({ clips: z.array(z.string().min(1)).optional(), look: z.string().min(1).optional(), backdrop: BackdropSchema.optional(), timing: z.enum(["speech", "together"]).optional() }),
-    apply(doc, { clips, look, backdrop, timing }, ctx) {
+      "Change motion graphics clips' Look (`look`, a motion.looks id) or `timing` (speech: each word as it is said; together: all at once): `clips`, else every motion graphic in the project (Use for All). Their drawings change once motion.render draws them again",
+    args: z.strictObject({ clips: z.array(z.string().min(1)).optional(), look: z.string().min(1).optional(), timing: z.enum(["speech", "together"]).optional() }),
+    apply(doc, { clips, look, timing }, ctx) {
       if (look && !LOOKS.some((l) => l.id === look)) throw new Error(`no Look "${look}"; there are: ${LOOKS.map((l) => l.id).join(", ")}`);
       const chosen = clips ? clips.map((id) => findClip(doc, ctx.registry, id).clip) : motionClips(doc);
       for (const c of chosen) {
         const m = motionOf(c);
         if (c.type !== "motion" || !m) throw new Error(`clip "${c.id}" isn't a motion graphic`);
         if (look) m.look = look;
-        if (backdrop) m.backdrop = backdrop;
         if (timing) m.timing = timing;
       }
       return chosen.map((c) => c.id);
@@ -202,13 +197,13 @@ function shapeOf(id: string, ctx: Pick<ActionContext, "project" | "registry">) {
 
 const key = (env: { secret: (id: string) => Promise<string | undefined> }) => async () => (await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose Apple as the planner");
 
-/** What drawing a clip needs, read from it when the action starts: its box (as it shows now), length, Look and backdrop. */
+/** What drawing a clip needs, read from it when the action starts: its box (as it shows now), length and Look. */
 function drawing(clip: Clip, ctx: ActionContext) {
   const m = motionOf(clip)!;
   const [, , w, h] = regionOfClip(clip, ctx.project, ctx.registry);
   // Even, as the encoder wants.
   const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
-  return { width: even(w), height: even(h), length: ticksToSeconds(clip.duration), look: lookOf(m.look), backdrop: m.backdrop, timing: m.timing, fallbackFont: textFont(ctx) };
+  return { width: even(w), height: even(h), length: ticksToSeconds(clip.duration), look: lookOf(m.look), timing: m.timing, fallbackFont: textFont(ctx) };
 }
 
 /** A composition drawn into the project's media/Motion graphics folder, its page kept beside it, as `asset.add` takes it. */
@@ -252,7 +247,6 @@ const add = defineAction({
         source: prompt ? "manual" : "auto",
         manual: prompt ?? "",
         look: lookOf(String(ctx.pref("motionLook"))).id,
-        backdrop: NO_BACKDROP,
         timing: "speech",
         takes: [],
         shown: -1,
@@ -336,7 +330,7 @@ function shown(label: string, clips: string[], made: Drawn[]) {
 const make = defineAction({
   id: "motion.make",
   description:
-    "Make a motion graphics clip (`clip`, else the selected one) from its prompt (Auto's or Manual's; still empty, the words said under it): the planner writes it as an HTML composition in the clip's Look, timed to the words said (OpenAI designs it; Apple's on-device model picks a title, lower third, number, list or text for a template), and WebKit draws it at the size of the clip's box, with transparency, into the project's media/Motion graphics folder; shown in the clip as a new take, one undo step. Runs as a job",
+    "Make a motion graphics clip (`clip`, else the selected one) from its prompt (Auto's or Manual's; still empty, the words said under it): the planner writes it as an HTML composition, the clip's Look its default design, timed to the words said (OpenAI designs it; Apple's on-device model picks a title, lower third, number, list or text for a template), with a background of its own unless the prompt asks for alpha (transparent, no background), and WebKit draws it at the size of the clip's box, with its transparency, into the project's media/Motion graphics folder; shown in the clip as a new take, one undo step. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
@@ -372,7 +366,7 @@ const make = defineAction({
 const render = defineAction({
   id: "motion.render",
   description:
-    "Draw motion graphics clips (`clips`, else the selected ones) again from the take each shows, with no AI: in their Look, backdrop and timing as they are now, at their box's size and length now (after motion.style, a resize or a trim). Runs as a job",
+    "Draw motion graphics clips (`clips`, else the selected ones) again from the take each shows, with no AI: in their Look and timing as they are now, at their box's size and length now (after motion.style, a resize or a trim). Runs as a job",
   args: z.strictObject({ clips: z.array(z.string().min(1)).optional() }),
   resolve: ({ clips: ids }, ctx) => {
     const clips = targets(ctx, ids).filter((c) => motionOf(c)!.shown >= 0);
@@ -436,7 +430,7 @@ function toHtml(doc: unknown): unknown {
         .join("\n"),
     }));
     const was = m.background;
-    m.backdrop = was === "dim" ? { kind: "full", color: [0, 0, 0, 0.5] } : was === "card" ? { kind: "card", color: [0.05, 0.05, 0.06, 0.78] } : NO_BACKDROP;
+    m.backdrop = was === "dim" ? { kind: "full", color: [0, 0, 0, 0.5] } : was === "card" ? { kind: "card", color: [0.05, 0.05, 0.06, 0.78] } : { kind: "none", color: [0, 0, 0, 0.6] };
     delete m.background;
     m.timing = "speech";
     delete o.props!.group;
@@ -446,27 +440,47 @@ function toHtml(doc: unknown): unknown {
 }
 
 /**
+ * v4: the background is the composition's own (the brief picks it), not a setting: a backdrop becomes the first thing in
+ * each take's HTML, drawn as the page drew it (a card inset 5% of the box's shorter side).
+ */
+function backdropInHtml(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const m = o.props?.motion as Record<string, unknown> | undefined;
+    if (!m) return;
+    const b = m.backdrop as { kind: string; color: RGBA } | undefined;
+    if (b && b.kind !== "none") {
+      const box = b.kind === "card" ? "inset: min(5vw, 5vh); border-radius: min(3vw, 3vh);" : "inset: 0;";
+      const div = `<div style="position: absolute; ${box} background: ${css(b.color)}; animation: fade 0.3s ease-out both;"></div>\n`;
+      for (const t of (m.takes as { html: string }[] | undefined) ?? []) t.html = div + t.html;
+    }
+    delete m.backdrop;
+  });
+  return doc;
+}
+
+/**
  * Motion graphics: placeholder clips over the talk, made from a prompt (typed, or written from the words under them)
  * into an HTML composition in a Look, timed to the speech, drawn by WebKit with its transparency. A clip keeps its
- * prompt and every take, and is drawn again when its Look, backdrop, timing, size or length change.
+ * prompt and every take, and is drawn again when its Look, timing, size or length change.
  */
 export const motion = defineFeature({
   id: "motion",
-  version: 3,
+  version: 4,
   migrations: [
     { version: 2, migrate: withLooks },
     { version: 3, migrate: toHtml },
+    { version: 4, migrate: backdropInHtml },
   ],
   clipTypes: [{ id: "motion", description: "Motion graphics: a placeholder (nothing in an export until made), then a composition drawn with its transparency from a prompt", traits: ["visual", "picture", "media", "video", "motion"] }],
   props: [
     {
       id: "motion",
       description:
-        "What a motion graphics clip is made from: Auto's prompt (and why) as motion.write wrote it, or the one typed (`manual`), which one (`source`), its Look, backdrop and timing, and the takes made (each its prompt, HTML and drawing), `shown` the one in the clip",
+        "What a motion graphics clip is made from: Auto's prompt (and why) as motion.write wrote it, or the one typed (`manual`), which one (`source`), its Look and timing, and the takes made (each its prompt, HTML and drawing), `shown` the one in the clip",
       traits: ["motion"],
       tab: { title: "Motion Graphics", icon: "sparkle", order: 2 },
       schema: motionGroup,
-      defaults: () => ({ prompt: "", why: "", source: "auto", manual: "", look: DEFAULT_LOOK, backdrop: NO_BACKDROP, timing: "speech", takes: [], shown: -1 }),
+      defaults: () => ({ prompt: "", why: "", source: "auto", manual: "", look: DEFAULT_LOOK, timing: "speech", takes: [], shown: -1 }),
       identity: true,
     },
     {

@@ -143,21 +143,24 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await page.evaluate("document.querySelector('[data-motion-make]').scrollIntoView({ block: 'center' })");
     await page.click(...(await centre("[data-motion-make]")));
     await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again'", 20_000);
-    type Takes = { manual: string; look: string; timing: string; backdrop: { kind: string; color: number[] }; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
+    type Takes = { manual: string; look: string; timing: string; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
     const m = () => motion().props.motion as Takes;
     expect(m().manual).toBe("Sarah Chen, head of design");
     expect(m().takes[0]!.html).toContain("Sarah");
+    // Not asked for alpha: a background of its own.
+    expect(m().takes[0]!.html).toContain("data-beacon-fill");
     const drawn = () => ui.core.doc(ui.handle).assets[motion().assetId!]!;
     expect(drawn().path).toMatch(/Motion graphics\/Sarah Chen head of design\.mov$/);
     // The typed prompt (kept as it was left) and the make: each its own step.
     expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 2);
     const first = motion().assetId;
     await page.evaluate(`(() => { const t = document.querySelector('textarea[data-motion-prompt]'); t.focus(); t.select(); })()`);
-    await type("Hello there");
+    await type("Hello there, on alpha");
     await page.click(...(await centre("[data-motion-make]")));
     await arrived(() => m().takes.length === 2, 20_000);
     expect(m().shown).toBe(1);
     expect(m().takes[1]!.html).toContain("Hello");
+    expect(m().takes[1]!.html).not.toContain("data-beacon-fill");
     await page.until("!!document.querySelector('[data-motion-pick]')");
     await page.evaluate(`(() => { const s = document.querySelector('[data-motion-pick]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await arrived(() => m().shown === 0);
@@ -169,12 +172,6 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     expect(m().look).toBe("tech");
     expect(html()).toContain("Menlo");
     await arrived(() => ui.menus.includes("setPreference:motionLook=tech"));
-    // A full background, in a colour with its opacity; then the words all at once.
-    const lit = motion().assetId;
-    await page.evaluate(`[...document.querySelectorAll('[data-motion-background] button')].find((b) => b.textContent === 'Full').click()`);
-    await arrived(() => motion().assetId !== lit, 20_000);
-    expect(m().backdrop.kind).toBe("full");
-    expect(html()).toContain("beacon-backdrop");
     await page.evaluate(`[...document.querySelectorAll('[data-motion-timing] button')].find((b) => b.textContent === 'All at Once').click()`);
     await arrived(() => m().timing === "together");
     // Use for All gives every motion graphic the Look, one undo step.

@@ -2388,6 +2388,12 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   written back to back get a space, flex and grid rows a gap; an `.in` with
   no `data-t` comes in with its first word (no empty card); cards sized to
   content in the guidance.
+- **The brief picks the background** (the user, 2026-10-26, built): no
+  Background setting on the Motion tab. A graphic has a background of its own
+  (the AI chooses it for the brief; a template fills the box in the Look's
+  card colour) unless the brief asks for alpha ("transparent", "no
+  background", "over the video"). Motion data v4 moves a background set
+  before into each take's HTML.
 - **A reference image** (the user, 2026-10-26; after (1), before (2)): a
   motion clip can carry an image (dropped or picked on the Motion tab, kept
   in the project's media); `motion.make` sends it to OpenAI with the brief
