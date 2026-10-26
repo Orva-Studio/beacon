@@ -240,6 +240,11 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
         rangeOut: () => s.range?.out ?? s.playhead,
       }[to]();
       s.playhead = snap(project, target);
+      // Off screen, the timeline scrolls to it at the same zoom, a little in from the edge it came in by.
+      const { start, end } = s.timeline;
+      const span = end - start;
+      if (s.playhead < start) setView(s, project, s.playhead - span * 0.1, s.playhead + span * 0.9);
+      else if (s.playhead > end) setView(s, project, s.playhead - span * 0.9, s.playhead + span * 0.1);
     },
   }),
   sessionCommand({

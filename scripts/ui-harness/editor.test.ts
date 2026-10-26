@@ -95,16 +95,30 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test.skipIf(skip)("Go to start and Go to end beside the transport move the playhead to the timeline's start and end", async () => {
+test.skipIf(skip)("Go to start and Go to end beside the transport move the playhead to the timeline's start and end, and scroll the timeline to it at the same zoom", async () => {
   const end = ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
   const at = async () => (await session()).playhead;
-  await run("playhead.set", { time: end / 2 });
+  const view = async () => (await session()).timeline;
+  const shown = (v: { start: number; end: number }, t: number) => t >= v.start && t <= v.end;
+  // Zoomed in on the first tenth: the end is off screen.
+  await run("timeline.view", { start: 0, end: end / 10 });
+  await run("playhead.set", { time: end / 20 });
+  const span = (await view()).end - (await view()).start;
   await page.click(...(await centre('[data-transport="end"]')));
   for (let i = 0; i < 50 && Math.abs((await at()) - end) > 0.05; i++) await Bun.sleep(50);
   expect(await at()).toBeCloseTo(end, 1);
+  expect(shown(await view(), await at())).toBe(true);
+  expect((await view()).end - (await view()).start).toBeCloseTo(span, 3);
   await page.click(...(await centre('[data-transport="start"]')));
   for (let i = 0; i < 50 && (await at()) > 0.01; i++) await Bun.sleep(50);
   expect(await at()).toBe(0);
+  expect((await view()).start).toBe(0);
+  // Landing on screen already, the view stays put.
+  await run("timeline.view", { start: 0, end: end / 2 });
+  await run("playhead.set", { time: end / 4 });
+  const before = await view();
+  await run("playhead.jump", { to: "start" });
+  expect(await view()).toEqual(before);
 });
 
 test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays at 100%", async () => {
@@ -169,7 +183,7 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     // While it's made, the tab says the clip can still be edited.
     await page.until("!!document.querySelector('[data-motion-making-note]')", 10_000);
     await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again · Free'", 20_000);
-    expect(await page.evaluate("!document.querySelector('[data-motion-making-note]')")).toBe(true);
+    await page.until("!document.querySelector('[data-motion-making-note]')");
     type Takes = { manual: string; look: string; timing: string; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
     const m = () => motion().props.motion as Takes;
     expect(m().manual).toBe("Sarah Chen, head of design");
