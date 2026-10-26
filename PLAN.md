@@ -2322,6 +2322,30 @@ font, drop shadow with colour, motion blur) but the pieces used none of them.
   graphic in the project one Look in one undo step. `motion.style`,
   `motion.looks`; motion data v2.
 
+**Motion graphics in HTML: a spike (the user, 2026-10-26, after trying Looks).**
+The user found the primitives short of HyperFrames (no solid background with
+opacity, text not following the speech, a plainer look) and asked whether CSS
+is more versatile; it is, so a composition becomes HTML, rendered by the WebKit
+Beacon already has (no Chrome). **Spike result (2026-10-26, scratchpad, not in
+the repo):** a Swift tool loads the HTML in an offscreen WKWebView
+(`drawsBackground` off, a borderless window off screen), pauses every
+animation (`document.getAnimations()`), seeks it to each frame's time
+(`callAsyncJavaScript`, awaiting `document.fonts.ready`) and takes a snapshot
+at 1× (`snapshotWidth` in points, divided by the backing scale): **alpha
+kept**, 1920×1080 at 30 fps **90 frames in 2.7 s**; Beacon's FFmpeg makes
+ProRes 4444 with alpha (`prores_videotoolbox -profile:v 4444 -pix_fmt bgra`,
+0.26 s, `yuva444p12le`), and Beacon draws it over the take with its
+transparency: a gradient card, clip-path wipe and blur-in words all render.
+Not possible pre-rendered: `backdrop-filter` (the talk isn't behind the page).
+- **Decided (the user, 2026-10-26):** text follows the speech by default (each
+  word in as it is said, from the transcript's word times), "all at once" the
+  other choice. The B-roll-style flow stays (placeholder, box, prompt, Make,
+  takes); what is made is HTML, kept with the clip, rendered to a clip with
+  alpha. OpenAI writes the HTML (with the words and their times); Apple's
+  model fills a template. Looks become CSS themes. HyperFrames' composition
+  format (`data-start`, `data-duration`, seekable timelines) is followed where
+  it fits; GSAP, if used, is vendored and pinned.
+
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
