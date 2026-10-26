@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { textLayout } from "@beacon/media";
+import { fontFamilies, textLayout } from "@beacon/media";
 import {
   clipEnd,
   clipSpeed,
@@ -8,6 +8,7 @@ import {
   defineFeature,
   defineQuery,
   drawNested,
+  eachRawClip,
   findClip,
   secondsToTicks,
   ticksToSeconds,
@@ -15,16 +16,19 @@ import {
   type ActionStep,
   type Clip,
   type CommandContext,
+  type Project,
   type Session,
   type SessionCommandDef,
   type TextSpec,
   type Track,
 } from "@beacon/model";
 import { heardWords, timelineSpan, trackIndex } from "../broll";
-import { build, KIND_GUIDE, KINDS, PieceSchema, type Look, type Part } from "./blocks";
+import { BACKGROUNDS, build, KIND_GUIDE, KINDS, PieceSchema, type Part } from "./blocks";
+import { DEFAULT_LOOK, lookOf, LOOKS } from "./looks";
 import { compose, writeIdea, type Said } from "./compose";
 
-export { KINDS, KIND_GUIDE, type Piece } from "./blocks";
+export { BACKGROUNDS, KINDS, KIND_GUIDE, type Background, type Piece } from "./blocks";
+export { LOOKS, type Look } from "./looks";
 
 const TRACK = "Motion graphics";
 const OPENAI = "openai-api-key";
@@ -43,6 +47,9 @@ const motionGroup = z.strictObject({
   /** Every graphic made, its prompt and pieces kept so an earlier one can be picked again; `shown` is the one in the clip. */
   takes: z.array(z.strictObject({ prompt: z.string(), pieces: z.array(PieceSchema) })),
   shown: z.number().int().min(-1),
+  /** Its design (a Look's id) and what is behind it. */
+  look: z.string(),
+  background: z.enum(BACKGROUNDS),
 });
 export type MotionProps = z.infer<typeof motionGroup>;
 
@@ -58,13 +65,50 @@ export const motionOf = (c: Clip) => c.props.motion as MotionProps | undefined;
 
 type Box = { width: number; height: number; tracks: Track[] };
 
-/** The Text annotation's look, so a graphic's words look like text added by hand. */
-function textLook(ctx: Pick<CommandContext, "registry">): Look {
-  const preset = ctx.registry.annotations.get("text");
-  const callout = preset?.props.callout as { text: TextSpec } | undefined;
-  if (!callout) throw new Error("the Text annotation is missing");
-  const { width: _w, height: _h, scale: _s, text: _t, ...spec } = callout.text;
-  return { spec, effects: (preset!.effects ?? []).map((fx) => ({ type: fx.type, params: fx.params ?? {} })) };
+/** The Text annotation's font: a Look's when it names none, or one this Mac hasn't. */
+function textFont(ctx: Pick<CommandContext, "registry">): string {
+  const callout = ctx.registry.annotations.get("text")?.props.callout as { text: TextSpec } | undefined;
+  return callout?.text.font ?? "Helvetica Neue";
+}
+
+/**
+ * The clip's graphic built again from the take it shows, in its Look and background, at the size its box shows: the
+ * box's scale goes into its size, so text isn't stretched. Edits made inside the clip are replaced.
+ */
+function rebuild(c: Clip, ctx: CommandContext) {
+  const m = motionOf(c)!;
+  const box = c.props.group as Box;
+  const t = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
+  box.width = Math.max(1, Math.round(box.width * Math.abs(t.scaleX)));
+  box.height = Math.max(1, Math.round(box.height * Math.abs(t.scaleY)));
+  if (c.props.transform) Object.assign(c.props.transform, { scaleX: Math.sign(t.scaleX) || 1, scaleY: Math.sign(t.scaleY) || 1 });
+  const families = new Set(fontFamilies());
+  const parts = build(m.takes[m.shown]!.pieces, {
+    width: box.width,
+    height: box.height,
+    length: ticksToSeconds(c.duration) * clipSpeed(c),
+    look: lookOf(m.look),
+    fallbackFont: textFont(ctx),
+    hasFont: (f) => families.has(f),
+    background: m.background,
+    layout: textLayout,
+  });
+  if (!parts.length) throw new Error("that graphic has nothing to draw");
+  box.tracks = parts.map((p) => ({
+    id: ctx.newId("track"),
+    name: (p.props.callout as { text?: { text: string } } | undefined)?.text?.text.replace("{n}", "#") ?? "Shape",
+    clips: [toClip(p, ctx)],
+  }));
+  c.mediaStart = 0;
+}
+
+/** Every motion graphics clip in the project, inside groups too. */
+function motionClips(doc: Project): Clip[] {
+  const out: Clip[] = [];
+  eachRawClip(doc, (o) => {
+    if ((o as Clip).type === "motion") out.push(o as Clip);
+  });
+  return out;
 }
 
 function toClip(part: Part, ctx: CommandContext): Clip {
@@ -102,20 +146,24 @@ const commands = [
         if (!m.takes[args.take]) throw new Error(`the clip has no take ${args.take}`);
         m.shown = args.take;
       }
-      const box = c.props.group as Box;
-      // Built at the size it shows: the box's scale goes into its size, so text isn't stretched.
-      const t = { scaleX: 1, scaleY: 1, ...(c.props.transform as Partial<Record<"scaleX" | "scaleY", number>> | undefined) };
-      box.width = Math.max(1, Math.round(box.width * Math.abs(t.scaleX)));
-      box.height = Math.max(1, Math.round(box.height * Math.abs(t.scaleY)));
-      if (c.props.transform) Object.assign(c.props.transform, { scaleX: Math.sign(t.scaleX) || 1, scaleY: Math.sign(t.scaleY) || 1 });
-      const parts = build(m.takes[m.shown]!.pieces, { width: box.width, height: box.height, length: ticksToSeconds(c.duration) * clipSpeed(c), look: textLook(ctx), layout: textLayout });
-      if (!parts.length) throw new Error("that graphic has nothing to draw");
-      box.tracks = parts.map((p) => ({
-        id: ctx.newId("track"),
-        name: (p.props.callout as { text?: { text: string } } | undefined)?.text?.text.replace("{n}", "#") ?? "Shape",
-        clips: [toClip(p, ctx)],
-      }));
-      c.mediaStart = 0;
+      rebuild(c, ctx);
+    },
+  }),
+  defineCommand({
+    id: "motion.style",
+    description:
+      "Change motion graphics clips' Look (`look`, a motion.looks id) or background (none, dim, card): `clips`, else every motion graphic in the project (how Use for All applies a Look). Those made are built again in it; edits made inside them are replaced",
+    args: z.strictObject({ clips: z.array(z.string().min(1)).optional(), look: z.string().min(1).optional(), background: z.enum(BACKGROUNDS).optional() }),
+    apply(doc, { clips, look, background }, ctx) {
+      if (look && !LOOKS.some((l) => l.id === look)) throw new Error(`no Look "${look}"; there are: ${LOOKS.map((l) => l.id).join(", ")}`);
+      const targets = clips ? clips.map((id) => findClip(doc, ctx.registry, id).clip) : motionClips(doc);
+      for (const c of targets) {
+        const m = motionOf(c);
+        if (c.type !== "motion" || !m) throw new Error(`clip "${c.id}" isn't a motion graphic`);
+        if (look) m.look = look;
+        if (background) m.background = background;
+        if (m.shown >= 0) rebuild(c, ctx);
+      }
     },
   }),
 ];
@@ -180,7 +228,7 @@ const add = defineAction({
     const length = range ? range.out - range.in : (duration ?? PLACEHOLDER_SECONDS);
     const { width, height } = ctx.project.settings;
     const props = {
-      motion: { prompt: "", why: "", source: prompt ? "manual" : "auto", manual: prompt ?? "", takes: [], shown: -1 } satisfies MotionProps,
+      motion: { prompt: "", why: "", source: prompt ? "manual" : "auto", manual: prompt ?? "", takes: [], shown: -1, look: lookOf(String(ctx.pref("motionLook"))).id, background: "none" } satisfies MotionProps,
       group: { width, height, tracks: [] },
     };
     const above = trackIndex(ctx.project, ctx.registry, from, from + length);
@@ -282,6 +330,17 @@ const make = defineAction({
   },
 });
 
+/** v2: a Look and a background on every clip, as made before there were Looks. */
+function withLooks(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const m = o.props?.motion as Record<string, unknown> | undefined;
+    if (!m) return;
+    m.look ??= DEFAULT_LOOK;
+    m.background ??= "none";
+  });
+  return doc;
+}
+
 /**
  * Motion graphics: placeholder clips over the talk, made from a prompt (typed, or written from the words under them)
  * by the planner into titles, lower thirds, numbers, lists and text built from callouts and animation blocks. A clip
@@ -289,7 +348,8 @@ const make = defineAction({
  */
 export const motion = defineFeature({
   id: "motion",
-  version: 1,
+  version: 2,
+  migrations: [{ version: 2, migrate: withLooks }],
   clipTypes: [{ id: "motion", description: "Motion graphics: a placeholder (nothing in an export until made), then text, shapes and animations built from a prompt, opened like a group", traits: ["visual", "group", "motion"] }],
   props: [
     {
@@ -298,14 +358,29 @@ export const motion = defineFeature({
       traits: ["motion"],
       tab: { title: "Motion Graphics", icon: "sparkle", order: 2 },
       schema: motionGroup,
-      defaults: () => ({ prompt: "", why: "", source: "auto", manual: "", takes: [], shown: -1 }),
+      defaults: () => ({ prompt: "", why: "", source: "auto", manual: "", takes: [], shown: -1, look: DEFAULT_LOOK, background: "none" }),
       identity: true,
     },
   ],
   commands,
   sessionCommands,
+  preferences: [
+    {
+      id: "motionLook",
+      title: "Motion graphics Look",
+      description: "The Look a new motion graphic takes; picking one on a clip makes it the one new ones take",
+      options: LOOKS.map((l) => ({ id: l.id, title: l.name, description: l.description })),
+      default: DEFAULT_LOOK,
+    },
+  ],
   actions: [add, write, make],
   queries: [
+    defineQuery({
+      id: "motion.looks",
+      description: "The Looks a motion graphic can take (its `motion.look`): each one's id, name, fonts, colours, shadow and motion",
+      args: z.strictObject({}),
+      run: () => LOOKS,
+    }),
     defineQuery({
       id: "motion.kinds",
       description: "What a motion graphic is made from (the pieces motion.make composes and motion.use takes): each kind and the fields it uses",

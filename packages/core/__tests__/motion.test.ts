@@ -34,7 +34,7 @@ afterAll(() => {
 });
 
 const settled = async (core: LocalCore) => {
-  for (let i = 0; i < 300 && (await core.jobs()).some((j) => j.state === "running" || j.state === "queued"); i++) await Bun.sleep(20);
+  for (let i = 0; i < 300 && (await core.jobs()).some((j) => j.state === "running"); i++) await Bun.sleep(20);
 };
 
 test("motion graphics composed by OpenAI: pieces mixed in parts of the box, a kind Beacon can't draw left out, asked for as strict JSON; a refused key says where to fix it", async () => {

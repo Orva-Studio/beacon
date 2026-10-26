@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Clip, Project, Session, Track } from "@beacon/model";
-import type { MotionProps, MotionState } from "@beacon/features";
+import type { Look, MotionProps, MotionState } from "@beacon/features";
 import { Button, Section, Segmented, Select, TextArea } from "./controls";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
@@ -40,9 +40,50 @@ export function MotionTab({ clip, session, host }: { clip: Clip; project: Projec
   const again = useMemo(() => ({}), [clip.start, clip.duration, transcribing]);
   const said = useQuery<string>(host, "broll.words", { clip: clip.id }, again);
   const prompted = !!(auto ? m.prompt : manual).trim() || !!said;
+  const looks = useQuery<Look[]>(host, "motion.looks");
+  const look = looks?.find((l) => l.id === m.look);
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-motion-tab>
+        <label className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Look</span>
+          <div className="flex items-center gap-2">
+            <Select
+              className="flex-1"
+              value={m.look}
+              title={look?.description}
+              onChange={(e) => {
+                host.run("motion.style", { clips: [clip.id], look: e.target.value }, "Motion Graphics Look");
+                // New motion graphics take the Look last picked, so a video's graphics match.
+                void host.setPreference("motionLook", e.target.value);
+              }}
+              data-motion-look
+            >
+              {(looks ?? []).map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </Select>
+            <Button look="quiet" title="Give every motion graphic in this project this Look" onClick={() => host.run("motion.style", { look: m.look }, "Motion Graphics Look for All")} data-motion-look-all>
+              Use for All
+            </Button>
+          </div>
+          {look && <span className="text-caption text-text-faint">{look.description}.</span>}
+        </label>
+        <div className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Background</span>
+          <Segmented
+            value={m.background}
+            options={[
+              { value: "none", label: "None", icon: null },
+              { value: "dim", label: "Dim", icon: null },
+              { value: "card", label: "Card", icon: null },
+            ]}
+            onChange={(background) => background !== m.background && host.run("motion.style", { clips: [clip.id], background }, "Motion Graphics Background")}
+            data-motion-background
+          />
+        </div>
         <div className={`flex flex-col gap-1 ${writing ? "opacity-50" : ""}`}>
           <span className="text-label font-medium text-text-muted">Prompt</span>
           <Segmented

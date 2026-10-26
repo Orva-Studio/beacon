@@ -2315,6 +2315,12 @@ font, drop shadow with colour, motion blur) but the pieces used none of them.
   owners, no licence granted; Beacon says so where an icon is picked.
 - Order: Looks (built in, project + clip) → backgrounds → icons → the user's
   own Looks in Settings → letter-by-letter, blur-in, gradients.
+- **Built (2026-10-26):** Looks and backgrounds. A project has no place for a
+  feature's own settings (only feature versions), so "per project" is: each
+  clip has its Look, a new one takes the Look last picked (the app-wide
+  `motionLook` preference, as easing), and **Use for All** gives every motion
+  graphic in the project one Look in one undo step. `motion.style`,
+  `motion.looks`; motion data v2.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with

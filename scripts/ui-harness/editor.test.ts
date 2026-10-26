@@ -159,10 +159,31 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await page.evaluate(`(() => { const s = document.querySelector('[data-motion-pick]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await arrived(() => m().shown === 0);
     expect(inner()).toContain("Sarah Chen");
+    // A Look restyles it (and is the one new motion graphics take); a Card goes behind it.
+    const fonts = () => (motion().props.group as { tracks: { clips: Clip[] }[] }).tracks.flatMap((t) => t.clips.map((c) => (c.props.callout as { text?: { font: string } }).text?.font)).filter(Boolean);
+    await page.evaluate(`(() => { const s = document.querySelector('[data-motion-look]'); s.value = 'tech'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await arrived(() => (motion().props.motion as { look: string }).look === "tech");
+    expect(fonts().every((f) => f === "Menlo")).toBe(true);
+    expect(inner()).toContain("Sarah Chen");
+    await arrived(() => ui.menus.includes("setPreference:motionLook=tech"));
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-background] button')].find((b) => b.textContent === 'Card').click()`);
+    await arrived(() => (motion().props.motion as { background: string }).background === "card");
+    const first = (motion().props.group as { tracks: { clips: Clip[] }[] }).tracks[0]!.clips[0]!;
+    expect((first.props.callout as { shape: string }).shape).toBe("rectangle");
+    // Use for All gives every motion graphic the Look, one undo step.
+    await run("motion.add", { time: 20, prompt: "Hello there" });
+    const other = clips().filter((c) => c.type === "motion").find((c) => c.id !== motion().id)!;
+    expect((other.props.motion as { look: string }).look).toBe("tech");
+    await run("motion.style", { clips: [other.id], look: "bold" });
+    const all = (await ui.core.history(ui.handle)).undo.length;
+    await page.evaluate("document.querySelector('[data-motion-look-all]').click()");
+    await arrived(() => clips().filter((c) => c.type === "motion").every((c) => (c.props.motion as { look: string }).look === "tech"));
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(all + 1);
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     expect(clips().some((c) => c.type === "motion")).toBe(false);
   } finally {
     delete process.env.BEACON_WRITER;
+    await ui.core.setPreference("motionLook", "clean");
   }
 }, 40_000);
 

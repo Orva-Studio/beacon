@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Easing, RGBA, TextSpec } from "@beacon/model";
+import type { Look } from "./looks";
 import type { TextLine } from "@beacon/media";
 
 /** An animation block of a part, in seconds from the part's start. */
@@ -58,11 +59,9 @@ export const KIND_GUIDE: Record<Kind, string> = {
   text: "one line of text (`text`)",
 };
 
-export interface Look {
-  /** The Text annotation's look (font, colour, its drop shadow), which pieces start from. */
-  spec: Omit<TextSpec, "width" | "height" | "scale" | "text">;
-  effects: Part["effects"];
-}
+/** Behind a graphic, in its box: nothing, the talk darkened, or a card in the Look's card colour. */
+export const BACKGROUNDS = ["none", "dim", "card"] as const;
+export type Background = (typeof BACKGROUNDS)[number];
 
 export interface BuildEnv {
   /** The box, in pixels: the clip's group canvas. */
@@ -71,15 +70,17 @@ export interface BuildEnv {
   /** Seconds the clip lasts. */
   length: number;
   look: Look;
+  /** The Text annotation's font, for a Look's empty font and one this Mac hasn't. */
+  fallbackFont: string;
+  hasFont: (family: string) => boolean;
+  background: Background;
   layout: (spec: TextSpec) => TextLine[];
 }
 
 /** Where pieces sit: x, y, width, height in box pixels from its top left. */
 type Rect = [number, number, number, number];
 
-const ACCENT: RGBA = [0.24, 0.86, 0.52, 1];
-const BAR: RGBA = [0.05, 0.05, 0.06, 0.78];
-/** Seconds a part takes to come in; the next starts a little after. */
+/** Seconds a part takes to come in at the Look's speed 1; the next starts a little after. */
 const IN = 0.6;
 const STAGGER_MAX = 0.8;
 const OUT = 0.35;
@@ -103,6 +104,8 @@ export function areaRect(area: Area, w: number, h: number): Rect {
 
 /** Pixels per design point in a rect: text sizes below are for a 1920-wide strip at least 400 tall. */
 const unit = ([, , w, h]: Rect) => Math.min(w / 1920, h / 400);
+
+const comeInTime = (env: BuildEnv) => IN / env.look.speed;
 
 /** Non-space runs of a laid-out line, as offsets into the text. */
 function wordsOf(text: string, line: TextLine): [number, number][] {
@@ -129,11 +132,21 @@ function fit(env: BuildEnv, base: TextSpec, lines: number, height: number): { sp
   return { spec, laid };
 }
 
-const textSpec = (env: BuildEnv, text: string, size: number, weight: number, width: number, align: TextSpec["align"] = "center"): TextSpec => ({
-  ...env.look.spec,
+/** The Look's font for a role, the Text annotation's when it has none or this Mac hasn't it. */
+const fontOf = (env: BuildEnv, role: "heading" | "body") => {
+  const f = env.look[role].font;
+  return f && env.hasFont(f) ? f : env.fallbackFont;
+};
+
+const textSpec = (env: BuildEnv, role: "heading" | "body", text: string, size: number, width: number, align: TextSpec["align"] = "center", weight = env.look[role].weight): TextSpec => ({
   text,
-  size,
+  font: fontOf(env, role),
   weight,
+  italic: false,
+  size,
+  color: env.look.text,
+  tracking: 0,
+  lineSpacing: 0,
   width,
   height: 10_000,
   align,
@@ -143,8 +156,16 @@ const textSpec = (env: BuildEnv, text: string, size: number, weight: number, wid
 
 const placeAt = (env: BuildEnv, cx: number, cy: number) => ({ x: cx - env.width / 2, y: env.height / 2 - cy, scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 });
 
+/** The Look's shadow, scaled to the box, as the drop-shadow effect takes it. */
+function shadow(env: BuildEnv): Part["effects"] {
+  const s = env.look.shadow;
+  if (!s) return [];
+  const k = env.height / 1080;
+  return [{ type: "drop-shadow", params: { angle: s.angle, offset: s.offset * k, blur: s.blur * k, opacity: s.opacity, color: s.color } }];
+}
+
 /** A text part whose box is centred at box pixels `cx`, `cy`. */
-function textPart(env: BuildEnv, spec: TextSpec, text: string, box: [number, number], [cx, cy]: [number, number], piece: Piece, shadow = true): Part {
+function textPart(env: BuildEnv, spec: TextSpec, text: string, box: [number, number], [cx, cy]: [number, number], piece: Piece, shadowed = true): Part {
   const { width: _w, height: _h, scale: _s, text: _t, ...look } = spec;
   return {
     type: "callout",
@@ -154,12 +175,12 @@ function textPart(env: BuildEnv, spec: TextSpec, text: string, box: [number, num
       callout: { shape: "text", width: box[0], height: box[1], cornerRadius: 0, text: { ...look, text, valign: "center" } },
       transform: placeAt(env, cx, cy),
     },
-    effects: shadow ? env.look.effects.map((fx) => ({ ...fx, params: { ...fx.params } })) : [],
+    effects: shadowed ? shadow(env) : [],
     animations: [],
   };
 }
 
-function boxPart(env: BuildEnv, size: [number, number], [cx, cy]: [number, number], fill: RGBA, radius: number, piece: Piece): Part {
+function boxPart(env: BuildEnv, size: [number, number], [cx, cy]: [number, number], fill: RGBA, radius: number, piece: Pick<Piece, "start" | "end">): Part {
   return {
     type: "callout",
     start: piece.start,
@@ -170,21 +191,40 @@ function boxPart(env: BuildEnv, size: [number, number], [cx, cy]: [number, numbe
   };
 }
 
-/** Fades out over the piece's last moments, when it lasts long enough for that. */
+/** Fades out over the part's last moments, when it lasts long enough for that. */
 function fadeOut(part: Part, after: number) {
   if (part.duration - OUT > after + 0.3) part.animations.push({ end: part.duration, duration: OUT, easing: "easeIn", to: { "transform.opacity": 0 } });
 }
 
-/** Comes in at `at` (seconds into the piece) from `dx`, `dy` box pixels away (y down), fading in; fades out at its end. */
-function comeIn(part: Part, at: number, dx: number, dy: number, easing: Easing = "backOut") {
-  const t = part.props.transform as { x: number; y: number; opacity: number };
-  const [x, y] = [t.x, t.y];
-  t.x = x + dx;
-  t.y = y - dy;
+/**
+ * Comes in at `at` (seconds into the part) as the Look has it, fading in, then fades out at its end: from `distance`
+ * box pixels below (rise) or to the left (slide), growing (scale), or wiped in from its left edge (wipe); a moving
+ * one blurred along its motion when the Look says so.
+ */
+function comeIn(part: Part, at: number, distance: number, env: BuildEnv, entrance = env.look.entrance) {
+  const t = part.props.transform as { x: number; y: number; scaleX: number; scaleY: number; opacity: number };
+  const d = comeInTime(env);
+  const { easing } = env.look;
   t.opacity = 0;
-  part.animations.push({ end: at + IN * 0.7, duration: IN * 0.7, easing: "easeOut", to: { "transform.opacity": 1 } });
-  part.animations.push({ end: at + IN, duration: IN, easing, to: { ...(dx ? { "transform.x": x } : {}), ...(dy ? { "transform.y": y } : {}) } });
-  fadeOut(part, at + IN);
+  part.animations.push({ end: at + d * 0.7, duration: d * 0.7, easing: "easeOut", to: { "transform.opacity": 1 } });
+  if (entrance === "rise") {
+    const y = t.y;
+    t.y = y - distance;
+    part.animations.push({ end: at + d, duration: d, easing, to: { "transform.y": y } });
+  } else if (entrance === "slide") {
+    const x = t.x;
+    t.x = x - distance * 1.5;
+    part.animations.push({ end: at + d, duration: d, easing, to: { "transform.x": x } });
+  } else if (entrance === "scale") {
+    t.scaleX = t.scaleY = 0.7;
+    part.animations.push({ end: at + d, duration: d, easing, to: { "transform.scaleX": 1, "transform.scaleY": 1 } });
+  } else {
+    const c = part.props.callout as { width: number };
+    part.props.crop = { left: 0, top: 0, right: c.width, bottom: 0 };
+    part.animations.push({ end: at + d, duration: d, easing, to: { "crop.right": 0 } });
+  }
+  if (env.look.motionBlur > 0 && entrance !== "wipe") part.effects.push({ type: "motion-blur", params: { intensity: env.look.motionBlur } });
+  fadeOut(part, at + d);
 }
 
 /** Large words coming in one after another, a smaller line under them. */
@@ -193,8 +233,8 @@ function title(p: Piece, r: Rect, env: BuildEnv): Part[] {
   const [x, y, w, h] = r;
   const boxWidth = w * 0.9;
   const sub = p.detail.trim();
-  const { spec, laid } = fit(env, textSpec(env, p.text, 132 * u, 700, boxWidth), 2, h * (sub ? 0.6 : 0.85));
-  const under = sub ? fit(env, textSpec(env, sub, spec.size * 0.4, 400, boxWidth), 2, h * 0.25) : undefined;
+  const { spec, laid } = fit(env, textSpec(env, "heading", p.text, 132 * u, boxWidth), 2, h * (sub ? 0.6 : 0.85));
+  const under = sub ? fit(env, textSpec(env, "body", sub, spec.size * 0.4, boxWidth), 2, h * 0.25) : undefined;
   const top = laid[0]!.top;
   const titleHeight = laid.at(-1)!.bottom - top;
   const gap = spec.size * 0.2;
@@ -202,18 +242,18 @@ function title(p: Piece, r: Rect, env: BuildEnv): Part[] {
   const y0 = y + (h - titleHeight - (under ? gap + subHeight : 0)) / 2;
   const left = x + (w - boxWidth) / 2;
   const words = laid.flatMap((line) => wordsOf(p.text, line).map(([s, e]) => ({ line, s, e })));
-  const step = Math.min(0.08, STAGGER_MAX / Math.max(1, words.length - 1));
+  const step = Math.min(0.08, STAGGER_MAX / Math.max(1, words.length - 1)) / env.look.speed;
   const pad = spec.size * 0.3;
   const parts = words.map(({ line, s, e }, i) => {
     const [x0, x1] = [line.carets[s - line.start]!, line.carets[e - line.start]!];
     const part = textPart(env, spec, p.text.slice(s, e), [x1 - x0 + 2 * pad, (line.bottom - line.top) * 1.4], [left + (x0 + x1) / 2, y0 + (line.top + line.bottom) / 2 - top], p);
-    comeIn(part, i * step, 0, 40 * u);
+    comeIn(part, i * step, 40 * u, env);
     return part;
   });
   if (under) {
     const color = [...under.spec.color.slice(0, 3), under.spec.color[3] * 0.85] as RGBA;
     const part = textPart(env, { ...under.spec, color }, sub, [boxWidth, subHeight * 1.3], [x + w / 2, y0 + titleHeight + gap + subHeight / 2], p);
-    comeIn(part, (words.length - 1) * step + IN * 0.5, 0, 20 * u);
+    comeIn(part, (words.length - 1) * step + comeInTime(env) * 0.5, 20 * u, env);
     parts.push(part);
   }
   return parts;
@@ -224,34 +264,36 @@ function lowerThird(p: Piece, r: Rect, env: BuildEnv): Part[] {
   const [x, y, w, h] = r;
   const u = Math.min(w / 1920, h / 1080) * 1.6;
   const role = p.detail.trim();
-  const name = fit(env, textSpec(env, p.text, 56 * u, 700, w * 0.7, "left"), 1, h * 0.2);
-  const sub = role ? fit(env, textSpec(env, role, name.spec.size * 0.6, 400, w * 0.7, "left"), 1, h * 0.12) : undefined;
+  const name = fit(env, textSpec(env, "heading", p.text, 56 * u, w * 0.7, "left"), 1, h * 0.2);
+  const sub = role ? fit(env, textSpec(env, "body", role, name.spec.size * 0.6, w * 0.7, "left"), 1, h * 0.12) : undefined;
   const widthOf = (l: TextLine[]) => Math.max(...l.map((line) => line.carets.at(-1)! - line.carets[0]!));
   const lineH = (l: TextLine[]) => l.at(-1)!.bottom - l[0]!.top;
   const pad = 28 * u;
   const stripe = 8 * u;
+  const d = comeInTime(env);
   const textW = Math.max(widthOf(name.laid), sub ? widthOf(sub.laid) : 0);
   const [barW, barH] = [textW + 2 * pad + stripe, lineH(name.laid) + (sub ? lineH(sub.laid) + 6 * u : 0) + 2 * pad * 0.7];
   const [bx, by] = [x + w * 0.06, y + h * 0.88 - barH];
-  const bar = boxPart(env, [barW, barH], [bx + barW / 2, by + barH / 2], BAR, 6 * u, p);
-  const accent = boxPart(env, [stripe, barH], [bx + stripe / 2, by + barH / 2], ACCENT, 0, p);
+  const bar = boxPart(env, [barW, barH], [bx + barW / 2, by + barH / 2], env.look.card, 6 * u, p);
   // The bar wipes in: its crop from the right shrinks to nothing.
-  (bar.props as Record<string, unknown>).crop = { left: 0, top: 0, right: barW, bottom: 0 };
-  bar.animations.push({ end: IN, duration: IN, easing: "easeOut", to: { "crop.right": 0 } });
-  fadeOut(bar, IN);
-  const accentPart = accent;
-  (accentPart.props.transform as { opacity: number }).opacity = 0;
-  accentPart.animations.push({ end: 0.15, duration: 0.15, easing: "easeOut", to: { "transform.opacity": 1 } });
-  fadeOut(accentPart, 0.15);
+  bar.props.crop = { left: 0, top: 0, right: barW, bottom: 0 };
+  bar.animations.push({ end: d, duration: d, easing: "easeOut", to: { "crop.right": 0 } });
+  fadeOut(bar, d);
+  const accent = boxPart(env, [stripe, barH], [bx + stripe / 2, by + barH / 2], env.look.accent, 0, p);
+  (accent.props.transform as { opacity: number }).opacity = 0;
+  accent.animations.push({ end: 0.15, duration: 0.15, easing: "easeOut", to: { "transform.opacity": 1 } });
+  fadeOut(accent, 0.15);
   const tx = bx + stripe + pad;
   const top = by + pad * 0.7;
+  // On a bar the name slides (or wipes) in along it, whatever the Look's entrance.
+  const along = env.look.entrance === "wipe" ? "wipe" : "slide";
   const namePart = textPart(env, name.spec, p.text, [w * 0.7, lineH(name.laid) * 1.3], [tx + (w * 0.7) / 2, top + lineH(name.laid) / 2], p, false);
-  comeIn(namePart, IN * 0.5, -30 * u, 0, "easeOut");
-  const parts = [bar, accentPart, namePart];
+  comeIn(namePart, d * 0.5, 20 * u, env, along);
+  const parts = [bar, accent, namePart];
   if (sub) {
     const color = [...sub.spec.color.slice(0, 3), sub.spec.color[3] * 0.8] as RGBA;
     const part = textPart(env, { ...sub.spec, color }, role, [w * 0.7, lineH(sub.laid) * 1.3], [tx + (w * 0.7) / 2, top + lineH(name.laid) + 6 * u + lineH(sub.laid) / 2], p, false);
-    comeIn(part, IN * 0.75, -30 * u, 0, "easeOut");
+    comeIn(part, d * 0.75, 20 * u, env, along);
     parts.push(part);
   }
   return parts;
@@ -264,24 +306,20 @@ function number(p: Piece, r: Rect, env: BuildEnv): Part[] {
   const label = p.text.trim();
   const decimals = Number.isInteger(p.value) ? 0 : Math.min(2, (String(p.value).split(".")[1] ?? "").length);
   const shown = `${p.prefix}${new Intl.NumberFormat("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(p.value)}${p.suffix}`;
-  const big = fit(env, textSpec(env, shown, 220 * u, 700, w * 0.9), 1, h * (label ? 0.6 : 0.85));
-  const under = label ? fit(env, textSpec(env, label, big.spec.size * 0.26, 500, w * 0.9), 2, h * 0.25) : undefined;
+  const big = fit(env, textSpec(env, "heading", shown, 220 * u, w * 0.9), 1, h * (label ? 0.6 : 0.85));
+  const under = label ? fit(env, textSpec(env, "body", label, big.spec.size * 0.26, w * 0.9), 2, h * 0.25) : undefined;
   const lineH = (l: TextLine[]) => l.at(-1)!.bottom - l[0]!.top;
   const gap = big.spec.size * 0.08;
   const total = lineH(big.laid) + (under ? gap + lineH(under.laid) : 0);
   const y0 = y + (h - total) / 2;
   const count = textPart(env, big.spec, `${p.prefix}{n}${p.suffix}`, [w * 0.95, lineH(big.laid) * 1.3], [x + w / 2, y0 + lineH(big.laid) / 2], p);
-  (count.props.callout as Record<string, unknown>).count = { from: 0, to: p.value, seconds: Math.min(1.6, Math.max(0.4, (p.end - p.start) * 0.45)), decimals };
-  const t = count.props.transform as { scaleX: number; scaleY: number; opacity: number };
-  t.scaleX = t.scaleY = 0.85;
-  t.opacity = 0;
-  count.animations.push({ end: 0.3, duration: 0.3, easing: "easeOut", to: { "transform.opacity": 1 } });
-  count.animations.push({ end: IN, duration: IN, easing: "backOut", to: { "transform.scaleX": 1, "transform.scaleY": 1 } });
-  fadeOut(count, IN);
+  (count.props.callout as Record<string, unknown>).count = { from: 0, to: p.value, seconds: Math.min(1.6, Math.max(0.4, (p.end - p.start) * 0.45)) / env.look.speed, decimals };
+  // A counting number grows in: a wipe or slide would show its width changing as the digits do.
+  comeIn(count, 0, 30 * u, env, env.look.entrance === "rise" ? "rise" : "scale");
   const parts = [count];
   if (under) {
     const part = textPart(env, under.spec, label, [w * 0.9, lineH(under.laid) * 1.3], [x + w / 2, y0 + lineH(big.laid) + gap + lineH(under.laid) / 2], p);
-    comeIn(part, IN * 0.6, 0, 20 * u);
+    comeIn(part, comeInTime(env) * 0.6, 20 * u, env);
     parts.push(part);
   }
   return parts;
@@ -297,22 +335,21 @@ function list(p: Piece, r: Rect, env: BuildEnv): Part[] {
   let size = 64 * u;
   const heightAt = (s: number) => items.length * s * 1.6;
   while (heightAt(size) > h * 0.9 && size > 8) size *= 0.9;
-  const fitted = items.map((it) => fit(env, textSpec(env, it, size, 500, textW, "left"), 1, size * 1.6));
+  const fitted = items.map((it) => fit(env, textSpec(env, "body", it, size, textW, "left", 500), 1, size * 1.6));
   size = Math.min(...fitted.map((f) => f.spec.size));
   const row = size * 1.6;
   const y0 = y + (h - items.length * row) / 2;
   const dot = size * 0.32;
   // The list is centred on its widest item, not on the text boxes (as wide as the area allows).
-  const widest = Math.max(...items.map((it) => Math.max(...env.layout(textSpec(env, it, size, 500, textW, "left")).map((l) => l.carets.at(-1)! - l.carets[0]!))));
+  const widest = Math.max(...items.map((it) => Math.max(...env.layout(textSpec(env, "body", it, size, textW, "left", 500)).map((l) => l.carets.at(-1)! - l.carets[0]!))));
   const left = x + (w - widest - dot * 3) / 2;
-  const step = Math.min(0.3, Math.max(0.12, (p.end - p.start - IN - 0.5) / Math.max(1, items.length)));
+  const step = Math.min(0.3, Math.max(0.12, (p.end - p.start - comeInTime(env) - 0.5) / Math.max(1, items.length))) / env.look.speed;
   return items.flatMap((it, i) => {
     const cy = y0 + row * (i + 0.5);
-    const d = boxPart(env, [dot, dot], [left + dot / 2, cy], ACCENT, dot / 2, p);
-    comeIn(d, i * step, -24 * u, 0, "easeOut");
-    const spec = { ...fitted[i]!.spec, size };
-    const t = textPart(env, spec, it, [textW, row], [left + dot * 3 + textW / 2, cy], p);
-    comeIn(t, i * step + 0.06, -24 * u, 0, "easeOut");
+    const d = boxPart(env, [dot, dot], [left + dot / 2, cy], env.look.accent, dot / 2, p);
+    comeIn(d, i * step, 16 * u, env, "slide");
+    const t = textPart(env, { ...fitted[i]!.spec, size }, it, [textW, row], [left + dot * 3 + textW / 2, cy], p);
+    comeIn(t, i * step + 0.06, 16 * u, env, env.look.entrance === "rise" ? "slide" : env.look.entrance);
     return [d, t];
   });
 }
@@ -320,9 +357,9 @@ function list(p: Piece, r: Rect, env: BuildEnv): Part[] {
 function text(p: Piece, r: Rect, env: BuildEnv): Part[] {
   const [x, y, w, h] = r;
   const u = unit(r);
-  const { spec, laid } = fit(env, textSpec(env, p.text, 72 * u, 600, w * 0.9), 2, h * 0.8);
+  const { spec, laid } = fit(env, textSpec(env, "body", p.text, 72 * u, w * 0.9, "center", 600), 2, h * 0.8);
   const part = textPart(env, spec, p.text, [w * 0.9, (laid.at(-1)!.bottom - laid[0]!.top) * 1.3], [x + w / 2, y + h / 2], p);
-  comeIn(part, 0, 0, 24 * u);
+  comeIn(part, 0, 24 * u, env);
   return [part];
 }
 
@@ -337,10 +374,25 @@ export function tidy(p: Piece, length: number): Piece | undefined {
   return needs && end - start >= 0.5 - 1e-6 ? piece : undefined;
 }
 
-/** A composition's pieces as parts, each on its own track (bottom → top), in the box. */
+/** What goes behind the pieces, over the whole clip: fading in and out with them. */
+function backdrop(env: BuildEnv): Part[] {
+  if (env.background === "none") return [];
+  const whole = { start: 0, end: env.length };
+  const { width: w, height: h } = env;
+  const inset = Math.min(w, h) * 0.06;
+  const part = env.background === "dim" ? boxPart(env, [w, h], [w / 2, h / 2], [0, 0, 0, 0.5], 0, whole) : boxPart(env, [w - 2 * inset, h - 2 * inset], [w / 2, h / 2], env.look.card, Math.min(w, h) * 0.04, whole);
+  const t = part.props.transform as { opacity: number };
+  t.opacity = 0;
+  part.animations.push({ end: 0.3, duration: 0.3, easing: "easeOut", to: { "transform.opacity": 1 } });
+  fadeOut(part, 0.3);
+  return [part];
+}
+
+/** A composition's pieces as parts, each on its own track (bottom → top), in the box, in its Look. */
 export function build(pieces: Piece[], env: BuildEnv): Part[] {
-  return pieces.flatMap((raw) => {
+  const parts = pieces.flatMap((raw) => {
     const p = tidy(raw, env.length);
     return p ? BUILDERS[p.kind](p, areaRect(p.area, env.width, env.height), env) : [];
   });
+  return parts.length ? [...backdrop(env), ...parts] : [];
 }
