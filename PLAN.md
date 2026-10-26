@@ -2355,6 +2355,28 @@ cut. So the gap the user saw was the author (Apple's template), not the
 renderer. Next: OpenAI writing with HyperFrames' design guidance and blocks as
 examples, GSAP allowed (vendored, pinned) so its blocks port, and an Exit
 choice (Fade, the default 0.35 s fade today; Cut; Slide Out).
+**Two more comparisons (2026-10-26).** (1) A dynamic talking-head edit of the
+same line: HyperFrames (written by Claude with its guide, GSAP, the footage in
+the composition) punched in, flashed to a full-screen card with the speaker in
+a round picture-in-picture, slammed type beside the face; Beacon (OpenAI via
+`motion.make`, overlay only) got the structure but covered the speaker (it
+can't move the footage), put a card over the face, had layout bugs (empty
+card before its words, a lost space) and used the Look's yellow over the
+orange asked for. (2) A pure motion graphic (cream, drifting iridescent light,
+words grey to black): HyperFrames close to the user's reference; Beacon flat
+cream, no light, wrapped, wiped in, 114 s. OpenAI's HTML shows why: the
+contract's "the Look's colours only" (Minimal's white accent made its light
+invisible) and fixed `.w` entrances. **The renderer is equal; the contract and
+the author are the gap.** Not yet a fair OpenAI-vs-Claude test.
+**Next, in order (the user, 2026-10-26):** (1) loosen the contract: the Look
+is the default, the prompt wins (colours, fonts, gradients, blurred light);
+free CSS, GSAP vendored and pinned; `.w`/`.in`/`.count` optional helpers;
+cards sized to content, spaces kept between word spans; (2) give the author
+HyperFrames' guidance (motion, captions, design systems) and a few blocks as
+examples; (3) then compare OpenAI and Claude (Anthropic's API, a key the user
+has) on the same briefs, keep OpenAI, add Claude if it wins; (4) the footage
+under a graphic (punch-in, picture-in-picture, split), face awareness (Vision),
+AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
 - **Decided (the user, 2026-10-26):** text follows the speech by default (each
   word in as it is said, from the transcript's word times), "all at once" the
   other choice. The B-roll-style flow stays (placeholder, box, prompt, Make,
