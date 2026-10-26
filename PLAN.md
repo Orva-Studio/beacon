@@ -2432,43 +2432,19 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   format (`data-start`, `data-duration`, seekable timelines) is followed where
   it fits; GSAP, if used, is vendored and pinned.
 
-**Next after motion graphics (the user, 2026-10-26).**
-- **B-roll: the model picked on the clip.** The tab's Footage menu becomes the
-  model menu, each with its price (Settings › AI's model is only the default);
-  takes stay pickable.
-- **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
-  or two more), in place of the film and product groups.
-- **Motion graphics: borrow from HyperFrames** (Apache 2.0, its NOTICE kept):
-  its composition format, its seek adapters (GSAP, Web Animations, Lottie,
-  three.js), its catalog blocks as templates and as examples for the AI, and
-  its skills' design guidance; files vendored and pinned, not installed.
-- **The user's notes from using Beacon (2026-10-26)**, after motion graphics:
-  1. **A large video dragged from Finder** doesn't land at once: the drag
-     snaps back to Finder unless held over the timeline for a second.
-     Likely the drop waits on something slow (probing or copying the file)
-     before it accepts; it should accept at once and show a placeholder
-     while the file is read. `BEACON_PROFILE=1` prints the drop's steps
-     (`[drop]`) to find which.
-  2. **Drag below the lowest track to make a new one**, as dragging above
-     the top track does (a new track at the bottom).
-  3. **Sliders are hard to hit**: widen their hit area (the thumb and the
-     track, e.g. a taller invisible hit box), across every slider in
-     `controls/`.
-  4. **Text highlighting**: a highlight behind words (a marker swipe) in
-     text and captions; which (callouts, captions, both) and how it looks
-     to settle with the user.
-  5. **Remove Silences misses a pause split across a cut**: a short silence
-     at the end of one clip and another at the start of the next, each under
-     the minimum, are together a silence the tool should find. Measure
-     silence along the timeline (across adjacent clips), not per clip.
-- **Captions for a selection** (the user, 2026-10-26): Captions with an in/out
-  range (else selected clips) captions only that span. `captions.create` takes
-  `from`/`to`, captions words starting inside it and replaces only the
-  captions overlapping it, keeping the rest; `captions.add` passes the range
-  (or the selection's extent), the whole timeline when there is neither. One
-  style for the track as now. A UI-harness flow and a `docs/tested.md` entry.
-- **Motion graphics: three.js** for 3D text, logos and particles, vendored and
-  pinned, loaded from beside the page (no network), after the HTML pipeline.
+**What is left of motion graphics, in order (the user, 2026-10-26; then Phase 11 closes).**
+1. **A reference image** on a motion clip, recreated in HTML and animated
+   (above).
+2. **OpenAI vs Claude** on the same briefs (HyperFrames' four single-graphic
+   examples are a ready set), both keys; keep OpenAI, add Claude if it wins.
+3. **The footage under a graphic** (punch-in, picture-in-picture, split),
+   face awareness (Vision) so overlays keep clear of the speaker, and an
+   **Exit** choice (Fade, Cut, Slide Out).
+4. **AI backgrounds** behind a graphic (an OpenAI image or a B-roll loop).
+Done since they were planned here: HyperFrames' catalog, guidance and seek
+conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
+B-roll items, captions for a selection and the user's notes to Phase 11.5;
+whole films to Phase 16.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
@@ -2562,6 +2538,43 @@ timestamps, so the chain ends in `asetpts=N/SR/TB`.
 are paid cloud jobs reviewed in the sidebar); the selected part by default.
 **Open:** whether audio already cleaned is reused when exactly the same
 audio is sent again (asked). Later: clean only what is kept, at export.
+
+### Phase 11.5 — Editing polish (the user, 2026-10-26; after Phase 11)
+Small fixes and features the user noticed while editing, gathered out of
+Phase 11 so it can close with motion graphics.
+- **The user's notes from using Beacon (2026-10-26):**
+  1. **A large video dragged from Finder** doesn't land at once: the drag
+     snaps back to Finder unless held over the timeline for a second.
+     Likely the drop waits on something slow (probing or copying the file)
+     before it accepts; it should accept at once and show a placeholder
+     while the file is read. `BEACON_PROFILE=1` prints the drop's steps
+     (`[drop]`) to find which.
+  2. **Drag below the lowest track to make a new one**, as dragging above
+     the top track does (a new track at the bottom).
+  3. **Sliders are hard to hit**: widen their hit area (the thumb and the
+     track, e.g. a taller invisible hit box), across every slider in
+     `controls/`.
+  4. **Text highlighting**: a highlight behind words (a marker swipe) in
+     text and captions; which (callouts, captions, both) and how it looks
+     to settle with the user.
+  5. **Remove Silences misses a pause split across a cut**: a short silence
+     at the end of one clip and another at the start of the next, each under
+     the minimum, are together a silence the tool should find. Measure
+     silence along the timeline (across adjacent clips), not per clip.
+- **Captions for a selection** (the user, 2026-10-26): Captions with an in/out
+  range (else selected clips) captions only that span. `captions.create` takes
+  `from`/`to`, captions words starting inside it and replaces only the
+  captions overlapping it, keeping the rest; `captions.add` passes the range
+  (or the selection's extent), the whole timeline when there is neither. One
+  style for the track as now. A UI-harness flow and a `docs/tested.md` entry.
+- **B-roll: the model picked on the clip.** The tab's Footage menu becomes the
+  model menu, each with its price (Settings › AI's model is only the default);
+  takes stay pickable.
+- **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
+  or two more), in place of the film and product groups.
+
+**Gate:** each item has its UI-harness flow (or core test) and a
+`docs/tested.md` entry; the user checks them by hand.
 
 ### Phase 12 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11)
 The user will bring a lot of information before any work starts: which
@@ -2773,6 +2786,27 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
 
 ---
+
+### Phase 16 — Films: narrated videos made from a brief (the user, 2026-10-26; to be confirmed)
+HyperFrames' other four examples (prompting/examples, "With registry blocks
+and source material") are whole films, not one graphic: a 45 s product
+launch from a URL (its palette and screenshots, a voice, music), a 60 s
+vertical explainer from pasted text (a voice, captions with keywords in the
+brand colour), a 30 s video from a GitHub PR (a code diff beat, kinetic
+captions), a 20 s beat-synced slideshow (eight generated images cut to a
+track's beat grid). Beacon has the pieces for one graphic (motion clips,
+captions, the catalog); a film needs:
+- **AI images**: a set in one visual language (OpenAI's image model), kept
+  in the project's media, usable in a composition.
+- **A voice**: text to speech (the user's cloned voice is a candidate), on
+  its own track, transcribed so captions and timing follow it.
+- **Music and its beat grid**: a track found or made, its beats analysed,
+  cuts and moves placed on them.
+- **Page screenshots** from a URL (a headless capture), and a site's palette.
+- **Several scenes**: a script split into beats, each a motion clip, with
+  transitions that have a cause.
+**Gate:** the four examples made from their prompts, compared with
+HyperFrames' renders as the single graphics were.
 
 ## 14. Risks
 
