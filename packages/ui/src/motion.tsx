@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Clip, Project, Session } from "@beacon/model";
 import type { Look, MotionProps, MotionState } from "@beacon/features";
 import { Button, Section, Segmented, Select, TextArea } from "./controls";
+import { MotionCode } from "./motion-code";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { useView } from "./store";
@@ -57,6 +58,10 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const busy = writing || making;
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(m.manual);
+  const [note, setNote] = useState("");
+  const [editing, setEditing] = useState(false);
+  // A change asked for is done once its take arrives.
+  useEffect(() => setNote(""), [m.takes.length, clip.id]);
   useEffect(() => setManual(m.manual), [m.manual]);
   const planner = useView((v) => v.preferences.find((p) => p.id === "motionPlanner")?.value);
   const online = useOnline();
@@ -73,7 +78,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const look = looks?.find((l) => l.id === m.look);
   const reference = m.reference ? project.assets[m.reference] : undefined;
   const by = m.takes[m.shown]?.by;
-  const designed = by === "openai" || by === "claude";
+  const designed = by === "openai" || by === "claude" || by === "you";
   const cost = typicalCost(project, planner ?? "openai");
   return (
     <Section>
@@ -222,6 +227,27 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             Draw Again
           </Button>
         )}
+        {m.shown >= 0 && (
+          <div className="flex flex-col gap-1" data-motion-edit>
+            <span className="text-label font-medium text-text-muted">Edit</span>
+            <TextArea rows={2} placeholder='Change something: "make the logo bigger", "slower", "a blue background"' value={note} onChange={(e) => setNote(e.target.value)} data-motion-note />
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                disabled={!note.trim() || busy || needsNet || planner === "apple"}
+                title={planner === "apple" ? "Revise needs OpenAI or Claude: choose one in Settings › AI" : needsNet ? offline : "The AI changes what you asked and keeps the rest: a new take"}
+                onClick={() => host.run("motion.revise", { clip: clip.id, note: note.trim() })}
+                data-motion-revise
+              >
+                {`Revise · ${planner === "apple" ? "Needs OpenAI or Claude" : `~$${cost.toFixed(2)}`}`}
+              </Button>
+              <Button look="quiet" disabled={busy} title="Edit its HTML, CSS and script with a live preview: a new take, free" onClick={() => setEditing(true)} data-motion-code>
+                Edit Code…
+              </Button>
+            </div>
+          </div>
+        )}
+        {editing && m.takes[m.shown] && <MotionCode host={host} clip={clip.id} html={m.takes[m.shown]!.html} onClose={() => setEditing(false)} />}
         <span className="text-caption text-text-faint">
           {planner === "apple"
             ? "Apple's model on this Mac fills a template: a title, lower third, number, list or text. OpenAI and Claude design anything (3D, maps, any style)."

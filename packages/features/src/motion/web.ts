@@ -126,6 +126,15 @@ export class Web {
     return round < ROUNDS;
   }
 
+  /** The page with each image it holds (a long data: URL) swapped for an asset id, to send it to the author without them. */
+  keep(html: string): string {
+    return html.replace(/data:[a-z]+\/[a-z0-9.+-]+(;[a-z0-9=.+-]+)*,[^"')\s]{200,}/gi, (data) => {
+      const asset = `kept-${this.assets.size + 1}`;
+      this.assets.set(asset, data);
+      return `asset:${asset}`;
+    });
+  }
+
   /** The page with each asset it uses put in as its data. */
   resolve(html: string): string {
     return html.replace(/asset:([A-Za-z]+-\d+)/g, (whole, id: string) => this.assets.get(id) ?? whole);

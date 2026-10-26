@@ -23,6 +23,11 @@ const server = Bun.serve({
     const body = (await req.json()) as { text: { format: { name: string } } };
     asked.push(body);
     await hold;
+    // Asked to revise: the whole graphic again with the change, its image kept by the id it was sent as.
+    if (body.text.format.name === "motion_graphic" && JSON.stringify((body as { input?: unknown }).input).includes("The change: bigger")) {
+      const kept = /asset:kept-\d+/.exec(JSON.stringify((body as { input?: unknown }).input))?.[0];
+      return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ html: `<div class="t" style="font-size:200px">Bigger</div><img src="${kept}">` }) }] }], usage: { input_tokens: 100, output_tokens: 10 } });
+    }
     // Asked for the Firecrawl logo: it calls `brand` first, then uses the asset it gave.
     const input = JSON.stringify((body as { input?: unknown }).input);
     if (body.text.format.name === "motion_graphic" && input.includes("Firecrawl logo")) {
@@ -165,6 +170,50 @@ test("the author searches the web through Firecrawl (keyless, or with the user's
     delete process.env.BEACON_FIRECRAWL_URL;
   }
 }, 60_000);
+
+test("a made graphic edited: its code by hand (motion.page previews it), then revised by the AI as asked, each a new take; its images aren't sent", async () => {
+  const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
+  const core = new LocalCore({ configDir: join(dir, "config-edit"), cacheDir: join(dir, "cache"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  const h = await core.create({ path: join(dir, "edit.beproj") });
+  await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Three wins, on x-post" });
+  const id = (await core.session(h)).selection[0]!;
+  const m = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.props.motion as MotionProps;
+  await core.run(h, "clip.set", { clip: id, props: { motionBox: { width: 640, height: 360 } } });
+  await expect(core.run(h, "motion.revise", { clip: id, note: "bigger" })).rejects.toThrow(/make the motion graphic first/);
+  await core.run(h, "motion.make", {});
+  await settled(core);
+  const image = `data:image/png;base64,${"A".repeat(400)}`;
+  const hand = `<div class="t">By hand</div><img src="${image}">`;
+  const preview = (await core.query(h, "motion.page", { clip: id, html: hand })) as { page: string; width: number; height: number; length: number };
+  expect(preview.page).toContain("By hand");
+  expect(preview.page).toContain("window.__seek");
+  expect([preview.width, preview.height]).toEqual([640, 360]);
+  expect(preview.length).toBeCloseTo(2, 3);
+  const steps = (await core.history(h)).undo.length;
+  await core.run(h, "motion.code", { clip: id, html: hand });
+  await settled(core);
+  expect(m().takes).toHaveLength(2);
+  expect(m().shown).toBe(1);
+  expect(m().takes[1]).toMatchObject({ html: hand, by: "you", prompt: "Edited: Three wins, on x-post" });
+  expect(m().takes[1]!.cost).toBeUndefined();
+  // Undone, the code edit's take goes with it: one step.
+  expect((await core.history(h)).undo.length).toBe(steps + 1);
+  const calls = asked.length;
+  await core.run(h, "motion.revise", { clip: id, note: "bigger" });
+  await settled(core);
+  expect(((await core.session(h)).features.motion as MotionState).errors[id]).toBeUndefined();
+  expect(asked.length).toBe(calls + 1);
+  const sent = JSON.stringify(asked.at(-1)!.input);
+  expect(sent).toContain("By hand");
+  expect(sent).not.toContain("A".repeat(400));
+  expect(m().takes).toHaveLength(3);
+  expect(m().takes[2]).toMatchObject({ by: "openai", prompt: "Revised: bigger", html: `<div class="t" style="font-size:200px">Bigger</div><img src="${image}">` });
+  expect(m().takes[2]!.cost).toBeGreaterThan(0);
+  // Apple's model can't revise.
+  await core.setPreference("motionPlanner", "apple");
+  await expect(core.run(h, "motion.revise", { clip: id, note: "bigger" })).rejects.toThrow(/Revise needs OpenAI or Claude/);
+  await core.close(h);
+});
 
 test("OpenAI makes motion graphics by default, even before its key is added: Make then says where to add it; removing Claude's key falls back to OpenAI", async () => {
   const secrets = new Map<string, string>();

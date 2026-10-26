@@ -28,7 +28,7 @@ import {
 import { streamOf } from "../media";
 import { heardWords, regionOfClip, timelineSpan, trackIndex } from "../broll";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy } from "./blocks";
-import { compose, writeIdea, type Said } from "./compose";
+import { compose, revise, writeIdea, type Said } from "./compose";
 import { css, page, template } from "./html";
 import { DEFAULT_LOOK, lookOf, LOOKS } from "./looks";
 
@@ -215,7 +215,7 @@ const key = (env: { secret: (id: string) => Promise<string | undefined> }, plann
     : ((await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose another maker in Settings › AI"));
 
 /** What drawing a clip needs, read from it when the action starts: its box (as it shows now), length and Look. */
-function drawing(clip: Clip, ctx: ActionContext) {
+function drawing(clip: Clip, ctx: Pick<ActionContext, "project" | "registry">) {
   const m = motionOf(clip)!;
   const [, , w, h] = regionOfClip(clip, ctx.project, ctx.registry);
   // Even, as the encoder wants.
@@ -464,6 +464,78 @@ const make = defineAction({
   },
 });
 
+/** The take a clip shows, to change: refused while it is busy or before it is made. */
+function shownTake(clip: Clip, ctx: ActionContext) {
+  const m = motionOf(clip)!;
+  const busy = motionState(ctx.session);
+  if (busy.writing.includes(clip.id) || busy.making.includes(clip.id)) throw new Error("that clip is being written or made already");
+  return m.takes[m.shown] ?? fail("make the motion graphic first");
+}
+
+const reviseAction = defineAction({
+  id: "motion.revise",
+  description:
+    "Change a made motion graphic (`clip`, else the selected one) as `note` asks (\"make the logo bigger\", \"slower\"), the rest kept: the model chosen in Settings › AI (OpenAI or Claude, not Apple's) is given the take it shows and rewrites it, then it is drawn as a new take with who made it and its cost, one undo step. Runs as a job",
+  args: z.strictObject({ clip: z.string().min(1).optional(), note: z.string().trim().min(1) }),
+  resolve: ({ clip: id, note }, ctx) => {
+    const clip = targets(ctx, id ? [id] : undefined)[0]!;
+    const take = shownTake(clip, ctx);
+    const planner = String(ctx.pref(PLANNER));
+    if (planner === "apple") throw new Error("Revise needs OpenAI or Claude: choose one in Settings › AI (Apple's model only fills templates)");
+    const m = motionOf(clip)!;
+    const brief = (m.source === "auto" ? m.prompt : m.manual).trim() || take.prompt;
+    const said = saidUnder(clip, ctx);
+    const d = drawing(clip, ctx);
+    const ids = [clip.id];
+    return {
+      label: "Revise Motion Graphics",
+      before: [{ command: "motion.status", args: { clips: ids, making: true } }],
+      task: {
+        label: "Revise Motion Graphics",
+        run: async (env) => {
+          env.progress(0.05, `${WHO[planner] ?? planner} is revising the graphic`);
+          const meter = { cost: 0 };
+          const web = { key: await env.secret(FIRECRAWL), progress: (stage: string) => env.progress(0.15, stage) };
+          const html = await revise({ prompt: brief, said, width: d.width, height: d.height, length: d.length, look: d.look }, take.html, note, planner, key(env, planner), meter, web);
+          env.progress(0.3, "Drawing it");
+          const name = `Revised: ${note}`;
+          const asset = await draw(env, html, d, name, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
+          env.progress(1, "Revised");
+          return shown("Revise Motion Graphics", ids, [{ clip: clip.id, asset, html, name, d, cost: meter.cost, by: planner }]);
+        },
+        failed: (error) => [{ command: "motion.status", args: { clips: ids, making: false, ...(error === "cancelled" ? {} : { error }) } }],
+      },
+    };
+  },
+});
+
+const code = defineAction({
+  id: "motion.code",
+  description:
+    "Draw a motion graphic (`clip`, else the selected one) from `html` written by hand (the inside of its page's <body>, as the take it shows has it: motion.page gives the whole page) as a new take made by \"you\", no AI and no cost, one undo step. Runs as a job",
+  args: z.strictObject({ clip: z.string().min(1).optional(), html: z.string().trim().min(1) }),
+  resolve: ({ clip: id, html }, ctx) => {
+    const clip = targets(ctx, id ? [id] : undefined)[0]!;
+    const take = shownTake(clip, ctx);
+    const d = drawing(clip, ctx);
+    const ids = [clip.id];
+    const name = take.prompt.startsWith("Edited: ") ? take.prompt : `Edited: ${take.prompt}`;
+    return {
+      label: "Edit Motion Graphics Code",
+      before: [{ command: "motion.status", args: { clips: ids, making: true } }],
+      task: {
+        label: "Draw Motion Graphics",
+        run: async (env) => {
+          const asset = await draw(env, html, d, name, (f) => env.progress(f * 0.95, "Drawing it"));
+          env.progress(1, "Drawn");
+          return shown("Edit Motion Graphics Code", ids, [{ clip: clip.id, asset, html, name, d, cost: 0, by: "you" }]);
+        },
+        failed: (error) => [{ command: "motion.status", args: { clips: ids, making: false, ...(error === "cancelled" ? {} : { error }) } }],
+      },
+    };
+  },
+});
+
 const render = defineAction({
   id: "motion.render",
   description:
@@ -600,7 +672,7 @@ export const motion = defineFeature({
   ],
   commands,
   sessionCommands,
-  actions: [add, refer, write, make, render],
+  actions: [add, refer, write, make, reviseAction, code, render],
   secrets: [
     { id: ANTHROPIC, title: "Anthropic API key" },
     { id: FIRECRAWL, title: "Firecrawl API key" },
@@ -631,6 +703,18 @@ export const motion = defineFeature({
       description: "The Looks a motion graphic can take (its `motion.look`): each one's id, name, fonts, colours, shadow and motion",
       args: z.strictObject({}),
       run: () => LOOKS,
+    }),
+    defineQuery({
+      id: "motion.page",
+      description: "The whole page a motion graphic (`clip`) is drawn from, as WebKit gets it: the take it shows, or `html` (the inside of <body>) in its place, wrapped in its Look, runtime and libraries at its box's size and length; `window.__seek(t)` sets it to a time. For previewing an edit before motion.code",
+      args: z.strictObject({ clip: z.string().min(1), html: z.string().optional() }),
+      run: ({ clip: id, html }, ctx) => {
+        const { clip } = findClip(ctx.project, ctx.registry, id);
+        const m = motionOf(clip) ?? fail(`clip "${id}" isn't a motion graphic`);
+        const d = drawing(clip, ctx);
+        const body = html ?? m.takes[m.shown]?.html ?? fail("make the motion graphic first");
+        return { page: page(body, d), width: d.width, height: d.height, length: d.length };
+      },
     }),
     defineQuery({
       id: "motion.kinds",

@@ -2494,8 +2494,12 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   the page stays offline and redraws need nothing; an SVG under 20 KB is
   shown to the author to inline and animate. Up to 8 rounds, then it must
   answer. A real run drew Firecrawl's own flame and wordmark in its colours.
-- **Next, in order (the user, 2026-10-26):** Revise with a prompt and Edit
-  Code with a live preview (item 5 above's editing); **Sign in with
+- **Editing, built (2026-10-26):** Revise (`motion.revise`: the shown take
+  and a note to OpenAI or Claude, images held back as asset ids, a new take
+  with its cost) and Edit Code… (`motion.code`, `motion.page`: a textarea
+  beside a sandboxed `srcdoc` preview seeked by postMessage, a play bar;
+  Save draws a new take by "you", free).
+- **Next (the user, 2026-10-26):** **Sign in with
   ChatGPT** for the OpenAI maker (asked how easy: OpenAI's self-serve flow
   covers open-source and personal, locally run apps; a paid Beacon needs
   OpenAI's waitlist. OAuth in the browser with PKCE and dynamic client

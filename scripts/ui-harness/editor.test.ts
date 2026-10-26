@@ -223,6 +223,24 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await page.until("(document.querySelector('[data-motion-reference]')?.textContent ?? '') === 'reference.png'");
     await page.evaluate("document.querySelector('[data-motion-reference-remove]').click()");
     await arrived(() => !(motion().props.motion as { reference?: string }).reference);
+    // Edit: Revise needs OpenAI or Claude (Apple's model here); Edit Code… shows the code beside a live preview, and
+    // Save draws it as a new take, made by you.
+    await page.until("(document.querySelector('[data-motion-revise]')?.textContent ?? '') === 'Revise · Needs OpenAI or Claude'");
+    await page.until("document.querySelector('[data-motion-revise]').disabled");
+    await motionIdle();
+    const takes = m().takes.length;
+    await page.evaluate("document.querySelector('[data-motion-code]').click()");
+    await page.until("!!document.querySelector('[data-motion-code-dialog]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-motion-code-text]').value")).toBe(m().takes[m().shown]!.html);
+    await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('window.__seek')", 10_000);
+    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
+    await type("<div class=w data-t=0.1>Typed by hand</div>");
+    await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('Typed by hand')", 10_000);
+    await page.evaluate("document.querySelector('[data-motion-code-save]').click()");
+    await arrived(() => m().takes.length === takes + 1, 20_000);
+    expect(m().takes.at(-1)!.html).toBe("<div class=w data-t=0.1>Typed by hand</div>");
+    expect((m().takes.at(-1) as { by?: string }).by).toBe("you");
+    await page.until("!document.querySelector('[data-motion-code-dialog]')");
     // No Use for All: each graphic's Look is its own.
     expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-look-all]')")).toBe(true);
     await motionIdle();

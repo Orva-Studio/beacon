@@ -261,14 +261,14 @@ async function references(brief: string, ask: Ask): Promise<CatalogItem[]> {
 
 const HTML_SCHEMA = { type: "object", additionalProperties: false, required: ["html"], properties: { html: { type: "string" } } };
 
-/** What the author is asked, the same whoever writes it: the contract, the craft and the brief with its examples. */
-export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system: string; user: string }> {
-  const system = [
+/** The author's standing instructions, the same whoever writes it: the box, the contract, the craft and its tools. */
+function standing(r: ComposeRequest, reference: boolean): string {
+  return [
     `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,
     CONTRACT,
     CRAFT,
     `Kinds that often fit graphics over a talk: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; follow the brief when it asks for something else.`,
-    ...(r.reference
+    ...(reference
       ? [
           "A reference image is attached: recreate its design as closely as you can in HTML, CSS and SVG (its layout, type, colours, shapes, textures and the feel of its imagery), fitted to this box, then bring it to life: build it up piece by piece and keep it moving, following the craft above. The brief says what it shows and what to change; where the brief and the image differ, the brief wins. Draw everything yourself: the image itself isn't in the page.",
         ]
@@ -277,10 +277,17 @@ export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system
     "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
     "Answer with `html`: the inside of <body> only.",
   ].join("\n\n");
+}
+
+const saidLines = (said: Said) => (said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(said)}` : "Nothing is said under the clip: time it evenly.");
+
+/** What the author is asked, the same whoever writes it: the contract, the craft and the brief with its examples. */
+export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system: string; user: string }> {
+  const system = standing(r, !!r.reference);
   const refs = await references(r.prompt, ask);
   const user = [
     `The graphic: ${r.prompt}`,
-    r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly.",
+    saidLines(r.said),
     refs.length
       ? `Examples to adapt (a named one is the base to build on; the others show techniques). They were written for HyperFrames: its data-start, data-duration and data-composition-id attributes mean nothing here, but gsap, THREE and window.__timelines work as they do there. Rewrite them to this page's contract, at this box's size and length; never copy their <html>, <head> or external scripts.\n\n${examples(refs)}`
       : "",
@@ -288,6 +295,25 @@ export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system
     .filter(Boolean)
     .join("\n\n");
   return { system, user };
+}
+
+/**
+ * A made graphic changed as `note` asks, the rest kept: OpenAI or Claude is given its composition (images it holds
+ * swapped for asset ids, so they aren't sent) with the same standing instructions, and answers the whole of it again.
+ */
+export async function revise(r: ComposeRequest, html: string, note: string, planner: string, key: () => Promise<string>, meter?: Meter, web?: { key?: string; progress?: (stage: string) => void }): Promise<string> {
+  if (planner === "apple") throw new Error("Revise needs OpenAI or Claude: choose one in Settings › AI (Apple's model only fills templates)");
+  const ask = author(planner, await key(), meter);
+  const tools = new Web(web?.key, web?.progress);
+  const system = [
+    standing(r, false),
+    "You are revising a graphic already made: make the change asked, and keep everything else exactly as it is (its design, layout, timing, colours and code) unless the change needs it to move. Answer the whole revised composition.",
+  ].join("\n\n");
+  const user = [`The graphic was briefed as: ${r.prompt}`, `It is now:\n\n${tools.keep(html)}`, `The change: ${note}`, saidLines(r.said)].join("\n\n");
+  const out = await ask<{ html: string }>("motion_graphic", HTML_SCHEMA, system, user, [], "medium", tools);
+  const revised = tools.resolve(String(out.html ?? "").trim());
+  if (!revised) throw new Error(`${planner === "claude" ? "Claude" : "OpenAI"} wrote no motion graphic: try again, or reword the change`);
+  return revised.replace(/^[\s\S]*<body[^>]*>/i, "").replace(/<\/body>[\s\S]*$/i, "");
 }
 
 /**
