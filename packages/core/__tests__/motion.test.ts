@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MotionProps, MotionState } from "@beacon/features";
@@ -91,5 +91,36 @@ test("motion graphics designed by OpenAI as HTML, with examples from the catalog
   await settled(core);
   expect(((await core.session(h)).features.motion as MotionState).errors[id]).toMatch(/Settings › AI/);
   expect(m().takes).toHaveLength(2);
+  await core.close(h);
+}, 60_000);
+
+test("a reference image: copied into the project's media, sent to OpenAI with the brief to recreate and animate; Apple's model is refused; removed in one step", async () => {
+  const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
+  const core = new LocalCore({ configDir: join(dir, "config-ref"), cacheDir: join(dir, "cache-ref"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  await core.setPreference("brollPlanner", "openai");
+  const h = await core.create({ path: join(dir, "ref.beproj") });
+  await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Three wins" });
+  const id = (await core.session(h)).selection[0]!;
+  const m = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.props.motion as MotionProps;
+  // A 1×1 PNG.
+  const png = join(dir, "look.png");
+  writeFileSync(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+  await core.run(h, "motion.refer", { path: png });
+  await settled(core);
+  const ref = core.doc(h).assets[m().reference!]!;
+  expect(ref.kind).toBe("image");
+  expect(ref.path).toMatch(/ref\.beproj\/media\/Motion graphics\/References\/look\.png$/);
+  await core.run(h, "motion.make", {});
+  await settled(core);
+  const content = (asked.at(-1)!.input as { role: string; content: unknown }[]).find((x) => x.role === "user")!.content as { type: string; image_url?: string }[];
+  expect(content.find((c) => c.type === "input_image")!.image_url).toMatch(/^data:image\/png;base64,iVBOR/);
+  expect(JSON.stringify(asked.at(-1)!.input)).toContain("A reference image is attached");
+  expect(m().takes).toHaveLength(1);
+  await core.setPreference("brollPlanner", "apple");
+  await expect(core.run(h, "motion.make", {})).rejects.toThrow(/needs OpenAI/);
+  const steps = (await core.history(h)).undo.length;
+  await core.run(h, "motion.refer", { path: null });
+  expect(m().reference).toBeUndefined();
+  expect((await core.history(h)).undo.length).toBe(steps + 1);
   await core.close(h);
 }, 60_000);

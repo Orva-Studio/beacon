@@ -174,6 +174,16 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await arrived(() => ui.menus.includes("setPreference:motionLook=tech"));
     await page.evaluate(`[...document.querySelectorAll('[data-motion-timing] button')].find((b) => b.textContent === 'All at Once').click()`);
     await arrived(() => m().timing === "together");
+    // A reference image picked in Finder: copied into the project's media, named on the tab; Remove takes it away.
+    const png = join(dir, "reference.png");
+    writeFileSync(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    ui.chooseFile(png);
+    await page.evaluate("document.querySelector('[data-motion-reference-add]').click()");
+    await arrived(() => !!(motion().props.motion as { reference?: string }).reference);
+    expect(ui.menus).toContain("chooseFile:png,jpg,jpeg,webp,gif");
+    await page.until("(document.querySelector('[data-motion-reference]')?.textContent ?? '') === 'reference.png'");
+    await page.evaluate("document.querySelector('[data-motion-reference-remove]').click()");
+    await arrived(() => !(motion().props.motion as { reference?: string }).reference);
     // Use for All gives every motion graphic the Look, one undo step.
     await run("motion.add", { time: 20, prompt: "Hello there" });
     const other = clips().filter((c) => c.type === "motion").find((c) => c.id !== motion().id)!;

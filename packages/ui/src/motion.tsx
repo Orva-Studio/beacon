@@ -12,6 +12,9 @@ export const motionStateOf = (s: Session | undefined) => (s?.features.motion as 
 /** A motion graphics clip with nothing made yet: its box shows on the canvas, nothing in an export. */
 export const isEmptyMotion = (c: Clip) => c.type === "motion" && !c.assetId;
 
+/** Images a reference can be: motion.refer's. */
+const REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
+
 /** A take in the Take menu: its prompt, in a few words. */
 const takeName = (t: MotionProps["takes"][number]) => (t.prompt.length > 50 ? `${t.prompt.slice(0, 50)}…` : t.prompt) || "Untitled";
 
@@ -60,6 +63,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const prompted = !!(auto ? m.prompt : manual).trim() || !!said;
   const looks = useQuery<Look[]>(host, "motion.looks");
   const look = looks?.find((l) => l.id === m.look);
+  const reference = m.reference ? project.assets[m.reference] : undefined;
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-motion-tab>
@@ -144,6 +148,33 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             <span className="text-caption text-text-faint">A title, a name and role, a number, a list, or a line of text, with the words to show.</span>
           </label>
         )}
+        <div className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Reference Image</span>
+          {reference ? (
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-caption text-text" title={reference.path} data-motion-reference>
+                {reference.name ?? reference.path.split("/").at(-1)}
+              </span>
+              <Button look="quiet" disabled={busy} onClick={() => host.run("motion.refer", { clip: clip.id, path: null })} data-motion-reference-remove>
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                const path = await host.chooseFile(REFERENCE_EXTENSIONS);
+                if (path) host.run("motion.refer", { clip: clip.id, path });
+              }}
+              data-motion-reference-add
+            >
+              Add Image…
+            </Button>
+          )}
+          <span className="text-caption text-text-faint">
+            {reference && planner !== "openai" ? "Needs OpenAI as the planner (Settings › AI)." : "Make recreates its design and animates it (OpenAI)."}
+          </span>
+        </div>
         {m.takes.length > 1 && (
           <label className="flex flex-col gap-1">
             <span className="text-label font-medium text-text-muted">Take</span>

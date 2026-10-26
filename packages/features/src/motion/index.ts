@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { renderHtml } from "@beacon/media";
 import {
@@ -54,6 +54,8 @@ const motionGroup = z.strictObject({
   /** Its design (a Look's id), and whether words come in as they are said or all at once. */
   look: z.string(),
   timing: z.enum(["speech", "together"]),
+  /** An image (an asset) whose design Make recreates and animates. */
+  reference: z.string().optional(),
   /** Every composition made (the inside of its page's body) and its drawing, an earlier one picked again; `shown` is the one in the clip. */
   takes: z.array(z.strictObject({ prompt: z.string(), html: z.string(), assetId: z.string().optional() })),
   shown: z.number().int().min(-1),
@@ -127,6 +129,21 @@ const commands = [
       c.mediaStart = 0;
       delete c.speed;
       c.duration = Math.min(c.duration, secondsToTicks(s.duration));
+    },
+  }),
+  defineCommand({
+    id: "motion.reference",
+    description: "Give a motion graphics clip a reference image (`asset`, an image asset) whose design motion.make recreates in HTML and animates, or take it away (`asset: null`); motion.refer adds the image from a file",
+    args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1).nullable() }),
+    apply(doc, { clip, asset }, ctx) {
+      const { clip: c } = findClip(doc, ctx.registry, clip);
+      const m = motionOf(c);
+      if (c.type !== "motion" || !m) throw new Error(`clip "${clip}" isn't a motion graphic`);
+      if (asset === null) delete m.reference;
+      else {
+        if (doc.assets[asset]?.kind !== "image") throw new Error(`asset "${asset}" isn't an image`);
+        m.reference = asset;
+      }
     },
   }),
   defineCommand({
@@ -269,6 +286,52 @@ const add = defineAction({
   },
 });
 
+/** Images OpenAI takes as a reference. */
+const REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
+
+const refer = defineAction({
+  id: "motion.refer",
+  description:
+    "Give a motion graphics clip (`clip`, else the selected one) a reference image from a file (`path`: PNG, JPEG, WebP or GIF), copied into the project's media/Motion graphics/References folder, whose design motion.make recreates in HTML and animates (OpenAI only); `path: null` takes it away. One undo step",
+  args: z.strictObject({ clip: z.string().min(1).optional(), path: z.string().min(1).nullable() }),
+  resolve: ({ clip: id, path }, ctx) => {
+    const clip = targets(ctx, id ? [id] : undefined)[0]!;
+    if (path === null) return { label: "Remove Reference Image", steps: [{ command: "motion.reference", args: { clip: clip.id, asset: null } }] };
+    if (!REFERENCE_EXTENSIONS.includes(extname(path).slice(1).toLowerCase())) throw new Error(`a reference image is a ${REFERENCE_EXTENSIONS.join(", ")} file`);
+    return {
+      label: "Reference Image",
+      task: {
+        label: "Add Reference Image",
+        run: async (env) => {
+          const dir = join(env.mediaDir, "Motion graphics", "References");
+          mkdirSync(dir, { recursive: true });
+          const stem = basename(path, extname(path));
+          let copy = join(dir, basename(path));
+          // Taken by creating it, as a drawing's name is: never over another reference.
+          for (let n = 2; ; n++) {
+            try {
+              writeFileSync(copy, "", { flag: "wx" });
+              break;
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+              copy = join(dir, `${stem} ${n}${extname(path)}`);
+            }
+          }
+          copyFileSync(path, copy);
+          const asset = await env.asset(copy, "image");
+          return () => ({
+            label: "Reference Image",
+            steps: [
+              { command: "asset.add", args: asset },
+              { command: "motion.reference", args: (r: unknown[]) => ({ clip: clip.id, asset: r[0] }) },
+            ],
+          });
+        },
+      },
+    };
+  },
+});
+
 const write = defineAction({
   id: "motion.write",
   description:
@@ -341,6 +404,8 @@ const make = defineAction({
     const prompt = (m.source === "auto" ? m.prompt : m.manual).trim() || said.words.map((w) => w.text).join(" ");
     if (!prompt) throw new Error("the clip has no prompt and nothing is said under it: type a prompt (Manual)");
     const planner = String(ctx.pref("brollPlanner"));
+    const reference = m.reference ? ctx.project.assets[m.reference]?.path : undefined;
+    if (reference && planner !== "openai") throw new Error("a reference image needs OpenAI to make it: choose OpenAI as the planner in Settings › AI, or remove the image");
     const d = drawing(clip, ctx);
     const shape = shapeOf(clip.id, ctx);
     const ids = [clip.id];
@@ -351,7 +416,7 @@ const make = defineAction({
         label: "Make Motion Graphics",
         run: async (env) => {
           env.progress(0.05, planner === "openai" ? "OpenAI is designing the graphic" : "Apple's on-device model is picking the graphic");
-          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look }, planner, key(env));
+          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}) }, planner, key(env));
           env.progress(0.3, "Drawing it");
           const asset = await draw(env, html, d, prompt, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
           env.progress(1, "Made");
@@ -495,7 +560,7 @@ export const motion = defineFeature({
   ],
   commands,
   sessionCommands,
-  actions: [add, write, make, render],
+  actions: [add, refer, write, make, render],
   preferences: [
     {
       id: "motionLook",

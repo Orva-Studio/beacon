@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { jobSignal, runTool, tool } from "@beacon/media";
 import { PLAN_MODEL } from "../broll/plan";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy, type Piece } from "./blocks";
@@ -42,8 +42,8 @@ async function onDevice<T>(kind: string, instructions: string, prompt: string): 
   }
 }
 
-/** OpenAI's Responses API, answering JSON to `schema`. */
-async function openai<T>(apiKey: string, name: string, schema: object, system: string, user: string, effort = "medium"): Promise<T> {
+/** OpenAI's Responses API, answering JSON to `schema`; the user's turn is text, or text and images. */
+async function openai<T>(apiKey: string, name: string, schema: object, system: string, user: string | object[], effort = "medium"): Promise<T> {
   const res = await fetch(`${api()}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -114,6 +114,15 @@ export interface ComposeRequest {
   width: number;
   height: number;
   look: Look;
+  /** An image whose design the graphic recreates (OpenAI only). */
+  reference?: string;
+}
+
+/** An image file as OpenAI takes one in a message. */
+function image(path: string) {
+  const ext = extname(path).slice(1).toLowerCase();
+  const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+  return { type: "input_image", image_url: `data:${mime};base64,${readFileSync(path).toString("base64")}`, detail: "high" };
 }
 
 const PICK_SCHEMA = { type: "object", additionalProperties: false, required: ["names"], properties: { names: { type: "array", items: { type: "string" } } } };
@@ -162,6 +171,11 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
     CONTRACT,
     CRAFT,
     `Kinds that often fit graphics over a talk: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; follow the brief when it asks for something else.`,
+    ...(r.reference
+      ? [
+          "A reference image is attached: recreate its design as closely as you can in HTML, CSS and SVG (its layout, type, colours, shapes, textures and the feel of its imagery), fitted to this box, then bring it to life: build it up piece by piece and keep it moving, following the craft above. The brief says what it shows and what to change; where the brief and the image differ, the brief wins. Draw everything yourself: the image itself isn't in the page.",
+        ]
+      : []),
     "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
     "Answer with `html`: the inside of <body> only.",
   ].join("\n\n");
@@ -176,7 +190,7 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
   ]
     .filter(Boolean)
     .join("\n\n");
-  const out = await openai<{ html: string }>(apiKey, "motion_graphic", HTML_SCHEMA, system, user);
+  const out = await openai<{ html: string }>(apiKey, "motion_graphic", HTML_SCHEMA, system, r.reference ? [{ type: "input_text", text: user }, image(r.reference)] : user);
   const html = String(out.html ?? "").trim();
   if (!html) throw new Error("OpenAI wrote no motion graphic: try again, or reword the prompt");
   // Its own document wrapper, if it wrote one anyway: only the inside of <body> is kept.

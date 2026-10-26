@@ -2434,7 +2434,13 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
 
 **What is left of motion graphics, in order (the user, 2026-10-26; then Phase 11 closes).**
 1. **A reference image** on a motion clip, recreated in HTML and animated
-   (above).
+   (above). **Built (2026-10-26):** Reference Image on the Motion tab (Add
+   Image…, Remove), `motion.refer` (copied into media/Motion graphics/
+   References, an image asset; `motion.reference` the command); Make sends
+   it to OpenAI as an `input_image` beside the brief, told to recreate its
+   design and animate it; with Apple's model Make says it needs OpenAI.
+   Tried with stills from HyperFrames' count-up and map renders and new
+   words ($9.1M MRR; London → New York): both kept the design closely.
 2. **OpenAI vs Claude** on the same briefs (HyperFrames' four single-graphic
    examples are a ready set), both keys; keep OpenAI, add Claude if it wins.
 3. **The footage under a graphic** (punch-in, picture-in-picture, split),
