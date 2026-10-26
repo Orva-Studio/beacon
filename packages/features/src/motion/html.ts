@@ -63,8 +63,8 @@ Optional helpers Beacon animates in the Look's entrance:
 - span.w: one word that comes in when it is said, data-t="<seconds from the clip's start>" (from the word times given). Keep a space between words; in a flex or grid row, give the row a gap.
 - .in: any element that comes in at data-t="<seconds>" (a card, a bar, a line not said aloud). An .in without data-t holding .w words comes in with its first word, so a card never shows empty.
 - .count: a number counting from data-from to data-to over data-for seconds from data-t (data-decimals, data-prefix, data-suffix); leave it empty.
-Everything fades out at the clip's end by itself.
-Background: unless the brief asks for alpha (transparent, no background, over the video), fill the whole box with a background you choose for this graphic (a colour, a gradient, soft light), coming in with a short fade; it covers the video. Asked for alpha, leave the page transparent so the video shows, and keep text readable over video (a card, a shadow).
+Nothing fades in or out by itself: the graphic shows as designed from the clip's first frame to its last. Animate an entrance or exit only as the brief asks, or where the design calls for one.
+Background: unless the brief asks for alpha (transparent, no background, over the video), fill the whole box with a background you choose for this graphic (a colour, a gradient, soft light) from the first frame; it covers the video. Asked for alpha, leave the page transparent so the video shows, and keep text readable over video (a card, a shadow).
 Size cards and bars to their content (width: fit-content, inline-flex), not stretched across the box. Lay out in px within the box, text large enough to read on a phone and inside the box with a margin.`;
 
 /** Libraries a composition may use, each inlined (they are large: GSAP 70 KB, three.js 750 KB, the map 760 KB) only into a page that names it. */
@@ -81,8 +81,8 @@ const KITS = [
 /** Whether a brief asks for the video to show through: else a graphic has a background of its own. */
 export const wantsAlpha = (brief: string) => /\b(alpha|transparent|transparency|see-through|no background|without (a )?background|over the (video|footage|speaker|talk))\b/i.test(brief);
 
-/** A background filling the box, fading in as the clip starts: a template's when its brief doesn't ask for alpha. */
-export const fill = (background: string) => `<div data-beacon-fill style="position: absolute; inset: 0; background: ${background}; animation: fade 0.3s ease-out both;"></div>`;
+/** A background filling the box from the first frame: a template's when its brief doesn't ask for alpha. */
+export const fill = (background: string) => `<div data-beacon-fill style="position: absolute; inset: 0; background: ${background};"></div>`;
 
 /** The whole page a composition is drawn in: the Look as CSS variables, Beacon's helpers and its seekable runtime. */
 export function page(body: string, env: PageEnv): string {
@@ -101,11 +101,11 @@ export function page(body: string, env: PageEnv): string {
 :root { --heading: ${font(look.heading.font, env.fallbackFont)}; --body: ${font(look.body.font, env.fallbackFont)}; --heading-weight: ${look.heading.weight}; --body-weight: ${look.body.weight}; --text: ${css(look.text)}; --accent: ${css(look.accent)}; --card: ${css(look.card)}; --shadow: ${shadow}; --come: ${d}s; --ease: ${EASE[look.easing]}; }
 html, body { margin: 0; width: ${Math.round(env.width)}px; height: ${Math.round(env.height)}px; overflow: hidden; background: transparent; }
 body { position: relative; font-family: var(--body); font-weight: var(--body-weight); color: var(--text); -webkit-font-smoothing: antialiased; }
-#beacon-stage { position: absolute; inset: 0; animation: out 0.35s ease-in both; animation-delay: ${Math.max(0, env.length - 0.35).toFixed(3)}s; }
+#beacon-stage { position: absolute; inset: 0; }
 .w, .in { display: inline-block; animation: come var(--come) var(--ease) both; }
 ${keyframes(look)}
+/* Backgrounds set before the brief picked them (motion v4) still fade in with it. */
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes out { from { opacity: 1; } to { opacity: 0; } }
 </style>
 ${libraries}</head>
 <body><div id="beacon-stage">

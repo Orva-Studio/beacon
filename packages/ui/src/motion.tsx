@@ -15,6 +15,12 @@ export const isEmptyMotion = (c: Clip) => c.type === "motion" && !c.assetId;
 /** Images a reference can be: motion.refer's. */
 const REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
 
+/** What a Make with OpenAI is likely to cost: the average of the project's Makes so far, else a typical one. */
+function typicalCost(project: Project): number {
+  const costs = project.tracks.flatMap((t) => t.clips).flatMap((c) => (c.type === "motion" ? (c.props.motion as MotionProps).takes.flatMap((t) => (t.cost ? [t.cost] : [])) : []));
+  return costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : 0.15;
+}
+
 /** A take in the Take menu: its prompt, in a few words. */
 const takeName = (t: MotionProps["takes"][number]) => (t.prompt.length > 50 ? `${t.prompt.slice(0, 50)}…` : t.prompt) || "Untitled";
 
@@ -50,10 +56,10 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(m.manual);
   useEffect(() => setManual(m.manual), [m.manual]);
-  const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
+  const planner = useView((v) => v.preferences.find((p) => p.id === "motionPlanner")?.value);
   const online = useOnline();
   const needsNet = planner === "openai" && !online;
-  const offline = "Needs the internet: you're offline (OpenAI is the planner)";
+  const offline = "Needs the internet: you're offline (OpenAI makes it)";
   const settingsOpen = useView((v) => !!v.settings);
   const auto = m.source === "auto";
   const set = (fields: Partial<MotionProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { motion: fields } }, label);
@@ -64,6 +70,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const looks = useQuery<Look[]>(host, "motion.looks");
   const look = looks?.find((l) => l.id === m.look);
   const reference = m.reference ? project.assets[m.reference] : undefined;
+  const cost = typicalCost(project);
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-motion-tab>
@@ -93,6 +100,18 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           </div>
           {look && <span className="text-caption text-text-faint">{look.description}.</span>}
         </label>
+        <div className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Made by</span>
+          <Segmented
+            value={planner === "apple" ? "apple" : "openai"}
+            options={[
+              { value: "openai", label: "OpenAI", icon: null },
+              { value: "apple", label: "Apple · Free", icon: null },
+            ]}
+            onChange={(v) => v !== planner && void host.setPreference("motionPlanner", v)}
+            data-motion-planner
+          />
+        </div>
         <div className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Words</span>
           <Segmented
@@ -201,7 +220,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           onClick={() => host.run("motion.make", { clip: clip.id })}
           data-motion-make
         >
-          {making ? "Making…" : m.takes.length ? "Make Again" : "Make"}
+          {making ? "Making…" : `${m.takes.length ? "Make Again" : "Make"} · ${planner === "apple" ? "Free" : `~$${cost.toFixed(2)}`}`}
         </Button>
         {m.shown >= 0 && (
           <Button look="quiet" disabled={busy} title="Draw it again at its box's size and length now, after resizing or trimming it (no AI)" onClick={() => host.run("motion.render", { clips: [clip.id] })} data-motion-render>
@@ -209,9 +228,9 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           </Button>
         )}
         <span className="text-caption text-text-faint">
-          {planner === "openai"
-            ? "Composed by OpenAI (your key): it can mix a few pieces, timed to the words."
-            : "Made by Apple's model on this Mac: one piece over the whole clip. OpenAI (Settings › AI) can mix a few, timed to the words."}{" "}
+          {planner === "apple"
+            ? "Apple's model on this Mac fills a template: a title, lower third, number, list or text. OpenAI designs anything (3D, maps, any style)."
+            : "Designed by OpenAI with your key, charged to your account (about what the button says, from what Makes have cost)."}{" "}
           Drawn with transparency into the project's media/Motion graphics folder.
         </span>
       </div>

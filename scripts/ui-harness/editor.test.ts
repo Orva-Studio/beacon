@@ -133,6 +133,14 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     // Empty, it draws nothing.
     expect(motion().assetId).toBeUndefined();
     await page.until("!!document.querySelector('[data-motion-tab]')");
+    // Apple's model by default (the stand-in here), free; OpenAI picked on the tab shows its likely cost on Make.
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make · Free'");
+    await ui.core.setSecret("openai-api-key", "sk-test");
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-planner] button')].find((b) => b.textContent === 'OpenAI').click()`);
+    await page.until("/^Make · ~\\$0\\.15$/.test(document.querySelector('[data-motion-make]')?.textContent ?? '')");
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-planner] button')].find((b) => b.textContent === 'Apple · Free').click()`);
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make · Free'");
+    await ui.core.setSecret("openai-api-key", null);
     // The tile writes Auto's prompt as it adds the clip (or says nothing is said there): Manual once that's done.
     await page.until("!document.querySelector('[data-motion-tab]').textContent.includes('Writing')", 10_000);
     await page.evaluate(`[...document.querySelectorAll('[data-motion-source] button')].find((b) => b.textContent === 'Manual').click()`);
@@ -142,7 +150,7 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     const before = (await ui.core.history(ui.handle)).undo.length;
     await page.evaluate("document.querySelector('[data-motion-make]').scrollIntoView({ block: 'center' })");
     await page.click(...(await centre("[data-motion-make]")));
-    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again'", 20_000);
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again · Free'", 20_000);
     type Takes = { manual: string; look: string; timing: string; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
     const m = () => motion().props.motion as Takes;
     expect(m().manual).toBe("Sarah Chen, head of design");

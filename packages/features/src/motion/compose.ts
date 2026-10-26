@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { jobSignal, runTool, tool } from "@beacon/media";
-import { PLAN_MODEL } from "../broll/plan";
+import { PLAN_MODEL, PLAN_PRICE } from "../broll/plan";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy, type Piece } from "./blocks";
 import { examples, INDEX, named, type CatalogItem } from "./catalog";
 import { CRAFT } from "./craft";
@@ -42,8 +42,13 @@ async function onDevice<T>(kind: string, instructions: string, prompt: string): 
   }
 }
 
+/** Dollars spent on OpenAI for one job, added to by each call it makes. */
+export interface Meter {
+  cost: number;
+}
+
 /** OpenAI's Responses API, answering JSON to `schema`; the user's turn is text, or text and images. */
-async function openai<T>(apiKey: string, name: string, schema: object, system: string, user: string | object[], effort = "medium"): Promise<T> {
+async function openai<T>(apiKey: string, name: string, schema: object, system: string, user: string | object[], effort = "medium", meter?: Meter): Promise<T> {
   const res = await fetch(`${api()}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -63,7 +68,15 @@ async function openai<T>(apiKey: string, name: string, schema: object, system: s
     const body = (await res.text().catch(() => "")).slice(0, 300);
     throw new Error(`OpenAI couldn't write the motion graphic (${res.status}${body ? `: ${body}` : ""})`);
   }
-  const reply = (await res.json()) as { output?: { type: string; content?: { type: string; text?: string }[] }[] };
+  const reply = (await res.json()) as {
+    output?: { type: string; content?: { type: string; text?: string }[] }[];
+    usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
+  };
+  const u = reply.usage;
+  if (u && meter) {
+    const cached = u.input_tokens_details?.cached_tokens ?? 0;
+    meter.cost += (((u.input_tokens ?? 0) - cached) * PLAN_PRICE.input + cached * PLAN_PRICE.cached + (u.output_tokens ?? 0) * PLAN_PRICE.output) / 1e6;
+  }
   const text = reply.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text;
   try {
     return JSON.parse(text ?? "") as T;
@@ -128,7 +141,7 @@ function image(path: string) {
 const PICK_SCHEMA = { type: "object", additionalProperties: false, required: ["names"], properties: { names: { type: "array", items: { type: "string" } } } };
 
 /** Catalog items to adapt for a brief: those it names, else up to three OpenAI picks from the catalog's index as fitting it. */
-async function references(brief: string, apiKey: string): Promise<CatalogItem[]> {
+async function references(brief: string, apiKey: string, meter?: Meter): Promise<CatalogItem[]> {
   const asked = named(brief);
   if (asked.length) return asked.slice(0, 3);
   const system = [
@@ -137,7 +150,7 @@ async function references(brief: string, apiKey: string): Promise<CatalogItem[]>
     "Answer `names`: the picked items' names, exactly as listed.",
   ].join("\n\n");
   try {
-    const { names } = await openai<{ names: string[] }>(apiKey, "motion_examples", PICK_SCHEMA, system, `The graphic: ${brief}`, "low");
+    const { names } = await openai<{ names: string[] }>(apiKey, "motion_examples", PICK_SCHEMA, system, `The graphic: ${brief}`, "low", meter);
     return names.flatMap((n) => named(n)).slice(0, 3);
   } catch (e) {
     jobSignal()?.throwIfAborted();
@@ -149,7 +162,7 @@ async function references(brief: string, apiKey: string): Promise<CatalogItem[]>
 const HTML_SCHEMA = { type: "object", additionalProperties: false, required: ["html"], properties: { html: { type: "string" } } };
 
 /** What the author is asked, the same whoever writes it: the contract, the craft and the brief with its examples. */
-export async function authorBrief(r: ComposeRequest, apiKey: string): Promise<{ system: string; user: string }> {
+export async function authorBrief(r: ComposeRequest, apiKey: string, meter?: Meter): Promise<{ system: string; user: string }> {
   const system = [
     `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,
     CONTRACT,
@@ -163,7 +176,7 @@ export async function authorBrief(r: ComposeRequest, apiKey: string): Promise<{ 
     "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
     "Answer with `html`: the inside of <body> only.",
   ].join("\n\n");
-  const refs = await references(r.prompt, apiKey);
+  const refs = await references(r.prompt, apiKey, meter);
   const user = [
     `The graphic: ${r.prompt}`,
     r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly.",
@@ -181,7 +194,7 @@ export async function authorBrief(r: ComposeRequest, apiKey: string): Promise<{ 
  * design and the prompt overriding it, timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
  * over the whole clip and box.
  */
-export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>): Promise<string> {
+export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>, meter?: Meter): Promise<string> {
   if (planner !== "openai") {
     const piece = await onDevice<Omit<Piece, "start" | "end" | "area">>(
       "piece",
@@ -195,8 +208,8 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
     return background + template(usable, r.said.words, r);
   }
   const apiKey = await key();
-  const { system, user } = await authorBrief(r, apiKey);
-  const out = await openai<{ html: string }>(apiKey, "motion_graphic", HTML_SCHEMA, system, r.reference ? [{ type: "input_text", text: user }, image(r.reference)] : user);
+  const { system, user } = await authorBrief(r, apiKey, meter);
+  const out = await openai<{ html: string }>(apiKey, "motion_graphic", HTML_SCHEMA, system, r.reference ? [{ type: "input_text", text: user }, image(r.reference)] : user, "medium", meter);
   const html = String(out.html ?? "").trim();
   if (!html) throw new Error("OpenAI wrote no motion graphic: try again, or reword the prompt");
   // Its own document wrapper, if it wrote one anyway: only the inside of <body> is kept.

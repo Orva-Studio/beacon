@@ -2449,10 +2449,24 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
    JSON) for the four HyperFrames prompts and the two reference stills. The
    Anthropic key in the user's shell is at its usage limit until
    2026-11-01; run then (or with another key the user gives).
-3. **The footage under a graphic** (punch-in, picture-in-picture, split),
-   face awareness (Vision) so overlays keep clear of the speaker, and an
-   **Exit** choice (Fade, Cut, Slide Out).
+3. **The footage under a graphic** (punch-in, picture-in-picture, split)
+   and face awareness (Vision) so overlays keep clear of the speaker. (No
+   Exit choice: the user, 2026-10-26, dislikes Beacon's own fade in and out
+   and animates opacity by hand when wanted; the graphic now shows as
+   designed from first frame to last, entrances and exits only as the brief
+   asks.)
 4. **AI backgrounds** behind a graphic (an OpenAI image or a B-roll loop).
+- **Made by, and its cost (the user, 2026-10-26, built):** the user's 3D
+  cards came out as Apple's list template (the planner was still Apple, set
+  in Settings for B-roll). Motion graphics now have their own choice on the
+  Motion tab, **Made by: OpenAI | Apple · Free** (preference
+  `motionPlanner`; Apple by default, as every preference's default needs no
+  key, and OpenAI once picked is kept), and the Make button says what it
+  costs: Free, or ~$ the average of the project's Makes (each take keeps
+  what OpenAI charged, from the response's token usage at gpt-6.1-sol's
+  $2 / $0.10 cached / $10 a million tokens), $0.15 before any. Measured: the
+  user's cards prompt with OpenAI, $0.12 (a real three.js scene, cream,
+  soft shadows, the cards lifting one at a time).
 Done since they were planned here: HyperFrames' catalog, guidance and seek
 conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
 B-roll items, captions for a selection and the user's notes to Phase 11.5;

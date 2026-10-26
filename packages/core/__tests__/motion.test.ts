@@ -23,7 +23,7 @@ const server = Bun.serve({
       body.text.format.name === "motion_examples"
         ? { names: ["x-post"] }
         : { html: `<html><body><style>.t { font-size: 120px; font-family: var(--heading); }</style><div class="t"><span class="w" data-t="0.2">Three</span> <span class="w" data-t="0.6">wins</span></div><svg width="960" height="540"><path id="land" fill="#456"/></svg><script>gsap.from(".t", { y: 40, duration: 0.5 }); document.getElementById("land").setAttribute("d", BeaconMap.create({ width: 960, height: 540, center: [-170, 30] }).land);</script></body></html>` };
-    return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(answer) }] }] });
+    return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(answer) }] }], usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 500 }, output_tokens: 500 } });
   },
 });
 process.env.BEACON_OPENAI_URL = server.url.origin;
@@ -40,7 +40,7 @@ const settled = async (core: LocalCore) => {
 test("motion graphics designed by OpenAI as HTML, with examples from the catalog (named, else picked), and drawn by WebKit with transparency into the clip, at its box's size, with the libraries it uses; drawn again in another Look with no AI; a refused key says where to fix it", async () => {
   const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
   const core = new LocalCore({ configDir: join(dir, "config"), cacheDir: join(dir, "cache"), secrets: { get: async (id) => secrets.get(id), set: async (id, v) => void (v === null ? secrets.delete(id) : secrets.set(id, v)) } });
-  await core.setPreference("brollPlanner", "openai");
+  await core.setPreference("motionPlanner", "openai");
   const h = await core.create({ path: join(dir, "m.beproj") });
   await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Three wins" });
   const id = (await core.session(h)).selection[0]!;
@@ -57,6 +57,8 @@ test("motion graphics designed by OpenAI as HTML, with examples from the catalog
   expect(JSON.stringify(asked.at(-1)!.input)).toContain("### x-post");
   const m = () => clip().props.motion as MotionProps;
   expect(m().takes).toHaveLength(1);
+  // What OpenAI charged, both calls (picking examples, then writing): 500 input, 500 cached and 500 output tokens each.
+  expect(m().takes[0]!.cost).toBeCloseTo((2 * (500 * 2 + 500 * 0.1 + 500 * 10)) / 1e6, 9);
   // Only the inside of <body> is kept.
   expect(m().takes[0]!.html.startsWith("<style>")).toBe(true);
   const drawn = core.doc(h).assets[clip().assetId!]!;
@@ -65,6 +67,8 @@ test("motion graphics designed by OpenAI as HTML, with examples from the catalog
   expect([video.width, video.height]).toEqual([960, 540]);
   const doc = readFileSync(drawn.path.replace(/\.mov$/, ".html"), "utf8");
   expect(doc).toContain("Content-Security-Policy");
+  // Nothing fades in or out unless the composition does it.
+  expect(doc).not.toMatch(/#beacon-stage \{[^}]*animation/);
   expect(doc).toContain("GSAP 3.15.0");
   // Libraries only where used: the map, not three.js.
   expect(doc).toContain("BEACON_COUNTRIES");
@@ -97,7 +101,7 @@ test("motion graphics designed by OpenAI as HTML, with examples from the catalog
 test("a reference image: copied into the project's media, sent to OpenAI with the brief to recreate and animate; Apple's model is refused; removed in one step", async () => {
   const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
   const core = new LocalCore({ configDir: join(dir, "config-ref"), cacheDir: join(dir, "cache-ref"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
-  await core.setPreference("brollPlanner", "openai");
+  await core.setPreference("motionPlanner", "openai");
   const h = await core.create({ path: join(dir, "ref.beproj") });
   await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Three wins" });
   const id = (await core.session(h)).selection[0]!;
@@ -116,7 +120,7 @@ test("a reference image: copied into the project's media, sent to OpenAI with th
   expect(content.find((c) => c.type === "input_image")!.image_url).toMatch(/^data:image\/png;base64,iVBOR/);
   expect(JSON.stringify(asked.at(-1)!.input)).toContain("A reference image is attached");
   expect(m().takes).toHaveLength(1);
-  await core.setPreference("brollPlanner", "apple");
+  await core.setPreference("motionPlanner", "apple");
   await expect(core.run(h, "motion.make", {})).rejects.toThrow(/needs OpenAI/);
   const steps = (await core.history(h)).undo.length;
   await core.run(h, "motion.refer", { path: null });
