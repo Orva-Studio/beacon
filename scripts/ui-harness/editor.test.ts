@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
+import { assetName, EASINGS, ease, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
@@ -2327,6 +2327,13 @@ test.skipIf(skip)("an easing picked on an animation is the one new animations ta
   expect((await ui.core.preferences()).find((p) => p.id === "animationEasing")?.value).toBe("linear");
   await pick("easeInOut");
   expect((await added(8)).easing).toBe("easeInOut");
+  expect(await page.evaluate("[...document.querySelector('[data-animation-easing]').options].map((o) => o.value).join()")).toBe(EASINGS.map((e) => e.id).join());
+  await pick("backOut");
+  const back = await added(11);
+  expect(back.easing).toBe("backOut");
+  // Overshoot passes its target before it settles there.
+  expect(ease(back.easing, 0.7)).toBeGreaterThan(1);
+  expect(ease(back.easing, 1)).toBeCloseTo(1, 9);
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await ui.core.setPreference("animationEasing", "easeInOut");
 }, 30_000);

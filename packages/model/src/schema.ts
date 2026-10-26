@@ -18,7 +18,7 @@ export const SecondsSchema = z.number().nonnegative();
 /** Straight-alpha RGBA, 0–1; `color` tells the properties panel to show a swatch. */
 export const RgbaSchema = z.tuple([z.number(), z.number(), z.number(), z.number()]).meta({ color: true });
 
-export const EasingSchema = z.enum(["linear", "easeInOut"]);
+export const EasingSchema = z.enum(["linear", "easeInOut", "easeIn", "easeOut", "backOut"]);
 
 const AnimationSchema = z.strictObject({
   id: IdSchema,

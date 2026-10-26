@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 11: motion graphics (`phase-11-motion-graphics`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Three more easings on an animation: Ease out, Ease in and Overshoot (goes past its target, then settles), in the easing menu, Settings' Animation easing and MCP; the one picked is the one new animations take | 2026-10-26 | this branch | UI flow (`an easing picked on an animation…`) |
+
 ## B-roll thumbnails, Copy to Manual, Style while making (`fix/broll-thumbnails`)
 
 ### Checked headless only (still to see by hand)

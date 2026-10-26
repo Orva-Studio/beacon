@@ -4,6 +4,7 @@ import {
   clipEnd,
   copyClips,
   defineAction,
+  EasingSchema,
   editedValue,
   mediaTimeAt,
   projectDuration,
@@ -14,6 +15,7 @@ import {
   type ActionPlan,
   type ActionStep,
   type Clip,
+  type Easing,
   walkClips,
   dropTargets,
   selectDropped,
@@ -484,7 +486,7 @@ const ANIMATED: Record<string, Record<string, number>> = {
 };
 
 /** The easing a new animation takes: the last one picked on an animation (Settings' Animation easing). */
-const newEasing = (ctx: ActionContext) => (ctx.pref("animationEasing") === "linear" ? "linear" : "easeInOut");
+const newEasing = (ctx: ActionContext): Easing => EasingSchema.catch("easeInOut").parse(ctx.pref("animationEasing"));
 
 export const animationActions = [
   defineAction({

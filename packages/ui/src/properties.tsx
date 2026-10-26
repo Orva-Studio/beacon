@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { assetName, clipSpeed, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
+import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
@@ -642,8 +642,11 @@ function AnimationSection({ clip, id, host }: { clip: Clip; id: string; host: Ho
             void host.setPreference("animationEasing", e.target.value);
           }}
         >
-          <option value="easeInOut">Ease in and out</option>
-          <option value="linear">Linear</option>
+          {EASINGS.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.title}
+            </option>
+          ))}
         </Select>
       </Row>
       <Row label="Duration">
