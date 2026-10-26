@@ -148,6 +148,34 @@ async function references(brief: string, apiKey: string): Promise<CatalogItem[]>
 
 const HTML_SCHEMA = { type: "object", additionalProperties: false, required: ["html"], properties: { html: { type: "string" } } };
 
+/** What the author is asked, the same whoever writes it: the contract, the craft and the brief with its examples. */
+export async function authorBrief(r: ComposeRequest, apiKey: string): Promise<{ system: string; user: string }> {
+  const system = [
+    `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,
+    CONTRACT,
+    CRAFT,
+    `Kinds that often fit graphics over a talk: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; follow the brief when it asks for something else.`,
+    ...(r.reference
+      ? [
+          "A reference image is attached: recreate its design as closely as you can in HTML, CSS and SVG (its layout, type, colours, shapes, textures and the feel of its imagery), fitted to this box, then bring it to life: build it up piece by piece and keep it moving, following the craft above. The brief says what it shows and what to change; where the brief and the image differ, the brief wins. Draw everything yourself: the image itself isn't in the page.",
+        ]
+      : []),
+    "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
+    "Answer with `html`: the inside of <body> only.",
+  ].join("\n\n");
+  const refs = await references(r.prompt, apiKey);
+  const user = [
+    `The graphic: ${r.prompt}`,
+    r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly.",
+    refs.length
+      ? `Examples to adapt (a named one is the base to build on; the others show techniques). They were written for HyperFrames: its data-start, data-duration and data-composition-id attributes mean nothing here, but gsap, THREE and window.__timelines work as they do there. Rewrite them to this page's contract, at this box's size and length; never copy their <html>, <head> or external scripts.\n\n${examples(refs)}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return { system, user };
+}
+
 /**
  * The graphic's composition (the inside of its page's <body>) from its prompt: OpenAI writes it, the Look its default
  * design and the prompt overriding it, timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
@@ -166,30 +194,8 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
     const background = wantsAlpha(r.prompt) ? "" : fill(css(r.look.card, 1));
     return background + template(usable, r.said.words, r);
   }
-  const system = [
-    `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,
-    CONTRACT,
-    CRAFT,
-    `Kinds that often fit graphics over a talk: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; follow the brief when it asks for something else.`,
-    ...(r.reference
-      ? [
-          "A reference image is attached: recreate its design as closely as you can in HTML, CSS and SVG (its layout, type, colours, shapes, textures and the feel of its imagery), fitted to this box, then bring it to life: build it up piece by piece and keep it moving, following the craft above. The brief says what it shows and what to change; where the brief and the image differ, the brief wins. Draw everything yourself: the image itself isn't in the page.",
-        ]
-      : []),
-    "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
-    "Answer with `html`: the inside of <body> only.",
-  ].join("\n\n");
   const apiKey = await key();
-  const refs = await references(r.prompt, apiKey);
-  const user = [
-    `The graphic: ${r.prompt}`,
-    r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly.",
-    refs.length
-      ? `Examples to adapt (a named one is the base to build on; the others show techniques). They were written for HyperFrames: its data-start, data-duration and data-composition-id attributes mean nothing here, but gsap, THREE and window.__timelines work as they do there. Rewrite them to this page's contract, at this box's size and length; never copy their <html>, <head> or external scripts.\n\n${examples(refs)}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const { system, user } = await authorBrief(r, apiKey);
   const out = await openai<{ html: string }>(apiKey, "motion_graphic", HTML_SCHEMA, system, r.reference ? [{ type: "input_text", text: user }, image(r.reference)] : user);
   const html = String(out.html ?? "").trim();
   if (!html) throw new Error("OpenAI wrote no motion graphic: try again, or reword the prompt");
