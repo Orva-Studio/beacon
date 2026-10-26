@@ -7,6 +7,10 @@ export interface CatalogItem {
   title: string;
   description: string;
   tags: string[];
+  /** The license its registry entry declares beside HyperFrames' Apache 2.0 (an SPDX expression), and whose it is. */
+  license?: string;
+  author?: string;
+  authorUrl?: string;
   duration?: number;
   size?: [number, number];
   /** Images, sounds and fonts it uses that aren't in the catalog. */

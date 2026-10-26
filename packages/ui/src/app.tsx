@@ -509,6 +509,9 @@ function Transport({ project, session, host }: { project: Project; session: Sess
   const tip = useShortcutTip();
   return (
     <div className="flex h-9 shrink-0 items-center justify-center gap-1 border-b border-divider bg-bar px-3">
+      <Button look="icon" title={`Go to start${tip("playhead.jump", { to: "start" })}`} onClick={() => host.run("playhead.jump", { to: "start" })} data-transport="start">
+        <Icon name="arrow-line-left" filled />
+      </Button>
       <Button look="icon" title={`Previous media${tip("playhead.jump", { to: "previousEdit" })}`} onClick={() => host.run("playhead.jump", { to: "previousEdit" })}>
         <Icon name="skip-back" filled />
       </Button>
@@ -523,6 +526,9 @@ function Transport({ project, session, host }: { project: Project; session: Sess
       </Button>
       <Button look="icon" title={`Next media${tip("playhead.jump", { to: "nextEdit" })}`} onClick={() => host.run("playhead.jump", { to: "nextEdit" })}>
         <Icon name="skip-forward" filled />
+      </Button>
+      <Button look="icon" title={`Go to end${tip("playhead.jump", { to: "end" })}`} onClick={() => host.run("playhead.jump", { to: "end" })} data-transport="end">
+        <Icon name="arrow-line-right" filled />
       </Button>
       <span className="ml-3">
         <Timecode time={session.playhead} end={end} fps={fps} />

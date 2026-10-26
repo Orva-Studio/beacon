@@ -95,6 +95,18 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test.skipIf(skip)("Go to start and Go to end beside the transport move the playhead to the timeline's start and end", async () => {
+  const end = ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const at = async () => (await session()).playhead;
+  await run("playhead.set", { time: end / 2 });
+  await page.click(...(await centre('[data-transport="end"]')));
+  for (let i = 0; i < 50 && Math.abs((await at()) - end) > 0.05; i++) await Bun.sleep(50);
+  expect(await at()).toBeCloseTo(end, 1);
+  await page.click(...(await centre('[data-transport="start"]')));
+  for (let i = 0; i < 50 && (await at()) > 0.01; i++) await Bun.sleep(50);
+  expect(await at()).toBe(0);
+});
+
 test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays at 100%", async () => {
   await select([callout.id]);
   await run("inspector.tab", { tab: "callout" });

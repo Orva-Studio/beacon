@@ -1,9 +1,10 @@
 /**
  * HyperFrames' registry (Apache 2.0, https://github.com/heygen-com/hyperframes) at a pinned commit, as the catalog
- * motion graphics' author learns from: each block's and component's name, description and HTML, written to
- * `packages/features/src/motion/catalog.json`. Code only: images, sounds and fonts aren't copied (each item lists the
- * ones it uses), the CDN scripts are dropped (the page has GSAP and three.js itself), and items over MAX_HTML are left
- * out (most of those embed a large bundled library). Run to move to a newer commit.
+ * motion graphics' author learns from: each block's and component's name, description, HTML, and the license and
+ * author it declares, written to `packages/features/src/motion/catalog.json`. Code only: images, sounds and fonts
+ * aren't copied (each item lists the ones it uses), the CDN scripts are dropped (the page has GSAP and three.js
+ * itself), and items over MAX_HTML are left out (most of those embed a large bundled library). Run to move to a newer
+ * commit.
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,6 +20,9 @@ interface Item {
   title?: string;
   description?: string;
   tags?: string[];
+  license?: string;
+  author?: string;
+  authorUrl?: string;
   duration?: number;
   dimensions?: { width: number; height: number };
   files?: ({ path: string } | string)[];
@@ -50,6 +54,8 @@ for (let i = 0; i < wanted.length; i += 16) {
         title: item.title ?? name,
         description: item.description ?? "",
         tags: item.tags ?? [],
+        ...(item.license ? { license: item.license } : {}),
+        ...(item.author ? { author: item.author, ...(item.authorUrl ? { authorUrl: item.authorUrl } : {}) } : {}),
         ...(item.duration ? { duration: item.duration } : {}),
         ...(item.dimensions ? { size: [item.dimensions.width, item.dimensions.height] } : {}),
         missing: paths.filter((p) => !code.includes(p) && !/\.(md|txt)$/.test(p)),
