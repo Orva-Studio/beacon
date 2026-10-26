@@ -235,7 +235,7 @@ const sessionCommands: SessionCommandDef[] = [
 ];
 
 /** Where a new B-roll track goes: right above the highest track with media (or a group of it) over the span, so captions above stay in front. */
-function trackIndex(project: Project, registry: FeatureRegistry, from: number, to: number): number {
+export function trackIndex(project: Project, registry: FeatureRegistry, from: number, to: number): number {
   const media = (c: Clip): boolean => (!!c.assetId && c.type !== "broll") || registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id] && g.nested(c.props[g.id]).some((t) => t.clips.some(media)));
   const over = project.tracks.flatMap((t, i) => (t.clips.some((c) => media(c) && ticksToSeconds(c.start) < to && ticksToSeconds(clipEnd(c)) > from) ? [i] : []));
   return over.length ? Math.max(...over) + 1 : project.tracks.length;

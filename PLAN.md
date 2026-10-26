@@ -2270,6 +2270,9 @@ clips.
 - **Order:** easings, counter, the catalog with Title, then Lower third,
   Number, List, then the planner and the tile; a UI flow and `tested.md`
   for each.
+- **Progress (2026-10-26):** easings (`4409d19`, checked by hand), the counter
+  (`919c0fb`), the `motion` feature with Title (`motion.add`, `motion.fill`,
+  `motion.blocks`). Next: Lower third, Number, List.
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with

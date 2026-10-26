@@ -100,6 +100,35 @@ test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("a Title block is a plain group on a Motion graphics track: a word per track, coming in one after another, one undo step", async () => {
+  const before = ui.core.doc(ui.handle).tracks.length;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await expect(run("motion.add", { block: "title", fields: { text: "" }, time: 1 })).rejects.toThrow(/Title/);
+  await run("motion.add", { block: "title", fields: { text: "Ship it today", subtitle: "Three words" }, time: 1 });
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.name === "Motion graphics")!;
+  const group = track.clips[0]!;
+  expect(group.type).toBe("group");
+  expect(ticksToSeconds(group.start)).toBeCloseTo(1, 3);
+  expect(ticksToSeconds(group.duration)).toBeCloseTo(4, 3);
+  expect((await session()).selection).toEqual([group.id]);
+  const inner = (group.props.group as { tracks: { name: string; clips: Clip[] }[] }).tracks;
+  expect(inner.map((t) => t.name)).toEqual(["Ship", "it", "today", "Three words"]);
+  // Each word starts later than the one before, and ends where it was laid out, left to right on one line.
+  const words = inner.slice(0, 3).map((t) => t.clips[0]!);
+  const comesIn = words.map((c) => Math.min(...c.animations.map((a) => a.end - a.duration)));
+  expect(comesIn[1]!).toBeGreaterThan(comesIn[0]!);
+  expect(comesIn[2]!).toBeGreaterThan(comesIn[1]!);
+  const xs = words.map((c) => (c.props.transform as { x: number }).x);
+  expect(xs[0]!).toBeLessThan(xs[1]!);
+  expect(xs[1]!).toBeLessThan(xs[2]!);
+  expect(words.every((c) => (c.props.transform as { opacity: number }).opacity === 0)).toBe(true);
+  await page.until(`!!document.querySelector('canvas[data-timeline]')`);
+  await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle).tracks.length).toBe(before);
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+});
+
 test.skipIf(skip)("a counting text callout shows its number counting from From to To, edited in its Count rows", async () => {
   await select([callout.id]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
