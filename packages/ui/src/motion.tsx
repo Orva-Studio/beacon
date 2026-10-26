@@ -15,10 +15,12 @@ export const isEmptyMotion = (c: Clip) => c.type === "motion" && !c.assetId;
 /** Images a reference can be: motion.refer's. */
 const REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
 
-/** What a Make with OpenAI is likely to cost: the average of the project's Makes so far, else a typical one. */
-function typicalCost(project: Project): number {
-  const costs = project.tracks.flatMap((t) => t.clips).flatMap((c) => (c.type === "motion" ? (c.props.motion as MotionProps).takes.flatMap((t) => (t.cost ? [t.cost] : [])) : []));
-  return costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : 0.15;
+/** What a Make by OpenAI or Claude is likely to cost: the average of the project's Makes by it so far, else a typical one. */
+function typicalCost(project: Project, by: string): number {
+  const costs = project.tracks
+    .flatMap((t) => t.clips)
+    .flatMap((c) => (c.type === "motion" ? (c.props.motion as MotionProps).takes.flatMap((t) => (t.cost && (t.by ?? "openai") === by ? [t.cost] : [])) : []));
+  return costs.length ? costs.reduce((a, b) => a + b, 0) / costs.length : by === "claude" ? 0.3 : 0.15;
 }
 
 /** A take in the Take menu: its prompt, in a few words. */
@@ -58,8 +60,8 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   useEffect(() => setManual(m.manual), [m.manual]);
   const planner = useView((v) => v.preferences.find((p) => p.id === "motionPlanner")?.value);
   const online = useOnline();
-  const needsNet = planner === "openai" && !online;
-  const offline = "Needs the internet: you're offline (OpenAI makes it)";
+  const needsNet = planner !== "apple" && !online;
+  const offline = `Needs the internet: you're offline (${planner === "claude" ? "Claude" : "OpenAI"} makes it)`;
   const settingsOpen = useView((v) => !!v.settings);
   const auto = m.source === "auto";
   const set = (fields: Partial<MotionProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { motion: fields } }, label);
@@ -70,7 +72,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const looks = useQuery<Look[]>(host, "motion.looks");
   const look = looks?.find((l) => l.id === m.look);
   const reference = m.reference ? project.assets[m.reference] : undefined;
-  const cost = typicalCost(project);
+  const cost = typicalCost(project, planner ?? "apple");
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-motion-tab>
@@ -103,10 +105,11 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
         <div className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Made by</span>
           <Segmented
-            value={planner === "apple" ? "apple" : "openai"}
+            value={planner ?? "apple"}
             options={[
-              { value: "openai", label: "OpenAI", icon: null },
               { value: "apple", label: "Apple · Free", icon: null },
+              { value: "openai", label: "OpenAI", icon: null },
+              { value: "claude", label: "Claude", icon: null },
             ]}
             onChange={(v) => v !== planner && void host.setPreference("motionPlanner", v)}
             data-motion-planner
@@ -191,7 +194,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             </Button>
           )}
           <span className="text-caption text-text-faint">
-            {reference && planner !== "openai" ? "Needs OpenAI as the planner (Settings › AI)." : "Make recreates its design and animates it (OpenAI)."}
+            {reference && planner === "apple" ? "Needs OpenAI or Claude: choose one under Made by." : "Make recreates its design and animates it."}
           </span>
         </div>
         {m.takes.length > 1 && (
@@ -229,8 +232,8 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
         )}
         <span className="text-caption text-text-faint">
           {planner === "apple"
-            ? "Apple's model on this Mac fills a template: a title, lower third, number, list or text. OpenAI designs anything (3D, maps, any style)."
-            : "Designed by OpenAI with your key, charged to your account (about what the button says, from what Makes have cost)."}{" "}
+            ? "Apple's model on this Mac fills a template: a title, lower third, number, list or text. OpenAI and Claude design anything (3D, maps, any style)."
+            : `Designed by ${planner === "claude" ? "Claude" : "OpenAI"} with your key, charged to your account (about what the button says, from what Makes have cost).`}{" "}
           Drawn with transparency into the project's media/Motion graphics folder.
         </span>
       </div>

@@ -138,9 +138,13 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await ui.core.setSecret("openai-api-key", "sk-test");
     await page.evaluate(`[...document.querySelectorAll('[data-motion-planner] button')].find((b) => b.textContent === 'OpenAI').click()`);
     await page.until("/^Make · ~\\$0\\.15$/.test(document.querySelector('[data-motion-make]')?.textContent ?? '')");
+    await ui.core.setSecret("anthropic-api-key", "sk-ant-test");
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-planner] button')].find((b) => b.textContent === 'Claude').click()`);
+    await page.until("/^Make · ~\\$0\\.30$/.test(document.querySelector('[data-motion-make]')?.textContent ?? '')");
     await page.evaluate(`[...document.querySelectorAll('[data-motion-planner] button')].find((b) => b.textContent === 'Apple · Free').click()`);
     await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make · Free'");
     await ui.core.setSecret("openai-api-key", null);
+    await ui.core.setSecret("anthropic-api-key", null);
     // The tile writes Auto's prompt as it adds the clip (or says nothing is said there): Manual once that's done.
     await page.until("!document.querySelector('[data-motion-tab]').textContent.includes('Writing')", 10_000);
     await page.evaluate(`[...document.querySelectorAll('[data-motion-source] button')].find((b) => b.textContent === 'Manual').click()`);

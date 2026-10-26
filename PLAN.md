@@ -2467,6 +2467,17 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
   $2 / $0.10 cached / $10 a million tokens), $0.15 before any. Measured: the
   user's cards prompt with OpenAI, $0.12 (a real three.js scene, cream,
   soft shadows, the cards lifting one at a time).
+- **Claude as a maker (the user, 2026-10-26, built):** Made by is Apple ·
+  Free | OpenAI | Claude. Claude is Opus 5.5 through Anthropic's SDK
+  (1.3.0, streamed, adaptive thinking at medium effort as OpenAI's,
+  structured JSON, server-side refusal fallback), given the same brief
+  (`authorBrief`, the catalog pick included) and the reference image; the
+  Anthropic key is in Settings › AI, which also has Made by. Each take keeps
+  who made it (`by`) and its cost; Make shows each maker's own average
+  (~$0.30 for Claude before any, Opus 5.5 being $4 / $20 a million). No
+  model menu beyond the maker (the user asked; one tuned model each is
+  enough for now). Not yet seen with a real call: the user's Anthropic key
+  is at its limit until 2026-11-01 (item 2's comparison runs then).
 Done since they were planned here: HyperFrames' catalog, guidance and seek
 conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
 B-roll items, captions for a selection and the user's notes to Phase 11.5;

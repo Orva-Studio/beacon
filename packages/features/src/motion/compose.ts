@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -10,6 +11,10 @@ import { CONTRACT, css, fill, template, wantsAlpha } from "./html";
 import type { Look } from "./looks";
 
 const api = () => process.env.BEACON_OPENAI_URL ?? "https://api.openai.com/v1";
+/** Claude's best model for design and code (2026-10-26), at the same medium effort as OpenAI's. */
+export const CLAUDE_MODEL = "claude-opus-5-5";
+/** Its price in dollars a million tokens (claude.com, 2026-10-26): input, written to the cache, read from it, output (thinking included). */
+const CLAUDE_PRICE = { input: 4, cacheWrite: 5, cached: 0.2, output: 20 };
 const writer = () => process.env.BEACON_WRITER ?? tool("beacon-writer");
 
 export interface Said {
@@ -42,13 +47,25 @@ async function onDevice<T>(kind: string, instructions: string, prompt: string): 
   }
 }
 
-/** Dollars spent on OpenAI for one job, added to by each call it makes. */
+/** Dollars spent on OpenAI or Claude for one job, added to by each call it makes. */
 export interface Meter {
   cost: number;
 }
 
-/** OpenAI's Responses API, answering JSON to `schema`; the user's turn is text, or text and images. */
-async function openai<T>(apiKey: string, name: string, schema: object, system: string, user: string | object[], effort = "medium", meter?: Meter): Promise<T> {
+/** One question to the model that writes motion graphics, answered as JSON to `schema`; the user's turn is text and any images. */
+export type Ask = <T>(name: string, schema: object, system: string, text: string, images?: string[], effort?: "low" | "medium") => Promise<T>;
+
+/** An image file's media type and its bytes in base64. */
+function imageData(path: string) {
+  const ext = extname(path).slice(1).toLowerCase();
+  return { mime: ext === "jpg" ? "image/jpeg" : `image/${ext}`, data: readFileSync(path).toString("base64") };
+}
+
+/** OpenAI's Responses API, answering JSON to `schema`. */
+async function openai<T>(apiKey: string, name: string, schema: object, system: string, text: string, images: string[], effort: string, meter?: Meter): Promise<T> {
+  const user = images.length
+    ? [{ type: "input_text", text }, ...images.map((p) => ({ type: "input_image", image_url: `data:${imageData(p).mime};base64,${imageData(p).data}`, detail: "high" }))]
+    : text;
   const res = await fetch(`${api()}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -77,25 +94,74 @@ async function openai<T>(apiKey: string, name: string, schema: object, system: s
     const cached = u.input_tokens_details?.cached_tokens ?? 0;
     meter.cost += (((u.input_tokens ?? 0) - cached) * PLAN_PRICE.input + cached * PLAN_PRICE.cached + (u.output_tokens ?? 0) * PLAN_PRICE.output) / 1e6;
   }
-  const text = reply.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text;
+  const answer = reply.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text;
   try {
-    return JSON.parse(text ?? "") as T;
+    return JSON.parse(answer ?? "") as T;
   } catch {
     throw new Error("OpenAI's answer wasn't JSON");
   }
 }
 
+/** Claude through Anthropic's Messages API, streamed (a long answer), answering JSON to `schema`. */
+async function claude<T>(apiKey: string, schema: object, system: string, text: string, images: string[], effort: "low" | "medium", meter?: Meter): Promise<T> {
+  const client = new Anthropic({ apiKey, ...(process.env.BEACON_ANTHROPIC_URL ? { baseURL: process.env.BEACON_ANTHROPIC_URL } : {}) });
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [
+    ...images.map((p): Anthropic.Beta.BetaContentBlockParam => ({ type: "image", source: { type: "base64", media_type: imageData(p).mime as "image/png", data: imageData(p).data } })),
+    { type: "text", text },
+  ];
+  let msg: Anthropic.Beta.BetaMessage;
+  try {
+    msg = await client.beta.messages
+      .stream(
+        {
+          model: CLAUDE_MODEL,
+          max_tokens: 64000,
+          // When a safety classifier declines, the request runs again on a model Anthropic picks for that.
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+          thinking: { type: "adaptive" },
+          output_config: { effort, format: { type: "json_schema", schema: schema as Record<string, unknown> } },
+          system,
+          messages: [{ role: "user", content }],
+        },
+        jobSignal() ? { signal: jobSignal()! } : {},
+      )
+      .finalMessage();
+  } catch (e) {
+    jobSignal()?.throwIfAborted();
+    if (e instanceof Anthropic.AuthenticationError) throw new Error("Anthropic refused the API key: check it in Settings › AI");
+    if (e instanceof Anthropic.APIError) throw new Error(`Claude couldn't write the motion graphic (${e.status ?? "no answer"}: ${e.message.slice(0, 300)})`);
+    throw e;
+  }
+  const u = msg.usage;
+  if (meter) meter.cost += (u.input_tokens * CLAUDE_PRICE.input + (u.cache_creation_input_tokens ?? 0) * CLAUDE_PRICE.cacheWrite + (u.cache_read_input_tokens ?? 0) * CLAUDE_PRICE.cached + u.output_tokens * CLAUDE_PRICE.output) / 1e6;
+  if (msg.stop_reason === "refusal") throw new Error("Claude declined to write this motion graphic: reword the prompt, or make it with OpenAI");
+  if (msg.stop_reason === "max_tokens") throw new Error("Claude's answer ran too long: try again, or ask for a simpler graphic");
+  const answer = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  try {
+    return JSON.parse(answer) as T;
+  } catch {
+    throw new Error("Claude's answer wasn't JSON");
+  }
+}
+
+/** Who writes motion graphics, by the Motion tab's choice: OpenAI or Claude, with the user's key. */
+export function author(planner: string, apiKey: string, meter?: Meter): Ask {
+  return (name, schema, system, text, images = [], effort = "medium") =>
+    planner === "claude" ? claude(apiKey, schema, system, text, images, effort, meter) : openai(apiKey, name, schema, system, text, images, effort, meter);
+}
+
 const IDEA_SCHEMA = { type: "object", additionalProperties: false, required: ["prompt", "why"], properties: { prompt: { type: "string" }, why: { type: "string" } } };
 
 /** Auto's prompt: one sentence saying what graphic shows what is said under the clip, with its exact words. */
-export async function writeIdea(said: Said, planner: string, key: () => Promise<string>): Promise<{ prompt: string; why: string }> {
+export async function writeIdea(said: Said, planner: string, key: () => Promise<string>, meter?: Meter): Promise<{ prompt: string; why: string }> {
   const system = [
     "You suggest one on-screen motion graphic for a talking-head or screen-recording video, shown over the talk while the speaker says it.",
     `It is made from these, alone or together:\n${VOCABULARY}`,
     "Write one sentence, under 30 words, saying what it shows and its exact words or figures (short: a title is 2 to 6 words). `why`: under 12 words, what in the talk it shows.",
   ].join("\n");
   const user = [said.before ? `Said just before (context only): ${said.before}` : "", `Said under the clip: ${saidText(said)}`, said.after ? `Said just after (context only): ${said.after}` : ""].filter(Boolean).join("\n\n");
-  const out = planner === "openai" ? await openai<{ prompt: string; why: string }>(await key(), "motion_idea", IDEA_SCHEMA, system, user) : await onDevice<{ prompt: string; why: string }>("idea", system, user);
+  const out = planner === "apple" ? await onDevice<{ prompt: string; why: string }>("idea", system, user) : await author(planner, await key(), meter)<{ prompt: string; why: string }>("motion_idea", IDEA_SCHEMA, system, user);
   if (!out.prompt?.trim()) throw new Error("no motion graphic was suggested: type one (Manual)");
   return { prompt: out.prompt.trim(), why: String(out.why ?? "") };
 }
@@ -127,21 +193,14 @@ export interface ComposeRequest {
   width: number;
   height: number;
   look: Look;
-  /** An image whose design the graphic recreates (OpenAI only). */
+  /** An image whose design the graphic recreates (OpenAI or Claude). */
   reference?: string;
-}
-
-/** An image file as OpenAI takes one in a message. */
-function image(path: string) {
-  const ext = extname(path).slice(1).toLowerCase();
-  const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
-  return { type: "input_image", image_url: `data:${mime};base64,${readFileSync(path).toString("base64")}`, detail: "high" };
 }
 
 const PICK_SCHEMA = { type: "object", additionalProperties: false, required: ["names"], properties: { names: { type: "array", items: { type: "string" } } } };
 
-/** Catalog items to adapt for a brief: those it names, else up to three OpenAI picks from the catalog's index as fitting it. */
-async function references(brief: string, apiKey: string, meter?: Meter): Promise<CatalogItem[]> {
+/** Catalog items to adapt for a brief: those it names, else up to three the author picks from the catalog's index as fitting it. */
+async function references(brief: string, ask: Ask): Promise<CatalogItem[]> {
   const asked = named(brief);
   if (asked.length) return asked.slice(0, 3);
   const system = [
@@ -150,7 +209,7 @@ async function references(brief: string, apiKey: string, meter?: Meter): Promise
     "Answer `names`: the picked items' names, exactly as listed.",
   ].join("\n\n");
   try {
-    const { names } = await openai<{ names: string[] }>(apiKey, "motion_examples", PICK_SCHEMA, system, `The graphic: ${brief}`, "low", meter);
+    const { names } = await ask<{ names: string[] }>("motion_examples", PICK_SCHEMA, system, `The graphic: ${brief}`, [], "low");
     return names.flatMap((n) => named(n)).slice(0, 3);
   } catch (e) {
     jobSignal()?.throwIfAborted();
@@ -162,7 +221,7 @@ async function references(brief: string, apiKey: string, meter?: Meter): Promise
 const HTML_SCHEMA = { type: "object", additionalProperties: false, required: ["html"], properties: { html: { type: "string" } } };
 
 /** What the author is asked, the same whoever writes it: the contract, the craft and the brief with its examples. */
-export async function authorBrief(r: ComposeRequest, apiKey: string, meter?: Meter): Promise<{ system: string; user: string }> {
+export async function authorBrief(r: ComposeRequest, ask: Ask): Promise<{ system: string; user: string }> {
   const system = [
     `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,
     CONTRACT,
@@ -176,7 +235,7 @@ export async function authorBrief(r: ComposeRequest, apiKey: string, meter?: Met
     "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
     "Answer with `html`: the inside of <body> only.",
   ].join("\n\n");
-  const refs = await references(r.prompt, apiKey, meter);
+  const refs = await references(r.prompt, ask);
   const user = [
     `The graphic: ${r.prompt}`,
     r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly.",
@@ -190,12 +249,12 @@ export async function authorBrief(r: ComposeRequest, apiKey: string, meter?: Met
 }
 
 /**
- * The graphic's composition (the inside of its page's <body>) from its prompt: OpenAI writes it, the Look its default
+ * The graphic's composition (the inside of its page's <body>) from its prompt: OpenAI or Claude writes it, the Look its default
  * design and the prompt overriding it, timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
  * over the whole clip and box.
  */
 export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>, meter?: Meter): Promise<string> {
-  if (planner !== "openai") {
+  if (planner === "apple") {
     const piece = await onDevice<Omit<Piece, "start" | "end" | "area">>(
       "piece",
       "You turn a description of an on-screen motion graphic into the one graphic it is, and its exact words. A figure (a number, a percentage, an amount) is a number; a person's name is a lowerThird; things listed are a list. Keep words short: a title is 2 to 6 words.",
@@ -207,11 +266,11 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
     const background = wantsAlpha(r.prompt) ? "" : fill(css(r.look.card, 1));
     return background + template(usable, r.said.words, r);
   }
-  const apiKey = await key();
-  const { system, user } = await authorBrief(r, apiKey, meter);
-  const out = await openai<{ html: string }>(apiKey, "motion_graphic", HTML_SCHEMA, system, r.reference ? [{ type: "input_text", text: user }, image(r.reference)] : user, "medium", meter);
+  const ask = author(planner, await key(), meter);
+  const { system, user } = await authorBrief(r, ask);
+  const out = await ask<{ html: string }>("motion_graphic", HTML_SCHEMA, system, user, r.reference ? [r.reference] : []);
   const html = String(out.html ?? "").trim();
-  if (!html) throw new Error("OpenAI wrote no motion graphic: try again, or reword the prompt");
+  if (!html) throw new Error(`${planner === "claude" ? "Claude" : "OpenAI"} wrote no motion graphic: try again, or reword the prompt`);
   // Its own document wrapper, if it wrote one anyway: only the inside of <body> is kept.
   return html.replace(/^[\s\S]*<body[^>]*>/i, "").replace(/<\/body>[\s\S]*$/i, "");
 }

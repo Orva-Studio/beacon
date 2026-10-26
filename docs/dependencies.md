@@ -27,6 +27,7 @@ OSV vulnerability database (includes RustSec and GitHub advisories).
 | three.js | 0.186.1 (npm `three`, devDependency) | — | Motion graphics' 3D (2026-10-26), MIT: ships only ES modules, so `scripts/vendor-motion.ts` bundles it with Bun into one minified script setting `window.THREE` (`motion/vendor/three.min.js`, 750 KB), inlined into pages that name `THREE` |
 | world-atlas / topojson-client | 2.0.2 / 3.1.0 (devDependencies) | — | Motion graphics' maps (2026-10-26), ISC; Natural Earth 1:50m countries (public domain) copied unmodified, decoded in the page by topojson-client; `BeaconMap` (`motion/kits/map.js`) projects them |
 | HyperFrames registry | commit `2d1b5cf` | — | Motion graphics' examples (2026-10-26), Apache 2.0: 406 blocks and components (code under 100 KB each, no assets) in `motion/catalog.json` (7 MB) by `scripts/vendor-motion-catalog.ts` |
+| @anthropic-ai/sdk | 1.3.0 | — | Motion graphics made by Claude (2026-10-26), Apache 2.0: Claude Opus 5.5 through the Messages API, streamed, with structured output and server-side refusal fallback (`server-side-fallback-2026-07-01`, `fallbacks: "default"`); the key is the user's, in Settings › AI |
 
 ## Advisories found in the spikes (176 package versions scanned)
 

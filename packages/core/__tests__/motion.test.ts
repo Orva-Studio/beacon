@@ -128,3 +128,63 @@ test("a reference image: copied into the project's media, sent to OpenAI with th
   expect((await core.history(h)).undo.length).toBe(steps + 1);
   await core.close(h);
 }, 60_000);
+
+test("Claude makes motion graphics as OpenAI does: the same brief, streamed, with the reference image, a refusal falling back on Anthropic's side; the take says who made it and what it cost", async () => {
+  const seen: { headers: Record<string, string>; body: Record<string, unknown> }[] = [];
+  const sse = (events: object[]) => events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join("");
+  const anthropic = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      if (req.headers.get("authorization") !== "Bearer anthropic-key") return Response.json({ type: "error", error: { type: "authentication_error", message: "invalid API key" } }, { status: 401 });
+      const body = (await req.json()) as { output_config: { format: { schema: { required: string[] } } } };
+      seen.push({ headers: Object.fromEntries(req.headers), body: body as Record<string, unknown> });
+      const answer = body.output_config.format.schema.required[0] === "names" ? { names: [] } : { html: `<div class="t"><span class="w" data-t="0.2">Claude</span></div>` };
+      const events = [
+        { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1000, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: JSON.stringify(answer) } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 500 } },
+        { type: "message_stop" },
+      ];
+      return new Response(sse(events), { headers: { "Content-Type": "text/event-stream" } });
+    },
+  });
+  process.env.BEACON_ANTHROPIC_URL = anthropic.url.origin;
+  try {
+    const secrets = new Map<string, string>([["anthropic-api-key", "anthropic-key"]]);
+    const core = new LocalCore({ configDir: join(dir, "config-claude"), cacheDir: join(dir, "cache-claude"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+    await core.setPreference("motionPlanner", "claude");
+    const h = await core.create({ path: join(dir, "claude.beproj") });
+    await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Claude, in big type" });
+    const id = (await core.session(h)).selection[0]!;
+    const m = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.props.motion as MotionProps;
+    const png = join(dir, "claude-look.png");
+    writeFileSync(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    await core.run(h, "motion.refer", { path: png });
+    await settled(core);
+    await core.run(h, "motion.make", {});
+    await settled(core);
+    expect(((await core.session(h)).features.motion as MotionState).errors[id]).toBeUndefined();
+    expect(m().takes[0]!.html).toContain("Claude");
+    expect(m().takes[0]!.by).toBe("claude");
+    // Two calls (picking examples, then writing), 1000 input and 500 output tokens each, at Opus 5.5's $4 and $20.
+    expect(m().takes[0]!.cost).toBeCloseTo((2 * (1000 * 4 + 500 * 20)) / 1e6, 9);
+    const last = seen.at(-1)!;
+    expect(last.body.model).toBe("claude-opus-5-5");
+    expect(last.body.fallbacks).toBe("default");
+    expect(last.headers["anthropic-beta"]).toContain("server-side-fallback-2026-07-01");
+    const content = (last.body.messages as { content: { type: string; source?: { media_type: string } }[] }[])[0]!.content;
+    expect(content[0]).toMatchObject({ type: "image", source: { media_type: "image/png" } });
+    expect(JSON.stringify(last.body.system)).toContain("A reference image is attached");
+    // A wrong key says where to fix it.
+    secrets.set("anthropic-api-key", "wrong");
+    await core.run(h, "motion.make", {});
+    await settled(core);
+    expect(((await core.session(h)).features.motion as MotionState).errors[id]).toMatch(/Anthropic refused the API key/);
+    await core.close(h);
+  } finally {
+    anthropic.stop(true);
+    delete process.env.BEACON_ANTHROPIC_URL;
+  }
+}, 60_000);

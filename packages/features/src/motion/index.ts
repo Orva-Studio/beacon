@@ -37,6 +37,9 @@ export { CONTRACT as MOTION_CONTRACT, page as motionPage } from "./html";
 
 const TRACK = "Motion graphics";
 const OPENAI = "openai-api-key";
+const ANTHROPIC = "anthropic-api-key";
+/** Who writes it, by the Motion tab's choice, as the user reads it. */
+const WHO: Record<string, string> = { openai: "OpenAI", claude: "Claude", apple: "Apple's on-device model" };
 /** Who writes motion graphics: its own choice, on the Motion tab, apart from B-roll's planner. */
 const PLANNER = "motionPlanner";
 /** A placeholder added at the playhead lasts this long. */
@@ -59,7 +62,7 @@ const motionGroup = z.strictObject({
   /** An image (an asset) whose design Make recreates and animates. */
   reference: z.string().optional(),
   /** Every composition made (the inside of its page's body) and its drawing, an earlier one picked again; `shown` is the one in the clip. */
-  takes: z.array(z.strictObject({ prompt: z.string(), html: z.string(), assetId: z.string().optional(), cost: z.number().nonnegative().optional() })),
+  takes: z.array(z.strictObject({ prompt: z.string(), html: z.string(), assetId: z.string().optional(), cost: z.number().nonnegative().optional(), by: z.string().optional() })),
   shown: z.number().int().min(-1),
 });
 export type MotionProps = z.infer<typeof motionGroup>;
@@ -101,16 +104,16 @@ const commands = [
   defineCommand({
     id: "motion.use",
     description:
-      "Show a drawing of a motion graphics clip's composition in it: `asset` (a drawing motion.make or motion.render made) with `html`, `prompt` and what writing it cost in dollars (`cost`) (a new take), or with `take` (that take drawn again); or `take` alone, an earlier take picked again. It plays from the clip's start at the size it was drawn, where the clip is",
-    args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1).optional(), take: z.int().nonnegative().optional(), html: z.string().optional(), prompt: z.string().optional(), cost: z.number().nonnegative().optional() }),
-    apply(doc, { clip, asset, take, html, prompt, cost }, ctx) {
+      "Show a drawing of a motion graphics clip's composition in it: `asset` (a drawing motion.make or motion.render made) with `html`, `prompt`, who wrote it (`by`: openai, claude, apple) and what it cost in dollars (`cost`) (a new take), or with `take` (that take drawn again); or `take` alone, an earlier take picked again. It plays from the clip's start at the size it was drawn, where the clip is",
+    args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1).optional(), take: z.int().nonnegative().optional(), html: z.string().optional(), prompt: z.string().optional(), cost: z.number().nonnegative().optional(), by: z.string().optional() }),
+    apply(doc, { clip, asset, take, html, prompt, cost, by }, ctx) {
       const { clip: c, track } = findClip(doc, ctx.registry, clip);
       const m = motionOf(c);
       if (c.type !== "motion" || !m) throw new Error(`clip "${clip}" isn't a motion graphic`);
       if (track.locked) throw new Error(`track "${track.name}" is locked`);
       if (html !== undefined) {
         if (!asset) throw new Error("a new take needs its drawing (`asset`)");
-        m.takes.push({ prompt: prompt ?? "", html, assetId: asset, ...(cost ? { cost } : {}) });
+        m.takes.push({ prompt: prompt ?? "", html, assetId: asset, ...(cost ? { cost } : {}), ...(by ? { by } : {}) });
         m.shown = m.takes.length - 1;
       } else if (take !== undefined) {
         const t = m.takes[take] ?? fail(`the clip has no take ${take}`);
@@ -214,7 +217,10 @@ function shapeOf(id: string, ctx: Pick<ActionContext, "project" | "registry">) {
   }
 }
 
-const key = (env: { secret: (id: string) => Promise<string | undefined> }) => async () => (await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose Apple's model on the Motion tab");
+const key = (env: { secret: (id: string) => Promise<string | undefined> }, planner: string) => async () =>
+  planner === "claude"
+    ? ((await env.secret(ANTHROPIC)) ?? fail("no Anthropic API key: add one in Settings › AI, or choose another model on the Motion tab"))
+    : ((await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose another model on the Motion tab"));
 
 /** What drawing a clip needs, read from it when the action starts: its box (as it shows now), length and Look. */
 function drawing(clip: Clip, ctx: ActionContext) {
@@ -294,7 +300,7 @@ const REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
 const refer = defineAction({
   id: "motion.refer",
   description:
-    "Give a motion graphics clip (`clip`, else the selected one) a reference image from a file (`path`: PNG, JPEG, WebP or GIF), copied into the project's media/Motion graphics/References folder, whose design motion.make recreates in HTML and animates (OpenAI only); `path: null` takes it away. One undo step",
+    "Give a motion graphics clip (`clip`, else the selected one) a reference image from a file (`path`: PNG, JPEG, WebP or GIF), copied into the project's media/Motion graphics/References folder, whose design motion.make recreates in HTML and animates (OpenAI or Claude); `path: null` takes it away. One undo step",
   args: z.strictObject({ clip: z.string().min(1).optional(), path: z.string().min(1).nullable() }),
   resolve: ({ clip: id, path }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
@@ -337,7 +343,7 @@ const refer = defineAction({
 const write = defineAction({
   id: "motion.write",
   description:
-    "Write a motion graphics clip's Auto prompt (`clip`, else the selected one) from what is said under it: one sentence saying what it shows, with its exact words, by the model chosen on the Motion tab (preference motionPlanner: Apple's on-device model by default, or OpenAI). Runs as a job",
+    "Write a motion graphics clip's Auto prompt (`clip`, else the selected one) from what is said under it: one sentence saying what it shows, with its exact words, by the model chosen on the Motion tab (preference motionPlanner: Apple's on-device model by default, OpenAI or Claude). Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
@@ -354,8 +360,8 @@ const write = defineAction({
       task: {
         label: "Write Motion Graphics Prompt",
         run: async (env) => {
-          env.progress(0.1, planner === "openai" ? "OpenAI is writing the prompt" : "Apple's on-device model is writing the prompt");
-          const idea = await writeIdea(said, planner, key(env));
+          env.progress(0.1, `${WHO[planner] ?? planner} is writing the prompt`);
+          const idea = await writeIdea(said, planner, key(env, planner));
           env.progress(1, "Prompt written");
           return (now) => {
             const was = shapeOf(clip.id, now);
@@ -374,7 +380,7 @@ const write = defineAction({
   },
 });
 
-type Drawn = { clip: string; asset: Omit<Asset, "id">; shape: string | undefined } & ({ html: string; prompt: string; cost: number } | { take: number });
+type Drawn = { clip: string; asset: Omit<Asset, "id">; shape: string | undefined } & ({ html: string; prompt: string; cost: number; by: string } | { take: number });
 
 /** The end of a make or a render: each drawing added to the Media Bin and shown in its clip, one undo step. */
 function shown(label: string, clips: string[], made: Drawn[]) {
@@ -386,7 +392,7 @@ function shown(label: string, clips: string[], made: Drawn[]) {
       if (was !== m.shape) throw new Error("the motion graphics clip was moved or trimmed while it was made: make it again");
       const added = steps.length;
       steps.push({ command: "asset.add", args: m.asset });
-      steps.push({ command: "motion.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added], ...("html" in m ? { html: m.html, prompt: m.prompt, cost: m.cost } : { take: m.take }) }) });
+      steps.push({ command: "motion.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added], ...("html" in m ? { html: m.html, prompt: m.prompt, cost: m.cost, by: m.by } : { take: m.take }) }) });
     }
     return { label, steps, after: () => [{ command: "motion.status", args: { clips, making: false } }] };
   };
@@ -395,7 +401,7 @@ function shown(label: string, clips: string[], made: Drawn[]) {
 const make = defineAction({
   id: "motion.make",
   description:
-    "Make a motion graphics clip (`clip`, else the selected one) from its prompt (Auto's or Manual's; still empty, the words said under it): the planner writes it as an HTML composition, the clip's Look its default design, timed to the words said (OpenAI designs it; Apple's on-device model picks a title, lower third, number, list or text for a template), with a background of its own unless the prompt asks for alpha (transparent, no background), and WebKit draws it at the size of the clip's box, with its transparency, into the project's media/Motion graphics folder; shown in the clip as a new take with what OpenAI charged for it (`cost`, dollars), one undo step. Runs as a job",
+    "Make a motion graphics clip (`clip`, else the selected one) from its prompt (Auto's or Manual's; still empty, the words said under it): the model chosen on the Motion tab writes it as an HTML composition, the clip's Look its default design, timed to the words said (OpenAI or Claude designs it; Apple's on-device model picks a title, lower third, number, list or text for a template), with a background of its own unless the prompt asks for alpha (transparent, no background), and WebKit draws it at the size of the clip's box, with its transparency, into the project's media/Motion graphics folder; shown in the clip as a new take with who made it (`by`) and what it was charged (`cost`, dollars), one undo step. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
@@ -407,7 +413,7 @@ const make = defineAction({
     if (!prompt) throw new Error("the clip has no prompt and nothing is said under it: type a prompt (Manual)");
     const planner = String(ctx.pref(PLANNER));
     const reference = m.reference ? ctx.project.assets[m.reference]?.path : undefined;
-    if (reference && planner !== "openai") throw new Error("a reference image needs OpenAI to make it: choose OpenAI on the Motion tab, or remove the image");
+    if (reference && planner === "apple") throw new Error("a reference image needs OpenAI or Claude to make it: choose one on the Motion tab, or remove the image");
     const d = drawing(clip, ctx);
     const shape = shapeOf(clip.id, ctx);
     const ids = [clip.id];
@@ -417,13 +423,13 @@ const make = defineAction({
       task: {
         label: "Make Motion Graphics",
         run: async (env) => {
-          env.progress(0.05, planner === "openai" ? "OpenAI is designing the graphic" : "Apple's on-device model is picking the graphic");
+          env.progress(0.05, planner === "apple" ? "Apple's on-device model is picking the graphic" : `${WHO[planner] ?? planner} is designing the graphic`);
           const meter = { cost: 0 };
-          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}) }, planner, key(env), meter);
+          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}) }, planner, key(env, planner), meter);
           env.progress(0.3, "Drawing it");
           const asset = await draw(env, html, d, prompt, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
           env.progress(1, "Made");
-          return shown("Make Motion Graphics", ids, [{ clip: clip.id, asset, html, prompt, shape, cost: meter.cost }]);
+          return shown("Make Motion Graphics", ids, [{ clip: clip.id, asset, html, prompt, shape, cost: meter.cost, by: planner }]);
         },
         failed: (error) => [{ command: "motion.status", args: { clips: ids, making: false, ...(error === "cancelled" ? {} : { error }) } }],
       },
@@ -564,14 +570,16 @@ export const motion = defineFeature({
   commands,
   sessionCommands,
   actions: [add, refer, write, make, render],
+  secrets: [{ id: ANTHROPIC, title: "Anthropic API key" }],
   preferences: [
     {
       id: PLANNER,
       title: "Motion graphics made by",
-      description: "Who writes motion graphics (Make) and their Auto prompts; picked on the Motion tab",
+      description: "Who writes motion graphics (Make) and their Auto prompts: Apple's model, OpenAI or Claude; picked on the Motion tab",
       options: [
         { id: "apple", title: "Apple, on this Mac", description: "Apple's on-device model fills a template (a title, lower third, number, list or text): free, offline, no key, but plain" },
         { id: "openai", title: "OpenAI", description: "gpt-6.1-sol with your OpenAI API key designs each graphic in HTML (3D, maps, any style, a reference image), about $0.10–0.20 a Make on your account", secret: OPENAI, online: true },
+        { id: "claude", title: "Claude", description: "Claude Opus 5.5 with your Anthropic API key designs each graphic in HTML (3D, maps, any style, a reference image), about $0.20–0.35 a Make on your account", secret: ANTHROPIC, online: true },
       ],
       // Keyless, as every preference's default is: removing the key falls back to it.
       default: "apple",

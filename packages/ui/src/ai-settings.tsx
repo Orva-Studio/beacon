@@ -6,7 +6,8 @@ import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
 const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
-  { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
+  { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, motion graphics made by OpenAI, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
+  { id: "anthropic-api-key", label: "Anthropic", use: "For motion graphics made by Claude", placeholder: "sk-ant-…" },
   { id: "replicate-api-token", label: "Replicate", use: "For B-roll footage", placeholder: "r8_…" },
   { id: "auphonic-api-key", label: "Auphonic", use: "For Clean with Auphonic", placeholder: "Auphonic API key" },
 ];
@@ -72,6 +73,8 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
         const secret = secrets.find((s) => s.id === k.id);
         return secret && <SecretRow key={k.id} secret={secret} label={k.label} use={k.use} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
       })}
+      <div className="mt-2 text-label font-medium text-text-muted">Motion Graphics</div>
+      {pick("motionPlanner", "Made by")}
       <div className="mt-2 text-label font-medium text-text-muted">B-roll</div>
       {pick("brollPlanner", "Planner")}
       {pick("brollModel", "Model")}
