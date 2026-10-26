@@ -54,6 +54,16 @@ Beacon's interface uses the Geist typeface
 Authors, bundled under the SIL Open Font License, Version 1.1. The license is
 included at packages/ui/src/fonts/OFL.txt.
 
+GSAP
+----
+Beacon bundles GSAP 3.15.0 (https://gsap.com), Copyright 2026 GreenSock,
+a Webflow company, under the Standard "No Charge" GSAP License
+(https://gsap.com/standard-license). The file is unmodified from the npm
+package (packages/features/src/motion/vendor/gsap.min.js, SHA-256
+92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb), its
+license banner kept. It is loaded only into the pages motion graphics are
+drawn from, to animate what an AI model writes.
+
 Other dependencies
 ------------------
 Beacon's npm and Rust dependencies are under their own licenses, as stated

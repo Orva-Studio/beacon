@@ -1,6 +1,7 @@
 import type { RGBA } from "@beacon/model";
 import type { Piece } from "./blocks";
 import type { Look } from "./looks";
+import gsap from "./vendor/gsap.min.js" with { type: "text" };
 
 /** Behind a graphic in its box: nothing, the whole box filled, or a rounded card; in any colour and opacity. */
 export interface Backdrop {
@@ -50,16 +51,22 @@ const EASE: Record<Look["easing"], string> = {
  * `page`'s style and runtime.
  */
 export const CONTRACT = `The page is exactly the box, its background transparent: the video shows wherever nothing is drawn.
-Write only the inside of <body>: HTML and one <style> block. No scripts, no external files, fonts or images (they are blocked).
-Use the Look's variables, never your own fonts or colours: var(--heading) and var(--body) fonts, var(--text), var(--accent), var(--card) colours, var(--shadow) as a text-shadow or box-shadow.
-Classes Beacon animates for you:
-- span.w: one word that comes in when it is said: data-t="<seconds from the clip's start>" (from the word times given). Wrap every shown word that is said in one.
-- .in: any element that comes in at data-t="<seconds>" (a bar, a card, an icon, a line not said aloud).
+Write only the inside of <body>: HTML, <style> and <script> blocks, inline SVG. Nothing loads from outside the page (no network, no external files, fonts or images): draw with CSS and SVG.
+Design freely with any CSS: gradients, filters and blur, blend modes, masks, clip-path, SVG shapes and strokes. (backdrop-filter does nothing: the video isn't behind the page.)
+The Look is the default design, as variables: var(--heading) and var(--body) fonts with var(--heading-weight) and var(--body-weight), var(--text), var(--accent) and var(--card) colours, var(--shadow) for a text-shadow or box-shadow. When the brief asks for other colours, fonts or styles, the brief wins: use your own.
+Animate, every way seekable (Beacon seeks the page to each frame's time; there is no real time):
+- CSS @keyframes animations, their animation-delay in seconds from the clip's start.
+- GSAP 3 (the global gsap, core only, no plugins): tweens and timelines built when the page loads, positioned in seconds from the clip's start. Optionally register a paused timeline as window.__timelines = { main: tl }.
+- window.__frame = (t) => { ... }: called with each frame's time in seconds, for anything drawn from the time.
+No requestAnimationFrame, timers, transitions or Date.now(): they don't follow the seek.
+Optional helpers Beacon animates in the Look's entrance:
+- span.w: one word that comes in when it is said, data-t="<seconds from the clip's start>" (from the word times given). Keep a space between words; in a flex or grid row, give the row a gap.
+- .in: any element that comes in at data-t="<seconds>" (a card, a bar, a line not said aloud). An .in without data-t holding .w words comes in with its first word, so a card never shows empty.
 - .count: a number counting from data-from to data-to over data-for seconds from data-t (data-decimals, data-prefix, data-suffix); leave it empty.
-Everything fades out at the clip's end by itself. You may add your own @keyframes (they are seeked frame by frame), but no transitions.
-Lay out with flexbox or absolute positions in px within the box; keep text large enough to read on a phone, and inside the box with a margin.`;
+Everything fades out at the clip's end by itself.
+Size cards and bars to their content (width: fit-content, inline-flex), not stretched across the box. Lay out in px within the box, text large enough to read on a phone and inside the box with a margin.`;
 
-/** The whole page a composition is drawn in: the Look as CSS variables, the backdrop, Beacon's classes and its seekable runtime. */
+/** The whole page a composition is drawn in: the Look as CSS variables, the backdrop, Beacon's helpers and its seekable runtime. */
 export function page(body: string, env: PageEnv): string {
   const { look } = env;
   const k = env.height / 1080;
@@ -71,9 +78,14 @@ export function page(body: string, env: PageEnv): string {
       ? ""
       : `#beacon-backdrop { position: absolute; ${env.backdrop.kind === "card" ? `inset: ${inset}px; border-radius: ${inset * 0.6}px;` : "inset: 0;"} background: ${css(env.backdrop.color)}; animation: fade 0.3s ease-out both; }`;
   const d = (0.6 / look.speed).toFixed(3);
+  // Only pages that use it carry it: 70 KB.
+  const animator = /\bgsap\b/.test(body)
+    ? // Held at 0 before the composition's scripts run, so their tweens start at the clip's start, and kept when done so a seek back finds them.
+      `<script>${gsap}</script>\n<script>gsap.globalTimeline.pause(0); gsap.globalTimeline.autoRemoveChildren = false;</script>`
+    : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-beacon'; img-src data:; font-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
 <style>
 :root { --heading: ${font(look.heading.font, env.fallbackFont)}; --body: ${font(look.body.font, env.fallbackFont)}; --heading-weight: ${look.heading.weight}; --body-weight: ${look.body.weight}; --text: ${css(look.text)}; --accent: ${css(look.accent)}; --card: ${css(look.card)}; --shadow: ${shadow}; --come: ${d}s; --ease: ${EASE[look.easing]}; }
 html, body { margin: 0; width: ${Math.round(env.width)}px; height: ${Math.round(env.height)}px; overflow: hidden; background: transparent; }
@@ -84,16 +96,31 @@ ${backdrop}
 ${keyframes(look)}
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes out { from { opacity: 1; } to { opacity: 0; } }
-</style></head>
+</style>
+${animator}</head>
 <body><div id="beacon-stage">${backdrop ? '<div id="beacon-backdrop"></div>' : ""}
 ${body}
 </div>
-<script nonce="beacon">
+<script>
 (() => {
   const together = ${env.timing === "together"};
   const words = [...document.querySelectorAll(".w")];
-  words.forEach((w, i) => { w.style.animationDelay = (together ? i * 0.06 : Number(w.dataset.t) || 0) + "s"; });
-  for (const el of document.querySelectorAll(".in")) el.style.animationDelay = (Number(el.dataset.t) || 0) + "s";
+  words.forEach((w, i) => {
+    w.style.animationDelay = (together ? i * 0.06 : Number(w.dataset.t) || 0) + "s";
+    const next = w.nextSibling;
+    // Words written back to back would run together.
+    if (next && next.nodeType === 1 && next.classList.contains("w")) w.after(" ");
+  });
+  for (const row of new Set(words.map((w) => w.parentElement))) {
+    const st = row && getComputedStyle(row);
+    // A flex or grid row drops the spaces between its words.
+    if (st && /flex|grid/.test(st.display) && (st.columnGap === "normal" || st.columnGap === "0px")) row.style.columnGap = "0.28em";
+  }
+  for (const el of document.querySelectorAll(".in")) {
+    const first = el.dataset.t === undefined && el.querySelector(".w");
+    const t = first ? first.style.animationDelay : (Number(el.dataset.t) || 0) + "s";
+    el.style.animationDelay = t;
+  }
   const counts = [...document.querySelectorAll(".count")];
   const fmt = (el, v) => {
     const d = Number(el.dataset.decimals) || 0;
@@ -101,11 +128,14 @@ ${body}
   };
   window.__seek = (t) => {
     for (const a of document.getAnimations()) { a.pause(); a.currentTime = t * 1000; }
+    if (window.gsap) gsap.globalTimeline.time(t, false);
+    for (const tl of Object.values(window.__timelines || {})) tl && tl.time && (tl.pause(), tl.time(t, false));
     for (const el of counts) {
       const [from, to, at, span] = [Number(el.dataset.from) || 0, Number(el.dataset.to) || 0, Number(el.dataset.t) || 0, Number(el.dataset.for) || 1.2];
       const k = Math.min(1, Math.max(0, (t - at) / span));
       el.textContent = fmt(el, from + (to - from) * (1 - Math.pow(1 - k, 3)));
     }
+    if (typeof window.__frame === "function") window.__frame(t);
     return document.fonts.ready;
   };
 })();

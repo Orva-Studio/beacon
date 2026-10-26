@@ -2377,6 +2377,23 @@ examples; (3) then compare OpenAI and Claude (Anthropic's API, a key the user
 has) on the same briefs, keep OpenAI, add Claude if it wins; (4) the footage
 under a graphic (punch-in, picture-in-picture, split), face awareness (Vision),
 AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
+- **(1) built (2026-10-26):** the Look is the default design and the brief
+  overrides it; any CSS and inline SVG; the composition's own scripts run
+  (still no network: the page's policy, and beacon-html cancels any
+  navigation but the page itself); GSAP 3.15.0 core vendored unmodified
+  (`motion/vendor/gsap.min.js`, inlined only into pages that use `gsap`;
+  Standard "No Charge" licence, see THIRD_PARTY_NOTICES), its global timeline
+  held at 0 and seeked, `window.__timelines` (HyperFrames' convention) and
+  `window.__frame(t)` seeked too; `.w`/`.in`/`.count` optional helpers; words
+  written back to back get a space, flex and grid rows a gap; an `.in` with
+  no `data-t` comes in with its first word (no empty card); cards sized to
+  content in the guidance.
+- **A reference image** (the user, 2026-10-26; after (1), before (2)): a
+  motion clip can carry an image (dropped or picked on the Motion tab, kept
+  in the project's media); `motion.make` sends it to OpenAI with the brief
+  (an `input_image`), asked to recreate its design in HTML and animate it,
+  timed to the words. Apple's model has no image input: with a reference,
+  Make needs OpenAI. The same image later for Claude in the (3) comparison.
 - **Decided (the user, 2026-10-26):** text follows the speech by default (each
   word in as it is said, from the transcript's word times), "all at once" the
   other choice. The B-roll-style flow stays (placeholder, box, prompt, Make,

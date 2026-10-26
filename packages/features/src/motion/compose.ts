@@ -117,8 +117,8 @@ export interface ComposeRequest {
 const HTML_SCHEMA = { type: "object", additionalProperties: false, required: ["html"], properties: { html: { type: "string" } } };
 
 /**
- * The graphic's composition (the inside of its page's <body>) from its prompt: OpenAI writes it, designed in the Look
- * and timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
+ * The graphic's composition (the inside of its page's <body>) from its prompt: OpenAI writes it, the Look its default
+ * design and the prompt overriding it, timed to the words; Apple's smaller model picks the one kind it is and its words, which a template lays out
  * over the whole clip and box.
  */
 export async function compose(r: ComposeRequest, planner: string, key: () => Promise<string>): Promise<string> {
@@ -134,10 +134,10 @@ export async function compose(r: ComposeRequest, planner: string, key: () => Pro
     return template(usable, r.said.words, r);
   }
   const system = [
-    `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s, in the "${r.look.name}" Look (${r.look.description}).`,
+    `You design one on-screen motion graphic for a talking-head or screen-recording video: an HTML composition drawn over the video in a box ${Math.round(r.width)}×${Math.round(r.height)} px, for ${r.length.toFixed(2)} s. Its default design is the "${r.look.name}" Look (${r.look.description}); the brief overrides it.`,
     CONTRACT,
-    `Good motion graphics, like a skilled motion designer's: one clear idea, few words, strong hierarchy (one large line, a smaller one), generous spacing, the accent used sparingly, a card or bar behind text that sits over busy video. Kinds that work: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; mix them only when what is said calls for it.`,
-    "Time it to the speech: each word comes in as it is said (data-t from the word times), so the text follows the voice.",
+    `Design it as a skilled motion designer would: one clear idea, few words, strong hierarchy (one large line, a smaller one), generous spacing, an accent used sparingly, a card or bar behind text that sits over busy video, motion with intent (eased entrances, a little overshoot, things settling rather than stopping). Kinds that work: ${KINDS.map((k) => `${k} (${KIND_GUIDE[k]})`).join("; ")}; mix them only when what is said calls for it.`,
+    "Time it to the speech: words come in as they are said (data-t from the word times), so the text follows the voice; whatever holds them comes in with them.",
     "Answer with `html`: the inside of <body> only.",
   ].join("\n\n");
   const user = [`The graphic: ${r.prompt}`, r.said.words.length ? `Said under the clip, each word with its time in seconds from the clip's start:\n${timed(r.said)}` : "Nothing is said under the clip: time it evenly."].join("\n\n");

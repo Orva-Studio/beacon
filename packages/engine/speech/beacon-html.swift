@@ -53,6 +53,13 @@ final class Grabber: NSObject, WKNavigationDelegate {
     view.navigationDelegate = self
   }
 
+  // The page's own scripts run (a composition may animate with them): it may load only itself, so it can't reach the network by navigating.
+  func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+    let own = URL(fileURLWithPath: request.page).resolvingSymlinksInPath().path
+    let url = navigationAction.request.url
+    decisionHandler(url?.isFileURL == true && url?.resolvingSymlinksInPath().path == own ? .allow : .cancel)
+  }
+
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { next() }
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { fail("the page didn't load: \(error.localizedDescription)") }
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail("the page didn't load: \(error.localizedDescription)") }

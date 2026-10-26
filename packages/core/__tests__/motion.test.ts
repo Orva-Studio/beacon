@@ -9,7 +9,7 @@ const dir = mkdtempSync(join(tmpdir(), "beacon-motion-"));
 
 /**
  * OpenAI's Responses API standing in for the real one (which charges): it designs a composition, wrapped in a whole
- * document as a model sometimes does, with a word timed to the speech and a script, which the page's policy blocks.
+ * document as a model sometimes does, with a word timed to the speech and a GSAP tween, so the page carries GSAP.
  */
 const asked: Record<string, unknown>[] = [];
 const server = Bun.serve({
@@ -17,7 +17,7 @@ const server = Bun.serve({
   async fetch(req) {
     if (req.headers.get("authorization") !== "Bearer openai-key") return Response.json({ error: { message: "bad key" } }, { status: 401 });
     asked.push((await req.json()) as Record<string, unknown>);
-    const html = `<html><body><style>.t { font-size: 120px; font-family: var(--heading); }</style><div class="t"><span class="w" data-t="0.2">Three</span> <span class="w" data-t="0.6">wins</span></div><script>document.body.remove()</script></body></html>`;
+    const html = `<html><body><style>.t { font-size: 120px; font-family: var(--heading); }</style><div class="t"><span class="w" data-t="0.2">Three</span> <span class="w" data-t="0.6">wins</span></div><script>gsap.from(".t", { y: 40, duration: 0.5 })</script></body></html>`;
     return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ html }) }] }] });
   },
 });
@@ -55,7 +55,9 @@ test("motion graphics designed by OpenAI as HTML and drawn by WebKit with transp
   expect(drawn.path).toMatch(/media\/Motion graphics\/Three wins\.mov$/);
   const video = (drawn.derived.media as { streams: { kind: string; width?: number; height?: number; pixelFormat?: string }[] }).streams.find((s) => s.kind === "video")!;
   expect([video.width, video.height]).toEqual([960, 540]);
-  expect(readFileSync(drawn.path.replace(/\.mov$/, ".html"), "utf8")).toContain("Content-Security-Policy");
+  const doc = readFileSync(drawn.path.replace(/\.mov$/, ".html"), "utf8");
+  expect(doc).toContain("Content-Security-Policy");
+  expect(doc).toContain("GSAP 3.15.0");
   // Another Look draws it again from the same composition: no AI asked.
   const calls = asked.length;
   await core.run(h, "motion.style", { clips: [id], look: "tech" });
