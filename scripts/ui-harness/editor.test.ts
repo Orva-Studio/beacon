@@ -2461,6 +2461,30 @@ test.skipIf(skip)("Settings › Recording sets where a new recording goes and th
   }
 });
 
+test.skipIf(skip)("Stitch (⌥⌘I) of two pieces of a take, the second zoomed in: the stitched clip eases to the second's zoom over the half second before the join", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("clip.unlink", { clips: [screen.id] });
+    const s = clip(screen.id);
+    const mid = ticksToSeconds(s.start + s.duration / 2);
+    const [second] = (await run("clip.split", { at: mid, clips: [screen.id], linked: false })).results[0] as string[];
+    const scale = (clip(second!).props.transform as { scaleX: number }).scaleX;
+    await run("clip.set", { clip: second!, props: { transform: { scaleX: scale * 2, scaleY: scale * 2 } } });
+    await select([screen.id, second!]);
+    await page.key("i", "KeyI", ["alt", "meta"]);
+    await arrived(() => clips().some((c) => c.type === "stitched"));
+    const stitched = clips().find((c) => c.type === "stitched")!;
+    const ramp = stitched.animations.find((a) => a.to["transform.scaleX"] === scale * 2);
+    expect(ramp).toBeDefined();
+    expect(ticksToSeconds(ramp!.duration)).toBeCloseTo(0.5, 3);
+    expect(ticksToSeconds(stitched.start + ramp!.end)).toBeCloseTo(mid, 1);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Stitch Media");
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

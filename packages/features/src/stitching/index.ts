@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   clipEnd,
+  secondsToTicks,
   defineAction,
   defineCommand,
   defineFeature,
@@ -31,6 +32,8 @@ type Stitch = z.infer<typeof stitchSchema>;
 
 /** What the outer clip carries for its segments. */
 const LOOK = ["transform", "crop"];
+/** How long a change of look at a join takes, ending at it. */
+const JOIN_RAMP = secondsToTicks(0.5);
 const FLAT = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 };
 
 /** Source media time ↔ the stitched clip's inner time, through one segment. */
@@ -97,7 +100,7 @@ export const stitching = defineFeature({
     defineCommand({
       id: "clip.stitch",
       description:
-        "Stitch pieces of one recording that sit next to each other on a track into one clip (⌥⌘I): the first piece's transform, crop and visual effects, and every piece's transform and crop animations, move to the stitched clip, so they run across the joins; cursor effects and cursor animations stay on each piece. Returns its id",
+        "Stitch pieces of one recording that sit next to each other on a track into one clip (⌥⌘I): the first piece's transform, crop and visual effects, and every piece's transform and crop animations, move to the stitched clip, so they run across the joins, and a piece whose own transform or crop differs from what shows before it gets there by a half-second block ending at its join; cursor effects and cursor animations stay on each piece. Returns its id",
       args: z.strictObject({ clips: z.array(z.string().min(1)).min(2) }),
       apply(doc, { clips }, ctx) {
         const { track, clips: pieces } = stitchClips(doc, clips, ctx);
@@ -127,6 +130,23 @@ export const stitching = defineFeature({
           seg.animations = own;
           return seg;
         });
+        // A piece whose own transform or crop differs from what shows just before it (the first piece's, moved on by
+        // the blocks done by then): a block over the last half second before the join takes it there (the user,
+        // 2026-10-27), rather than its look being lost.
+        const looks = (c: Clip) =>
+          Object.fromEntries(
+            LOOK.flatMap((g) => Object.entries((c.props[g] as Record<string, unknown> | undefined) ?? {}).filter(([k, v]) => typeof v === "number" && fits.target(`${g}.${k}`)).map(([k, v]) => [`${g}.${k}`, v as number])),
+          );
+        for (const [i, piece] of pieces.entries()) {
+          if (!i) continue;
+          const join = segments[i]!.start;
+          const shown = looks(first);
+          for (const a of [...animations.values()].filter((x) => x.end <= join).sort((x, y) => x.end - y.end)) Object.assign(shown, a.to);
+          const to = Object.fromEntries(Object.entries(looks(piece)).filter(([k, v]) => k in shown && Math.abs(v - (shown[k] as number)) > 1e-6));
+          if (!Object.keys(to).length) continue;
+          const block: Animation = { id: ctx.newId("anim"), end: join, duration: Math.min(JOIN_RAMP, join - segments[i - 1]!.start), easing: "easeInOut", to };
+          animations.set(block.id, block);
+        }
         const id = ctx.newId("clip");
         const stitched: Clip = {
           id,
