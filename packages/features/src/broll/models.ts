@@ -1,6 +1,6 @@
 /**
- * The text-to-video models B-roll offers through Replicate (the user, 2026-10-21 and 2026-10-23). Shapes and lengths
- * are what the models' pages said on 2026-10-23; `limits` reads the live schema before a generation, which wins.
+ * The text-to-video models B-roll offers through Replicate (the user, 2026-10-21, 2026-10-23 and 2026-10-27). Shapes
+ * and lengths are what the models' pages said on 2026-10-23 (Kling 4.0's on 2026-10-27, priced there); `limits` reads the live schema before a generation, which wins.
  * Prices are third-party comparisons (PLAN), shown as estimates: Replicate's API doesn't give them, and FLUX 3's and
  * Seedance 2.5's weren't found for Replicate, so theirs are the high end of what was reported.
  */
@@ -67,6 +67,15 @@ export const VIDEO_MODELS: VideoModel[] = [
     durations: span(3, 15),
     resolutions: { "720p": { mode: "standard" }, "1080p": { mode: "pro" } },
     perSecond: { "720p": 0.15, "1080p": 0.22 },
+  },
+  {
+    id: "kling-v4",
+    title: "Kling 4.0",
+    slug: "kwaivgi/kling-v4.0",
+    aspects: ["16:9", "9:16", "1:1", "21:9"],
+    durations: span(3, 30),
+    resolutions: { "720p": { resolution: "720p" }, "1080p": { resolution: "1080p" } },
+    perSecond: { "720p": 0.157, "1080p": 0.235 },
   },
 ];
 

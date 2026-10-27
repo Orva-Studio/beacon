@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Clip, Project, Session } from "@beacon/model";
-import type { Look, MotionProps, MotionState } from "@beacon/features";
+import type { CustomStyle, Look, MotionProps, MotionState } from "@beacon/features";
 import { Button, Section, Segmented, Select, TextArea } from "./controls";
 import { MotionCode } from "./motion-code";
 import { useOnline } from "./online";
@@ -12,6 +12,9 @@ export const motionStateOf = (s: Session | undefined) => (s?.features.motion as 
 
 /** A motion graphics clip with nothing made yet: its box shows on the canvas, nothing in an export. */
 export const isEmptyMotion = (c: Clip) => c.type === "motion" && !c.assetId;
+
+/** The Skill menu's last item: Import Skill… */
+const IMPORT_SKILL = "\u0000import";
 
 /** Images a reference can be: motion.refer's. */
 const REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"];
@@ -80,6 +83,31 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const by = m.takes[m.shown]?.by;
   const designed = by === "openai" || by === "claude" || by === "you";
   const cost = typicalCost(project, planner ?? "openai");
+  const skills = useQuery<CustomStyle[]>(host, "motion.skills", {}, useView((v) => v.preferences.find((p) => p.id === "motionSkills")?.value)) ?? [];
+  const skill = skills.find((k) => k.id === m.skill);
+  const [skillError, setSkillError] = useState<string>();
+  const pickSkill = (id: string | null) => {
+    host.run("motion.style", { clips: [clip.id], skill: id }, "Motion Graphics Skill");
+    // New motion graphics take the skill last picked, as they do the Look.
+    void host.setPreference("motionSkill", JSON.stringify(id ?? ""));
+  };
+  // A skill read from a file joins the list kept for every project (one of the same name is replaced), then is picked.
+  const importSkill = async () => {
+    const path = await host.chooseFile(["md", "markdown", "txt"]);
+    if (!path) return;
+    try {
+      const read = (await host.query("motion.readSkill", { path })) as { name: string; text: string };
+      const same = skills.find((k) => k.name === read.name);
+      const id = same?.id ?? `skill-${Date.now().toString(36)}`;
+      const list = same ? skills.map((k) => (k.id === id ? { ...k, text: read.text } : k)) : [...skills, { id, ...read }];
+      const r = await host.setPreference("motionSkills", JSON.stringify(list));
+      if (!r.ok) throw new Error(r.error);
+      pickSkill(id);
+      setSkillError(undefined);
+    } catch (e) {
+      setSkillError(`${path.split("/").pop()}: ${(e as Error).message}`);
+    }
+  };
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-motion-tab>
@@ -105,6 +133,38 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             </Select>
           </div>
           {look && <span className="text-caption text-text-faint">{look.description}.</span>}
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-label font-medium text-text-muted">Skill</span>
+          <Select
+            value={skill?.id ?? ""}
+            title={skill ? skill.text.slice(0, 300) : undefined}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === IMPORT_SKILL) void importSkill();
+              else if (v !== (skill?.id ?? "")) pickSkill(v || null);
+            }}
+            data-motion-skill
+          >
+            <option value="">None</option>
+            {skills.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.name}
+              </option>
+            ))}
+            <option value={IMPORT_SKILL}>Import Skill…</option>
+          </Select>
+          {skillError ? (
+            <span className="text-caption text-danger" data-motion-skill-error>
+              {skillError}
+            </span>
+          ) : (
+            skill && (
+              <span className="text-caption text-text-faint">
+                {planner === "apple" ? "Skills need OpenAI or Claude: Apple's model only fills templates (Settings › AI)." : "Make and Revise follow its design and rules. Kept for every project; Settings › AI lists them."}
+              </span>
+            )
+          )}
         </label>
         <div className="flex flex-col gap-1">
           <span className="text-label font-medium text-text-muted">Words</span>
@@ -227,11 +287,11 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             Draw Again
           </Button>
         )}
-        {m.shown >= 0 && (
-          <div className="flex flex-col gap-1" data-motion-edit>
-            <span className="text-label font-medium text-text-muted">Edit</span>
-            <TextArea rows={2} placeholder='Change something: "make the logo bigger", "slower", "a blue background"' value={note} onChange={(e) => setNote(e.target.value)} data-motion-note />
-            <div className="flex gap-2">
+        <div className="flex flex-col gap-1" data-motion-edit>
+          <span className="text-label font-medium text-text-muted">Edit</span>
+          {m.shown >= 0 && <TextArea rows={2} placeholder='Change something: "make the logo bigger", "slower", "a blue background"' value={note} onChange={(e) => setNote(e.target.value)} data-motion-note />}
+          <div className="flex gap-2">
+            {m.shown >= 0 && (
               <Button
                 className="flex-1"
                 disabled={!note.trim() || busy || needsNet || planner === "apple"}
@@ -241,13 +301,19 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
               >
                 {`Revise · ${planner === "apple" ? "Needs OpenAI or Claude" : `~$${cost.toFixed(2)}`}`}
               </Button>
-              <Button look="quiet" disabled={busy} title="Edit its HTML, CSS and script with a live preview: a new take, free" onClick={() => setEditing(true)} data-motion-code>
-                Edit Code…
-              </Button>
-            </div>
+            )}
+            <Button
+              look="quiet"
+              disabled={busy}
+              title={m.shown >= 0 ? "Edit its HTML, CSS and script with a live preview: a new take, free" : "Write its HTML, CSS and script by hand with a live preview, instead of Make: free"}
+              onClick={() => setEditing(true)}
+              data-motion-code
+            >
+              {m.shown >= 0 ? "Edit Code…" : "Write Code…"}
+            </Button>
           </div>
-        )}
-        {editing && m.takes[m.shown] && <MotionCode host={host} clip={clip.id} html={m.takes[m.shown]!.html} onClose={() => setEditing(false)} />}
+        </div>
+        {editing && <MotionCode host={host} clip={clip.id} html={m.takes[m.shown]?.html ?? ""} onClose={() => setEditing(false)} />}
         <span className="text-caption text-text-faint">
           {planner === "apple"
             ? "Apple's model on this Mac fills a template: a title, lower third, number, list or text. OpenAI and Claude design anything (3D, maps, any style)."

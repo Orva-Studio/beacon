@@ -126,6 +126,21 @@ const server = Bun.serve({
           },
         },
       });
+    // Kling 4.0 as its page describes it: a length from 3 to 30, its resolution a string, no audio switch.
+    if (path === "/models/kwaivgi/kling-v4.0")
+      return Response.json({
+        latest_version: {
+          openapi_schema: {
+            components: {
+              schemas: {
+                Input: { properties: { prompt: { type: "string" }, aspect_ratio: { allOf: [{ $ref: "#/components/schemas/aspect_ratio" }] }, duration: { type: "integer", minimum: 3, maximum: 30 }, resolution: { allOf: [{ $ref: "#/components/schemas/resolution" }] }, start_image: { type: "string" }, reference_images: { type: "array" } } },
+                aspect_ratio: { enum: ["16:9", "9:16", "1:1", "21:9"] },
+                resolution: { enum: ["720p", "1080p"] },
+              },
+            },
+          },
+        },
+      });
     // The other models: no schema read, so the table's.
     if (/^\/models\/[\w.-]+\/[\w.-]+$/.test(path)) return Response.json({});
     const posted = path.match(/^\/models\/([\w.-]+\/[\w.-]+)\/predictions$/);
@@ -335,11 +350,15 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   const before = predictions.length;
   await waitJob(core, jobOf(await core.run(h, "broll.compare", { clip: second.id })));
   const compared = predictions.slice(before);
-  expect(compared.map((p) => p.model).sort()).toEqual(["black-forest-labs/flux-3", "bytedance/seedance-2.0", "bytedance/seedance-2.5", "google/veo-3.1-fast", "kwaivgi/kling-v3-video"]);
+  expect(compared.map((p) => p.model).sort()).toEqual(["black-forest-labs/flux-3", "bytedance/seedance-2.0", "bytedance/seedance-2.5", "google/veo-3.1-fast", "kwaivgi/kling-v3-video", "kwaivgi/kling-v4.0"]);
+  // Kling 4.0: no audio field sent (it has none), its 1080p by name.
+  const kling4 = compared.find((p) => p.model === "kwaivgi/kling-v4.0")!;
+  expect(kling4).toMatchObject({ aspect_ratio: "1:1", resolution: "1080p" });
+  expect(kling4.generate_audio).toBeUndefined();
   // FLUX 3: its length a string; 1:1 nearer the 960×1080 region than 9:16, so less is cropped.
   expect(compared.find((p) => p.model === "black-forest-labs/flux-3")).toMatchObject({ duration: "8", aspect_ratio: "1:1", draft: false, generate_audio: false });
   const takes = props(brolls()[1]!).takes;
-  expect(takes).toHaveLength(6);
+  expect(takes).toHaveLength(7);
   const flux = takes.map((t) => t.assetId).find((id) => (core.doc(h).assets[id]!.derived.broll as { model: string }).model === "FLUX 3")!;
   await core.run(h, "broll.use", { clip: second.id, asset: flux });
   const picked = brolls()[1]!;
@@ -421,7 +440,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   await core.run(h, "clipboard.copy", { clips: [second.id] });
   await core.run(other, "edit.paste", {});
   const pasted = core.doc(other).tracks.flatMap((t) => t.clips).find((c) => c.type === "broll")!;
-  expect(props(pasted).takes).toHaveLength(6);
+  expect(props(pasted).takes).toHaveLength(7);
   for (const t of props(pasted).takes) expect(core.doc(other).assets[t.assetId]).toBeDefined();
   expect(props(pasted).takes.some((t) => t.assetId === pasted.assetId)).toBe(true);
   await core.close(other);

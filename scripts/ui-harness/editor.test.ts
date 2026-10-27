@@ -156,9 +156,11 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     expect(track.name).toBe("Motion graphics");
     expect(ticksToSeconds(motion().start)).toBeCloseTo(2, 3);
     expect((await session()).selection).toEqual([motion().id]);
-    // Empty, it draws nothing.
+    // Empty, it draws nothing; its code can be written by hand instead of Made.
     expect(motion().assetId).toBeUndefined();
     await page.until("!!document.querySelector('[data-motion-tab]')");
+    await page.until("(document.querySelector('[data-motion-code]')?.textContent ?? '') === 'Write Code…'");
+    expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-revise]') && !document.querySelector('[data-motion-note]')")).toBe(true);
     // OpenAI by default, its likely cost on Make; who makes it is chosen in Settings › AI, not on the tab.
     await page.until("/^Make · ~\\$0\\.15$/.test(document.querySelector('[data-motion-make]')?.textContent ?? '')");
     await page.until("!document.querySelector('[data-motion-planner]')");
@@ -223,6 +225,22 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await page.until("(document.querySelector('[data-motion-reference]')?.textContent ?? '') === 'reference.png'");
     await page.evaluate("document.querySelector('[data-motion-reference-remove]').click()");
     await arrived(() => !(motion().props.motion as { reference?: string }).reference);
+    // A skill: Import Skill… reads a SKILL.md picked in Finder into the list kept for every project, picks it on the
+    // clip and for new ones; None takes it off.
+    const skillDir = join(dir, "paper-cutout");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: paper-cutout\n---\n\n# Paper Cutout\n\nCream torn-paper cards on a dark ground.");
+    const skillTo = (v: string) => page.evaluate(`(() => { const s = document.querySelector('[data-motion-skill]'); s.value = ${JSON.stringify(v)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    ui.chooseFile(join(skillDir, "SKILL.md"));
+    await skillTo("\u0000import");
+    await arrived(() => !!(motion().props.motion as { skill?: string }).skill);
+    expect(ui.menus).toContain("chooseFile:md,markdown,txt");
+    const skillId = (motion().props.motion as { skill: string }).skill;
+    expect(JSON.parse((await ui.core.preferences()).find((p) => p.id === "motionSkills")!.value)).toEqual([{ id: skillId, name: "paper-cutout", text: "# Paper Cutout\n\nCream torn-paper cards on a dark ground." }]);
+    await page.until(`document.querySelector('[data-motion-skill]').value === ${JSON.stringify(skillId)}`);
+    await arrived(() => ui.menus.includes(`setPreference:motionSkill=${JSON.stringify(skillId)}`));
+    await skillTo("");
+    await arrived(() => !(motion().props.motion as { skill?: string }).skill);
     // Edit: Revise needs OpenAI or Claude (Apple's model here); Edit Code… shows the code beside a live preview, and
     // Save draws it as a new take, made by you.
     await page.until("(document.querySelector('[data-motion-revise]')?.textContent ?? '') === 'Revise · Needs OpenAI or Claude'");
@@ -2916,7 +2934,6 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
   await arrived(() => false, 300);
-  expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-report]')")).toBe(false);
   // Its split tone on two hue sliders, the hues along their grooves; Tint just under Warmth.
   expect(fx().params).toMatchObject({ tint: 0.02, splitTone: 0.25, shadowHue: 220, highlightHue: 40 });
   const labels = await page.evaluate<string[]>("[...document.querySelectorAll('label, span, div')].filter((e) => e.children.length === 0).map((e) => e.textContent)");
@@ -2938,11 +2955,16 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   await arrived(() => fx().params.fade === 0.3);
   expect(ui.menus).toContain("chooseFile:hlook");
   expect(fx().params.warmth).toBe(2);
-  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
-  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
-  // A look chosen after it takes the note away.
+  // What Film Look can't reproduce isn't listed under it (the user, 2026-10-27): only a file that can't be read says so.
+  expect(await page.evaluate<string>("document.body.textContent")).not.toContain("white balance 2000 K");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-import-error]')")).toBe(false);
+  const broken = join(dir, "broken.hlook");
+  writeFileSync(broken, "not json");
+  ui.chooseFile(broken);
+  await page.evaluate("document.querySelector('[data-effect-import]').click()");
+  await page.until("(document.querySelector('[data-effect-import-error]')?.textContent ?? '').startsWith('broken.hlook')");
   await pickLook("default");
-  await page.until("!document.querySelector('[data-effect-report]')");
+  await page.until("!document.querySelector('[data-effect-import-error]')");
   // Cancelled in Finder, nothing changes.
   ui.chooseFile(null);
   const steps = (await ui.core.history(ui.handle)).undo.length;
@@ -3901,7 +3923,8 @@ test.skipIf(skip)("⌥-dragging a video clip's start out holds its first frame b
   await Bun.sleep(300);
   const { y, h, xAt, box } = await timelinePlaces(screen.id);
   const row = box.y + y + h / 2;
-  const track = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
+  const trackId = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!.id;
+  const track = () => ui.core.doc(ui.handle).tracks.find((t) => t.id === trackId)!;
   const stills = () => track().clips.filter((c) => c.type === "still");
 
   await page.drag([box.x + xAt(s) + 2, row], [box.x + xAt(s - 1), row], ["alt"]);
@@ -3920,6 +3943,19 @@ test.skipIf(skip)("⌥-dragging a video clip's start out holds its first frame b
   await page.drag([box.x + end.xAt(e) - 2, row], [box.x + end.xAt(e + 1), row], ["alt", "shift"]);
   await arrived(() => stills().length === 1);
   expect(ticksToSeconds(stills()[0]!.start)).toBeCloseTo(e, 3);
+  await ui.core.undo(ui.handle);
+
+  // Stitched pieces (the user's, 2026-10-27): ⌥-dragging the end holds the last piece's last frame, from its recording.
+  const lastMedia = (clip(screen.id).mediaStart ?? 0) + clip(screen.id).duration;
+  const [piece] = (await run("clip.split", { at: e - 1, clips: [screen.id], linked: false })).results[0] as string[];
+  const stitched = (await run("clip.stitch", { clips: [screen.id, piece!] })).results[0] as string;
+  expect(clip(stitched).type).toBe("stitched");
+  await Bun.sleep(300);
+  const joined = await timelinePlaces(stitched);
+  await page.drag([box.x + joined.xAt(e) - 2, row], [box.x + joined.xAt(e + 1), row], ["alt", "shift"]);
+  await arrived(() => stills().length === 1);
+  expect(stills()[0]!.assetId).toBe(screen.assetId);
+  expect(ticksToSeconds(stills()[0]!.mediaStart ?? 0)).toBeCloseTo(ticksToSeconds(lastMedia) - 1 / 30, 1);
   await ui.core.undo(ui.handle);
 
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);

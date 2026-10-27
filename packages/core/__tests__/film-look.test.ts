@@ -202,3 +202,25 @@ test.skipIf(!existsSync(VIDEO))("a look previewed on the canvas shows what apply
   core.detachView(h);
   await core.close(h);
 }, 120_000);
+
+test.skipIf(!existsSync(VIDEO))("Paste Properties gives a clip the copied clip's effects: a Film Look the copy didn't have is removed, one undo step", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "paste-cache") });
+  const h = await core.create({ path: join(dir, "paste.beproj") });
+  const copy = join(dir, "paste.mp4");
+  copyFileSync(VIDEO, copy);
+  for (const at of [0, 20]) for (const j of (await core.import(h, [copy], { at })).jobs) await core.cancelJob(j).catch(() => {});
+  const [a, b] = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "video");
+  await core.run(h, "filmLook.load", { clips: [a!.id, b!.id], look: "cinestill-800t" });
+  await core.run(h, "effect.add", { clip: b!.id, type: "round-corners" });
+  const effects = (id: string) => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.effects.map((e) => e.type);
+  await core.run(h, "effect.remove", { clip: a!.id, effect: core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === a!.id)!.effects[0]!.id });
+  expect(effects(a!.id)).toEqual([]);
+  const before = JSON.stringify(core.doc(h).tracks);
+  await core.run(h, "properties.copy", { clip: a!.id });
+  await core.run(h, "selection.set", { clips: [b!.id] });
+  await core.run(h, "edit.pasteProperties", {});
+  expect(effects(b!.id)).toEqual([]);
+  await core.undo(h);
+  expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
+  await core.close(h);
+});

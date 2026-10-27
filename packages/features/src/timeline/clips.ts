@@ -350,13 +350,14 @@ export const clipCommands = [
   defineCommand({
     id: "clip.extendFrame",
     description:
-      "Hold a video clip's last frame for `duration` seconds after it, or with `edge: \"start\"` its first frame for `duration` before it, as a new still clip (⌥-drag of a clip's end or start). `ripple` moves the clips after it on the track to make room (with `start`, the clip too). Returns the still's id",
+      "Hold a video clip's last frame for `duration` seconds after it, or with `edge: \"start\"` its first frame for `duration` before it, as a new still clip (⌥-drag of a clip's end or start); a stitched clip's from the piece at that edge, in the stitched clip's look. `ripple` moves the clips after it on the track to make room (with `start`, the clip too). Returns the still's id",
     args: z.strictObject({ clip: Id, duration: z.number().positive(), edge: z.enum(["start", "end"]).default("end"), ripple: z.boolean().default(false) }),
     apply(doc, { clip, duration, edge, ripple }, ctx) {
       const loc = findClip(doc, ctx.registry, clip);
       const { clip: c, track } = loc;
       unlocked(track);
-      if (!ctx.registry.hasTrait(c.type, "video") || !c.assetId) throw new Error(`clip "${clip}" is not a video clip`);
+      const stitched = ctx.registry.hasTrait(c.type, "stitched");
+      if (!stitched && (!ctx.registry.hasTrait(c.type, "video") || !c.assetId)) throw new Error(`clip "${clip}" is not a video clip`);
       const frame = ticksPerFrame(doc.settings.fps);
       const d = Math.max(frame, snapSeconds(duration, doc.settings.fps));
       // Room is made on the tracks of the clips linked to it too, so its sound stays with it.
@@ -377,20 +378,26 @@ export const clipCommands = [
         if (ripple) make((l) => clipEnd(l.clip), true);
         else if (!track.magnetic && !isFree(track, start, start + d)) throw new Error("there is media right after the clip; extend it with `ripple`");
       }
-      const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const id = ctx.newId("clip");
+      const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const held = edge === "start" ? (c.mediaStart ?? 0) : mediaTimeAt(c, clipEnd(c) - frame);
+      // A stitched clip's frame is its piece's there (its time on the clip's inner track), in the stitched clip's look.
+      const piece = stitched ? ctx.registry.nestedTracks(c).flatMap((t) => t.clips).find((p) => p.assetId && ctx.registry.hasTrait(p.type, "video") && p.start <= held && held < clipEnd(p)) : c;
+      if (!piece) throw new Error(`clip "${clip}" has no picture at its ${edge}`);
+      const frameAt = piece === c ? held : piece.type === "still" ? (piece.mediaStart ?? 0) : mediaTimeAt(piece, held);
       // The frame as it shows there, animations and all (a zoom in), since the still has none of its own.
       const animated = new Set(c.animations.flatMap((a) => Object.keys(a.to).map((target) => target.split(".")[0]!)));
       const shown = resolveProps(ctx.registry, c, held);
+      // Which of its recording's streams the piece shows is the piece's, not the stitched clip's.
+      const identity = piece === c ? {} : Object.fromEntries(Object.entries(piece.props).filter(([k]) => groups.has(k) && ctx.registry.propGroups.get(k)?.identity));
       const still: Clip = {
         id,
         type: "still",
         start,
         duration: d,
-        mediaStart: held,
-        assetId: c.assetId,
-        props: clone(Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k))))),
+        mediaStart: frameAt,
+        assetId: piece.assetId,
+        props: clone({ ...identity, ...Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k)))) }),
         effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };

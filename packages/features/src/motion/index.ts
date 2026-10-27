@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, copyFileSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
 import { renderHtml } from "@beacon/media";
@@ -27,6 +27,7 @@ import {
 } from "@beacon/model";
 import { streamOf } from "../media";
 import { heardWords, regionOfClip, timelineSpan, trackIndex } from "../broll";
+import { CustomStylesSchema, styleFromFile, type CustomStyle } from "../broll/styles";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy } from "./blocks";
 import { compose, revise, writeIdea, type Said } from "./compose";
 import { css, page, template } from "./html";
@@ -63,6 +64,8 @@ const motionGroup = z.strictObject({
   timing: z.enum(["speech", "together"]),
   /** An image (an asset) whose design Make recreates and animates. */
   reference: z.string().optional(),
+  /** One of the user's skills (`motion.skills`) Make and Revise follow: its look and rules. */
+  skill: z.string().optional(),
   /** Every composition made (the inside of its page's body) and its drawing, an earlier one picked again; `shown` is the one in the clip. */
   takes: z.array(z.strictObject({ prompt: z.string(), html: z.string(), assetId: z.string().optional(), cost: z.number().nonnegative().optional(), by: z.string().optional() })),
   shown: z.number().int().min(-1),
@@ -156,9 +159,9 @@ const commands = [
   defineCommand({
     id: "motion.style",
     description:
-      "Change motion graphics clips' Look (`look`, a motion.looks id) or `timing` (speech: each word as it is said; together: all at once): `clips`, else every motion graphic in the project (Use for All). Their drawings change once motion.render draws them again",
-    args: z.strictObject({ clips: z.array(z.string().min(1)).optional(), look: z.string().min(1).optional(), timing: z.enum(["speech", "together"]).optional() }),
-    apply(doc, { clips, look, timing }, ctx) {
+      "Change motion graphics clips' Look (`look`, a motion.looks id), `timing` (speech: each word as it is said; together: all at once) or `skill` (a motion.skills id the next Make and Revise follow, one not there read as none; null: none): `clips`, else every motion graphic in the project. Their drawings change once motion.render draws them again; a skill only changes what is made next",
+    args: z.strictObject({ clips: z.array(z.string().min(1)).optional(), look: z.string().min(1).optional(), timing: z.enum(["speech", "together"]).optional(), skill: z.string().min(1).nullable().optional() }),
+    apply(doc, { clips, look, timing, skill }, ctx) {
       if (look && !LOOKS.some((l) => l.id === look)) throw new Error(`no Look "${look}"; there are: ${LOOKS.map((l) => l.id).join(", ")}`);
       const chosen = clips ? clips.map((id) => findClip(doc, ctx.registry, id).clip) : motionClips(doc);
       for (const c of chosen) {
@@ -166,6 +169,8 @@ const commands = [
         if (c.type !== "motion" || !m) throw new Error(`clip "${c.id}" isn't a motion graphic`);
         if (look) m.look = look;
         if (timing) m.timing = timing;
+        if (skill === null) delete m.skill;
+        else if (skill) m.skill = skill;
       }
       return chosen.map((c) => c.id);
     },
@@ -264,6 +269,7 @@ const add = defineAction({
         source: prompt ? "manual" : "auto",
         manual: prompt ?? "",
         look: lookOf(String(ctx.pref("motionLook"))).id,
+        ...(skills(ctx.pref).some((k) => k.id === lastSkill(ctx.pref)) ? { skill: lastSkill(ctx.pref) } : {}),
         timing: "speech",
         takes: [],
         shown: -1,
@@ -425,6 +431,45 @@ function shown(label: string, clips: string[], made: Drawn[]) {
   };
 }
 
+const SKILLS = "motionSkills";
+/** The skill new motion graphics take: the one last picked. */
+const SKILL = "motionSkill";
+/** A skill is a page or two of text; a file far larger isn't one. */
+const MAX_SKILL_BYTES = 1 << 20;
+
+/** The user's motion graphics skills, as Settings › AI keeps them (unreadable: none). */
+function skills(pref: ActionContext["pref"]): CustomStyle[] {
+  try {
+    return CustomStylesSchema.parse(JSON.parse(String(pref(SKILLS) || "[]")));
+  } catch {
+    return [];
+  }
+}
+
+const lastSkill = (pref: ActionContext["pref"]): string => {
+  try {
+    return String(JSON.parse(String(pref(SKILL))));
+  } catch {
+    return "";
+  }
+};
+
+/** A clip's skill, as the author is given it; one deleted since it was picked is none. */
+const skillOf = (m: MotionProps, pref: ActionContext["pref"]) => (m.skill ? skills(pref).find((k) => k.id === m.skill) : undefined);
+
+/** A skill file's text (a `.md` skill, a `.txt`): only a regular file, not a pipe or a device, which would block. */
+function readSkillFile(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new Error(`${basename(path)} isn't a skill: not a file`);
+    if (st.size > MAX_SKILL_BYTES) throw new Error(`${basename(path)} isn't a skill: ${Math.round(st.size / 1e6)} MB`);
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 const make = defineAction({
   id: "motion.make",
   description:
@@ -442,6 +487,7 @@ const make = defineAction({
     const reference = m.reference ? ctx.project.assets[m.reference]?.path : undefined;
     if (reference && planner === "apple") throw new Error("a reference image needs OpenAI or Claude to make it: choose one in Settings › AI, or remove the image");
     const d = drawing(clip, ctx);
+    const skill = skillOf(m, ctx.pref);
     const ids = [clip.id];
     return {
       label: "Make Motion Graphics",
@@ -452,7 +498,7 @@ const make = defineAction({
           env.progress(0.05, planner === "apple" ? "Apple's on-device model is picking the graphic" : `${WHO[planner] ?? planner} is designing the graphic`);
           const meter = { cost: 0 };
           const web = { key: await env.secret(FIRECRAWL), progress: (stage: string) => env.progress(0.15, stage) };
-          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}) }, planner, key(env, planner), meter, web);
+          const html = await compose({ prompt, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(reference ? { reference } : {}), ...(skill ? { skill } : {}) }, planner, key(env, planner), meter, web);
           env.progress(0.3, "Drawing it");
           const asset = await draw(env, html, d, prompt, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
           env.progress(1, "Made");
@@ -466,10 +512,14 @@ const make = defineAction({
 
 /** The take a clip shows, to change: refused while it is busy or before it is made. */
 function shownTake(clip: Clip, ctx: ActionContext) {
+  notBusy(clip, ctx);
   const m = motionOf(clip)!;
+  return m.takes[m.shown] ?? fail("make the motion graphic first");
+}
+
+function notBusy(clip: Clip, ctx: ActionContext) {
   const busy = motionState(ctx.session);
   if (busy.writing.includes(clip.id) || busy.making.includes(clip.id)) throw new Error("that clip is being written or made already");
-  return m.takes[m.shown] ?? fail("make the motion graphic first");
 }
 
 const reviseAction = defineAction({
@@ -486,6 +536,7 @@ const reviseAction = defineAction({
     const brief = (m.source === "auto" ? m.prompt : m.manual).trim() || take.prompt;
     const said = saidUnder(clip, ctx);
     const d = drawing(clip, ctx);
+    const skill = skillOf(m, ctx.pref);
     const ids = [clip.id];
     return {
       label: "Revise Motion Graphics",
@@ -496,7 +547,7 @@ const reviseAction = defineAction({
           env.progress(0.05, `${WHO[planner] ?? planner} is revising the graphic`);
           const meter = { cost: 0 };
           const web = { key: await env.secret(FIRECRAWL), progress: (stage: string) => env.progress(0.15, stage) };
-          const html = await revise({ prompt: brief, said, width: d.width, height: d.height, length: d.length, look: d.look }, take.html, note, planner, key(env, planner), meter, web);
+          const html = await revise({ prompt: brief, said, width: d.width, height: d.height, length: d.length, look: d.look, ...(skill ? { skill } : {}) }, take.html, note, planner, key(env, planner), meter, web);
           env.progress(0.3, "Drawing it");
           const name = `Revised: ${note}`;
           const asset = await draw(env, html, d, name, (f) => env.progress(0.3 + f * 0.65, "Drawing it"));
@@ -512,14 +563,16 @@ const reviseAction = defineAction({
 const code = defineAction({
   id: "motion.code",
   description:
-    "Draw a motion graphic (`clip`, else the selected one) from `html` written by hand (the inside of its page's <body>, as the take it shows has it: motion.page gives the whole page) as a new take made by \"you\", no AI and no cost, one undo step. Runs as a job",
+    "Draw a motion graphic (`clip`, else the selected one) from `html` written by hand (the inside of its page's <body>, as the take it shows has it: motion.page gives the whole page) as a new take made by \"you\", no AI and no cost, one undo step; a clip not made yet gets it as its first take, named from its prompt. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional(), html: z.string().trim().min(1) }),
   resolve: ({ clip: id, html }, ctx) => {
     const clip = targets(ctx, id ? [id] : undefined)[0]!;
-    const take = shownTake(clip, ctx);
+    notBusy(clip, ctx);
+    const m = motionOf(clip)!;
+    const brief = m.takes[m.shown]?.prompt ?? (m.source === "auto" ? m.prompt : m.manual).trim();
     const d = drawing(clip, ctx);
     const ids = [clip.id];
-    const name = take.prompt.startsWith("Edited: ") ? take.prompt : `Edited: ${take.prompt}`;
+    const name = brief.startsWith("Edited: ") ? brief : brief ? `Edited: ${brief}` : "Edited";
     return {
       label: "Edit Motion Graphics Code",
       before: [{ command: "motion.status", args: { clips: ids, making: true } }],
@@ -696,6 +749,22 @@ export const motion = defineFeature({
       options: LOOKS.map((l) => ({ id: l.id, title: l.name, description: l.description })),
       default: DEFAULT_LOOK,
     },
+    {
+      id: SKILLS,
+      title: "Motion graphics skills",
+      description: "Your own motion graphics skills, for every project: each a name and its text (a skill's .md, or typed), whose look and rules Make and Revise follow",
+      options: [],
+      schema: CustomStylesSchema,
+      default: "[]",
+    },
+    {
+      id: SKILL,
+      title: "Motion graphics skill",
+      description: "The skill a new motion graphic takes (an id of motionSkills as a JSON string, \"\" for none); picking one on a clip makes it the one new ones take",
+      options: [],
+      schema: z.string().max(200),
+      default: '""',
+    },
   ],
   queries: [
     defineQuery({
@@ -703,6 +772,22 @@ export const motion = defineFeature({
       description: "The Looks a motion graphic can take (its `motion.look`): each one's id, name, fonts, colours, shadow and motion",
       args: z.strictObject({}),
       run: () => LOOKS,
+    }),
+    defineQuery({
+      id: "motion.skills",
+      description: "The user's motion graphics skills (Settings › AI › Motion Graphics, kept for every project): each one's id, name and text; a clip picks one with motion.style `skill`",
+      args: z.strictObject({}),
+      run: (_, { pref }) => skills(pref),
+    }),
+    defineQuery({
+      id: "motion.readSkill",
+      description: "A skill read from a text file (`path`: a skill's SKILL.md, a .md or .txt): its name (the front matter's `name`, its first heading, else the file's name) and its text without the front matter, to add to motionSkills",
+      args: z.strictObject({ path: z.string().min(1) }),
+      run: ({ path }) => {
+        const read = styleFromFile(basename(path) === "SKILL.md" ? basename(join(path, "..")) : basename(path), readSkillFile(path));
+        if (!read.text) throw new Error(`${basename(path)} is empty`);
+        return read;
+      },
     }),
     defineQuery({
       id: "motion.page",

@@ -633,7 +633,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const a = ticksToSeconds(clip.start);
             const b = ticksToSeconds(clip.start + clip.duration);
             const track = project.tracks.find((tr) => tr.clips.includes(clip))!;
-            const video = clipTypes[clip.type]?.includes("video") ?? false;
+            // Stitched pieces hold a frame too: their piece at that edge.
+            const video = clipTypes[clip.type]?.some((t) => t === "video" || t === "stitched") ?? false;
             // ⌥ on the start with room made (Shift, a magnetic track): the frame goes in at the clip's start, so it may be dragged past 0.
             const room = video && e.altKey && d.edge === "start" && (e.shiftKey || !!track.magnetic);
             let t = timeAt(e.clientX, room);

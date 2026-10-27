@@ -479,8 +479,8 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const fields = (def?.schema as JsonSchema | undefined)?.properties ?? {};
   const name = def?.title ?? effect.type;
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
-  /** What the last look chosen or imported couldn't reproduce, said under its menu. */
-  const [report, setReport] = useState<{ name: string; notes: string[] }>();
+  /** Why the look file last chosen couldn't be read. */
+  const [importError, setImportError] = useState<string>();
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
   const [chooseError, setChooseError] = useState<string>();
   const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
@@ -492,11 +492,11 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     const path = await host.chooseFile(def!.importFile!.extensions);
     if (!path) return;
     try {
-      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown>; notReproduced: string[] };
+      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown> };
       host.run("effect.set", { clip: clip.id, effect: effect.id, params: look.params }, `Import ${look.name}`);
-      setReport({ name: look.name, notes: look.notReproduced });
+      setImportError(undefined);
     } catch (e) {
-      setReport({ name: path.split("/").pop()!, notes: [(e as Error).message] });
+      setImportError(`${path.split("/").pop()}: ${(e as Error).message}`);
     }
   };
   return (
@@ -525,7 +525,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
                       const p = def.presets!.find((x) => x.id === id);
                       if (p) {
                         host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
-                        setReport(undefined);
+                        setImportError(undefined);
                       }
                       host.previewEffect(null);
                     }}
@@ -540,9 +540,9 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               </div>
             </Row>
           )}
-          {report && !!report.notes.length && (
-            <div className="mb-2 ml-[92px] text-label text-text-faint" data-effect-report>
-              Not in {name}, from “{report.name}”: {report.notes.join("; ")}.
+          {importError && (
+            <div className="mb-2 ml-[92px] text-label text-danger" data-effect-import-error>
+              {importError}
             </div>
           )}
           {chooseError && (

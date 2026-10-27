@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MotionProps, MotionState } from "@beacon/features";
@@ -212,8 +212,31 @@ test("a made graphic edited: its code by hand (motion.page previews it), then re
   // Apple's model can't revise.
   await core.setPreference("motionPlanner", "apple");
   await expect(core.run(h, "motion.revise", { clip: id, note: "bigger" })).rejects.toThrow(/Revise needs OpenAI or Claude/);
+
+  // A clip never made takes code too (an agent's, or Write Code…): its first take, named from its prompt, no AI.
+  const calledBefore = asked.length;
+  await core.run(h, "motion.add", { time: 4, duration: 2, prompt: "Paper cutout title" });
+  const fresh = (await core.session(h)).selection[0]!;
+  const f = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === fresh)!;
+  expect(((await core.query(h, "motion.page", { clip: fresh, html: hand })) as { page: string }).page).toContain("By hand");
+  const before = (await core.history(h)).undo.length;
+  await core.run(h, "motion.code", { clip: fresh, html: hand });
+  await settled(core);
+  const made = f().props.motion as MotionProps;
+  expect(made.takes).toHaveLength(1);
+  expect(made.shown).toBe(0);
+  expect(made.takes[0]).toMatchObject({ html: hand, by: "you", prompt: "Edited: Paper cutout title" });
+  expect(f().assetId).toBeDefined();
+  expect(asked.length).toBe(calledBefore);
+  expect((await core.history(h)).undo.length).toBe(before + 1);
+  // With no prompt at all, it's just "Edited".
+  await core.run(h, "motion.add", { time: 8, duration: 2 });
+  const bare = (await core.session(h)).selection[0]!;
+  await core.run(h, "motion.code", { clip: bare, html: hand });
+  await settled(core);
+  expect((core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === bare)!.props.motion as MotionProps).takes[0]!.prompt).toBe("Edited");
   await core.close(h);
-});
+}, 60_000);
 
 test("OpenAI makes motion graphics by default, even before its key is added: Make then says where to add it; removing Claude's key falls back to OpenAI", async () => {
   const secrets = new Map<string, string>();
@@ -390,4 +413,47 @@ test("Claude makes motion graphics as OpenAI does: the same brief, streamed, wit
     anthropic.stop(true);
     delete process.env.BEACON_ANTHROPIC_URL;
   }
+}, 60_000);
+
+test("a skill of the user's: read from its SKILL.md, kept for every project, picked on a clip (and by new ones), its design and rules given to the author; deleted, it's none", async () => {
+  const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
+  const configDir = join(dir, "config-skill");
+  const core = new LocalCore({ configDir, cacheDir: join(dir, "cache-skill"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  const folder = join(dir, "paper-cutout");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "SKILL.md"), "---\nname: paper-cutout\ndescription: torn paper\n---\n\n# Paper Cutout Explainer\n\nDark ground, cream torn-paper cards, orange accents #fa5d19.\n\n## Workflow\n\n1. Transcribe with Whisper.");
+  const h = await core.create({ path: join(dir, "skill.beproj") });
+  const read = (await core.query(h, "motion.readSkill", { path: join(folder, "SKILL.md") })) as { name: string; text: string };
+  expect(read.name).toBe("paper-cutout");
+  expect(read.text.startsWith("# Paper Cutout Explainer")).toBe(true);
+  await expect(core.query(h, "motion.readSkill", { path: folder })).rejects.toThrow(/not a file/);
+  await core.setPreference("motionSkills", JSON.stringify([{ id: "skill-1", ...read }]));
+  await core.run(h, "motion.add", { time: 0, duration: 2, prompt: "Three wins" });
+  const first = (await core.session(h)).selection[0]!;
+  const m = (id: string) => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.props.motion as MotionProps;
+  expect(m(first).skill).toBeUndefined();
+  await core.run(h, "motion.style", { clips: [first], skill: "skill-1" });
+  expect(m(first).skill).toBe("skill-1");
+  await core.run(h, "motion.make", {});
+  await settled(core);
+  const system = JSON.stringify(asked.at(-1)!.input);
+  expect(system).toContain('Follow the user\'s own skill, \\"paper-cutout\\"');
+  expect(system).toContain("cream torn-paper cards, orange accents #fa5d19");
+  // Kept for every project: another opened later lists it, and a new clip takes the one last picked.
+  await core.setPreference("motionSkill", JSON.stringify("skill-1"));
+  await core.close(h);
+  const later = new LocalCore({ configDir, cacheDir: join(dir, "cache-skill"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  const h2 = await later.create({ path: join(dir, "skill-2.beproj") });
+  expect(((await later.query(h2, "motion.skills", {})) as { name: string }[]).map((k) => k.name)).toEqual(["paper-cutout"]);
+  await later.run(h2, "motion.add", { time: 0, duration: 2, prompt: "Two wins" });
+  const second = (await later.session(h2)).selection[0]!;
+  expect((later.doc(h2).tracks.flatMap((t) => t.clips).find((c) => c.id === second)!.props.motion as MotionProps).skill).toBe("skill-1");
+  // Deleted from the list, the clip's skill is none: Make sends none.
+  await later.setPreference("motionSkills", "[]");
+  await later.run(h2, "motion.make", {});
+  await settled(later);
+  expect(JSON.stringify(asked.at(-1)!.input)).not.toContain("own skill");
+  await later.run(h2, "motion.style", { clips: [second], skill: null });
+  expect((later.doc(h2).tracks.flatMap((t) => t.clips).find((c) => c.id === second)!.props.motion as MotionProps).skill).toBeUndefined();
+  await later.close(h2);
 }, 60_000);

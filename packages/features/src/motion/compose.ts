@@ -236,6 +236,8 @@ export interface ComposeRequest {
   look: Look;
   /** An image whose design the graphic recreates (OpenAI or Claude). */
   reference?: string;
+  /** The user's skill whose look and rules it follows. */
+  skill?: { name: string; text: string };
 }
 
 const PICK_SCHEMA = { type: "object", additionalProperties: false, required: ["names"], properties: { names: { type: "array", items: { type: "string" } } } };
@@ -271,6 +273,11 @@ function standing(r: ComposeRequest, reference: boolean): string {
     ...(reference
       ? [
           "A reference image is attached: recreate its design as closely as you can in HTML, CSS and SVG (its layout, type, colours, shapes, textures and the feel of its imagery), fitted to this box, then bring it to life: build it up piece by piece and keep it moving, following the craft above. The brief says what it shows and what to change; where the brief and the image differ, the brief wins. Draw everything yourself: the image itself isn't in the page.",
+        ]
+      : []),
+    ...(r.skill
+      ? [
+          `Follow the user's own skill, "${r.skill.name}", below: its design (palette, materials, type, layout, motion) and its rules win over the Look and the craft above, but not over the contract. It was written for another tool: ignore what it says about files, folders, transcribing, audio, rendering, linting or commands; you write only this page.\n\n<skill>\n${r.skill.text}\n</skill>`,
         ]
       : []),
     WEB_GUIDE,

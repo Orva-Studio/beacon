@@ -2652,6 +2652,36 @@ Phase 11 so it can close with motion graphics.
   first input; Tab and ⇧Tab move through the inputs in order (sliders' value
   boxes, menus, colour wells included), Esc back to the timeline.
 
+- **Imported looks kept for every project** (the user, 2026-10-27): a `.hlook`
+  imported into Film Look joins a list kept app-wide (a preference, as B-roll's
+  Your Styles and motion graphics' Your Skills are), shown in the Look menu
+  under "Your looks" in every project, renamed or deleted in Settings; one of
+  the same name replaces the old.
+- **B-roll: Import Style… on the clip's Style menu** (the user, 2026-10-27), as
+  motion graphics' Import Skill… does: a `.md`/`.txt` joins Your Styles and is
+  picked, with no trip to Settings.
+- **Remove Unused Media** (the user, 2026-10-27): in the Media Bin's right-click
+  menu (on a medium or on empty space), removes every medium no clip on the
+  timeline uses (in groups too; a B-roll or motion graphic take not shown, a
+  reference image or a LUT counts as used), one undo step, saying how many;
+  files stay on disk.
+- **Film Look tuned by AI** (the user, 2026-10-27; hance's Enhance has it):
+  "Auto Tune" on Film Look sends a few frames of the clip to OpenAI (the user's
+  key; a vision model, the planner's) with the sliders and their ranges, and
+  sets what comes back, one undo step, with its cost; a note ("warmer, less
+  grain") tunes from the current values. Settle with the user which model and
+  how many frames.
+
+- **Shift-click selects a run of clips** (the user, 2026-10-27): ⇧-click today
+  toggles one clip, as ⌘-click does. ⇧-click selects every clip from the last
+  one clicked (the anchor) to this one: from the earlier's start to the later's
+  end, on the tracks from the anchor's to this one's, linked clips with them;
+  ⌘-click stays the one-clip toggle. ⇧-drag still ripple-moves.
+- **A clip's id in the properties panel** (the user, 2026-10-27), to name clips
+  to an agent over MCP: a small muted chip at the foot of every clip's
+  properties ("clip-8a05d312"), a click copies it (with several selected, all
+  of them, comma-separated); a "Copy ID" in the clip's right-click menu too.
+
 **Gate:** each item has its UI-harness flow (or core test) and a
 `docs/tested.md` entry; the user checks them by hand.
 
@@ -2917,10 +2947,9 @@ HyperFrames' renders as the single graphics were.
 ## 16. Backlog (ideas parked, not scheduled)
 
 ### New video models found and added by themselves (the user, 2026-10-26; later)
-Kling 4.0 came out but isn't on Replicate yet (checked 2026-10-26: Replicate's
-Kling goes up to 3.0; Kling's own API isn't open; WaveSpeed and Atlas Cloud
-have it at $0.157 / $0.235 a second), so B-roll can't offer it. Instead of
-checking by hand:
+Kling 4.0 reached Replicate (`kwaivgi/kling-v4.0`, $0.157 / $0.235 a second)
+on 2026-10-26, a day after it was checked by hand, and B-roll offers it since
+2026-10-27. Instead of checking by hand:
 - **A scheduled check** (a CI job or a cloud agent, daily or weekly) searches
   Replicate's API (`/v1/search`, the text-to-video collection, the owners
   Beacon already uses: google, bytedance, kwaivgi, black-forest-labs) for
