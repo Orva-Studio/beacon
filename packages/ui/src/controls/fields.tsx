@@ -178,11 +178,12 @@ export function SliderTrack({
   };
   return (
     <div
-      ref={track}
-      className={`relative min-w-16 flex-1 rounded-full ${groove ? "h-1.5" : "h-1 bg-groove"} ${onChange ? "cursor-pointer" : ""}`}
-      style={groove ? { background: groove } : undefined}
+      data-slider-hit
+      className={`relative -mx-2 flex h-6 min-w-16 flex-1 items-center px-2 ${onChange ? "cursor-pointer" : ""}`}
       onPointerDown={(e) => {
         if (!onChange) return;
+  // The groove is a few points tall: the pointer is taken over a taller box around it (and the thumb's overhang at
+  // its ends), while the value is still read along the groove.
         key.current = `slider-${name}-${Date.now()}`;
         e.currentTarget.setPointerCapture(e.pointerId);
         send(at(e.clientX));
@@ -190,8 +191,10 @@ export function SliderTrack({
       onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && send(at(e.clientX))}
       onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
     >
-      {!groove && <div className="absolute inset-y-0 left-0 rounded-full bg-slider-fill" style={{ width: `${f * 100}%` }} />}
-      <div className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slider-thumb shadow" style={{ left: `${f * 100}%` }} />
+      <div ref={track} className={`relative flex-1 rounded-full ${groove ? "h-1.5" : "h-1 bg-groove"}`} style={groove ? { background: groove } : undefined}>
+        {!groove && <div className="absolute inset-y-0 left-0 rounded-full bg-slider-fill" style={{ width: `${f * 100}%` }} />}
+        <div className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slider-thumb shadow" style={{ left: `${f * 100}%` }} />
+      </div>
     </div>
   );
 }

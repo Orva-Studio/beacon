@@ -2282,6 +2282,28 @@ test.skipIf(skip)("Remove Unused Media takes out every medium no clip uses, keep
   while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
 }, 30_000);
 
+test.skipIf(skip)("a slider takes a press above or below its groove and past its ends, the value still read along the groove", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "transform" });
+  // The Opacity row's slider: its hit box and the groove inside it.
+  const find = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Opacity') return true; return false; }); const g = hit.firstElementChild.getBoundingClientRect(); const b = hit.getBoundingClientRect(); return { gx: g.x, gw: g.width, gy: g.y + g.height / 2, bx: b.x, bw: b.width, bh: b.height }; })()`;
+  await page.until("document.querySelectorAll('[data-slider-hit]').length > 0");
+  const r = await page.evaluate<{ gx: number; gw: number; gy: number; bx: number; bw: number; bh: number }>(find);
+  expect(r.bh).toBeGreaterThanOrEqual(24);
+  const opacity = () => (clip(screen.id).props.transform as { opacity: number }).opacity;
+  // 9 points above the groove's line, half way along: once a miss, now half opacity.
+  await page.click(r.gx + r.gw / 2, r.gy - 9);
+  await arrived(() => Math.abs(opacity() - 0.5) < 0.03);
+  expect(opacity()).toBeCloseTo(0.5, 1);
+  // Past the groove's right end, inside the box: the most there is.
+  await page.click(r.bx + r.bw - 2, r.gy);
+  await arrived(() => opacity() === 1);
+  expect(opacity()).toBe(1);
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);
