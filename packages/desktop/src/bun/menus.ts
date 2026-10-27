@@ -282,9 +282,11 @@ export function createMenus(app: MenusApp) {
     ]);
   }
 
-  function binMenu({ asset }: { asset: string }) {
+  function binMenu({ asset }: { asset?: string }) {
     const current = app.current();
     if (!current) return;
+    const unused = { label: "Remove Unused Media", action: "media:removeUnused:" };
+    if (!asset) return void ContextMenu.showContextMenu([action("app.import"), SEPARATOR, unused]);
     const used = [...walkClips(core.doc(current.path).tracks, core.registry)].some((l) => l.clip.assetId === asset);
     const own = (label: string, op: string, enabled = true) => ({ label, action: `media:${op}:${asset}`, enabled });
     const a = core.doc(current.path).assets[asset];
@@ -299,6 +301,7 @@ export function createMenus(app: MenusApp) {
       ...(proxyable ? [{ label: "Proxy Video", submenu: [own("Create Proxy Video", "proxyCreate", !hasProxy && !making), own("Delete Proxy Video", "proxyDelete", hasProxy || making)] }] : []),
       SEPARATOR,
       own("Delete", "delete"),
+      unused,
       own("Rename…", "rename"),
       // Only what was imported from elsewhere: a recording's streams are clips of their own.
       ...(a && a.kind !== "recording" ? [own("Replace Media…", "replace")] : []),
@@ -306,6 +309,13 @@ export function createMenus(app: MenusApp) {
       own("Reveal in Finder", "reveal"),
       own("Select on Timeline", "select", used),
     ]);
+  }
+
+  async function removeUnused(h: string) {
+    const before = Object.keys(core.doc(h).assets).length;
+    await core.run(h, "edit.removeUnusedMedia", {});
+    const n = before - Object.keys(core.doc(h).assets).length;
+    status(`Removed ${n} unused ${n === 1 ? "medium" : "media"} from the Media Bin (the files stay on disk)`);
   }
 
   /** A track on the timeline or inside a group, and whether it is a timeline one. */
@@ -400,6 +410,7 @@ export function createMenus(app: MenusApp) {
 
   /** Media Bin menu items. */
   function mediaAction(h: string, op: string, asset: string) {
+    if (op === "removeUnused") return void removeUnused(h).catch(fail);
     const a = core.doc(h).assets[asset];
     if (!a) return;
     if (op === "add") void core.run(h, "edit.addMedia", { asset }).catch(fail);
@@ -418,6 +429,12 @@ export function createMenus(app: MenusApp) {
   function clipAction(h: string, op: string, clip: string) {
     const run = (command: string, args: unknown = {}) => void core.run(h, command, args).catch(fail);
     if (op.startsWith("label=")) run("edit.label", { color: op === "label=none" ? null : op.slice(6) });
+    if (op === "copyId")
+      void core.session(h).then((s) => {
+        const ids = copiedIds(s.selection, clip);
+        Utils.clipboardWriteText(ids);
+        status(`Copied ${ids}`);
+      });
   }
 
   /** The tile whose menu is shown: its item ids have colons, so the click names only the choice. */
@@ -429,12 +446,6 @@ export function createMenus(app: MenusApp) {
     if (!current) return;
     tile = t;
     const adds = await applies(current.path, t.command, t.args);
-    if (op === "copyId")
-      void core.session(h).then((s) => {
-        const ids = copiedIds(s.selection, clip);
-        Utils.clipboardWriteText(ids);
-        status(`Copied ${ids}`);
-      });
     ContextMenu.showContextMenu(tileMenuItems(t).map(([label, choice]) => ({ label, action: `tile:${choice}`, enabled: choice !== "add" || adds })));
   }
 

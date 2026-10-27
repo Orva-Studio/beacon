@@ -16,6 +16,7 @@ import {
   type ActionStep,
   type Clip,
   type Easing,
+  usedAssets,
   walkClips,
   dropTargets,
   selectDropped,
@@ -310,6 +311,18 @@ export const actions = [
         steps: [{ command: "clip.place", args: { type, props, effects, duration, time: time ?? ctx.session.playhead, ...(track ? { track } : {}) } }],
         after: (results) => [{ command: "selection.set", args: { clips: [results[0] as string], linked: false } }],
       };
+    },
+  }),
+  defineAction({
+    id: "edit.removeUnusedMedia",
+    description:
+      "Remove Unused Media: take every medium no clip uses out of the Media Bin (clips in groups count, as do B-roll and motion graphic takes not shown, reference images and LUTs), one undo step; the files stay on disk",
+    args: none,
+    resolve: (_, ctx) => {
+      const used = usedAssets(ctx.project, ctx.registry);
+      const unused = Object.keys(ctx.project.assets).filter((a) => !used.has(a));
+      if (!unused.length) throw new Error("every medium in the Media Bin is used");
+      return { label: "Remove Unused Media", steps: unused.map((asset) => ({ command: "asset.remove", args: { asset } })) };
     },
   }),
   defineAction({

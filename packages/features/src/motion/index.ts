@@ -63,7 +63,7 @@ const motionGroup = z.strictObject({
   look: z.string(),
   timing: z.enum(["speech", "together"]),
   /** An image (an asset) whose design Make recreates and animates. */
-  reference: z.string().optional(),
+  reference: z.string().optional().meta({ asset: "image" }),
   /** One of the user's skills (`motion.skills`) Make and Revise follow: its look and rules. */
   skill: z.string().optional(),
   /** Every composition made (the inside of its page's body) and its drawing, an earlier one picked again; `shown` is the one in the clip. */

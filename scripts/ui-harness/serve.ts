@@ -135,7 +135,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "copyText") copied.push(p.text);
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
-        else if (msg.type === "binMenu") menus.push(`asset:${p.asset}`);
+        else if (msg.type === "binMenu") menus.push(p.asset ? `asset:${p.asset}` : "bin");
         else if (msg.type === "recentMenu") menus.push(`recent:${p.path}`);
         else if (msg.type === "tileMenu") {
           tile = p;

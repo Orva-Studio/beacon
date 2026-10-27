@@ -307,7 +307,7 @@ export type AppRPC = {
       clipMenu: { params: { clip: string; canvas?: boolean }; response: void };
       canvasMenu: { params: {}; response: void };
       /** The right-click menu for a Media Bin item. */
-      binMenu: { params: { asset: string }; response: void };
+      binMenu: { params: { asset?: string }; response: void };
       /** The right-click menu for a tool panel's tile (an effect, annotation or audio effect). */
       tileMenu: { params: TileMenu; response: void };
       /** A recent project's right-click on the start screen: Open, Show in Finder, Remove from Recent Projects, Move to Trash…. */

@@ -2237,6 +2237,51 @@ test.skipIf(skip)("a clip's id sits at the foot of its properties: a click copie
   await select([]);
 }, 15_000);
 
+test.skipIf(skip)("Remove Unused Media takes out every medium no clip uses, keeping one a LUT reads, in one undo step; the files stay; the bin's empty space has its menu", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const [unused, lut] = ["unused", "lut"].map((n) => {
+    const copy = join(dir, `${n}-${Date.now()}.mp4`);
+    copyFileSync(join(FIXTURES, "video.mp4"), copy);
+    return copy;
+  });
+  const { assets: [a] } = await ui.core.import(ui.handle, [unused!]);
+  const { assets: [b] } = await ui.core.import(ui.handle, [lut!]);
+  // Import places them; their clips deleted, the media stay in the bin unused.
+  await run("clip.remove", { clips: clips().filter((c) => c.assetId === a || c.assetId === b).map((c) => c.id), linked: true });
+  // An asset an effect's field marked as one reads (a LUT's), with no clip of its own, is used.
+  const fx = (await run("effect.add", { clip: screen.id, type: "lut", params: { lut: b } })).results[0] as string;
+  const doc = () => ui.core.doc(ui.handle);
+  const onClips = new Set(clips().map((c) => c.assetId).filter(Boolean));
+  expect(doc().assets[a!]).toBeDefined();
+
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-bin-items]')");
+  const items = await page.evaluate<{ x: number; y: number; w: number; h: number }>("(() => { const r = document.querySelector('[data-bin-items]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()");
+  const menus = ui.menus.length;
+  await page.rightClick(items.x + items.w - 6, items.y + items.h - 6);
+  await arrived(() => ui.menus.length > menus);
+  expect(ui.menus.slice(menus)).toEqual(["bin"]);
+
+  await run("edit.removeUnusedMedia");
+  expect(doc().assets[a!]).toBeUndefined();
+  expect(doc().assets[b!]).toBeDefined();
+  for (const id of onClips) expect(doc().assets[id!]).toBeDefined();
+  expect(existsSync(unused!)).toBe(true);
+  const history = (await ui.core.history(ui.handle)).undo;
+  expect(history.at(-1)).toBe("Remove Unused Media");
+  await ui.core.undo(ui.handle);
+  expect(doc().assets[a!]).toBeDefined();
+  // Nothing left to remove: refused, no empty undo step.
+  await run("edit.removeUnusedMedia");
+  const again = (await ui.core.history(ui.handle)).undo.length;
+  await expect(run("edit.removeUnusedMedia")).rejects.toThrow("every medium in the Media Bin is used");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(again);
+  await run("effect.remove", { clip: screen.id, effect: fx });
+  await run("edit.removeUnusedMedia");
+  expect(doc().assets[b!]).toBeUndefined();
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+}, 30_000);
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

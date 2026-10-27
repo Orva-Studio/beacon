@@ -132,7 +132,7 @@ export function remapAssetIds(value: unknown, map: Map<string, string>): void {
 }
 
 /** Every asset a clip uses, its own and those of clips nested in it (groups, stitched media). */
-function assetIds(value: unknown, out = new Set<string>()): Set<string> {
+export function assetIds(value: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(value)) for (const v of value) assetIds(v, out);
   else if (value && typeof value === "object") {
     for (const [k, v] of Object.entries(value)) {

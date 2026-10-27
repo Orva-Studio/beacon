@@ -51,7 +51,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** The canvas's menu where no clip is under the pointer: Project Settings…, Paste, Zoom to Fit. */
   canvasMenu(): void;
   trackMenu(track: string | null): void;
-  binMenu(asset: string): void;
+  /** A Media Bin item's menu; without one, the bin's own (its empty space). */
+  binMenu(asset?: string): void;
   tileMenu(tile: TileMenu): void;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;

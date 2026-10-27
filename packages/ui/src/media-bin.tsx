@@ -209,6 +209,12 @@ export function MediaBin({
         ref={grid}
         data-bin-items
         className={`relative min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${list ? "flex flex-col gap-1" : "grid auto-rows-min grid-cols-2 gap-2"}`}
+        // An item's own menu has taken it (defaultPrevented); on empty space, the bin's: Remove Unused Media.
+        onContextMenu={(e) => {
+          if (e.defaultPrevented) return;
+          e.preventDefault();
+          host.binMenu();
+        }}
         // On the bin's empty space: a click clears the selection, a drag selects the items its box touches (⇧/⌘ adds to it).
         onPointerDown={(e) => {
           if (e.target !== e.currentTarget || e.button !== 0) return;
