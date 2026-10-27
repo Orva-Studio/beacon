@@ -3590,6 +3590,8 @@ test.skipIf(skip)("Film Look's save icon, beside its trash, names the sliders in
     expect(await kept()).toEqual([]);
     await page.click(...(await centre(save)));
     await page.until("document.activeElement?.matches('[data-save-look-name]')");
+    // No longer than a kept look's name can be.
+    expect(await page.evaluate<number>("document.activeElement.maxLength")).toBe(120);
     await type("Teal dusk");
     await page.key("Enter", "Enter");
     for (let i = 0; i < 50 && !(await kept()).length; i++) await Bun.sleep(50);

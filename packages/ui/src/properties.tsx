@@ -598,8 +598,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     if (!name) return;
     // One of the same name gives way, as an import does.
     const look = { id: `look-${Date.now().toString(36)}`, name, params: { ...effect.params } };
-    void host.setPreference(keep!, JSON.stringify([...kept.filter((l) => l.name !== name), look]));
-    replica.status(`Saved "${name}" in Your looks, for every project`);
+    void host.setPreference(keep!, JSON.stringify([...kept.filter((l) => l.name !== name), look])).then((r) => replica.status(r.ok ? `Saved "${name}" in Your looks, for every project` : `Couldn't save "${name}": ${r.error}`));
   };
   const importLook = async () => {
     const path = await host.chooseFile(def!.importFile!.extensions);
@@ -817,6 +816,9 @@ function AnimationSection({ clip, id, host }: { clip: Clip; id: string; host: Ho
   );
 }
 
+/** As `KeptLookSchema` allows: a longer name would be refused when kept. */
+const LOOK_NAME_MAX = 120;
+
 /** Names a look about to be kept: the suggested name selected to type over; Return saves, Esc cancels. */
 function SaveLookDialog({ name: suggested, taken, onDone }: { name: string; taken: string[]; onDone: (name: string) => void }) {
   const [name, setName] = useState(suggested);
@@ -824,7 +826,7 @@ function SaveLookDialog({ name: suggested, taken, onDone }: { name: string; take
   return (
     <Modal title="Save Look" width={380} onClose={() => onDone("")} onEnter={() => trimmed && onDone(trimmed)}>
       <div className="flex flex-col gap-3" data-save-look>
-        <TextInput autoFocus value={name} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} data-save-look-name />
+        <TextInput autoFocus maxLength={LOOK_NAME_MAX} value={name} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} data-save-look-name />
         <span className="text-caption text-text-faint">
           {taken.includes(trimmed) ? `Replaces your look "${trimmed}".` : "Listed under Your looks in Film Look's Look menu, in every project. Renamed and deleted in Settings › General."}
         </span>
