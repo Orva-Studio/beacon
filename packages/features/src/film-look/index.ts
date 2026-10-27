@@ -168,11 +168,12 @@ export const filmLook = defineFeature({
       id: "filmLook.autoTune",
       description:
         "Auto Tune: OpenAI's vision model (the user's key; GPT-6.1 Terra, about a cent) looks at three frames of the clip (`clip`, else the selected one) as it looks now and sets its Film Look's sliders, from the current values, within their ranges; `note` says what the user wants (\"warmer, less grain\"). One undo step, its label giving the cost. Runs as a job. Only when the user asks: it spends their money",
-      args: z.strictObject({ clip: z.string().min(1).optional(), note: z.string().max(500).optional() }),
-      resolve: ({ clip: id, note }, ctx) => {
+      args: z.strictObject({ clip: z.string().min(1).optional(), effect: z.string().min(1).optional().describe("Which Film Look on the clip; by default its first"), note: z.string().max(500).optional() }),
+      resolve: ({ clip: id, effect, note }, ctx) => {
         const clip = ctx.scope.tracks.flatMap((t) => t.clips).find((c) => (id ? c.id === id : ctx.session.selection.includes(c.id)) && c.effects.some((e) => e.type === "film-look"));
         if (!clip) throw new Error(id ? `no clip "${id}" with Film Look` : "select a clip with Film Look first");
-        const fx = clip.effects.find((e) => e.type === "film-look")!;
+        const fx = clip.effects.find((e) => e.type === "film-look" && (!effect || e.id === effect));
+        if (!fx) throw new Error(`no Film Look "${effect}" on clip "${clip.id}"`);
         const [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
         // Its start, middle and end (the user, 2026-10-27), a little in from the cuts.
         const times = [a + (b - a) * 0.1, (a + b) / 2, a + (b - a) * 0.9];

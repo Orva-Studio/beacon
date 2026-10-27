@@ -263,7 +263,9 @@ export function trimRoom(project: Project, track: Track, clip: Clip, edge: "star
   const [lo, hi] = ripple ? [-Infinity, Infinity] : trimBounds(track, clip);
   const [first, last] = mediaBounds(project, clip, holds);
   const end = clipEnd(clip);
-  return edge === "start" ? [Math.max(lo, first) - clip.start, end - frame - clip.start] : [clip.start + frame - end, Math.min(hi, last) - end];
+  // Nor before the timeline's start (a ripple trim keeps the start where it is): an annotation has no media to stop it.
+  const origin = ripple ? -Infinity : 0;
+  return edge === "start" ? [Math.max(lo, first, origin) - clip.start, end - frame - clip.start] : [clip.start + frame - end, Math.min(hi, last) - end];
 }
 
 /**

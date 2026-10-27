@@ -43,5 +43,17 @@ test.skipIf(!existsSync(RECORDING))("stitching pieces whose look differs ramps t
   expect(ramp!.to).toEqual({ "transform.scaleX": scale * 1.5, "transform.scaleY": scale * 1.5 });
   await core.undo(h);
   expect(JSON.stringify(core.doc(h))).toBe(zoomed);
+
+  // A crop on the second piece only (a recording has no crop of its own): it ramps in too.
+  await core.run(h, "clip.set", { clip: second!, props: { transform: { scaleX: scale, scaleY: scale }, crop: { left: 100, top: 0, right: 0, bottom: 0 } } });
+  const cropped = (await core.run(h, "clip.stitch", { clips: [screen.id, second!] })).results[0] as string;
+  expect(all().find((c) => c.id === cropped)!.animations.map((a) => a.to)).toEqual([{ "crop.left": 100 }]);
+
+  // A zoom made before the split, held across it: both pieces show it, so the stitch adds no ramp back.
+  for (let i = 0; i < 4; i++) await core.undo(h);
+  await core.run(h, "animation.add", { clip: screen.id, end: 1, duration: 0.5, to: { "transform.scaleX": scale * 1.5, "transform.scaleY": scale * 1.5 } });
+  const [late] = (await core.run(h, "clip.split", { at: 2, clips: [screen.id], linked: false })).results[0] as string[];
+  const held = (await core.run(h, "clip.stitch", { clips: [screen.id, late!] })).results[0] as string;
+  expect(all().find((c) => c.id === held)!.animations).toHaveLength(1);
   await core.close(h);
 }, 60_000);

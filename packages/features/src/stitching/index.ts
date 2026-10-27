@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  animatedValue,
   clipEnd,
   secondsToTicks,
   defineAction,
@@ -130,19 +131,25 @@ export const stitching = defineFeature({
           seg.animations = own;
           return seg;
         });
-        // A piece whose own transform or crop differs from what shows just before it (the first piece's, moved on by
-        // the blocks done by then): a block over the last half second before the join takes it there (the user,
-        // 2026-10-27), rather than its look being lost.
-        const looks = (c: Clip) =>
-          Object.fromEntries(
-            LOOK.flatMap((g) => Object.entries((c.props[g] as Record<string, unknown> | undefined) ?? {}).filter(([k, v]) => typeof v === "number" && fits.target(`${g}.${k}`)).map(([k, v]) => [`${g}.${k}`, v as number])),
-          );
+        // A piece whose own transform or crop, as it shows at its in-point, differs from what the stitched clip shows
+        // just before its join: a block over the last half second before the join takes it there (the user,
+        // 2026-10-27), rather than its look being lost. Missing groups count as their defaults (a recording has no crop).
+        const keys = (c: Clip) =>
+          LOOK.flatMap((g) => {
+            const values = { ...(ctx.registry.group(c.type, g)?.defaults() ?? {}), ...((c.props[g] as Record<string, unknown> | undefined) ?? {}) };
+            return Object.entries(values).filter(([k, v]) => typeof v === "number" && fits.target(`${g}.${k}`)).map(([k, v]) => [`${g}.${k}`, v as number] as const);
+          });
+        const firstLook = new Map(keys(first));
         for (const [i, piece] of pieces.entries()) {
           if (!i) continue;
           const join = segments[i]!.start;
-          const shown = looks(first);
-          for (const a of [...animations.values()].filter((x) => x.end <= join).sort((x, y) => x.end - y.end)) Object.assign(shown, a.to);
-          const to = Object.fromEntries(Object.entries(looks(piece)).filter(([k, v]) => k in shown && Math.abs(v - (shown[k] as number)) > 1e-6));
+          const blocks = [...animations.values()];
+          const to: Record<string, number> = {};
+          for (const [key, base] of keys(piece)) {
+            const at = Number(animatedValue(base, key, piece.animations, piece.mediaStart ?? 0));
+            const shown = Number(animatedValue(firstLook.get(key) ?? base, key, blocks, join));
+            if (Math.abs(at - shown) > 1e-6) to[key] = at;
+          }
           if (!Object.keys(to).length) continue;
           const block: Animation = { id: ctx.newId("anim"), end: join, duration: Math.min(JOIN_RAMP, join - segments[i - 1]!.start), easing: "easeInOut", to };
           animations.set(block.id, block);

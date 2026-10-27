@@ -640,7 +640,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             <Row label="">
               <div className="flex min-w-0 flex-1 items-center gap-2" data-effect-tune>
                 <TextInput className="min-w-0 flex-1" placeholder={def.tune.note} value={tuneNote} onChange={(e) => setTuneNote(e.target.value)} data-effect-tune-note />
-                <Button title={def.tune.title} onClick={() => host.run(def.tune!.action, { clip: clip.id, ...(tuneNote.trim() ? { note: tuneNote.trim() } : {}) })} data-effect-tune-run>
+                <Button title={def.tune.title} onClick={() => host.run(def.tune!.action, { clip: clip.id, effect: effect.id, ...(tuneNote.trim() ? { note: tuneNote.trim() } : {}) })} data-effect-tune-run>
                   {def.tune.label}
                 </Button>
               </div>
