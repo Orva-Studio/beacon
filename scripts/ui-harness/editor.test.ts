@@ -4099,6 +4099,49 @@ test.skipIf(skip || !existsSync(MIC) || !existsSync(MODEL))("Captions asked for 
   }
 }, 90_000);
 
+test.skipIf(skip)("Captions over an in/out range (else the selected clips' span) captions only that span, keeping the captions outside it", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const words = (c: { props: Record<string, unknown> }) => (c.props.caption as { words: unknown[] }).words.length;
+  const captions = () => clips().filter((c) => c.type === "caption").sort((a, b) => a.start - b.start);
+  try {
+    // Long captions everywhere first, then the tile over a range: short ones in it, the long ones kept outside.
+    await run("captions.create", { maxWords: 12 });
+    const before = captions();
+    expect(before.length).toBeGreaterThan(2);
+    const [a, b] = [ticksToSeconds(before[1]!.start), ticksToSeconds(before.at(-1)!.start)];
+    await run("range.set", { in: a, out: b });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=captions]')");
+    await page.evaluate("document.querySelector('[data-ai=captions]').click()");
+    await arrived(() => captions().some((c) => ticksToSeconds(c.start) >= a && words(c) <= 3 && !before.some((x) => x.id === c.id)));
+    const after = captions();
+    const inside = after.filter((c) => ticksToSeconds(c.start) >= a && ticksToSeconds(c.start) < b);
+    expect(inside.every((c) => words(c) <= 3 && !before.some((x) => x.id === c.id))).toBe(true);
+    // Outside the range: the same captions as before.
+    expect(after.filter((c) => ticksToSeconds(c.start) < a || ticksToSeconds(c.start) >= b).map((c) => c.id)).toEqual(before.filter((c) => ticksToSeconds(c.start) < a || ticksToSeconds(c.start) >= b).map((c) => c.id));
+    // None overlap, and the first new one is selected.
+    for (const [i, c] of after.entries()) if (after[i + 1]) expect(c.start + c.duration).toBeLessThanOrEqual(after[i + 1]!.start);
+    expect((await session()).selection).toEqual([inside[0]!.id]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Captions");
+    // No range: the selected clips' span.
+    await run("range.clear");
+    await ui.core.undo(ui.handle);
+    const [first] = captions();
+    const under = clips().find((c) => c.type !== "caption" && c.start <= first!.start && c.start + c.duration >= first!.start + first!.duration)!;
+    await select([under.id]);
+    await run("captions.add", {});
+    const spanned = captions().filter((c) => c.start >= under.start && c.start < under.start + under.duration);
+    expect(spanned.length).toBeGreaterThan(0);
+    expect(spanned.every((c) => words(c) <= 3)).toBe(true);
+  } finally {
+    await run("range.clear").catch(() => {});
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 150_000);
+
 test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snapping to the middle), a side handle narrows its lines, and a double-click types into it", async () => {
   for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
   const ids = (await run("captions.create", {})).results[0] as string[];
