@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { chordId, keySteps, keysLabel, type Keys } from "@beacon/model";
+import { RoundedMask } from "./controls/rounded-mask";
 import { syncNativeView } from "./native-view";
 import { useView } from "./store";
 
@@ -33,6 +34,7 @@ export function LeaderKeys() {
   const pressed = keySteps(shortcuts.flatMap((s) => s.keys).find((k) => chordId(k)?.startsWith(`${pending} `))!).slice(0, depth);
   return (
     <div className="fixed bottom-6 left-1/2 z-50 w-80 -translate-x-1/2 rounded-xl border border-divider bg-panel p-3 text-body shadow-2xl" data-leader={pending}>
+      <RoundedMask radius={14} />
       <div className="mb-2 flex items-center justify-between text-label text-text-muted">
         <span className="font-mono text-text-strong">{pressed.map(keysLabel).join(" ")} …</span>
         <span>Esc to cancel</span>

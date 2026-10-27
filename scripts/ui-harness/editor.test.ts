@@ -1644,6 +1644,13 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
   expect(shown).toContain("ADelete Audio");
   expect(shown).toContain("CColor Label›");
+  // Cut out of the native canvas, which draws over the page: over the whole popup, else the canvas hides its top.
+  const covered = await page.evaluate<boolean>(`(() => {
+    const box = document.querySelector('[data-leader]').getBoundingClientRect();
+    const masks = [...document.querySelectorAll('[data-leader] .ot-mask')].map((m) => m.getBoundingClientRect());
+    return masks.some((m) => m.top <= box.top + 14 && m.bottom >= box.bottom - 14 && m.left <= box.left + 1 && m.right >= box.right - 1);
+  })()`);
+  expect(covered).toBe(true);
   // A group reads as one: the accent tone and a chevron, the single keys in the text colour.
   const tones = await page.evaluate<[string, string]>(
     "[document.querySelector('[data-leader-group]'), document.querySelector('[data-leader-next] span:not([data-leader-group])')].map((e) => getComputedStyle(e).color)",
