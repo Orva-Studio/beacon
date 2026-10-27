@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { KeptLooksSchema, type KeptLook } from "@beacon/model";
-import { Button, Check, DeviceSelect, Modal, RenameField, Select, SettingsRow as Row } from "./controls";
+import { Button, Check, DeviceSelect, Modal, NumberBox, RenameField, Select, SettingsRow as Row } from "./controls";
 import { AiSettings, type WaitingChoice } from "./ai-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
@@ -196,11 +196,36 @@ export function SettingsUi({ host }: { host: SettingsHost }) {
 function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: SettingsPatch) => void; host: SyncCheckHost }) {
   const [camera, setCamera] = useState(devices?.camera ?? devices?.cameras[0]?.id);
   const [microphone, setMicrophone] = useState(devices?.microphone ?? devices?.microphones[0]?.id);
-  if (!devices?.cameras.length || !devices.microphones.length) return <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>;
+  const takes = (
+    <>
+      <Row label="Place New Recordings" hint="Where a take goes when you stop recording. An agent's recording goes where it says.">
+        <div className="w-56">
+          <Select data-recording-place value={settings.recordingPlace ?? "end"} onChange={(e) => update({ recordingPlace: e.target.value as NonNullable<AppSettings["recordingPlace"]> })}>
+            <option value="end">At the end of the timeline</option>
+            <option value="playhead">At the playhead</option>
+            <option value="bin">In the Media Bin only</option>
+          </Select>
+        </div>
+      </Row>
+      <Row label="Cursor Size" hint="The size a recording's cursor starts at when it's imported, in every project. Clips already placed keep theirs.">
+        <div className="flex items-center gap-2" data-cursor-scale>
+          <NumberBox value={(settings.cursorScale ?? 1) * 100} unit="%" min={25} max={1000} step={25} width={70} onCommit={(v) => update({ cursorScale: v / 100 })} />
+        </div>
+      </Row>
+    </>
+  );
+  if (!devices?.cameras.length || !devices.microphones.length)
+    return (
+      <div className="flex flex-col gap-3" data-recording-settings>
+        {takes}
+        <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>
+      </div>
+    );
   const key = syncKey(camera, microphone);
   const save = (sync: CameraSync) => update({ cameraSync: { ...settings.cameraSync, [key]: sync } });
   return (
     <div className="flex flex-col gap-3" data-recording-settings>
+      {takes}
       <Row label="Camera">
         <DeviceSelect devices={devices.cameras} value={camera} onChange={setCamera} />
       </Row>

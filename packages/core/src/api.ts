@@ -65,6 +65,8 @@ export interface ImportOptions {
   at?: number;
   /** A timeline track to put them on, as a drop does (the rest of a recording goes on the tracks above); refused over other media. */
   track?: string;
+  /** false: into the Media Bin only, no clips placed. */
+  place?: boolean;
 }
 
 export interface RecordOptions {

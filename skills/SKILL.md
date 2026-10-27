@@ -65,7 +65,9 @@ screen (without its cursor; Beacon draws its own), the system audio, a camera
 and a microphone, each optional (`recorder_devices` lists them with their ids
 and permissions; `recorder_access` asks the user's permission for the camera or
 microphone). `recorder_stop` ends it and imports it as a `.trec` is imported, at
-the end of the timeline or at `at`. Only record when the user asks: it captures
+`at`, else where the user's Settings › Recording says (the end of the timeline by
+default, the playhead, or the Media Bin only), its cursor at their Cursor Size.
+Only record when the user asks: it captures
 their screen, camera and microphone.
 
 Voice narration: `recorder_start` with only a `microphone` and `narrate` (the

@@ -2441,6 +2441,26 @@ test.skipIf(skip)("the eyedropper from a dialog: Project Settings' colour picks 
   }
 }, 30_000);
 
+test.skipIf(skip)("Settings › Recording sets where a new recording goes and the cursor size recordings start at, with no camera connected too", async () => {
+  try {
+    await ui.core.uiOpen(ui.handle, "settings", "recording");
+    await page.until("!!document.querySelector('[data-recording-place]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-recording-place]').value")).toBe("end");
+    await page.evaluate("(() => { const s = document.querySelector('[data-recording-place]'); s.value = 'playhead'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    for (let i = 0; i < 40 && (await ui.core.settings()).recordingPlace !== "playhead"; i++) await Bun.sleep(50);
+    expect((await ui.core.settings()).recordingPlace).toBe("playhead");
+    await page.click(...(await centre("[data-cursor-scale] [data-input]")));
+    await page.until("document.activeElement?.tagName === 'INPUT'");
+    await type("300");
+    await page.key("Enter", "Enter");
+    for (let i = 0; i < 40 && (await ui.core.settings()).cursorScale !== 3; i++) await Bun.sleep(50);
+    expect((await ui.core.settings()).cursorScale).toBe(3);
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  } finally {
+    await ui.core.setSettings({ recordingPlace: "end", cursorScale: 1 });
+  }
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);
