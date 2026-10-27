@@ -183,14 +183,14 @@ export function SliderTrack({
     cancelAnimationFrame(pending.current);
     pending.current = requestAnimationFrame(() => onChange?.(v, key.current));
   };
+  // The groove is a few points tall: the pointer is taken over a taller box around it (and the thumb's overhang at
+  // its ends), while the value is still read along the groove.
   return (
     <div
       data-slider-hit
       className={`relative -mx-2 flex h-6 min-w-16 flex-1 items-center px-2 ${onChange ? "cursor-pointer" : ""}`}
       onPointerDown={(e) => {
         if (!onChange) return;
-  // The groove is a few points tall: the pointer is taken over a taller box around it (and the thumb's overhang at
-  // its ends), while the value is still read along the groove.
         key.current = `slider-${name}-${Date.now()}`;
         e.currentTarget.setPointerCapture(e.pointerId);
         send(at(e.clientX));
