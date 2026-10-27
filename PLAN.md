@@ -2632,6 +2632,13 @@ Phase 11 so it can close with motion graphics.
      at the end of one clip and another at the start of the next, each under
      the minimum, are together a silence the tool should find. Measure
      silence along the timeline (across adjacent clips), not per clip.
+     **Checked 2026-10-27:** silences are already measured along the timeline
+     (`pauses()` maps each clip's speech to timeline time): a core test with
+     exact speech regions (0.3 s of quiet either side of a ripple cut, minimum
+     0.5 s) finds the 0.6 s silence. Not reproduced: likely the speech regions
+     of a real recording reach past the last word (padding), so the quiet at a
+     clip's edge counts as speech. Needs an example from the user (a project and
+     the time of a cut where it happened) to look at the speech regions there.
   6. **The eyedropper from a dialog** (Project Settings, opened by the
      canvas's right-click): a click on the canvas closes the dialog, since
      its backdrop covers the canvas, so the canvas colour can't be picked
