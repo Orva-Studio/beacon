@@ -28,7 +28,7 @@ import { propsOf } from "./props";
 
 const INVALID = () => color("invalid");
 
-export type PressDrag = { kind: "press"; clip: string; x0: number; y0: number; toggle: boolean; ripple: boolean };
+export type PressDrag = { kind: "press"; clip: string; x0: number; y0: number; toggle: boolean; ripple: boolean; range: boolean };
 /** `moves`: every clip that moves (with a ripple, those after it too) → tracks up. */
 export type MoveDrag = { kind: "move"; ids: string[]; moves: Map<string, number>; by: number; rows: number; ripple: boolean; error?: string; x0: number; y0: number };
 export type Drag =

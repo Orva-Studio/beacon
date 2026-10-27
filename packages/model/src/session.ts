@@ -321,6 +321,31 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
     },
   }),
   sessionCommand({
+    id: "selection.range",
+    description:
+      "Select a run of clips (⇧-click): every clip from the earlier one's start to the later one's end, on the tracks from `from`'s to `to`'s (locked tracks left out, as the marquee does), and the clips linked to them",
+    args: z.strictObject({
+      from: z.string().describe("The anchor: the clip clicked before"),
+      to: z.string().describe("The clip ⇧-clicked"),
+    }),
+    apply: (s, { from, to }, { project }) => {
+      const at = (id: string) => {
+        const i = project.tracks.findIndex((t) => t.clips.some((c) => c.id === id));
+        if (i < 0) throw new Error(`no clip "${id}" on the timeline`);
+        return { row: i, clip: project.tracks[i]!.clips.find((c) => c.id === id)! };
+      };
+      const [a, b] = [at(from), at(to)];
+      const start = Math.min(a.clip.start, b.clip.start);
+      const stop = Math.max(end(a.clip), end(b.clip));
+      const ids = project.tracks
+        .slice(Math.min(a.row, b.row), Math.max(a.row, b.row) + 1)
+        .flatMap((t) => (t.locked ? [] : t.clips.filter((c) => c.start < stop && end(c) > start).map((c) => c.id)));
+      s.selection = withLinked(project, [...new Set([from, to, ...ids])]);
+      s.animation = null;
+      s.effects = [];
+    },
+  }),
+  sessionCommand({
     id: "selection.clear",
     description: "Deselect everything (⇧⌘A); with `range`, clear the in/out range too (Escape)",
     args: z.strictObject({ range: z.boolean().default(false) }),

@@ -60,6 +60,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
    * A move or trim just released, drawn as it was dropped until the edit's patch arrives: drawing the document as
    * it still is showed the clip back where it started for a few frames.
    */
+  /** The clip clicked last (not ⇧-clicked): a ⇧-click selects the run from it. */
+  const anchor = useRef<string | null>(null);
   const settling = useRef<{ drag: Drag; timer: ReturnType<typeof setTimeout> } | null>(null);
   /** Where the dragged edge last snapped (seconds), drawn as a line while the drag lasts. */
   const snapLine = useRef<number | undefined>(undefined);
@@ -425,7 +427,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       // Display rows run top to bottom; tracks are stored bottom to top.
       if (d.to !== d.from) run("track.move", { track: d.track, index: tracks.length - 1 - d.to }, "Move Track");
     } else if (d.kind === "press") {
-      run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
+      const known = d.range && latest.current.project.tracks.some((t) => t.clips.some((c) => c.id === anchor.current));
+      if (known) run("selection.range", { from: anchor.current!, to: d.clip });
+      else {
+        anchor.current = d.clip;
+        run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
+      }
     } else if (d.kind === "move") {
       if (d.error) return void (draw(), status(`Can't move there: ${d.error}`));
       if (Math.abs(d.by) > 1e-9 || d.rows) {
@@ -555,8 +562,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             dragState.current = { kind: "trim", clip: clip.id, edge, x0: x, t, ripple: e.shiftKey, extend: false };
           } else if (clip) {
             const toggle = e.metaKey || e.shiftKey;
+            const range = e.shiftKey && !e.metaKey && !!anchor.current && anchor.current !== clip.id;
+            if (!range) anchor.current = clip.id;
             if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
-            dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey };
+            dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey, range };
           } else if (e.shiftKey && !e.metaKey && rowUnder(y) !== undefined) {
             // Shift on a gap moves what comes after it, as Shift on the playhead does; ⌥ only this track.
             if (session.group) return status("Close the group (⌃⇧U) to insert space");

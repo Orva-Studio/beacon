@@ -1671,6 +1671,15 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Audio");
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   expect(clips().some((c) => c.id === audio.id)).toBe(true);
+  // : u unlinks the recording.
+  await select([audio.id, ...clips().filter((c) => c.linkId === audio.linkId && c.id !== audio.id).map((c) => c.id)]);
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("u", "KeyU");
+  await arrived(() => !clip(audio.id).linkId);
+  expect(clip(audio.id).linkId).toBeFalsy();
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unlink Recording");
+  await ui.core.undo(ui.handle);
   // : p opens the command palette.
   await semi();
   await page.key("p", "KeyP");
@@ -2100,6 +2109,77 @@ test.skipIf(skip)("clips picked with ⌘-click move together when one of them is
   expect(clip(screen.id).start).toBeGreaterThan(before.get(screen.id)!);
   expect(clip(camera.id).start).toBe(before.get(camera.id)!);
   await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("⇧-click selects the run of clips from the one clicked before, across tracks; ⌘-click still toggles one", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([]);
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("clip.split", { at: 2, clips: [screen.id], linked: false });
+  const at2 = clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - 2) < 1e-6)!;
+  await run("clip.split", { at: 5, clips: [at2.id], linked: false });
+  const piece = (t: number) => clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - t) < 1e-6)!;
+  const [a, b, c] = [piece(0), piece(2), piece(5)];
+  const camera = clips().find((x) => x.assetId === screen.assetId && x.type === "video")!;
+  const audio = clips().find((x) => x.assetId === screen.assetId && x.type === "audio")!;
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(a.id), await timelinePlaces(camera.id)];
+  const xy = (p: { y: number; h: number }, t: number): [number, number] => [scr.box.x + scr.xAt(t), scr.box.y + p.y + p.h / 2];
+  await page.click(...xy(scr, 1));
+  await Bun.sleep(300);
+  await page.click(...xy(scr, 6), ["shift"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([a.id, b.id, c.id].sort());
+
+  // From the same anchor to the camera: the screen pieces it spans, the camera and its linked audio.
+  await page.click(...xy(cam, 3), ["shift"]);
+  await Bun.sleep(300);
+  const picked = (await session()).selection;
+  expect(picked).toEqual(expect.arrayContaining([a.id, b.id, c.id, camera.id, audio.id]));
+
+  await page.click(...xy(scr, 3));
+  await Bun.sleep(300);
+  await page.click(...xy(scr, 6), ["meta"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([b.id, c.id].sort());
+  await page.click(...xy(scr, 6), ["meta"]);
+  await Bun.sleep(300);
+  expect((await session()).selection).toEqual([b.id]);
+
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("clips picked with a marquee move together when one of them is dragged", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([]);
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  const s = clip(screen.id);
+  const end = ticksToSeconds(s.start + s.duration);
+  await run("timeline.view", { start: Math.max(0, end - 6), end: end + 6 });
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(screen.id), await timelinePlaces(camera.id)];
+  const { box, xAt } = scr;
+  // From empty space past the clips' ends, over the last second of the screen and the camera.
+  const top = Math.min(scr.y, cam.y), bottom = Math.max(scr.y + scr.h, cam.y + cam.h);
+  const empty = clips().every((c) => ticksToSeconds(c.start + c.duration) <= end + 2 || ticksToSeconds(c.start) >= end + 4);
+  expect(empty).toBe(true);
+  await page.drag([box.x + xAt(end + 3), box.y + top + 4], [box.x + xAt(end - 1), box.y + bottom - 4]);
+  await Bun.sleep(300);
+  const picked = (await session()).selection;
+  expect(picked).toEqual(expect.arrayContaining([screen.id, camera.id, audio.id]));
+  const before = new Map([screen, camera, audio].map((c) => [c.id, clip(c.id).start]));
+  const [x, y] = [box.x + xAt(end - 2), box.y + scr.y + scr.h / 2];
+  await page.drag([x, y], [x + xAt(end) - xAt(end - 1), y]);
+  await Bun.sleep(300);
+  const moved = [...before].map(([id, start]) => clip(id).start - start);
+  expect(moved[0]).toBeGreaterThan(0);
+  expect(new Set(moved).size).toBe(1);
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
   await select([]);
   await run("timeline.zoom", { to: "fit" });
 });
