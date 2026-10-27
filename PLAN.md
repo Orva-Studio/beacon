@@ -2021,7 +2021,8 @@ The user likes the leader key. Asked for, in this order after the two above:
 the accent tone with a › at the right, no count; `: E` jumps to the fx tab, or
 on a clip with no effects opens the Visual Effects panel; `: [` / `: ]` wrap
 around; the palette lists media only once something is typed, under a "Media
-Bin" group.
+Bin" group. `: E` was dropped in Phase 11.5 (the user, 2026-10-27): the palette
+finds effects; Show Effects stays in the palette, with no key.
 **Done 2026-10-22**, all four, each its own commit (`inspector.step`,
 `inspector.effects`; palette media show their kind's icon until the bin has
 made their picture).

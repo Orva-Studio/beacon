@@ -1605,7 +1605,7 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await select([]);
 });
 
-test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, : [ back, round the ends; : E the fx tab, else Visual Effects", async () => {
+test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, : [ back, round the ends; Show Effects (no key: the palette finds effects) the fx tab, else Visual Effects", async () => {
   const leader = async (key: string, code: string) => {
     await page.key(":", "Semicolon", ["shift"]);
     await page.until("!!document.querySelector('[data-leader]')");
@@ -1617,10 +1617,15 @@ test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, :
   await select([camera.id]);
   await run("inspector.tab", { tab: "transform" });
   await run("panel.show", { tool: "media" });
-  await leader("e", "KeyE");
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-leader-next=\"E\"]')")).toBe(false);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-leader]')");
+  await run("inspector.effects");
   expect((await session()).panels.tool).toBe("visualEffects");
   await run("effect.add", { clip: camera.id, type: "drop-shadow" });
-  await leader("e", "KeyE");
+  await run("inspector.effects");
   expect((await session()).inspector).toBe("effects");
   await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
   // Effects is the last tab: ] goes round to the first, [ back to Effects.
