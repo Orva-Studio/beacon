@@ -9,8 +9,11 @@ enablePatches();
 export interface ViewState {
   /** The document revision the replica is at. */
   rev?: number;
-  /** Something picked in the command palette (at revision `rev`): once what it added arrives, the properties panel puts the caret in its first input. */
-  focusInputs?: { rev: number; effect: boolean; at: number };
+  /**
+   * Something picked in the command palette (at revision `rev`): once what it added arrives, the properties panel puts
+   * the caret in its first input. With `tab` (the properties tab stepped from by : [ and : ]), once the tab has changed.
+   */
+  focusInputs?: { rev: number; effect: boolean; at: number; tab?: string };
   init?: Init;
   opened?: Omit<Opened, "project" | "session" | "rev">;
   /** A replica of the main process's document, updated only by its patches. */
@@ -185,8 +188,8 @@ export const replica = {
   confirmSaved() {
     set({ confirmSaved: performance.now() });
   },
-  focusInputs(effect: boolean | undefined) {
-    set({ focusInputs: effect === undefined ? undefined : { rev: state.rev ?? 0, effect, at: performance.now() } });
+  focusInputs(effect: boolean | undefined, tab?: string) {
+    set({ focusInputs: effect === undefined ? undefined : { rev: state.rev ?? 0, effect, at: performance.now(), tab } });
   },
   /** Opened only with a project: it lists what can be added to one. */
   palette(palette: boolean) {

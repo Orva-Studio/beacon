@@ -127,6 +127,7 @@ export function NumberBox({
     <input
       {...PLAIN_TEXT}
       autoFocus
+      data-number-box
       className={`${cls} outline-none focus:border-accent`}
       style={{ width }}
       defaultValue={value === undefined ? "" : +value.toFixed(3)}

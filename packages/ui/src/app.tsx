@@ -146,7 +146,10 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const field = isTyping(e.target);
+      // ":" never goes in a number: in a value box it starts the leader key, the box left as a click away leaves it.
+      const numberLeader = e.key === ":" && e.target instanceof HTMLInputElement && e.target.matches("[data-number-box]");
+      if (numberLeader) (e.target as HTMLInputElement).blur();
+      const field = isTyping(e.target) && !numberLeader;
       // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.
       const pending = replica.get().leader;
       if (!field && (pending !== undefined || !match(keymap, e))) {

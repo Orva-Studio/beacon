@@ -1634,17 +1634,24 @@ test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, :
   await run("effect.add", { clip: camera.id, type: "drop-shadow" });
   await run("inspector.effects");
   expect((await session()).inspector).toBe("effects");
-  await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
+  // Its section in the properties (the Visual Effects panel names it too).
+  await page.until("!!document.querySelector('.panel-card [data-effect]')");
   // Effects is the last tab: ] goes round to the first, [ back to Effects.
+  // Each step puts the caret in the tab's first input; : from a value box starts the next step, typing nothing.
+  const typingIn = "document.activeElement?.closest('.panel-card') && document.activeElement.matches('input, select, textarea, [data-input]')";
   await leader("]", "BracketRight");
   expect((await session()).inspector).toBe("transform");
+  await page.until(`!!(${typingIn})`);
   await leader("[", "BracketLeft");
   expect((await session()).inspector).toBe("effects");
+  await page.until(`!!(${typingIn}) && !!document.activeElement.closest('[data-effect]')`);
   await leader("[", "BracketLeft");
   expect((await session()).inspector).not.toBe("effects");
+  expect(await page.evaluate<boolean>("[...document.querySelectorAll('.panel-card input')].some((i) => i.value.includes(':'))")).toBe(false);
+  await page.evaluate("document.activeElement?.blur()");
   await ui.core.undo(ui.handle);
   await run("inspector.tab", { tab: "transform" });
-});
+}, 30_000);
 
 test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r labels the selection red; : a deletes a recording's audio; : p opens the command palette; Esc, a click or a wrong key drops it; Settings › Shortcuts records : then a key", async () => {
   const semi = () => page.key(":", "Semicolon", ["shift"]);

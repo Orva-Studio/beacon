@@ -35,6 +35,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| `: [` and `: ]` put the caret in the new tab's first input, as an effect from the palette does; `:` typed in a value box leaves it (as a click away) and starts the leader key, so the next step works from there | 2026-10-27 | this branch | UI flow (`the leader key moves through the properties tabs…`: the caret in each tab's first input, no ":" typed; fails without the change) |
 | Edit Code wraps long lines to the editor's width (on by default; Wrap lines by the buttons turns it off) | 2026-10-27 | this branch | UI flow (`Motion Graphics, as B-roll…`: wrapped, unticked, ticked again) |
 | B-roll's Auto prompt: Write Again and Copy to Manual on one row, Research on its own line under them (they were crammed and wrapped); the Try N Models button gone (`broll.compare` stays for agents) | 2026-10-27 | this branch | UI flow (`B-roll from the AI panel adds a clip…`: no compare button, fails with it) |
 | Film Look's Auto Tune is a button on its own, its note box gone (it was cut off in the panel; the user, 2026-10-27); a note is still taken over MCP | 2026-10-27 | this branch | UI flow (`Film Look's Auto Tune: a button on its section, no note box…`) |
@@ -46,6 +47,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Select a clip, `: ]` a few times: each tab's first value is ready to type; `: ]` again from there moves on.
 - Edit Code: a long line wraps; Wrap lines unticked, it scrolls sideways.
 - B-roll's Auto prompt with OpenAI as its writer: Write Again and Copy to Manual each on one line, Research under them; no Try N Models.
 - Play a motion graphic with Motion Blur through a zoom (adfinder's first clip, 2.6–3.6 s): no jagged coloured rings on its dark background.

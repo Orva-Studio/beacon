@@ -28,9 +28,10 @@ export function Properties({ project: full, session, host, init }: { project: Pr
   const panel = useRef<HTMLDivElement>(null);
   const rev = useView((s) => s.rev);
   const focus = useView((s) => s.focusInputs);
-  // An effect or annotation picked in the palette: once it has arrived, the caret goes in its first input.
+  // An effect or annotation picked in the palette, or a tab stepped to by : [ and : ]: once it has arrived, the caret goes in its first input.
   useEffect(() => {
-    if (!focus || (rev ?? 0) <= focus.rev || !clip || !panel.current) return;
+    if (!focus || !clip || !panel.current) return;
+    if (focus.tab !== undefined ? session.inspector === focus.tab : (rev ?? 0) <= focus.rev) return;
     // Only soon after it was asked, and not from under a dialog: a late one would take the caret from wherever it is.
     if (performance.now() - focus.at > FOCUS_MS || document.querySelector("[data-modal], [data-palette]")) return replica.focusInputs(undefined);
     const scope = focus.effect ? panel.current.querySelector(`[data-effect="${clip.effects.at(-1)?.id}"]`) : panel.current;
