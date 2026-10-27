@@ -1006,6 +1006,30 @@
       "command": "fillers.review"
     },
     {
+      "id": "ai.retakes",
+      "name": "Remove Retakes…",
+      "description": "Find lines said more than once and keep the best take, as the AI panel's tile does"
+    },
+    {
+      "id": "ai.motion",
+      "name": "Motion Graphic",
+      "description": "Add a motion graphics clip at the playhead (or over the range), its prompt written from the words said there"
+    },
+    {
+      "id": "ai.broll",
+      "name": "B-roll",
+      "description": "Add a B-roll clip at the playhead (or over the range), its prompt written from the words said there"
+    },
+    {
+      "id": "edit.addAnnotation:rectangle",
+      "name": "Add Rectangle",
+      "command": "edit.addAnnotation",
+      "args": {
+        "preset": "rectangle"
+      },
+      "description": "Add the Rectangle annotation at the playhead"
+    },
+    {
       "id": "reviews.apply",
       "name": "Apply",
       "command": "reviews.apply"
@@ -1021,9 +1045,9 @@
       "command": "reviews.cancel"
     },
     {
-      "id": "captions.add",
+      "id": "ai.captions",
       "name": "Captions",
-      "command": "captions.add"
+      "description": "Captions from the transcript, as the AI panel's tile makes them (the speech is transcribed first if it isn't yet)"
     }
   ]
 }

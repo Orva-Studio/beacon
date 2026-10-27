@@ -1753,6 +1753,42 @@ test.skipIf(skip)("the command palette lists the Media Bin once something is typ
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Retakes, : g adds a motion graphic, : b a B-roll clip, : n a rectangle at the playhead, as their tiles do", async () => {
+  const leader = async (key: string, code: string) => {
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until("!!document.querySelector('[data-leader]')");
+    await page.key(key, code);
+    await page.until("!document.querySelector('[data-leader]')");
+  };
+  await select([]);
+  await run("playhead.set", { time: 2 });
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
+  for (const s of ["RRemove Retakes…", "GMotion Graphic", "BB-roll", "KCaptions", "NAdd Rectangle", "FRemove Filler Words…"]) expect(shown).toContain(s);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-leader]')");
+
+  await leader("r", "KeyR");
+  for (const end = Date.now() + 5000; !((await session()).features.transcript as { retakes?: object } | undefined)?.retakes && Date.now() < end; ) await Bun.sleep(20);
+  expect(((await session()).features.transcript as { retakes?: object }).retakes).toBeDefined();
+  await run("reviews.cancel");
+
+  const added = async (key: string, code: string, is: (c: Clip) => boolean) => {
+    const before = new Set(clips().map((c) => c.id));
+    await leader(key, code);
+    await arrived(() => clips().some((c) => !before.has(c.id) && is(c)));
+    const fresh = clips().filter((c) => !before.has(c.id) && is(c));
+    expect(fresh.length).toBe(1);
+    expect(ticksToSeconds(fresh[0]!.start)).toBe(2);
+    await motionIdle();
+    await run("clip.remove", { clip: fresh[0]!.id });
+  };
+  await added("g", "KeyG", (c) => !!c.props.motion);
+  await added("b", "KeyB", (c) => !!c.props.broll);
+  await added("n", "KeyN", (c) => c.type === "callout");
+});
+
 test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
   const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
