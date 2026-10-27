@@ -2617,6 +2617,16 @@ Phase 11 so it can close with motion graphics.
      before it accepts; it should accept at once and show a placeholder
      while the file is read. `BEACON_PROFILE=1` prints the drop's steps
      (`[drop]`) to find which.
+     **Measured 2026-10-27, parked until after 11.5 (the user):** with
+     `BEACON_PROFILE=1`, a 100 MB file held over the timeline drops in about
+     100 ms (last over→drop 71 ms, read 2, import 21): reading isn't the cause.
+     Released at once, nothing reaches the page (no `[drop]` line): macOS takes
+     it as refused before the web view answers, though `acceptFiles` answers at
+     once. Only the first drag is slow (about 4 s held); later drags land at
+     once (the user): a one-time warm-up in WebKit or macOS. Electrobun has no
+     native drag code (WKWebView's default). Next: log dragenter/dragover/
+     dragleave times under BEACON_PROFILE to see when the page is first asked,
+     then try warming the drag path up when the window opens. Issue #35.
   2. **Drag below the lowest track to make a new one**, as dragging above
      the top track does (a new track at the bottom).
   3. **Sliders are hard to hit**: widen their hit area (the thumb and the
@@ -2628,6 +2638,10 @@ Phase 11 so it can close with motion graphics.
      sized like the Rectangle; Colour (yellow, green, magenta presets) and
      Opacity (50% by default), multiplied onto the picture so text under it
      stays readable; Invert colours everything outside the box instead.
+     **Built 2026-10-27** as a region kind (with Blur, Pixelate, Spotlight).
+     Still to do: importing Camtasia's highlights from a `.cmproj`, which needs
+     a saved project with one in it to learn its layout (the user's
+     model-picker project hadn't been saved since adding one).
   5. **Remove Silences misses a pause split across a cut**: a short silence
      at the end of one clip and another at the start of the next, each under
      the minimum, are together a silence the tool should find. Measure
@@ -2684,9 +2698,9 @@ Phase 11 so it can close with motion graphics.
   key; a vision model, the planner's) with the sliders and their ranges, and
   sets what comes back, one undo step, with its cost; a note ("warmer, less
   grain") tunes from the current values. **Decided (the user, 2026-10-27):**
-  OpenAI's GPT-6.1 Terra (`gpt-6.1-terra`, cheaper than Sol; the exact id
-  checked against OpenAI's list when built), three frames: the clip's start,
-  middle and end.
+  OpenAI's GPT-6.1 Terra (`gpt-6.1-terra`: developers.openai.com, 2026-10-27,
+  $1 input, $0.05 cached, $5 output a million tokens, half of Sol's), three
+  frames: the clip's start, middle and end.
 
 - **Shift-click selects a run of clips** (the user, 2026-10-27): ⇧-click today
   toggles one clip, as ⌘-click does. ⇧-click selects every clip from the last

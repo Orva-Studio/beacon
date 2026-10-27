@@ -502,12 +502,23 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
 /** Blur, Pixelate and Spotlight show only the intensity. */
 function RegionProps({ clip, value, edit }: { clip: Clip; value: (g: string, f: string, d?: number) => number; edit: Edit }) {
   const kind = (clip.props.region as { kind?: string } | undefined)?.kind;
-  // Spotlight darkens 0-100%; blur is a radius and pixelate a block size, shown as 0-100.
+  // Spotlight darkens 0-100%; blur is a radius and pixelate a block size, shown as 0-100; a highlight's is its opacity.
   const scale = kind === "blur" ? 10 : 100;
+  const region = clip.props.region as { invert?: boolean; color?: RGBA } | undefined;
   return (
     <Section>
-      <Slider unit="" label="Intensity" value={value("region", "intensity") * scale} max={100} onChange={(v, key) => edit("region", { intensity: Math.max(0, v) / scale }, "Intensity", key)} />
+      {kind === "highlight" && <ColorRow label="Color" color={region?.color} opacity={false} onChange={(c, key) => edit("region", { color: c }, "Highlight Color", key)} />}
+      {kind === "highlight" ? (
+        <Slider unit="%" label="Opacity" value={value("region", "intensity") * 100} max={100} onChange={(v, key) => edit("region", { intensity: Math.max(0, v) / 100 }, "Highlight Opacity", key)} />
+      ) : (
+        <Slider unit="" label="Intensity" value={value("region", "intensity") * scale} max={100} onChange={(v, key) => edit("region", { intensity: Math.max(0, v) / scale }, "Intensity", key)} />
+      )}
       <Slider unit="" label="Corners" value={value("region", "cornerRadius")} max={200} onChange={(v, key) => edit("region", { cornerRadius: Math.max(0, v) }, "Corner Radius", key)} />
+      {kind !== "spotlight" && (
+        <div className="ml-[92px]">
+          <Check label="Invert" title={kind === "highlight" ? "Colour everything outside the box instead" : "Work on everything outside the box instead"} checked={!!region?.invert} onChange={(on) => edit("region", { invert: on }, on ? "Invert" : "Don't Invert")} data-region-invert />
+        </div>
+      )}
     </Section>
   );
 }

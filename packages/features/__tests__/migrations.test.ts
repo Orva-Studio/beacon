@@ -146,6 +146,16 @@ test("broll v7: a clip gets its own model, empty for Settings › AI's", () => {
   expect((out.tracks[0]!.clips[0]!.props.broll as { model: string }).model).toBe("");
 });
 
+test("regions v2: a blur, pixelate or spotlight region gets a highlight's colour (yellow), so it validates", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.regions = 1;
+  doc.tracks = [{ id: "t1", name: "", clips: [{ id: "c1", type: "region", start: 0, duration: 10, props: { region: { kind: "blur", width: 400, height: 200, cornerRadius: 6, intensity: 1, invert: false } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.regions).toBe(2);
+  expect((out.tracks[0]!.clips[0]!.props.region as { color: number[] }).color).toEqual([1, 0.93, 0.25, 1]);
+});
+
 test("motion v2 to v4: a motion graphics clip made before Looks, then from callouts, becomes an HTML one: its takes' pieces templates, its group a box to draw again, no background setting; inside a group too", () => {
   const registry = createRegistry();
   const doc = createProject(registry) as any;

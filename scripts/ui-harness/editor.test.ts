@@ -1556,7 +1556,7 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight", "annotation:highlight-green", "annotation:highlight-magenta"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
   // A favourite shows its gold star; another tile shows none until selected.
   expect(await star("annotation:text")).toBe("on");
@@ -2479,6 +2479,31 @@ test.skipIf(skip)("Stitch (⌥⌘I) of two pieces of a take, the second zoomed i
     expect(ticksToSeconds(ramp!.duration)).toBeCloseTo(0.5, 3);
     expect(ticksToSeconds(stitched.start + ramp!.end)).toBeCloseTo(mid, 1);
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Stitch Media");
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+});
+
+test.skipIf(skip)("a Highlight from the palette: a yellow box at half opacity; its properties give Colour, Opacity and Invert", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await select([]);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("Highlight");
+    await page.until(`!!document.querySelector('[data-entry="annotation:highlight"]')`);
+    await page.click(...(await centre('[data-entry="annotation:highlight"]')));
+    await arrived(() => clips().some((c) => c.type === "region" && (c.props.region as { kind: string }).kind === "highlight"));
+    const hl = clips().find((c) => c.type === "region" && (c.props.region as { kind: string }).kind === "highlight")!;
+    expect(hl.props.region).toMatchObject({ intensity: 0.5, invert: false, color: [1, 0.93, 0.25, 1] });
+    await select([hl.id]);
+    await run("inspector.tab", { tab: "region" });
+    await page.until("!!document.querySelector('[data-region-invert]')");
+    expect(await page.evaluate<boolean>("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Opacity')")).toBe(true);
+    await page.click(...(await centre("[data-region-invert]")));
+    await arrived(() => (clip(hl.id).props.region as { invert: boolean }).invert);
+    expect((clip(hl.id).props.region as { invert: boolean }).invert).toBe(true);
   } finally {
     while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
     await select([]);
