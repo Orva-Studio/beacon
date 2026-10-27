@@ -3476,6 +3476,33 @@ test.skipIf(skip)("an imported .hlook is kept for every project: under Your look
   }
 }, 30_000);
 
+test.skipIf(skip)("Film Look's save icon, beside its trash, keeps the sliders as \"My Look 1\" in Your looks for every project, then shows it in the Look menu; greyed while the sliders are a look already", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const kept = async () => JSON.parse((await ui.core.preferences()).find((p) => p.id === "filmLookLooks")!.value) as { id: string; name: string; params: Record<string, unknown> }[];
+  await ui.core.setPreference("filmLookLooks", "[]");
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    const fx = () => clip(screen.id).effects.find((e) => e.type === "film-look")!;
+    await run("effect.set", { clip: screen.id, effect: fx().id, params: { warmth: 0.37 } });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    const save = `[data-effect="${fx().id}"] [data-section-action]`;
+    await page.until(`!!document.querySelector('${save}') && !document.querySelector('${save}').disabled`);
+    await page.click(...(await centre(save)));
+    for (let i = 0; i < 50 && !(await kept()).length; i++) await Bun.sleep(50);
+    const [look] = await kept();
+    expect(look!.name).toBe("My Look 1");
+    expect(look!.params).toEqual(fx().params);
+    await page.until(`document.querySelector('${save}').disabled && document.querySelector('[data-effect="${fx().id}"] [data-effect-preset]').textContent.includes('My Look 1')`);
+    // Nothing on the timeline changed: no undo step.
+    expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(2);
+  } finally {
+    await ui.core.setPreference("filmLookLooks", "[]");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("Film Look's Auto Tune: a button on its section, no note box (one is only for agents); pressed, it starts the job (with no OpenAI key here, it says so and changes nothing)", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   try {

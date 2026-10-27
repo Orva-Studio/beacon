@@ -557,7 +557,6 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
   /** Why the look file last chosen couldn't be read. */
   const [importError, setImportError] = useState<string>();
-  /** What the user asks of Auto Tune ("warmer, less grain"). */
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
   const [chooseError, setChooseError] = useState<string>();
   // Files imported before (`importFile.keep`), in every project, after the built-ins.
@@ -573,6 +572,15 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   // What the effect needs of the clip's media (a matte) while it is made, or why it couldn't be.
   const making = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analyzing[`${n}:${clip.assetId}`]).find((p) => p !== undefined) : undefined));
   const failed = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analysisFailed[`${n}:${clip.assetId}`]).find(Boolean) : undefined));
+  // The sliders as they are, kept as a look of the user's own, named to rename in Settings › General.
+  const saveLook = () => {
+    const taken = new Set(kept.map((l) => l.name));
+    let n = 1;
+    while (taken.has(`My Look ${n}`)) n++;
+    const look = { id: `look-${Date.now().toString(36)}`, name: `My Look ${n}`, params: { ...effect.params } };
+    void host.setPreference(keep!, JSON.stringify([...kept, look]));
+    replica.status(`Saved as "${look.name}" in Your looks, for every project; rename it in Settings › General`);
+  };
   const importLook = async () => {
     const path = await host.chooseFile(def!.importFile!.extensions);
     if (!path) return;
@@ -596,6 +604,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
       selected={selected}
       selectHint="Select the effect (⇧ or ⌘ for several): ⌘C copies it, Delete removes it"
       onSelect={(e) => host.run("effect.select", { effects: [{ clip: clip.id, id: effect.id }], add: e.shiftKey || e.metaKey })}
+      action={keep ? { icon: "floppy-disk", label: "Save these settings as a look of your own, for every project", run: saveLook, disabled: preset ? `These settings are ${preset.title} already` : undefined } : undefined}
       remove={{ label: "Remove Effect", run: () => host.run("effect.remove", { clip: clip.id, effect: effect.id }, `Remove ${name}`) }}
       enabled={effect.enabled}
       onEnable={(on) => host.run("effect.set", { clip: clip.id, effect: effect.id, enabled: on }, on ? `Enable ${name}` : `Disable ${name}`)}

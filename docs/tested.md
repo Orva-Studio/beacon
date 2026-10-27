@@ -35,6 +35,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Save Look: a save icon beside Film Look's trash keeps its sliders as "My Look N" in Your looks, for every project (renamed and deleted in Settings › General), then shown in the Look menu; greyed, saying which, while the sliders are a look already; no undo step | 2026-10-27 | this branch | UI flow (`Film Look's save icon, beside its trash…`) |
 | `: [` and `: ]` put the caret in the new tab's first input, as an effect from the palette does; `:` typed in a value box leaves it (as a click away) and starts the leader key, so the next step works from there | 2026-10-27 | this branch | UI flow (`the leader key moves through the properties tabs…`: the caret in each tab's first input, no ":" typed; fails without the change) |
 | Edit Code wraps long lines to the editor's width (on by default; Wrap lines by the buttons turns it off) | 2026-10-27 | this branch | UI flow (`Motion Graphics, as B-roll…`: wrapped, unticked, ticked again) |
 | B-roll's Auto prompt: Write Again and Copy to Manual on one row, Research on its own line under them (they were crammed and wrapped); the Try N Models button gone (`broll.compare` stays for agents) | 2026-10-27 | this branch | UI flow (`B-roll from the AI panel adds a clip…`: no compare button, fails with it) |
@@ -47,6 +48,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Film Look: move a slider, press the save icon by the trash: "My Look 1" in the Look menu, in another project too; rename it in Settings › General.
 - Select a clip, `: ]` a few times: each tab's first value is ready to type; `: ]` again from there moves on.
 - Edit Code: a long line wraps; Wrap lines unticked, it scrolls sideways.
 - B-roll's Auto prompt with OpenAI as its writer: Write Again and Copy to Manual each on one line, Research under them; no Try N Models.
