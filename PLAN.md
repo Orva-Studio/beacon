@@ -2645,8 +2645,12 @@ Phase 11 so it can close with motion graphics.
 - **B-roll: the model picked on the clip.** The tab's Footage menu becomes the
   model menu, each with its price (Settings › AI's model is only the default);
   takes stay pickable.
-- **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
-  or two more), in place of the film and product groups.
+- **B-roll: no Styles** (the user, 2026-10-27, replacing "fewer Styles, 5–6"
+  and "Import Style…"): other tools don't have them and the user types the look
+  they want in the prompt. The clip's Style menu, Settings › AI › Your Styles and
+  the style wording in prompts and the planner's guide go; clips keep their
+  prompts (a data version and migration drop the field); the user's saved styles
+  stay in their preferences, unused.
 - **An effect from the command palette focuses its first input** (the user,
   2026-10-26): picking an effect (Visual or Audio Effects, an annotation) in the
   palette adds it as now, then opens its properties and puts the caret in its
@@ -2658,9 +2662,8 @@ Phase 11 so it can close with motion graphics.
   Your Styles and motion graphics' Your Skills are), shown in the Look menu
   under "Your looks" in every project, renamed or deleted in Settings; one of
   the same name replaces the old.
-- **B-roll: Import Style… on the clip's Style menu** (the user, 2026-10-27), as
-  motion graphics' Import Skill… does: a `.md`/`.txt` joins Your Styles and is
-  picked, with no trip to Settings.
+- ~~B-roll: Import Style… on the clip's Style menu~~ (dropped 2026-10-27 with
+  Styles).
 - **Remove Unused Media** (the user, 2026-10-27): in the Media Bin's right-click
   menu (on a medium or on empty space), removes every medium no clip on the
   timeline uses (in groups too; a B-roll or motion graphic take not shown, a
@@ -2679,8 +2682,8 @@ Phase 11 so it can close with motion graphics.
   end, on the tracks from the anchor's to this one's, linked clips with them;
   ⌘-click stays the one-clip toggle. ⇧-drag still ripple-moves.
 - **Edit Code: syntax highlighting** (the user, 2026-10-27): the code box
-  coloured as HTML with its CSS and script (CodeMirror 6, pinned, or a small
-  highlighter over the textarea), line numbers, matching brackets; ⌘F find.
+  coloured as HTML with its CSS and script, line numbers, matching brackets; ⌘F
+  find. **Decided (the user, 2026-10-27):** CodeMirror 6, exact pinned versions.
 - **Edit Code's preview fully offline**: today a script that navigates its
   page away is caught and the preview stopped, but that one request has left.
   Show the preview in an Electrobun sandboxed webview with navigation rules
