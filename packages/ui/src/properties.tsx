@@ -6,7 +6,7 @@ import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -557,7 +557,6 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   /** Why the look file last chosen couldn't be read. */
   const [importError, setImportError] = useState<string>();
   /** What the user asks of Auto Tune ("warmer, less grain"). */
-  const [tuneNote, setTuneNote] = useState("");
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
   const [chooseError, setChooseError] = useState<string>();
   // Files imported before (`importFile.keep`), in every project, after the built-ins.
@@ -638,9 +637,8 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
           )}
           {def?.tune && (
             <Row label="">
-              <div className="flex min-w-0 flex-1 items-center gap-2" data-effect-tune>
-                <TextInput className="min-w-0 flex-1" placeholder={def.tune.note} value={tuneNote} onChange={(e) => setTuneNote(e.target.value)} data-effect-tune-note />
-                <Button title={def.tune.title} onClick={() => host.run(def.tune!.action, { clip: clip.id, effect: effect.id, ...(tuneNote.trim() ? { note: tuneNote.trim() } : {}) })} data-effect-tune-run>
+              <div className="flex min-w-0 flex-1 items-center" data-effect-tune>
+                <Button title={def.tune.title} onClick={() => host.run(def.tune!.action, { clip: clip.id, effect: effect.id })} data-effect-tune-run>
                   {def.tune.label}
                 </Button>
               </div>

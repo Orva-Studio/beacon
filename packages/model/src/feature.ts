@@ -77,8 +77,8 @@ export interface EffectDef {
    * `KeptLook`) each import joins, offered in every project beside the presets, one of the same name replacing it.
    */
   importFile?: { label: string; extensions: string[]; query: string; keep?: string };
-  /** A button on the effect's section running `action` with `{ clip, effect, note }` (Film Look's Auto Tune): `note`, its text box's placeholder. */
-  tune?: { label: string; title: string; action: string; note: string };
+  /** A button on the effect's section running `action` with `{ clip, effect }` (Film Look's Auto Tune). */
+  tune?: { label: string; title: string; action: string };
 }
 
 export interface EffectPreset {

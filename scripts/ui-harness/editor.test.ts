@@ -3462,14 +3462,14 @@ test.skipIf(skip)("an imported .hlook is kept for every project: under Your look
   }
 }, 30_000);
 
-test.skipIf(skip)("Film Look's Auto Tune: a note and a button on its section; pressed, it starts the job (with no OpenAI key here, it says so and changes nothing)", async () => {
+test.skipIf(skip)("Film Look's Auto Tune: a button on its section, no note box (one is only for agents); pressed, it starts the job (with no OpenAI key here, it says so and changes nothing)", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   try {
     await run("effect.add", { clip: screen.id, type: "film-look" });
     await select([screen.id]);
     await run("inspector.tab", { tab: "effects" });
     await page.until("!!document.querySelector('[data-effect-tune-run]')");
-    expect(await page.evaluate<string>("document.querySelector('[data-effect-tune-note]').placeholder")).toContain("warmer");
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-tune] input')")).toBe(false);
     const params = JSON.stringify(clip(screen.id).effects.find((e) => e.type === "film-look")!.params);
     await page.click(...(await centre("[data-effect-tune-run]")));
     for (let i = 0; i < 100 && !(await ui.core.jobs()).some((j) => j.label === "Auto Tune Film Look" && j.state !== "running"); i++) await Bun.sleep(50);

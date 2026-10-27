@@ -135,7 +135,7 @@ export const filmLook = defineFeature({
       },
       presets: PRESETS,
       importFile: { label: "Import .hlook…", extensions: ["hlook"], query: "filmLook.read", keep: KEPT },
-      tune: { label: "Auto Tune", title: "OpenAI (your key) looks at three frames of the clip and sets the sliders, a cent or so", action: "filmLook.autoTune", note: "Optional: warmer, less grain…" },
+      tune: { label: "Auto Tune", title: "OpenAI (your key) looks at three frames of the clip and sets the sliders, a cent or so", action: "filmLook.autoTune" },
     },
   ],
   passes: [{ id: "film-look", wgsl, steps: ["fs_highlights", "fs_scatter_h", "fs_scatter_v", "fs_look"] }],

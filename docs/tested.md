@@ -35,6 +35,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Film Look's Auto Tune is a button on its own, its note box gone (it was cut off in the panel; the user, 2026-10-27); a note is still taken over MCP | 2026-10-27 | this branch | UI flow (`Film Look's Auto Tune: a button on its section, no note box…`) |
 | Motion Blur over a zoom no longer bands and tints dark colours: its 16 samples add up in a half-float texture, rounded to 8 bits once (each rounded on its own made 18/26/36 come out 16/32/32: jagged green and red rings on a motion graphic's dark background) | 2026-10-27 | this branch | Core test (`motion blur over a zoom keeps a dark fill its own colour`, fails without the change); the user's motion graphic rendered at 3.1 s from a copy, clean |
 | `: E` dropped (the palette finds effects): `:` no longer offers E; Show Effects stays in the palette and Settings › Shortcuts, with no key | 2026-10-27 | this branch | UI flow (`the leader key moves through the properties tabs…`: no E under `:`; fails with the old key) |
 | A default cursor size: Settings › Recording › Cursor Size (100% unset), app-wide; every recording imported from then on (a take, or a .brec/.trec imported) starts its cursor at it, one undo step with the import; clips already placed keep theirs | 2026-10-27 | this branch | core test (a take and an import at 300%), UI flow (`Settings › Recording sets where…`) |
