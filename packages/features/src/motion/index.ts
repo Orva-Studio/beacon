@@ -27,7 +27,7 @@ import {
 } from "@beacon/model";
 import { streamOf } from "../media";
 import { heardWords, regionOfClip, timelineSpan, trackIndex } from "../broll";
-import { CustomStylesSchema, styleFromFile, type CustomStyle } from "../broll/styles";
+import { CustomStylesSchema, styleFromFile, type CustomStyle } from "../text-file";
 import { KIND_GUIDE, KINDS, PieceSchema, tidy } from "./blocks";
 import { compose, revise, writeIdea, type Said } from "./compose";
 import { css, page, template } from "./html";

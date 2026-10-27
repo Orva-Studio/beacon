@@ -30,11 +30,9 @@ import { streamOf, visualSize } from "../media";
 import { timelineWords } from "../transcript";
 import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution, type VideoModel } from "./models";
 import { planOnDevice, planShots, tile, PLAN_MODEL, type PlanStage } from "./plan";
-import { allStyles, CustomStylesSchema, NONE, PROMPT_STYLE_CHARS, styleOf, STYLES_PREF } from "./styles";
 import { generate, limits, type Limits, type MakeStage } from "./replicate";
 
 export { VIDEO_MODELS, videoModel, resolutionOf, shotCost, nearestAspect, lengthFor } from "./models";
-export { BUILT_IN, styleFromFile, type CustomStyle, type Style } from "./styles";
 
 const TOKEN = "replicate-api-token";
 const OPENAI = "openai-api-key";
@@ -50,8 +48,6 @@ export type Rect = [number, number, number, number];
 const brollGroup = z.strictObject({
   prompt: z.string().max(2000),
   why: z.string(),
-  /** How it looks: a style's id (built in, or the user's own in Settings › AI). */
-  style: z.string(),
   /** Which prompt it is made from: the one the planner wrote (`prompt`, "auto"), or the one typed (`manual`). */
   source: z.enum(["auto", "manual"]),
   /** The prompt typed (Manual), starting from the words said under the clip; kept while Auto is chosen. */
@@ -143,7 +139,7 @@ function covering([W, H]: [number, number], [w, h]: [number, number], [dx, dy]: 
 function placeholder(region: Rect, project: Project, props: Partial<BrollProps> = {}) {
   const [x, y, w, h] = region;
   return {
-    broll: { prompt: "", why: "", style: NONE, source: "auto", manual: "", research: true, takes: [], ...props } satisfies BrollProps,
+    broll: { prompt: "", why: "", source: "auto", manual: "", research: true, takes: [], ...props } satisfies BrollProps,
     brollBox: { width: w, height: h },
     transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 },
   };
@@ -305,7 +301,7 @@ const brollAdd = defineAction({
 const brollPlan = defineAction({
   id: "broll.plan",
   description:
-    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it, in its style: by the planner chosen in Settings › AI (Apple's on-device model, free and offline, by default; or OpenAI on the user's key, which also searches the web with the clip's `research`). A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
+    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it: by the planner chosen in Settings › AI (Apple's on-device model, free and offline, by default; or OpenAI on the user's key, which also searches the web with the clip's `research`). A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const [clip] = targets(ctx, id ? [id] : undefined);
@@ -346,7 +342,6 @@ const brollPlan = defineAction({
             after: text(words.filter((x) => x.start >= to && x.end <= to + CONTEXT)),
             from,
             to,
-            style: styleOf(b.style, env.pref).text,
             research: b.research && planner === "openai",
             aspect,
             shortest: b.takes.length ? to - from : model.durations[0]!,
@@ -384,7 +379,7 @@ const brollPlan = defineAction({
           }
           // A clip with footage keeps one shot: it gets a new prompt, not a split (its box went with the footage).
           const shots = tile(plan.shots, from, to, b.takes.length ? to - from : model.durations[0]!, model.durations.at(-1)!);
-          if (!shots.length) throw new Error("no shots were planned: try another style, or a longer clip");
+          if (!shots.length) throw new Error("no shots were planned: try a longer clip");
           env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
           return (now) => {
             const was = shapeOf(now.project, now.registry);
@@ -598,17 +593,16 @@ export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "reg
 }
 
 /**
- * The prompt a clip is made from: Auto, the one Plan wrote in its style; Manual, the one typed, with the style's
- * wording. Either one still empty: the words said under it with the style's wording (so a first try needs no planner).
+ * The prompt a clip is made from: Auto, the one Plan wrote; Manual, the one typed (the look the user wants in its
+ * words). Either one still empty: the words said under it (so a first try needs no planner).
  */
 function promptFor(clip: Clip, ctx: ActionContext): string {
   const b = brollOf(clip)!;
-  const look = styleOf(b.style, ctx.pref).text.slice(0, PROMPT_STYLE_CHARS);
   if (b.source === "auto" && b.prompt.trim()) return b.prompt.trim();
-  if (b.source === "manual" && b.manual.trim()) return [b.manual.trim(), look].filter(Boolean).join(" ");
+  if (b.source === "manual" && b.manual.trim()) return b.manual.trim();
   const words = wordsUnder(clip, ctx);
   if (!words) throw new Error("nothing is said under this B-roll clip: type a prompt (Prompt: Manual)");
-  return [`Footage illustrating: "${words}".`, look].filter(Boolean).join(" ");
+  return `Footage illustrating: "${words}".`;
 }
 
 const notReady = (ctx: ActionContext, clips: Clip[]) => {
@@ -760,7 +754,7 @@ function stylesNotGuides(doc: unknown): unknown {
     const b = o.props?.broll as Record<string, unknown> | undefined;
     if (!b) return;
     delete b.guide;
-    b.style ??= NONE;
+    b.style ??= "none";
     b.source ??= "auto";
   });
   return doc;
@@ -786,25 +780,35 @@ function manualPrompt(doc: unknown): unknown {
   return doc;
 }
 
+/** v6: no styles (the user, 2026-10-27: the look is typed in the prompt); the prompts written in one are kept. */
+function noStyles(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as Record<string, unknown> | undefined;
+    if (b) delete b.style;
+  });
+  return doc;
+}
+
 export const broll = defineFeature({
   id: "broll",
-  version: 5,
+  version: 6,
   migrations: [
     { version: 2, migrate: takesAsRefs },
     { version: 3, migrate: stylesNotGuides },
     { version: 4, migrate: manualNotTranscript },
     { version: 5, migrate: manualPrompt },
+    { version: 6, migrate: noStyles },
   ],
   clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
   props: [
     {
       id: "broll",
-      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, `prompt` as Plan wrote it; manual, `manual` as typed, with the style's wording added), research for OpenAI's planner, and the takes made (`{ assetId }`)",
+      description: "The B-roll a clip asks for: its prompt (and why), where its prompt comes from (`source`: auto, `prompt` as Plan wrote it; manual, `manual` as typed), research for OpenAI's planner, and the takes made (`{ assetId }`)",
       traits: ["broll"],
       // Beside Visual Properties (1), where annotations have theirs.
       tab: { title: "B-roll", icon: "sparkle", order: 2 },
       schema: brollGroup,
-      defaults: () => ({ prompt: "", why: "", style: NONE, source: "auto", manual: "", research: true, takes: [] }),
+      defaults: () => ({ prompt: "", why: "", source: "auto", manual: "", research: true, takes: [] }),
       identity: true,
     },
     {
@@ -853,14 +857,6 @@ export const broll = defineFeature({
       default: "apple",
     },
     {
-      id: STYLES_PREF,
-      title: "B-roll styles",
-      description: "Your own B-roll styles: each a name and the wording added to its prompts (typed, or from a text file such as a skill)",
-      options: [],
-      schema: CustomStylesSchema,
-      default: "[]",
-    },
-    {
       id: "brollLimit",
       title: "Limit per generation",
       description: "Dollars one generation may cost at most, by the estimate; 0 is no limit",
@@ -871,12 +867,6 @@ export const broll = defineFeature({
   ],
   sessionCommands,
   queries: [
-    defineQuery({
-      id: "broll.styles",
-      description: "The styles a B-roll clip can pick (its `broll.style`): the built-in ones and the user's own (Settings › AI), each with its id, name, group and wording",
-      args: z.strictObject({}),
-      run: (_, { pref }) => allStyles(pref),
-    }),
     defineQuery({
       id: "broll.words",
       description: "What is said under a B-roll clip (from the transcripts already made, narration inside groups too): what an empty prompt is made from",

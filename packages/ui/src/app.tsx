@@ -30,7 +30,6 @@ import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./re
 import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
 import { ProjectSettingsUi } from "./project-settings";
 import { useCaptionsPending } from "./captions";
-import { useBrollRestyles } from "./broll";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
 import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
@@ -96,7 +95,6 @@ export function App({ host }: { host: Host }) {
   const fillers = useFillers(host, session, project);
   const retakes = useRetakes(host, session, project);
   useCaptionsPending(host);
-  useBrollRestyles(host, session, project, init?.nested ?? NO_NESTED);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);

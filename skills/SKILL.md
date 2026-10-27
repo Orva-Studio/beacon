@@ -100,12 +100,12 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   puts a placeholder over the range (or at `time` for `duration`) on a B-roll
   track above the talk, in a `region` (canvas pixels from the top left); move,
   trim and size it like any clip. It shows nothing in an export until it has
-  footage. Its props (`clip_set` `broll`): `style` (an id from `broll_styles`:
-  built in, or the user's own from Settings › AI), `source` (`auto`: its
-  `prompt`, written by `broll_plan` from the words under it in its style, by
-  Apple's on-device model or OpenAI as Settings › AI says, a long clip split
-  into shots; `transcript`: the words said under it, as `broll_words` gives
-  them, with the style). Making footage spends the user's money through
+  footage. Its props (`clip_set` `broll`): `source` (`auto`: its `prompt`,
+  written by `broll_plan` from the words under it, by Apple's on-device model
+  or OpenAI as Settings › AI says, a long clip split into shots; `manual`: its
+  `manual` prompt as typed, starting from the words said under it, as
+  `broll_words` gives them). There are no styles: a look the user wants
+  (anime, realistic, 3D animation) goes in the prompt's own words. Making footage spends the user's money through
   Replicate: tell them `broll_estimate`'s cost and run `broll_generate` (or
   `broll_compare`, every model side by side) only when they say so; the footage
   goes into the clip in place, every take kept, `broll_use` picks one again.

@@ -45,6 +45,7 @@ export * from "./safe-areas";
 export * from "./film-look";
 export * from "./auphonic";
 export * from "./broll";
+export { styleFromFile, type CustomStyle } from "./text-file";
 export * from "./motion";
 
 /**
