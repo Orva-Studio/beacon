@@ -355,7 +355,8 @@ export function CanvasOverlay({
     const c = ([x, y]: [number, number]): [number, number] => [r((x - ox) / k), r((y - oy) / k)];
     const shifted = marks.map((m) => (m.kind === "line" ? { ...m, from: c(m.from), to: c(m.to) } : { ...m, at: c(m.at) }));
     // Under a dialog, the backdrop's dimming: one band wider and taller than any view, drawn last.
-    if (dimmed) shifted.push({ kind: "line", from: [-1e5, 0], to: [1e5, 0], width: 1e5, color: rgba("backdrop"), butt: true });
+    // Not while the eyedropper picks from it: the colour is read off the picture as it is.
+    if (dimmed && !picking) shifted.push({ kind: "line", from: [-1e5, 0], to: [1e5, 0], width: 1e5, color: rgba("backdrop"), butt: true });
     const json = JSON.stringify(shifted);
     if (json === sentMarks.current) return;
     sentMarks.current = json;

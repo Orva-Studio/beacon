@@ -2393,6 +2393,54 @@ test.skipIf(skip)("an effect picked in the command palette opens its properties 
   await select([]);
 }, 15_000);
 
+test.skipIf(skip)("the eyedropper from a dialog: Project Settings' colour picks from the canvas without the dialog closing, the canvas undimmed, the colour landing in the dialog; Esc stops picking, not the dialog", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const before = "#123456";
+  try {
+    await run("project.settings.set", { background: before });
+    await run("playhead.set", { time: 1 });
+    await ui.core.uiOpen(ui.handle, "projectSettings");
+    await page.until("!!document.querySelector('[data-project-settings]')");
+    const swatch = '[data-project-settings] button[title="The canvas colour behind the media"]';
+    const dropper = 'button[title="Pick a colour from the canvas"]';
+    const start = async () => {
+      if (!(await has(dropper))) await page.click(...(await centre(swatch)));
+      await page.until(`!!document.querySelector('${dropper}')`);
+      await page.click(...(await centre(dropper)));
+      await page.until("!!document.querySelector('[data-picking]')");
+    };
+    await start();
+    // The backdrop lets the click through and isn't dimmed; the dialog stays.
+    expect(await page.evaluate<string>("getComputedStyle(document.querySelector('[data-picking]')).pointerEvents")).toBe("none");
+    expect(await page.evaluate<string>("getComputedStyle(document.querySelector('[data-picking]')).backgroundColor")).toBe("rgba(0, 0, 0, 0)");
+    // Esc: picking stops, the dialog stays open.
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-picking]')");
+    expect(await has("[data-project-settings]")).toBe(true);
+    // Picked off the canvas's middle: it lands in the dialog's picker as the canvas colour.
+    await start();
+    // A point of the canvas the dialog doesn't cover, as the user would click one they can see.
+    const [cx, cy] = await page.evaluate<[number, number]>(`(() => {
+      const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect();
+      for (let fy = 0.1; fy < 1; fy += 0.1) for (let fx = 0.05; fx < 1; fx += 0.05) {
+        const [x, y] = [r.left + r.width * fx, r.top + r.height * fy];
+        const e = document.elementFromPoint(x, y);
+        if (e && !e.closest('[data-modal]') && e.closest('[data-canvas-overlay]')) return [x, y];
+      }
+      return [0, 0];
+    })()`);
+    expect(cx).toBeGreaterThan(0);
+    await page.click(cx, cy);
+    await arrived(() => ui.core.doc(ui.handle).settings.background !== before, 10_000);
+    expect(ui.core.doc(ui.handle).settings.background).not.toBe(before);
+    expect(await has("[data-project-settings]")).toBe(true);
+    expect(await has("[data-picking]")).toBe(false);
+  } finally {
+    await page.evaluate("document.querySelector('[data-modal]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  }
+}, 30_000);
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);
