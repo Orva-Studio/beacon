@@ -3,7 +3,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { html } from "@codemirror/lang-html";
 import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 
@@ -37,9 +37,10 @@ const THEME = EditorView.theme(
  * HTML (with its CSS and script) in a code editor: coloured, line numbers, matching brackets, ⌘F to find, Tab
  * indents. `onSave`: ⌘S. Controlled loosely: `value` is read when it changes from outside, not on every keystroke.
  */
-export function CodeEditor({ value, onChange, onSave, className, ...data }: { value: string; onChange: (text: string) => void; onSave?: () => void; className?: string; [data: `data-${string}`]: unknown }) {
+export function CodeEditor({ value, onChange, onSave, wrap = false, className, ...data }: { value: string; onChange: (text: string) => void; onSave?: () => void; wrap?: boolean; className?: string; [data: `data-${string}`]: unknown }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView>(null);
+  const wrapping = useRef(new Compartment());
   const latest = useRef({ onChange, onSave });
   latest.current = { onChange, onSave };
   useEffect(() => {
@@ -49,6 +50,7 @@ export function CodeEditor({ value, onChange, onSave, className, ...data }: { va
         doc: value,
         extensions: [
           lineNumbers(),
+          wrapping.current.of(wrap ? EditorView.lineWrapping : []),
           highlightActiveLineGutter(),
           history(),
           drawSelection(),
@@ -72,5 +74,8 @@ export function CodeEditor({ value, onChange, onSave, className, ...data }: { va
     const v = view.current;
     if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
   }, [value]);
+  useEffect(() => {
+    view.current?.dispatch({ effects: wrapping.current.reconfigure(wrap ? EditorView.lineWrapping : []) });
+  }, [wrap]);
   return <div ref={host} className={className} {...data} />;
 }

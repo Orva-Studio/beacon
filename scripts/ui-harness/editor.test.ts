@@ -276,6 +276,13 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await page.key("Escape", "Escape");
     await page.until("!document.querySelector('[data-motion-code-text] .cm-search')");
     expect(await page.evaluate<boolean>("!!document.querySelector('[data-motion-code-dialog]')")).toBe(true);
+    // Long lines wrap, until Wrap lines is unticked.
+    const wraps = () => page.evaluate<boolean>(`${code}.classList.contains('cm-lineWrapping')`);
+    expect(await wraps()).toBe(true);
+    await page.click(...(await centre("[data-motion-code-wrap]")));
+    await page.until(`!${code}.classList.contains('cm-lineWrapping')`);
+    await page.click(...(await centre("[data-motion-code-wrap]")));
+    await page.until(`${code}.classList.contains('cm-lineWrapping')`);
     const replace = async (text: string) => {
       await page.evaluate(`${code}.focus()`);
       await page.key("a", "KeyA", ["meta"]);

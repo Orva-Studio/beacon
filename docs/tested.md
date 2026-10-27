@@ -35,6 +35,7 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Edit Code wraps long lines to the editor's width (on by default; Wrap lines by the buttons turns it off) | 2026-10-27 | this branch | UI flow (`Motion Graphics, as B-roll…`: wrapped, unticked, ticked again) |
 | B-roll's Auto prompt: Write Again and Copy to Manual on one row, Research on its own line under them (they were crammed and wrapped); the Try N Models button gone (`broll.compare` stays for agents) | 2026-10-27 | this branch | UI flow (`B-roll from the AI panel adds a clip…`: no compare button, fails with it) |
 | Film Look's Auto Tune is a button on its own, its note box gone (it was cut off in the panel; the user, 2026-10-27); a note is still taken over MCP | 2026-10-27 | this branch | UI flow (`Film Look's Auto Tune: a button on its section, no note box…`) |
 | Motion Blur over a zoom no longer bands and tints dark colours: its 16 samples add up in a half-float texture, rounded to 8 bits once (each rounded on its own made 18/26/36 come out 16/32/32: jagged green and red rings on a motion graphic's dark background) | 2026-10-27 | this branch | Core test (`motion blur over a zoom keeps a dark fill its own colour`, fails without the change); the user's motion graphic rendered at 3.1 s from a copy, clean |
@@ -45,6 +46,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Edit Code: a long line wraps; Wrap lines unticked, it scrolls sideways.
 - B-roll's Auto prompt with OpenAI as its writer: Write Again and Copy to Manual each on one line, Research under them; no Try N Models.
 - Play a motion graphic with Motion Blur through a zoom (adfinder's first clip, 2.6–3.6 s): no jagged coloured rings on its dark background.
 - A real take with Cursor Size 300% and Place New Recordings at the playhead: it lands there, its cursor big; then Media Bin only.
