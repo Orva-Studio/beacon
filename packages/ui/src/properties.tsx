@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
+import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, KeptLooksSchema, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
@@ -547,7 +547,15 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const [importError, setImportError] = useState<string>();
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
   const [chooseError, setChooseError] = useState<string>();
-  const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
+  // Files imported before (`importFile.keep`), in every project, after the built-ins.
+  const keep = def?.importFile?.keep;
+  const keptText = useView((s) => (keep ? s.preferences.find((p) => p.id === keep)?.value : undefined));
+  const kept = useMemo(() => {
+    const parsed = KeptLooksSchema.safeParse((() => { try { return JSON.parse(keptText || "[]"); } catch { return []; } })());
+    return parsed.success ? parsed.data : [];
+  }, [keptText]);
+  const looks = [...(def?.presets ?? []).map((p) => ({ ...p, group: undefined as string | undefined })), ...kept.map((l) => ({ id: l.id, title: l.name, params: l.params, description: undefined as string | undefined, group: "Your looks" }))];
+  const preset = looks.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
   const assets = useView((s) => s.project?.assets);
   // What the effect needs of the clip's media (a matte) while it is made, or why it couldn't be.
   const making = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analyzing[`${n}:${clip.assetId}`]).find((p) => p !== undefined) : undefined));
@@ -556,9 +564,14 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     const path = await host.chooseFile(def!.importFile!.extensions);
     if (!path) return;
     try {
-      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown> };
+      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown>; notReproduced?: string[] };
       host.run("effect.set", { clip: clip.id, effect: effect.id, params: look.params }, `Import ${look.name}`);
       setImportError(undefined);
+      if (keep) {
+        // Kept for every project; one of the same name gives way.
+        const entry = { id: `look-${Date.now().toString(36)}`, name: look.name, params: look.params, ...(look.notReproduced?.length ? { notes: look.notReproduced } : {}) };
+        void host.setPreference(keep, JSON.stringify([...kept.filter((l) => l.name !== look.name), entry]));
+      }
     } catch (e) {
       setImportError(`${path.split("/").pop()}: ${(e as Error).message}`);
     }
@@ -577,17 +590,17 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
           {(def?.presets || def?.importFile) && (
             <Row label="Look">
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                {def.presets && (
+                {looks.length > 0 && (
                   <ListSelect
                     value={preset?.id ?? ""}
                     title={preset?.description}
-                    options={[{ id: "", label: "Custom" }, ...def.presets.map((p) => ({ id: p.id, label: p.title, title: p.description }))]}
+                    options={[{ id: "", label: "Custom" }, ...looks.map((p) => ({ id: p.id, label: p.title, title: p.description, group: p.group }))]}
                     onPreview={(id) => {
-                      const p = def.presets!.find((x) => x.id === id);
+                      const p = looks.find((x) => x.id === id);
                       host.previewEffect(p ? { clip: clip.id, effect: effect.id, params: p.params } : null);
                     }}
                     onChange={(id) => {
-                      const p = def.presets!.find((x) => x.id === id);
+                      const p = looks.find((x) => x.id === id);
                       if (p) {
                         host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
                         setImportError(undefined);

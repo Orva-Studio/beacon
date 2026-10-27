@@ -208,7 +208,7 @@ export interface SchemaInfo {
   }[];
   /** `defaults`: what a clip without its own values has. */
   props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
-  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string }; needs?: string[]; preparing?: string }[];
+  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string; keep?: string }; needs?: string[]; preparing?: string }[];
   /** The Annotations and Audio Effects panels' items (Visual Effects lists `effects`). */
   panelItems: PanelItemDef[];
 }

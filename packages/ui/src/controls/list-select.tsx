@@ -5,6 +5,8 @@ export interface ListOption {
   id: string;
   label: string;
   title?: string;
+  /** A heading drawn over the first option of each run with it ("Your looks"). */
+  group?: string;
 }
 
 /**
@@ -113,7 +115,12 @@ export function ListSelect({
             }
           }}
         >
-          {options.map((o, i) => (
+          {options.map((o, i) => [
+            o.group && o.group !== options[i - 1]?.group && (
+              <div key={`group-${o.group}`} className="px-2 pt-2 pb-1 text-caption font-medium text-text-faint" data-option-group>
+                {o.group}
+              </div>
+            ),
             <div
               key={o.id}
               role="option"
@@ -128,8 +135,8 @@ export function ListSelect({
               onClick={() => choose(o.id)}
             >
               {o.label}
-            </div>
-          ))}
+            </div>,
+          ])}
         </div>
       )}
     </div>

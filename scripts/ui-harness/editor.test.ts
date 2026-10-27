@@ -3212,7 +3212,7 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
 async function pickLook(id: string) {
   await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
   await page.click(...(await centre("[data-effect-preset]")));
-  await page.until("document.querySelectorAll('[data-option]').length === 42");
+  await page.until("document.querySelectorAll('[data-option]').length >= 42");
   await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
   await page.click(...(await centre(`[data-option="${id}"]`)));
   await page.until("!document.querySelector('[role=listbox]')");
@@ -3270,6 +3270,67 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
   for (let i = 0; i < 6; i++) await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
+  // The import was kept for every project: not for the flows after this one.
+  await ui.core.setPreference("filmLookLooks", "[]");
+}, 30_000);
+
+test.skipIf(skip)("an imported .hlook is kept for every project: under Your looks in the Look menu, one of the same name replacing it; renamed and deleted in Settings › General", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const kept = async () => JSON.parse((await ui.core.preferences()).find((p) => p.id === "filmLookLooks")!.value) as { id: string; name: string; params: Record<string, unknown> }[];
+  await ui.core.setPreference("filmLookLooks", "[]");
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("!!document.querySelector('[data-effect-import]')");
+    const file = join(dir, "kept.hlook");
+    writeFileSync(file, JSON.stringify({ name: "Teal night", params: { fade: 0.3 } }));
+    ui.chooseFile(file);
+    await page.evaluate("document.querySelector('[data-effect-import]').click()");
+    for (let i = 0; i < 100 && !(await kept()).length; i++) await Bun.sleep(50);
+    let mine = await kept();
+    expect(mine.map((l) => l.name)).toEqual(["Teal night"]);
+    // The effect shows it picked, under Your looks.
+    await page.until(`document.querySelector('[data-effect-preset]')?.dataset.value === ${JSON.stringify(mine[0]!.id)}`);
+    await page.click(...(await centre("[data-effect-preset]")));
+    await page.until("!!document.querySelector('[role=listbox]')");
+    expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-option-group]')].map((g) => g.textContent)")).toEqual(["Your looks"]);
+    await page.key("Escape", "Escape");
+    // The same name again: it replaces the first.
+    writeFileSync(file, JSON.stringify({ name: "Teal night", params: { fade: 0.6 } }));
+    ui.chooseFile(file);
+    await page.evaluate("document.querySelector('[data-effect-import]').click()");
+    for (let i = 0; i < 50 && (await kept())[0]?.params.fade !== 0.6; i++) await Bun.sleep(50);
+    mine = await kept();
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.params.fade).toBe(0.6);
+    // Listed for agents, as yours.
+    const looks = (await ui.core.query(ui.handle, "filmLook.looks", {})) as { id: string; yours?: boolean }[];
+    expect(looks.find((l) => l.id === mine[0]!.id)?.yours).toBe(true);
+    // Another clip's Film Look offers it.
+    await run("effect.add", { clip: callout.id, type: "film-look" });
+    await select([callout.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await pickLook(mine[0]!.id);
+    await arrived(() => clip(callout.id).effects.find((e) => e.type === "film-look")?.params.fade === 0.6);
+    // Settings › General: renamed, then deleted.
+    await ui.core.uiOpen(ui.handle, "settings", "general");
+    await page.until(`!!document.querySelector('[data-kept-look="${mine[0]!.id}"]')`);
+    await page.evaluate(`document.querySelector('[data-kept-look="${mine[0]!.id}"] [data-kept-look-rename]').click()`);
+    await page.until(`document.activeElement?.tagName === 'INPUT'`);
+    await type("Teal dusk");
+    await page.key("Enter", "Enter");
+    for (let i = 0; i < 50 && (await kept())[0]?.name !== "Teal dusk"; i++) await Bun.sleep(50);
+    expect((await kept()).map((l) => l.name)).toEqual(["Teal dusk"]);
+    await page.evaluate(`document.querySelector('[data-kept-look="${mine[0]!.id}"] [data-kept-look-delete]').click()`);
+    for (let i = 0; i < 50 && (await kept()).length; i++) await Bun.sleep(50);
+    expect(await kept()).toEqual([]);
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  } finally {
+    await ui.core.setPreference("filmLookLooks", "[]");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
 }, 30_000);
 
 test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and the arrow keys, with no edit; leaving the list or Esc shows the clip as it is; a click applies in one step", async () => {
@@ -3301,7 +3362,7 @@ test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and
 
     await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
     await page.click(...(await centre("[data-effect-preset]")));
-    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    await page.until("document.querySelectorAll('[data-option]').length >= 42");
     const over = async (id: string) => {
       await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
       await page.hover(...(await centre(`[data-option="${id}"]`)));
@@ -3330,7 +3391,7 @@ test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and
 
     // A click applies the look under the pointer, in one step, and the canvas stays as previewed.
     await page.click(...(await centre("[data-effect-preset]")));
-    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    await page.until("document.querySelectorAll('[data-option]').length >= 42");
     await over("cinestill-800t");
     await shown(cinestill, true);
     await page.click(...(await centre('[data-option="cinestill-800t"]')));

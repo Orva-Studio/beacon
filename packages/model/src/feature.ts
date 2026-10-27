@@ -73,9 +73,10 @@ export interface EffectDef {
   presets?: EffectPreset[];
   /**
    * Params read from a file the user picks (a hance `.hlook`): `query` takes `{ path }` and answers
-   * `{ name, params, notReproduced }`, which the inspector applies and reports.
+   * `{ name, params, notReproduced }`, which the inspector applies and reports. `keep`: a preference (a list of
+   * `KeptLook`) each import joins, offered in every project beside the presets, one of the same name replacing it.
    */
-  importFile?: { label: string; extensions: string[]; query: string };
+  importFile?: { label: string; extensions: string[]; query: string; keep?: string };
 }
 
 export interface EffectPreset {
@@ -227,7 +228,7 @@ export interface PreferenceDef {
   range?: { min: number; max: number };
   /**
    * A value of its own shape instead of one of `options` (then none), kept as JSON text and checked against this
-   * schema: a list a feature keeps app-wide (B-roll's own styles).
+   * schema: a list a feature keeps app-wide (motion graphics' skills, Film Look's imported looks).
    */
   schema?: z.ZodType;
 }

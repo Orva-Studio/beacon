@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { z } from "zod";
-import { defineCommand, defineFeature, defineQuery, eachRawClip, ticksToSeconds, walkClips, type EffectPreset } from "@beacon/model";
+import { defineCommand, defineFeature, defineQuery, eachRawClip, KeptLooksSchema, ticksToSeconds, walkClips, type EffectPreset, type KeptLook, type Preferences } from "@beacon/model";
 import wgsl from "./film-look.wgsl" with { type: "text" };
 import LOOKS from "./looks.json";
 import { fromHlook, KELVIN_PER_WARMTH, splitToneShifts, WARMTH_RANGE, type FilmLookParams } from "./hlook";
@@ -41,6 +41,17 @@ function addSplitTone(doc: unknown): unknown {
 }
 
 const looks = LOOKS.looks as { id: string; name: string; description: string; params: Record<string, unknown> }[];
+
+/** The `.hlook` files the user imported, kept for every project. */
+const KEPT = "filmLookLooks";
+
+const keptLooks = (pref: Preferences): KeptLook[] => {
+  try {
+    return KeptLooksSchema.parse(JSON.parse(pref(KEPT) || "[]"));
+  } catch {
+    return [];
+  }
+};
 
 /** hance's built-in looks on Film Look's sliders. */
 const PRESETS: EffectPreset[] = looks.map((l) => {
@@ -111,16 +122,26 @@ export const filmLook = defineFeature({
         });
       },
       presets: PRESETS,
-      importFile: { label: "Import .hlook…", extensions: ["hlook"], query: "filmLook.read" },
+      importFile: { label: "Import .hlook…", extensions: ["hlook"], query: "filmLook.read", keep: KEPT },
     },
   ],
   passes: [{ id: "film-look", wgsl, steps: ["fs_highlights", "fs_scatter_h", "fs_scatter_v", "fs_look"] }],
+  preferences: [
+    {
+      id: KEPT,
+      title: "Your looks",
+      description: "The .hlook files imported into Film Look, kept for every project: each a name and its values on Film Look's sliders",
+      options: [],
+      schema: KeptLooksSchema,
+      default: "[]",
+    },
+  ],
   queries: [
     defineQuery({
       id: "filmLook.looks",
-      description: "hance's built-in looks Film Look offers: each one's id, name, description, its values on Film Look's sliders and what of it Film Look can't reproduce (`notes`)",
+      description: "The looks Film Look offers: hance's built-ins (each one's id, name, description, its values on Film Look's sliders and what of it Film Look can't reproduce, `notes`), then the user's own imported .hlook files (`yours`; give a clip one with effect.set and its `params`)",
       args: z.strictObject({}),
-      run: () => PRESETS,
+      run: (_, { pref }) => [...PRESETS, ...keptLooks(pref).map((l) => ({ id: l.id, title: l.name, params: l.params, ...(l.notes?.length ? { notes: l.notes } : {}), yours: true }))],
     }),
     defineQuery({
       id: "filmLook.read",

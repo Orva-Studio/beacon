@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
+import { KeptLooksSchema, type KeptLook } from "@beacon/model";
+import { Button, Check, DeviceSelect, Modal, RenameField, Select, SettingsRow as Row } from "./controls";
 import { AiSettings, type WaitingChoice } from "./ai-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
@@ -139,6 +140,15 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   <span className="text-text-muted">{proxySpace === undefined ? "" : proxySpace === "deleting" ? "Deleting…" : space(proxySpace)}</span>
                 </div>
               </Row>
+              {prefs?.some((p) => p.id === "filmLookLooks") && (
+                <KeptLooks
+                  value={prefs.find((p) => p.id === "filmLookLooks")!.value}
+                  save={async (value) => {
+                    const r = await host.setPreference("filmLookLooks", value);
+                    if (r.ok && r.result) setPrefs(r.result);
+                  }}
+                />
+              )}
             </div>
           )}
           {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
@@ -215,5 +225,45 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
         </div>
       </Row>
     </div>
+  );
+}
+
+/** The .hlook files imported into Film Look, kept for every project's Look menu: renamed or deleted here. */
+function KeptLooks({ value, save }: { value: string; save: (value: string) => void }) {
+  const looks = (() => {
+    const parsed = KeptLooksSchema.safeParse((() => { try { return JSON.parse(value || "[]"); } catch { return []; } })());
+    return parsed.success ? parsed.data : [];
+  })();
+  const [renaming, setRenaming] = useState<string>();
+  const put = (next: KeptLook[]) => save(JSON.stringify(next));
+  return (
+    <Row label="Your Film Looks" hint="The .hlook files imported into Film Look: every project's Look menu lists them, under Your looks. One imported again under the same name replaces it.">
+      <div className="flex min-w-0 flex-col gap-1.5" data-kept-looks>
+        {!looks.length && <span className="text-text-muted">None yet: Import .hlook… on Film Look adds one.</span>}
+        {looks.map((l) => (
+          <div key={l.id} className="flex min-w-0 items-center gap-2" data-kept-look={l.id}>
+            {renaming === l.id ? (
+              <RenameField
+                value={l.name}
+                className="min-w-0 flex-1"
+                onDone={(name) => {
+                  setRenaming(undefined);
+                  // Names are what an import replaces by: one taken by another look stays as it was.
+                  if (name && name !== l.name && !looks.some((x) => x.name === name)) put(looks.map((x) => (x.id === l.id ? { ...x, name } : x)));
+                }}
+              />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-text">{l.name}</span>
+            )}
+            <Button look="quiet" onClick={() => setRenaming(l.id)} data-kept-look-rename>
+              Rename
+            </Button>
+            <Button look="quiet" onClick={() => put(looks.filter((x) => x.id !== l.id))} data-kept-look-delete>
+              Delete
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Row>
   );
 }

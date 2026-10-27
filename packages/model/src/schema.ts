@@ -152,3 +152,8 @@ export function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _, ...rest } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
   return rest;
 }
+
+/** An imported file's params, kept app-wide by name (`importFile.keep`). */
+export const KeptLookSchema = z.strictObject({ id: z.string().min(1), name: z.string().min(1).max(120), params: z.record(z.string(), z.unknown()), notes: z.array(z.string()).optional() });
+export const KeptLooksSchema = z.array(KeptLookSchema).max(500);
+export type KeptLook = z.infer<typeof KeptLookSchema>;
