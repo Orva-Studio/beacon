@@ -65,6 +65,8 @@ export interface Session {
 interface CopiedProperties {
   props: Record<string, Record<string, unknown>>;
   effects: EffectInstance[];
+  /** The clip type copied from: what effects it could have had, so a paste removes those it didn't. */
+  type?: string;
   /** A copied animation arrow: where it starts in its clip and how long it is (seconds), easing and end values. */
   animations?: { offset: number; duration: number; easing: Animation["easing"]; to: Record<string, unknown> }[];
 }
@@ -240,6 +242,11 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
         rangeOut: () => s.range?.out ?? s.playhead,
       }[to]();
       s.playhead = snap(project, target);
+      // Off screen, the timeline scrolls to it at the same zoom, a little in from the edge it came in by.
+      const { start, end } = s.timeline;
+      const span = end - start;
+      if (s.playhead < start) setView(s, project, s.playhead - span * 0.1, s.playhead + span * 0.9);
+      else if (s.playhead > end) setView(s, project, s.playhead - span * 0.9, s.playhead + span * 0.1);
     },
   }),
   sessionCommand({
@@ -592,7 +599,7 @@ export const SESSION_COMMANDS: SessionCommandDef[] = [
       // Which stream it shows and a group's own tracks belong to the clip, not its look.
       const own = new Set(registry.groupsFor(c.type).filter((g) => g.nested || g.identity).map((g) => g.id));
       const props = Object.fromEntries(Object.entries(c.props).filter(([k]) => !own.has(k))) as CopiedProperties["props"];
-      s.properties = clone({ props, effects: c.effects });
+      s.properties = clone({ props, effects: c.effects, type: c.type });
     },
   }),
   sessionCommand({

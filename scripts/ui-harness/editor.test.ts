@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
-import { assetName, keysLabel, projectDuration, ticksToSeconds, type Clip } from "@beacon/model";
+import { assetName, EASINGS, ease, evaluate, keysLabel, mediaBounds, projectDuration, secondsToTicks, ticksToSeconds, trimBounds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
@@ -58,6 +58,14 @@ const timelineClipCentre = async (id: string): Promise<[number, number]> => {
 const timelinePixel = (x: number, y: number) =>
   `(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${x} * k), Math.round(${y} * k), 1, 1).data].slice(0, 3).join(); })()`;
 /** Waits until what the page sends back (a menu, settings) has arrived, rather than for a fixed time. */
+/** Until no motion graphic is being written or made (a drawing on its way). */
+const motionIdle = async (ms = 20_000) => {
+  for (const end = Date.now() + ms; Date.now() < end; ) {
+    const m = (await session()).features.motion as { making: string[]; writing: string[] } | undefined;
+    if (!m?.making.length && !m?.writing.length) return;
+    await Bun.sleep(50);
+  }
+};
 const arrived = async (ok: () => boolean, ms = 5000) => {
   for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await Bun.sleep(20);
 };
@@ -87,6 +95,32 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test.skipIf(skip)("Go to start and Go to end beside the transport move the playhead to the timeline's start and end, and scroll the timeline to it at the same zoom", async () => {
+  const end = ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const at = async () => (await session()).playhead;
+  const view = async () => (await session()).timeline;
+  const shown = (v: { start: number; end: number }, t: number) => t >= v.start && t <= v.end;
+  // Zoomed in on the first tenth: the end is off screen.
+  await run("timeline.view", { start: 0, end: end / 10 });
+  await run("playhead.set", { time: end / 20 });
+  const span = (await view()).end - (await view()).start;
+  await page.click(...(await centre('[data-transport="end"]')));
+  for (let i = 0; i < 50 && Math.abs((await at()) - end) > 0.05; i++) await Bun.sleep(50);
+  expect(await at()).toBeCloseTo(end, 1);
+  expect(shown(await view(), await at())).toBe(true);
+  expect((await view()).end - (await view()).start).toBeCloseTo(span, 3);
+  await page.click(...(await centre('[data-transport="start"]')));
+  for (let i = 0; i < 50 && (await at()) > 0.01; i++) await Bun.sleep(50);
+  expect(await at()).toBe(0);
+  expect((await view()).start).toBe(0);
+  // Landing on screen already, the view stays put.
+  await run("timeline.view", { start: 0, end: end / 2 });
+  await run("playhead.set", { time: end / 4 });
+  const before = await view();
+  await run("playhead.jump", { to: "start" });
+  expect(await view()).toEqual(before);
+});
+
 test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays at 100%", async () => {
   await select([callout.id]);
   await run("inspector.tab", { tab: "callout" });
@@ -98,6 +132,174 @@ test.skipIf(skip)("value boxes clamp: typing past 100% or stepping past it stays
   await page.key("ArrowUp", "ArrowUp");
   expect(await page.evaluate<string>("document.activeElement.value")).toBe("100");
   await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at the playhead (nothing drawn); a prompt typed and Made is drawn from HTML into the clip with its transparency, one undo step; Make Again keeps the first as a take to pick; a Look, a background colour or the timing draws it again", async () => {
+  // Apple's on-device model, standing in for beacon-writer: a name is a lower third, anything else a title. WebKit draws for real.
+  const writer = join(dir, "motion-writer");
+  writeFileSync(
+    writer,
+    `#!/bin/sh\nif grep -q '"kind":"idea"' "$1"; then echo '{"prompt":"A title: Hello there","why":"greets"}'; exit 0; fi\nif grep -q Sarah "$1"; then echo '{"kind":"lowerThird","text":"Sarah Chen","detail":"Head of Design","value":0,"prefix":"","suffix":"","items":[]}'; else echo '{"kind":"title","text":"Hello there","detail":"","value":0,"prefix":"","suffix":"","items":[]}'; fi\n`,
+    { mode: 0o755 },
+  );
+  process.env.BEACON_WRITER = writer;
+  try {
+    await select([]);
+    const steps = (await ui.core.history(ui.handle)).undo.length;
+    await run("playhead.set", { time: 2 });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=motion]')");
+    await page.evaluate("document.querySelector('[data-ai=motion]').click()");
+    await arrived(() => clips().some((c) => c.type === "motion"));
+    const motion = () => clips().find((c) => c.type === "motion")!;
+    const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.includes(motion()))!;
+    expect(track.name).toBe("Motion graphics");
+    expect(ticksToSeconds(motion().start)).toBeCloseTo(2, 3);
+    expect((await session()).selection).toEqual([motion().id]);
+    // Empty, it draws nothing; its code can be written by hand instead of Made.
+    expect(motion().assetId).toBeUndefined();
+    await page.until("!!document.querySelector('[data-motion-tab]')");
+    await page.until("(document.querySelector('[data-motion-code]')?.textContent ?? '') === 'Write Code…'");
+    expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-revise]') && !document.querySelector('[data-motion-note]')")).toBe(true);
+    // OpenAI by default, its likely cost on Make; who makes it is chosen in Settings › AI, not on the tab.
+    await page.until("/^Make · ~\\$0\\.15$/.test(document.querySelector('[data-motion-make]')?.textContent ?? '')");
+    await page.until("!document.querySelector('[data-motion-planner]')");
+    await ui.core.setSecret("anthropic-api-key", "sk-ant-test");
+    await ui.core.setPreference("motionPlanner", "claude");
+    await page.until("/^Make · ~\\$0\\.30$/.test(document.querySelector('[data-motion-make]')?.textContent ?? '')");
+    // Apple's model (the stand-in here) makes the rest of this flow: free.
+    await ui.core.setPreference("motionPlanner", "apple");
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make · Free'");
+    await ui.core.setSecret("anthropic-api-key", null);
+    // The tile writes Auto's prompt as it adds the clip (or says nothing is said there): Manual once that's done.
+    await page.until("!document.querySelector('[data-motion-tab]').textContent.includes('Writing')", 10_000);
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-source] button')].find((b) => b.textContent === 'Manual').click()`);
+    await page.until("document.querySelector('[data-motion-prompt]')?.tagName === 'TEXTAREA'");
+    await page.evaluate("document.querySelector('textarea[data-motion-prompt]').focus()");
+    await type("Sarah Chen, head of design");
+    const before = (await ui.core.history(ui.handle)).undo.length;
+    await page.evaluate("document.querySelector('[data-motion-make]').scrollIntoView({ block: 'center' })");
+    await page.click(...(await centre("[data-motion-make]")));
+    // While it's made, the tab says the clip can still be edited.
+    await page.until("!!document.querySelector('[data-motion-making-note]')", 10_000);
+    await page.until("(document.querySelector('[data-motion-make]')?.textContent ?? '') === 'Make Again · Free'", 20_000);
+    await page.until("!document.querySelector('[data-motion-making-note]')");
+    type Takes = { manual: string; look: string; timing: string; takes: { prompt: string; html: string; assetId?: string }[]; shown: number };
+    const m = () => motion().props.motion as Takes;
+    expect(m().manual).toBe("Sarah Chen, head of design");
+    expect(m().takes[0]!.html).toContain("Sarah");
+    // Not asked for alpha: a background of its own.
+    expect(m().takes[0]!.html).toContain("data-beacon-fill");
+    const drawn = () => ui.core.doc(ui.handle).assets[motion().assetId!]!;
+    expect(drawn().path).toMatch(/Motion graphics\/Sarah Chen head of design\.mov$/);
+    // The typed prompt (kept as it was left) and the make: each its own step.
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 2);
+    const first = motion().assetId;
+    await page.evaluate(`(() => { const t = document.querySelector('textarea[data-motion-prompt]'); t.focus(); t.select(); })()`);
+    await type("Hello there, on alpha");
+    await page.click(...(await centre("[data-motion-make]")));
+    await arrived(() => m().takes.length === 2, 20_000);
+    expect(m().shown).toBe(1);
+    expect(m().takes[1]!.html).toContain("Hello");
+    expect(m().takes[1]!.html).not.toContain("data-beacon-fill");
+    await page.until("!!document.querySelector('[data-motion-pick]')");
+    await page.evaluate(`(() => { const s = document.querySelector('[data-motion-pick]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await arrived(() => m().shown === 0);
+    expect(motion().assetId).toBe(first);
+    // A Look draws it again (no AI) and is the one new motion graphics take.
+    const html = () => readFileSync(drawn().path.replace(/\.mov$/, ".html"), "utf8");
+    await page.evaluate(`(() => { const s = document.querySelector('[data-motion-look]'); s.value = 'tech'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await arrived(() => motion().assetId !== first, 20_000);
+    expect(m().look).toBe("tech");
+    expect(html()).toContain("Menlo");
+    await arrived(() => ui.menus.includes("setPreference:motionLook=tech"));
+    await page.evaluate(`[...document.querySelectorAll('[data-motion-timing] button')].find((b) => b.textContent === 'All at Once').click()`);
+    await arrived(() => m().timing === "together");
+    // A reference image picked in Finder: copied into the project's media, named on the tab; Remove takes it away.
+    const png = join(dir, "reference.png");
+    writeFileSync(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    ui.chooseFile(png);
+    await page.evaluate("document.querySelector('[data-motion-reference-add]').click()");
+    await arrived(() => !!(motion().props.motion as { reference?: string }).reference);
+    expect(ui.menus).toContain("chooseFile:png,jpg,jpeg,webp,gif");
+    await page.until("(document.querySelector('[data-motion-reference]')?.textContent ?? '') === 'reference.png'");
+    await page.evaluate("document.querySelector('[data-motion-reference-remove]').click()");
+    await arrived(() => !(motion().props.motion as { reference?: string }).reference);
+    // A skill: Import Skill… reads a SKILL.md picked in Finder into the list kept for every project, picks it on the
+    // clip and for new ones; None takes it off.
+    const skillDir = join(dir, "paper-cutout");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: paper-cutout\n---\n\n# Paper Cutout\n\nCream torn-paper cards on a dark ground.");
+    const skillTo = (v: string) => page.evaluate(`(() => { const s = document.querySelector('[data-motion-skill]'); s.value = ${JSON.stringify(v)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    ui.chooseFile(join(skillDir, "SKILL.md"));
+    await skillTo("\u0000import");
+    await arrived(() => !!(motion().props.motion as { skill?: string }).skill);
+    expect(ui.menus).toContain("chooseFile:md,markdown,txt");
+    const skillId = (motion().props.motion as { skill: string }).skill;
+    expect(JSON.parse((await ui.core.preferences()).find((p) => p.id === "motionSkills")!.value)).toEqual([{ id: skillId, name: "paper-cutout", text: "# Paper Cutout\n\nCream torn-paper cards on a dark ground." }]);
+    await page.until(`document.querySelector('[data-motion-skill]').value === ${JSON.stringify(skillId)}`);
+    await arrived(() => ui.menus.includes(`setPreference:motionSkill=${JSON.stringify(skillId)}`));
+    await skillTo("");
+    await arrived(() => !(motion().props.motion as { skill?: string }).skill);
+    // Edit: Revise needs OpenAI or Claude (Apple's model here); Edit Code… shows the code beside a live preview, and
+    // Save draws it as a new take, made by you.
+    await page.until("(document.querySelector('[data-motion-revise]')?.textContent ?? '') === 'Revise · Needs OpenAI or Claude'");
+    await page.until("document.querySelector('[data-motion-revise]').disabled");
+    // The timing change above draws it again 600 ms after (restyle's wait): let that run first, or Save is refused.
+    await Bun.sleep(700);
+    await motionIdle();
+    const takes = m().takes.length;
+    await page.evaluate("document.querySelector('[data-motion-code]').click()");
+    await page.until("!!document.querySelector('[data-motion-code-dialog]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-motion-code-text]').value")).toBe(m().takes[m().shown]!.html);
+    await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('window.__seek')", 10_000);
+    // Code that navigates its page away stops the preview (the CSP can't forbid it): it says so, and comes back once fixed.
+    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
+    await type('<script>location.href = "about:blank"</script>');
+    await page.until("!!document.querySelector('[data-motion-code-left]')", 10_000);
+    expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-code-preview]')")).toBe(true);
+    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
+    await type("<div class=w data-t=0.1>Typed by hand</div>");
+    await page.until("!document.querySelector('[data-motion-code-left]')", 10_000);
+    await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('Typed by hand')", 10_000);
+    await page.evaluate("document.querySelector('[data-motion-code-save]').click()");
+    await arrived(() => m().takes.length === takes + 1, 20_000);
+    expect(m().takes.at(-1)!.html).toBe("<div class=w data-t=0.1>Typed by hand</div>");
+    expect((m().takes.at(-1) as { by?: string }).by).toBe("you");
+    await page.until("!document.querySelector('[data-motion-code-dialog]')");
+    // No Use for All: each graphic's Look is its own.
+    expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-look-all]')")).toBe(true);
+    await motionIdle();
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    expect(clips().some((c) => c.type === "motion")).toBe(false);
+  } finally {
+    delete process.env.BEACON_WRITER;
+    await ui.core.setPreference("motionLook", "clean");
+  }
+}, 90_000);
+
+test.skipIf(skip)("a counting text callout shows its number counting from From to To, edited in its Count rows", async () => {
+  await select([callout.id]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const text = (clip(callout.id).props.callout as { text: Record<string, unknown> }).text;
+  await run("clip.set", { clips: [callout.id], props: { callout: { text: { ...text, text: "${n}M" }, count: { from: 0, to: 1000, seconds: 2, decimals: 0 } } } });
+  await run("inspector.tab", { tab: "callout" });
+  await page.until("[...document.querySelectorAll('span')].some(s => s.textContent === 'Decimals')");
+  await page.evaluate(`[...document.querySelectorAll('span')].find(s => s.textContent === 'To').parentElement.querySelector('span.cursor-text').click()`);
+  await page.until("document.activeElement?.tagName === 'INPUT'");
+  await type("2500");
+  await page.key("Enter", "Enter");
+  await arrived(() => (clip(callout.id).props.callout as { count: { to: number } }).count.to === 2500);
+  expect((clip(callout.id).props.callout as { count: { to: number } }).count.to).toBe(2500);
+  const shown = (seconds: number) => {
+    const sources = new Map<string, SourceDef>();
+    evaluate(ui.core.doc(ui.handle), ui.core.registry, clip(callout.id).start + secondsToTicks(seconds), { sources });
+    return [...sources.values()].flatMap((d) => (d.kind === "text" ? [d.text] : []));
+  };
+  expect(shown(0)).toContain("$0M");
+  expect(shown(1).some((t) => /^\$[\d,]+M$/.test(t) && t !== "$0M" && t !== "$2,500M")).toBe(true);
+  expect(shown(3)).toContain("$2,500M");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
 });
 
 test.skipIf(skip)("the colour picker sets a colour from a preset and from its square, one undo step a drag", async () => {
@@ -201,6 +403,21 @@ test.skipIf(skip)("a double-click on a text callout types into it on the canvas,
   expect((clip(callout.id).props.callout as { text: { text: string } }).text.text).toBe("Hello");
   await page.until(`[...document.querySelectorAll('svg line')].some(l => l.getAttribute('stroke-width') === '1.5')`, 3000);
   await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("a double-click on a word of a text callout starts typing with that word selected, not all of the text", async () => {
+  await select([callout.id]);
+  const spec = (clip(callout.id).props.callout as { text: Record<string, unknown> }).text;
+  await run("clip.set", { clip: callout.id, props: { callout: { text: { ...spec, text: "one two three" } } } });
+  // Inside the text box's right edge, clear of its handles: past the last word, so the nearest word is "three".
+  const [x, y] = await page.evaluate<[number, number]>(`(() => { const g = [...document.querySelectorAll('[data-clip]')].map(e => e.getBoundingClientRect()); const xs = g.map(r => r.x + r.width / 2), ys = g.map(r => r.y + r.height / 2); return [Math.max(...xs) - 24, (Math.min(...ys) + Math.max(...ys)) / 2]; })()`);
+  await page.evaluate(`(() => { const el = document.elementFromPoint(${x}, ${y}); for (const t of ['pointerdown','mousedown']) el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: ${x}, clientY: ${y}, button: 0, detail: 2, pointerId: 1 })); })()`);
+  await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
+  await page.until(`(() => { const f = document.activeElement; return f.selectionEnd - f.selectionStart === 5 && f.value.slice(f.selectionStart, f.selectionEnd) === 'three'; })()`, 3000);
+  await page.evaluate("document.execCommand('insertText', false, 'four')");
+  await arrived(() => (clip(callout.id).props.callout as { text: { text: string } }).text.text === "one two four");
+  await page.key("Escape", "Escape");
+  await run("clip.set", { clip: callout.id, props: { callout: { text: spec } } });
 });
 
 test.skipIf(skip)("the Y dial tilts a clip in perspective and its outline follows", async () => {
@@ -483,19 +700,19 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 5");
-    expect(await greyed()).toEqual([false, false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 6");
+    expect(await greyed()).toEqual([false, false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    // B-roll's prompt can be typed: it needs no transcript.
-    expect(await greyed()).toEqual([true, true, true, false, true]);
+    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript.
+    expect(await greyed()).toEqual([true, true, true, false, false, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
     // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
-    expect(await greyed()).toEqual([false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -513,7 +730,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -1562,6 +1779,42 @@ test.skipIf(skip)("the command palette lists the Media Bin once something is typ
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Retakes, : g adds a motion graphic, : b a B-roll clip, : n a rectangle at the playhead, as their tiles do", async () => {
+  const leader = async (key: string, code: string) => {
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until("!!document.querySelector('[data-leader]')");
+    await page.key(key, code);
+    await page.until("!document.querySelector('[data-leader]')");
+  };
+  await select([]);
+  await run("playhead.set", { time: 2 });
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
+  for (const s of ["RRemove Retakes…", "GMotion Graphic", "BB-roll", "KCaptions", "NAdd Rectangle", "FRemove Filler Words…"]) expect(shown).toContain(s);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-leader]')");
+
+  await leader("r", "KeyR");
+  for (const end = Date.now() + 5000; !((await session()).features.transcript as { retakes?: object } | undefined)?.retakes && Date.now() < end; ) await Bun.sleep(20);
+  expect(((await session()).features.transcript as { retakes?: object }).retakes).toBeDefined();
+  await run("reviews.cancel");
+
+  const added = async (key: string, code: string, is: (c: Clip) => boolean) => {
+    const before = new Set(clips().map((c) => c.id));
+    await leader(key, code);
+    await arrived(() => clips().some((c) => !before.has(c.id) && is(c)));
+    const fresh = clips().filter((c) => !before.has(c.id) && is(c));
+    expect(fresh.length).toBe(1);
+    expect(ticksToSeconds(fresh[0]!.start)).toBe(2);
+    await motionIdle();
+    await run("clip.remove", { clip: fresh[0]!.id });
+  };
+  await added("g", "KeyG", (c) => !!c.props.motion);
+  await added("b", "KeyB", (c) => !!c.props.broll);
+  await added("n", "KeyN", (c) => c.type === "callout");
+});
+
 test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
   const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
@@ -1574,7 +1827,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-5)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:captions"]);
+  expect(all.slice(-6)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -2305,6 +2558,45 @@ test.skipIf(skip)("trimming a clip's end, its fx badge rides the edge being drag
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("a clip's edge dragged past where its media ends stops there while dragging, not only once dropped", async () => {
+  await select([]);
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  const doc = ui.core.doc(ui.handle);
+  const c = doc.tracks.flatMap((t) => t.clips).find((k) => k.id === screen.id)!;
+  const track = doc.tracks.find((t) => t.clips.includes(c))!;
+  const end = ticksToSeconds(c.start + c.duration);
+  const media = ticksToSeconds(mediaBounds(doc, c, false)[1]);
+  expect(media).toBeLessThanOrEqual(ticksToSeconds(trimBounds(track, c)[1]));
+  // Shortened first, so there is media left past its end to drag over, then past it.
+  await run("clip.trim", { clip: c.id, end: end - 4 });
+  const short = end - 4;
+  await run("timeline.view", { start: Math.max(0, media - 10), end: media + 4 });
+  await Bun.sleep(1800);
+  const s = await session();
+  const header = headerWidth(doc.tracks);
+  const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
+  const row = doc.tracks.length - 1 - doc.tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
+  const xAt = (t: number) => header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const top = clipBox(row, s.timeline.trackHeight).y;
+  const yellow = async (right: number) => {
+    const [r, g, b] = await page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${right - 6 - 17} * k), Math.round(${top + 4 + 3} * k), 1, 1).data]; })()`);
+    return r! > 200 && g! > 160 && b! < 120;
+  };
+  const y = box.y + top + s.timeline.trackHeight / 2;
+  await page.down(box.x + xAt(short) - 2, y);
+  await page.move(box.x + xAt(short + 1), y);
+  await page.move(box.x + xAt(media + 2.5), y);
+  await Bun.sleep(200);
+  // The badge rides the edge: at the media's end, not where the pointer is.
+  expect([await yellow(xAt(media)), await yellow(xAt(media + 2.5))]).toEqual([true, false]);
+  await page.up(box.x + xAt(media + 2.5), y);
+  await arrived(() => Math.abs(ticksToSeconds(clip(screen.id).start + clip(screen.id).duration) - media) < 0.05);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an easing picked on an animation is the one new animations take, until another is picked", async () => {
   await select([screen.id]);
   const steps = (await ui.core.history(ui.handle)).undo.length;
@@ -2327,6 +2619,13 @@ test.skipIf(skip)("an easing picked on an animation is the one new animations ta
   expect((await ui.core.preferences()).find((p) => p.id === "animationEasing")?.value).toBe("linear");
   await pick("easeInOut");
   expect((await added(8)).easing).toBe("easeInOut");
+  expect(await page.evaluate<string>("[...document.querySelector('[data-animation-easing]').options].map((o) => o.value).join()")).toBe(EASINGS.map((e) => e.id).join());
+  await pick("backOut");
+  const back = await added(11);
+  expect(back.easing).toBe("backOut");
+  // Overshoot passes its target before it settles there.
+  expect(ease(back.easing, 0.7)).toBeGreaterThan(1);
+  expect(ease(back.easing, 1)).toBeCloseTo(1, 9);
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await ui.core.setPreference("animationEasing", "easeInOut");
 }, 30_000);
@@ -2643,7 +2942,6 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   expect(fx().params).toMatchObject({ warmth: 1, halation: 0.7, halationSize: 14 });
   expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
   await arrived(() => false, 300);
-  expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-report]')")).toBe(false);
   // Its split tone on two hue sliders, the hues along their grooves; Tint just under Warmth.
   expect(fx().params).toMatchObject({ tint: 0.02, splitTone: 0.25, shadowHue: 220, highlightHue: 40 });
   const labels = await page.evaluate<string[]>("[...document.querySelectorAll('label, span, div')].filter((e) => e.children.length === 0).map((e) => e.textContent)");
@@ -2665,11 +2963,16 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   await arrived(() => fx().params.fade === 0.3);
   expect(ui.menus).toContain("chooseFile:hlook");
   expect(fx().params.warmth).toBe(2);
-  await page.until("(document.querySelector('[data-effect-report]')?.textContent ?? '').includes('white balance 2000 K')");
-  expect(await page.evaluate<string>("document.querySelector('[data-effect-report]').textContent")).toContain("from “Mine”");
-  // A look chosen after it takes the note away.
+  // What Film Look can't reproduce isn't listed under it (the user, 2026-10-27): only a file that can't be read says so.
+  expect(await page.evaluate<string>("document.body.textContent")).not.toContain("white balance 2000 K");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-import-error]')")).toBe(false);
+  const broken = join(dir, "broken.hlook");
+  writeFileSync(broken, "not json");
+  ui.chooseFile(broken);
+  await page.evaluate("document.querySelector('[data-effect-import]').click()");
+  await page.until("(document.querySelector('[data-effect-import-error]')?.textContent ?? '').startsWith('broken.hlook')");
   await pickLook("default");
-  await page.until("!document.querySelector('[data-effect-report]')");
+  await page.until("!document.querySelector('[data-effect-import-error]')");
   // Cancelled in Finder, nothing changes.
   ui.chooseFile(null);
   const steps = (await ui.core.history(ui.handle)).undo.length;
@@ -3481,6 +3784,8 @@ test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snappi
   await page.until(`document.activeElement?.getAttribute('aria-label') === 'Text'`);
   const times = words().map((w) => w.start);
   const typed = ["Edited", ...words().slice(1).map((w) => w.text)].join(" ");
+  // The double-click picked the word under it: all of the line, as ⌘A does, then typed over.
+  await page.evaluate("document.execCommand('selectAll')");
   await page.evaluate(`document.execCommand('insertText', false, ${JSON.stringify(typed)})`);
   await arrived(() => words()[0]!.text === "Edited");
   expect(words().map((w) => w.start)).toEqual(times);
@@ -3626,7 +3931,8 @@ test.skipIf(skip)("⌥-dragging a video clip's start out holds its first frame b
   await Bun.sleep(300);
   const { y, h, xAt, box } = await timelinePlaces(screen.id);
   const row = box.y + y + h / 2;
-  const track = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
+  const trackId = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!.id;
+  const track = () => ui.core.doc(ui.handle).tracks.find((t) => t.id === trackId)!;
   const stills = () => track().clips.filter((c) => c.type === "still");
 
   await page.drag([box.x + xAt(s) + 2, row], [box.x + xAt(s - 1), row], ["alt"]);
@@ -3645,6 +3951,19 @@ test.skipIf(skip)("⌥-dragging a video clip's start out holds its first frame b
   await page.drag([box.x + end.xAt(e) - 2, row], [box.x + end.xAt(e + 1), row], ["alt", "shift"]);
   await arrived(() => stills().length === 1);
   expect(ticksToSeconds(stills()[0]!.start)).toBeCloseTo(e, 3);
+  await ui.core.undo(ui.handle);
+
+  // Stitched pieces (the user's, 2026-10-27): ⌥-dragging the end holds the last piece's last frame, from its recording.
+  const lastMedia = (clip(screen.id).mediaStart ?? 0) + clip(screen.id).duration;
+  const [piece] = (await run("clip.split", { at: e - 1, clips: [screen.id], linked: false })).results[0] as string[];
+  const stitched = (await run("clip.stitch", { clips: [screen.id, piece!] })).results[0] as string;
+  expect(clip(stitched).type).toBe("stitched");
+  await Bun.sleep(300);
+  const joined = await timelinePlaces(stitched);
+  await page.drag([box.x + joined.xAt(e) - 2, row], [box.x + joined.xAt(e + 1), row], ["alt", "shift"]);
+  await arrived(() => stills().length === 1);
+  expect(stills()[0]!.assetId).toBe(screen.assetId);
+  expect(ticksToSeconds(stills()[0]!.mediaStart ?? 0)).toBeCloseTo(ticksToSeconds(lastMedia) - 1 / 30, 1);
   await ui.core.undo(ui.handle);
 
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);

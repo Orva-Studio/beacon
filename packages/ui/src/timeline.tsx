@@ -9,6 +9,7 @@ import {
   TRACK_HEIGHT,
   trackName,
   trimBounds,
+  mediaBounds,
   type Clip,
   type Track,
   type Project,
@@ -632,7 +633,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const a = ticksToSeconds(clip.start);
             const b = ticksToSeconds(clip.start + clip.duration);
             const track = project.tracks.find((tr) => tr.clips.includes(clip))!;
-            const video = clipTypes[clip.type]?.includes("video") ?? false;
+            // Stitched pieces hold a frame too: their piece at that edge.
+            const video = clipTypes[clip.type]?.some((t) => t === "video" || t === "stitched") ?? false;
             // ⌥ on the start with room made (Shift, a magnetic track): the frame goes in at the clip's start, so it may be dragged past 0.
             const room = video && e.altKey && d.edge === "start" && (e.shiftKey || !!track.magnetic);
             let t = timeAt(e.clientX, room);
@@ -640,6 +642,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             // Edges stop at the clips beside them, as the command does; Shift (ripple) pushes them instead.
             if (!e.shiftKey) {
               const [lo, hi] = trimBounds(track, clip);
+              t = Math.min(Math.max(t, ticksToSeconds(lo)), ticksToSeconds(hi));
+            }
+            // Nor past where its media begins or ends, as the command stops them; ⌥ on video extends a frame there instead.
+            if (!(video && e.altKey)) {
+              const [lo, hi] = mediaBounds(project, clip, clipTypes[clip.type]?.includes("hold") ?? false);
               t = Math.min(Math.max(t, ticksToSeconds(lo)), ticksToSeconds(hi));
             }
             const frame = 1 / rationalToNumber(project.settings.fps);

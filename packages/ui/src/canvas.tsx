@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   editedValue,
   apply,
+  invert,
   compose,
   fromAffine,
   mediaTimeAt,
@@ -29,6 +30,7 @@ import { useQuery } from "./query";
 import { isFormField, useDialogsOpen } from "./controls";
 import { safeAreaLines, safeAreaMarks, useSafeAreas } from "./safe-areas";
 import { placeholderMarks } from "./broll";
+import { isEmptyMotion } from "./motion";
 import { canvasSnapping, type Guide } from "./canvas-snap";
 import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
@@ -319,14 +321,15 @@ export function CanvasOverlay({
             } : undefined
           );
         })();
-  const text = useTextEdit(target, typedM, () => setTyping(null));
+  const typedAt = useRef<[number, number]>(undefined);
+  const text = useTextEdit(target, typedM, () => setTyping(null), typedAt);
   /** A point in the typed text's box units, if inside its box. */
   const inTyped = (pt: [number, number]): [number, number] | undefined => (typed && typedM && inside(pt, typed.corners) ? apply(invert(typedM), ...pt) : undefined);
 
   const at = (x: number, y: number): [number, number] => [ox + x * k, oy + y * k];
   const marks: CanvasMark[] = [
-    // An empty B-roll placeholder draws nothing: its box shows where its footage will go.
-    ...placed.filter((p) => p.clip.type === "broll" && !p.clip.assetId).flatMap(placeholderMarks),
+    // An empty B-roll or motion graphics placeholder draws nothing: its box shows where it will go.
+    ...placed.filter((p) => (p.clip.type === "broll" && !p.clip.assetId) || isEmptyMotion(p.clip)).flatMap(placeholderMarks),
     ...(safe.shown ? safeAreaMarks(safe.shown, at, k, CW, safe.hidden) : []),
     ...text.marks,
     // The canvas's thin grey border, just outside it.
@@ -446,6 +449,7 @@ export function CanvasOverlay({
         // A callout's or a caption's text is typed in place after a double-click.
         if (hit && e.detail === 2 && (isCaption(hit) || (hit.clip.props.callout as { text?: unknown } | undefined)?.text)) {
           host.run("inspector.tab", { tab: isCaption(hit) ? "caption" : "callout" });
+          typedAt.current = pt;
           setTyping(hit.clip.id);
           return;
         }
@@ -638,8 +642,4 @@ function Grips({ p, onHot, crop, caption }: { p: Placed; onHot: (on: boolean) =>
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-function invert(m: Affine): Affine {
-  const [a, b, c, d, e, f] = m;
-  const det = a * d - b * c;
-  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
-}
+

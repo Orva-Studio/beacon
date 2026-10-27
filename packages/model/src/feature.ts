@@ -430,7 +430,8 @@ export interface ActionPlan {
 
 /**
  * An action's background job: with progress and cancel (`jobSignal()` aborts its requests; its tools are killed),
- * then `run`'s answer gives the edit, planned on the document as it is by then and made as one undo step.
+ * then `run`'s answer gives the edit, planned on the document as it is by then and made as one undo step. A `task` in
+ * that plan runs next, as its own job (more work the document's change since asked for).
  */
 export interface ActionTask {
   /** The job's name ("Clean with Auphonic"). */

@@ -6,7 +6,9 @@ import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
 const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
-  { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
+  { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, motion graphics made by OpenAI, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
+  { id: "anthropic-api-key", label: "Anthropic", use: "For motion graphics made by Claude", placeholder: "sk-ant-…" },
+  { id: "firecrawl-api-key", label: "Firecrawl", use: "Optional: motion graphics search the web (real logos, icons) keyless, about 1,000 lookups a month; a free key gives more", placeholder: "fc-…" },
   { id: "replicate-api-token", label: "Replicate", use: "For B-roll footage", placeholder: "r8_…" },
   { id: "auphonic-api-key", label: "Auphonic", use: "For Clean with Auphonic", placeholder: "Auphonic API key" },
 ];
@@ -72,6 +74,18 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
         const secret = secrets.find((s) => s.id === k.id);
         return secret && <SecretRow key={k.id} secret={secret} label={k.label} use={k.use} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
       })}
+      <div className="mt-2 text-label font-medium text-text-muted">Motion Graphics</div>
+      {pick("motionPlanner", "Made by")}
+      <StylesList
+        kind="motion"
+        label="Your Skills"
+        hint="The Skill menu on the Motion tab lists them, in every project; Make and Revise follow the one picked. A skill's front matter or title names it."
+        placeholder={{ name: "Name: Paper cutout", text: "The design and rules: dark ground, cream torn-paper cards, orange accents, labels not sentences" }}
+        newLabel="New Skill"
+        saveLabel="Save Skill"
+        value={prefs.find((p) => p.id === "motionSkills")?.value ?? "[]"}
+        save={(list) => void set("motionSkills", JSON.stringify(list))}
+      />
       <div className="mt-2 text-label font-medium text-text-muted">B-roll</div>
       {pick("brollPlanner", "Planner")}
       {pick("brollModel", "Model")}
@@ -82,17 +96,38 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
           <NumberBox value={limit} digits={2} step={1} min={0} max={1000} width={70} onCommit={(v) => void set("brollLimit", String(Math.round(v * 100) / 100))} />
         </div>
       </Row>
-      <StylesList value={prefs.find((p) => p.id === "brollStyles")?.value ?? "[]"} save={(list) => void set("brollStyles", JSON.stringify(list))} />
+      <StylesList
+        kind="broll"
+        label="Your Styles"
+        hint="Added to every prompt of a clip that picks it, and the planner's guide. A skill's front matter or title names it."
+        placeholder={{ name: "Name: Grainy 16mm", text: "The look, in words: grainy 16mm, warm tones, handheld, shallow depth of field" }}
+        newLabel="New Style"
+        saveLabel="Save Style"
+        value={prefs.find((p) => p.id === "brollStyles")?.value ?? "[]"}
+        save={(list) => void set("brollStyles", JSON.stringify(list))}
+      />
       {error && <div className="text-danger">{error}</div>}
     </div>
   );
 }
 
 /**
- * The user's own B-roll styles: each a name and the wording added to its prompts (and given to the planner as its
- * guide), typed here or read from a text file (a `.md` skill, a `.txt`); every project's Style menu lists them.
+ * The user's own B-roll styles (each a name and the wording added to its prompts, and given to the planner as its
+ * guide) or motion graphics skills, typed here or read from a text file (a `.md` skill, a `.txt`); every project's
+ * Style or Skill menu lists them.
  */
-function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]) => void }) {
+function StylesList({ kind, label, hint, placeholder, newLabel, saveLabel, value, save }: {
+  /** Names its data attributes (`data-broll-style…`, `data-motion-style…`). */
+  kind: "broll" | "motion";
+  label: string;
+  hint: string;
+  placeholder: { name: string; text: string };
+  newLabel: string;
+  saveLabel: string;
+  value: string;
+  save: (list: CustomStyle[]) => void;
+}) {
+  const d = (k: string, v: string | boolean = true) => ({ [`data-${kind}-${k}`]: v });
   const list = (() => {
     try {
       return JSON.parse(value) as CustomStyle[];
@@ -105,13 +140,13 @@ function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]
   const put = (s: CustomStyle) => save(list.some((x) => x.id === s.id) ? list.map((x) => (x.id === s.id ? s : x)) : [...list, s]);
   const fresh = (name: string, text: string): CustomStyle => ({ id: `style-${Date.now().toString(36)}`, name, text });
   return (
-    <div className="flex flex-col gap-2" data-broll-styles>
-      <Row label="Your Styles" hint="Added to every prompt of a clip that picks it, and the planner's guide. A skill's front matter or title names it.">
+    <div className="flex flex-col gap-2" {...d("styles")}>
+      <Row label={label} hint={hint}>
         <div className="flex gap-2">
-          <Button onClick={() => setEditing(fresh("", ""))} data-broll-style-new>
-            New Style
+          <Button onClick={() => setEditing(fresh("", ""))} {...d("style-new")}>
+            {newLabel}
           </Button>
-          <Button onClick={() => file.current?.click()} data-broll-style-import>
+          <Button onClick={() => file.current?.click()} {...d("style-import")}>
             Import File…
           </Button>
           <input
@@ -119,7 +154,7 @@ function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]
             type="file"
             accept=".md,.markdown,.txt"
             className="hidden"
-            data-broll-style-file
+            {...d("style-file")}
             onChange={async (e) => {
               const f = e.target.files?.[0];
               e.target.value = "";
@@ -132,7 +167,7 @@ function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]
       </Row>
       {list.map((s) => (
         <Row key={s.id} label="" hint={s.text.length > 120 ? `${s.text.slice(0, 120)}…` : s.text}>
-          <div className="flex min-w-0 flex-1 items-center gap-2" data-broll-style={s.id}>
+          <div className="flex min-w-0 flex-1 items-center gap-2" {...d("style", s.id)}>
             <span className="min-w-0 flex-1 truncate text-text-strong">{s.name}</span>
             <Button look="quiet" onClick={() => setEditing(s)}>
               Edit
@@ -144,9 +179,9 @@ function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]
         </Row>
       ))}
       {editing && (
-        <div className="ml-[152px] flex flex-col gap-2 rounded-md bg-groove p-3" data-broll-style-editor>
-          <TextInput placeholder="Name: Grainy 16mm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} data-broll-style-name />
-          <TextArea rows={5} placeholder="The look, in words: grainy 16mm, warm tones, handheld, shallow depth of field" value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })} data-broll-style-text />
+        <div className="ml-[152px] flex flex-col gap-2 rounded-md bg-groove p-3" {...d("style-editor")}>
+          <TextInput placeholder={placeholder.name} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} {...d("style-name")} />
+          <TextArea rows={5} placeholder={placeholder.text} value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })} {...d("style-text")} />
           <div className="flex justify-end gap-2">
             <Button onClick={() => setEditing(undefined)}>Cancel</Button>
             <Button
@@ -156,9 +191,9 @@ function StylesList({ value, save }: { value: string; save: (list: CustomStyle[]
                 put({ ...editing, name: editing.name.trim(), text: editing.text.trim() });
                 setEditing(undefined);
               }}
-              data-broll-style-save
+              {...d("style-save")}
             >
-              Save Style
+              {saveLabel}
             </Button>
           </div>
         </div>

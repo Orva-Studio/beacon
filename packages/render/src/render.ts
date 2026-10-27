@@ -220,8 +220,20 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   }
 }
 
+/** `ease` in FFmpeg's expression language. */
 function easeExpr(easing: Easing, x: string): string {
-  return easing === "linear" ? x : `if(lt(${x},0.5),4*pow(${x},3),1-pow(2-2*${x},3)/2)`;
+  switch (easing) {
+    case "linear":
+      return x;
+    case "easeIn":
+      return `pow(${x},3)`;
+    case "easeOut":
+      return `1-pow(1-${x},3)`;
+    case "backOut":
+      return `1+2.70158*pow(${x}-1,3)+1.70158*pow(${x}-1,2)`;
+    case "easeInOut":
+      return `if(lt(${x},0.5),4*pow(${x},3),1-pow(2-2*${x},3)/2)`;
+  }
 }
 
 /** A segment's gain as an ffmpeg expression of `t`, seconds into its input; `animatedValue`'s rules, with `offset` the media time at `t` = 0. */

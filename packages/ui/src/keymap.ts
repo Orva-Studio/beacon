@@ -1,6 +1,7 @@
 import { chordId, eventChordId, keysLabel, sameArgs, type ShortcutInfo } from "@beacon/model";
 import type { Binding } from "./rpc";
 import { useMemo } from "react";
+import { AI_TOOLS } from "./panel-items";
 import { replica, useView } from "./store";
 
 /** Each action's keys as the window matches them. */
@@ -61,13 +62,17 @@ export interface ActionHost {
   app(id: string): void;
 }
 
-/** Runs an action as its key or menu item would: the app's own through the main process, the rest as commands. */
+/**
+ * Runs an action as its key or menu item would: the app's own through the main process, an AI tool's (`ai.<tool>`)
+ * as its tile, the rest as commands.
+ */
 export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "args">) {
   if (a.command === "app.palette") replica.palette(true);
   else if (a.command === "app.projectSettings") replica.projectSettings(true);
   else if (a.command === "app.save") replica.confirmSaved();
   else if (a.command === "app.open") host.openDialog();
   else if (a.command.startsWith("app.")) host.app(a.command);
+  else if (a.command.startsWith("ai.")) AI_TOOLS.find((t) => `ai.${t.id}` === a.command)?.start(host);
   else if (a.command === "project.undo") host.undo();
   else if (a.command === "project.redo") host.redo();
   else host.run(a.command, a.args ?? {});

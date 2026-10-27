@@ -1200,6 +1200,74 @@
         "modifiers": [],
         "then": [
           {
+            "key": "r",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "ai.retakes"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "g",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "ai.motion"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "b",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "ai.broll"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "k",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "ai.captions"
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
+            "key": "n",
+            "modifiers": []
+          }
+        ]
+      },
+      "command": "edit.addAnnotation",
+      "args": {
+        "preset": "rectangle"
+      }
+    },
+    {
+      "keys": {
+        "key": ":",
+        "modifiers": [],
+        "then": [
+          {
             "key": "c",
             "modifiers": []
           },

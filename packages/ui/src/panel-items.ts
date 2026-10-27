@@ -74,6 +74,18 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
     },
   },
   {
+    id: "motion",
+    label: "Motion Graphics",
+    title: "Add a motion graphics clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size its box on the canvas, then Make it into a title, name, number or list",
+    art: "text",
+    transcript: false,
+    // Prompt from Auto: written as soon as it is added (a clip added where nothing is said says so).
+    start: (host) => {
+      review(host, "motion.add");
+      host.run("motion.write", {});
+    },
+  },
+  {
     id: "captions",
     label: "Captions",
     title: "Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it",

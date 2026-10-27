@@ -235,7 +235,7 @@ const sessionCommands: SessionCommandDef[] = [
 ];
 
 /** Where a new B-roll track goes: right above the highest track with media (or a group of it) over the span, so captions above stay in front. */
-function trackIndex(project: Project, registry: FeatureRegistry, from: number, to: number): number {
+export function trackIndex(project: Project, registry: FeatureRegistry, from: number, to: number): number {
   const media = (c: Clip): boolean => (!!c.assetId && c.type !== "broll") || registry.groupsFor(c.type).some((g) => g.nested && c.props[g.id] && g.nested(c.props[g.id]).some((t) => t.clips.some(media)));
   const over = project.tracks.flatMap((t, i) => (t.clips.some((c) => media(c) && ticksToSeconds(c.start) < to && ticksToSeconds(clipEnd(c)) > from) ? [i] : []));
   return over.length ? Math.max(...over) + 1 : project.tracks.length;
@@ -549,7 +549,7 @@ function tracker(env: TaskEnv, model: (key: string) => string, total: number) {
  * group's words mapped through its start and speed onto the timeline, within its span. Narration grouped with its
  * picture counts too.
  */
-function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
+export function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
   const nested = nestedOf(ctx.registry);
   const heard = (tracks: Track[]): { text: string; start: number; end: number }[] => [
     ...timelineWords({ ...ctx.project, tracks }, ctx.registry, ctx.data),
@@ -571,7 +571,7 @@ function heardWords(ctx: Pick<ActionContext, "project" | "registry" | "data">) {
 }
 
 /** Where a clip plays on the timeline, in seconds, inside groups at any level too: through each group's start and speed. */
-function timelineSpan(id: string, project: Project, registry: FeatureRegistry): [number, number] | undefined {
+export function timelineSpan(id: string, project: Project, registry: FeatureRegistry): [number, number] | undefined {
   const nested = nestedOf(registry);
   const find = (tracks: Track[]): [number, number] | undefined => {
     for (const c of tracks.flatMap((t) => t.clips)) {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { assetName, clipSpeed, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
+import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
@@ -11,6 +11,7 @@ import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
 import { BrollTab } from "./broll";
+import { MotionTab } from "./motion";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -90,6 +91,7 @@ function ClipProperties({
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
       {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
+      {tab?.id === "motion" && <MotionTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
         <Section>
           <Slider
@@ -263,7 +265,8 @@ function FontRows({ font, weight, installed, set, label }: { font: string; weigh
   );
 }
 
-type CalloutProp = { shape: string; cornerRadius: number; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
+type Count = { from: number; to: number; seconds: number; decimals: number };
+type CalloutProp = { shape: string; cornerRadius: number; count?: Count; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
 
 /** Annotation properties, what the user changes: text, font, size, colour; a shape's fill, outline and corners. */
 function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host }) {
@@ -303,6 +306,7 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
           </Row>
         </Section>
       )}
+      {c.count && <CountRows count={c.count} set={(fields, label) => edit("callout", { count: { ...c.count!, ...fields } }, label)} />}
       {c.shape !== "text" && (
         <Section>
           <ColorRow label="Fill" color={c.fill} onChange={(fill, key) => edit("callout", { fill }, "Fill", key)} />
@@ -312,6 +316,31 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
         </Section>
       )}
     </>
+  );
+}
+
+/** A counter's numbers: `{n}` in the text counts from From to To over Seconds. */
+function CountRows({ count, set }: { count: Count; set: (fields: Partial<Count>, label: string) => void }) {
+  return (
+    <Section>
+      <div className="mb-3 font-semibold text-text-strong">Count</div>
+      <Row label="From" title="The number shown as the clip starts">
+        <div className="flex-1" />
+        <NumberBox value={count.from} digits={count.decimals} onCommit={(from) => set({ from }, "Count From")} />
+      </Row>
+      <Row label="To" title="The number it counts up (or down) to">
+        <div className="flex-1" />
+        <NumberBox value={count.to} digits={count.decimals} onCommit={(to) => set({ to }, "Count To")} />
+      </Row>
+      <Row label="Seconds" title="How long it takes, from the clip's start">
+        <div className="flex-1" />
+        <NumberBox value={count.seconds} unit=" s" digits={2} min={0} onCommit={(seconds) => set({ seconds: Math.max(0, seconds) }, "Count Length")} />
+      </Row>
+      <Row label="Decimals">
+        <div className="flex-1" />
+        <NumberBox value={count.decimals} digits={0} min={0} max={4} onCommit={(v) => set({ decimals: Math.round(Math.min(4, Math.max(0, v))) }, "Count Decimals")} />
+      </Row>
+    </Section>
   );
 }
 
@@ -450,8 +479,8 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const fields = (def?.schema as JsonSchema | undefined)?.properties ?? {};
   const name = def?.title ?? effect.type;
   const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
-  /** What the last look chosen or imported couldn't reproduce, said under its menu. */
-  const [report, setReport] = useState<{ name: string; notes: string[] }>();
+  /** Why the look file last chosen couldn't be read. */
+  const [importError, setImportError] = useState<string>();
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
   const [chooseError, setChooseError] = useState<string>();
   const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
@@ -463,11 +492,11 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     const path = await host.chooseFile(def!.importFile!.extensions);
     if (!path) return;
     try {
-      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown>; notReproduced: string[] };
+      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown> };
       host.run("effect.set", { clip: clip.id, effect: effect.id, params: look.params }, `Import ${look.name}`);
-      setReport({ name: look.name, notes: look.notReproduced });
+      setImportError(undefined);
     } catch (e) {
-      setReport({ name: path.split("/").pop()!, notes: [(e as Error).message] });
+      setImportError(`${path.split("/").pop()}: ${(e as Error).message}`);
     }
   };
   return (
@@ -496,7 +525,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
                       const p = def.presets!.find((x) => x.id === id);
                       if (p) {
                         host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
-                        setReport(undefined);
+                        setImportError(undefined);
                       }
                       host.previewEffect(null);
                     }}
@@ -511,9 +540,9 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               </div>
             </Row>
           )}
-          {report && !!report.notes.length && (
-            <div className="mb-2 ml-[92px] text-label text-text-faint" data-effect-report>
-              Not in {name}, from “{report.name}”: {report.notes.join("; ")}.
+          {importError && (
+            <div className="mb-2 ml-[92px] text-label text-danger" data-effect-import-error>
+              {importError}
             </div>
           )}
           {chooseError && (
@@ -642,8 +671,11 @@ function AnimationSection({ clip, id, host }: { clip: Clip; id: string; host: Ho
             void host.setPreference("animationEasing", e.target.value);
           }}
         >
-          <option value="easeInOut">Ease in and out</option>
-          <option value="linear">Linear</option>
+          {EASINGS.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.title}
+            </option>
+          ))}
         </Select>
       </Row>
       <Row label="Duration">

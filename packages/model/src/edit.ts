@@ -2,7 +2,7 @@ import { z } from "zod";
 import { clipSpeed } from "./evaluate";
 import { AssetSchema, ClipSchema, IdSchema, trackName, type Asset, type Clip, type Project, type Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import { ticksToSeconds, type Ticks } from "./ticks";
+import { secondsToTicks, ticksToSeconds, type Ticks } from "./ticks";
 import type { Animation } from "./schema";
 
 /**
@@ -247,6 +247,24 @@ export function trimBounds(track: Track, clip: Clip): [Ticks, Ticks] {
     else if (c.start >= clipEnd(clip)) hi = Math.min(hi, c.start);
   }
   return [lo, hi];
+}
+
+/**
+ * How far a clip's edges can go before its media begins or ends: [earliest start, latest end]. Unbounded for a clip
+ * that holds a frame (`holds`) or has no media (a group, a placeholder); an image has no end.
+ */
+export function mediaBounds(project: Project, clip: Clip, holds: boolean): [Ticks, Ticks] {
+  const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
+  if (!asset || holds) return [-Infinity, Infinity];
+  const speed = clipSpeed(clip);
+  const lo = clip.start - Math.floor((clip.mediaStart ?? 0) / speed);
+  const info = asset.derived.media as { duration?: number; streams?: { kind: string; duration?: number }[] } | undefined;
+  if (!info || asset.kind === "image") return [lo, Infinity];
+  const n = (clip.props.media as { stream?: number } | undefined)?.stream ?? 0;
+  const stream = info.streams?.filter((s) => s.kind === (clip.type === "audio" ? "audio" : "video"))[n];
+  const seconds = stream && (stream.duration || info.duration);
+  if (!seconds) return [lo, Infinity];
+  return [lo, clip.start + Math.floor((secondsToTicks(seconds) - (clip.mediaStart ?? 0)) / speed)];
 }
 
 /** A point of a volume-style envelope: a value at a media time. */

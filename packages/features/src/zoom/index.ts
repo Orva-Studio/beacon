@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineCommand, defineFeature, EasingSchema, mediaTimeAt, resolveProps, snapSeconds, ticksToSeconds, type Clip, type Project, findClip } from "@beacon/model";
+import { defineCommand, defineFeature, EasingSchema, mediaTimeAt, resolveProps, snapSeconds, ticksToSeconds, type Clip, type Easing, type Project, findClip } from "@beacon/model";
 import { visualSize } from "../media";
 
 interface Transform {
@@ -32,7 +32,7 @@ function targets(t: Transform) {
  * Adds a block ending at timeline `start + duration` to the piece it ends
  * in, and the same block (it is in media time) to the later pieces in `also`.
  */
-function block(doc: Project, pieces: Clip[], also: Clip[], newId: () => string, start: number, duration: number, easing: "linear" | "easeInOut", to: Transform): string[] {
+function block(doc: Project, pieces: Clip[], also: Clip[], newId: () => string, start: number, duration: number, easing: Easing, to: Transform): string[] {
   const end = snapSeconds(start + duration, doc.settings.fps);
   const owner = pieces.find((c) => end > c.start && end <= c.start + c.duration);
   if (!owner) throw new Error(`zoom block ending at ${start + duration}s is outside the clip and its pieces`);

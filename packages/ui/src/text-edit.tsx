@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apply, type Affine } from "@beacon/model";
+import { apply, invert, type Affine } from "@beacon/model";
 import type { CanvasMark } from "./canvas-marks";
 import { rgba } from "./theme";
 import { PLAIN_TEXT, useFieldText } from "./controls";
@@ -46,7 +46,7 @@ function wordAt(text: string, i: number): [number, number] {
  * keys (so editing, arrows and the clipboard are the system's), clicks and drags in the box place the caret or
  * select, and the caret and selection are drawn as marks over the rendered text, laid out by the renderer itself.
  */
-export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | undefined, onDone: () => void) {
+export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | undefined, onDone: () => void, startAt?: { current: [number, number] | undefined }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [lines, setLines] = useState<TextLine[]>([]);
   const [sel, setSel] = useState<[number, number]>([0, 0]);
@@ -59,7 +59,21 @@ export function useTextEdit(target: TextTarget | undefined, toOverlay: Affine | 
   useEffect(() => {
     if (!target) return;
     let live = true;
-    void target.lines().then((l) => live && setLines(l), () => live && setLines([]));
+    void target.lines().then(
+      (l) => {
+        if (!live) return;
+        setLines(l);
+        // Opened by a double-click on a word: that word, as a text editor selects it, rather than all of it.
+        const at = startAt?.current;
+        const f = field.current;
+        if (!at || !toOverlay || !f || !l.length) return;
+        startAt.current = undefined;
+        const [wa, wb] = wordAt(f.value, offsetAt(l, ...apply(invert(toOverlay), ...at)));
+        f.setSelectionRange(wa, wb);
+        setSel([wa, wb]);
+      },
+      () => live && setLines([]),
+    );
     return () => void (live = false);
   }, [target?.id, target?.layoutKey]);
 

@@ -5,6 +5,8 @@ import { jobSignal, runTool, tool } from "@beacon/media";
 
 /** The user's pick (2026-10-23), at medium effort as every OpenAI model Beacon calls. */
 export const PLAN_MODEL = "gpt-6.1-sol";
+/** Its price in dollars a million tokens (openai.com, 2026-10-26): input, cached input, output (reasoning included). */
+export const PLAN_PRICE = { input: 2, cached: 0.1, output: 10 };
 const api = () => process.env.BEACON_OPENAI_URL ?? "https://api.openai.com/v1";
 /** How long the planner may send nothing before it is given up; a test shortens it. */
 const IDLE_MS = () => Number(process.env.BEACON_OPENAI_IDLE_MS ?? 120_000);

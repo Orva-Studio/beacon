@@ -9,7 +9,7 @@ const NAMES = [
   "star", "film-strip", "chat-centered-text", "magic-wand", "waveform", "microphone",
   "arrow-counter-clockwise", "arrow-clockwise", "scissors", "copy", "clipboard-text", "split-horizontal", "camera",
   "minus", "plus", "arrows-out-line-horizontal",
-  "skip-back", "skip-forward", "caret-left", "caret-right", "play", "pause",
+  "skip-back", "skip-forward", "caret-left", "caret-right", "play", "pause", "arrow-line-left", "arrow-line-right",
   "speaker-high", "speaker-slash", "lock-simple", "lock-simple-open", "eye", "eye-slash", "magnet",
   "trash", "x", "sparkle", "monitor-play", "video-camera", "image", "music-note", "sort-ascending", "sort-descending",
   "caret-down", "dots-three", "eyedropper", "gauge", "link-simple-horizontal", "magnifying-glass", "squares-four", "list", "check", "closed-captioning",

@@ -28,8 +28,9 @@ with the app open, below). The review's three branches were merged
 (v0.7.0-v0.10.0; v0.10.1 fixed ⌥-dragging a clip's start, 2026-10-22).
 Phase 11's first half shipped as v0.11.0 and v0.11.1 (2026-10-22: track
 keys, Clean with Auphonic, the Record dialog's permissions). Next (order set
-2026-10-22): **Phase 11's AI B-roll and animations** (on `feat/ai-broll`), 12 (device frames, and a spike on AI camera angles), 13 (security
-audit), 14 (Camtasia export) and 15 (Beacon learns how you edit).
+2026-10-22): **Phase 11's AI B-roll and animations** (on `feat/ai-broll`), 12 (Beacon learns how you edit, and Memory), 13 (device frames, and a spike
+on AI camera angles), 14 (security audit) and 15 (Camtasia export); order
+changed 2026-10-27, the user.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -2043,7 +2044,7 @@ Gone through item by item with the user: Add Color Label first; Cut, Copy,
 Delete, Unlink, Copy/Paste Properties kept; Ripple Cut, Ripple Delete, Add
 Animation Across Clip and Group/Stitch under More; Hide Properties, Select in
 Media Bin, Add Clip Speed and Split at Playhead removed. Clip Speed became a
-Visual Effects tile. **Done 2026-10-21.** Later (Phase 15): order menus by
+Visual Effects tile. **Done 2026-10-21.** Later (Phase 12): order menus by
 what the user actually uses, counted locally.
 
 #### Film Look: a look previewed on hover (the user, 2026-10-21; Phase 11 since 2026-10-22)
@@ -2238,6 +2239,281 @@ Later: an empty prompt shows the words said under the clip and, left empty,
 Generate uses them (the user, 2026-10-24), so a first try needs no OpenAI key.
 Animation (HyperFrames) next.
 
+**Motion graphics: Beacon's own, learning from HyperFrames (the user,
+2026-10-26; branch `phase-11-motion-graphics`).** HyperFrames (HeyGen, Apache
+2.0) renders HTML in headless Chrome; Beacon doesn't embed it (no Chrome, no
+render step, nothing opaque). It borrows the ideas: a catalog of blocks with
+fields to fill, text animated word by word with a stagger, wipes and
+draw-ons, counters, good easing curves, and later brand tokens (their
+`frame.md`). Drawn live by the wgpu renderer, so a graphic scrubs, exports
+as previewed and stays sharp. This is a deliberate exception to "no library
+of preset animations" (§1): blocks are presets that expand into ordinary
+clips.
+- **A block is a group (the user, 2026-10-26).** Adding one places a plain
+  group of callouts with animation blocks, one undo step; afterwards it is
+  edited as any group (no fields to re-fill).
+- **First blocks (the user, 2026-10-26):** Title, Lower third, Number, List.
+- **The planner picks and fills (the user, 2026-10-26):** as B-roll's Auto,
+  it reads the words under the range (or around the playhead) and picks the
+  block and its fields (Apple's on-device model by default, OpenAI the other
+  choice); fields can be typed instead.
+- **What is already there:** callouts (text, rectangle, sketch draw-on),
+  animation blocks on transform (position, scale, rotation, opacity) and crop
+  (a wipe is an animated crop), groups.
+- **What is new:** (1) easings beyond linear and ease in/out: ease out, ease
+  in, and an overshoot (back out), in the schema, the easing menu and MCP;
+  (2) a counter: a text callout whose number counts from one value to another
+  over a span; (3) word-by-word text: a block lays its text out with
+  `textLayout` and places one callout per word, each with its own delay
+  (no renderer change); (4) the `motion` feature: the catalog, `motion.blocks`,
+  `motion.add` (block, fields, at, length), `motion.plan` (words → block and
+  fields), and an AI panel tile.
+- **Order:** easings, counter, the catalog with Title, then Lower third,
+  Number, List, then the planner and the tile; a UI flow and `tested.md`
+  for each.
+- **Changed (the user, 2026-10-26, after trying the form): it works as B-roll
+  does.** The tile adds a **motion graphics placeholder clip** at the playhead
+  (over the range when set) on a track above the talk: trimmed on the timeline
+  for when, its box moved and resized on the canvas for where. Its tab holds a
+  **prompt**, Auto (written from the words under it) or Manual (typed), as
+  B-roll's; **Make** has the AI **compose** it in the box from text, shapes and
+  animation blocks, with the catalog's blocks (Title, Lower third, Number,
+  List) as its vocabulary, so it can mix them. **The clip keeps its prompt**
+  (replacing "a block is a plain group"): Make Again, earlier takes to pick
+  from, and it opens like a group to edit a word. The form under the tiles
+  goes.
+- **Progress (2026-10-26):** easings (`4409d19`, checked by hand), the counter
+  (`919c0fb`); then, as B-roll: the `motion` clip type (a group with a prompt),
+  `motion.add`, `motion.write` (Auto's prompt), `motion.make` (composed),
+  `motion.use` (a take built in the box), `motion.kinds`; the kinds Title,
+  Lower third, Number, List and Text, each in a part of the box (full, thirds,
+  halves). **Apple's on-device model picks one piece** over the whole clip and
+  box (asked to compose several, it mixed kinds that didn't fit and timed them
+  to single words); **OpenAI mixes up to three**, timed to the words. Planner:
+  Settings › AI's B-roll planner. Not yet: a real OpenAI run (paid, the user's
+  go-ahead), art for the tile (it borrows Text's).
+
+**Motion graphics: Looks, backgrounds and icons (the user, 2026-10-26).**
+What made HyperFrames' graphics look good is design held to throughout (type,
+palette, shadow, motion), not more kinds; Beacon had the effects (any installed
+font, drop shadow with colour, motion blur) but the pieces used none of them.
+- **Looks**, like B-roll's Styles: a heading and a body font, the text, accent
+  and card colours, a shadow (colour, blur, offset) or none, and motion (how
+  pieces come in: rise, slide, scale or wipe; easing; speed; motion blur).
+  Built in: Clean, Bold, Editorial, Tech, Minimal; the user's own later in
+  Settings › AI. **Per project, with a per-clip override** (the user's go,
+  2026-10-26): the project's Look is used by every motion graphic that hasn't
+  its own. Changing it rebuilds them. The user picks it, not the AI (Apple's
+  model can't design): the composer lays pieces out in it.
+- **Backgrounds** behind a graphic, per clip: None, Dim (the talk darkened in
+  the box), Card (a rounded card in the Look's card colour). A blurred talk
+  needs a backdrop blur the renderer doesn't have: later, as are gradients.
+- **Icons from icons.computer** (the user, 2026-10-26): app icons (3,062, PNG),
+  searched through Firecrawl's Alexandria (`icons-computer/icons/search`, 5
+  credits a search, on the user's Firecrawl key in Settings › AI). A piece can
+  carry an app's icon (beside a lower third's name, a list item, a title); the
+  PNG is kept in the project's media. Its rights notice: icons belong to their
+  owners, no licence granted; Beacon says so where an icon is picked.
+- Order: Looks (built in, project + clip) → backgrounds → icons → the user's
+  own Looks in Settings → letter-by-letter, blur-in, gradients.
+- **Built (2026-10-26):** Looks and backgrounds. A project has no place for a
+  feature's own settings (only feature versions), so "per project" is: each
+  clip has its Look, a new one takes the Look last picked (the app-wide
+  `motionLook` preference, as easing), and **Use for All** gives every motion
+  graphic in the project one Look in one undo step. `motion.style`,
+  `motion.looks`; motion data v2.
+
+**Motion graphics in HTML: a spike (the user, 2026-10-26, after trying Looks).**
+The user found the primitives short of HyperFrames (no solid background with
+opacity, text not following the speech, a plainer look) and asked whether CSS
+is more versatile; it is, so a composition becomes HTML, rendered by the WebKit
+Beacon already has (no Chrome). **Spike result (2026-10-26, scratchpad, not in
+the repo):** a Swift tool loads the HTML in an offscreen WKWebView
+(`drawsBackground` off, a borderless window off screen), pauses every
+animation (`document.getAnimations()`), seeks it to each frame's time
+(`callAsyncJavaScript`, awaiting `document.fonts.ready`) and takes a snapshot
+at 1× (`snapshotWidth` in points, divided by the backing scale): **alpha
+kept**, 1920×1080 at 30 fps **90 frames in 2.7 s**; Beacon's FFmpeg makes
+ProRes 4444 with alpha (`prores_videotoolbox -profile:v 4444 -pix_fmt bgra`,
+0.26 s, `yuva444p12le`), and Beacon draws it over the take with its
+transparency: a gradient card, clip-path wipe and blur-in words all render.
+Not possible pre-rendered: `backdrop-filter` (the talk isn't behind the page).
+**Built (2026-10-26):** `beacon-html` (packages/engine/speech, built and
+bundled like beacon-writer) and `renderHtml` in @beacon/media; the motion clip
+plays its drawing as B-roll plays its footage (data v3: takes keep their HTML
+and drawing; `motionBox` until drawn; a Look, `backdrop` in any colour and
+opacity, `timing`); `motion.make` (OpenAI writes the composition to a contract:
+the Look's CSS variables, `.w` words timed `data-t`, `.in`, `.count`; Apple's
+model picks a kind for a template), `motion.render` (drawn again, no AI),
+`motion.style`, `motion.use`. The page has a Content Security Policy: no
+network, no scripts but Beacon's runtime.
+**Compared with HyperFrames (2026-10-26):** one design (a gradient card, a
+kicker timed to the speech, "Lead enrichment" popping in, a line drawing on),
+written for each, both rendered transparent and laid over the same take: the
+frames match; HyperFrames (Chrome, 4 workers) 10.9 s, beacon-html 4.9 s for
+4.6 s at 1080p30. Only difference: WebKit's Avenir Next at 800 is the heavier
+cut. So the gap the user saw was the author (Apple's template), not the
+renderer. Next: OpenAI writing with HyperFrames' design guidance and blocks as
+examples, GSAP allowed (vendored, pinned) so its blocks port, and an Exit
+choice (Fade, the default 0.35 s fade today; Cut; Slide Out).
+**Two more comparisons (2026-10-26).** (1) A dynamic talking-head edit of the
+same line: HyperFrames (written by Claude with its guide, GSAP, the footage in
+the composition) punched in, flashed to a full-screen card with the speaker in
+a round picture-in-picture, slammed type beside the face; Beacon (OpenAI via
+`motion.make`, overlay only) got the structure but covered the speaker (it
+can't move the footage), put a card over the face, had layout bugs (empty
+card before its words, a lost space) and used the Look's yellow over the
+orange asked for. (2) A pure motion graphic (cream, drifting iridescent light,
+words grey to black): HyperFrames close to the user's reference; Beacon flat
+cream, no light, wrapped, wiped in, 114 s. OpenAI's HTML shows why: the
+contract's "the Look's colours only" (Minimal's white accent made its light
+invisible) and fixed `.w` entrances. **The renderer is equal; the contract and
+the author are the gap.** Not yet a fair OpenAI-vs-Claude test.
+**Next, in order (the user, 2026-10-26):** (1) loosen the contract: the Look
+is the default, the prompt wins (colours, fonts, gradients, blurred light);
+free CSS, GSAP vendored and pinned; `.w`/`.in`/`.count` optional helpers;
+cards sized to content, spaces kept between word spans; (2) give the author
+HyperFrames' guidance (motion, captions, design systems) and a few blocks as
+examples; (3) then compare OpenAI and Claude (Anthropic's API, a key the user
+has) on the same briefs, keep OpenAI, add Claude if it wins; (4) the footage
+under a graphic (punch-in, picture-in-picture, split), face awareness (Vision),
+AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
+- **(1) built (2026-10-26):** the Look is the default design and the brief
+  overrides it; any CSS and inline SVG; the composition's own scripts run
+  (still no network: the page's policy, and beacon-html cancels any
+  navigation but the page itself); GSAP 3.15.0 core vendored unmodified
+  (`motion/vendor/gsap.min.js`, inlined only into pages that use `gsap`;
+  Standard "No Charge" licence, see THIRD_PARTY_NOTICES), its global timeline
+  held at 0 and seeked, `window.__timelines` (HyperFrames' convention) and
+  `window.__frame(t)` seeked too; `.w`/`.in`/`.count` optional helpers; words
+  written back to back get a space, flex and grid rows a gap; an `.in` with
+  no `data-t` comes in with its first word (no empty card); cards sized to
+  content in the guidance.
+- **HyperFrames' examples replicated** (the user, 2026-10-26: "create fresh
+  Beacon projects and see if you can replicate these", prompting/examples,
+  "With registry blocks and source material"). Four of its eight are one
+  graphic each (stat count-up, tweet card, map route, logo sting); each made
+  in a fresh project, one motion clip over the canvas, by `motion.make`
+  (OpenAI), frame sheets beside HyperFrames' renders. Baseline (the looser
+  contract alone): three close, the map wrong (made-up continents, the arc
+  the long way round). New primitives, each inlined only into a page that
+  uses it: **BeaconMap** (Natural Earth countries, projected, centred
+  anywhere, arcs), **three.js** 0.186.1 (WebGL draws and seeks in
+  beacon-html, checked), Math.random/timers ruled out for seeded,
+  t-driven particles; the author's **craft** guidance (HyperFrames' motion
+  rules: density, depth, eases by role, overlap, one spectacle beat) and a
+  **catalog** of HyperFrames' 406 blocks and components (Apache 2.0): a
+  brief naming one gets its code as the base, else OpenAI picks up to three
+  from the index first. After them all four match HyperFrames' closely
+  (map: Pacific-centred, the arc meeting the pin through the zoom; sting:
+  particles into the wordmark, a vortex into the white lockup). The other
+  four (product launch from a URL, explainer, PR video, beat-synced
+  slideshow) are whole narrated films: they need TTS, music and its beat
+  grid, page screenshots and generated images, and several scenes: not
+  one motion clip. Next for them, with the user: AI images (a background
+  or a set of plates), then a "film" made of several motion clips.
+- **The brief picks the background** (the user, 2026-10-26, built): no
+  Background setting on the Motion tab. A graphic has a background of its own
+  (the AI chooses it for the brief; a template fills the box in the Look's
+  card colour) unless the brief asks for alpha ("transparent", "no
+  background", "over the video"). Motion data v4 moves a background set
+  before into each take's HTML.
+- **A reference image** (the user, 2026-10-26; after (1), before (2)): a
+  motion clip can carry an image (dropped or picked on the Motion tab, kept
+  in the project's media); `motion.make` sends it to OpenAI with the brief
+  (an `input_image`), asked to recreate its design in HTML and animate it,
+  timed to the words. Apple's model has no image input: with a reference,
+  Make needs OpenAI. The same image later for Claude in the (3) comparison.
+- **Decided (the user, 2026-10-26):** text follows the speech by default (each
+  word in as it is said, from the transcript's word times), "all at once" the
+  other choice. The B-roll-style flow stays (placeholder, box, prompt, Make,
+  takes); what is made is HTML, kept with the clip, rendered to a clip with
+  alpha. OpenAI writes the HTML (with the words and their times); Apple's
+  model fills a template. Looks become CSS themes. HyperFrames' composition
+  format (`data-start`, `data-duration`, seekable timelines) is followed where
+  it fits; GSAP, if used, is vendored and pinned.
+
+**What is left of motion graphics, in order (the user, 2026-10-26; then Phase 11 closes).**
+1. **A reference image** on a motion clip, recreated in HTML and animated
+   (above). **Built (2026-10-26):** Reference Image on the Motion tab (Add
+   Image…, Remove), `motion.refer` (copied into media/Motion graphics/
+   References, an image asset; `motion.reference` the command); Make sends
+   it to OpenAI as an `input_image` beside the brief, told to recreate its
+   design and animate it; with Apple's model Make says it needs OpenAI.
+   Tried with stills from HyperFrames' count-up and map renders and new
+   words ($9.1M MRR; London → New York): both kept the design closely.
+2. **OpenAI vs Claude** on the same briefs (HyperFrames' four single-graphic
+   examples are a ready set), both keys; keep OpenAI, add Claude if it wins.
+   **Ready, blocked (2026-10-26):** `authorBrief` (`c21bfbd`) gives both
+   the same system and user messages; a scratch script sends them to Claude
+   Opus 5.5 (SDK, adaptive thinking, effort medium as OpenAI's, structured
+   JSON) for the four HyperFrames prompts and the two reference stills. The
+   Anthropic key in the user's shell is at its usage limit until
+   2026-11-01; run then (or with another key the user gives).
+3. **The footage under a graphic** (punch-in, picture-in-picture, split)
+   and face awareness (Vision) so overlays keep clear of the speaker. (No
+   Exit choice: the user, 2026-10-26, dislikes Beacon's own fade in and out
+   and animates opacity by hand when wanted; the graphic now shows as
+   designed from first frame to last, entrances and exits only as the brief
+   asks.)
+4. **AI backgrounds** behind a graphic (an OpenAI image or a B-roll loop).
+- **Made by, and its cost (the user, 2026-10-26, built):** the user's 3D
+  cards came out as Apple's list template (the planner was still Apple, set
+  in Settings for B-roll). Motion graphics now have their own choice on the
+  Motion tab, **Made by: OpenAI | Apple · Free** (preference
+  `motionPlanner`; Apple by default, as every preference's default needs no
+  key, and OpenAI once picked is kept), and the Make button says what it
+  costs: Free, or ~$ the average of the project's Makes (each take keeps
+  what OpenAI charged, from the response's token usage at gpt-6.1-sol's
+  $2 / $0.10 cached / $10 a million tokens), $0.15 before any. Measured: the
+  user's cards prompt with OpenAI, $0.12 (a real three.js scene, cream,
+  soft shadows, the cards lifting one at a time).
+- **Claude as a maker (the user, 2026-10-26, built):** Made by is Apple ·
+  Free | OpenAI | Claude. Claude is Opus 5.5 through Anthropic's SDK
+  (1.3.0, streamed, adaptive thinking at medium effort as OpenAI's,
+  structured JSON, server-side refusal fallback), given the same brief
+  (`authorBrief`, the catalog pick included) and the reference image; the
+  Anthropic key is in Settings › AI, which also has Made by. Each take keeps
+  who made it (`by`) and its cost; Make shows each maker's own average
+  (~$0.30 for Claude before any, Opus 5.5 being $4 / $20 a million). No
+  model menu beyond the maker (the user asked; one tuned model each is
+  enough for now). Not yet seen with a real call: the user's Anthropic key
+  is at its limit until 2026-11-01 (item 2's comparison runs then).
+- **Made by in Settings only, OpenAI by default (the user, 2026-10-26,
+  built):** the Motion tab no longer has Made by; Settings › AI › Motion
+  Graphics does. A preference's default may now need a key (config: the
+  default can always be chosen, and removing a key falls back to it); Make
+  then says where to add the key.
+- **The web, through Firecrawl (the user, 2026-10-26, built):** the user
+  asked for the real Firecrawl logo and got a lookalike. The author (OpenAI
+  or Claude) now has three tools, run by Beacon through Firecrawl's REST API
+  (keyless, about 1,000 credits a month per IP; an optional Firecrawl key in
+  Settings › AI): `web_search` (pages, and images when asked), `brand` (the
+  branding format: name, logo, colours, fonts; the logo downloaded) and
+  `image` (a download, up to 1.5 MB). A downloaded image is an asset the
+  page uses as `asset:ID`, put in as `data:` when the answer comes back, so
+  the page stays offline and redraws need nothing; an SVG under 20 KB is
+  shown to the author to inline and animate. Up to 8 rounds, then it must
+  answer. A real run drew Firecrawl's own flame and wordmark in its colours.
+- **Editing, built (2026-10-26):** Revise (`motion.revise`: the shown take
+  and a note to OpenAI or Claude, images held back as asset ids, a new take
+  with its cost) and Edit Code… (`motion.code`, `motion.page`: a textarea
+  beside a sandboxed `srcdoc` preview seeked by postMessage, a play bar;
+  Save draws a new take by "you", free).
+- **Next (the user, 2026-10-26):** **Sign in with
+  ChatGPT** for the OpenAI maker (asked how easy: OpenAI's self-serve flow
+  covers open-source and personal, locally run apps; a paid Beacon needs
+  OpenAI's waitlist. OAuth in the browser with PKCE and dynamic client
+  registration, `chatgpt.tokens.use.direct`, tokens in the Keychain and
+  refreshed hourly; the Responses API then needs `stream: true`,
+  `store: false`, no system-role items (`instructions` instead) and no
+  sampling fields; Plus and Pro only, the user's weekly per-app cap). Asked
+  whether to build it.
+Done since they were planned here: HyperFrames' catalog, guidance and seek
+conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
+B-roll items, captions for a selection and the user's notes to Phase 11.5;
+whole films to Phase 16.
+
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
 its cost shown before it runs.
@@ -2331,129 +2607,94 @@ are paid cloud jobs reviewed in the sidebar); the selected part by default.
 **Open:** whether audio already cleaned is reused when exactly the same
 audio is sent again (asked). Later: clean only what is kept, at export.
 
-### Phase 12 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11)
-The user will bring a lot of information before any work starts: which
-devices, how each frame looks and where its screen sits, what it's for.
-Research and agree the design with them first; nothing is built before.
-- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
-  superimposed on a device (a phone, a laptop, a monitor), fitted into its
-  screen.
+### Phase 11.5 — Editing polish (the user, 2026-10-26; after Phase 11)
+Small fixes and features the user noticed while editing, gathered out of
+Phase 11 so it can close with motion graphics.
+- **The user's notes from using Beacon (2026-10-26):**
+  1. **A large video dragged from Finder** doesn't land at once: the drag
+     snaps back to Finder unless held over the timeline for a second.
+     Likely the drop waits on something slow (probing or copying the file)
+     before it accepts; it should accept at once and show a placeholder
+     while the file is read. `BEACON_PROFILE=1` prints the drop's steps
+     (`[drop]`) to find which.
+  2. **Drag below the lowest track to make a new one**, as dragging above
+     the top track does (a new track at the bottom).
+  3. **Sliders are hard to hit**: widen their hit area (the thumb and the
+     track, e.g. a taller invisible hit box), across every slider in
+     `controls/`.
+  4. **Text highlighting**: a highlight behind words (a marker swipe) in
+     text and captions; which (callouts, captions, both) and how it looks
+     to settle with the user.
+  5. **Remove Silences misses a pause split across a cut**: a short silence
+     at the end of one clip and another at the start of the next, each under
+     the minimum, are together a silence the tool should find. Measure
+     silence along the timeline (across adjacent clips), not per clip.
+  6. **The eyedropper from a dialog** (Project Settings, opened by the
+     canvas's right-click): a click on the canvas closes the dialog, since
+     its backdrop covers the canvas, so the canvas colour can't be picked
+     from the picture. While the colour picker's eyedropper is on, the
+     backdrop lets clicks through to the canvas (and doesn't close), the
+     canvas isn't dimmed, and the picked colour lands in the dialog's
+     picker, as it does in the properties panel.
+- **Captions for a selection** (the user, 2026-10-26): Captions with an in/out
+  range (else selected clips) captions only that span. `captions.create` takes
+  `from`/`to`, captions words starting inside it and replaces only the
+  captions overlapping it, keeping the rest; `captions.add` passes the range
+  (or the selection's extent), the whole timeline when there is neither. One
+  style for the track as now. A UI-harness flow and a `docs/tested.md` entry.
+- **B-roll: the model picked on the clip.** The tab's Footage menu becomes the
+  model menu, each with its price (Settings › AI's model is only the default);
+  takes stay pickable.
+- **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
+  or two more), in place of the film and product groups.
+- **An effect from the command palette focuses its first input** (the user,
+  2026-10-26): picking an effect (Visual or Audio Effects, an annotation) in the
+  palette adds it as now, then opens its properties and puts the caret in its
+  first input; Tab and ⇧Tab move through the inputs in order (sliders' value
+  boxes, menus, colour wells included), Esc back to the timeline.
 
-#### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
-Not built in this phase until the spike says how: a new angle of the presenter
-(a close-up, a side profile, a wide) from one take, made with AI and placed as
-a cut to it, the take's own sound kept. The user's lead: **Seedance 2.5**.
-Spending limit: as Phase 11's (a Settings value), not a worry for now.
+- **Imported looks kept for every project** (the user, 2026-10-27): a `.hlook`
+  imported into Film Look joins a list kept app-wide (a preference, as B-roll's
+  Your Styles and motion graphics' Your Skills are), shown in the Look menu
+  under "Your looks" in every project, renamed or deleted in Settings; one of
+  the same name replaces the old.
+- **B-roll: Import Style… on the clip's Style menu** (the user, 2026-10-27), as
+  motion graphics' Import Skill… does: a `.md`/`.txt` joins Your Styles and is
+  picked, with no trip to Settings.
+- **Remove Unused Media** (the user, 2026-10-27): in the Media Bin's right-click
+  menu (on a medium or on empty space), removes every medium no clip on the
+  timeline uses (in groups too; a B-roll or motion graphic take not shown, a
+  reference image or a LUT counts as used), one undo step, saying how many;
+  files stay on disk.
+- **Film Look tuned by AI** (the user, 2026-10-27; hance's Enhance has it):
+  "Auto Tune" on Film Look sends a few frames of the clip to OpenAI (the user's
+  key; a vision model, the planner's) with the sliders and their ranges, and
+  sets what comes back, one undo step, with its cost; a note ("warmer, less
+  grain") tunes from the current values. Settle with the user which model and
+  how many frames.
 
-**What is known (desk research, 2026-10-22).**
-- Seedance 2.5 re-angles an existing clip in its **editing** task:
-  `bytedance/seedance-2.5/reference-to-video` with `task: "editing"` on fal,
-  the take as `@Video1` (MP4/MOV, 1.8-30.2 s, up to 200 MB, 300-6,000 px a
-  side, 24-60 fps), an optional still for wardrobe and set; duration and
-  aspect follow the source ("auto"), 4-30 s out, the length kept to within
-  about 0.4 s. Prompts that work name the camera and lens and lock the rest:
-  "Medium close-up straight in front of him at seated eye level, 50mm feel,
-  locked", "a true 90-degree side profile at eye level", plus "camera
-  placement and lens are the only things you are allowed to change", "real-
-  time playback: no speed change, no retiming", no captions, text or logos.
-  ([fal guide](https://fal.ai/learn/tools/how-to-create-multi-angle-video-seedance-2-5),
-  [Kapwing](https://www.kapwing.com/resources/how-to-turn-one-clip-into-4-camera-angles-with-ai-seedance-2-5/),
-  [Morphic](https://morphic.com/resources/how-to/seedance-2-5-guide))
-- **Cost:** fal bills tokens (height × width × (input + output seconds) × 24
-  ÷ 1024, ×0.6 with a video input; $0.0214 per 1,000 at 480p/720p, about
-  $0.0234 at 1080p): a 20 s take was $5.18 at 480p, $9.24 at 720p, about
-  $27.40 at 1080p (≈$0.26/s, $0.46/s, $1.36/s). A 480p draft can be finished
-  at 1080p later from its `draft_id` (within seven days).
-- **Sync is not guaranteed:** "An edit cannot guarantee frame-by-frame
-  overlap with the source" (Morphic); Kapwing found speech and timing kept
-  but says to check the lips. So the take's own audio stays the master and
-  the generated picture is muted, checked for drift before it is placed.
-- **Weak points:** the farther the camera moves, the more AI invents (faces
-  drift, "inconsistent facial features"); exact text (a screen, a sign) is
-  for post, so screen recordings never go through it, only the camera; 8-10 s
-  pieces are the practical start.
-- **Replicate** has `bytedance/seedance-2.5` ("provide a reference video and
-  describe changes... preserves the original motion and camera work"), but its
-  page doesn't say whether it has the editing task, its field names or its
-  price ([Replicate](https://replicate.com/bytedance/seedance-2.5)). Phase 11
-  uses the user's Replicate token, so this decides the provider.
-- Earlier research (2026-10-15) still holds: no generation first (a punch-in
-  crop of the 4K source with a small ±5° depth-parallax move) costs nothing
-  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
-  model turning one frame then lip-sync (sync.so); no monocular 4D method
-  holds beyond 10-15° yet.
+- **Shift-click selects a run of clips** (the user, 2026-10-27): ⇧-click today
+  toggles one clip, as ⌘-click does. ⇧-click selects every clip from the last
+  one clicked (the anchor) to this one: from the earlier's start to the later's
+  end, on the tracks from the anchor's to this one's, linked clips with them;
+  ⌘-click stays the one-clip toggle. ⇧-drag still ripple-moves.
+- **Edit Code: syntax highlighting** (the user, 2026-10-27): the code box
+  coloured as HTML with its CSS and script (CodeMirror 6, pinned, or a small
+  highlighter over the textarea), line numbers, matching brackets; ⌘F find.
+- **Edit Code's preview fully offline**: today a script that navigates its
+  page away is caught and the preview stopped, but that one request has left.
+  Show the preview in an Electrobun sandboxed webview with navigation rules
+  that allow nothing past its own page (needs the rules' syntax checked in the
+  app; the harness's Chromium can't test it).
+- **A clip's id in the properties panel** (the user, 2026-10-27), to name clips
+  to an agent over MCP: a small muted chip at the foot of every clip's
+  properties ("clip-8a05d312"), a click copies it (with several selected, all
+  of them, comma-separated); a "Copy ID" in the clip's right-click menu too.
 
-**The spike (each answered with a real take, the user's go-ahead before any
-paid call, a few dollars at 480p):**
-1. Does Replicate's Seedance 2.5 do the editing task (one call with the
-   schema read from its API), or is fal needed (a second key)?
-2. On a 10 s camera take: a close-up, a side profile and a wide, at 480p:
-   lips against the original audio (offset by cross-correlation of mouth
-   movement, or by eye frame by frame), face and set drift, length kept.
-3. The same against the free punch-in crop: is a close-up worth generating?
-4. Longer takes: 8-10 s pieces cut at pauses (the transcript's), stitched;
-   do the seams show?
-5. Write the result into this plan as a spec in the B-roll review's shape
-   (pick a range, the angle and lens, a draft at 480p with its cost, then
-   1080p; applied as a cut on a camera track, one undo step), or park it.
+**Gate:** each item has its UI-harness flow (or core test) and a
+`docs/tested.md` entry; the user checks them by hand.
 
-### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
-A review of what an attacker could reach, before Beacon is shared more widely,
-with each finding fixed or written down as an accepted risk in
-`docs/security.md`. What to look at:
-- **The automation socket.** Any local process that can open the unix socket
-  can drive the app (open, export, record the screen, camera and microphone).
-  Who may connect (file permissions, a per-launch token for MCP clients), and
-  whether recording over MCP needs the user's confirmation in the app.
-- **Untrusted files.** `.trec`, `.cmproj`, `.beproj` and media are parsed by
-  Beacon and its own FFmpeg: fuzz the `.trec` and project readers, keep
-  FFmpeg's demuxers and protocols to what Beacon needs (`file` only, as
-  today), and check paths read from projects (`..`, symlinks) never write
-  outside where they should (`checkOutput`).
-- **The webview.** What the window's RPC lets page script do (it runs
-  commands, opens files and dialogs); no remote content or inline HTML from
-  documents; the CSP.
-- **Secrets and uploads.** The OpenAI key stays in the Keychain and never in
-  logs, crash reports or project files; what is uploaded to OpenAI is only
-  the audio chunks, and the UI says so.
-- **Updates and the build.** In-app updates are signed and checked before
-  they run; the app is signed (hardened runtime) and notarized; pinned
-  dependencies with `bun run audit` (bun audit + cargo deny) in CI;
-  third-party binaries built from pinned, hashed sources.
-- **Permissions.** Screen recording, camera and microphone are asked for only
-  when used, and the recorder can't run without the window knowing.
-**Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
-and a fuzzing run of the file readers finds no crash.
-
-### Phase 14 — Camtasia export (the user, 2026-10-16)
-Handing a Beacon project to someone who keeps editing in Camtasia: File ›
-Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
-media beside it), one way and best effort, as import is (§11). Not for
-finished videos: MP4 and `.srt` export already covers those.
-- **The mappers, reversed.** Each feature's `CamtasiaMapper` gains an
-  export half for what it claims on import (clips, trims, speed, transform,
-  opacity, animation blocks, cursor effects, motion blur, the effects both
-  have); ticks map 1:1. What has no Camtasia equivalent (Beacon's captions
-  as drawn, Border, CRT...) is listed in an export report, as import lists
-  what it skips, never dropped silently. Core never names a feature: a
-  feature that can't export says so through the contract.
-- **The cursor.** Beacon's own recordings (`.brec`) have no cursor in the
-  screen video (Beacon draws it from the click log), and Camtasia draws one
-  only from `.trec` data. So a `.brec` screen is exported with Beacon's
-  cursor rendered into an MP4 (Camtasia's cursor effects can't apply); an
-  imported `.trec` goes as it is. Worth checking first whether Camtasia
-  accepts a `.trec` Beacon writes, which would keep its cursor editable.
-- **Versions.** Camtasia's format isn't documented and changes between
-  releases: write the version the user's projects use, check the result
-  opens in the Camtasia releases they have, and note findings in
-  `docs/formats/`.
-- Round trip as the test: a `.cmproj` imported then exported opens in
-  Camtasia looking the same, on copies (never the user's projects).
-**Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
-captions opens in Camtasia with its edit intact, and the report lists what
-didn't carry over.
-
-### Phase 15 — Beacon learns how you edit (the user, 2026-10-19)
+### Phase 12 — Beacon learns how you edit, and Memory (the user, 2026-10-19; was Phase 15, then 13, until 2026-10-27)
 The AI tools start from what the user tends to do, not fixed settings: if
 they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
@@ -2536,11 +2777,154 @@ Short and a long video each open with their own learned settings; one
 choice alone changes nothing; Settings shows and resets what was learned,
 per format.
 
+### Phase 13 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11, then Phase 12 until 2026-10-27)
+The user will bring a lot of information before any work starts: which
+devices, how each frame looks and where its screen sits, what it's for.
+Research and agree the design with them first; nothing is built before.
+- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
+
+#### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
+Not built in this phase until the spike says how: a new angle of the presenter
+(a close-up, a side profile, a wide) from one take, made with AI and placed as
+a cut to it, the take's own sound kept. The user's lead: **Seedance 2.5**.
+Spending limit: as Phase 11's (a Settings value), not a worry for now.
+
+**What is known (desk research, 2026-10-22).**
+- Seedance 2.5 re-angles an existing clip in its **editing** task:
+  `bytedance/seedance-2.5/reference-to-video` with `task: "editing"` on fal,
+  the take as `@Video1` (MP4/MOV, 1.8-30.2 s, up to 200 MB, 300-6,000 px a
+  side, 24-60 fps), an optional still for wardrobe and set; duration and
+  aspect follow the source ("auto"), 4-30 s out, the length kept to within
+  about 0.4 s. Prompts that work name the camera and lens and lock the rest:
+  "Medium close-up straight in front of him at seated eye level, 50mm feel,
+  locked", "a true 90-degree side profile at eye level", plus "camera
+  placement and lens are the only things you are allowed to change", "real-
+  time playback: no speed change, no retiming", no captions, text or logos.
+  ([fal guide](https://fal.ai/learn/tools/how-to-create-multi-angle-video-seedance-2-5),
+  [Kapwing](https://www.kapwing.com/resources/how-to-turn-one-clip-into-4-camera-angles-with-ai-seedance-2-5/),
+  [Morphic](https://morphic.com/resources/how-to/seedance-2-5-guide))
+- **Cost:** fal bills tokens (height × width × (input + output seconds) × 24
+  ÷ 1024, ×0.6 with a video input; $0.0214 per 1,000 at 480p/720p, about
+  $0.0234 at 1080p): a 20 s take was $5.18 at 480p, $9.24 at 720p, about
+  $27.40 at 1080p (≈$0.26/s, $0.46/s, $1.36/s). A 480p draft can be finished
+  at 1080p later from its `draft_id` (within seven days).
+- **Sync is not guaranteed:** "An edit cannot guarantee frame-by-frame
+  overlap with the source" (Morphic); Kapwing found speech and timing kept
+  but says to check the lips. So the take's own audio stays the master and
+  the generated picture is muted, checked for drift before it is placed.
+- **Weak points:** the farther the camera moves, the more AI invents (faces
+  drift, "inconsistent facial features"); exact text (a screen, a sign) is
+  for post, so screen recordings never go through it, only the camera; 8-10 s
+  pieces are the practical start.
+- **Replicate** has `bytedance/seedance-2.5` ("provide a reference video and
+  describe changes... preserves the original motion and camera work"), but its
+  page doesn't say whether it has the editing task, its field names or its
+  price ([Replicate](https://replicate.com/bytedance/seedance-2.5)). Phase 11
+  uses the user's Replicate token, so this decides the provider.
+- Earlier research (2026-10-15) still holds: no generation first (a punch-in
+  crop of the 4K source with a small ±5° depth-parallax move) costs nothing
+  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
+  model turning one frame then lip-sync (sync.so); no monocular 4D method
+  holds beyond 10-15° yet.
+
+**The spike (each answered with a real take, the user's go-ahead before any
+paid call, a few dollars at 480p):**
+1. Does Replicate's Seedance 2.5 do the editing task (one call with the
+   schema read from its API), or is fal needed (a second key)?
+2. On a 10 s camera take: a close-up, a side profile and a wide, at 480p:
+   lips against the original audio (offset by cross-correlation of mouth
+   movement, or by eye frame by frame), face and set drift, length kept.
+3. The same against the free punch-in crop: is a close-up worth generating?
+4. Longer takes: 8-10 s pieces cut at pauses (the transcript's), stitched;
+   do the seams show?
+5. Write the result into this plan as a spec in the B-roll review's shape
+   (pick a range, the angle and lens, a draft at 480p with its cost, then
+   1080p; applied as a cut on a camera track, one undo step), or park it.
+
+### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
+A review of what an attacker could reach, before Beacon is shared more widely,
+with each finding fixed or written down as an accepted risk in
+`docs/security.md`. What to look at:
+- **The automation socket.** Any local process that can open the unix socket
+  can drive the app (open, export, record the screen, camera and microphone).
+  Who may connect (file permissions, a per-launch token for MCP clients), and
+  whether recording over MCP needs the user's confirmation in the app.
+- **Untrusted files.** `.trec`, `.cmproj`, `.beproj` and media are parsed by
+  Beacon and its own FFmpeg: fuzz the `.trec` and project readers, keep
+  FFmpeg's demuxers and protocols to what Beacon needs (`file` only, as
+  today), and check paths read from projects (`..`, symlinks) never write
+  outside where they should (`checkOutput`).
+- **The webview.** What the window's RPC lets page script do (it runs
+  commands, opens files and dialogs); no remote content or inline HTML from
+  documents; the CSP.
+- **Secrets and uploads.** The OpenAI key stays in the Keychain and never in
+  logs, crash reports or project files; what is uploaded to OpenAI is only
+  the audio chunks, and the UI says so.
+- **Updates and the build.** In-app updates are signed and checked before
+  they run; the app is signed (hardened runtime) and notarized; pinned
+  dependencies with `bun run audit` (bun audit + cargo deny) in CI;
+  third-party binaries built from pinned, hashed sources.
+- **Permissions.** Screen recording, camera and microphone are asked for only
+  when used, and the recorder can't run without the window knowing.
+**Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
+and a fuzzing run of the file readers finds no crash.
+
+### Phase 15 — Camtasia export (the user, 2026-10-16; was Phase 14 until 2026-10-27)
+Handing a Beacon project to someone who keeps editing in Camtasia: File ›
+Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
+media beside it), one way and best effort, as import is (§11). Not for
+finished videos: MP4 and `.srt` export already covers those.
+- **The mappers, reversed.** Each feature's `CamtasiaMapper` gains an
+  export half for what it claims on import (clips, trims, speed, transform,
+  opacity, animation blocks, cursor effects, motion blur, the effects both
+  have); ticks map 1:1. What has no Camtasia equivalent (Beacon's captions
+  as drawn, Border, CRT...) is listed in an export report, as import lists
+  what it skips, never dropped silently. Core never names a feature: a
+  feature that can't export says so through the contract.
+- **The cursor.** Beacon's own recordings (`.brec`) have no cursor in the
+  screen video (Beacon draws it from the click log), and Camtasia draws one
+  only from `.trec` data. So a `.brec` screen is exported with Beacon's
+  cursor rendered into an MP4 (Camtasia's cursor effects can't apply); an
+  imported `.trec` goes as it is. Worth checking first whether Camtasia
+  accepts a `.trec` Beacon writes, which would keep its cursor editable.
+- **Versions.** Camtasia's format isn't documented and changes between
+  releases: write the version the user's projects use, check the result
+  opens in the Camtasia releases they have, and note findings in
+  `docs/formats/`.
+- Round trip as the test: a `.cmproj` imported then exported opens in
+  Camtasia looking the same, on copies (never the user's projects).
+**Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
+captions opens in Camtasia with its edit intact, and the report lists what
+didn't carry over.
+
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to
 `orva-kit` (§4.1).
 
 ---
+
+### Phase 16 — Films: narrated videos made from a brief (the user, 2026-10-26; to be confirmed)
+HyperFrames' other four examples (prompting/examples, "With registry blocks
+and source material") are whole films, not one graphic: a 45 s product
+launch from a URL (its palette and screenshots, a voice, music), a 60 s
+vertical explainer from pasted text (a voice, captions with keywords in the
+brand colour), a 30 s video from a GitHub PR (a code diff beat, kinetic
+captions), a 20 s beat-synced slideshow (eight generated images cut to a
+track's beat grid). Beacon has the pieces for one graphic (motion clips,
+captions, the catalog); a film needs:
+- **AI images**: a set in one visual language (OpenAI's image model), kept
+  in the project's media, usable in a composition.
+- **A voice**: text to speech (the user's cloned voice is a candidate), on
+  its own track, transcribed so captions and timing follow it.
+- **Music and its beat grid**: a track found or made, its beats analysed,
+  cuts and moves placed on them.
+- **Page screenshots** from a URL (a headless capture), and a site's palette.
+- **Several scenes**: a script split into beats, each a motion clip, with
+  transitions that have a cause.
+**Gate:** the four examples made from their prompts, compared with
+HyperFrames' renders as the single graphics were.
 
 ## 14. Risks
 
@@ -2570,6 +2954,26 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### New video models found and added by themselves (the user, 2026-10-26; later)
+Kling 4.0 reached Replicate (`kwaivgi/kling-v4.0`, $0.157 / $0.235 a second)
+on 2026-10-26, a day after it was checked by hand, and B-roll offers it since
+2026-10-27. Instead of checking by hand:
+- **A scheduled check** (a CI job or a cloud agent, daily or weekly) searches
+  Replicate's API (`/v1/search`, the text-to-video collection, the owners
+  Beacon already uses: google, bytedance, kwaivgi, black-forest-labs) for
+  text-to-video models not in `VIDEO_MODELS`, and for new versions of those
+  that are.
+- For each, it reads the model's schema (durations, aspects, resolutions,
+  the input names) and its price, makes a test generation within a set
+  budget, and opens a PR adding it to `broll/models.ts` with the clip and
+  the cost.
+- Merged and green, it **cuts a new release** (version bump, notes, the
+  usual build), so the app offers the model without anyone noticing first.
+  Whether a model is added without the user's look is theirs to decide; by
+  default the PR waits for their go.
+- The same for motion graphics' and B-roll planners' text models (a newer
+  GPT or Claude), and for prices that change.
 
 ### Film Look: looks as favourites (the user, 2026-10-21; not yet)
 - **A custom look as a favourite:** sliders moved into a look of one's own

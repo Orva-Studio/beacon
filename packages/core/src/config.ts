@@ -114,7 +114,8 @@ export class AppConfig {
     } else {
       const option = def.options.find((o) => o.id === value);
       if (!option) throw new Error(`${def.title}: "${value}" isn't one of ${def.options.map((o) => `"${o.id}"`).join(", ")}`);
-      if (option.secret && (await this.secrets.get(option.secret)) === undefined) {
+      // The default can always be had: it's what removing a key falls back to, and asks for its key when it's used.
+      if (option.secret && value !== def.default && (await this.secrets.get(option.secret)) === undefined) {
         throw new Error(`${option.title} needs the ${this.registry.secrets.get(option.secret)!.title}, which only the user can add in Settings`);
       }
     }
@@ -130,7 +131,7 @@ export class AppConfig {
     if (!this.registry.secrets.has(id)) throw new Error(`no secret "${id}"`);
     await this.secrets.set(id, value);
     if (value !== null) return [];
-    return [...this.registry.preferences.values()].filter((def) => def.options.find((o) => o.id === this.pref(def.id))?.secret === id).map((def) => def.id);
+    return [...this.registry.preferences.values()].filter((def) => this.pref(def.id) !== def.default && def.options.find((o) => o.id === this.pref(def.id))?.secret === id).map((def) => def.id);
   }
 
   favorites(): string[] {

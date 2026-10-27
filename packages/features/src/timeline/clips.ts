@@ -16,7 +16,7 @@ import {
   pasteBase,
   planMove,
   trimBounds,
-  secondsToTicks,
+  mediaBounds,
   shiftIn as moveInPoint,
   snapSeconds,
   ticksPerFrame,
@@ -38,7 +38,6 @@ import {
   IdSchema as Id,
   SecondsSchema as Seconds,
 } from "@beacon/model";
-import { clipStream, mediaInfo, streamOf } from "../media";
 
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
 
@@ -62,28 +61,6 @@ const holds = (registry: FeatureRegistry, clip: Clip) => registry.hasTrait(clip.
 function shiftIn(clip: Clip, delta: Ticks, registry: FeatureRegistry) {
   moveInPoint(clip, delta, holds(registry, clip));
   if (clip.assetId && (clip.mediaStart ?? 0) < 0) throw new Error(`clip "${clip.id}" would start before its media`);
-}
-
-/** Furthest timeline time a clip's end can reach before its media runs out; unbounded for stills, images and groups. */
-function latestEnd(doc: Project, clip: Clip, registry: FeatureRegistry): Ticks {
-  const asset = clip.assetId ? doc.assets[clip.assetId] : undefined;
-  if (!asset?.derived.media || asset.kind === "image" || holds(registry, clip)) return Infinity;
-  const stream = (() => {
-    try {
-      return streamOf(asset, clip.type === "audio" ? "audio" : "video", clipStream(clip));
-    } catch {
-      return undefined;
-    }
-  })();
-  if (!stream) return Infinity;
-  const length = secondsToTicks(stream.duration || mediaInfo(asset).duration);
-  return clip.start + Math.floor((length - (clip.mediaStart ?? 0)) / clipSpeed(clip));
-}
-
-/** Earliest timeline time a clip's start can reach before its media begins. */
-function earliestStart(clip: Clip, registry: FeatureRegistry): Ticks {
-  if (!clip.assetId || holds(registry, clip)) return -Infinity;
-  return clip.start - Math.floor((clip.mediaStart ?? 0) / clipSpeed(clip));
 }
 
 /** A deep copy under a new id; clips nested in it (a group's, a stitched clip's pieces) get new ids too, as ids are unique across the document. */
@@ -277,7 +254,7 @@ export const clipCommands = [
         // Edges stop at the clips beside them; a ripple trim moves them instead.
         const [lo, hi] = ripple ? [-Infinity, Infinity] : trimBounds(track, c);
         if (s !== undefined) {
-          const to = Math.max(s, earliestStart(c, ctx.registry), lo);
+          const to = Math.max(s, mediaBounds(doc, c, holds(ctx.registry, c))[0], lo);
           shiftIn(c, to - c.start, ctx.registry);
           if (ripple) {
             c.start = oldStart;
@@ -285,7 +262,7 @@ export const clipCommands = [
           }
         }
         if (e !== undefined) {
-          c.duration = Math.min(e, latestEnd(doc, c, ctx.registry), hi) - c.start;
+          c.duration = Math.min(e, mediaBounds(doc, c, holds(ctx.registry, c))[1], hi) - c.start;
           if (ripple) shiftLater(track, oldEnd, clipEnd(c) - oldEnd, c);
         }
         if (c.duration <= 0) throw new Error(`clip "${c.id}" would be empty`);
@@ -304,7 +281,7 @@ export const clipCommands = [
       Object.assign(a, { path, fingerprint, derived });
       const uses = [...walkClips(doc.tracks, ctx.registry)].filter((l) => l.clip.assetId === asset);
       for (const { clip, track } of uses) {
-        const end = latestEnd(doc, clip, ctx.registry);
+        const end = mediaBounds(doc, clip, holds(ctx.registry, clip))[1];
         if (end <= clip.start) track.clips.splice(track.clips.indexOf(clip), 1);
         else if (clipEnd(clip) > end) clip.duration = end - clip.start;
       }
@@ -373,13 +350,14 @@ export const clipCommands = [
   defineCommand({
     id: "clip.extendFrame",
     description:
-      "Hold a video clip's last frame for `duration` seconds after it, or with `edge: \"start\"` its first frame for `duration` before it, as a new still clip (⌥-drag of a clip's end or start). `ripple` moves the clips after it on the track to make room (with `start`, the clip too). Returns the still's id",
+      "Hold a video clip's last frame for `duration` seconds after it, or with `edge: \"start\"` its first frame for `duration` before it, as a new still clip (⌥-drag of a clip's end or start); a stitched clip's from the piece at that edge, in the stitched clip's look. `ripple` moves the clips after it on the track to make room (with `start`, the clip too). Returns the still's id",
     args: z.strictObject({ clip: Id, duration: z.number().positive(), edge: z.enum(["start", "end"]).default("end"), ripple: z.boolean().default(false) }),
     apply(doc, { clip, duration, edge, ripple }, ctx) {
       const loc = findClip(doc, ctx.registry, clip);
       const { clip: c, track } = loc;
       unlocked(track);
-      if (!ctx.registry.hasTrait(c.type, "video") || !c.assetId) throw new Error(`clip "${clip}" is not a video clip`);
+      const stitched = ctx.registry.hasTrait(c.type, "stitched");
+      if (!stitched && (!ctx.registry.hasTrait(c.type, "video") || !c.assetId)) throw new Error(`clip "${clip}" is not a video clip`);
       const frame = ticksPerFrame(doc.settings.fps);
       const d = Math.max(frame, snapSeconds(duration, doc.settings.fps));
       // Room is made on the tracks of the clips linked to it too, so its sound stays with it.
@@ -400,21 +378,27 @@ export const clipCommands = [
         if (ripple) make((l) => clipEnd(l.clip), true);
         else if (!track.magnetic && !isFree(track, start, start + d)) throw new Error("there is media right after the clip; extend it with `ripple`");
       }
-      const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const id = ctx.newId("clip");
+      const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const held = edge === "start" ? (c.mediaStart ?? 0) : mediaTimeAt(c, clipEnd(c) - frame);
+      // A stitched clip's frame is its piece's there (its time on the clip's inner track), in the stitched clip's look.
+      const piece = stitched ? ctx.registry.nestedTracks(c).flatMap((t) => t.clips).find((p) => p.assetId && (p.type === "still" || ctx.registry.hasTrait(p.type, "video")) && p.start <= held && held < clipEnd(p)) : c;
+      if (!piece) throw new Error(`clip "${clip}" has no picture at its ${edge}`);
+      const frameAt = piece === c ? held : piece.type === "still" ? (piece.mediaStart ?? 0) : mediaTimeAt(piece, held);
       // The frame as it shows there, animations and all (a zoom in), since the still has none of its own.
       const animated = new Set(c.animations.flatMap((a) => Object.keys(a.to).map((target) => target.split(".")[0]!)));
       const shown = resolveProps(ctx.registry, c, held);
+      // What the piece carries itself (which stream, its cursor) is the piece's; the stitched clip's look goes over it.
+      const own = piece === c ? {} : Object.fromEntries(Object.entries(resolveProps(ctx.registry, piece, frameAt)).filter(([k]) => groups.has(k) && k in piece.props));
       const still: Clip = {
         id,
         type: "still",
         start,
         duration: d,
-        mediaStart: held,
-        assetId: c.assetId,
-        props: clone(Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k))))),
-        effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
+        mediaStart: frameAt,
+        assetId: piece.assetId,
+        props: clone({ ...own, ...Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k)))) }),
+        effects: [...(piece === c ? [] : piece.effects), ...c.effects].filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };
       track.clips.splice(track.clips.indexOf(c) + (edge === "start" ? 0 : 1), 0, still);

@@ -4,6 +4,7 @@ import {
   defineCommand,
   defineFeature,
   defineQuery,
+  EASINGS,
   EasingSchema,
   EffectInstanceSchema,
   mediaTimeAt,
@@ -63,20 +64,22 @@ const commands = [
   defineCommand({
     id: "clip.pasteProperties",
     description:
-      "Apply copied properties (from the editor's `properties.copy`, in its session) to clips: each prop group that applies to a clip's type replaces its own, and effects that apply replace the clip's effects of the same types (Paste Properties)",
+      "Apply copied properties (from the editor's `properties.copy`, in its session) to clips: each prop group that applies to a clip's type replaces its own, and the copied effects that apply replace the clip's effects: with `type` (the clip type copied from), every effect such a clip could have, so one the copy didn't have is removed; without it, only those of the same types (Paste Properties)",
     args: z.strictObject({
       clips: z.array(Id).min(1),
       props: z.record(z.string(), z.record(z.string(), z.unknown())),
       effects: z.array(EffectInstanceSchema).default([]),
+      type: z.string().min(1).optional(),
     }),
-    apply(doc, { clips, props, effects }, ctx) {
+    apply(doc, { clips, props, effects, type }, ctx) {
       for (const id of clips) {
         const { clip: c } = findClip(doc, ctx.registry, id);
         const groups = new Set(ctx.registry.groupsFor(c.type).map((g) => g.id));
         for (const [group, values] of Object.entries(props)) if (groups.has(group)) c.props[group] = clone(values);
         const fits = effects.filter((e) => ctx.registry.effectFits(e.type, c.type));
         const types = new Set(fits.map((e) => e.type));
-        c.effects = [...c.effects.filter((e) => !types.has(e.type)), ...fits.map((e) => freshEffect(e, ctx.newId))];
+        const replaced = (e: { type: string }) => types.has(e.type) || (type !== undefined && ctx.registry.effectFits(e.type, type));
+        c.effects = [...c.effects.filter((e) => !replaced(e)), ...fits.map((e) => freshEffect(e, ctx.newId))];
       }
     },
   }),
@@ -299,10 +302,7 @@ export const timeline = defineFeature({
       id: "animationEasing",
       title: "Animation easing",
       description: "How a new animation (Add Animation, ⇧A, an animation tile) moves; picking an easing on an animation makes it the one new animations take",
-      options: [
-        { id: "easeInOut", title: "Ease in and out", description: "Starts and ends gently" },
-        { id: "linear", title: "Linear", description: "The same speed throughout" },
-      ],
+      options: EASINGS,
       default: "easeInOut",
     },
   ],

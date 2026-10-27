@@ -5,13 +5,33 @@ import { IDENTITY, type Layer, type RGBA, type Scene, type SourceDef, type Visua
 import type { Animation, Clip, Easing, Project } from "./schema";
 import { rationalToNumber, secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
 
-/**
- * The two easings: linear, and a cubic ease in/out.
- */
+/** Every easing, in the order menus list them. */
+export const EASINGS: { id: Easing; title: string; description: string }[] = [
+  { id: "easeInOut", title: "Ease in and out", description: "Starts and ends gently" },
+  { id: "easeOut", title: "Ease out", description: "Starts fast, ends gently" },
+  { id: "easeIn", title: "Ease in", description: "Starts gently, ends fast" },
+  { id: "backOut", title: "Overshoot", description: "Goes a little past the end, then settles" },
+  { id: "linear", title: "Linear", description: "The same speed throughout" },
+];
+
+/** Back-out's overshoot (about 10%), the usual constant. */
+const BACK = 1.70158;
+
+/** Cubic curves; back-out passes 1 before settling, so a value briefly goes past its target. */
 export function ease(easing: Easing, x: number): number {
   const t = Math.min(1, Math.max(0, x));
-  if (easing === "linear") return t;
-  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+  switch (easing) {
+    case "linear":
+      return t;
+    case "easeIn":
+      return t ** 3;
+    case "easeOut":
+      return 1 - (1 - t) ** 3;
+    case "backOut":
+      return 1 + (BACK + 1) * (t - 1) ** 3 + BACK * (t - 1) ** 2;
+    case "easeInOut":
+      return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+  }
 }
 
 function lerp(a: unknown, b: unknown, k: number): unknown {

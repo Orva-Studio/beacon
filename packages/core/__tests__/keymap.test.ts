@@ -12,8 +12,8 @@ const listed = actions.actions as { id: string; command?: string; args?: Record<
 
 test("every action runs a real command, and every shortcut is one action's", () => {
   const ids = new Set(new LocalCore().commands().map((c) => c.id));
-  // The app's own (menus, dialogs) and undo/redo run by their id.
-  expect(listed.filter((a) => !ids.has(a.command ?? a.id) && !/^(app\.|project\.(undo|redo)$)/.test(a.id)).map((a) => a.id)).toEqual([]);
+  // The app's own (menus, dialogs), the AI panel's tiles and undo/redo run by their id.
+  expect(listed.filter((a) => !ids.has(a.command ?? a.id) && !/^(app\.|ai\.|project\.(undo|redo)$)/.test(a.id)).map((a) => a.id)).toEqual([]);
   expect(bindings.filter((b) => listed.filter((a) => (a.command ?? a.id) === b.command && sameArgs(a.args, b.args)).length !== 1).map((b) => b.command)).toEqual([]);
   // ⇧I and ⇧i are one chord written twice for one action; a chord on two actions is a clash.
   const owner = new Map<string, string>();
