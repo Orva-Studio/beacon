@@ -20,19 +20,22 @@ const uploadedNames: string[] = [];
 const downloaded: string[] = [];
 let stalled = false;
 let polls = 0;
+/** FFmpeg without blocking: this server shares the test's event loop, and a blocked loop reads to Beacon as a stalled request. */
+const ffmpeg = async (args: string[]) => new Uint8Array(await new Response(Bun.spawn([tool("ffmpeg"), "-v", "error", ...args]).stdout).arrayBuffer());
+
 /** What Auphonic makes of the upload for a preset, made as the production is: a real download serves a file ready. */
 async function produce(production: string) {
   const cut = production === "prod-p-cut" ? ["-ss", "1"] : [];
   let source = join(dir, "uploaded.wav");
   if (production === "prod-p-snip") {
     // 0.3 s from 100 s out, by the samples (Beacon's FFmpeg has no filter for it).
-    const raw = Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-i", source, "-ac", "1", "-ar", "48000", "-f", "s16le", "-"]).stdout;
+    const raw = await ffmpeg(["-i", source, "-ac", "1", "-ar", "48000", "-f", "s16le", "-"]);
     const pcm = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
     await Bun.write(join(dir, "snip.pcm"), new Int16Array([...pcm.subarray(0, 100 * 48000), ...pcm.subarray(100.3 * 48000)]));
-    Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", "48000", "-ac", "1", "-i", join(dir, "snip.pcm"), join(dir, "snip.wav")]);
+    await ffmpeg(["-y", "-f", "s16le", "-ar", "48000", "-ac", "1", "-i", join(dir, "snip.pcm"), join(dir, "snip.wav")]);
     source = join(dir, "snip.wav");
   }
-  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", source, ...cut, "-af", "adelay=46:all=1,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", join(dir, `${production}.m4a`)]);
+  await ffmpeg(["-y", "-i", source, ...cut, "-af", "adelay=46:all=1,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", join(dir, `${production}.m4a`)]);
 }
 
 const server = Bun.serve({
@@ -49,7 +52,7 @@ const server = Bun.serve({
       const sent = form.get("input_file") as File;
       uploadedNames.push(sent.name);
       await Bun.write(join(dir, "uploaded.m4a"), sent);
-      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.m4a"), join(dir, "uploaded.wav")]);
+      await ffmpeg(["-y", "-i", join(dir, "uploaded.m4a"), join(dir, "uploaded.wav")]);
       await produce(`prod-${preset}`);
       uploads.push({ preset, key });
       return Response.json({ data: { uuid: `prod-${preset}` } });
