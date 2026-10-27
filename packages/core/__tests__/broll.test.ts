@@ -36,6 +36,8 @@ const plans: Record<string, unknown>[] = [];
 const predictions: Record<string, unknown>[] = [];
 const cancelled: string[] = [];
 const state = new Map<string, { input: Record<string, unknown>; polls: number }>();
+/** What the planner stand-ins act out ("[late]", "[apple-off]"…), set by a test with `planAs`. */
+let mode = "";
 const server = Bun.serve({
   port: 0,
   async fetch(req) {
@@ -45,7 +47,7 @@ const server = Bun.serve({
       if (key !== "Bearer openai-key") return Response.json({ error: { message: "bad key" } }, { status: 401 });
       const body = (await req.json()) as Record<string, unknown>;
       plans.push(body);
-      const asked = JSON.stringify(body.input);
+      const asked = JSON.stringify(body.input) + mode;
       // "[silent]": nothing comes back.
       if (asked.includes("[silent]")) return new Promise<Response>(() => {});
       // "[stream]": answered as OpenAI streams, event by event, slowly enough for each stage to be seen.
@@ -181,7 +183,7 @@ process.env.BEACON_REPLICATE_POLL_MS = "10";
 // Apple's on-device model, standing in for beacon-writer: keeps each request to read, writes one scene; "[apple-off]"
 // answers as a Mac with Apple Intelligence off does.
 const writer = join(dir, "beacon-writer");
-writeFileSync(writer, `#!/bin/sh\ncp "$1" "${join(dir, "last-request.json")}"\nif grep -q "apple-off" "$1"; then echo "Apple Intelligence is off: turn it on in System Settings" >&2; exit 2; fi\necho '{"prompt":"An on-device scene","why":"device"}'\n`, { mode: 0o755 });
+writeFileSync(writer, `#!/bin/sh\ncp "$1" "${join(dir, "last-request.json")}"\nif grep -q "apple-off" "$1" "${join(dir, "mode")}" 2>/dev/null; then echo "Apple Intelligence is off: turn it on in System Settings" >&2; exit 2; fi\necho '{"prompt":"An on-device scene","why":"device"}'\n`, { mode: 0o755 });
 process.env.BEACON_WRITER = writer;
 afterAll(() => {
   server.stop(true);
@@ -211,6 +213,7 @@ const jobOf = (r: { results: unknown[] }) => (r.results.at(-1) as { job: string 
 
 /** A project with the fixture's talk, transcribed (a word every half second), and keys as given. */
 async function talk(name: string, keys: Record<string, string> = {}) {
+  planAs("");
   const secrets = new Map(Object.entries(keys));
   const core = new LocalCore({ cacheDir: join(dir, `cache-${name}`), configDir: join(dir, `config-${name}`), secrets: { get: async (id) => secrets.get(id), set: async (id, v) => void (v === null ? secrets.delete(id) : secrets.set(id, v)) } });
   const h = await core.create({ path: join(dir, `${name}.beproj`) });
@@ -226,10 +229,10 @@ async function talk(name: string, keys: Record<string, string> = {}) {
 
 const props = (c: Clip) => c.props.broll as BrollProps;
 
-/** Gives a clip a style of the user's own whose wording is `text`: the planner's guide, so the stand-in reads it. */
-async function styled(core: LocalCore, h: string, clip: string, text: string) {
-  await core.setPreference("brollStyles", JSON.stringify([{ id: "s1", name: "Test", text }]));
-  await core.run(h, "clip.set", { clip, props: { broll: { style: "s1" } } });
+/** Has the planner stand-ins act out `as` ("[late]", "[apple-off]"…) until told otherwise; "" for a plain answer. */
+function planAs(as: string) {
+  mode = as;
+  writeFileSync(join(dir, "mode"), as);
 }
 
 test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a region, planned from the words under it (split into shots), its footage made through Replicate and shown in it in place, every take kept to pick again; an empty one shows nothing; all undoes exactly", async () => {
@@ -265,22 +268,21 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   expect(canvas().equals(plain)).toBe(true);
 
   // Planned on this Mac by default: Beacon cuts the 12 s into two shots of Veo's length at a pause, and Apple's
-  // model writes each one's scene in the clip's style, with no key.
-  await styled(core, h, clip!.id, "keep it abstract");
+  // model writes each one's scene, with no key.
+  planAs("");
   await waitJob(core, jobOf(await core.run(h, "broll.plan", {})));
   expect(brolls().map((c) => props(c).prompt)).toEqual(["An on-device scene", "An on-device scene"]);
   // Cut at the pause nearest the middle: two shots of about 6 s, together the 12.
   const halves = brolls().map((c) => ticksToSeconds(c.duration));
   expect(halves.every((d) => Math.abs(d - 6) < 0.5)).toBe(true);
   expect(halves[0]! + halves[1]!).toBeCloseTo(12);
-  expect(readFileSync(join(dir, "last-request.json"), "utf8")).toContain("keep it abstract");
   await core.undo(h);
   // Apple Intelligence off: the clip says so, and what to do.
-  await styled(core, h, clip!.id, "[apple-off]");
+  planAs("[apple-off]");
   await expect(waitJob(core, jobOf(await core.run(h, "broll.plan", {})))).rejects.toThrow(/Apple Intelligence is off/);
   expect((await state())!.planning).toEqual([]);
   expect((await state())!.errors[clip!.id]).toMatch(/Apple Intelligence is off/);
-  await styled(core, h, clip!.id, "keep it abstract");
+  planAs("");
 
   // OpenAI as the planner: it needs its key first.
   await expect(core.setPreference("brollPlanner", "openai")).rejects.toThrow(/needs the OpenAI API key/);
@@ -289,7 +291,6 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   await waitJob(core, jobOf(await core.run(h, "broll.plan", {})));
   const sent = plans.at(-1)!;
   expect(sent).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "medium" }, tools: [{ type: "web_search" }] });
-  expect(JSON.stringify(sent.input)).toContain("keep it abstract");
   expect(JSON.stringify(sent.input)).toContain("9:16");
   // 12 s is longer than Veo's 8: split into shots back to back over the same span, in the same region, one undo step.
   const shots = brolls();
@@ -342,6 +343,19 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   const folder = join(dir, "main.beproj", "media", "B-roll");
   expect(readdirSync(folder).filter((f) => f.endsWith(".mp4"))).toHaveLength(2);
   expect(JSON.parse(readFileSync(join(folder, readdirSync(folder).find((f) => f.endsWith(".json"))!), "utf8"))).toMatchObject({ slug: "google/veo-3.1-fast", resolution: "1080p" });
+  // A clip's own model: priced and made with it, the other clips with Settings › AI's; its Model menu priced for it.
+  await core.run(h, "clip.set", { clip: made[0]!.id, props: { broll: { model: "flux-3" } } });
+  const own = (await core.query(h, "broll.estimate", { clips: made.map((c) => c.id) })) as { clips: { id: string; model: string }[]; models: { id: string; fits: boolean }[]; default: string };
+  expect(own.clips.map((c) => c.model)).toEqual(["flux-3", "veo-3.1-fast"]);
+  expect(own.default).toBe("veo-3.1-fast");
+  expect(own.models.find((m) => m.id === "flux-3")?.fits).toBe(true);
+  const mixed = predictions.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: [made[0]!.id] })));
+  expect(predictions.slice(mixed).map((p) => p.model)).toEqual(["black-forest-labs/flux-3"]);
+  await core.undo(h);
+  await core.undo(h);
+  expect(props(brolls()[0]!).model).toBe("");
+
   const shown = canvas();
   expect(shown.equals(plain)).toBe(false);
 
@@ -611,7 +625,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   await withKey.core.setPreference("brollPlanner", "openai");
   await withKey.core.run(withKey.h, "broll.add", { time: 0, duration: 12 });
   const [late] = withKey.brolls();
-  await styled(withKey.core, withKey.h, late!.id, "[late]");
+  planAs("[late]");
   const planning = jobOf(await withKey.core.run(withKey.h, "broll.plan", {}));
   await expect(withKey.core.run(withKey.h, "broll.generate", {})).rejects.toThrow(/being planned or made already|has no prompt/);
   await withKey.core.run(withKey.h, "clip.move", { clip: late!.id, by: 1 });
@@ -620,7 +634,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   expect(props(withKey.brolls()[0]!).prompt).toBe("");
 
   // Streamed, its steps are told as they happen, numbered, with the time it has taken.
-  await styled(withKey.core, withKey.h, late!.id, "[stream]");
+  planAs("[stream]");
   const streaming = jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id }));
   const stages = new Set<string>();
   for (;;) {
@@ -636,7 +650,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   await withKey.core.undo(withKey.h);
   // Nothing from OpenAI for the idle limit: given up, saying so.
   process.env.BEACON_OPENAI_IDLE_MS = "300";
-  await styled(withKey.core, withKey.h, late!.id, "[silent]");
+  planAs("[silent]");
   await expect(waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })))).rejects.toThrow(/OpenAI sent nothing for 0 minutes while planning/);
   delete process.env.BEACON_OPENAI_IDLE_MS;
 
@@ -644,7 +658,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   // own look (an effect here) on every piece.
   await withKey.core.run(withKey.h, "clip.move", { clip: late!.id, by: -1 });
   await withKey.core.run(withKey.h, "effect.add", { clip: late!.id, type: "drop-shadow" });
-  await styled(withKey.core, withKey.h, late!.id, "[nested]");
+  planAs("[nested]");
   await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
   expect(withKey.brolls().map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).toEqual([
     [0, 8],
@@ -655,7 +669,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   // Boundaries between frames (Kling, which makes 3 s shots, keeps all three): snapped once, shared, so the shots butt up and the plan goes through.
   await withKey.core.undo(withKey.h);
   await withKey.core.setPreference("brollModel", "kling-v3");
-  await styled(withKey.core, withKey.h, late!.id, "[frames]");
+  planAs("[frames]");
   await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
   const framed = withKey.brolls();
   expect(framed).toHaveLength(3);
@@ -664,7 +678,7 @@ test.skipIf(!existsSync(AUDIO))("B-roll: a typed prompt needs no OpenAI key; pla
   // Planned for Kling (15 s shots), then Veo chosen (8 s): refused before anything is paid for, not made short.
   await withKey.core.undo(withKey.h);
   await withKey.core.setPreference("brollModel", "kling-v3");
-  await styled(withKey.core, withKey.h, late!.id, "[long]");
+  planAs("[long]");
   await waitJob(withKey.core, jobOf(await withKey.core.run(withKey.h, "broll.plan", { clip: late!.id })));
   expect(withKey.brolls()).toHaveLength(1);
   await withKey.core.setPreference("brollModel", "veo-3.1-fast");

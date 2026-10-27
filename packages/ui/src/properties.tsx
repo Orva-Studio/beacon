@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
-import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
+import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, KeptLooksSchema, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
 import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
+import { copiedIds } from "./clip-ids";
 import { BrollTab } from "./broll";
 import { MotionTab } from "./motion";
 
@@ -24,14 +25,70 @@ export function Properties({ project: full, session, host, init }: { project: Pr
   const all = project.tracks.flatMap((t) => t.clips);
   const selected = session.selection.map((id) => all.find((c) => c.id === id)).filter((c): c is Clip => !!c);
   const clip = selected[0];
+  const panel = useRef<HTMLDivElement>(null);
+  const rev = useView((s) => s.rev);
+  const focus = useView((s) => s.focusInputs);
+  // An effect or annotation picked in the palette, or a tab stepped to by : [ and : ]: once it has arrived, the caret goes in its first input.
+  useEffect(() => {
+    if (!focus || !clip || !panel.current) return;
+    if (focus.tab !== undefined ? session.inspector === focus.tab : (rev ?? 0) <= focus.rev) return;
+    // Only soon after it was asked, and not from under a dialog: a late one would take the caret from wherever it is.
+    if (performance.now() - focus.at > FOCUS_MS || document.querySelector("[data-modal], [data-palette]")) return replica.focusInputs(undefined);
+    const scope = focus.effect ? panel.current.querySelector(`[data-effect="${clip.effects.at(-1)?.id}"]`) : panel.current;
+    const first = scope && inputsIn(scope)[0];
+    if (!first) return;
+    first.focus();
+    replica.focusInputs(undefined);
+  });
   return (
-    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto text-body">
+    <div
+      ref={panel}
+      className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto text-body"
+      // Tab and ⇧Tab go through the inputs in order (value boxes, menus, colour wells); Esc gives the keys back to the timeline.
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && panel.current?.contains(document.activeElement)) {
+          e.stopPropagation();
+          // A value box's own Escape runs first and cancels what was typed.
+          setTimeout(() => (document.activeElement as HTMLElement | null)?.blur());
+          return;
+        }
+        // In an effect's section, ⌘⌫ removes the effect, as ⌫ does on a control that isn't typed in: not the clip (Delete) or a ripple.
+        const section = (e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && e.target instanceof Element ? e.target.closest("[data-effect]") : null;
+        if (section && clip && (e.metaKey || !isTyping(e.target))) {
+          e.preventDefault();
+          e.stopPropagation();
+          const fx = clip.effects.find((f) => f.id === section.getAttribute("data-effect"));
+          if (!fx) return;
+          (document.activeElement as HTMLElement | null)?.blur();
+          host.run("effect.remove", { clip: clip.id, effect: fx.id }, `Remove ${init?.effects.find((d) => d.id === fx.type)?.title ?? "Effect"}`);
+          return;
+        }
+        if (e.key !== "Tab" || e.metaKey || e.ctrlKey || e.altKey) return;
+        const list = inputsIn(panel.current!);
+        const i = list.indexOf(document.activeElement as HTMLElement);
+        if (i < 0) return;
+        e.preventDefault();
+        // Not the timeline's Tab too, which runs when the key comes from a control that isn't typed in (a colour well).
+        e.stopPropagation();
+        list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length]!.focus();
+      }}
+    >
       {!clip ? (
         <div className="p-4 text-center text-text-faint">{session.selection.length ? "Selection is not on the timeline" : "Select media on the timeline to see its properties"}</div>
       ) : (
         <ClipProperties project={project} session={session} clip={clip} selected={selected} host={host} init={init} />
       )}
     </div>
+  );
+}
+
+/** How long after a palette pick its effect's first input may still take the caret. */
+const FOCUS_MS = 2000;
+
+/** The properties panel's inputs, in order: value boxes, text, menus, colour wells and checkboxes, not a section's own header. */
+function inputsIn(root: Element): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>("[data-input], input, select, textarea, button[role=checkbox]")].filter(
+    (e) => !e.closest("[data-fold-head]") && !(e as HTMLInputElement).disabled && e.offsetParent !== null,
   );
 }
 
@@ -124,7 +181,28 @@ function ClipProperties({
       {tab?.id === "effects" && clip.effects.map((e) => (
           <Effect key={e.id} clip={clip} effect={e} host={host} def={init?.effects.find((x) => x.id === e.type)} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
         ))}
+      <ClipId ids={selected.map((c) => c.id)} host={host} />
     </>
+  );
+}
+
+/** The clip's id at the foot of its properties, to name it to an agent: a click copies it (all of them, with several selected). */
+function ClipId({ ids, host }: { ids: string[]; host: Host }) {
+  const text = copiedIds(ids);
+  return (
+    <div className="mt-auto flex justify-center px-4 pt-6 pb-3">
+      <button
+        data-clip-id
+        title={ids.length > 1 ? "Copy these clips' ids, to name them to an agent" : "Copy this clip's id, to name it to an agent"}
+        className="max-w-full truncate rounded-md bg-control px-2 py-0.5 font-mono text-label text-text-faint hover:text-text-muted"
+        onClick={() => {
+          host.copyText(text);
+          replica.status(`Copied ${text}`);
+        }}
+      >
+        {ids.length > 1 ? `${ids[0]} + ${ids.length - 1} more` : ids[0]}
+      </button>
+    </div>
   );
 }
 
@@ -438,12 +516,23 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
 /** Blur, Pixelate and Spotlight show only the intensity. */
 function RegionProps({ clip, value, edit }: { clip: Clip; value: (g: string, f: string, d?: number) => number; edit: Edit }) {
   const kind = (clip.props.region as { kind?: string } | undefined)?.kind;
-  // Spotlight darkens 0-100%; blur is a radius and pixelate a block size, shown as 0-100.
+  // Spotlight darkens 0-100%; blur is a radius and pixelate a block size, shown as 0-100; a highlight's is its opacity.
   const scale = kind === "blur" ? 10 : 100;
+  const region = clip.props.region as { invert?: boolean; color?: RGBA } | undefined;
   return (
     <Section>
-      <Slider unit="" label="Intensity" value={value("region", "intensity") * scale} max={100} onChange={(v, key) => edit("region", { intensity: Math.max(0, v) / scale }, "Intensity", key)} />
+      {kind === "highlight" && <ColorRow label="Color" color={region?.color} opacity={false} onChange={(c, key) => edit("region", { color: c }, "Highlight Color", key)} />}
+      {kind === "highlight" ? (
+        <Slider unit="%" label="Opacity" value={value("region", "intensity") * 100} max={100} onChange={(v, key) => edit("region", { intensity: Math.max(0, v) / 100 }, "Highlight Opacity", key)} />
+      ) : (
+        <Slider unit="" label="Intensity" value={value("region", "intensity") * scale} max={100} onChange={(v, key) => edit("region", { intensity: Math.max(0, v) / scale }, "Intensity", key)} />
+      )}
       <Slider unit="" label="Corners" value={value("region", "cornerRadius")} max={200} onChange={(v, key) => edit("region", { cornerRadius: Math.max(0, v) }, "Corner Radius", key)} />
+      {kind !== "spotlight" && (
+        <div className="ml-[92px]">
+          <Check label="Invert" title={kind === "highlight" ? "Colour everything outside the box instead" : "Work on everything outside the box instead"} checked={!!region?.invert} onChange={(on) => edit("region", { invert: on }, on ? "Invert" : "Don't Invert")} data-region-invert />
+        </div>
+      )}
     </Section>
   );
 }
@@ -483,28 +572,59 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   const [importError, setImportError] = useState<string>();
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
   const [chooseError, setChooseError] = useState<string>();
-  const preset = def?.presets?.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
+  // Files imported before (`importFile.keep`), in every project, after the built-ins.
+  const keep = def?.importFile?.keep;
+  const keptText = useView((s) => (keep ? s.preferences.find((p) => p.id === keep)?.value : undefined));
+  const kept = useMemo(() => {
+    const parsed = KeptLooksSchema.safeParse((() => { try { return JSON.parse(keptText || "[]"); } catch { return []; } })());
+    return parsed.success ? parsed.data : [];
+  }, [keptText]);
+  const looks = [...(def?.presets ?? []).map((p) => ({ ...p, group: undefined as string | undefined })), ...kept.map((l) => ({ id: l.id, title: l.name, params: l.params, description: undefined as string | undefined, group: "Your looks" }))];
+  const preset = looks.find((p) => Object.entries(p.params).every(([k, v]) => effect.params[k] === v));
   const assets = useView((s) => s.project?.assets);
   // What the effect needs of the clip's media (a matte) while it is made, or why it couldn't be.
   const making = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analyzing[`${n}:${clip.assetId}`]).find((p) => p !== undefined) : undefined));
   const failed = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analysisFailed[`${n}:${clip.assetId}`]).find(Boolean) : undefined));
+  // The sliders as they are, kept as a look of the user's own under the name given in its dialog.
+  const [naming, setNaming] = useState<string>();
+  const nextName = () => {
+    const taken = new Set(kept.map((l) => l.name));
+    let n = 1;
+    while (taken.has(`My Look ${n}`)) n++;
+    return `My Look ${n}`;
+  };
+  const saveLook = (name: string) => {
+    setNaming(undefined);
+    if (!name) return;
+    // One of the same name gives way, as an import does.
+    const look = { id: `look-${Date.now().toString(36)}`, name, params: { ...effect.params } };
+    void host.setPreference(keep!, JSON.stringify([...kept.filter((l) => l.name !== name), look])).then((r) => replica.status(r.ok ? `Saved "${name}" in Your looks, for every project` : `Couldn't save "${name}": ${r.error}`));
+  };
   const importLook = async () => {
     const path = await host.chooseFile(def!.importFile!.extensions);
     if (!path) return;
     try {
-      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown> };
+      const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown>; notReproduced?: string[] };
       host.run("effect.set", { clip: clip.id, effect: effect.id, params: look.params }, `Import ${look.name}`);
       setImportError(undefined);
+      if (keep) {
+        // Kept for every project; one of the same name gives way.
+        const entry = { id: `look-${Date.now().toString(36)}`, name: look.name, params: look.params, ...(look.notReproduced?.length ? { notes: look.notReproduced } : {}) };
+        void host.setPreference(keep, JSON.stringify([...kept.filter((l) => l.name !== look.name), entry]));
+      }
     } catch (e) {
       setImportError(`${path.split("/").pop()}: ${(e as Error).message}`);
     }
   };
   return (
+    <div data-effect={effect.id}>
+    {naming !== undefined && <SaveLookDialog name={naming} taken={kept.map((l) => l.name)} onDone={saveLook} />}
     <FoldSection
       title={name}
       selected={selected}
       selectHint="Select the effect (⇧ or ⌘ for several): ⌘C copies it, Delete removes it"
       onSelect={(e) => host.run("effect.select", { effects: [{ clip: clip.id, id: effect.id }], add: e.shiftKey || e.metaKey })}
+      action={keep ? { icon: "floppy-disk", label: "Save these settings as a look of your own, for every project", run: () => setNaming(nextName()), disabled: preset ? `These settings are ${preset.title} already` : undefined } : undefined}
       remove={{ label: "Remove Effect", run: () => host.run("effect.remove", { clip: clip.id, effect: effect.id }, `Remove ${name}`) }}
       enabled={effect.enabled}
       onEnable={(on) => host.run("effect.set", { clip: clip.id, effect: effect.id, enabled: on }, on ? `Enable ${name}` : `Disable ${name}`)}
@@ -512,17 +632,17 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
           {(def?.presets || def?.importFile) && (
             <Row label="Look">
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                {def.presets && (
+                {looks.length > 0 && (
                   <ListSelect
                     value={preset?.id ?? ""}
                     title={preset?.description}
-                    options={[{ id: "", label: "Custom" }, ...def.presets.map((p) => ({ id: p.id, label: p.title, title: p.description }))]}
+                    options={[{ id: "", label: "Custom" }, ...looks.map((p) => ({ id: p.id, label: p.title, title: p.description, group: p.group }))]}
                     onPreview={(id) => {
-                      const p = def.presets!.find((x) => x.id === id);
+                      const p = looks.find((x) => x.id === id);
                       host.previewEffect(p ? { clip: clip.id, effect: effect.id, params: p.params } : null);
                     }}
                     onChange={(id) => {
-                      const p = def.presets!.find((x) => x.id === id);
+                      const p = looks.find((x) => x.id === id);
                       if (p) {
                         host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
                         setImportError(undefined);
@@ -544,6 +664,15 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             <div className="mb-2 ml-[92px] text-label text-danger" data-effect-import-error>
               {importError}
             </div>
+          )}
+          {def?.tune && (
+            <Row label="">
+              <div className="flex min-w-0 flex-1 items-center" data-effect-tune>
+                <Button title={def.tune.title} onClick={() => host.run(def.tune!.action, { clip: clip.id, effect: effect.id })} data-effect-tune-run>
+                  {def.tune.label}
+                </Button>
+              </div>
+            </Row>
           )}
           {chooseError && (
             <div className="mb-2 ml-[92px] text-label text-danger" data-effect-choose-error>
@@ -646,6 +775,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             return <Row key={k} label={label}><span className="truncate text-text-muted">{JSON.stringify(v)}</span></Row>;
           })}
     </FoldSection>
+    </div>
   );
 }
 
@@ -683,5 +813,32 @@ function AnimationSection({ clip, id, host }: { clip: Clip; id: string; host: Ho
         <NumberBox value={seconds} unit=" s" onCommit={(v) => v > 0 && host.run("animation.set", { clip: clip.id, animation: id, duration: v }, "Animation Duration")} />
       </Row>
     </Section>
+  );
+}
+
+/** As `KeptLookSchema` allows: a longer name would be refused when kept. */
+const LOOK_NAME_MAX = 120;
+
+/** Names a look about to be kept: the suggested name selected to type over; Return saves, Esc cancels. */
+function SaveLookDialog({ name: suggested, taken, onDone }: { name: string; taken: string[]; onDone: (name: string) => void }) {
+  const [name, setName] = useState(suggested);
+  const trimmed = name.trim();
+  return (
+    <Modal title="Save Look" width={380} onClose={() => onDone("")} onEnter={() => trimmed && onDone(trimmed)}>
+      <div className="flex flex-col gap-3" data-save-look>
+        <TextInput autoFocus maxLength={LOOK_NAME_MAX} value={name} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} data-save-look-name />
+        <span className="text-caption text-text-faint">
+          {taken.includes(trimmed) ? `Replaces your look "${trimmed}".` : "Listed under Your looks in Film Look's Look menu, in every project. Renamed and deleted in Settings › General."}
+        </span>
+        <div className="flex justify-end gap-2">
+          <Button look="quiet" onClick={() => onDone("")}>
+            Cancel
+          </Button>
+          <Button look="primary" disabled={!trimmed} onClick={() => onDone(trimmed)} data-save-look-save>
+            Save
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

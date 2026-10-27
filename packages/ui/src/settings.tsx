@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Check, DeviceSelect, Modal, Select, SettingsRow as Row } from "./controls";
+import { KeptLooksSchema, type KeptLook } from "@beacon/model";
+import { Button, Check, DeviceSelect, Modal, NumberBox, RenameField, Select, SettingsRow as Row } from "./controls";
 import { AiSettings, type WaitingChoice } from "./ai-settings";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
@@ -139,6 +140,15 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   <span className="text-text-muted">{proxySpace === undefined ? "" : proxySpace === "deleting" ? "Deleting…" : space(proxySpace)}</span>
                 </div>
               </Row>
+              {prefs?.some((p) => p.id === "filmLookLooks") && (
+                <KeptLooks
+                  value={prefs.find((p) => p.id === "filmLookLooks")!.value}
+                  save={async (value) => {
+                    const r = await host.setPreference("filmLookLooks", value);
+                    if (r.ok && r.result) setPrefs(r.result);
+                  }}
+                />
+              )}
             </div>
           )}
           {tab === "recording" && <RecordingSettings devices={devices} settings={settings} update={update} host={host} />}
@@ -186,11 +196,36 @@ export function SettingsUi({ host }: { host: SettingsHost }) {
 function RecordingSettings({ devices, settings, update, host }: { devices?: RecordDevices; settings: AppSettings; update: (patch: SettingsPatch) => void; host: SyncCheckHost }) {
   const [camera, setCamera] = useState(devices?.camera ?? devices?.cameras[0]?.id);
   const [microphone, setMicrophone] = useState(devices?.microphone ?? devices?.microphones[0]?.id);
-  if (!devices?.cameras.length || !devices.microphones.length) return <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>;
+  const takes = (
+    <>
+      <Row label="Place New Recordings" hint="Where a take goes when you stop recording. An agent's recording goes where it says.">
+        <div className="w-56">
+          <Select data-recording-place value={settings.recordingPlace ?? "end"} onChange={(e) => update({ recordingPlace: e.target.value as NonNullable<AppSettings["recordingPlace"]> })}>
+            <option value="end">At the end of the timeline</option>
+            <option value="playhead">At the playhead</option>
+            <option value="bin">In the Media Bin only</option>
+          </Select>
+        </div>
+      </Row>
+      <Row label="Cursor Size" hint="The size a recording's cursor starts at when it's imported, in every project. Clips already placed keep theirs.">
+        <div className="flex items-center gap-2" data-cursor-scale>
+          <NumberBox value={(settings.cursorScale ?? 1) * 100} unit="%" min={25} max={1000} step={25} width={70} onCommit={(v) => update({ cursorScale: v / 100 })} />
+        </div>
+      </Row>
+    </>
+  );
+  if (!devices?.cameras.length || !devices.microphones.length)
+    return (
+      <div className="flex flex-col gap-3" data-recording-settings>
+        {takes}
+        <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>
+      </div>
+    );
   const key = syncKey(camera, microphone);
   const save = (sync: CameraSync) => update({ cameraSync: { ...settings.cameraSync, [key]: sync } });
   return (
     <div className="flex flex-col gap-3" data-recording-settings>
+      {takes}
       <Row label="Camera">
         <DeviceSelect devices={devices.cameras} value={camera} onChange={setCamera} />
       </Row>
@@ -215,5 +250,45 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
         </div>
       </Row>
     </div>
+  );
+}
+
+/** The looks imported into Film Look (.hlook) or saved from it, kept for every project's Look menu: renamed or deleted here. */
+function KeptLooks({ value, save }: { value: string; save: (value: string) => void }) {
+  const looks = (() => {
+    const parsed = KeptLooksSchema.safeParse((() => { try { return JSON.parse(value || "[]"); } catch { return []; } })());
+    return parsed.success ? parsed.data : [];
+  })();
+  const [renaming, setRenaming] = useState<string>();
+  const put = (next: KeptLook[]) => save(JSON.stringify(next));
+  return (
+    <Row label="Your Film Looks" hint="Looks imported into Film Look (.hlook) or saved from it (the save icon by its trash): every project's Look menu lists them, under Your looks. One imported or saved under the same name replaces it.">
+      <div className="flex min-w-0 flex-col gap-1.5" data-kept-looks>
+        {!looks.length && <span className="text-text-muted">None yet: Film Look's Import .hlook… or its save icon adds one.</span>}
+        {looks.map((l) => (
+          <div key={l.id} className="flex min-w-0 items-center gap-2" data-kept-look={l.id}>
+            {renaming === l.id ? (
+              <RenameField
+                value={l.name}
+                className="min-w-0 flex-1"
+                onDone={(name) => {
+                  setRenaming(undefined);
+                  // Names are what an import replaces by: one taken by another look stays as it was.
+                  if (name && name !== l.name && !looks.some((x) => x.name === name)) put(looks.map((x) => (x.id === l.id ? { ...x, name } : x)));
+                }}
+              />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-text">{l.name}</span>
+            )}
+            <Button look="quiet" onClick={() => setRenaming(l.id)} data-kept-look-rename>
+              Rename
+            </Button>
+            <Button look="quiet" onClick={() => put(looks.filter((x) => x.id !== l.id))} data-kept-look-delete>
+              Delete
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Row>
   );
 }

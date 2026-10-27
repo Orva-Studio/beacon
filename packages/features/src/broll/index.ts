@@ -30,11 +30,9 @@ import { streamOf, visualSize } from "../media";
 import { timelineWords } from "../transcript";
 import { DEFAULT_MODEL, lengthFor, nearestAspect, resolutionOf, shotCost, VIDEO_MODELS, videoModel, type Resolution, type VideoModel } from "./models";
 import { planOnDevice, planShots, tile, PLAN_MODEL, type PlanStage } from "./plan";
-import { allStyles, CustomStylesSchema, NONE, PROMPT_STYLE_CHARS, styleOf, STYLES_PREF } from "./styles";
 import { generate, limits, type Limits, type MakeStage } from "./replicate";
 
 export { VIDEO_MODELS, videoModel, resolutionOf, shotCost, nearestAspect, lengthFor } from "./models";
-export { BUILT_IN, styleFromFile, type CustomStyle, type Style } from "./styles";
 
 const TOKEN = "replicate-api-token";
 const OPENAI = "openai-api-key";
@@ -50,14 +48,14 @@ export type Rect = [number, number, number, number];
 const brollGroup = z.strictObject({
   prompt: z.string().max(2000),
   why: z.string(),
-  /** How it looks: a style's id (built in, or the user's own in Settings › AI). */
-  style: z.string(),
   /** Which prompt it is made from: the one the planner wrote (`prompt`, "auto"), or the one typed (`manual`). */
   source: z.enum(["auto", "manual"]),
   /** The prompt typed (Manual), starting from the words said under the clip; kept while Auto is chosen. */
   manual: z.string().max(2000),
   /** Plan searches the web for what is said (OpenAI's planner only). */
   research: z.boolean(),
+  /** The video model it is made with (a VIDEO_MODELS id); "": Settings › AI's. */
+  model: z.string(),
   /** As `{ assetId }`, so copying and pasting the clip carries every take along (any `assetId` is a reference). */
   takes: z.array(z.strictObject({ assetId: z.string() })),
 });
@@ -87,9 +85,10 @@ export const brollState = (s: Session) => (s.features.broll as BrollState | unde
 
 export const brollOf = (c: Clip) => c.props.broll as BrollProps | undefined;
 
-/** The model, its resolution and the limit, as Settings › AI has them. */
-export const brollSettings = (pref: Preferences) => {
-  const model = videoModel(pref("brollModel"));
+/** The model (the clip's own, else Settings › AI's), its resolution and the limit. */
+export const brollSettings = (pref: Preferences, clip?: Clip) => {
+  const own = clip && brollOf(clip)?.model;
+  const model = videoModel(own && VIDEO_MODELS.some((m) => m.id === own) ? own : pref("brollModel"));
   return { model, resolution: resolutionOf(model, pref("brollResolution")) as Resolution, limit: Number(pref("brollLimit")) || 0 };
 };
 
@@ -143,7 +142,7 @@ function covering([W, H]: [number, number], [w, h]: [number, number], [dx, dy]: 
 function placeholder(region: Rect, project: Project, props: Partial<BrollProps> = {}) {
   const [x, y, w, h] = region;
   return {
-    broll: { prompt: "", why: "", style: NONE, source: "auto", manual: "", research: true, takes: [], ...props } satisfies BrollProps,
+    broll: { prompt: "", why: "", source: "auto", manual: "", research: true, model: "", takes: [], ...props } satisfies BrollProps,
     brollBox: { width: w, height: h },
     transform: { x: x + w / 2 - project.settings.width / 2, y: project.settings.height / 2 - (y + h / 2), scaleX: 1, scaleY: 1, rotation: 0, rotationX: 0, rotationY: 0, opacity: 1 },
   };
@@ -305,7 +304,7 @@ const brollAdd = defineAction({
 const brollPlan = defineAction({
   id: "broll.plan",
   description:
-    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it, in its style: by the planner chosen in Settings › AI (Apple's on-device model, free and offline, by default; or OpenAI on the user's key, which also searches the web with the clip's `research`). A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
+    "Write a B-roll clip's prompt (`clip`, else the selected one) from what is said under it: by the planner chosen in Settings › AI (Apple's on-device model, free and offline, by default; or OpenAI on the user's key, which also searches the web with the clip's `research`). A clip longer than the model makes is split into shots, each with its prompt, one undo step. Runs as a job",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const [clip] = targets(ctx, id ? [id] : undefined);
@@ -317,7 +316,7 @@ const brollPlan = defineAction({
     const words = heardWords(ctx);
     const said = words.filter((w) => w.end > from && w.start < to);
     if (!said.length) throw new Error("nothing is said under the clip yet: B-roll is planned from the transcript (wait for it, move the clip over speech, or type a prompt)");
-    const { model } = brollSettings(ctx.pref);
+    const { model } = brollSettings(ctx.pref, clip);
     const planner = ctx.pref("brollPlanner");
     const [, , w, h] = regionOfClip(clip, ctx.project, ctx.registry);
     if (b.takes.length && to - from > model.durations.at(-1)! + 1e-3) throw new Error(`the clip has footage and is longer than ${model.title} makes: trim it to ${model.durations.at(-1)} s to plan it again`);
@@ -346,7 +345,6 @@ const brollPlan = defineAction({
             after: text(words.filter((x) => x.start >= to && x.end <= to + CONTEXT)),
             from,
             to,
-            style: styleOf(b.style, env.pref).text,
             research: b.research && planner === "openai",
             aspect,
             shortest: b.takes.length ? to - from : model.durations[0]!,
@@ -384,7 +382,7 @@ const brollPlan = defineAction({
           }
           // A clip with footage keeps one shot: it gets a new prompt, not a split (its box went with the footage).
           const shots = tile(plan.shots, from, to, b.takes.length ? to - from : model.durations[0]!, model.durations.at(-1)!);
-          if (!shots.length) throw new Error("no shots were planned: try another style, or a longer clip");
+          if (!shots.length) throw new Error("no shots were planned: try a longer clip");
           env.progress(1, shots.length === 1 ? "Prompt written" : `Split into ${shots.length} shots, each with its prompt`);
           return (now) => {
             const was = shapeOf(now.project, now.registry);
@@ -598,17 +596,16 @@ export function wordsUnder(clip: Clip, ctx: Pick<ActionContext, "project" | "reg
 }
 
 /**
- * The prompt a clip is made from: Auto, the one Plan wrote in its style; Manual, the one typed, with the style's
- * wording. Either one still empty: the words said under it with the style's wording (so a first try needs no planner).
+ * The prompt a clip is made from: Auto, the one Plan wrote; Manual, the one typed (the look the user wants in its
+ * words). Either one still empty: the words said under it (so a first try needs no planner).
  */
 function promptFor(clip: Clip, ctx: ActionContext): string {
   const b = brollOf(clip)!;
-  const look = styleOf(b.style, ctx.pref).text.slice(0, PROMPT_STYLE_CHARS);
   if (b.source === "auto" && b.prompt.trim()) return b.prompt.trim();
-  if (b.source === "manual" && b.manual.trim()) return [b.manual.trim(), look].filter(Boolean).join(" ");
+  if (b.source === "manual" && b.manual.trim()) return b.manual.trim();
   const words = wordsUnder(clip, ctx);
   if (!words) throw new Error("nothing is said under this B-roll clip: type a prompt (Prompt: Manual)");
-  return [`Footage illustrating: "${words}".`, look].filter(Boolean).join(" ");
+  return `Footage illustrating: "${words}".`;
 }
 
 const notReady = (ctx: ActionContext, clips: Clip[]) => {
@@ -620,18 +617,20 @@ const notReady = (ctx: ActionContext, clips: Clip[]) => {
 const brollGenerate = defineAction({
   id: "broll.generate",
   description:
-    "Make footage for B-roll clips (`clips`, else the selected ones) from their prompts (an empty one: the words said under the clip) with the model chosen in Settings › AI, through Replicate on the user's token: each prompt and the clip's shape are sent, and Replicate charges their account (broll.estimate says how much). Each file is saved in the project's media/B-roll folder as it arrives; when it is done, each take is added to the Media Bin and shown in its clip, scaled and cropped to the clip's region, one undo step; earlier takes stay on the clip (broll.use picks one). Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
+    "Make footage for B-roll clips (`clips`, else the selected ones) from their prompts (an empty one: the words said under the clip), each with its own `model` (else the one chosen in Settings › AI), through Replicate on the user's token: each prompt and the clip's shape are sent, and Replicate charges their account (broll.estimate says how much). Each file is saved in the project's media/B-roll folder as it arrives; when it is done, each take is added to the Media Bin and shown in its clip, scaled and cropped to the clip's region, one undo step; earlier takes stay on the clip (broll.use picks one). Refused over the limit set in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
   args: z.strictObject({ clips: z.array(z.string().min(1)).min(1).optional() }),
   resolve: ({ clips: ids }, ctx) => {
     const clips = targets(ctx, ids);
     notReady(ctx, clips);
-    const { model, resolution, limit } = brollSettings(ctx.pref);
-    const longest = model.durations.at(-1)!;
-    const tooLong = clips.filter((c) => seconds(c) > longest + OVER(ctx.project));
-    if (tooLong.length) throw new Error(`${tooLong.length === 1 ? "a clip is" : `${tooLong.length} clips are`} longer than ${model.title}'s ${longest} s: trim it, or Plan it to split it into shots`);
-    const cost = clips.reduce((sum, c) => sum + shotCost(model, resolution, seconds(c)), 0);
+    const { limit } = brollSettings(ctx.pref);
+    // Each clip with its own model (else Settings › AI's), at that model's resolution.
+    const shots = clips.map((c) => ({ id: c.id, prompt: promptFor(c, ctx), length: seconds(c), region: regionOfClip(c, ctx.project, ctx.registry), ...brollSettings(ctx.pref, c) }));
+    const tooLong = shots.filter((s) => s.length > s.model.durations.at(-1)! + OVER(ctx.project));
+    if (tooLong.length === 1) throw new Error(`a clip is longer than ${tooLong[0]!.model.title}'s ${tooLong[0]!.model.durations.at(-1)} s: trim it, or Plan it to split it into shots`);
+    if (tooLong.length) throw new Error(`${tooLong.length} clips are longer than their models make: trim them, or Plan them to split them into shots`);
+    const cost = shots.reduce((sum, s) => sum + shotCost(s.model, s.resolution, s.length), 0);
     if (limit > 0 && cost > limit) throw new Error(`about $${cost.toFixed(2)}, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
-    const shots = clips.map((c) => ({ id: c.id, prompt: promptFor(c, ctx), length: seconds(c), region: regionOfClip(c, ctx.project, ctx.registry) }));
+    const titles = [...new Set(shots.map((s) => s.model.title))];
     const over = OVER(ctx.project);
     const ids2 = clips.map((c) => c.id);
     const results: Made[] = [];
@@ -639,23 +638,26 @@ const brollGenerate = defineAction({
       label: "Generate B-roll",
       before: [{ command: "broll.status", args: { clips: ids2, making: true } }],
       task: {
-        label: `B-roll: ${clips.length === 1 ? "1 clip" : `${clips.length} clips`} with ${model.title}`,
+        label: `B-roll: ${clips.length === 1 ? "1 clip" : `${clips.length} clips`} with ${titles.join(", ")}`,
         run: async (env) => {
           const dir = join(env.mediaDir, "B-roll");
           mkdirSync(dir, { recursive: true });
-          const track = tracker(env, () => model.title, shots.length);
+          const track = tracker(env, (id) => shots.find((s) => s.id === id)?.model.title ?? titles[0]!, shots.length);
           const ticking = setInterval(track.tell, 1000);
           try {
             const token = await keyOf(env.secret, TOKEN);
-            const live = await limits(token, model);
-            // Checked again by what the model makes now, before anything is paid for.
-            const max = live.durations.at(-1)!;
-            if (shots.some((s) => s.length > max + over)) throw new Error(`${model.title} now makes ${max} s at most, shorter than a clip: trim it`);
-            const charged = shots.reduce((sum, s) => sum + shotCost({ ...model, durations: live.durations }, resolution, s.length), 0);
-            if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} at the lengths ${model.title} makes now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
+            const models = [...new Set(shots.map((s) => s.model))];
+            const live = new Map(await Promise.all(models.map(async (m) => [m, await limits(token, m)] as const)));
+            // Checked again by what each model makes now, before anything is paid for.
+            for (const s of shots) {
+              const max = live.get(s.model)!.durations.at(-1)!;
+              if (s.length > max + over) throw new Error(`${s.model.title} now makes ${max} s at most, shorter than a clip: trim it`);
+            }
+            const charged = shots.reduce((sum, s) => sum + shotCost({ ...s.model, durations: live.get(s.model)!.durations }, s.resolution, s.length), 0);
+            if (limit > 0 && charged > limit) throw new Error(`about $${charged.toFixed(2)} at the lengths the models make now, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
             await Promise.all(
               shots.map(async (s) => {
-                const m = await makeTake(env, token, model, live, resolution, s, [s.region[2], s.region[3]], dir, track.stage(s.id));
+                const m = await makeTake(env, token, s.model, live.get(s.model)!, s.resolution, s, [s.region[2], s.region[3]], dir, track.stage(s.id));
                 if (m) results.push(m);
                 track.done(s.id);
               }),
@@ -760,7 +762,7 @@ function stylesNotGuides(doc: unknown): unknown {
     const b = o.props?.broll as Record<string, unknown> | undefined;
     if (!b) return;
     delete b.guide;
-    b.style ??= NONE;
+    b.style ??= "none";
     b.source ??= "auto";
   });
   return doc;
@@ -786,25 +788,45 @@ function manualPrompt(doc: unknown): unknown {
   return doc;
 }
 
+/** v6: no styles (the user, 2026-10-27: the look is typed in the prompt); the prompts written in one are kept. */
+function noStyles(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as Record<string, unknown> | undefined;
+    if (b) delete b.style;
+  });
+  return doc;
+}
+
+/** v7: a clip's own video model (the user, 2026-10-27), "" for Settings › AI's. */
+function clipModel(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const b = o.props?.broll as Record<string, unknown> | undefined;
+    if (b) b.model ??= "";
+  });
+  return doc;
+}
+
 export const broll = defineFeature({
   id: "broll",
-  version: 5,
+  version: 7,
   migrations: [
     { version: 2, migrate: takesAsRefs },
     { version: 3, migrate: stylesNotGuides },
     { version: 4, migrate: manualNotTranscript },
     { version: 5, migrate: manualPrompt },
+    { version: 6, migrate: noStyles },
+    { version: 7, migrate: clipModel },
   ],
   clipTypes: [{ id: "broll", description: "B-roll: a placeholder for generated footage (nothing in an export until made), then that footage", traits: ["visual", "picture", "media", "video", "broll"] }],
   props: [
     {
       id: "broll",
-      description: "The B-roll a clip asks for: its prompt (and why), its style (a broll.styles id), where its prompt comes from (`source`: auto, `prompt` as Plan wrote it; manual, `manual` as typed, with the style's wording added), research for OpenAI's planner, and the takes made (`{ assetId }`)",
+      description: "The B-roll a clip asks for: its prompt (and why), where its prompt comes from (`source`: auto, `prompt` as Plan wrote it; manual, `manual` as typed), its video `model` (a VIDEO_MODELS id; empty for Settings › AI's), research for OpenAI's planner, and the takes made (`{ assetId }`)",
       traits: ["broll"],
       // Beside Visual Properties (1), where annotations have theirs.
       tab: { title: "B-roll", icon: "sparkle", order: 2 },
       schema: brollGroup,
-      defaults: () => ({ prompt: "", why: "", style: NONE, source: "auto", manual: "", research: true, takes: [] }),
+      defaults: () => ({ prompt: "", why: "", source: "auto", manual: "", research: true, model: "", takes: [] }),
       identity: true,
     },
     {
@@ -853,14 +875,6 @@ export const broll = defineFeature({
       default: "apple",
     },
     {
-      id: STYLES_PREF,
-      title: "B-roll styles",
-      description: "Your own B-roll styles: each a name and the wording added to its prompts (typed, or from a text file such as a skill)",
-      options: [],
-      schema: CustomStylesSchema,
-      default: "[]",
-    },
-    {
       id: "brollLimit",
       title: "Limit per generation",
       description: "Dollars one generation may cost at most, by the estimate; 0 is no limit",
@@ -872,12 +886,6 @@ export const broll = defineFeature({
   sessionCommands,
   queries: [
     defineQuery({
-      id: "broll.styles",
-      description: "The styles a B-roll clip can pick (its `broll.style`): the built-in ones and the user's own (Settings › AI), each with its id, name, group and wording",
-      args: z.strictObject({}),
-      run: (_, { pref }) => allStyles(pref),
-    }),
-    defineQuery({
       id: "broll.words",
       description: "What is said under a B-roll clip (from the transcripts already made, narration inside groups too): what an empty prompt is made from",
       args: z.strictObject({ clip: z.string().min(1) }),
@@ -888,7 +896,7 @@ export const broll = defineFeature({
     defineQuery({
       id: "broll.estimate",
       description:
-        "What making B-roll clips (`clips`, else the selected ones) would cost (dollars, by the chosen model's price per second), all of them and each, with the model, its resolution and longest shot; each clip's `compare`: what broll.compare would cost, and with how many models. `for` is echoed back, so a caller can tell the answer to its latest ask",
+        "What making B-roll clips (`clips`, else the selected ones) would cost (dollars, by each clip's model's price per second: its own `model`, else Settings › AI's), all of them and each, with the first clip's model, its resolution and longest shot, and `models`: what every model would cost the first clip and whether it can make it that long; each clip's `compare`: what broll.compare would cost, and with how many models. `for` is echoed back, so a caller can tell the answer to its latest ask",
       args: z.strictObject({ clips: z.array(z.string()).optional(), for: z.string().optional() }),
       run: ({ clips: ids, for: asked }, { project, registry, session, pref }) => {
         // Anywhere, inside groups too.
@@ -900,12 +908,20 @@ export const broll = defineFeature({
             return [];
           }
         });
-        const { model, resolution, limit } = brollSettings(pref);
+        const { limit } = brollSettings(pref);
         const each = clips.map((c) => {
+          const { model, resolution } = brollSettings(pref, c);
           const versus = comparison(seconds(c), pref, OVER(project));
-          return { id: c.id, seconds: lengthFor(model, seconds(c)), cost: shotCost(model, resolution, seconds(c)), compare: { models: versus.length, cost: versus.reduce((sum, m) => sum + m.cost, 0) } };
+          return { id: c.id, model: model.id, seconds: lengthFor(model, seconds(c)), cost: shotCost(model, resolution, seconds(c)), compare: { models: versus.length, cost: versus.reduce((sum, m) => sum + m.cost, 0) } };
         });
-        return { for: asked, model: model.title, resolution, limit, longest: model.durations.at(-1), total: each.reduce((sum, c) => sum + c.cost, 0), clips: each };
+        // The first clip's model and what each model would cost it (its Model menu); none: Settings › AI's.
+        const { model, resolution } = brollSettings(pref, clips[0]);
+        const asking = pref("brollResolution");
+        const models = VIDEO_MODELS.map((m) => {
+          const length = clips[0] ? seconds(clips[0]) : m.durations[0]!;
+          return { id: m.id, title: m.title, cost: shotCost(m, resolutionOf(m, asking), length), longest: m.durations.at(-1)!, fits: length <= m.durations.at(-1)! + OVER(project) };
+        });
+        return { for: asked, model: model.title, modelId: model.id, default: videoModel(pref("brollModel")).id, resolution, limit, longest: model.durations.at(-1), total: each.reduce((sum, c) => sum + c.cost, 0), clips: each, models };
       },
     }),
   ],

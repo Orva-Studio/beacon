@@ -73,6 +73,10 @@ export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "a
   else if (a.command === "app.open") host.openDialog();
   else if (a.command.startsWith("app.")) host.app(a.command);
   else if (a.command.startsWith("ai.")) AI_TOOLS.find((t) => `ai.${t.id}` === a.command)?.start(host);
+  else if (a.command === "inspector.step") {
+    replica.focusInputs(false, replica.get().session?.inspector ?? "");
+    host.run(a.command, a.args ?? {});
+  }
   else if (a.command === "project.undo") host.undo();
   else if (a.command === "project.redo") host.redo();
   else host.run(a.command, a.args ?? {});

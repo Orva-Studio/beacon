@@ -10,6 +10,9 @@ use crate::sources::{self, Frame, VideoDecoder};
 use crate::{Error, Result};
 
 pub(crate) const FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Where a layer's motion-blur samples are added up: each sample rounded to 8 bits on its own bands and tints
+/// dark colours (16 samples of 18/255 make 16).
+const ACCUM: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const MAX_PARAMS: usize = 32;
 
 #[repr(C)]
@@ -80,6 +83,8 @@ pub struct Renderer {
     draw_pipe: wgpu::RenderPipeline,
     matte_bgl: wgpu::BindGroupLayout,
     matte_pipe: wgpu::RenderPipeline,
+    accum_pipe: wgpu::RenderPipeline,
+    accum_matte_pipe: wgpu::RenderPipeline,
     comp_pipe: wgpu::RenderPipeline,
     mip_pipe: wgpu::RenderPipeline,
     mask_pipe: wgpu::RenderPipeline,
@@ -209,6 +214,8 @@ impl Renderer {
             entries: &[uniform(0), texture(1), sampler_entry(2), texture(3)],
         });
         let matte_pipe = pipeline(&device, &builtin, &matte_bgl, "vs_draw", "fs_draw_matte", FMT, Some(additive));
+        let accum_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_draw", "fs_draw", ACCUM, Some(additive));
+        let accum_matte_pipe = pipeline(&device, &builtin, &matte_bgl, "vs_draw", "fs_draw_matte", ACCUM, Some(additive));
         let comp_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_composite", FMT, Some(over));
         let mip_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mip", FMT, None);
         let mask_pipe = pipeline(&device, &builtin, &builtin_bgl, "vs_full", "fs_mask", FMT, Some(over));
@@ -253,6 +260,8 @@ impl Renderer {
             draw_pipe,
             matte_bgl,
             matte_pipe,
+            accum_pipe,
+            accum_matte_pipe,
             comp_pipe,
             mip_pipe,
             mask_pipe,
@@ -652,8 +661,12 @@ impl Renderer {
         let samples: Vec<&Affine> = std::iter::once(&v.transform).chain(v.motion.iter()).collect();
         let weight = 1.0 / samples.len() as f32;
         let content_view = content.create_view(&Default::default());
+        let accum = self.accumulator(&layer_tex, samples.len());
         {
-            let view = layer_tex.create_view(&Default::default());
+            if let Some(a) = &accum {
+                clear(enc, a, wgpu::Color::TRANSPARENT);
+            }
+            let view = accum.as_ref().unwrap_or(&layer_tex).create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
             for (i, m) in samples.iter().enumerate() {
                 let p = v.perspective_of(i);
@@ -666,9 +679,10 @@ impl Renderer {
                     color,
                     margin: [2.0 / scale_of(m).max(1e-3), p[0], p[1], 0.0],
                 };
-                self.draw_content(&mut rp, u, &content_view, matte.as_ref());
+                self.draw_content(&mut rp, u, &content_view, matte.as_ref(), accum.is_some());
             }
         }
+        self.resolve(enc, accum, &layer_tex);
         if let Some(g) = group_tex {
             self.give(g);
         }
@@ -726,7 +740,7 @@ impl Renderer {
             };
             let view = flat.create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
-            self.draw_content(&mut rp, u, &content_view, matte);
+            self.draw_content(&mut rp, u, &content_view, matte, false);
         }
         let frame = PassFrameU {
             inv0: [1.0 / s, 0.0, 0.0, 1.0 / s],
@@ -737,11 +751,16 @@ impl Renderer {
         let flat = self.run_passes(enc, flat, fw, fh, frame, &v.passes)?;
         let layer_tex = self.take(w, h);
         clear(enc, &layer_tex, wgpu::Color::TRANSPARENT);
+        let accum;
         {
             let samples: Vec<&Affine> = std::iter::once(m).chain(v.motion.iter()).collect();
             let weight = 1.0 / samples.len() as f32;
             let flat_view = flat.create_view(&Default::default());
-            let view = layer_tex.create_view(&Default::default());
+            accum = self.accumulator(&layer_tex, samples.len());
+            if let Some(a) = &accum {
+                clear(enc, a, wgpu::Color::TRANSPARENT);
+            }
+            let view = accum.as_ref().unwrap_or(&layer_tex).create_view(&Default::default());
             let mut rp = begin(enc, &view, None);
             for (i, m) in samples.iter().enumerate() {
                 let [g, gh] = v.perspective_of(i);
@@ -758,11 +777,12 @@ impl Renderer {
                     margin: [0.0, g / s / k, gh / s / k, 0.0],
                 };
                 let bg = self.builtin_group(bytemuck::bytes_of(&u), &flat_view);
-                rp.set_pipeline(&self.draw_pipe);
+                rp.set_pipeline(if accum.is_some() { &self.accum_pipe } else { &self.draw_pipe });
                 rp.set_bind_group(0, Some(&bg), &[]);
                 rp.draw(0..6, 0..1);
             }
         }
+        self.resolve(enc, accum, &layer_tex);
         self.give(flat);
         let bg = self.builtin_group(bytemuck::cast_slice(&[v.opacity, 0.0f32, 0.0, 0.0]), &layer_tex.create_view(&Default::default()));
         run_fullscreen(enc, &target.create_view(&Default::default()), Some(()), &self.comp_pipe, &bg);
@@ -899,10 +919,26 @@ impl Renderer {
     }
 
     fn take(&mut self, w: u32, h: u32) -> wgpu::Texture {
-        match self.pool.iter().position(|(pw, ph, _, _)| (*pw, *ph) == (w, h)) {
+        self.take_as(w, h, FMT)
+    }
+
+    fn take_as(&mut self, w: u32, h: u32, format: wgpu::TextureFormat) -> wgpu::Texture {
+        match self.pool.iter().position(|(pw, ph, _, t)| (*pw, *ph) == (w, h) && t.format() == format) {
             Some(i) => self.pool.swap_remove(i).3,
-            None => self.device.create_texture(&tex_desc(w, h, 1, rt_usage())),
+            None => self.device.create_texture(&wgpu::TextureDescriptor { format, ..tex_desc(w, h, 1, rt_usage()) }),
         }
+    }
+
+    /// Where `samples` draws go: `layer` itself for one, else a half-float texture added up into it by `resolve`.
+    fn accumulator(&mut self, layer: &wgpu::Texture, samples: usize) -> Option<wgpu::Texture> {
+        (samples > 1).then(|| self.take_as(layer.width(), layer.height(), ACCUM))
+    }
+
+    fn resolve(&mut self, enc: &mut wgpu::CommandEncoder, accum: Option<wgpu::Texture>, layer: &wgpu::Texture) {
+        let Some(a) = accum else { return };
+        let bg = self.builtin_group(bytemuck::cast_slice(&[1.0f32, 0.0, 0.0, 0.0]), &a.create_view(&Default::default()));
+        run_fullscreen(enc, &layer.create_view(&Default::default()), None, &self.comp_pipe, &bg);
+        self.give(a);
     }
 
     fn give(&mut self, t: wgpu::Texture) {
@@ -914,10 +950,10 @@ impl Renderer {
     }
 
     /// Draws a layer's content as `u` places it, through its matte when it has one.
-    fn draw_content(&self, rp: &mut wgpu::RenderPass, mut u: DrawU, content: &wgpu::TextureView, matte: Option<&(wgpu::TextureView, [f32; 2])>) {
+    fn draw_content(&self, rp: &mut wgpu::RenderPass, mut u: DrawU, content: &wgpu::TextureView, matte: Option<&(wgpu::TextureView, [f32; 2])>, accum: bool) {
         let Some((view, [clear, opaque])) = matte else {
             let bg = self.builtin_group(bytemuck::bytes_of(&u), content);
-            rp.set_pipeline(&self.draw_pipe);
+            rp.set_pipeline(if accum { &self.accum_pipe } else { &self.draw_pipe });
             rp.set_bind_group(0, Some(&bg), &[]);
             return rp.draw(0..6, 0..1);
         };
@@ -933,7 +969,7 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(view) },
             ],
         });
-        rp.set_pipeline(&self.matte_pipe);
+        rp.set_pipeline(if accum { &self.accum_matte_pipe } else { &self.matte_pipe });
         rp.set_bind_group(0, Some(&bg), &[]);
         rp.draw(0..6, 0..1);
     }

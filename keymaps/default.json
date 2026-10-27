@@ -1449,19 +1449,6 @@
     },
     {
       "keys": {
-        "key": ":",
-        "modifiers": [],
-        "then": [
-          {
-            "key": "e",
-            "modifiers": []
-          }
-        ]
-      },
-      "command": "inspector.effects"
-    },
-    {
-      "keys": {
         "key": "\u21a9",
         "modifiers": [
           "shift"

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { clipSpeed } from "./evaluate";
 import { AssetSchema, ClipSchema, IdSchema, trackName, type Asset, type Clip, type Project, type Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import { secondsToTicks, ticksToSeconds, type Ticks } from "./ticks";
+import { secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
 import type { Animation } from "./schema";
 
 /**
@@ -41,7 +41,10 @@ export interface Placement {
 }
 
 export interface MovePlan {
+  /** Track indexes counted with the `below` new tracks put under the lowest one. */
   placements: Placement[];
+  /** New tracks a move past the lowest track adds under it, as one past the top adds them above. */
+  below: number;
   /** Why the move can't be dropped there, if it can't. */
   error?: string;
 }
@@ -60,24 +63,26 @@ export function planMove(tracks: Track[], rows: ReadonlyMap<string, number>, by:
   }
   const ids = new Set(rows.keys());
   const clip = (id: string) => tracks.flatMap((t) => t.clips).find((c) => c.id === id)!;
+  const below = Math.max(0, ...placements.map((p) => -p.track));
+  for (const p of placements) p.track += below;
   for (const p of placements) {
     const from = tracks.find((t) => t.clips.some((c) => c.id === p.clip))!;
-    if (from.locked) return { placements, error: `track "${trackName(from, tracks.indexOf(from))}" is locked` };
-    if (p.start < 0) return { placements, error: "it would start before the timeline" };
-    if (p.track < 0) return { placements, error: "there is no track below" };
-    const to = tracks[p.track];
+    if (from.locked) return { placements, below, error: `track "${trackName(from, tracks.indexOf(from))}" is locked` };
+    if (p.start < 0) return { placements, below, error: "it would start before the timeline" };
+    if (p.track < below) continue;
+    const to = tracks[p.track - below];
     if (!to) continue;
-    if (to.locked) return { placements, error: `track "${trackName(to, p.track)}" is locked` };
-    if (!to.magnetic && !isFree(to, p.start, p.start + clip(p.clip).duration, ids)) return { placements, error: `it would overlap media on "${trackName(to, p.track)}"` };
+    if (to.locked) return { placements, below, error: `track "${trackName(to, p.track - below)}" is locked` };
+    if (!to.magnetic && !isFree(to, p.start, p.start + clip(p.clip).duration, ids)) return { placements, below, error: `it would overlap media on "${trackName(to, p.track - below)}"` };
   }
   // Moved clips can also land on each other: a clip moved onto the track of a linked clip that only moves in time.
   for (const [i, p] of placements.entries()) {
-    if (tracks[p.track]?.magnetic) continue;
+    if (tracks[p.track - below]?.magnetic) continue;
     const end = p.start + clip(p.clip).duration;
     const hit = placements.slice(i + 1).find((q) => q.track === p.track && q.start < end && p.start < q.start + clip(q.clip).duration);
-    if (hit) return { placements, error: "the moved clips would overlap each other" };
+    if (hit) return { placements, below, error: "the moved clips would overlap each other" };
   }
-  return { placements };
+  return { placements, below };
 }
 
 /**
@@ -132,7 +137,7 @@ export function remapAssetIds(value: unknown, map: Map<string, string>): void {
 }
 
 /** Every asset a clip uses, its own and those of clips nested in it (groups, stitched media). */
-function assetIds(value: unknown, out = new Set<string>()): Set<string> {
+export function assetIds(value: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(value)) for (const v of value) assetIds(v, out);
   else if (value && typeof value === "object") {
     for (const [k, v] of Object.entries(value)) {
@@ -247,6 +252,20 @@ export function trimBounds(track: Track, clip: Clip): [Ticks, Ticks] {
     else if (c.start >= clipEnd(clip)) hi = Math.min(hi, c.start);
   }
   return [lo, hi];
+}
+
+/**
+ * How far a clip's `edge` can move, [most left, most right] in ticks: to the clips beside it (unless `ripple`), the
+ * ends of its media, and a frame short of its other edge. Several clips trimmed together move by what all of them allow.
+ */
+export function trimRoom(project: Project, track: Track, clip: Clip, edge: "start" | "end", holds: boolean, ripple: boolean): [Ticks, Ticks] {
+  const frame = ticksPerFrame(project.settings.fps);
+  const [lo, hi] = ripple ? [-Infinity, Infinity] : trimBounds(track, clip);
+  const [first, last] = mediaBounds(project, clip, holds);
+  const end = clipEnd(clip);
+  // Nor before the timeline's start (a ripple trim keeps the start where it is): an annotation has no media to stop it.
+  const origin = ripple ? -Infinity : 0;
+  return edge === "start" ? [Math.max(lo, first, origin) - clip.start, end - frame - clip.start] : [clip.start + frame - end, Math.min(hi, last) - end];
 }
 
 /**

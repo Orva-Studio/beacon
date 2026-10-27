@@ -9,6 +9,7 @@ import {
   TRACK_HEIGHT,
   trackName,
   trimBounds,
+  trimRoom,
   mediaBounds,
   type Clip,
   type Track,
@@ -60,6 +61,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
    * A move or trim just released, drawn as it was dropped until the edit's patch arrives: drawing the document as
    * it still is showed the clip back where it started for a few frames.
    */
+  /** The clip clicked last (not ⇧-clicked): a ⇧-click selects the run from it. */
+  const anchor = useRef<string | null>(null);
   const settling = useRef<{ drag: Drag; timer: ReturnType<typeof setTimeout> } | null>(null);
   /** Where the dragged edge last snapped (seconds), drawn as a line while the drag lasts. */
   const snapLine = useRef<number | undefined>(undefined);
@@ -374,6 +377,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     return { kind: "move", ids, moves, by, rows: ripple ? 0 : rows, ripple, error: plan.error, x0: 0, y0: 0 };
   };
 
+  /** The clips whose edge moves with `clip`'s: the others selected with it and the clips linked to any of them, on unlocked tracks. */
+  const trimmedWith = (clip: Clip, selection: string[]) => {
+    const { project } = latest.current;
+    const picked = new Set([clip.id, ...selection]);
+    const links = new Set(project.tracks.flatMap((t) => t.clips).filter((c) => picked.has(c.id) && c.linkId).map((c) => c.linkId));
+    return project.tracks.flatMap((t) => (t.locked ? [] : t.clips.filter((c) => c.id !== clip.id && (picked.has(c.id) || (c.linkId && links.has(c.linkId))))));
+  };
+
   const startMove = (press: PressDrag, e: React.PointerEvent) => {
     const { session } = latest.current;
     const picked = session.selection.includes(press.clip);
@@ -425,7 +436,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       // Display rows run top to bottom; tracks are stored bottom to top.
       if (d.to !== d.from) run("track.move", { track: d.track, index: tracks.length - 1 - d.to }, "Move Track");
     } else if (d.kind === "press") {
-      run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
+      const known = d.range && latest.current.project.tracks.some((t) => t.clips.some((c) => c.id === anchor.current));
+      if (known) run("selection.range", { from: anchor.current!, to: d.clip });
+      else {
+        anchor.current = d.clip;
+        run("selection.set", d.toggle ? { clips: [d.clip], toggle: true, linked: true } : { clips: [d.clip], linked: true });
+      }
     } else if (d.kind === "move") {
       if (d.error) return void (draw(), status(`Can't move there: ${d.error}`));
       if (Math.abs(d.by) > 1e-9 || d.rows) {
@@ -443,7 +459,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         }
       } else if (Math.abs(d.t - (d.edge === "start" ? ticksToSeconds(clip.start) : end)) > 1e-9) {
         settle(d);
-        run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: true, ripple: d.ripple }, "Trim Media");
+        const linkId = clip.linkId;
+        const others = [...d.edges.keys()].filter((id) => id !== d.clip);
+        // Its linked clips alone keep the command's own way (trimmed to the same edges); clips selected with it go by the same amount.
+        const apart = others.filter((id) => !linkId || latest.current.project.tracks.some((t) => t.clips.some((c) => c.id === id && c.linkId !== linkId)));
+        run("clip.trim", { clip: d.clip, [d.edge]: d.t, linked: true, ripple: d.ripple, ...(apart.length ? { with: others } : {}) }, "Trim Media");
       }
     } else if (d.kind === "space") {
       const track = d.track ? { track: d.track } : {};
@@ -552,11 +572,15 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           if (clip && edge) {
             if (!session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
             const t = ticksToSeconds(edge === "start" ? clip.start : clip.start + clip.duration);
-            dragState.current = { kind: "trim", clip: clip.id, edge, x0: x, t, ripple: e.shiftKey, extend: false };
+            const edges = new Map([[clip.id, t]]);
+            for (const c of trimmedWith(clip, session.selection.includes(clip.id) ? session.selection : [])) edges.set(c.id, ticksToSeconds(edge === "start" ? c.start : c.start + c.duration));
+            dragState.current = { kind: "trim", clip: clip.id, edge, x0: x, t, ripple: e.shiftKey, extend: false, edges };
           } else if (clip) {
             const toggle = e.metaKey || e.shiftKey;
+            const range = e.shiftKey && !e.metaKey && !!anchor.current && anchor.current !== clip.id;
+            if (!range) anchor.current = clip.id;
             if (!toggle && !session.selection.includes(clip.id)) run("selection.set", { clips: [clip.id], linked: true });
-            dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey };
+            dragState.current = { kind: "press", clip: clip.id, x0: x, y0: y, toggle, ripple: e.shiftKey, range };
           } else if (e.shiftKey && !e.metaKey && rowUnder(y) !== undefined) {
             // Shift on a gap moves what comes after it, as Shift on the playhead does; ⌥ only this track.
             if (session.group) return status("Close the group (⌃⇧U) to insert space");
@@ -629,7 +653,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
           if (d.kind === "move") return updateMove(e);
           if (d.kind === "trim") {
-            const clip = project.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clip)!;
+            const all = project.tracks.flatMap((t) => t.clips);
+            const clip = all.find((c) => c.id === d.clip)!;
             const a = ticksToSeconds(clip.start);
             const b = ticksToSeconds(clip.start + clip.duration);
             const track = project.tracks.find((tr) => tr.clips.includes(clip))!;
@@ -638,7 +663,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             // ⌥ on the start with room made (Shift, a magnetic track): the frame goes in at the clip's start, so it may be dragged past 0.
             const room = video && e.altKey && d.edge === "start" && (e.shiftKey || !!track.magnetic);
             let t = timeAt(e.clientX, room);
-            t += snapped([t], new Set([clip.id]), e.ctrlKey);
+            t += snapped([t], new Set(d.edges.keys()), e.ctrlKey);
             // Edges stop at the clips beside them, as the command does; Shift (ripple) pushes them instead.
             if (!e.shiftKey) {
               const [lo, hi] = trimBounds(track, clip);
@@ -652,7 +677,22 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             const frame = 1 / rationalToNumber(project.settings.fps);
             t = d.edge === "start" ? Math.min(t, b - frame) : Math.max(t, a + frame);
             const extend = video && e.altKey && (d.edge === "end" ? t > b : t < a);
-            dragState.current = { ...d, t, ripple: e.shiftKey || (extend && d.edge === "start" && !!track.magnetic), extend };
+            const ripple = e.shiftKey || (extend && d.edge === "start" && !!track.magnetic);
+            const edges = new Map([[clip.id, t]]);
+            const others = all.filter((c) => c.id !== clip.id && d.edges.has(c.id));
+            if (others.length && !extend) {
+              // Every clip trimmed with it moves its edge as far, all stopping where the first can go no further, as the command does.
+              const from = d.edge === "start" ? clip.start : clip.start + clip.duration;
+              let by = secondsToTicks(t) - from;
+              for (const c of [clip, ...others]) {
+                const [lo, hi] = trimRoom(project, project.tracks.find((tr) => tr.clips.includes(c))!, c, d.edge, clipTypes[c.type]?.includes("hold") ?? false, ripple);
+                by = Math.min(Math.max(by, lo), hi);
+              }
+              t = ticksToSeconds(from + by);
+              edges.set(clip.id, t);
+              for (const c of others) edges.set(c.id, ticksToSeconds((d.edge === "start" ? c.start : c.start + c.duration) + by));
+            }
+            dragState.current = { ...d, t, ripple, extend, edges };
             return draw();
           }
           if (d.kind === "marquee") {

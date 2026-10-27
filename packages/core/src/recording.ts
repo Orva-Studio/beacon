@@ -180,7 +180,12 @@ export class Recording {
       // The timeline second the file's first sample is under: where it was heard, or (nothing played) the playhead.
       const at = heard ? narrationStart(rec.dir, heard) : n.from;
       result = { ...(await this.#placeNarration(this.parts.get(rec.h), rec.dir, at, n.from)), take: rec.dir, duration: take.duration, ...problems };
-    } else return { ...(await this.importFiles(rec.h, [rec.dir], opts)), take: rec.dir, duration: take.duration, ...problems };
+    } else {
+      // Unless told where (an agent's `at`), where Settings › Recording says: the end, the playhead, or the Media Bin.
+      const place = this.config.settings().recordingPlace;
+      const where = opts.at !== undefined || opts.track ? opts : place === "bin" ? { ...opts, place: false } : place === "playhead" && p ? { ...opts, at: p.session.state.playhead } : opts;
+      return { ...(await this.importFiles(rec.h, [rec.dir], where)), take: rec.dir, duration: take.duration, ...problems };
+    }
     if (n && p) {
       this.#lastNarration = result;
       this.parts.emit(p, { kind: "narrated", result });

@@ -28,7 +28,7 @@ import { propsOf } from "./props";
 
 const INVALID = () => color("invalid");
 
-export type PressDrag = { kind: "press"; clip: string; x0: number; y0: number; toggle: boolean; ripple: boolean };
+export type PressDrag = { kind: "press"; clip: string; x0: number; y0: number; toggle: boolean; ripple: boolean; range: boolean };
 /** `moves`: every clip that moves (with a ripple, those after it too) → tracks up. */
 export type MoveDrag = { kind: "move"; ids: string[]; moves: Map<string, number>; by: number; rows: number; ripple: boolean; error?: string; x0: number; y0: number };
 export type Drag =
@@ -44,7 +44,8 @@ export type Drag =
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
   | PressDrag
   | MoveDrag
-  | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean };
+  /** `edges`: where each trimmed clip's dragged edge is drawn, the one grabbed (at `t`) and the others selected or linked with it. */
+  | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean; edges: Map<string, number> };
 
 
 /**
@@ -367,10 +368,10 @@ export function drawTimeline(t: TimelineDrawing) {
     tracks.forEach((t, i) => {
       for (const clip of t.clips) {
         let [a, b] = shown(t, clip);
-        if (d?.kind === "trim" && d.clip === clip.id && !d.extend) {
+        if (d?.kind === "trim" && d.edges.has(clip.id) && !d.extend) {
           [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
-          if (d.edge === "start") a = d.t;
-          else b = d.t;
+          if (d.edge === "start") a = d.edges.get(clip.id)!;
+          else b = d.edges.get(clip.id)!;
         }
         // Shift-drag opens or closes time as it goes: what is after the point is drawn moved, a clip across it split.
         let by = 0;
@@ -399,10 +400,10 @@ export function drawTimeline(t: TimelineDrawing) {
         const by = shifted && cs >= shifted.at ? shifted.d : 0;
         if (ce + by < start || cs + by > end) continue;
         // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
-        const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
+        const trim = d?.kind === "trim" && d.edges.has(clip.id) && !d.extend ? d : undefined;
         const [sa, sb] = shifted ? [cs, ce] : shown(t, clip);
-        const left = trim?.edge === "start" ? trim.t : trim ? cs : sa;
-        const right = trim && trim.edge !== "start" ? trim.t : trim ? ce : sb;
+        const left = trim?.edge === "start" ? trim.edges.get(clip.id)! : trim ? cs : sa;
+        const right = trim && trim.edge !== "start" ? trim.edges.get(clip.id)! : trim ? ce : sb;
         ctx.save();
         ctx.translate(by * pps, 0);
         ctx.beginPath();
@@ -551,7 +552,8 @@ export function drawTimeline(t: TimelineDrawing) {
           if (rows === undefined) continue;
           const a = ticksToSeconds(clip.start) + d.by;
           const row = project.tracks.length - 1 - (ti + rows);
-          drawClip(clip, t, Math.max(0, row), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 }, d.by);
+          // Past the top or below the lowest track: on the new one there, dashed.
+          drawClip(clip, t, Math.min(Math.max(0, row), project.tracks.length), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 || row >= project.tracks.length }, d.by);
         }
       });
     } else if (d?.kind === "trim" && d.extend) {

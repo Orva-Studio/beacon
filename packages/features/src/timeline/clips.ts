@@ -16,6 +16,7 @@ import {
   pasteBase,
   planMove,
   trimBounds,
+  trimRoom,
   mediaBounds,
   shiftIn as moveInPoint,
   snapSeconds,
@@ -178,7 +179,7 @@ export const clipCommands = [
   defineCommand({
     id: "clip.move",
     description:
-      "Move clips in time (`start` for the first clip, or `by` seconds) and/or to other tracks (`track` for the first clip, or `tracks` up, negative down; past the top, tracks are added). The named clips move as a block; linked clips move by the same time but stay on their tracks. Refused if they would land on locked tracks or over other media, except on magnetic tracks, which make room. `ripple` (Shift-drag) also moves every later clip on their tracks",
+      "Move clips in time (`start` for the first clip, or `by` seconds) and/or to other tracks (`track` for the first clip, or `tracks` up, negative down; past the top or below the lowest, tracks are added there). The named clips move as a block; linked clips move by the same time but stay on their tracks. Refused if they would land on locked tracks or over other media, except on magnetic tracks, which make room. `ripple` (Shift-drag) also moves every later clip on their tracks",
     args: z
       .strictObject({
         clip: Id.optional(),
@@ -226,6 +227,7 @@ export const clipCommands = [
         came.set(c.id, from);
         from.clips.splice(from.clips.indexOf(c), 1);
       }
+      for (let i = 0; i < plan.below; i++) list.unshift({ id: ctx.newId("track"), name: "", clips: [] });
       for (const p of plan.placements) {
         while (list.length <= p.track) list.push({ id: ctx.newId("track"), name: "", clips: [] });
         const c = byId.get(p.clip)!;
@@ -239,12 +241,46 @@ export const clipCommands = [
   defineCommand({
     id: "clip.trim",
     description:
-      "Move a clip's start and/or end edge (timeline seconds) without moving its content; edges stop where the media begins or ends. Linked clips are trimmed to the same edges. `ripple` (Shift-drag of an edge) moves later clips on the track so no gap opens or closes: the start edge then stays put and the content slides",
+      "Move a clip's start and/or end edge (timeline seconds) without moving its content; edges stop where the media begins or ends. Linked clips are trimmed to the same edges. `ripple` (Shift-drag of an edge) moves later clips on the track so no gap opens or closes: the start edge then stays put and the content slides. `with` (several clips selected, one edge dragged): those clips' same edge, and their linked clips', moves by as much as this one's, all stopping where the first can go no further",
     args: z
-      .strictObject({ clip: Id, start: Seconds.optional(), end: Seconds.optional(), linked: Linked, ripple: z.boolean().default(false) })
-      .refine((a) => !a.ripple || a.start === undefined || a.end === undefined, { message: "a ripple trim moves one edge" }),
-    apply(doc, { clip, start, end, linked, ripple }, ctx) {
+      .strictObject({
+        clip: Id,
+        start: Seconds.optional(),
+        end: Seconds.optional(),
+        linked: Linked,
+        ripple: z.boolean().default(false),
+        with: z.array(Id).optional().describe("Other clips trimmed by the same amount at the same edge"),
+      })
+      .refine((a) => !a.ripple || a.start === undefined || a.end === undefined, { message: "a ripple trim moves one edge" })
+      .refine((a) => !a.with?.length || (a.start === undefined) !== (a.end === undefined), { message: "trimming several clips moves one edge" }),
+    apply(doc, { clip, start, end, linked, ripple, with: others }, ctx) {
       const loc = findClip(doc, ctx.registry, clip);
+      if (others?.length) {
+        const edge = start !== undefined ? "start" : "end";
+        const all = locate(doc, ctx.registry, [clip, ...others], linked);
+        if (ripple && new Set(all.map((l) => l.track)).size < all.length) throw new Error("a ripple trim of several clips needs each on a track of its own");
+        let by = onTrack(doc, loc, (edge === "start" ? start : end)!) - (edge === "start" ? loc.clip.start : clipEnd(loc.clip));
+        for (const { clip: c, track } of all) {
+          unlocked(track);
+          const [lo, hi] = trimRoom(doc, track, c, edge, holds(ctx.registry, c), ripple);
+          by = Math.min(Math.max(by, lo), hi);
+        }
+        for (const { clip: c, track } of all) {
+          const oldStart = c.start;
+          const oldEnd = clipEnd(c);
+          if (edge === "start") {
+            shiftIn(c, by, ctx.registry);
+            if (ripple) {
+              c.start = oldStart;
+              shiftLater(track, oldEnd, -by, c);
+            }
+          } else {
+            c.duration += by;
+            if (ripple) shiftLater(track, oldEnd, by, c);
+          }
+        }
+        return;
+      }
       const s = start === undefined ? undefined : onTrack(doc, loc, start);
       const e = end === undefined ? undefined : onTrack(doc, loc, end);
       for (const { clip: c, track } of withLinked(loc, linked)) {

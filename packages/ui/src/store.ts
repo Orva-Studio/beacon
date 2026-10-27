@@ -9,6 +9,11 @@ enablePatches();
 export interface ViewState {
   /** The document revision the replica is at. */
   rev?: number;
+  /**
+   * Something picked in the command palette (at revision `rev`): once what it added arrives, the properties panel puts
+   * the caret in its first input. With `tab` (the properties tab stepped from by : [ and : ]), once the tab has changed.
+   */
+  focusInputs?: { rev: number; effect: boolean; at: number; tab?: string };
   init?: Init;
   opened?: Omit<Opened, "project" | "session" | "rev">;
   /** A replica of the main process's document, updated only by its patches. */
@@ -39,8 +44,6 @@ export interface ViewState {
   jobFailed: Record<string, string>;
   /** Captions asked for before the transcript was there: made when it is. */
   captionsPending?: boolean;
-  /** B-roll clips whose style was picked while their take was made: Auto's prompt is written again in it once the take is in. */
-  brollRestyles: string[];
   /** Proxies finished since the current run of them began (the top bar's "N of M"). */
   prepared: number;
   /** Whether each asset has a proxy (a quick-to-seek copy). */
@@ -106,7 +109,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, brollRestyles: [], prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -124,7 +127,7 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
-    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, captionsPending: false, brollRestyles: [], prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
+    set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
   patches(patches: Patch[], rev?: number): boolean {
@@ -185,9 +188,13 @@ export const replica = {
   confirmSaved() {
     set({ confirmSaved: performance.now() });
   },
+  focusInputs(effect: boolean | undefined, tab?: string) {
+    set({ focusInputs: effect === undefined ? undefined : { rev: state.rev ?? 0, effect, at: performance.now(), tab } });
+  },
   /** Opened only with a project: it lists what can be added to one. */
   palette(palette: boolean) {
-    set({ palette: palette && !!state.opened });
+    // A focus asked for before (an effect added, then undone at once) mustn't take the caret from the palette.
+    set({ palette: palette && !!state.opened, ...(palette ? { focusInputs: undefined } : {}) });
   },
   projectSettings(open: boolean) {
     set({ projectSettings: open && !!state.opened });
@@ -285,10 +292,6 @@ export const replica = {
   },
   pendCaptions(captionsPending: boolean) {
     set({ captionsPending });
-  },
-  restyleBroll(clip: string, pending: boolean) {
-    const was = state.brollRestyles.filter((id) => id !== clip);
-    set({ brollRestyles: pending ? [...was, clip] : was });
   },
   editText(editingText: string | undefined) {
     set({ editingText });

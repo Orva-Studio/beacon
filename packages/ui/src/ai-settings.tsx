@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { PreferenceInfo, SecretInfo } from "@beacon/core";
 import { Button, NumberBox, Select, SettingsRow as Row, TextArea, TextInput } from "./controls";
-import { styleFromFile, type CustomStyle } from "@beacon/features/src/broll/styles";
+import { styleFromFile, type CustomStyle } from "@beacon/features/src/text-file";
 import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
@@ -96,28 +96,17 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
           <NumberBox value={limit} digits={2} step={1} min={0} max={1000} width={70} onCommit={(v) => void set("brollLimit", String(Math.round(v * 100) / 100))} />
         </div>
       </Row>
-      <StylesList
-        kind="broll"
-        label="Your Styles"
-        hint="Added to every prompt of a clip that picks it, and the planner's guide. A skill's front matter or title names it."
-        placeholder={{ name: "Name: Grainy 16mm", text: "The look, in words: grainy 16mm, warm tones, handheld, shallow depth of field" }}
-        newLabel="New Style"
-        saveLabel="Save Style"
-        value={prefs.find((p) => p.id === "brollStyles")?.value ?? "[]"}
-        save={(list) => void set("brollStyles", JSON.stringify(list))}
-      />
       {error && <div className="text-danger">{error}</div>}
     </div>
   );
 }
 
 /**
- * The user's own B-roll styles (each a name and the wording added to its prompts, and given to the planner as its
- * guide) or motion graphics skills, typed here or read from a text file (a `.md` skill, a `.txt`); every project's
- * Style or Skill menu lists them.
+ * The user's own motion graphics skills, typed here or read from a text file (a `.md` skill, a `.txt`); every
+ * project's Skill menu lists them.
  */
 function StylesList({ kind, label, hint, placeholder, newLabel, saveLabel, value, save }: {
-  /** Names its data attributes (`data-broll-style…`, `data-motion-style…`). */
+  /** Names its data attributes (`data-motion-style…`). */
   kind: "broll" | "motion";
   label: string;
   hint: string;

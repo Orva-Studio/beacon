@@ -128,8 +128,11 @@ function ColorPicker({ color, onChange, onClose }: { color: RGBA; onChange: (c: 
             <Icon name="eyedropper" size={14} />
           </button>
         )}
-        <div {...hue} className="relative h-3 flex-1 cursor-pointer rounded-full" style={{ background: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" }}>
-          <div className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" style={{ left: `${(h / 360) * 100}%`, background: pure }} />
+        {/* Taller than the strip, as the sliders are: the drag reads only across it. */}
+        <div {...hue} data-hue-hit className="flex h-6 flex-1 cursor-pointer items-center">
+          <div className="relative h-3 w-full rounded-full" style={{ background: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" }}>
+            <div className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" style={{ left: `${(h / 360) * 100}%`, background: pure }} />
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-1.5">
@@ -203,6 +206,7 @@ export function ColorSwatch({ color, onChange, title }: { color: RGBA; onChange:
     <>
       <button
         ref={button}
+        data-input
         title={title ?? "Choose a colour"}
         className="h-7 w-12 cursor-pointer rounded-sm border border-field-edge p-[3px]"
         onClick={(e) => {

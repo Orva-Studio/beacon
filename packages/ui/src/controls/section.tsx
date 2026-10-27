@@ -1,16 +1,17 @@
 import { useState, type ReactNode } from "react";
 import { Check } from "./fields";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 
 /**
  * A section that folds, as effects and Clip Speed: a dark header with a chevron, the title
- * (clicking it calls `onSelect`, e.g. to select an effect for ⌘C), a trash button (`remove`), "•••" with `menu`'s items, an optional on/off tick.
+ * (clicking it calls `onSelect`, e.g. to select an effect for ⌘C), an icon button (`action`, Save Look), a trash button (`remove`), "•••" with `menu`'s items, an optional on/off tick.
  */
 export function FoldSection({
   title,
   selected,
   onSelect,
   selectHint,
+  action,
   remove,
   menu,
   enabled,
@@ -21,6 +22,8 @@ export function FoldSection({
   selected?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   selectHint?: string;
+  /** A button beside the trash: the label (or `disabled`, why not) as its tooltip. */
+  action?: { icon: IconName; label: string; run: () => void; disabled?: string };
   /** The section's own removal (Remove Effect): a trash icon, the label as its tooltip. */
   remove?: { label: string; run: () => void };
   menu?: { label: string; run: () => void }[];
@@ -32,13 +35,25 @@ export function FoldSection({
   const [showMenu, setShowMenu] = useState(false);
   return (
     <div className="border-b border-divider">
-      <div className={`relative flex h-10 items-center gap-2 px-3 ${selected ? "bg-accent-wash" : "bg-section-head"}`}>
+      <div data-fold-head className={`relative flex h-10 items-center gap-2 px-3 ${selected ? "bg-accent-wash" : "bg-section-head"}`}>
         <button className="flex h-6 w-5 items-center justify-center text-text-strong" title={open ? "Hide the settings" : "Show the settings"} onClick={() => setOpen(!open)}>
           <Icon name="caret-down" size={14} className={open ? "" : "-rotate-90"} />
         </button>
         <span className="flex-1 cursor-default truncate text-[14px] font-semibold text-text-strong" title={selectHint} onClick={onSelect}>
           {title}
         </span>
+        {action && (
+          <button
+            className="flex size-7 items-center justify-center rounded-md text-text-muted enabled:hover:bg-control enabled:hover:text-text-strong disabled:opacity-40"
+            title={action.disabled ?? action.label}
+            aria-label={action.label}
+            disabled={!!action.disabled}
+            onClick={action.run}
+            data-section-action
+          >
+            <Icon name={action.icon} size={16} />
+          </button>
+        )}
         {remove && <TrashButton label={remove.label} onClick={remove.run} />}
         {menu && (
           <button className="px-1 text-text-strong" title="More" onClick={() => setShowMenu(!showMenu)}>

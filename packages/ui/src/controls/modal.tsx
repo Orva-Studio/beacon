@@ -1,7 +1,8 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { syncNativeView } from "../native-view";
+import { replica, useView } from "../store";
 import { RoundedMask } from "./rounded-mask";
-import { isFormField } from "./fields";
+import { isTyping } from "./fields";
 import { Icon } from "./icons";
 
 /**
@@ -99,24 +100,32 @@ export function Modal({
     if (!panel.current?.contains(document.activeElement)) panel.current?.focus({ preventScroll: true });
     return syncNativeView;
   }, []);
+  // The eyedropper picking from the canvas: the backdrop lets clicks through to it, undimmed, and doesn't close.
+  const picking = useView((v) => !!v.picking);
   return (
-    <div className={BACKDROP} onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`${BACKDROP} ${picking ? "pointer-events-none bg-transparent" : ""}`} data-picking={picking || undefined} onPointerDown={(e) => !picking && e.target === e.currentTarget && onClose()}>
       <div
-        className={SHEET}
+        data-modal
+        className={`${SHEET} ${picking ? "pointer-events-auto" : ""}`}
         style={{ width }}
         tabIndex={-1}
         ref={panel}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Tab") keepFocusIn(e, panel.current);
-          if (e.key === "Escape") onClose();
+          // The code editor's Escape closes its find bar first; the eyedropper's, picking.
+          if (e.key === "Escape" && picking) {
+            const done = replica.get().picking;
+            replica.pick(undefined);
+            done?.();
+          } else if (e.key === "Escape" && !e.defaultPrevented) onClose();
           // Return is the dialog's default action, wherever the focus is (not the focused button's click, as macOS has
           // it); in a list or a text area it is the field's.
           if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement)) {
             e.preventDefault();
             onEnter();
           }
-          else if (onKey && !isFormField(e.target)) onKey(e);
+          else if (onKey && !isTyping(e.target)) onKey(e);
         }}
       >
         <RoundedMask radius={14} />

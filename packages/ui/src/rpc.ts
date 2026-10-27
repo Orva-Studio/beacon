@@ -130,6 +130,7 @@ export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
+export { copiedIds } from "./clip-ids";
 // The timeline's geometry, for the UI harness's clicks.
 export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
 
@@ -306,7 +307,7 @@ export type AppRPC = {
       clipMenu: { params: { clip: string; canvas?: boolean }; response: void };
       canvasMenu: { params: {}; response: void };
       /** The right-click menu for a Media Bin item. */
-      binMenu: { params: { asset: string }; response: void };
+      binMenu: { params: { asset?: string }; response: void };
       /** The right-click menu for a tool panel's tile (an effect, annotation or audio effect). */
       tileMenu: { params: TileMenu; response: void };
       /** A recent project's right-click on the start screen: Open, Show in Finder, Remove from Recent Projects, Move to Trash…. */
@@ -356,6 +357,8 @@ export type AppRPC = {
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
+      /** Puts text on the Mac's clipboard (a clip's id, for an agent). */
+      copyText: { params: { text: string }; response: void };
       /** What changed (the rest keep theirs); `snapshotFolder: null` goes back to the project's media folder. */
       setAppSettings: { params: SettingsPatch; response: void };
       /** Bytes every proxy video uses, in every project. */

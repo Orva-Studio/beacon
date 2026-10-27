@@ -395,6 +395,7 @@ function openWindow(): Win {
           if (open) Bun.spawn(["/usr/bin/open", path]);
           else Utils.showItemInFolder(path);
         },
+        copyText: ({ text }) => Utils.clipboardWriteText(text),
         canvasMenu: () => menus.canvasMenu(),
         clipMenu: (params) => menus.clipMenu(params),
         importMedia: () => void projects.importMedia(w).catch((e: unknown) => w.status(errorText(e))),

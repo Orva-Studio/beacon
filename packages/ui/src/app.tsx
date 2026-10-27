@@ -30,10 +30,9 @@ import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./re
 import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
 import { ProjectSettingsUi } from "./project-settings";
 import { useCaptionsPending } from "./captions";
-import { useBrollRestyles } from "./broll";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
+import { Button, EyedropperContext, Icon, isFormField, isTextField, isTyping, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -46,10 +45,13 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** Draws the selection and guides in the native preview: positions in canvas pixels, sizes in points; without it the overlay draws them itself. */
   canvasMarks?(marks: CanvasMark[]): void;
   clipMenu(clip: string, from?: "canvas"): void;
+  /** Text on the Mac's clipboard. */
+  copyText(text: string): void;
   /** The canvas's menu where no clip is under the pointer: Project Settings…, Paste, Zoom to Fit. */
   canvasMenu(): void;
   trackMenu(track: string | null): void;
-  binMenu(asset: string): void;
+  /** A Media Bin item's menu; without one, the bin's own (its empty space). */
+  binMenu(asset?: string): void;
   tileMenu(tile: TileMenu): void;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
@@ -93,7 +95,6 @@ export function App({ host }: { host: Host }) {
   const fillers = useFillers(host, session, project);
   const retakes = useRetakes(host, session, project);
   useCaptionsPending(host);
-  useBrollRestyles(host, session, project, init?.nested ?? NO_NESTED);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
   const making = useView((s) => Object.keys(s.preparing).length);
@@ -145,7 +146,10 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const field = isFormField(e.target);
+      // ":" never goes in a number: in a value box it starts the leader key, the box left as a click away leaves it.
+      const numberLeader = e.key === ":" && e.target instanceof HTMLInputElement && e.target.matches("[data-number-box]");
+      if (numberLeader) (e.target as HTMLInputElement).blur();
+      const field = isTyping(e.target) && !numberLeader;
       // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.
       const pending = replica.get().leader;
       if (!field && (pending !== undefined || !match(keymap, e))) {
@@ -166,6 +170,8 @@ export function App({ host }: { host: Host }) {
       // Return on a focused button or link presses it, as the keyboard user tabbed there to do.
       if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button, a[href], [role=button], [role=menuitem], [role=tab]")) return;
       e.preventDefault();
+      // A held ⌫ deletes once: its repeats would go on to what is selected next (the clip, once an effect's ⌫ took the effect).
+      if (e.repeat && (b.command === "edit.delete" || b.command === "edit.rippleDelete")) return;
       // Silences selected on the timeline: ⌫ cuts them; a filler picked there: ⌫ cuts it, as Cut This One does.
       const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] }; fillers?: { current?: number } } | undefined;
       if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");
@@ -174,7 +180,7 @@ export function App({ host }: { host: Host }) {
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
     const onClipboard = (e: ClipboardEvent) => {
-      if (isTextField(e.target)) return;
+      if (isTyping(e.target)) return;
       e.preventDefault();
       if (e.type === "paste" && pastedImage(e.clipboardData)) {
         const at = replica.get().session?.playhead;

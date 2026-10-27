@@ -2021,7 +2021,8 @@ The user likes the leader key. Asked for, in this order after the two above:
 the accent tone with a › at the right, no count; `: E` jumps to the fx tab, or
 on a clip with no effects opens the Visual Effects panel; `: [` / `: ]` wrap
 around; the palette lists media only once something is typed, under a "Media
-Bin" group.
+Bin" group. `: E` was dropped in Phase 11.5 (the user, 2026-10-27): the palette
+finds effects; Show Effects stays in the palette, with no key.
 **Done 2026-10-22**, all four, each its own commit (`inspector.step`,
 `inspector.effects`; palette media show their kind's icon until the bin has
 made their picture).
@@ -2617,18 +2618,42 @@ Phase 11 so it can close with motion graphics.
      before it accepts; it should accept at once and show a placeholder
      while the file is read. `BEACON_PROFILE=1` prints the drop's steps
      (`[drop]`) to find which.
+     **Measured 2026-10-27, parked until after 11.5 (the user):** with
+     `BEACON_PROFILE=1`, a 100 MB file held over the timeline drops in about
+     100 ms (last over→drop 71 ms, read 2, import 21): reading isn't the cause.
+     Released at once, nothing reaches the page (no `[drop]` line): macOS takes
+     it as refused before the web view answers, though `acceptFiles` answers at
+     once. Only the first drag is slow (about 4 s held); later drags land at
+     once (the user): a one-time warm-up in WebKit or macOS. Electrobun has no
+     native drag code (WKWebView's default). Next: log dragenter/dragover/
+     dragleave times under BEACON_PROFILE to see when the page is first asked,
+     then try warming the drag path up when the window opens. Issue #35.
   2. **Drag below the lowest track to make a new one**, as dragging above
      the top track does (a new track at the bottom).
   3. **Sliders are hard to hit**: widen their hit area (the thumb and the
      track, e.g. a taller invisible hit box), across every slider in
      `controls/`.
-  4. **Text highlighting**: a highlight behind words (a marker swipe) in
-     text and captions; which (callouts, captions, both) and how it looks
-     to settle with the user.
+  4. **A Highlight annotation, as Camtasia's** (replacing "text highlighting", a
+     marker behind words, dropped: the user, 2026-10-27, from a screenshot of
+     Camtasia's Blur & Highlight › Highlight). **Decided:** a box placed and
+     sized like the Rectangle; Colour (yellow, green, magenta presets) and
+     Opacity (50% by default), multiplied onto the picture so text under it
+     stays readable; Invert colours everything outside the box instead.
+     **Built 2026-10-27** as a region kind (with Blur, Pixelate, Spotlight).
+     Still to do: importing Camtasia's highlights from a `.cmproj`, which needs
+     a saved project with one in it to learn its layout (the user's
+     model-picker project hadn't been saved since adding one).
   5. **Remove Silences misses a pause split across a cut**: a short silence
      at the end of one clip and another at the start of the next, each under
      the minimum, are together a silence the tool should find. Measure
      silence along the timeline (across adjacent clips), not per clip.
+     **Checked 2026-10-27:** silences are already measured along the timeline
+     (`pauses()` maps each clip's speech to timeline time): a core test with
+     exact speech regions (0.3 s of quiet either side of a ripple cut, minimum
+     0.5 s) finds the 0.6 s silence. Not reproduced: likely the speech regions
+     of a real recording reach past the last word (padding), so the quiet at a
+     clip's edge counts as speech. Needs an example from the user (a project and
+     the time of a cut where it happened) to look at the speech regions there.
   6. **The eyedropper from a dialog** (Project Settings, opened by the
      canvas's right-click): a click on the canvas closes the dialog, since
      its backdrop covers the canvas, so the canvas colour can't be picked
@@ -2645,8 +2670,12 @@ Phase 11 so it can close with motion graphics.
 - **B-roll: the model picked on the clip.** The tab's Footage menu becomes the
   model menu, each with its price (Settings › AI's model is only the default);
   takes stay pickable.
-- **B-roll: fewer Styles, 5–6:** Cartoony, Anime, Realistic, Fantasy (and one
-  or two more), in place of the film and product groups.
+- **B-roll: no Styles** (the user, 2026-10-27, replacing "fewer Styles, 5–6"
+  and "Import Style…"): other tools don't have them and the user types the look
+  they want in the prompt. The clip's Style menu, Settings › AI › Your Styles and
+  the style wording in prompts and the planner's guide go; clips keep their
+  prompts (a data version and migration drop the field); the user's saved styles
+  stay in their preferences, unused.
 - **An effect from the command palette focuses its first input** (the user,
   2026-10-26): picking an effect (Visual or Audio Effects, an annotation) in the
   palette adds it as now, then opens its properties and puts the caret in its
@@ -2658,9 +2687,8 @@ Phase 11 so it can close with motion graphics.
   Your Styles and motion graphics' Your Skills are), shown in the Look menu
   under "Your looks" in every project, renamed or deleted in Settings; one of
   the same name replaces the old.
-- **B-roll: Import Style… on the clip's Style menu** (the user, 2026-10-27), as
-  motion graphics' Import Skill… does: a `.md`/`.txt` joins Your Styles and is
-  picked, with no trip to Settings.
+- ~~B-roll: Import Style… on the clip's Style menu~~ (dropped 2026-10-27 with
+  Styles).
 - **Remove Unused Media** (the user, 2026-10-27): in the Media Bin's right-click
   menu (on a medium or on empty space), removes every medium no clip on the
   timeline uses (in groups too; a B-roll or motion graphic take not shown, a
@@ -2670,8 +2698,10 @@ Phase 11 so it can close with motion graphics.
   "Auto Tune" on Film Look sends a few frames of the clip to OpenAI (the user's
   key; a vision model, the planner's) with the sliders and their ranges, and
   sets what comes back, one undo step, with its cost; a note ("warmer, less
-  grain") tunes from the current values. Settle with the user which model and
-  how many frames.
+  grain") tunes from the current values. **Decided (the user, 2026-10-27):**
+  OpenAI's GPT-6.1 Terra (`gpt-6.1-terra`: developers.openai.com, 2026-10-27,
+  $1 input, $0.05 cached, $5 output a million tokens, half of Sol's), three
+  frames: the clip's start, middle and end.
 
 - **Shift-click selects a run of clips** (the user, 2026-10-27): ⇧-click today
   toggles one clip, as ⌘-click does. ⇧-click selects every clip from the last
@@ -2679,20 +2709,58 @@ Phase 11 so it can close with motion graphics.
   end, on the tracks from the anchor's to this one's, linked clips with them;
   ⌘-click stays the one-clip toggle. ⇧-drag still ripple-moves.
 - **Edit Code: syntax highlighting** (the user, 2026-10-27): the code box
-  coloured as HTML with its CSS and script (CodeMirror 6, pinned, or a small
-  highlighter over the textarea), line numbers, matching brackets; ⌘F find.
-- **Edit Code's preview fully offline**: today a script that navigates its
-  page away is caught and the preview stopped, but that one request has left.
-  Show the preview in an Electrobun sandboxed webview with navigation rules
-  that allow nothing past its own page (needs the rules' syntax checked in the
-  app; the harness's Chromium can't test it).
+  coloured as HTML with its CSS and script, line numbers, matching brackets; ⌘F
+  find. **Decided (the user, 2026-10-27):** CodeMirror 6, exact pinned versions.
+- ~~Edit Code's preview fully offline~~ (dropped by the user, 2026-10-27: Edit
+  Code needed only highlighting and line numbers; a script navigating its page
+  away is already caught and the preview stopped).
 - **A clip's id in the properties panel** (the user, 2026-10-27), to name clips
   to an agent over MCP: a small muted chip at the foot of every clip's
   properties ("clip-8a05d312"), a click copies it (with several selected, all
   of them, comma-separated); a "Copy ID" in the clip's right-click menu too.
+- **Trimming several selected clips at once** (the user, 2026-10-27, from a
+  screen recording): with clips selected (a marquee, ⌘-click), dragging one's
+  edge trims only that one; its linked clips are drawn only once it's let go.
+  **Decided (the user, 2026-10-27):** every selected clip's same edge (and the
+  clips linked to them) moves by the same amount as the one dragged, drawn live,
+  one undo step; at the first clip that can go no further (its media, the next
+  clip) they all stop together.
+- **A default cursor size** (the user, 2026-10-27): a setting for the size a
+  recording's cursor starts at (the user wants 300% everywhere); today Cursor
+  Properties' Scale starts at 100% on every clip and Settings has nothing for
+  it. **Decided (the user, 2026-10-27):** app-wide, Settings › Recording ›
+  Cursor size; recordings imported from then on (any project) start at it;
+  clips already placed are left alone.
+- **Stitch animates a change of look at the join** (the user, 2026-10-27): two
+  pieces of one recording with different scale (or position, crop) stitched
+  together today keep only the first piece's transform and crop, so the
+  second's look is lost. Stitch adds, at each join where the next piece's
+  transform or crop differs from what shows just before it, an ordinary
+  transform/crop animation block on the stitched clip. **Decided (the user,
+  2026-10-27):** the ramp ends at the join (the right piece starts at its own
+  look), 0.5 s with the default easing, as a block added by hand.
+- **Where a new recording lands** (the user, 2026-10-27): an option not to put a
+  take just recorded at the end of the timeline. **Decided (the user,
+  2026-10-27):** Settings › Recording › Place new recordings: At the end of
+  the timeline (as now, the default), At the playhead, or Media Bin only.
 
 **Gate:** each item has its UI-harness flow (or core test) and a
 `docs/tested.md` entry; the user checks them by hand.
+
+**Known flaky (2026-10-27):** the UI flow "the ruler moves the playhead past
+the last clip…" fails now and then on its edge-follow check (the view 1-2 s
+behind the playhead after a second held at the edge), on main as on this
+branch (2 of 4 runs each): timing under load, not a regression. Worth making
+it wait for the view to settle rather than a fixed second. Also "Motion Graphics,
+as B-roll…": now and then its Edit Code dialog doesn't open on the button's
+click (2 of 5 runs), passing alone: fixed 2026-10-27 (it clicked while the button
+was disabled for a redraw; each flow now also closes a dialog it left open, so one
+failure no longer takes the rest down).
+
+**Not traced (2026-10-27):** with an effect's inputs having had the caret, a
+document change while the command palette is open (an agent's edit) can drop the
+caret from the palette's search box to nothing. Not the palette's focus request
+(guarded and expiring now); unknown whether it predates Phase 11.5.
 
 ### Phase 12 — Beacon learns how you edit, and Memory (the user, 2026-10-19; was Phase 15, then 13, until 2026-10-27)
 The AI tools start from what the user tends to do, not fixed settings: if
@@ -2700,6 +2768,12 @@ they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
 only after the user has made the same choice several times, never from one
 edit.
+- **Favorites go; the palette learns what you use** (the user, 2026-10-27:
+  "the favourites feature is a bit pointless based on how I use it"). ⌘K and
+  the leader key reach everything, so starring is upkeep with no payoff.
+  Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
+  and their preference; ⌘K lists recently and often used effects and
+  annotations first before anything is typed, and leans on them when typing.
 - **Built for talking heads, long and short** (the user, 2026-10-19:
   Beacon is an editor for talking-head videos, long-form and Shorts). So
   what it learns is how this person tightens their own speech: pauses,
@@ -2954,6 +3028,18 @@ HyperFrames' renders as the single graphics were.
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### Heavy screen recordings (the user, 2026-10-27; later)
+A Retina screen recorded in full (3326×2160 HEVC at 60 fps) spins the Mac's fans
+while it's edited, with proxies off (the user keeps them off). Decoding is
+already VideoToolbox, zero-copy to the GPU: the cost is the pixels (about four
+times 1080p60). Options looked at: proxies for recordings by default, or a
+recording size and frame rate in Settings › Recording. Parked: first look at how
+Camtasia records and previews such footage. Measured 2026-10-27: Whisper takes
+2.5 s on the GPU for 1:45 of audio and a headless import barely loads the CPU, so
+the minute of fans after a recording comes from the app (thumbnails or preview
+decoding 5K frames, or the recorder finishing): to measure per process during a
+30 s recording in the released app, after Phase 11.5 ships.
 
 ### New video models found and added by themselves (the user, 2026-10-26; later)
 Kling 4.0 reached Replicate (`kwaivgi/kling-v4.0`, $0.157 / $0.235 a second)

@@ -210,3 +210,22 @@ test.skipIf(!existsSync(TAKE))("a silence where the cursor moved once, logged by
   expect([silence.active, silence.selected]).toEqual([true, false]);
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("Remove Silences finds a pause split across a cut: the quiet end of one clip and the quiet start of the next, each under the minimum, are one silence", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-cut") });
+  const h = await core.create({ path: join(dir, "cut.beproj") });
+  const a = join(dir, "cut.m4a");
+  copyFileSync(AUDIO, a);
+  const r = await core.import(h, [a], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  transcribed(core, core.doc(h).assets[r.assets[0]!]!, { 0: { words: [{ text: "one", start: 0.1, end: 0.9 }, { text: "two", start: 3.1, end: 3.9 }], speech: [[0, 1], [3, 4]] } });
+  // 1.3–2.7 s cut out: 0.3 s of quiet before the cut, 0.3 s after.
+  await core.run(h, "timeline.rippleDelete", { ranges: [{ start: 1.3, end: 2.7 }] });
+  const audio = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio");
+  expect(audio).toHaveLength(2);
+  const plan = (await core.query(h, "transcript.silences", { min: 0.5, keep: 0 })) as { silences: { start: number; end: number }[] };
+  const across = plan.silences.find((x) => x.start < 1.3 && x.end > 1.3);
+  expect(across).toBeDefined();
+  expect(across!.start).toBeCloseTo(1, 1);
+  expect(across!.end).toBeCloseTo(1.6, 1);
+});

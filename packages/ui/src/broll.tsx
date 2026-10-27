@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { assetName, ticksToSeconds, type Clip, type Project, type RGBA, type Session, type Track } from "@beacon/model";
-import type { BrollProps, BrollState, Style, TakeInfo } from "@beacon/features";
+import type { BrollProps, BrollState, TakeInfo } from "@beacon/features";
 import { Button, Check, Section, Segmented, Select, TextArea } from "./controls";
 import { COLOR, line, type CanvasMark } from "./canvas-marks";
 import type { Placed } from "./canvas";
@@ -15,16 +15,18 @@ interface Estimate {
   /** What it was asked for: the clips and settings it priced. */
   for: string;
   model: string;
+  modelId: string;
+  /** Settings › AI's model: a clip without its own is made with it. */
+  default: string;
   resolution: string;
   limit: number;
   longest: number;
-  clips: { id: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
+  clips: { id: string; model: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
+  /** What each model would cost the clip, and whether it makes a shot that long. */
+  models: { id: string; title: string; cost: number; longest: number; fits: boolean }[];
 }
 
 const dollars = (v: number) => `$${v.toFixed(2)}`;
-
-/** The Style menu's last item: opens Settings › AI, where the user's own styles are added and edited. */
-const ADD = "__add__";
 
 export const brollStateOf = (s: Session | undefined) => (s?.features.broll as BrollState | undefined) ?? { planning: [], making: [], errors: {} };
 
@@ -42,27 +44,6 @@ export function placeholderMarks(p: Placed): CanvasMark[] {
   // Filled by one band from the left edge's middle to the right's, as tall as the box (axis-aligned boxes).
   const height = Math.hypot(d[0] - a[0], d[1] - a[1]);
   return [band(mid(a, d), mid(b, c), tint, height), ...[a, b, c, d].map((q, i) => line(q, [a, b, c, d][(i + 1) % 4]!, COLOR.hot, 1.5))];
-}
-
-/** Writes Auto's prompt again in a style picked while its take was made, once the take is in, whether or not its tab is still open. */
-export function useBrollRestyles(host: Host, session: Session | undefined, project: Project | undefined, nested: Record<string, string>) {
-  const pending = useView((v) => v.brollRestyles);
-  const { making, errors } = brollStateOf(session);
-  useEffect(() => {
-    if (!project || !session) return;
-    // Plan finds a clip in the timeline open (the main one, or a group's): one elsewhere waits until it is open again.
-    const shown = timelineView(project, session, nested).project.tracks;
-    for (const id of pending) {
-      if (making.includes(id)) continue;
-      const clip = clipIn(project.tracks, id, nested);
-      if (clip && !shown.some((t) => t.clips.some((c) => c.id === id))) continue;
-      replica.restyleBroll(id, false);
-      // Written again it would clear why the take failed: Write Again, once that's read.
-      if (errors[id]) continue;
-      const b = clip?.props.broll as BrollProps | undefined;
-      if (b?.source === "auto" && b.prompt) host.run("broll.plan", { clip: id });
-    }
-  }, [pending, making, session?.group]);
 }
 
 /** A clip by id, inside groups too. */
@@ -87,8 +68,6 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const error = state.errors[clip.id];
   const [manual, setManual] = useState(b.manual);
   useEffect(() => setManual(b.manual), [b.manual]);
-  const restyled = useView((v) => v.brollRestyles.includes(clip.id));
-  const styles = useQuery<Style[]>(host, "broll.styles", {}, useView((v) => v.preferences.find((p) => p.id === "brollStyles")?.value));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
   // Adding and Apple's planner work offline; Replicate, and OpenAI's planner, need the internet.
@@ -97,7 +76,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const set = (fields: Partial<BrollProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { broll: fields } }, label);
   // Asked again when the clip's length or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
-  const asked = JSON.stringify([priced, clip.id, clip.duration]);
+  const asked = JSON.stringify([priced, clip.id, clip.duration, b.model]);
   const answer = useQuery<Estimate>(host, "broll.estimate", { clips: [clip.id], for: asked });
   const estimate = answer?.for === asked ? answer : undefined;
   const cost = estimate?.clips[0];
@@ -115,45 +94,9 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   // Something to make it from: its prompt, or (still empty) the words said.
   const prompted = !!(auto ? b.prompt : manual).trim() || !!said;
   const ready = prompted && !!estimate && !busy && !tooLong && !over && online;
-  const groups = [...new Set((styles ?? []).map((s) => s.group))];
   return (
     <Section>
       <div className="flex flex-col gap-3 py-1" data-broll-tab>
-        <label className="flex flex-col gap-1">
-          <span className="text-label font-medium text-text-muted">Style</span>
-          <Select
-            value={b.style}
-            // A prompt being written is in the style it started with: changed once it's done.
-            disabled={planning}
-            title={planning ? "The prompt is being written in this style: pick another once it's done" : undefined}
-            onChange={(e) => {
-              if (e.target.value === ADD) return void host.app("app.settings:ai");
-              set({ style: e.target.value }, "B-roll Style");
-              // Auto's prompt is written in the style: written again in the new one.
-              if (auto && b.prompt) making ? replica.restyleBroll(clip.id, true) : host.run("broll.plan", { clip: clip.id });
-            }}
-            data-broll-style
-          >
-            {groups.map((g) =>
-              g ? (
-                <optgroup key={g} label={g}>
-                  {styles!.filter((s) => s.group === g).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : (
-                styles!.filter((s) => !s.group).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))
-              ),
-            )}
-            <option value={ADD}>Add or Edit Styles…</option>
-          </Select>
-        </label>
         <div className={`flex flex-col gap-1 ${planning ? "opacity-50" : ""}`}>
           <span className="text-label font-medium text-text-muted">Prompt</span>
           <Segmented
@@ -175,7 +118,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
         {auto ? (
           <div className="flex flex-col gap-1">
             <div className={`rounded-md bg-groove px-3 py-2 text-caption ${b.prompt ? "text-text" : "text-text-faint"}`} data-broll-prompt>
-              {planning ? "Writing the prompt…" : b.prompt || "Written from the words under the clip, in its style"}
+              {planning ? "Writing the prompt…" : b.prompt || "Written from the words under the clip"}
             </div>
             <div className="flex items-center gap-2">
               <Button disabled={busy || (planner === "openai" && !online)} title={planner === "openai" && !online ? offline : undefined} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
@@ -184,9 +127,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               <Button look="quiet" disabled={!b.prompt || planning} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: b.prompt }, "Copy B-roll Prompt to Manual")} data-broll-copy>
                 Copy to Manual
               </Button>
-              {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             </div>
-            {restyled && <span className="text-caption text-warning" data-broll-restyled>Written again in the new style once this take is made.</span>}
+            {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             <span className="text-caption text-text-faint">
               {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
             </span>
@@ -194,7 +136,20 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
         ) : (
           <label className="flex flex-col gap-1">
             <TextArea rows={4} placeholder={said || "Describe the shot"} value={manual} onChange={(e) => setManual(e.target.value)} onBlur={() => manual !== b.manual && set({ manual }, "B-roll Prompt")} data-broll-prompt />
-            <span className="text-caption text-text-faint">Starts from the words said under the clip; the style's wording is added.</span>
+            <span className="text-caption text-text-faint">Starts from the words said under the clip. Say the look you want here (anime, realistic, 3D animation…).</span>
+          </label>
+        )}
+        {estimate && (
+          <label className="flex flex-col gap-1">
+            <span className="text-label font-medium text-text-muted">Model</span>
+            <Select value={b.model} disabled={making} onChange={(e) => set({ model: e.target.value }, "B-roll Model")} data-broll-model>
+              <option value="">Default · {estimate.models.find((m) => m.id === estimate.default)?.title} · {dollars(estimate.models.find((m) => m.id === estimate.default)?.cost ?? 0)}</option>
+              {estimate.models.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.fits}>
+                  {m.title} · {m.fits ? dollars(m.cost) : `up to ${m.longest} s`}
+                </option>
+              ))}
+            </Select>
           </label>
         )}
         {takes.length > 1 && (
@@ -221,13 +176,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
         <Button look="primary" disabled={!ready} title={online ? undefined : offline} onClick={() => host.run("broll.generate", { clips: [clip.id] })} data-broll-generate>
           {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
         </Button>
-        {cost && cost.compare.models > 1 && (
-          <Button look="quiet" disabled={!prompted || busy || !online} title={!online ? offline : `Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
-            Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
-          </Button>
-        )}
         <span className="text-caption text-text-faint">
-          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder.
+          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder. The default model is set in Settings › AI.
         </span>
       </div>
     </Section>

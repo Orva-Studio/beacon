@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -87,6 +87,15 @@ beforeAll(async () => {
   screen = clips().find((c) => c.type === "screen")!;
   callout = clips().find((c) => c.type === "callout")!;
 }, 60000);
+
+// A flow that fails part way can leave a dialog open, and every flow after it would run under it: closed here.
+afterEach(async () => {
+  if (skip || !page) return;
+  for (let i = 0; i < 3 && (await page.evaluate<boolean>("!!document.querySelector('[data-modal]')").catch(() => false)); i++) {
+    await page.evaluate("document.querySelector('[data-modal]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await Bun.sleep(100);
+  }
+});
 
 afterAll(async () => {
   if (skip) return;
@@ -249,20 +258,53 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await Bun.sleep(700);
     await motionIdle();
     const takes = m().takes.length;
+    // Disabled while it is drawn again (a timing change above): clicked once the window shows it free.
+    await page.until("!document.querySelector('[data-motion-code]').disabled", 20_000);
     await page.evaluate("document.querySelector('[data-motion-code]').click()");
     await page.until("!!document.querySelector('[data-motion-code-dialog]')");
-    expect(await page.evaluate<string>("document.querySelector('[data-motion-code-text]').value")).toBe(m().takes[m().shown]!.html);
+    // A code editor: its first line is the take's, coloured, with line numbers.
+    const code = "document.querySelector('[data-motion-code-text] .cm-content')";
+    await page.until(`!!${code}`);
+    expect(await page.evaluate<string>(`${code}.querySelector('.cm-line').textContent`)).toBe(m().takes[m().shown]!.html.split("\n")[0]!);
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-motion-code-text] .cm-lineNumbers .cm-gutterElement').length")).toBeGreaterThan(1);
+    expect(await page.evaluate<number>(`${code}.querySelectorAll('span[class]').length`)).toBeGreaterThan(0);
     await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('window.__seek')", 10_000);
+    // ⌘F finds; Esc closes the find bar, not the dialog.
+    await page.evaluate(`${code}.focus()`);
+    await page.key("f", "KeyF", ["meta"]);
+    await page.until("!!document.querySelector('[data-motion-code-text] .cm-search')");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-motion-code-text] .cm-search')");
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-motion-code-dialog]')")).toBe(true);
+    // Long lines wrap, until Wrap lines is unticked.
+    const wraps = () => page.evaluate<boolean>(`${code}.classList.contains('cm-lineWrapping')`);
+    expect(await wraps()).toBe(true);
+    // Its tick box sits under the code.
+    expect(await page.evaluate<boolean>("document.querySelector('[data-motion-code-wrap]').getBoundingClientRect().top >= document.querySelector('[data-motion-code-text]').getBoundingClientRect().bottom")).toBe(true);
+    await page.click(...(await centre("[data-motion-code-wrap]")));
+    await page.until(`!${code}.classList.contains('cm-lineWrapping')`);
+    await page.click(...(await centre("[data-motion-code-wrap]")));
+    await page.until(`${code}.classList.contains('cm-lineWrapping')`);
+    const replace = async (text: string) => {
+      await page.evaluate(`${code}.focus()`);
+      await page.key("a", "KeyA", ["meta"]);
+      await type(text);
+    };
     // Code that navigates its page away stops the preview (the CSP can't forbid it): it says so, and comes back once fixed.
-    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
-    await type('<script>location.href = "about:blank"</script>');
+    await replace('<script>location.href = "about:blank"</script>');
     await page.until("!!document.querySelector('[data-motion-code-left]')", 10_000);
     expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-code-preview]')")).toBe(true);
-    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
-    await type("<div class=w data-t=0.1>Typed by hand</div>");
+    await replace("<div class=w data-t=0.1>Typed by hand</div>");
     await page.until("!document.querySelector('[data-motion-code-left]')", 10_000);
     await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('Typed by hand')", 10_000);
-    await page.evaluate("document.querySelector('[data-motion-code-save]').click()");
+    // Space in the code is the editor's, not the play bar's; ⌘S saves.
+    const playing = () => page.evaluate<string>("[...document.querySelectorAll('[data-motion-code-dialog] button')].map((b) => b.title).find((t) => t.endsWith('(Space)')) ?? ''");
+    const still = await playing();
+    await page.evaluate(`${code}.focus()`);
+    await page.key(" ", "Space");
+    await Bun.sleep(200);
+    expect(await playing()).toBe(still);
+    await page.key("s", "KeyS", ["meta"]);
     await arrived(() => m().takes.length === takes + 1, 20_000);
     expect(m().takes.at(-1)!.html).toBe("<div class=w data-t=0.1>Typed by hand</div>");
     expect((m().takes.at(-1) as { by?: string }).by).toBe("you");
@@ -1523,7 +1565,7 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
   // A favourite shows its gold star; another tile shows none until selected.
   expect(await star("annotation:text")).toBe("on");
@@ -1572,7 +1614,7 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await select([]);
 });
 
-test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, : [ back, round the ends; : E the fx tab, else Visual Effects", async () => {
+test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, : [ back, round the ends; Show Effects (no key: the palette finds effects) the fx tab, else Visual Effects", async () => {
   const leader = async (key: string, code: string) => {
     await page.key(":", "Semicolon", ["shift"]);
     await page.until("!!document.querySelector('[data-leader]')");
@@ -1584,22 +1626,34 @@ test.skipIf(skip)("the leader key moves through the properties tabs: : ] next, :
   await select([camera.id]);
   await run("inspector.tab", { tab: "transform" });
   await run("panel.show", { tool: "media" });
-  await leader("e", "KeyE");
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-leader-next=\"E\"]')")).toBe(false);
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-leader]')");
+  await run("inspector.effects");
   expect((await session()).panels.tool).toBe("visualEffects");
   await run("effect.add", { clip: camera.id, type: "drop-shadow" });
-  await leader("e", "KeyE");
+  await run("inspector.effects");
   expect((await session()).inspector).toBe("effects");
-  await page.until("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Drop Shadow')");
+  // Its section in the properties (the Visual Effects panel names it too).
+  await page.until("!!document.querySelector('.panel-card [data-effect]')");
   // Effects is the last tab: ] goes round to the first, [ back to Effects.
+  // Each step puts the caret in the tab's first input; : from a value box starts the next step, typing nothing.
+  const typingIn = "document.activeElement?.closest('.panel-card') && document.activeElement.matches('input, select, textarea, [data-input]')";
   await leader("]", "BracketRight");
   expect((await session()).inspector).toBe("transform");
+  await page.until(`!!(${typingIn})`);
   await leader("[", "BracketLeft");
   expect((await session()).inspector).toBe("effects");
+  await page.until(`!!(${typingIn}) && !!document.activeElement.closest('[data-effect]')`);
   await leader("[", "BracketLeft");
   expect((await session()).inspector).not.toBe("effects");
+  expect(await page.evaluate<boolean>("[...document.querySelectorAll('.panel-card input')].some((i) => i.value.includes(':'))")).toBe(false);
+  await page.evaluate("document.activeElement?.blur()");
   await ui.core.undo(ui.handle);
   await run("inspector.tab", { tab: "transform" });
-});
+}, 30_000);
 
 test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r labels the selection red; : a deletes a recording's audio; : p opens the command palette; Esc, a click or a wrong key drops it; Settings › Shortcuts records : then a key", async () => {
   const semi = () => page.key(":", "Semicolon", ["shift"]);
@@ -1611,6 +1665,13 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
   expect(shown).toContain("ADelete Audio");
   expect(shown).toContain("CColor Label›");
+  // Cut out of the native canvas, which draws over the page: over the whole popup, else the canvas hides its top.
+  const covered = await page.evaluate<boolean>(`(() => {
+    const box = document.querySelector('[data-leader]').getBoundingClientRect();
+    const masks = [...document.querySelectorAll('[data-leader] .ot-mask')].map((m) => m.getBoundingClientRect());
+    return masks.some((m) => m.top <= box.top + 14 && m.bottom >= box.bottom - 14 && m.left <= box.left + 1 && m.right >= box.right - 1);
+  })()`);
+  expect(covered).toBe(true);
   // A group reads as one: the accent tone and a chevron, the single keys in the text colour.
   const tones = await page.evaluate<[string, string]>(
     "[document.querySelector('[data-leader-group]'), document.querySelector('[data-leader-next] span:not([data-leader-group])')].map((e) => getComputedStyle(e).color)",
@@ -1671,6 +1732,15 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Audio");
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   expect(clips().some((c) => c.id === audio.id)).toBe(true);
+  // : u unlinks the recording.
+  await select([audio.id, ...clips().filter((c) => c.linkId === audio.linkId && c.id !== audio.id).map((c) => c.id)]);
+  await semi();
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("u", "KeyU");
+  await arrived(() => !clip(audio.id).linkId);
+  expect(clip(audio.id).linkId).toBeFalsy();
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unlink Recording");
+  await ui.core.undo(ui.handle);
   // : p opens the command palette.
   await semi();
   await page.key("p", "KeyP");
@@ -2102,6 +2172,457 @@ test.skipIf(skip)("clips picked with ⌘-click move together when one of them is
   await ui.core.undo(ui.handle);
   await select([]);
   await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("⇧-click selects the run of clips from the one clicked before, across tracks; ⌘-click still toggles one", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([]);
+  await run("timeline.view", { start: 0, end: 10 });
+  await run("clip.split", { at: 2, clips: [screen.id], linked: false });
+  const at2 = clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - 2) < 1e-6)!;
+  await run("clip.split", { at: 5, clips: [at2.id], linked: false });
+  const piece = (t: number) => clips().find((c) => c.type === "screen" && Math.abs(c.start / 705_600_000 - t) < 1e-6)!;
+  const [a, b, c] = [piece(0), piece(2), piece(5)];
+  const camera = clips().find((x) => x.assetId === screen.assetId && x.type === "video")!;
+  const audio = clips().find((x) => x.assetId === screen.assetId && x.type === "audio")!;
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(a.id), await timelinePlaces(camera.id)];
+  const xy = (p: { y: number; h: number }, t: number): [number, number] => [scr.box.x + scr.xAt(t), scr.box.y + p.y + p.h / 2];
+  await page.click(...xy(scr, 1));
+  await Bun.sleep(300);
+  await page.click(...xy(scr, 6), ["shift"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([a.id, b.id, c.id].sort());
+
+  // From the same anchor to the camera: the screen pieces it spans, the camera and its linked audio.
+  await page.click(...xy(cam, 3), ["shift"]);
+  await Bun.sleep(300);
+  const picked = (await session()).selection;
+  expect(picked).toEqual(expect.arrayContaining([a.id, b.id, c.id, camera.id, audio.id]));
+
+  await page.click(...xy(scr, 3));
+  await Bun.sleep(300);
+  await page.click(...xy(scr, 6), ["meta"]);
+  await Bun.sleep(300);
+  expect([...(await session()).selection].sort()).toEqual([b.id, c.id].sort());
+  await page.click(...xy(scr, 6), ["meta"]);
+  await Bun.sleep(300);
+  expect((await session()).selection).toEqual([b.id]);
+
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("clips picked with a marquee move together when one of them is dragged", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([]);
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  const s = clip(screen.id);
+  const end = ticksToSeconds(s.start + s.duration);
+  await run("timeline.view", { start: Math.max(0, end - 6), end: end + 6 });
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(screen.id), await timelinePlaces(camera.id)];
+  const { box, xAt } = scr;
+  // From empty space past the clips' ends, over the last second of the screen and the camera.
+  const top = Math.min(scr.y, cam.y), bottom = Math.max(scr.y + scr.h, cam.y + cam.h);
+  const empty = clips().every((c) => ticksToSeconds(c.start + c.duration) <= end + 2 || ticksToSeconds(c.start) >= end + 4);
+  expect(empty).toBe(true);
+  await page.drag([box.x + xAt(end + 3), box.y + top + 4], [box.x + xAt(end - 1), box.y + bottom - 4]);
+  await Bun.sleep(300);
+  const picked = (await session()).selection;
+  expect(picked).toEqual(expect.arrayContaining([screen.id, camera.id, audio.id]));
+  const before = new Map([screen, camera, audio].map((c) => [c.id, clip(c.id).start]));
+  const [x, y] = [box.x + xAt(end - 2), box.y + scr.y + scr.h / 2];
+  await page.drag([x, y], [x + xAt(end) - xAt(end - 1), y]);
+  await Bun.sleep(300);
+  const moved = [...before].map(([id, start]) => clip(id).start - start);
+  expect(moved[0]).toBeGreaterThan(0);
+  expect(new Set(moved).size).toBe(1);
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("dragging one selected clip's edge trims every selected clip's, and the clips linked to them, by as much, drawn while dragged, one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  expect(camera.linkId && camera.linkId !== screen.linkId).toBeTruthy();
+  await select([screen.id, camera.id]);
+  const endOf = (id: string) => ticksToSeconds(clip(id).start + clip(id).duration);
+  const before = new Map([screen, camera, audio].map((c) => [c.id, endOf(c.id)]));
+  const end = endOf(screen.id);
+  await run("timeline.view", { start: Math.max(0, end - 6), end: end + 2 });
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(screen.id), await timelinePlaces(camera.id)];
+  const { box, xAt } = scr;
+  // Where the camera's last half second is drawn: its colour now, the empty track once its end is dragged in.
+  const probe = timelinePixel(xAt(endOf(camera.id) - 0.5), cam.y + cam.h - 6);
+  const shown = await page.evaluate<string>(probe);
+  const y = box.y + scr.y + scr.h / 2;
+  await page.down(box.x + xAt(end) - 1, y);
+  for (let i = 1; i <= 8; i++) await page.move(box.x + xAt(end - i / 8) - 1, y);
+  await Bun.sleep(100);
+  expect(await page.evaluate<string>(probe)).not.toBe(shown);
+  await page.up(box.x + xAt(end - 1) - 1, y);
+  await arrived(() => endOf(camera.id) < before.get(camera.id)! - 0.5);
+  const by = [...before].map(([id, e]) => +(e - endOf(id)).toFixed(3));
+  expect(by[0]).toBeGreaterThan(0.5);
+  expect(new Set(by).size).toBe(1);
+  const history = (await ui.core.history(ui.handle)).undo;
+  expect(history.length - steps).toBe(1);
+  expect(history.at(-1)).toBe("Trim Media");
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
+test.skipIf(skip)("a clip's id sits at the foot of its properties: a click copies it, with several selected all of them, comma-separated", async () => {
+  await select([screen.id]);
+  await page.until(`document.querySelector('[data-clip-id]')?.textContent === ${JSON.stringify(screen.id)}`);
+  await page.click(...(await centre("[data-clip-id]")));
+  await arrived(() => ui.copied.at(-1) === screen.id);
+  expect(ui.copied.at(-1)).toBe(screen.id);
+  // On every tab, not only the first.
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("!!document.querySelector('[data-clip-id]')");
+  await select([screen.id, callout.id]);
+  await page.until(`document.querySelector('[data-clip-id]')?.textContent?.endsWith('+ 1 more')`);
+  // Below a callout's many rows: scrolled to, as the panel is.
+  await page.evaluate("document.querySelector('[data-clip-id]').scrollIntoView()");
+  await page.click(...(await centre("[data-clip-id]")));
+  await arrived(() => !!ui.copied.at(-1)?.includes(","));
+  expect(ui.copied.at(-1)!.split(", ").sort()).toEqual([screen.id, callout.id].sort());
+  await select([]);
+}, 15_000);
+
+test.skipIf(skip)("Remove Unused Media takes out every medium no clip uses, keeping one a LUT reads, in one undo step; the files stay; the bin's empty space has its menu", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const [unused, lut] = ["unused", "lut"].map((n) => {
+    const copy = join(dir, `${n}-${Date.now()}.mp4`);
+    copyFileSync(join(FIXTURES, "video.mp4"), copy);
+    return copy;
+  });
+  const { assets: [a] } = await ui.core.import(ui.handle, [unused!]);
+  const { assets: [b] } = await ui.core.import(ui.handle, [lut!]);
+  // Import places them; their clips deleted, the media stay in the bin unused.
+  await run("clip.remove", { clips: clips().filter((c) => c.assetId === a || c.assetId === b).map((c) => c.id), linked: true });
+  // An asset an effect's field marked as one reads (a LUT's), with no clip of its own, is used.
+  const fx = (await run("effect.add", { clip: screen.id, type: "lut", params: { lut: b } })).results[0] as string;
+  const doc = () => ui.core.doc(ui.handle);
+  const onClips = new Set(clips().map((c) => c.assetId).filter(Boolean));
+  expect(doc().assets[a!]).toBeDefined();
+
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-bin-items]')");
+  const items = await page.evaluate<{ x: number; y: number; w: number; h: number }>("(() => { const r = document.querySelector('[data-bin-items]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()");
+  const menus = ui.menus.length;
+  await page.rightClick(items.x + items.w - 6, items.y + items.h - 6);
+  await arrived(() => ui.menus.length > menus);
+  expect(ui.menus.slice(menus)).toEqual(["bin"]);
+
+  await run("edit.removeUnusedMedia");
+  expect(doc().assets[a!]).toBeUndefined();
+  expect(doc().assets[b!]).toBeDefined();
+  for (const id of onClips) expect(doc().assets[id!]).toBeDefined();
+  expect(existsSync(unused!)).toBe(true);
+  const history = (await ui.core.history(ui.handle)).undo;
+  expect(history.at(-1)).toBe("Remove Unused Media");
+  await ui.core.undo(ui.handle);
+  expect(doc().assets[a!]).toBeDefined();
+  // Nothing left to remove: refused, no empty undo step.
+  await run("edit.removeUnusedMedia");
+  const again = (await ui.core.history(ui.handle)).undo.length;
+  await expect(run("edit.removeUnusedMedia")).rejects.toThrow("every medium in the Media Bin is used");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(again);
+  await run("effect.remove", { clip: screen.id, effect: fx });
+  await run("edit.removeUnusedMedia");
+  expect(doc().assets[b!]).toBeUndefined();
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+}, 30_000);
+
+test.skipIf(skip)("a slider takes a press above or below its groove and past its ends, the value still read along the groove", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([screen.id]);
+  await run("inspector.tab", { tab: "transform" });
+  // The Opacity row's slider: its hit box and the groove inside it.
+  const find = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Opacity') return true; return false; }); const g = hit.firstElementChild.getBoundingClientRect(); const b = hit.getBoundingClientRect(); return { gx: g.x, gw: g.width, gy: g.y + g.height / 2, bx: b.x, bw: b.width, bh: b.height }; })()`;
+  await page.until("document.querySelectorAll('[data-slider-hit]').length > 0");
+  const r = await page.evaluate<{ gx: number; gw: number; gy: number; bx: number; bw: number; bh: number }>(find);
+  expect(r.bh).toBeGreaterThanOrEqual(24);
+  const opacity = () => (clip(screen.id).props.transform as { opacity: number }).opacity;
+  // 9 points above the groove's line, half way along: once a miss, now half opacity.
+  await page.click(r.gx + r.gw / 2, r.gy - 9);
+  await arrived(() => Math.abs(opacity() - 0.5) < 0.03);
+  expect(opacity()).toBeCloseTo(0.5, 1);
+  // Past the groove's right end, inside the box: the most there is.
+  await page.click(r.bx + r.bw - 2, r.gy);
+  await arrived(() => opacity() === 1);
+  expect(opacity()).toBe(1);
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+});
+
+test.skipIf(skip)("a clip dragged below the lowest track goes onto a new track there, its linked clips staying on theirs, one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  await Bun.sleep(300);
+  const tracks = () => ui.core.doc(ui.handle).tracks;
+  const count = tracks().length;
+  const low = tracks()[0]!.clips[0]!;
+  const others = clips().filter((c) => c.linkId && c.linkId === low.linkId && c.id !== low.id).map((c) => [c.id, tracks().findIndex((t) => t.clips.some((k) => k.id === c.id))] as const);
+  const [x, y] = await timelineClipCentre(low.id);
+  const { h } = await timelinePlaces(low.id);
+  await page.drag([x, y], [x, y + h * 1.4]);
+  await arrived(() => tracks().length === count + 1);
+  expect(tracks().length).toBe(count + 1);
+  expect(tracks()[0]!.clips.map((c) => c.id)).toEqual([low.id]);
+  // Its linked clips kept their tracks, now one higher with the new one under them.
+  for (const [id, i] of others) expect(tracks()[i + 1]!.clips.some((c) => c.id === id)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(tracks().length).toBe(count);
+  expect(tracks()[0]!.clips.some((c) => c.id === low.id)).toBe(true);
+});
+
+test.skipIf(skip)("an effect picked in the command palette opens its properties with the caret in its first input; Tab and ⇧Tab go through its inputs; Esc gives the keys back", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([screen.id]);
+  const before = clip(screen.id).effects.length;
+  await page.key("k", "KeyK", ["meta"]);
+  await page.until("!!document.querySelector('[data-palette]')");
+  await type("Drop Shadow");
+  await page.until("!!document.querySelector('[data-entry=\"effect:drop-shadow\"]')");
+  await page.key("Enter", "Enter");
+  await arrived(() => clip(screen.id).effects.length > before);
+  const fx = clip(screen.id).effects.at(-1)!;
+  expect(fx.type).toBe("drop-shadow");
+  const inEffect = `document.activeElement?.closest('[data-effect]')?.dataset.effect === ${JSON.stringify(fx.id)}`;
+  await page.until(inEffect);
+  expect((await session()).inspector).toBe("effects");
+  expect(await page.evaluate<string>("document.activeElement.tagName")).toBe("INPUT");
+  // Tab goes to the next input, ⇧Tab back to the first.
+  const at = () => page.evaluate<number>("(() => { const all = [...document.querySelector('[data-effect=\"" + fx.id + "\"]').querySelectorAll('[data-input], input, select, textarea, button[role=checkbox]')].filter((e) => !e.closest('[data-fold-head]')); return all.indexOf(document.activeElement); })()");
+  expect(await at()).toBe(0);
+  await page.key("Tab", "Tab");
+  await page.until(`(${inEffect}) && document.activeElement.tagName === 'INPUT'`);
+  expect(await at()).toBe(1);
+  await page.key("Tab", "Tab", ["shift"]);
+  await page.until(`(${inEffect})`);
+  expect(await at()).toBe(0);
+  // Esc: out of the panel, the clip still selected.
+  await page.key("Escape", "Escape");
+  await page.until("!document.activeElement?.closest('[data-effect]')");
+  expect((await session()).selection).toContain(screen.id);
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+}, 15_000);
+
+test.skipIf(skip)("an effect comes off by keyboard: ⌘⌫ in its section (even typing in a value), ⌫ on its tick box, or Remove … in the palette; the clip stays, one undo step each", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const shadows = () => clip(screen.id).effects.filter((e) => e.type === "drop-shadow");
+  const add = async () => {
+    await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+    await arrived(() => shadows().length === 1);
+    return shadows()[0]!.id;
+  };
+  try {
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    // ⌘⌫ with the caret in its first value: the effect goes, not the clip (no ripple delete).
+    let id = await add();
+    await page.until(`!!document.querySelector('[data-effect="${id}"] [data-input]')`);
+    await page.evaluate(`document.querySelector('[data-effect="${id}"] [data-input]').focus()`);
+    await page.until(`document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('[data-effect="${id}"]')`);
+    const count = clips().length;
+    await page.key("Backspace", "Backspace", ["meta"]);
+    await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Remove Drop Shadow");
+    // ⌫ on its tick box (not typed in): the effect, where it used to delete the clip.
+    id = await add();
+    await page.until(`!!document.querySelector('[data-effect="${id}"] button[role=checkbox]')`);
+    await page.evaluate(`document.querySelector('[data-effect="${id}"] button[role=checkbox]').focus()`);
+    await page.key("Backspace", "Backspace");
+    await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+    // The palette lists the selected clip's effects to remove.
+    id = await add();
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("Remove Drop");
+    await page.until(`!!document.querySelector('[data-entry="remove:${id}"]')`);
+    await page.key("Enter", "Enter");
+    await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+    // Inside an open group too: the palette finds the clip there, as the properties do.
+    const camera = clips().find((c) => c.type === "video" && c.assetId === screen.assetId)!;
+    const audio = clips().find((c) => c.type === "audio" && c.assetId === screen.assetId)!;
+    const group = (await run("clip.group", { clips: [camera.id, audio.id] })).results[0] as string;
+    await run("group.open", { clip: group });
+    await run("effect.add", { clip: camera.id, type: "drop-shadow" });
+    await select([camera.id]);
+    const inner = () => JSON.stringify(ui.core.doc(ui.handle)).match(/"type":"drop-shadow"/g)?.length ?? 0;
+    await arrived(() => inner() === 1);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("Remove Drop");
+    await page.until(`[...document.querySelectorAll('[data-entry^="remove:"]')].length === 1`);
+    await page.key("Enter", "Enter");
+    await arrived(() => inner() === 0);
+    await run("group.close", {});
+  } finally {
+    await page.evaluate("document.activeElement?.blur()");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Tab from a colour well (where : ] puts the caret on a Highlight) goes to the next input, not to the next clip; a held ⌫ deletes once", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("edit.addAnnotation", { preset: "highlight", time: 1 });
+    const hl = clips().find((c) => c.type === "region")!;
+    await select([hl.id]);
+    await run("inspector.tab", { tab: "transform" });
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until("!!document.querySelector('[data-leader]')");
+    await page.key("]", "BracketRight");
+    await page.until("document.activeElement?.getAttribute('title') === 'Color'");
+    await page.key("Tab", "Tab");
+    await page.until("document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('.panel-card')");
+    expect((await session()).selection).toEqual([hl.id]);
+    await page.evaluate("document.activeElement?.blur()");
+    // ⌫ held: its repeats delete nothing more (they'd go on to whatever is selected next).
+    const count = clips().length;
+    await page.evaluate("document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace', repeat: true, bubbles: true }))");
+    await Bun.sleep(300);
+    expect(clips().length).toBe(count);
+  } finally {
+    await page.evaluate("document.activeElement?.blur()");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("the eyedropper from a dialog: Project Settings' colour picks from the canvas without the dialog closing, the canvas undimmed, the colour landing in the dialog; Esc stops picking, not the dialog", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const before = "#123456";
+  try {
+    await run("project.settings.set", { background: before });
+    await run("playhead.set", { time: 1 });
+    await ui.core.uiOpen(ui.handle, "projectSettings");
+    await page.until("!!document.querySelector('[data-project-settings]')");
+    const swatch = '[data-project-settings] button[title="The canvas colour behind the media"]';
+    const dropper = 'button[title="Pick a colour from the canvas"]';
+    const start = async () => {
+      if (!(await has(dropper))) await page.click(...(await centre(swatch)));
+      await page.until(`!!document.querySelector('${dropper}')`);
+      await page.click(...(await centre(dropper)));
+      await page.until("!!document.querySelector('[data-picking]')");
+    };
+    await start();
+    // The backdrop lets the click through and isn't dimmed; the dialog stays.
+    expect(await page.evaluate<string>("getComputedStyle(document.querySelector('[data-picking]')).pointerEvents")).toBe("none");
+    expect(await page.evaluate<string>("getComputedStyle(document.querySelector('[data-picking]')).backgroundColor")).toBe("rgba(0, 0, 0, 0)");
+    // Esc: picking stops, the dialog stays open.
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-picking]')");
+    expect(await has("[data-project-settings]")).toBe(true);
+    // Picked off the canvas's middle: it lands in the dialog's picker as the canvas colour.
+    await start();
+    // A point of the canvas the dialog doesn't cover, as the user would click one they can see.
+    const [cx, cy] = await page.evaluate<[number, number]>(`(() => {
+      const r = document.querySelector('[data-canvas-overlay]').getBoundingClientRect();
+      for (let fy = 0.1; fy < 1; fy += 0.1) for (let fx = 0.05; fx < 1; fx += 0.05) {
+        const [x, y] = [r.left + r.width * fx, r.top + r.height * fy];
+        const e = document.elementFromPoint(x, y);
+        if (e && !e.closest('[data-modal]') && e.closest('[data-canvas-overlay]')) return [x, y];
+      }
+      return [0, 0];
+    })()`);
+    expect(cx).toBeGreaterThan(0);
+    await page.click(cx, cy);
+    await arrived(() => ui.core.doc(ui.handle).settings.background !== before, 10_000);
+    expect(ui.core.doc(ui.handle).settings.background).not.toBe(before);
+    expect(await has("[data-project-settings]")).toBe(true);
+    expect(await has("[data-picking]")).toBe(false);
+  } finally {
+    await page.evaluate("document.querySelector('[data-modal]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Settings › Recording sets where a new recording goes and the cursor size recordings start at, with no camera connected too", async () => {
+  try {
+    await ui.core.uiOpen(ui.handle, "settings", "recording");
+    await page.until("!!document.querySelector('[data-recording-place]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-recording-place]').value")).toBe("end");
+    await page.evaluate("(() => { const s = document.querySelector('[data-recording-place]'); s.value = 'playhead'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    for (let i = 0; i < 40 && (await ui.core.settings()).recordingPlace !== "playhead"; i++) await Bun.sleep(50);
+    expect((await ui.core.settings()).recordingPlace).toBe("playhead");
+    await page.click(...(await centre("[data-cursor-scale] [data-input]")));
+    await page.until("document.activeElement?.tagName === 'INPUT'");
+    await type("300");
+    await page.key("Enter", "Enter");
+    for (let i = 0; i < 40 && (await ui.core.settings()).cursorScale !== 3; i++) await Bun.sleep(50);
+    expect((await ui.core.settings()).cursorScale).toBe(3);
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  } finally {
+    await ui.core.setSettings({ recordingPlace: "end", cursorScale: 1 });
+  }
+});
+
+test.skipIf(skip)("Stitch (⌥⌘I) of two pieces of a take, the second zoomed in: the stitched clip eases to the second's zoom over the half second before the join", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("clip.unlink", { clips: [screen.id] });
+    const s = clip(screen.id);
+    const mid = ticksToSeconds(s.start + s.duration / 2);
+    const [second] = (await run("clip.split", { at: mid, clips: [screen.id], linked: false })).results[0] as string[];
+    const scale = (clip(second!).props.transform as { scaleX: number }).scaleX;
+    await run("clip.set", { clip: second!, props: { transform: { scaleX: scale * 2, scaleY: scale * 2 } } });
+    await select([screen.id, second!]);
+    await page.key("i", "KeyI", ["alt", "meta"]);
+    await arrived(() => clips().some((c) => c.type === "stitched"));
+    const stitched = clips().find((c) => c.type === "stitched")!;
+    const ramp = stitched.animations.find((a) => a.to["transform.scaleX"] === scale * 2);
+    expect(ramp).toBeDefined();
+    expect(ticksToSeconds(ramp!.duration)).toBeCloseTo(0.5, 3);
+    expect(ticksToSeconds(stitched.start + ramp!.end)).toBeCloseTo(mid, 1);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Stitch Media");
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+});
+
+test.skipIf(skip)("a Highlight from the palette: a yellow box at half opacity; its properties give Colour, Opacity and Invert", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await select([]);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("Highlight");
+    await page.until(`!!document.querySelector('[data-entry="annotation:highlight"]')`);
+    await page.click(...(await centre('[data-entry="annotation:highlight"]')));
+    await arrived(() => clips().some((c) => c.type === "region" && (c.props.region as { kind: string }).kind === "highlight"));
+    const hl = clips().find((c) => c.type === "region" && (c.props.region as { kind: string }).kind === "highlight")!;
+    expect(hl.props.region).toMatchObject({ intensity: 0.5, invert: false, color: [1, 0.93, 0.25, 1] });
+    await select([hl.id]);
+    await run("inspector.tab", { tab: "region" });
+    await page.until("!!document.querySelector('[data-region-invert]')");
+    expect(await page.evaluate<boolean>("[...document.querySelectorAll('span')].some((s) => s.textContent === 'Opacity')")).toBe(true);
+    await page.click(...(await centre("[data-region-invert]")));
+    await arrived(() => (clip(hl.id).props.region as { invert: boolean }).invert);
+    expect((clip(hl.id).props.region as { invert: boolean }).invert).toBe(true);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
 });
 
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
@@ -2923,7 +3444,7 @@ test.skipIf(skip)("an effect's colour parameter (one the schema marks as a colou
 async function pickLook(id: string) {
   await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
   await page.click(...(await centre("[data-effect-preset]")));
-  await page.until("document.querySelectorAll('[data-option]').length === 42");
+  await page.until("document.querySelectorAll('[data-option]').length >= 42");
   await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
   await page.click(...(await centre(`[data-option="${id}"]`)));
   await page.until("!document.querySelector('[role=listbox]')");
@@ -2981,7 +3502,132 @@ test.skipIf(skip)("Film Look's Look menu puts a hance look on its sliders, with 
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
   for (let i = 0; i < 6; i++) await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "film-look")).toBe(false);
+  // The import was kept for every project: not for the flows after this one.
+  await ui.core.setPreference("filmLookLooks", "[]");
 }, 30_000);
+
+test.skipIf(skip)("an imported .hlook is kept for every project: under Your looks in the Look menu, one of the same name replacing it; renamed and deleted in Settings › General", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const kept = async () => JSON.parse((await ui.core.preferences()).find((p) => p.id === "filmLookLooks")!.value) as { id: string; name: string; params: Record<string, unknown> }[];
+  await ui.core.setPreference("filmLookLooks", "[]");
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("!!document.querySelector('[data-effect-import]')");
+    const file = join(dir, "kept.hlook");
+    writeFileSync(file, JSON.stringify({ name: "Teal night", params: { fade: 0.3 } }));
+    ui.chooseFile(file);
+    await page.evaluate("document.querySelector('[data-effect-import]').click()");
+    for (let i = 0; i < 100 && !(await kept()).length; i++) await Bun.sleep(50);
+    let mine = await kept();
+    expect(mine.map((l) => l.name)).toEqual(["Teal night"]);
+    // The effect shows it picked, under Your looks.
+    await page.until(`document.querySelector('[data-effect-preset]')?.dataset.value === ${JSON.stringify(mine[0]!.id)}`);
+    await page.click(...(await centre("[data-effect-preset]")));
+    await page.until("!!document.querySelector('[role=listbox]')");
+    expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-option-group]')].map((g) => g.textContent)")).toEqual(["Your looks"]);
+    await page.key("Escape", "Escape");
+    // The same name again: it replaces the first.
+    writeFileSync(file, JSON.stringify({ name: "Teal night", params: { fade: 0.6 } }));
+    ui.chooseFile(file);
+    await page.evaluate("document.querySelector('[data-effect-import]').click()");
+    for (let i = 0; i < 50 && (await kept())[0]?.params.fade !== 0.6; i++) await Bun.sleep(50);
+    mine = await kept();
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.params.fade).toBe(0.6);
+    // Listed for agents, as yours.
+    const looks = (await ui.core.query(ui.handle, "filmLook.looks", {})) as { id: string; yours?: boolean }[];
+    expect(looks.find((l) => l.id === mine[0]!.id)?.yours).toBe(true);
+    // Another clip's Film Look offers it.
+    await run("effect.add", { clip: callout.id, type: "film-look" });
+    await select([callout.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await pickLook(mine[0]!.id);
+    await arrived(() => clip(callout.id).effects.find((e) => e.type === "film-look")?.params.fade === 0.6);
+    // Settings › General: renamed, then deleted.
+    await ui.core.uiOpen(ui.handle, "settings", "general");
+    await page.until(`!!document.querySelector('[data-kept-look="${mine[0]!.id}"]')`);
+    await page.evaluate(`document.querySelector('[data-kept-look="${mine[0]!.id}"] [data-kept-look-rename]').click()`);
+    await page.until(`document.activeElement?.tagName === 'INPUT'`);
+    await type("Teal dusk");
+    await page.key("Enter", "Enter");
+    for (let i = 0; i < 50 && (await kept())[0]?.name !== "Teal dusk"; i++) await Bun.sleep(50);
+    expect((await kept()).map((l) => l.name)).toEqual(["Teal dusk"]);
+    await page.evaluate(`document.querySelector('[data-kept-look="${mine[0]!.id}"] [data-kept-look-delete]').click()`);
+    for (let i = 0; i < 50 && (await kept()).length; i++) await Bun.sleep(50);
+    expect(await kept()).toEqual([]);
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  } finally {
+    await ui.core.setPreference("filmLookLooks", "[]");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Film Look's save icon, beside its trash, names the sliders in a dialog (\"My Look 1\" to type over) and keeps them in Your looks for every project, then shows it in the Look menu; greyed while the sliders are a look already; Tab reaches the Look menu", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const kept = async () => JSON.parse((await ui.core.preferences()).find((p) => p.id === "filmLookLooks")!.value) as { id: string; name: string; params: Record<string, unknown> }[];
+  await ui.core.setPreference("filmLookLooks", "[]");
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    const fx = () => clip(screen.id).effects.find((e) => e.type === "film-look")!;
+    await run("effect.set", { clip: screen.id, effect: fx().id, params: { warmth: 0.37 } });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    const save = `[data-effect="${fx().id}"] [data-section-action]`;
+    await page.until(`!!document.querySelector('${save}') && !document.querySelector('${save}').disabled`);
+    // Its Look menu takes the caret by Tab, as the other inputs do.
+    await page.evaluate(`document.querySelector('[data-effect="${fx().id}"] [data-input]').focus()`);
+    for (let i = 0; i < 6 && !(await page.evaluate<boolean>("!!document.activeElement?.matches('[data-effect-preset]')")); i++) await page.key("Tab", "Tab");
+    expect(await page.evaluate<boolean>("!!document.activeElement?.matches('[data-effect-preset]')")).toBe(true);
+    await page.evaluate("document.activeElement?.blur()");
+    // A dialog names it, "My Look 1" selected to type over; Esc saves nothing.
+    await page.click(...(await centre(save)));
+    await page.until("document.activeElement?.matches('[data-save-look-name]') && document.activeElement.value === 'My Look 1'");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-save-look]')");
+    expect(await kept()).toEqual([]);
+    await page.click(...(await centre(save)));
+    await page.until("document.activeElement?.matches('[data-save-look-name]')");
+    // No longer than a kept look's name can be.
+    expect(await page.evaluate<number>("document.activeElement.maxLength")).toBe(120);
+    await type("Teal dusk");
+    await page.key("Enter", "Enter");
+    for (let i = 0; i < 50 && !(await kept()).length; i++) await Bun.sleep(50);
+    const [look] = await kept();
+    expect(look!.name).toBe("Teal dusk");
+    expect(look!.params).toEqual(fx().params);
+    await page.until(`document.querySelector('${save}').disabled && document.querySelector('[data-effect="${fx().id}"] [data-effect-preset]').textContent.includes('Teal dusk')`);
+    // Nothing on the timeline changed: no undo step.
+    expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(2);
+  } finally {
+    await ui.core.setPreference("filmLookLooks", "[]");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Film Look's Auto Tune: a button on its section, no note box (one is only for agents); pressed, it starts the job (with no OpenAI key here, it says so and changes nothing)", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("!!document.querySelector('[data-effect-tune-run]')");
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-tune] input')")).toBe(false);
+    const params = JSON.stringify(clip(screen.id).effects.find((e) => e.type === "film-look")!.params);
+    await page.click(...(await centre("[data-effect-tune-run]")));
+    for (let i = 0; i < 100 && !(await ui.core.jobs()).some((j) => j.label === "Auto Tune Film Look" && j.state !== "running"); i++) await Bun.sleep(50);
+    const job = (await ui.core.jobs()).find((j) => j.label === "Auto Tune Film Look")!;
+    expect(job.state).toBe("failed");
+    expect(job.error).toMatch(/no OpenAI API key/);
+    expect(JSON.stringify(clip(screen.id).effects.find((e) => e.type === "film-look")!.params)).toBe(params);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+});
 
 test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and the arrow keys, with no edit; leaving the list or Esc shows the clip as it is; a click applies in one step", async () => {
   // The camera, which covers the screen until it is laid out.
@@ -3012,7 +3658,7 @@ test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and
 
     await page.evaluate(`document.querySelector('[data-effect-preset]').scrollIntoView({ block: "center" })`);
     await page.click(...(await centre("[data-effect-preset]")));
-    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    await page.until("document.querySelectorAll('[data-option]').length >= 42");
     const over = async (id: string) => {
       await page.evaluate(`document.querySelector('[data-option="${id}"]').scrollIntoView({ block: "nearest" })`);
       await page.hover(...(await centre(`[data-option="${id}"]`)));
@@ -3041,7 +3687,7 @@ test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and
 
     // A click applies the look under the pointer, in one step, and the canvas stays as previewed.
     await page.click(...(await centre("[data-effect-preset]")));
-    await page.until("document.querySelectorAll('[data-option]').length === 42");
+    await page.until("document.querySelectorAll('[data-option]').length >= 42");
     await over("cinestill-800t");
     await shown(cinestill, true);
     await page.click(...(await centre('[data-option="cinestill-800t"]')));
@@ -3749,6 +4395,49 @@ test.skipIf(skip || !existsSync(MIC) || !existsSync(MODEL))("Captions asked for 
   }
 }, 90_000);
 
+test.skipIf(skip)("Captions over an in/out range (else the selected clips' span) captions only that span, keeping the captions outside it", async () => {
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const words = (c: { props: Record<string, unknown> }) => (c.props.caption as { words: unknown[] }).words.length;
+  const captions = () => clips().filter((c) => c.type === "caption").sort((a, b) => a.start - b.start);
+  try {
+    // Long captions everywhere first, then the tile over a range: short ones in it, the long ones kept outside.
+    await run("captions.create", { maxWords: 12 });
+    const before = captions();
+    expect(before.length).toBeGreaterThan(2);
+    const [a, b] = [ticksToSeconds(before[1]!.start), ticksToSeconds(before.at(-1)!.start)];
+    await run("range.set", { in: a, out: b });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=captions]')");
+    await page.evaluate("document.querySelector('[data-ai=captions]').click()");
+    await arrived(() => captions().some((c) => ticksToSeconds(c.start) >= a && words(c) <= 3 && !before.some((x) => x.id === c.id)));
+    const after = captions();
+    const inside = after.filter((c) => ticksToSeconds(c.start) >= a && ticksToSeconds(c.start) < b);
+    expect(inside.every((c) => words(c) <= 3 && !before.some((x) => x.id === c.id))).toBe(true);
+    // Outside the range: the same captions as before.
+    expect(after.filter((c) => ticksToSeconds(c.start) < a || ticksToSeconds(c.start) >= b).map((c) => c.id)).toEqual(before.filter((c) => ticksToSeconds(c.start) < a || ticksToSeconds(c.start) >= b).map((c) => c.id));
+    // None overlap, and the first new one is selected.
+    for (const [i, c] of after.entries()) if (after[i + 1]) expect(c.start + c.duration).toBeLessThanOrEqual(after[i + 1]!.start);
+    expect((await session()).selection).toEqual([inside[0]!.id]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Captions");
+    // No range: the selected clips' span.
+    await run("range.clear");
+    await ui.core.undo(ui.handle);
+    const [first] = captions();
+    const under = clips().find((c) => c.type !== "caption" && c.start <= first!.start && c.start + c.duration >= first!.start + first!.duration)!;
+    await select([under.id]);
+    await run("captions.add", {});
+    const spanned = captions().filter((c) => c.start >= under.start && c.start < under.start + under.duration);
+    expect(spanned.length).toBeGreaterThan(0);
+    expect(spanned.every((c) => words(c) <= 3)).toBe(true);
+  } finally {
+    await run("range.clear").catch(() => {});
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 150_000);
+
 test.skipIf(skip)("a caption on the canvas: dragging moves every caption (snapping to the middle), a side handle narrows its lines, and a double-click types into it", async () => {
   for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
   const ids = (await run("captions.create", {})).results[0] as string[];
@@ -4215,7 +4904,7 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
   }
 }, 120_000);
 
-test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, a style picked (the prompt written again in it), Prompt: Manual starting from the words said, and its footage made from them in that style through Replicate's stand-in, one undo step", async () => {
+test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {
     const out = join(dir, `broll-${w}x${h}.mp4`);
@@ -4225,7 +4914,7 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
   };
   const writer = join(dir, "beacon-writer");
   const writes = join(dir, "broll-writes");
-  writeFileSync(writer, `#!/bin/sh\necho x >> "${writes}"\nif grep -q "16mm" "$1"; then echo '{"prompt":"A grainy 16mm scene","why":"v"}'; else echo '{"prompt":"An on-device scene","why":"d"}'; fi\n`, { mode: 0o755 });
+  writeFileSync(writer, `#!/bin/sh\necho x >> "${writes}"\necho '{"prompt":"An on-device scene","why":"d"}'\n`, { mode: 0o755 });
   const made = new Map<string, Record<string, unknown>>();
   let hold = false;
   const fake = Bun.serve({
@@ -4254,15 +4943,12 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
   process.env.BEACON_REPLICATE_POLL_MS = "50";
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const broll = () => clips().find((c) => c.type === "broll");
-  const props = () => broll()!.props.broll as { prompt: string; style: string; source: string; manual: string };
+  const props = () => broll()!.props.broll as { prompt: string; source: string; manual: string };
   // The tab is taller than the window: its controls are scrolled to before they are used.
   const press = async (selector: string) => {
     await page.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: "center" })`);
     await page.click(...(await centre(selector)));
   };
-  const choose = (selector: string, value: string) =>
-    page.evaluate(`(() => { const s = document.querySelector(${JSON.stringify(selector)}); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-  await ui.core.setPreference("brollStyles", JSON.stringify([{ id: "my-16mm", name: "My 16mm", text: "Grainy 16mm, warm tones, handheld" }]));
   try {
     await run("range.set", { in: 2, out: 10 });
     await run("panel.show", { tool: "ai" });
@@ -4286,11 +4972,18 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     await page.drag([hx, hy], [(lx + hx) / 2, hy]);
     await arrived(() => Math.abs(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry)[2] - width / 2) < 2);
 
-    // A style of the user's own: listed under Your styles; picked, the prompt is written again in it.
-    expect(await page.evaluate<string>("[...document.querySelectorAll('[data-broll-style] optgroup')].map((g) => g.label).join('|')")).toBe("Film looks|Product and tech|Your styles");
-    await choose("[data-broll-style]", "my-16mm");
-    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'", 20_000);
-    expect(props().style).toBe("my-16mm");
+    // No Style menu: the look is said in the prompt.
+    expect(await has("[data-broll-style]")).toBe(false);
+    expect(props()).not.toHaveProperty("style");
+    // The Model menu: Settings › AI's by default, each model with its price for this clip; one picked is the clip's.
+    await page.until("!!document.querySelector('[data-broll-model]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-model] option').textContent")).toMatch(/^Default · Veo 3\.1 Fast · \$\d/);
+    const pick = (value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-broll-model]'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await pick("flux-3");
+    await arrived(() => (props() as { model?: string }).model === "flux-3");
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').includes('$')");
+    await pick("");
+    await arrived(() => (props() as { model?: string }).model === "");
     // Written once: picking another clip and this one again doesn't write it anew.
     const written = readFileSync(writes, "utf8").length;
     await page.click(...(await timelineClipCentre(callout.id)));
@@ -4302,15 +4995,18 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
 
     // Auto's prompt is read only; Manual is typed, starting from the words said under it.
     expect(await has("textarea[data-broll-prompt]")).toBe(false);
+    // Its buttons each on one line, Research (OpenAI's planner only) under them; no Try N Models (broll.compare is for agents).
+    expect(await page.evaluate<number>("document.querySelector('[data-broll-copy]').getBoundingClientRect().height")).toBeLessThan(40);
+    expect(await has("[data-broll-compare]")).toBe(false);
     await press('[data-broll-source] button:nth-child(2)');
     await page.until("!!document.querySelector('textarea[data-broll-prompt]')");
     const words = (await ui.core.query(ui.handle, "broll.words", { clip: clip.id })) as string;
-    expect(props()).toMatchObject({ source: "manual", manual: words, prompt: "A grainy 16mm scene" });
+    expect(props()).toMatchObject({ source: "manual", manual: words, prompt: "An on-device scene" });
     await page.until(`document.querySelector('textarea[data-broll-prompt]').value === ${JSON.stringify(words)}`);
     // Back to Auto and to Manual again: each keeps its prompt, Auto's not written anew, Manual's as typed.
     await run("clip.set", { clip: clip.id, props: { broll: { manual: `${words} at dusk` } } });
     await press('[data-broll-source] button:nth-child(1)');
-    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'An on-device scene'");
     await press('[data-broll-source] button:nth-child(1)');
     await press('[data-broll-source] button:nth-child(2)');
     await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === ${JSON.stringify(`${words} at dusk`)}`);
@@ -4318,10 +5014,10 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     expect(readFileSync(writes, "utf8").length).toBe(written);
     // Auto's prompt copied to Manual, to edit: one undo step.
     await press('[data-broll-source] button:nth-child(1)');
-    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
+    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'An on-device scene'");
     await press("[data-broll-copy]");
-    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === 'A grainy 16mm scene'`);
-    expect(props()).toMatchObject({ source: "manual", manual: "A grainy 16mm scene", prompt: "A grainy 16mm scene" });
+    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === 'An on-device scene'`);
+    expect(props()).toMatchObject({ source: "manual", manual: "An on-device scene", prompt: "An on-device scene" });
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Copy B-roll Prompt to Manual");
     await ui.core.undo(ui.handle);
     expect(props()).toMatchObject({ source: "auto", manual: `${words} at dusk` });
@@ -4333,18 +5029,9 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     await page.until("(document.querySelector('[data-broll-error]')?.textContent ?? '').includes('Replicate API token')", 10_000);
     await ui.core.uiOpen(ui.handle, "settings", "ai");
     await page.until("document.querySelector('[data-preference=brollPlanner]')?.value === 'apple'");
-    expect(await has('[data-broll-style="my-16mm"]')).toBe(true);
-    // A new style of the user's own, typed: kept app-wide and listed with the others.
-    await press("[data-broll-style-new]");
-    await press("[data-broll-style-name]");
-    await type("Neon night");
-    await press("[data-broll-style-text]");
-    await type("Neon-lit city at night, wet streets, reflections");
-    await press("[data-broll-style-save]");
-    await arrived(() => ui.menus.some((m) => m.startsWith("setPreference:brollStyles=") && m.includes("Neon night")));
-    const saved = JSON.parse((await ui.core.preferences()).find((p) => p.id === "brollStyles")!.value) as { name: string; text: string }[];
-    expect(saved.map((x) => x.name)).toEqual(["My 16mm", "Neon night"]);
-    expect(saved[1]!.text).toBe("Neon-lit city at night, wet streets, reflections");
+    // No Your Styles any more; motion graphics' Your Skills is still there.
+    expect(await has("[data-broll-styles]")).toBe(false);
+    expect(await has("[data-motion-styles]")).toBe(true);
     await press('[data-secret="replicate-api-token"] input');
     await type("r8-test");
     await page.key("Enter", "Enter");
@@ -4354,37 +5041,14 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
 
     await press("[data-broll-generate]");
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
-    // Made from the Manual prompt as typed, in the style; taller than wide (960×1080), so 9:16; silent; shown in the clip in its region.
+    // Made from the Manual prompt as typed, nothing added; taller than wide (960×1080), so 9:16; silent; shown in the clip in its region.
     const sent = [...made.values()].at(-1)!;
     expect(sent).toMatchObject({ aspect_ratio: "9:16", generate_audio: false });
-    expect(sent.prompt).toBe(`${words} Grainy 16mm, warm tones, handheld`);
+    expect(sent.prompt).toBe(words);
     expect(broll()!.assetId).toBeDefined();
     expect(regionOfClip(broll()!, ui.core.doc(ui.handle), ui.core.registry).map((v) => Math.round(v))).toEqual([0, 0, width / 2, height]);
     expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Generate B-roll");
 
-    // While Auto's take is made the style can still be picked: its prompt is written again in it once the take is in.
-    await press('[data-broll-source] button:nth-child(1)');
-    await page.until("document.querySelector('[data-broll-prompt]')?.textContent === 'A grainy 16mm scene'");
-    hold = true;
-    await press("[data-broll-generate]");
-    await page.until("document.querySelector('[data-broll-generate]')?.textContent === 'Making…'", 10_000);
-    expect(await page.evaluate<boolean>("document.querySelector('[data-broll-style]').disabled")).toBe(false);
-    const before = readFileSync(writes, "utf8").length;
-    await choose("[data-broll-style]", "none");
-    await page.until("!!document.querySelector('[data-broll-restyled]')");
-    expect(props().style).toBe("none");
-    await Bun.sleep(500);
-    expect(readFileSync(writes, "utf8").length).toBe(before);
-    // Written again even with another clip picked meanwhile, its tab closed.
-    await page.click(...(await timelineClipCentre(callout.id)));
-    await page.until(`!document.querySelector('[data-broll-tab]')`);
-    hold = false;
-    await arrived(() => props().prompt === "An on-device scene", 20_000);
-    expect(props().prompt).toBe("An on-device scene");
-    expect(readFileSync(writes, "utf8").length).toBeGreaterThan(before);
-    await page.click(...(await timelineClipCentre(clip.id)));
-    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Make Again')", 20_000);
-    expect(await has("[data-broll-restyled]")).toBe(false);
   } finally {
     hold = false;
     fake.stop(true);
@@ -4392,7 +5056,6 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     delete process.env.BEACON_REPLICATE_URL;
     delete process.env.BEACON_REPLICATE_POLL_MS;
     await ui.core.setSecret("replicate-api-token", null);
-    await ui.core.setPreference("brollStyles", "[]");
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("range.clear").catch(() => {});
     await run("panel.show", { tool: null });

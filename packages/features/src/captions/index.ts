@@ -331,15 +331,22 @@ export const captions = defineFeature({
     defineCommand({
       id: "captions.create",
       description:
-        "Captions from the transcript: each phrase (up to `maxWords` words, a new one at sentence ends and pauses) becomes a caption clip on a Captions track at the top, replacing captions made before; burned into exports, with an .srt beside them. Returns the caption clip ids. Use 2-4 words for short phrase captions, or about 12 for a line at a time",
-      args: z.strictObject({
-        maxWords: z.int().min(1).max(20).default(3),
-        maxChars: z.int().min(8).max(80).optional().describe("Longest caption in characters; by default about 9 per word, at most 42"),
-        style: StyleArgs.optional(),
-      }),
-      apply(doc, { maxWords, maxChars, style }, ctx) {
-        const words = timelineWords(doc, ctx.registry, ctx.data);
-        if (!words.length) throw new Error("no transcript on the timeline yet: captions are made from it");
+        "Captions from the transcript: each phrase (up to `maxWords` words, a new one at sentence ends and pauses) becomes a caption clip on a Captions track at the top, replacing captions made before; burned into exports, with an .srt beside them. With `from`/`to` (timeline seconds), only the words starting in that span, replacing only the captions over it and keeping the rest. Returns the caption clip ids. Use 2-4 words for short phrase captions, or about 12 for a line at a time",
+      args: z
+        .strictObject({
+          maxWords: z.int().min(1).max(20).default(3),
+          maxChars: z.int().min(8).max(80).optional().describe("Longest caption in characters; by default about 9 per word, at most 42"),
+          style: StyleArgs.optional(),
+          from: z.number().nonnegative().optional().describe("Caption only from here (timeline seconds), with `to`"),
+          to: z.number().positive().optional(),
+        })
+        .refine((a) => (a.from === undefined) === (a.to === undefined) && (a.from === undefined || a.from < a.to!), { message: "give both `from` and `to`, `from` first" }),
+      apply(doc, { maxWords, maxChars, style, from, to }, ctx) {
+        const all = timelineWords(doc, ctx.registry, ctx.data);
+        if (!all.length) throw new Error("no transcript on the timeline yet: captions are made from it");
+        const span = from === undefined ? undefined : ([snapSeconds(from, doc.settings.fps), snapSeconds(to!, doc.settings.fps)] as const);
+        const words = span ? all.filter((w) => secondsToTicks(w.start) >= span[0] && secondsToTicks(w.start) < span[1]) : all;
+        if (!words.length) throw new Error("nothing is said in that span");
         const old = doc.tracks.findIndex((t) => t.clips.length > 0 && t.clips.every(isCaption));
         const previous = old >= 0 ? (doc.tracks[old]!.props?.captionStyle as Partial<CaptionStyle> | undefined) : undefined;
         const look = { ...defaultStyle(doc.settings.height), ...previous, ...style };
@@ -365,10 +372,21 @@ export const captions = defineFeature({
             animations: [],
           });
         }
-        const live = clips.filter((c) => c.duration > 0);
+        let live = clips.filter((c) => c.duration > 0);
+        if (span && old >= 0) {
+          // Only the span is made again: captions starting in it go, the rest stay (their words are outside it), and
+          // each caption stops where the next starts.
+          const kept = doc.tracks[old]!.clips.filter((c) => c.start < span[0] || c.start >= span[1]);
+          live = [...kept, ...live].sort((a, b) => a.start - b.start);
+          for (const [i, c] of live.entries()) {
+            const next = live[i + 1];
+            if (next && c.start + c.duration > next.start) c.duration = next.start - c.start;
+          }
+          live = live.filter((c) => c.duration > 0);
+        }
         if (old >= 0) Object.assign(doc.tracks[old]!, { clips: live, props: { ...doc.tracks[old]!.props, captionStyle: look } });
         else doc.tracks.push({ id: ctx.newId("track"), name: "Captions", clips: live, props: { captionStyle: look } });
-        return live.map((c) => c.id);
+        return live.filter((c) => clips.includes(c)).map((c) => c.id);
       },
     }),
     defineCommand({
@@ -432,16 +450,25 @@ export const captions = defineFeature({
   actions: [
     defineAction({
       id: "captions.add",
-      description: "Make captions from the transcript (the AI panel's Captions tile does), then select the first and show its properties",
+      description:
+        "Make captions from the transcript (the AI panel's Captions tile does), then select the first and show its properties: over the in/out range if there is one, else over the selected clips' span, else the whole timeline, keeping captions outside it",
       args: z.strictObject({ maxWords: z.int().min(1).max(20).optional() }),
-      resolve: ({ maxWords }) => ({
+      resolve: ({ maxWords }, ctx) => {
+        const picked = ctx.scope.tracks.flatMap((t) => t.clips).filter((c) => ctx.session.selection.includes(c.id) && !isCaption(c));
+        const span = ctx.session.range
+          ? { from: ctx.session.range.in, to: ctx.session.range.out }
+          : picked.length
+            ? { from: ticksToSeconds(Math.min(...picked.map((c) => c.start))), to: ticksToSeconds(Math.max(...picked.map((c) => c.start + c.duration))) }
+            : {};
+        return {
         label: "Captions",
-        steps: [{ command: "captions.create", args: maxWords ? { maxWords } : {} }],
+        steps: [{ command: "captions.create", args: { ...(maxWords ? { maxWords } : {}), ...span } }],
         after: ([ids]) => {
           const first = (ids as string[])[0];
           return first ? [{ command: "selection.set", args: { clips: [first] } }, { command: "inspector.tab", args: { tab: "caption" } }] : [];
         },
-      }),
+        };
+      },
     }),
   ],
   queries: [

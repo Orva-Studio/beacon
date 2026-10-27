@@ -20,6 +20,10 @@ export const AppSettingsSchema = z.object({
   cameraSync: z.record(z.string(), CameraSyncSchema).optional(),
   /** Resources the user said Not Now to: not offered again on their own. */
   declinedResources: z.array(z.string()).optional(),
+  /** The size a recording's cursor starts at when it is imported (1: 100%); clips already placed keep theirs. */
+  cursorScale: z.number().min(0.25).max(10).optional(),
+  /** Where a take just recorded goes: the end of the timeline (unset), the playhead, or only the Media Bin. */
+  recordingPlace: z.enum(["end", "playhead", "bin"]).optional(),
 });
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>;

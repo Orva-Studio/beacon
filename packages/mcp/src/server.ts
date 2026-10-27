@@ -245,7 +245,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("recorder_stop", {
     description:
-      "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at the end of the timeline (or at `at`), the cursor drawn from its log; a narration on its own track where it began. `discard`: throw the take away instead. One undo step",
+      "Stop the take and import it into the project it was started for: linked Screen, Camera and audio clips at `at`, else where the user's Settings › Recording says (the end of the timeline by default, the playhead, or the Media Bin only), the cursor drawn from its log at their Cursor Size; a narration on its own track where it began. `discard`: throw the take away instead. One undo step",
     schema: z.strictObject({ at: Seconds.optional(), discard: z.boolean().optional() }),
     run: async ({ at, discard }) => core.recordStop({ ...(at === undefined ? {} : { at }), ...(discard ? { discard } : {}) }),
   });

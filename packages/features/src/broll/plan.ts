@@ -25,8 +25,6 @@ export interface PlanRequest {
   after: string;
   from: number;
   to: number;
-  /** The look every prompt follows (a style's wording, or a skill's instructions); empty: none asked for. */
-  style: string;
   research: boolean;
   /** The footage's shape ("16:9") and the lengths a shot may run, in seconds. */
   aspect: string;
@@ -58,7 +56,6 @@ const SYSTEM = (r: PlanRequest) =>
     `Cover ${r.from.toFixed(2)}-${r.to.toFixed(2)} s with shots back to back, no gaps: the first starts at ${r.from.toFixed(2)}, the last ends at ${r.to.toFixed(2)}, each from ${r.shortest} to ${r.longest} s, cut where a sentence or phrase ends (the word times say where).`,
     "Each shot's prompt is for a text-to-video model: one continuous shot (subject, action, setting, camera, light, style), concrete and visual, showing what is being said at that moment.",
     `The footage is ${r.aspect}, silent. Never ask for readable text, captions, logos, user interfaces or real people's faces: these models get them wrong.`,
-    r.style ? `Every prompt follows this look, put in its own words:\n${r.style}` : "",
     r.research
       ? "Search the web first for the names, products, places and terms said, so the prompts show the right thing (what it looks like, where it is); say what you found in `research`."
       : "Leave `research` empty.",
@@ -208,8 +205,6 @@ export function tile(shots: PlannedShot[], from: number, to: number, shortest: n
 
 /** Beacon's helper for Apple's on-device model; a test points it at a stand-in. */
 const writer = () => process.env.BEACON_WRITER ?? tool("beacon-writer");
-/** Apple's model reads about 4,000 tokens: a long style (a skill) is cut to what fits beside the words. */
-const ON_DEVICE_STYLE_CHARS = 1500;
 
 /**
  * Where a clip's shots are cut on the device's path, chosen here rather than by the small model: as few as fit the
@@ -244,7 +239,6 @@ export async function planOnDevice(r: PlanRequest, shot: (n: number, of: number)
     const instructions = [
       "You write B-roll for a talking-head video: generated footage shown while the speaker talks, illustrating what they say.",
       `The footage is ${r.aspect} and silent. Never ask for readable text, captions, logos, user interfaces or real people.`,
-      r.style ? `Look: ${r.style.slice(0, ON_DEVICE_STYLE_CHARS)}` : "",
     ]
       .filter(Boolean)
       .join("\n");

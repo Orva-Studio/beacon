@@ -65,6 +65,8 @@ export interface ImportOptions {
   at?: number;
   /** A timeline track to put them on, as a drop does (the rest of a recording goes on the tracks above); refused over other media. */
   track?: string;
+  /** false: into the Media Bin only, no clips placed. */
+  place?: boolean;
 }
 
 export interface RecordOptions {
@@ -208,7 +210,7 @@ export interface SchemaInfo {
   }[];
   /** `defaults`: what a clip without its own values has. */
   props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
-  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string }; needs?: string[]; preparing?: string }[];
+  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string; keep?: string }; tune?: { label: string; title: string; action: string }; needs?: string[]; preparing?: string }[];
   /** The Annotations and Audio Effects panels' items (Visual Effects lists `effects`). */
   panelItems: PanelItemDef[];
 }

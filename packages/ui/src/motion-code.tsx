@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Modal, PlayBar, TextArea } from "./controls";
+import { Button, Check, CodeEditor, Modal, PlayBar } from "./controls";
 import { useQuery } from "./query";
 import type { Host } from "./app";
 
@@ -25,6 +25,7 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
   const loads = useRef(0);
   const pages = useRef(0);
   const [left, setLeft] = useState(false);
+  const [wrap, setWrap] = useState(true);
   useEffect(() => {
     loads.current = 0;
     pages.current = 0;
@@ -65,24 +66,10 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
   return (
     <Modal title="Edit Code" width={1180} onClose={onClose} onKey={(e) => e.key === " " && (e.preventDefault(), setPlaying((p) => !p))}>
       <div className="flex gap-4" data-motion-code-dialog>
-        <TextArea
-          className="h-[480px] min-w-0 flex-1 font-mono text-xs leading-relaxed"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "s" && e.metaKey) {
-              e.preventDefault();
-              save();
-            } else if (e.key === "Tab" && !e.shiftKey) {
-              // Indents, as a code editor does, rather than leaving the field.
-              e.preventDefault();
-              e.stopPropagation();
-              e.currentTarget.setRangeText("  ", e.currentTarget.selectionStart, e.currentTarget.selectionEnd, "end");
-              setText(e.currentTarget.value);
-            }
-          }}
-          data-motion-code-text
-        />
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <CodeEditor className="h-[480px] min-w-0 overflow-hidden" value={text} onChange={setText} onSave={save} wrap={wrap} data-motion-code-text />
+          <Check label="Wrap lines" title="Long lines wrap to the editor's width, rather than scrolling sideways" checked={wrap} onChange={setWrap} data-motion-code-wrap />
+        </div>
         <div className="flex shrink-0 flex-col gap-2" style={{ width: PREVIEW_WIDTH }}>
           <div className="flex h-[420px] items-center justify-center overflow-hidden rounded-lg bg-[repeating-conic-gradient(#3a3a3a_0_25%,#2e2e2e_0_50%)] bg-[length:16px_16px]">
             {left && (

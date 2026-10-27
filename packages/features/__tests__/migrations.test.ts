@@ -86,18 +86,18 @@ test("broll v2: a B-roll clip's takes saved as bare asset ids become { assetId }
   doc.features.broll = 1;
   doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", guide: "", research: true, takes: ["a1", "a2"] } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
-  expect(out.features.broll).toBe(5);
+  expect(out.features.broll).toBe(7);
   expect((out.tracks[0]!.clips[0]!.props.broll as { takes: unknown }).takes).toEqual([{ assetId: "a1" }, { assetId: "a2" }]);
 });
 
-test("broll v3: a B-roll clip's guide gives way to a style (None) and where its prompt comes from (Auto)", () => {
+test("broll v3: a B-roll clip's guide gives way to where its prompt comes from (Auto); its style, then None, is gone at v6", () => {
   const registry = createRegistry();
   const doc = createProject(registry) as any;
   doc.features.broll = 2;
   doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", guide: "keep it abstract", research: true, takes: [] } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
-  expect(out.features.broll).toBe(5);
-  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "", style: "none", source: "auto", manual: "", research: true, takes: [] });
+  expect(out.features.broll).toBe(7);
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "", source: "auto", manual: "", research: true, model: "", takes: [] });
 });
 
 test("broll v4: Prompt from Transcript becomes Manual, its typed prompt empty (still the words said), Auto's kept", () => {
@@ -106,8 +106,8 @@ test("broll v4: Prompt from Transcript becomes Manual, its typed prompt empty (s
   doc.features.broll = 3;
   doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "because", style: "none", source: "transcript", research: true, takes: [] } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
-  expect(out.features.broll).toBe(5);
-  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "because", style: "none", source: "manual", manual: "", research: true, takes: [] });
+  expect(out.features.broll).toBe(7);
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field", why: "because", source: "manual", manual: "", research: true, model: "", takes: [] });
 });
 
 test("broll v5: a clip saved at v4 before Manual had its own prompt gets an empty one, so the project opens", () => {
@@ -116,8 +116,44 @@ test("broll v5: a clip saved at v4 before Manual had its own prompt gets an empt
   doc.features.broll = 4;
   doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", style: "none", source: "auto", research: true, takes: [] } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
-  expect(out.features.broll).toBe(5);
+  expect(out.features.broll).toBe(7);
   expect((out.tracks[0]!.clips[0]!.props.broll as { manual: string }).manual).toBe("");
+});
+
+test("broll v6: a clip's style is dropped (the look is typed in the prompt), its prompts kept; inside a group too", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 5;
+  const b = (id: string) => ({ id, type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field at dusk, grainy 16mm", why: "", style: "vintage-film", source: "manual", manual: "a field", research: true, takes: [] } }, effects: [], animations: [] });
+  doc.tracks = [
+    { id: "t1", name: "B-roll", clips: [b("c1")] },
+    { id: "t2", name: "", clips: [{ id: "g1", type: "group", start: 0, duration: 10, props: { group: { width: 1920, height: 1080, tracks: [{ id: "gt", name: "", clips: [b("c2")] }] } }, effects: [], animations: [] }] },
+  ];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(7);
+  expect(out.tracks[0]!.clips[0]!.props.broll).toEqual({ prompt: "a field at dusk, grainy 16mm", why: "", source: "manual", manual: "a field", research: true, model: "", takes: [] });
+  const inner = (out.tracks[1]!.clips[0]!.props.group as { tracks: { clips: { props: { broll: object } }[] }[] }).tracks[0]!.clips[0]!;
+  expect(inner.props.broll).not.toHaveProperty("style");
+});
+
+test("broll v7: a clip gets its own model, empty for Settings › AI's", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.broll = 6;
+  doc.tracks = [{ id: "t1", name: "B-roll", clips: [{ id: "c1", type: "broll", start: 0, duration: 10, props: { broll: { prompt: "a field", why: "", source: "auto", manual: "", research: true, takes: [] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.broll).toBe(7);
+  expect((out.tracks[0]!.clips[0]!.props.broll as { model: string }).model).toBe("");
+});
+
+test("regions v2: a blur, pixelate or spotlight region gets a highlight's colour (yellow), so it validates", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.regions = 1;
+  doc.tracks = [{ id: "t1", name: "", clips: [{ id: "c1", type: "region", start: 0, duration: 10, props: { region: { kind: "blur", width: 400, height: 200, cornerRadius: 6, intensity: 1, invert: false } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.regions).toBe(2);
+  expect((out.tracks[0]!.clips[0]!.props.region as { color: number[] }).color).toEqual([1, 0.93, 0.25, 1]);
 });
 
 test("motion v2 to v4: a motion graphics clip made before Looks, then from callouts, becomes an HTML one: its takes' pieces templates, its group a box to draw again, no background setting; inside a group too", () => {

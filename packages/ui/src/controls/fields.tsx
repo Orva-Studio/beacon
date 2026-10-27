@@ -7,6 +7,9 @@ export const isTextField = (t: EventTarget | null): t is HTMLInputElement | HTML
 /** Whether keys at `t` go to a form field: a text box, text area or select. */
 export const isFormField = (t: EventTarget | null): t is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => isTextField(t) || t instanceof HTMLSelectElement;
 
+/** Whether keys at `t` are typed: a form field, or editable text (the code editor's). */
+export const isTyping = (t: EventTarget | null): boolean => isFormField(t) || (t instanceof HTMLElement && t.isContentEditable);
+
 /**
  * A name typed in place, the old one selected to type over: Return or clicking away gives `onDone` the text
  * (trimmed), Escape gives it null. Focus waits a frame, for a Rename… chosen from a native menu that has to close.
@@ -103,7 +106,14 @@ export function NumberBox({
   const cls = "h-6 shrink-0 rounded-md border border-transparent bg-chip px-1.5 text-right text-label leading-[22px] tabular-nums text-text-strong";
   if (!editing || !onCommit) {
     return (
-      <span className={`${cls} ${onCommit ? "cursor-text" : "opacity-50"}`} style={{ width }} onClick={() => onCommit && setEditing(true)}>
+      <span
+        data-input
+        tabIndex={onCommit ? 0 : undefined}
+        className={`${cls} outline-none focus:border-accent ${onCommit ? "cursor-text" : "opacity-50"}`}
+        style={{ width }}
+        onClick={() => onCommit && setEditing(true)}
+        onFocus={() => onCommit && setEditing(true)}
+      >
         {fmt(value, unit, digits)}
       </span>
     );
@@ -117,6 +127,7 @@ export function NumberBox({
     <input
       {...PLAIN_TEXT}
       autoFocus
+      data-number-box
       className={`${cls} outline-none focus:border-accent`}
       style={{ width }}
       defaultValue={value === undefined ? "" : +value.toFixed(3)}
@@ -176,11 +187,12 @@ export function SliderTrack({
     cancelAnimationFrame(pending.current);
     pending.current = requestAnimationFrame(() => onChange?.(v, key.current));
   };
+  // The groove is a few points tall: the pointer is taken over a taller box around it (and the thumb's overhang at
+  // its ends), while the value is still read along the groove.
   return (
     <div
-      ref={track}
-      className={`relative min-w-16 flex-1 rounded-full ${groove ? "h-1.5" : "h-1 bg-groove"} ${onChange ? "cursor-pointer" : ""}`}
-      style={groove ? { background: groove } : undefined}
+      data-slider-hit
+      className={`relative -mx-2 flex h-6 min-w-16 flex-1 items-center px-2 ${onChange ? "cursor-pointer" : ""}`}
       onPointerDown={(e) => {
         if (!onChange) return;
         key.current = `slider-${name}-${Date.now()}`;
@@ -190,8 +202,10 @@ export function SliderTrack({
       onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && send(at(e.clientX))}
       onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
     >
-      {!groove && <div className="absolute inset-y-0 left-0 rounded-full bg-slider-fill" style={{ width: `${f * 100}%` }} />}
-      <div className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slider-thumb shadow" style={{ left: `${f * 100}%` }} />
+      <div ref={track} className={`relative flex-1 rounded-full ${groove ? "h-1.5" : "h-1 bg-groove"}`} style={groove ? { background: groove } : undefined}>
+        {!groove && <div className="absolute inset-y-0 left-0 rounded-full bg-slider-fill" style={{ width: `${f * 100}%` }} />}
+        <div className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slider-thumb shadow" style={{ left: `${f * 100}%` }} />
+      </div>
     </div>
   );
 }

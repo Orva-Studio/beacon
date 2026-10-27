@@ -503,6 +503,10 @@ export class LocalCore implements BeaconCore {
         mediaDir,
         bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, path),
         asset: async (path, kind) => ({ kind, path, fingerprint: fileFingerprint(path), derived: await probeAsset(path) }),
+        frame: async (time, path, width = 0) => {
+          const doc = p.store.doc;
+          writeFileSync(path, pngImage(p.frames.frame(doc, snapSeconds(time, doc.settings.fps), p.data.get, width)).png);
+        },
       });
       if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
       const plan = finish(this.#actionContext(p));
@@ -953,6 +957,7 @@ export class LocalCore implements BeaconCore {
     };
     await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
     let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
+    const cursorScale = this.#config.settings().cursorScale ?? 1;
     const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
     const copied = probed.flatMap(({ asset, importer }, i) => (p.store.doc.settings.standalone || importer.copyIn ? [{ id: String(i), ...asset }] : []));
     const copies = copied.length ? await this.#copyIn(p.path, copied) : [];
@@ -964,7 +969,16 @@ export class LocalCore implements BeaconCore {
           for (const { importer, asset } of probed) {
             const id = tx.run<string>("asset.add", asset);
             result.assets.push(id);
-            result.clips.push(...tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) }));
+            if (opts.place === false) continue;
+            const placed = tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) });
+            result.clips.push(...placed);
+            // A recording's cursor starts at the size Settings › Recording gives (100% unset).
+            if (cursorScale !== 1 && importer.kind === "recording") {
+              // asset.place returns the clips in the importer's order.
+              const specs = importer.clips({ id, ...asset }, p.store.doc);
+              const cursors = placed.filter((_, i) => specs[i] && this.registry.group(specs[i]!.type, "cursor"));
+              if (cursors.length) tx.run("clip.set", { clips: cursors, props: { cursor: { scale: cursorScale } } });
+            }
             at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
           }
         }),

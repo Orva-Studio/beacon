@@ -1,7 +1,7 @@
 import { produce } from "immer";
 import { z } from "zod";
 import { defineCommand, type CommandDef } from "./feature";
-import { isFree } from "./edit";
+import { assetIds, isFree } from "./edit";
 import type { FeatureRegistry } from "./registry";
 import { AssetSchema, changedSettings, IdSchema as Id, RationalSchema, SecondsSchema as Seconds, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
 import { secondsToTicks, snapSeconds, ticksToSeconds, type Ticks } from "./ticks";
@@ -84,6 +84,39 @@ function findTrack(doc: Project, id: string, registry?: FeatureRegistry): Track 
 
 /** A main-timeline time (seconds, snapped to its frames) on the clip's own track. */
 export const onTrack = (doc: Project, loc: ClipLocation, seconds: number): Ticks => snapSeconds(seconds, doc.settings.fps) - loc.offset;
+
+const ASSET_FIELDS = new WeakMap<z.ZodType, string[]>();
+/** The fields of a prop group's or effect's schema that hold an asset's id (marked `.meta({ asset })`: a LUT, an image). */
+function assetFields(schema: z.ZodType): string[] {
+  let fields = ASSET_FIELDS.get(schema);
+  if (!fields) {
+    const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as { properties?: Record<string, { asset?: unknown }> };
+    fields = Object.entries(json.properties ?? {}).filter(([, p]) => p.asset).map(([k]) => k);
+    ASSET_FIELDS.set(schema, fields);
+  }
+  return fields;
+}
+
+/**
+ * Every asset the document's clips use, in groups too: their own media, any `assetId` in their props (takes not
+ * shown), and the fields marked as assets in their prop groups and effects.
+ */
+export function usedAssets(doc: Project, registry: FeatureRegistry): Set<string> {
+  const out = new Set<string>();
+  const fields = (schema: z.ZodType | undefined, values: unknown) => {
+    if (!schema || !values || typeof values !== "object") return;
+    for (const k of assetFields(schema)) {
+      const v = (values as Record<string, unknown>)[k];
+      if (typeof v === "string") out.add(v);
+    }
+  };
+  for (const { clip } of walkClips(doc.tracks, registry)) {
+    assetIds(clip, out);
+    for (const [g, values] of Object.entries(clip.props)) fields(registry.group(clip.type, g)?.schema, values);
+    for (const fx of clip.effects) fields(registry.effects.get(fx.type)?.params, fx.params);
+  }
+  return out;
+}
 
 /** A clip anywhere in the document (inside groups too), with where it is. */
 export function findClip(doc: Project, registry: FeatureRegistry, id: string): ClipLocation {

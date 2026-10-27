@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { defineFeature, IDENTITY, type BackdropLayer } from "@beacon/model";
+import { defineFeature, eachRawClip, IDENTITY, RgbaSchema, type BackdropLayer, type RGBA } from "@beacon/model";
 import wgsl from "./regions.wgsl" with { type: "text" };
 
 const regionSchema = z.strictObject({
-  kind: z.enum(["blur", "pixelate", "spotlight"]),
+  kind: z.enum(["blur", "pixelate", "spotlight", "highlight"]),
   /** Box size in content pixels; the transform scales it. */
   width: z.number().positive(),
   height: z.number().positive(),
@@ -11,7 +11,12 @@ const regionSchema = z.strictObject({
   intensity: z.number().nonnegative(),
   /** Blur outside the box instead of inside (spotlight always works outside). */
   invert: z.boolean(),
+  /** A highlight's colour, multiplied onto the picture under it at `intensity` (its opacity). */
+  color: RgbaSchema,
 });
+
+/** Camtasia's highlighter yellow; a highlight's opacity starts at half, as Camtasia's does. */
+const YELLOW: RGBA = [1, 0.93, 0.25, 1];
 
 const KINDS: Record<string, "blur" | "pixelate" | "spotlight"> = { TypeWinBlur: "blur", TypeWinPixelate: "pixelate", TypeWinSpotlight: "spotlight" };
 
@@ -21,11 +26,20 @@ function num(v: unknown, fallback: number): number {
 }
 
 /** An Annotations panel preset: a 640 × 360 box. */
-const preset = (kind: string, intensity: number, title: string) => ({
+const preset = (kind: string, intensity: number, title: string, color: RGBA = YELLOW) => ({
   type: "region",
   title,
-  props: { region: { kind, width: 640, height: 360, cornerRadius: 6, intensity, invert: false } },
+  props: { region: { kind, width: 640, height: 360, cornerRadius: kind === "highlight" ? 0 : 6, intensity, invert: false, color } },
 });
+
+/** v2: a colour, for highlights (the user, 2026-10-27). */
+function regionColor(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const r = o.props?.region as Record<string, unknown> | undefined;
+    if (r) r.color ??= YELLOW;
+  });
+  return doc;
+}
 
 /**
  * Blur, pixelate and spotlight regions: boxes that change what is already
@@ -37,10 +51,17 @@ export const regions = defineFeature({
     { id: "annotation:spotlight", label: "Spotlight", title: "Darken everything outside the box", command: "edit.addAnnotation", args: { preset: "spotlight" }, seconds: 5, favorite: true },
     { id: "annotation:blur", label: "Blur", title: "Blur what is inside the box", command: "edit.addAnnotation", args: { preset: "blur" }, seconds: 5 },
     { id: "annotation:pixelate", label: "Pixelate", title: "Pixelate what is inside the box", command: "edit.addAnnotation", args: { preset: "pixelate" }, seconds: 5 },
+    { id: "annotation:highlight", label: "Highlight", title: "A highlighter's colour over what is inside the box, the text under it still readable", command: "edit.addAnnotation", args: { preset: "highlight" }, seconds: 5 },
   ],
-  annotations: { spotlight: preset("spotlight", 0.5, "Add Spotlight"), blur: preset("blur", 2, "Add Blur"), pixelate: preset("pixelate", 0.33, "Add Pixelate") },
-  version: 1,
-  clipTypes: [{ id: "region", description: "A blur, pixelate or spotlight region", traits: ["visual", "region"] }],
+  annotations: {
+    spotlight: preset("spotlight", 0.5, "Add Spotlight"),
+    blur: preset("blur", 2, "Add Blur"),
+    pixelate: preset("pixelate", 0.33, "Add Pixelate"),
+    highlight: preset("highlight", 0.5, "Add Highlight"),
+  },
+  version: 2,
+  migrations: [{ version: 2, migrate: regionColor }],
+  clipTypes: [{ id: "region", description: "A blur, pixelate, spotlight or highlight region", traits: ["visual", "region"] }],
   props: [
     {
       id: "region",
@@ -48,7 +69,7 @@ export const regions = defineFeature({
       traits: ["region"],
       tab: { title: "Annotation Properties", icon: "chat-centered-text", order: 3 },
       schema: regionSchema,
-      defaults: () => ({ kind: "blur", width: 400, height: 200, cornerRadius: 6, intensity: 1, invert: false }),
+      defaults: () => ({ kind: "blur", width: 400, height: 200, cornerRadius: 6, intensity: 1, invert: false, color: YELLOW }),
       animatable: ["width", "height", "intensity"],
     },
   ],
@@ -56,6 +77,7 @@ export const regions = defineFeature({
     { id: "region-blur", wgsl, steps: ["fs_blur_h", "fs_blur_v"] },
     { id: "region-pixelate", wgsl, steps: ["fs_pixelate"] },
     { id: "region-darken", wgsl, steps: ["fs_darken"] },
+    { id: "region-highlight", wgsl, steps: ["fs_highlight"] },
   ],
   camtasia: {
     clipTypes: { Callout: (m) => (KINDS[m.def?.kind] ? { type: "region" } : null) },
@@ -69,6 +91,7 @@ export const regions = defineFeature({
         cornerRadius: num(d["corner-radius"], 6),
         intensity: num(d.intensity, 1),
         invert: num(d["blur-invert"], 0) !== 0,
+        color: YELLOW,
       };
     },
   },
@@ -81,7 +104,9 @@ export const regions = defineFeature({
           ? [{ pass: "region-blur", params: [r.intensity * 8] }]
           : r.kind === "pixelate"
             ? [{ pass: "region-pixelate", params: [Math.max(2, r.intensity * 60)] }]
-            : [{ pass: "region-darken", params: [Math.min(1, r.intensity)] }];
+            : r.kind === "highlight"
+              ? [{ pass: "region-highlight", params: [r.color[0], r.color[1], r.color[2], Math.min(1, r.intensity) * r.color[3]] }]
+              : [{ pass: "region-darken", params: [Math.min(1, r.intensity)] }];
       const layer: BackdropLayer = {
         kind: "backdrop",
         size: [r.width, r.height],
