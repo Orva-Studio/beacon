@@ -343,6 +343,19 @@ test.skipIf(!existsSync(AUDIO))("B-roll is a clip: added over the range in a reg
   const folder = join(dir, "main.beproj", "media", "B-roll");
   expect(readdirSync(folder).filter((f) => f.endsWith(".mp4"))).toHaveLength(2);
   expect(JSON.parse(readFileSync(join(folder, readdirSync(folder).find((f) => f.endsWith(".json"))!), "utf8"))).toMatchObject({ slug: "google/veo-3.1-fast", resolution: "1080p" });
+  // A clip's own model: priced and made with it, the other clips with Settings › AI's; its Model menu priced for it.
+  await core.run(h, "clip.set", { clip: made[0]!.id, props: { broll: { model: "flux-3" } } });
+  const own = (await core.query(h, "broll.estimate", { clips: made.map((c) => c.id) })) as { clips: { id: string; model: string }[]; models: { id: string; fits: boolean }[]; default: string };
+  expect(own.clips.map((c) => c.model)).toEqual(["flux-3", "veo-3.1-fast"]);
+  expect(own.default).toBe("veo-3.1-fast");
+  expect(own.models.find((m) => m.id === "flux-3")?.fits).toBe(true);
+  const mixed = predictions.length;
+  await waitJob(core, jobOf(await core.run(h, "broll.generate", { clips: [made[0]!.id] })));
+  expect(predictions.slice(mixed).map((p) => p.model)).toEqual(["black-forest-labs/flux-3"]);
+  await core.undo(h);
+  await core.undo(h);
+  expect(props(brolls()[0]!).model).toBe("");
+
   const shown = canvas();
   expect(shown.equals(plain)).toBe(false);
 

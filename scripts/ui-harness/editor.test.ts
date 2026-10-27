@@ -4636,6 +4636,15 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     // No Style menu: the look is said in the prompt.
     expect(await has("[data-broll-style]")).toBe(false);
     expect(props()).not.toHaveProperty("style");
+    // The Model menu: Settings › AI's by default, each model with its price for this clip; one picked is the clip's.
+    await page.until("!!document.querySelector('[data-broll-model]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-broll-model] option').textContent")).toMatch(/^Default · Veo 3\.1 Fast · \$\d/);
+    const pick = (value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-broll-model]'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await pick("flux-3");
+    await arrived(() => (props() as { model?: string }).model === "flux-3");
+    await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').includes('$')");
+    await pick("");
+    await arrived(() => (props() as { model?: string }).model === "");
     // Written once: picking another clip and this one again doesn't write it anew.
     const written = readFileSync(writes, "utf8").length;
     await page.click(...(await timelineClipCentre(callout.id)));

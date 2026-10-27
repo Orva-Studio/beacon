@@ -2622,9 +2622,12 @@ Phase 11 so it can close with motion graphics.
   3. **Sliders are hard to hit**: widen their hit area (the thumb and the
      track, e.g. a taller invisible hit box), across every slider in
      `controls/`.
-  4. **Text highlighting**: a highlight behind words (a marker swipe) in
-     text and captions; which (callouts, captions, both) and how it looks
-     to settle with the user.
+  4. **A Highlight annotation, as Camtasia's** (replacing "text highlighting", a
+     marker behind words, dropped: the user, 2026-10-27, from a screenshot of
+     Camtasia's Blur & Highlight › Highlight). **Decided:** a box placed and
+     sized like the Rectangle; Colour (yellow, green, magenta presets) and
+     Opacity (50% by default), multiplied onto the picture so text under it
+     stays readable; Invert colours everything outside the box instead.
   5. **Remove Silences misses a pause split across a cut**: a short silence
      at the end of one clip and another at the start of the next, each under
      the minimum, are together a silence the tool should find. Measure
@@ -2673,8 +2676,10 @@ Phase 11 so it can close with motion graphics.
   "Auto Tune" on Film Look sends a few frames of the clip to OpenAI (the user's
   key; a vision model, the planner's) with the sliders and their ranges, and
   sets what comes back, one undo step, with its cost; a note ("warmer, less
-  grain") tunes from the current values. Settle with the user which model and
-  how many frames.
+  grain") tunes from the current values. **Decided (the user, 2026-10-27):**
+  OpenAI's GPT-6.1 Terra (`gpt-6.1-terra`, cheaper than Sol; the exact id
+  checked against OpenAI's list when built), three frames: the clip's start,
+  middle and end.
 
 - **Shift-click selects a run of clips** (the user, 2026-10-27): ⇧-click today
   toggles one clip, as ⌘-click does. ⇧-click selects every clip from the last
@@ -2997,6 +3002,18 @@ HyperFrames' renders as the single graphics were.
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### Heavy screen recordings (the user, 2026-10-27; later)
+A Retina screen recorded in full (3326×2160 HEVC at 60 fps) spins the Mac's fans
+while it's edited, with proxies off (the user keeps them off). Decoding is
+already VideoToolbox, zero-copy to the GPU: the cost is the pixels (about four
+times 1080p60). Options looked at: proxies for recordings by default, or a
+recording size and frame rate in Settings › Recording. Parked: first look at how
+Camtasia records and previews such footage. Measured 2026-10-27: Whisper takes
+2.5 s on the GPU for 1:45 of audio and a headless import barely loads the CPU, so
+the minute of fans after a recording comes from the app (thumbnails or preview
+decoding 5K frames, or the recorder finishing): to measure per process during a
+30 s recording in the released app, after Phase 11.5 ships.
 
 ### New video models found and added by themselves (the user, 2026-10-26; later)
 Kling 4.0 reached Replicate (`kwaivgi/kling-v4.0`, $0.157 / $0.235 a second)

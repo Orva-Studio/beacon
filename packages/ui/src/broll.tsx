@@ -15,10 +15,15 @@ interface Estimate {
   /** What it was asked for: the clips and settings it priced. */
   for: string;
   model: string;
+  modelId: string;
+  /** Settings › AI's model: a clip without its own is made with it. */
+  default: string;
   resolution: string;
   limit: number;
   longest: number;
-  clips: { id: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
+  clips: { id: string; model: string; seconds: number; cost: number; compare: { models: number; cost: number } }[];
+  /** What each model would cost the clip, and whether it makes a shot that long. */
+  models: { id: string; title: string; cost: number; longest: number; fits: boolean }[];
 }
 
 const dollars = (v: number) => `$${v.toFixed(2)}`;
@@ -71,7 +76,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const set = (fields: Partial<BrollProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { broll: fields } }, label);
   // Asked again when the clip's length or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
-  const asked = JSON.stringify([priced, clip.id, clip.duration]);
+  const asked = JSON.stringify([priced, clip.id, clip.duration, b.model]);
   const answer = useQuery<Estimate>(host, "broll.estimate", { clips: [clip.id], for: asked });
   const estimate = answer?.for === asked ? answer : undefined;
   const cost = estimate?.clips[0];
@@ -134,6 +139,19 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
             <span className="text-caption text-text-faint">Starts from the words said under the clip. Say the look you want here (anime, realistic, 3D animation…).</span>
           </label>
         )}
+        {estimate && (
+          <label className="flex flex-col gap-1">
+            <span className="text-label font-medium text-text-muted">Model</span>
+            <Select value={b.model} disabled={making} onChange={(e) => set({ model: e.target.value }, "B-roll Model")} data-broll-model>
+              <option value="">Default · {estimate.models.find((m) => m.id === estimate.default)?.title} · {dollars(estimate.models.find((m) => m.id === estimate.default)?.cost ?? 0)}</option>
+              {estimate.models.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.fits}>
+                  {m.title} · {m.fits ? dollars(m.cost) : `up to ${m.longest} s`}
+                </option>
+              ))}
+            </Select>
+          </label>
+        )}
         {takes.length > 1 && (
           <label className="flex flex-col gap-1">
             <span className="text-label font-medium text-text-muted">Footage</span>
@@ -164,7 +182,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           </Button>
         )}
         <span className="text-caption text-text-faint">
-          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder.
+          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder. The default model is set in Settings › AI.
         </span>
       </div>
     </Section>
