@@ -66,6 +66,15 @@
   --color-invalid: #ff4d5e;
   --color-marker: #f2c94c;
 
+  /* Code (Edit Code) */
+  --color-code-tag: #7cc7ff;
+  --color-code-attribute: #c9a0ff;
+  --color-code-string: #9be28f;
+  --color-code-keyword: #ff8fb3;
+  --color-code-number: #f2c94c;
+  --color-code-comment: #6f7a74;
+  --color-code-function: #6fe3d6;
+
   /* Timeline */
   --color-ruler: #151817;
   --color-ruler-tick: #363d3a;

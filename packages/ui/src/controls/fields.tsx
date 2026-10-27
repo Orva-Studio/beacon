@@ -7,6 +7,9 @@ export const isTextField = (t: EventTarget | null): t is HTMLInputElement | HTML
 /** Whether keys at `t` go to a form field: a text box, text area or select. */
 export const isFormField = (t: EventTarget | null): t is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => isTextField(t) || t instanceof HTMLSelectElement;
 
+/** Whether keys at `t` are typed: a form field, or editable text (the code editor's). */
+export const isTyping = (t: EventTarget | null): boolean => isFormField(t) || (t instanceof HTMLElement && t.isContentEditable);
+
 /**
  * A name typed in place, the old one selected to type over: Return or clicking away gives `onDone` the text
  * (trimmed), Escape gives it null. Focus waits a frame, for a Rename… chosen from a native menu that has to close.

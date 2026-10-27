@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -87,6 +87,15 @@ beforeAll(async () => {
   screen = clips().find((c) => c.type === "screen")!;
   callout = clips().find((c) => c.type === "callout")!;
 }, 60000);
+
+// A flow that fails part way can leave a dialog open, and every flow after it would run under it: closed here.
+afterEach(async () => {
+  if (skip || !page) return;
+  for (let i = 0; i < 3 && (await page.evaluate<boolean>("!!document.querySelector('[data-modal]')").catch(() => false)); i++) {
+    await page.evaluate("document.querySelector('[data-modal]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await Bun.sleep(100);
+  }
+});
 
 afterAll(async () => {
   if (skip) return;
@@ -249,20 +258,44 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await Bun.sleep(700);
     await motionIdle();
     const takes = m().takes.length;
+    // Disabled while it is drawn again (a timing change above): clicked once the window shows it free.
+    await page.until("!document.querySelector('[data-motion-code]').disabled", 20_000);
     await page.evaluate("document.querySelector('[data-motion-code]').click()");
     await page.until("!!document.querySelector('[data-motion-code-dialog]')");
-    expect(await page.evaluate<string>("document.querySelector('[data-motion-code-text]').value")).toBe(m().takes[m().shown]!.html);
+    // A code editor: its first line is the take's, coloured, with line numbers.
+    const code = "document.querySelector('[data-motion-code-text] .cm-content')";
+    await page.until(`!!${code}`);
+    expect(await page.evaluate<string>(`${code}.querySelector('.cm-line').textContent`)).toBe(m().takes[m().shown]!.html.split("\n")[0]!);
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-motion-code-text] .cm-lineNumbers .cm-gutterElement').length")).toBeGreaterThan(1);
+    expect(await page.evaluate<number>(`${code}.querySelectorAll('span[class]').length`)).toBeGreaterThan(0);
     await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('window.__seek')", 10_000);
+    // ⌘F finds; Esc closes the find bar, not the dialog.
+    await page.evaluate(`${code}.focus()`);
+    await page.key("f", "KeyF", ["meta"]);
+    await page.until("!!document.querySelector('[data-motion-code-text] .cm-search')");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-motion-code-text] .cm-search')");
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-motion-code-dialog]')")).toBe(true);
+    const replace = async (text: string) => {
+      await page.evaluate(`${code}.focus()`);
+      await page.key("a", "KeyA", ["meta"]);
+      await type(text);
+    };
     // Code that navigates its page away stops the preview (the CSP can't forbid it): it says so, and comes back once fixed.
-    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
-    await type('<script>location.href = "about:blank"</script>');
+    await replace('<script>location.href = "about:blank"</script>');
     await page.until("!!document.querySelector('[data-motion-code-left]')", 10_000);
     expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-code-preview]')")).toBe(true);
-    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
-    await type("<div class=w data-t=0.1>Typed by hand</div>");
+    await replace("<div class=w data-t=0.1>Typed by hand</div>");
     await page.until("!document.querySelector('[data-motion-code-left]')", 10_000);
     await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('Typed by hand')", 10_000);
-    await page.evaluate("document.querySelector('[data-motion-code-save]').click()");
+    // Space in the code is the editor's, not the play bar's; ⌘S saves.
+    const playing = () => page.evaluate<string>("[...document.querySelectorAll('[data-motion-code-dialog] button')].map((b) => b.title).find((t) => t.endsWith('(Space)')) ?? ''");
+    const still = await playing();
+    await page.evaluate(`${code}.focus()`);
+    await page.key(" ", "Space");
+    await Bun.sleep(200);
+    expect(await playing()).toBe(still);
+    await page.key("s", "KeyS", ["meta"]);
     await arrived(() => m().takes.length === takes + 1, 20_000);
     expect(m().takes.at(-1)!.html).toBe("<div class=w data-t=0.1>Typed by hand</div>");
     expect((m().takes.at(-1) as { by?: string }).by).toBe("you");

@@ -2726,7 +2726,16 @@ Phase 11 so it can close with motion graphics.
 the last clip…" fails now and then on its edge-follow check (the view 1-2 s
 behind the playhead after a second held at the edge), on main as on this
 branch (2 of 4 runs each): timing under load, not a regression. Worth making
-it wait for the view to settle rather than a fixed second.
+it wait for the view to settle rather than a fixed second. Also "Motion Graphics,
+as B-roll…": now and then its Edit Code dialog doesn't open on the button's
+click (2 of 5 runs), passing alone: fixed 2026-10-27 (it clicked while the button
+was disabled for a redraw; each flow now also closes a dialog it left open, so one
+failure no longer takes the rest down).
+
+**Not traced (2026-10-27):** with an effect's inputs having had the caret, a
+document change while the command palette is open (an agent's edit) can drop the
+caret from the palette's search box to nothing. Not the palette's focus request
+(guarded and expiring now); unknown whether it predates Phase 11.5.
 
 ### Phase 12 — Beacon learns how you edit, and Memory (the user, 2026-10-19; was Phase 15, then 13, until 2026-10-27)
 The AI tools start from what the user tends to do, not fixed settings: if

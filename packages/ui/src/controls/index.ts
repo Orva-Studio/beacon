@@ -1,5 +1,6 @@
 export * from "./buttons";
 export * from "./fields";
+export * from "./code-editor";
 export * from "./section";
 export * from "./color";
 export * from "./modal";

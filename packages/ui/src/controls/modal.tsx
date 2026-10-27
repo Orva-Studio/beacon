@@ -1,7 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { syncNativeView } from "../native-view";
 import { RoundedMask } from "./rounded-mask";
-import { isFormField } from "./fields";
+import { isTyping } from "./fields";
 import { Icon } from "./icons";
 
 /**
@@ -102,6 +102,7 @@ export function Modal({
   return (
     <div className={BACKDROP} onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        data-modal
         className={SHEET}
         style={{ width }}
         tabIndex={-1}
@@ -109,14 +110,15 @@ export function Modal({
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Tab") keepFocusIn(e, panel.current);
-          if (e.key === "Escape") onClose();
+          // The code editor's Escape closes its find bar first.
+          if (e.key === "Escape" && !e.defaultPrevented) onClose();
           // Return is the dialog's default action, wherever the focus is (not the focused button's click, as macOS has
           // it); in a list or a text area it is the field's.
           if (e.key === "Enter" && onEnter && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement)) {
             e.preventDefault();
             onEnter();
           }
-          else if (onKey && !isFormField(e.target)) onKey(e);
+          else if (onKey && !isTyping(e.target)) onKey(e);
         }}
       >
         <RoundedMask radius={14} />

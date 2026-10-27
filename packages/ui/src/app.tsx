@@ -32,7 +32,7 @@ import { ProjectSettingsUi } from "./project-settings";
 import { useCaptionsPending } from "./captions";
 import { SettingsUi, type SettingsHost } from "./settings";
 import { StartScreen, type StartHost } from "./start-screen";
-import { Button, EyedropperContext, Icon, isFormField, isTextField, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
+import { Button, EyedropperContext, Icon, isFormField, isTextField, isTyping, NativeView, Select, Timecode, Toasts, type Eyedropper, type IconName, type NativeTag } from "./controls";
 
 export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, ProjectHost, PreviewHost, ResourceHost, StartHost {
   /** `label` names the undo step ("Move Media"). */
@@ -146,7 +146,7 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const field = isFormField(e.target);
+      const field = isTyping(e.target);
       // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.
       const pending = replica.get().leader;
       if (!field && (pending !== undefined || !match(keymap, e))) {
@@ -175,7 +175,7 @@ export function App({ host }: { host: Host }) {
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
     const onClipboard = (e: ClipboardEvent) => {
-      if (isTextField(e.target)) return;
+      if (isTyping(e.target)) return;
       e.preventDefault();
       if (e.type === "paste" && pastedImage(e.clipboardData)) {
         const at = replica.get().session?.playhead;
