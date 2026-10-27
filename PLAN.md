@@ -2690,9 +2690,40 @@ Phase 11 so it can close with motion graphics.
   to an agent over MCP: a small muted chip at the foot of every clip's
   properties ("clip-8a05d312"), a click copies it (with several selected, all
   of them, comma-separated); a "Copy ID" in the clip's right-click menu too.
+- **Trimming several selected clips at once** (the user, 2026-10-27, from a
+  screen recording): with clips selected (a marquee, ⌘-click), dragging one's
+  edge trims only that one; its linked clips are drawn only once it's let go.
+  **Decided (the user, 2026-10-27):** every selected clip's same edge (and the
+  clips linked to them) moves by the same amount as the one dragged, drawn live,
+  one undo step; at the first clip that can go no further (its media, the next
+  clip) they all stop together.
+- **A default cursor size** (the user, 2026-10-27): a setting for the size a
+  recording's cursor starts at (the user wants 300% everywhere); today Cursor
+  Properties' Scale starts at 100% on every clip and Settings has nothing for
+  it. **Decided (the user, 2026-10-27):** app-wide, Settings › Recording ›
+  Cursor size; recordings imported from then on (any project) start at it;
+  clips already placed are left alone.
+- **Stitch animates a change of look at the join** (the user, 2026-10-27): two
+  pieces of one recording with different scale (or position, crop) stitched
+  together today keep only the first piece's transform and crop, so the
+  second's look is lost. Stitch adds, at each join where the next piece's
+  transform or crop differs from what shows just before it, an ordinary
+  transform/crop animation block on the stitched clip. **Decided (the user,
+  2026-10-27):** the ramp ends at the join (the right piece starts at its own
+  look), 0.5 s with the default easing, as a block added by hand.
+- **Where a new recording lands** (the user, 2026-10-27): an option not to put a
+  take just recorded at the end of the timeline. **Decided (the user,
+  2026-10-27):** Settings › Recording › Place new recordings: At the end of
+  the timeline (as now, the default), At the playhead, or Media Bin only.
 
 **Gate:** each item has its UI-harness flow (or core test) and a
 `docs/tested.md` entry; the user checks them by hand.
+
+**Known flaky (2026-10-27):** the UI flow "the ruler moves the playhead past
+the last clip…" fails now and then on its edge-follow check (the view 1-2 s
+behind the playhead after a second held at the edge), on main as on this
+branch (2 of 4 runs each): timing under load, not a regression. Worth making
+it wait for the view to settle rather than a fixed second.
 
 ### Phase 12 — Beacon learns how you edit, and Memory (the user, 2026-10-19; was Phase 15, then 13, until 2026-10-27)
 The AI tools start from what the user tends to do, not fixed settings: if

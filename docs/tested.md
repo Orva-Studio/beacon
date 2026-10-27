@@ -5,6 +5,24 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 11.5: editing polish (`phase-11.5`)
+
+### Checked headless only (still to see by hand)
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| ⇧-click selects a run of clips: from the clip clicked before (the anchor) to this one, the earlier's start to the later's end, on the tracks between them (locked ones left out), linked clips with them; ⇧-click again re-ranges from the same anchor; ⌘-click still toggles one clip; ⇧-drag still ripple-moves; `selection.range` over MCP | 2026-10-27 | this branch | UI flow (`⇧-click selects the run of clips…`) |
+| Trimming several selected clips at once: dragging one selected clip's edge moves the same edge of every selected clip and of the clips linked to them by as much, drawn while dragged (the linked ones no longer catching up on release), one "Trim Media"; all stop where the first can go no further; `clip.trim`'s `with` over MCP | 2026-10-27 | this branch | UI flow (`dragging one selected clip's edge trims every selected clip's…`), which fails on the old code at the mid-drag check; trim/move flows rerun |
+| Clips picked with a marquee move together when one is dragged | 2026-10-27 | this branch | UI flow (`clips picked with a marquee…`); also a headless repro on a copy of grokbot_leads (unlinked pair, with 150 and 400 ms per command) |
+| `: u` unlinks the selected recording (the user found it doing nothing; it works on linked clips: a screen clip with a camera isn't linked, so Unlink says "select linked clips first") | 2026-10-27 | this branch | UI flow (`the leader key: …`) |
+| Clean with Auphonic's download no longer hangs: given up after a minute with nothing arriving (the wall clock, even when fetch ignores its signal), the file streamed, tried once more; B-roll's downloads use the same helper | 2026-10-27 | this branch | core test (a download that stops part way, then succeeds), UI flow (`Auphonic in Audio Effects…`), B-roll core tests |
+
+### Not checked yet
+
+- ⇧-click in the app's window, across the screen, camera and audio tracks.
+- Trimming the camera and screen of a take together, as in the screen recording of 2026-10-27: both shorten (and the audio with the camera) while dragging, in and out, and one ⌘Z puts all back.
+- Clean with Auphonic on a long clip in the app: it finishes, or, if the download stalls, fails after about a minute saying so (it hung for over 14 minutes on 2026-10-27).
+
 ## Phase 11: motion graphics (`phase-11-motion-graphics`)
 
 ### Checked by hand
