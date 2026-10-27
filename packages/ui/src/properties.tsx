@@ -6,7 +6,7 @@ import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -68,6 +68,8 @@ export function Properties({ project: full, session, host, init }: { project: Pr
         const i = list.indexOf(document.activeElement as HTMLElement);
         if (i < 0) return;
         e.preventDefault();
+        // Not the timeline's Tab too, which runs when the key comes from a control that isn't typed in (a colour well).
+        e.stopPropagation();
         list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length]!.focus();
       }}
     >
@@ -583,14 +585,21 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   // What the effect needs of the clip's media (a matte) while it is made, or why it couldn't be.
   const making = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analyzing[`${n}:${clip.assetId}`]).find((p) => p !== undefined) : undefined));
   const failed = useView((s) => (clip.assetId ? def?.needs?.map((n) => s.analysisFailed[`${n}:${clip.assetId}`]).find(Boolean) : undefined));
-  // The sliders as they are, kept as a look of the user's own, named to rename in Settings › General.
-  const saveLook = () => {
+  // The sliders as they are, kept as a look of the user's own under the name given in its dialog.
+  const [naming, setNaming] = useState<string>();
+  const nextName = () => {
     const taken = new Set(kept.map((l) => l.name));
     let n = 1;
     while (taken.has(`My Look ${n}`)) n++;
-    const look = { id: `look-${Date.now().toString(36)}`, name: `My Look ${n}`, params: { ...effect.params } };
-    void host.setPreference(keep!, JSON.stringify([...kept, look]));
-    replica.status(`Saved as "${look.name}" in Your looks, for every project; rename it in Settings › General`);
+    return `My Look ${n}`;
+  };
+  const saveLook = (name: string) => {
+    setNaming(undefined);
+    if (!name) return;
+    // One of the same name gives way, as an import does.
+    const look = { id: `look-${Date.now().toString(36)}`, name, params: { ...effect.params } };
+    void host.setPreference(keep!, JSON.stringify([...kept.filter((l) => l.name !== name), look]));
+    replica.status(`Saved "${name}" in Your looks, for every project`);
   };
   const importLook = async () => {
     const path = await host.chooseFile(def!.importFile!.extensions);
@@ -610,12 +619,13 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
   };
   return (
     <div data-effect={effect.id}>
+    {naming !== undefined && <SaveLookDialog name={naming} taken={kept.map((l) => l.name)} onDone={saveLook} />}
     <FoldSection
       title={name}
       selected={selected}
       selectHint="Select the effect (⇧ or ⌘ for several): ⌘C copies it, Delete removes it"
       onSelect={(e) => host.run("effect.select", { effects: [{ clip: clip.id, id: effect.id }], add: e.shiftKey || e.metaKey })}
-      action={keep ? { icon: "floppy-disk", label: "Save these settings as a look of your own, for every project", run: saveLook, disabled: preset ? `These settings are ${preset.title} already` : undefined } : undefined}
+      action={keep ? { icon: "floppy-disk", label: "Save these settings as a look of your own, for every project", run: () => setNaming(nextName()), disabled: preset ? `These settings are ${preset.title} already` : undefined } : undefined}
       remove={{ label: "Remove Effect", run: () => host.run("effect.remove", { clip: clip.id, effect: effect.id }, `Remove ${name}`) }}
       enabled={effect.enabled}
       onEnable={(on) => host.run("effect.set", { clip: clip.id, effect: effect.id, enabled: on }, on ? `Enable ${name}` : `Disable ${name}`)}
@@ -804,5 +814,29 @@ function AnimationSection({ clip, id, host }: { clip: Clip; id: string; host: Ho
         <NumberBox value={seconds} unit=" s" onCommit={(v) => v > 0 && host.run("animation.set", { clip: clip.id, animation: id, duration: v }, "Animation Duration")} />
       </Row>
     </Section>
+  );
+}
+
+/** Names a look about to be kept: the suggested name selected to type over; Return saves, Esc cancels. */
+function SaveLookDialog({ name: suggested, taken, onDone }: { name: string; taken: string[]; onDone: (name: string) => void }) {
+  const [name, setName] = useState(suggested);
+  const trimmed = name.trim();
+  return (
+    <Modal title="Save Look" width={380} onClose={() => onDone("")} onEnter={() => trimmed && onDone(trimmed)}>
+      <div className="flex flex-col gap-3" data-save-look>
+        <TextInput autoFocus value={name} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} data-save-look-name />
+        <span className="text-caption text-text-faint">
+          {taken.includes(trimmed) ? `Replaces your look "${trimmed}".` : "Listed under Your looks in Film Look's Look menu, in every project. Renamed and deleted in Settings › General."}
+        </span>
+        <div className="flex justify-end gap-2">
+          <Button look="quiet" onClick={() => onDone("")}>
+            Cancel
+          </Button>
+          <Button look="primary" disabled={!trimmed} onClick={() => onDone(trimmed)} data-save-look-save>
+            Save
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

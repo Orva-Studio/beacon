@@ -170,6 +170,8 @@ export function App({ host }: { host: Host }) {
       // Return on a focused button or link presses it, as the keyboard user tabbed there to do.
       if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button, a[href], [role=button], [role=menuitem], [role=tab]")) return;
       e.preventDefault();
+      // A held ⌫ deletes once: its repeats would go on to what is selected next (the clip, once an effect's ⌫ took the effect).
+      if (e.repeat && (b.command === "edit.delete" || b.command === "edit.rippleDelete")) return;
       // Silences selected on the timeline: ⌫ cuts them; a filler picked there: ⌫ cuts it, as Cut This One does.
       const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] }; fillers?: { current?: number } } | undefined;
       if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");

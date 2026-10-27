@@ -279,6 +279,8 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     // Long lines wrap, until Wrap lines is unticked.
     const wraps = () => page.evaluate<boolean>(`${code}.classList.contains('cm-lineWrapping')`);
     expect(await wraps()).toBe(true);
+    // Its tick box sits under the code.
+    expect(await page.evaluate<boolean>("document.querySelector('[data-motion-code-wrap]').getBoundingClientRect().top >= document.querySelector('[data-motion-code-text]').getBoundingClientRect().bottom")).toBe(true);
     await page.click(...(await centre("[data-motion-code-wrap]")));
     await page.until(`!${code}.classList.contains('cm-lineWrapping')`);
     await page.click(...(await centre("[data-motion-code-wrap]")));
@@ -1563,7 +1565,7 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight", "annotation:highlight-green", "annotation:highlight-magenta"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
   // A favourite shows its gold star; another tile shows none until selected.
   expect(await star("annotation:text")).toBe("on");
@@ -2455,6 +2457,49 @@ test.skipIf(skip)("an effect comes off by keyboard: ⌘⌫ in its section (even 
     await page.until(`!!document.querySelector('[data-entry="remove:${id}"]')`);
     await page.key("Enter", "Enter");
     await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+    // Inside an open group too: the palette finds the clip there, as the properties do.
+    const camera = clips().find((c) => c.type === "video" && c.assetId === screen.assetId)!;
+    const audio = clips().find((c) => c.type === "audio" && c.assetId === screen.assetId)!;
+    const group = (await run("clip.group", { clips: [camera.id, audio.id] })).results[0] as string;
+    await run("group.open", { clip: group });
+    await run("effect.add", { clip: camera.id, type: "drop-shadow" });
+    await select([camera.id]);
+    const inner = () => JSON.stringify(ui.core.doc(ui.handle)).match(/"type":"drop-shadow"/g)?.length ?? 0;
+    await arrived(() => inner() === 1);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("Remove Drop");
+    await page.until(`[...document.querySelectorAll('[data-entry^="remove:"]')].length === 1`);
+    await page.key("Enter", "Enter");
+    await arrived(() => inner() === 0);
+    await run("group.close", {});
+  } finally {
+    await page.evaluate("document.activeElement?.blur()");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Tab from a colour well (where : ] puts the caret on a Highlight) goes to the next input, not to the next clip; a held ⌫ deletes once", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("edit.addAnnotation", { preset: "highlight", time: 1 });
+    const hl = clips().find((c) => c.type === "region")!;
+    await select([hl.id]);
+    await run("inspector.tab", { tab: "transform" });
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until("!!document.querySelector('[data-leader]')");
+    await page.key("]", "BracketRight");
+    await page.until("document.activeElement?.getAttribute('title') === 'Color'");
+    await page.key("Tab", "Tab");
+    await page.until("document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('.panel-card')");
+    expect((await session()).selection).toEqual([hl.id]);
+    await page.evaluate("document.activeElement?.blur()");
+    // ⌫ held: its repeats delete nothing more (they'd go on to whatever is selected next).
+    const count = clips().length;
+    await page.evaluate("document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace', repeat: true, bubbles: true }))");
+    await Bun.sleep(300);
     expect(clips().length).toBe(count);
   } finally {
     await page.evaluate("document.activeElement?.blur()");
@@ -3520,7 +3565,7 @@ test.skipIf(skip)("an imported .hlook is kept for every project: under Your look
   }
 }, 30_000);
 
-test.skipIf(skip)("Film Look's save icon, beside its trash, keeps the sliders as \"My Look 1\" in Your looks for every project, then shows it in the Look menu; greyed while the sliders are a look already", async () => {
+test.skipIf(skip)("Film Look's save icon, beside its trash, names the sliders in a dialog (\"My Look 1\" to type over) and keeps them in Your looks for every project, then shows it in the Look menu; greyed while the sliders are a look already; Tab reaches the Look menu", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const kept = async () => JSON.parse((await ui.core.preferences()).find((p) => p.id === "filmLookLooks")!.value) as { id: string; name: string; params: Record<string, unknown> }[];
   await ui.core.setPreference("filmLookLooks", "[]");
@@ -3532,12 +3577,26 @@ test.skipIf(skip)("Film Look's save icon, beside its trash, keeps the sliders as
     await run("inspector.tab", { tab: "effects" });
     const save = `[data-effect="${fx().id}"] [data-section-action]`;
     await page.until(`!!document.querySelector('${save}') && !document.querySelector('${save}').disabled`);
+    // Its Look menu takes the caret by Tab, as the other inputs do.
+    await page.evaluate(`document.querySelector('[data-effect="${fx().id}"] [data-input]').focus()`);
+    for (let i = 0; i < 6 && !(await page.evaluate<boolean>("!!document.activeElement?.matches('[data-effect-preset]')")); i++) await page.key("Tab", "Tab");
+    expect(await page.evaluate<boolean>("!!document.activeElement?.matches('[data-effect-preset]')")).toBe(true);
+    await page.evaluate("document.activeElement?.blur()");
+    // A dialog names it, "My Look 1" selected to type over; Esc saves nothing.
     await page.click(...(await centre(save)));
+    await page.until("document.activeElement?.matches('[data-save-look-name]') && document.activeElement.value === 'My Look 1'");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-save-look]')");
+    expect(await kept()).toEqual([]);
+    await page.click(...(await centre(save)));
+    await page.until("document.activeElement?.matches('[data-save-look-name]')");
+    await type("Teal dusk");
+    await page.key("Enter", "Enter");
     for (let i = 0; i < 50 && !(await kept()).length; i++) await Bun.sleep(50);
     const [look] = await kept();
-    expect(look!.name).toBe("My Look 1");
+    expect(look!.name).toBe("Teal dusk");
     expect(look!.params).toEqual(fx().params);
-    await page.until(`document.querySelector('${save}').disabled && document.querySelector('[data-effect="${fx().id}"] [data-effect-preset]').textContent.includes('My Look 1')`);
+    await page.until(`document.querySelector('${save}').disabled && document.querySelector('[data-effect="${fx().id}"] [data-effect-preset]').textContent.includes('Teal dusk')`);
     // Nothing on the timeline changed: no undo step.
     expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(2);
   } finally {

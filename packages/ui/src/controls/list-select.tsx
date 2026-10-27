@@ -74,6 +74,7 @@ export function ListSelect({
         {...rest}
         type="button"
         title={title}
+        data-input
         data-value={value}
         aria-haspopup="listbox"
         aria-expanded={open}

@@ -4,6 +4,7 @@ import { Icon, Modal, TextInput, type IconName } from "./controls";
 import { KIND_ICON } from "./media-bin";
 import { AI_TOOLS, allItems, inFavoriteOrder } from "./panel-items";
 import { searchByName } from "./search";
+import { NO_NESTED, timelineView } from "./timeline-draw";
 import { replica, useView } from "./store";
 
 interface PaletteHost {
@@ -44,8 +45,8 @@ function PaletteUi({ host }: { host: PaletteHost }) {
   const favorites = useView((v) => v.favorites);
   const assets = useView((v) => v.project?.assets);
   const thumbs = useView((v) => v.thumbs);
-  const tracks = useView((v) => v.project?.tracks);
-  const first = useView((v) => v.session?.selection[0]);
+  const project = useView((v) => v.project);
+  const session = useView((v) => v.session);
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -58,7 +59,10 @@ function PaletteUi({ host }: { host: PaletteHost }) {
     } }));
     const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
     // The effects of the clip the properties show; two of a kind numbered.
-    const clip = first ? (tracks ?? []).flatMap((t) => t.clips).find((c) => c.id === first) : undefined;
+    // In an open group, its clips: what the properties show.
+    const first = session?.selection[0];
+    const scope = project && session ? timelineView(project, session, init?.nested ?? NO_NESTED).project : undefined;
+    const clip = first ? (scope?.tracks ?? []).flatMap((t) => t.clips).find((c) => c.id === first) : undefined;
     const title = (type: string) => init?.effects.find((d) => d.id === type)?.title ?? type;
     const removals = (clip?.effects ?? []).map((fx, i, all): Entry => {
       const same = all.filter((f) => f.type === fx.type);
@@ -66,7 +70,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
       return { id: `remove:${fx.id}`, name, description: "Take this effect off the selected clip", group: "Selected Clip", icon: "trash", starred: false, start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
     });
     return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...removals, ...tools];
-  }, [init, favorites, tracks, first]);
+  }, [init, favorites, project, session]);
   const media = useMemo(
     () =>
       // As the bin: a LUT or other file a feature imported isn't media to place.

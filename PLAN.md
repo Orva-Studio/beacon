@@ -2768,6 +2768,12 @@ they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
 only after the user has made the same choice several times, never from one
 edit.
+- **Favorites go; the palette learns what you use** (the user, 2026-10-27:
+  "the favourites feature is a bit pointless based on how I use it"). ⌘K and
+  the leader key reach everything, so starring is upkeep with no payoff.
+  Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
+  and their preference; ⌘K lists recently and often used effects and
+  annotations first before anything is typed, and leans on them when typing.
 - **Built for talking heads, long and short** (the user, 2026-10-19:
   Beacon is an editor for talking-head videos, long-form and Shorts). So
   what it learns is how this person tightens their own speech: pauses,

@@ -253,7 +253,7 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
   );
 }
 
-/** The .hlook files imported into Film Look, kept for every project's Look menu: renamed or deleted here. */
+/** The looks imported into Film Look (.hlook) or saved from it, kept for every project's Look menu: renamed or deleted here. */
 function KeptLooks({ value, save }: { value: string; save: (value: string) => void }) {
   const looks = (() => {
     const parsed = KeptLooksSchema.safeParse((() => { try { return JSON.parse(value || "[]"); } catch { return []; } })());
@@ -262,9 +262,9 @@ function KeptLooks({ value, save }: { value: string; save: (value: string) => vo
   const [renaming, setRenaming] = useState<string>();
   const put = (next: KeptLook[]) => save(JSON.stringify(next));
   return (
-    <Row label="Your Film Looks" hint="The .hlook files imported into Film Look: every project's Look menu lists them, under Your looks. One imported again under the same name replaces it.">
+    <Row label="Your Film Looks" hint="Looks imported into Film Look (.hlook) or saved from it (the save icon by its trash): every project's Look menu lists them, under Your looks. One imported or saved under the same name replaces it.">
       <div className="flex min-w-0 flex-col gap-1.5" data-kept-looks>
-        {!looks.length && <span className="text-text-muted">None yet: Import .hlook… on Film Look adds one.</span>}
+        {!looks.length && <span className="text-text-muted">None yet: Film Look's Import .hlook… or its save icon adds one.</span>}
         {looks.map((l) => (
           <div key={l.id} className="flex min-w-0 items-center gap-2" data-kept-look={l.id}>
             {renaming === l.id ? (
