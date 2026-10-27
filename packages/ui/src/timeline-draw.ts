@@ -44,7 +44,8 @@ export type Drag =
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
   | PressDrag
   | MoveDrag
-  | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean };
+  /** `edges`: where each trimmed clip's dragged edge is drawn, the one grabbed (at `t`) and the others selected or linked with it. */
+  | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean; edges: Map<string, number> };
 
 
 /**
@@ -367,10 +368,10 @@ export function drawTimeline(t: TimelineDrawing) {
     tracks.forEach((t, i) => {
       for (const clip of t.clips) {
         let [a, b] = shown(t, clip);
-        if (d?.kind === "trim" && d.clip === clip.id && !d.extend) {
+        if (d?.kind === "trim" && d.edges.has(clip.id) && !d.extend) {
           [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
-          if (d.edge === "start") a = d.t;
-          else b = d.t;
+          if (d.edge === "start") a = d.edges.get(clip.id)!;
+          else b = d.edges.get(clip.id)!;
         }
         // Shift-drag opens or closes time as it goes: what is after the point is drawn moved, a clip across it split.
         let by = 0;
@@ -399,10 +400,10 @@ export function drawTimeline(t: TimelineDrawing) {
         const by = shifted && cs >= shifted.at ? shifted.d : 0;
         if (ce + by < start || cs + by > end) continue;
         // While an edge is dragged, what is drawn over the clip is cropped to it, and its fx badge rides the edge.
-        const trim = d?.kind === "trim" && d.clip === clip.id && !d.extend ? d : undefined;
+        const trim = d?.kind === "trim" && d.edges.has(clip.id) && !d.extend ? d : undefined;
         const [sa, sb] = shifted ? [cs, ce] : shown(t, clip);
-        const left = trim?.edge === "start" ? trim.t : trim ? cs : sa;
-        const right = trim && trim.edge !== "start" ? trim.t : trim ? ce : sb;
+        const left = trim?.edge === "start" ? trim.edges.get(clip.id)! : trim ? cs : sa;
+        const right = trim && trim.edge !== "start" ? trim.edges.get(clip.id)! : trim ? ce : sb;
         ctx.save();
         ctx.translate(by * pps, 0);
         ctx.beginPath();

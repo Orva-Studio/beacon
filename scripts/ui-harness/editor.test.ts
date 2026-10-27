@@ -2184,6 +2184,40 @@ test.skipIf(skip)("clips picked with a marquee move together when one of them is
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("dragging one selected clip's edge trims every selected clip's, and the clips linked to them, by as much, drawn while dragged, one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const audio = clips().find((c) => c.assetId === screen.assetId && c.type === "audio")!;
+  expect(camera.linkId && camera.linkId !== screen.linkId).toBeTruthy();
+  await select([screen.id, camera.id]);
+  const endOf = (id: string) => ticksToSeconds(clip(id).start + clip(id).duration);
+  const before = new Map([screen, camera, audio].map((c) => [c.id, endOf(c.id)]));
+  const end = endOf(screen.id);
+  await run("timeline.view", { start: Math.max(0, end - 6), end: end + 2 });
+  await Bun.sleep(300);
+  const [scr, cam] = [await timelinePlaces(screen.id), await timelinePlaces(camera.id)];
+  const { box, xAt } = scr;
+  // Where the camera's last half second is drawn: its colour now, the empty track once its end is dragged in.
+  const probe = timelinePixel(xAt(endOf(camera.id) - 0.5), cam.y + cam.h - 6);
+  const shown = await page.evaluate<string>(probe);
+  const y = box.y + scr.y + scr.h / 2;
+  await page.down(box.x + xAt(end) - 1, y);
+  for (let i = 1; i <= 8; i++) await page.move(box.x + xAt(end - i / 8) - 1, y);
+  await Bun.sleep(100);
+  expect(await page.evaluate<string>(probe)).not.toBe(shown);
+  await page.up(box.x + xAt(end - 1) - 1, y);
+  await arrived(() => endOf(camera.id) < before.get(camera.id)! - 0.5);
+  const by = [...before].map(([id, e]) => +(e - endOf(id)).toFixed(3));
+  expect(by[0]).toBeGreaterThan(0.5);
+  expect(new Set(by).size).toBe(1);
+  const history = (await ui.core.history(ui.handle)).undo;
+  expect(history.length - steps).toBe(1);
+  expect(history.at(-1)).toBe("Trim Media");
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

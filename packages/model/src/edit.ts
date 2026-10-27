@@ -2,7 +2,7 @@ import { z } from "zod";
 import { clipSpeed } from "./evaluate";
 import { AssetSchema, ClipSchema, IdSchema, trackName, type Asset, type Clip, type Project, type Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
-import { secondsToTicks, ticksToSeconds, type Ticks } from "./ticks";
+import { secondsToTicks, ticksPerFrame, ticksToSeconds, type Ticks } from "./ticks";
 import type { Animation } from "./schema";
 
 /**
@@ -247,6 +247,18 @@ export function trimBounds(track: Track, clip: Clip): [Ticks, Ticks] {
     else if (c.start >= clipEnd(clip)) hi = Math.min(hi, c.start);
   }
   return [lo, hi];
+}
+
+/**
+ * How far a clip's `edge` can move, [most left, most right] in ticks: to the clips beside it (unless `ripple`), the
+ * ends of its media, and a frame short of its other edge. Several clips trimmed together move by what all of them allow.
+ */
+export function trimRoom(project: Project, track: Track, clip: Clip, edge: "start" | "end", holds: boolean, ripple: boolean): [Ticks, Ticks] {
+  const frame = ticksPerFrame(project.settings.fps);
+  const [lo, hi] = ripple ? [-Infinity, Infinity] : trimBounds(track, clip);
+  const [first, last] = mediaBounds(project, clip, holds);
+  const end = clipEnd(clip);
+  return edge === "start" ? [Math.max(lo, first) - clip.start, end - frame - clip.start] : [clip.start + frame - end, Math.min(hi, last) - end];
 }
 
 /**
