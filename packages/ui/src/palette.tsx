@@ -48,7 +48,12 @@ function PaletteUi({ host }: { host: PaletteHost }) {
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const entries = useMemo(() => {
-    const items = allItems(init).map((it): Entry & { favorite: string } => ({ id: it.favorite, favorite: it.favorite, name: it.label, description: it.title, group: it.group, art: it.art, starred: favorites.includes(it.favorite), start: (h) => h.run(it.command, it.args) }));
+    const items = allItems(init).map((it): Entry & { favorite: string } => ({ id: it.favorite, favorite: it.favorite, name: it.label, description: it.title, group: it.group, art: it.art, starred: favorites.includes(it.favorite), start: (h) => {
+      const effect = it.group !== "Annotation";
+      replica.focusInputs(effect);
+      h.run(it.command, it.args);
+      if (effect) h.run("inspector.tab", { tab: "effects" });
+    } }));
     const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
     return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...tools];
   }, [init, favorites]);

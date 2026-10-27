@@ -103,7 +103,14 @@ export function NumberBox({
   const cls = "h-6 shrink-0 rounded-md border border-transparent bg-chip px-1.5 text-right text-label leading-[22px] tabular-nums text-text-strong";
   if (!editing || !onCommit) {
     return (
-      <span className={`${cls} ${onCommit ? "cursor-text" : "opacity-50"}`} style={{ width }} onClick={() => onCommit && setEditing(true)}>
+      <span
+        data-input
+        tabIndex={onCommit ? 0 : undefined}
+        className={`${cls} outline-none focus:border-accent ${onCommit ? "cursor-text" : "opacity-50"}`}
+        style={{ width }}
+        onClick={() => onCommit && setEditing(true)}
+        onFocus={() => onCommit && setEditing(true)}
+      >
         {fmt(value, unit, digits)}
       </span>
     );

@@ -32,7 +32,7 @@ export function FoldSection({
   const [showMenu, setShowMenu] = useState(false);
   return (
     <div className="border-b border-divider">
-      <div className={`relative flex h-10 items-center gap-2 px-3 ${selected ? "bg-accent-wash" : "bg-section-head"}`}>
+      <div data-fold-head className={`relative flex h-10 items-center gap-2 px-3 ${selected ? "bg-accent-wash" : "bg-section-head"}`}>
         <button className="flex h-6 w-5 items-center justify-center text-text-strong" title={open ? "Hide the settings" : "Show the settings"} onClick={() => setOpen(!open)}>
           <Icon name="caret-down" size={14} className={open ? "" : "-rotate-90"} />
         </button>

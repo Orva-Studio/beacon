@@ -206,6 +206,7 @@ export function ColorSwatch({ color, onChange, title }: { color: RGBA; onChange:
     <>
       <button
         ref={button}
+        data-input
         title={title ?? "Choose a colour"}
         className="h-7 w-12 cursor-pointer rounded-sm border border-field-edge p-[3px]"
         onClick={(e) => {

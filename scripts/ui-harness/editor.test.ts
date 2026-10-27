@@ -2327,6 +2327,39 @@ test.skipIf(skip)("a clip dragged below the lowest track goes onto a new track t
   expect(tracks()[0]!.clips.some((c) => c.id === low.id)).toBe(true);
 });
 
+test.skipIf(skip)("an effect picked in the command palette opens its properties with the caret in its first input; Tab and ⇧Tab go through its inputs; Esc gives the keys back", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([screen.id]);
+  const before = clip(screen.id).effects.length;
+  await page.key("k", "KeyK", ["meta"]);
+  await page.until("!!document.querySelector('[data-palette]')");
+  await type("Drop Shadow");
+  await page.until("!!document.querySelector('[data-entry=\"effect:drop-shadow\"]')");
+  await page.key("Enter", "Enter");
+  await arrived(() => clip(screen.id).effects.length > before);
+  const fx = clip(screen.id).effects.at(-1)!;
+  expect(fx.type).toBe("drop-shadow");
+  const inEffect = `document.activeElement?.closest('[data-effect]')?.dataset.effect === ${JSON.stringify(fx.id)}`;
+  await page.until(inEffect);
+  expect((await session()).inspector).toBe("effects");
+  expect(await page.evaluate<string>("document.activeElement.tagName")).toBe("INPUT");
+  // Tab goes to the next input, ⇧Tab back to the first.
+  const at = () => page.evaluate<number>("(() => { const all = [...document.querySelector('[data-effect=\"" + fx.id + "\"]').querySelectorAll('[data-input], input, select, textarea, button[role=checkbox]')].filter((e) => !e.closest('[data-fold-head]')); return all.indexOf(document.activeElement); })()");
+  expect(await at()).toBe(0);
+  await page.key("Tab", "Tab");
+  await page.until(`(${inEffect}) && document.activeElement.tagName === 'INPUT'`);
+  expect(await at()).toBe(1);
+  await page.key("Tab", "Tab", ["shift"]);
+  await page.until(`(${inEffect})`);
+  expect(await at()).toBe(0);
+  // Esc: out of the panel, the clip still selected.
+  await page.key("Escape", "Escape");
+  await page.until("!document.activeElement?.closest('[data-effect]')");
+  expect((await session()).selection).toContain(screen.id);
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  await select([]);
+}, 15_000);
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

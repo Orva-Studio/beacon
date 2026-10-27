@@ -9,6 +9,8 @@ enablePatches();
 export interface ViewState {
   /** The document revision the replica is at. */
   rev?: number;
+  /** Something picked in the command palette (at revision `rev`): once what it added arrives, the properties panel puts the caret in its first input. */
+  focusInputs?: { rev: number; effect: boolean };
   init?: Init;
   opened?: Omit<Opened, "project" | "session" | "rev">;
   /** A replica of the main process's document, updated only by its patches. */
@@ -184,6 +186,9 @@ export const replica = {
   },
   confirmSaved() {
     set({ confirmSaved: performance.now() });
+  },
+  focusInputs(effect: boolean | undefined) {
+    set({ focusInputs: effect === undefined ? undefined : { rev: state.rev ?? 0, effect } });
   },
   /** Opened only with a project: it lists what can be added to one. */
   palette(palette: boolean) {

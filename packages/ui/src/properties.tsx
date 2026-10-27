@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
 import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
@@ -25,14 +25,51 @@ export function Properties({ project: full, session, host, init }: { project: Pr
   const all = project.tracks.flatMap((t) => t.clips);
   const selected = session.selection.map((id) => all.find((c) => c.id === id)).filter((c): c is Clip => !!c);
   const clip = selected[0];
+  const panel = useRef<HTMLDivElement>(null);
+  const rev = useView((s) => s.rev);
+  const focus = useView((s) => s.focusInputs);
+  // An effect or annotation picked in the palette: once it has arrived, the caret goes in its first input.
+  useEffect(() => {
+    if (!focus || (rev ?? 0) <= focus.rev || !clip || !panel.current) return;
+    const scope = focus.effect ? panel.current.querySelector(`[data-effect="${clip.effects.at(-1)?.id}"]`) : panel.current;
+    const first = scope && inputsIn(scope)[0];
+    if (!first) return;
+    first.focus();
+    replica.focusInputs(undefined);
+  });
   return (
-    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto text-body">
+    <div
+      ref={panel}
+      className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto text-body"
+      // Tab and ⇧Tab go through the inputs in order (value boxes, menus, colour wells); Esc gives the keys back to the timeline.
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && panel.current?.contains(document.activeElement)) {
+          e.stopPropagation();
+          // A value box's own Escape runs first and cancels what was typed.
+          setTimeout(() => (document.activeElement as HTMLElement | null)?.blur());
+          return;
+        }
+        if (e.key !== "Tab" || e.metaKey || e.ctrlKey || e.altKey) return;
+        const list = inputsIn(panel.current!);
+        const i = list.indexOf(document.activeElement as HTMLElement);
+        if (i < 0) return;
+        e.preventDefault();
+        list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length]!.focus();
+      }}
+    >
       {!clip ? (
         <div className="p-4 text-center text-text-faint">{session.selection.length ? "Selection is not on the timeline" : "Select media on the timeline to see its properties"}</div>
       ) : (
         <ClipProperties project={project} session={session} clip={clip} selected={selected} host={host} init={init} />
       )}
     </div>
+  );
+}
+
+/** The properties panel's inputs, in order: value boxes, text, menus, colour wells and checkboxes, not a section's own header. */
+function inputsIn(root: Element): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>("[data-input], input, select, textarea, button[role=checkbox]")].filter(
+    (e) => !e.closest("[data-fold-head]") && !(e as HTMLInputElement).disabled && e.offsetParent !== null,
   );
 }
 
@@ -522,6 +559,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     }
   };
   return (
+    <div data-effect={effect.id}>
     <FoldSection
       title={name}
       selected={selected}
@@ -668,6 +706,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
             return <Row key={k} label={label}><span className="truncate text-text-muted">{JSON.stringify(v)}</span></Row>;
           })}
     </FoldSection>
+    </div>
   );
 }
 
