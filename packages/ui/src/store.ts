@@ -10,7 +10,7 @@ export interface ViewState {
   /** The document revision the replica is at. */
   rev?: number;
   /** Something picked in the command palette (at revision `rev`): once what it added arrives, the properties panel puts the caret in its first input. */
-  focusInputs?: { rev: number; effect: boolean };
+  focusInputs?: { rev: number; effect: boolean; at: number };
   init?: Init;
   opened?: Omit<Opened, "project" | "session" | "rev">;
   /** A replica of the main process's document, updated only by its patches. */
@@ -186,11 +186,12 @@ export const replica = {
     set({ confirmSaved: performance.now() });
   },
   focusInputs(effect: boolean | undefined) {
-    set({ focusInputs: effect === undefined ? undefined : { rev: state.rev ?? 0, effect } });
+    set({ focusInputs: effect === undefined ? undefined : { rev: state.rev ?? 0, effect, at: performance.now() } });
   },
   /** Opened only with a project: it lists what can be added to one. */
   palette(palette: boolean) {
-    set({ palette: palette && !!state.opened });
+    // A focus asked for before (an effect added, then undone at once) mustn't take the caret from the palette.
+    set({ palette: palette && !!state.opened, ...(palette ? { focusInputs: undefined } : {}) });
   },
   projectSettings(open: boolean) {
     set({ projectSettings: open && !!state.opened });

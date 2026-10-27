@@ -31,6 +31,8 @@ export function Properties({ project: full, session, host, init }: { project: Pr
   // An effect or annotation picked in the palette: once it has arrived, the caret goes in its first input.
   useEffect(() => {
     if (!focus || (rev ?? 0) <= focus.rev || !clip || !panel.current) return;
+    // Only soon after it was asked, and not from under a dialog: a late one would take the caret from wherever it is.
+    if (performance.now() - focus.at > FOCUS_MS || document.querySelector("[data-modal], [data-palette]")) return replica.focusInputs(undefined);
     const scope = focus.effect ? panel.current.querySelector(`[data-effect="${clip.effects.at(-1)?.id}"]`) : panel.current;
     const first = scope && inputsIn(scope)[0];
     if (!first) return;
@@ -65,6 +67,9 @@ export function Properties({ project: full, session, host, init }: { project: Pr
     </div>
   );
 }
+
+/** How long after a palette pick its effect's first input may still take the caret. */
+const FOCUS_MS = 2000;
 
 /** The properties panel's inputs, in order: value boxes, text, menus, colour wells and checkboxes, not a section's own header. */
 function inputsIn(root: Element): HTMLElement[] {
