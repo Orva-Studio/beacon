@@ -12,6 +12,7 @@ feature lands and when it is checked.
 | What | Date | Commit | How |
 |---|---|---|---|
 | ⇧-click selects a run of clips: from the clip clicked before (the anchor) to this one, the earlier's start to the later's end, on the tracks between them (locked ones left out), linked clips with them; ⇧-click again re-ranges from the same anchor; ⌘-click still toggles one clip; ⇧-drag still ripple-moves; `selection.range` over MCP | 2026-10-27 | this branch | UI flow (`⇧-click selects the run of clips…`) |
+| A clip's id at the foot of its properties (a muted chip, every tab): a click copies it, with several selected all of them, comma-separated ("… + 1 more" shown), and says so; Copy ID in the clip's right-click menu copies the same (the selection's when the clip is in it) | 2026-10-27 | this branch | UI flow (`a clip's id sits at the foot…`); the menu item only in the app (the harness has no native menus) |
 | Trimming several selected clips at once: dragging one selected clip's edge moves the same edge of every selected clip and of the clips linked to them by as much, drawn while dragged (the linked ones no longer catching up on release), one "Trim Media"; all stop where the first can go no further; `clip.trim`'s `with` over MCP | 2026-10-27 | this branch | UI flow (`dragging one selected clip's edge trims every selected clip's…`), which fails on the old code at the mid-drag check; trim/move flows rerun |
 | Clips picked with a marquee move together when one is dragged | 2026-10-27 | this branch | UI flow (`clips picked with a marquee…`); also a headless repro on a copy of grokbot_leads (unlinked pair, with 150 and 400 ms per command) |
 | `: u` unlinks the selected recording (the user found it doing nothing; it works on linked clips: a screen clip with a camera isn't linked, so Unlink says "select linked clips first") | 2026-10-27 | this branch | UI flow (`the leader key: …`) |
@@ -20,6 +21,7 @@ feature lands and when it is checked.
 ### Not checked yet
 
 - ⇧-click in the app's window, across the screen, camera and audio tracks.
+- Copy ID in a clip's right-click menu (native, so only in the app): pasted into a chat, it is the clip's id, or every selected clip's.
 - Trimming the camera and screen of a take together, as in the screen recording of 2026-10-27: both shorten (and the audio with the camera) while dragging, in and out, and one ⌘Z puts all back.
 - Clean with Auphonic on a long clip in the app: it finishes, or, if the download stalls, fails after about a minute saying so (it hung for over 14 minutes on 2026-10-27).
 

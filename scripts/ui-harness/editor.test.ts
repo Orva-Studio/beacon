@@ -2218,6 +2218,25 @@ test.skipIf(skip)("dragging one selected clip's edge trims every selected clip's
   await run("timeline.zoom", { to: "fit" });
 });
 
+test.skipIf(skip)("a clip's id sits at the foot of its properties: a click copies it, with several selected all of them, comma-separated", async () => {
+  await select([screen.id]);
+  await page.until(`document.querySelector('[data-clip-id]')?.textContent === ${JSON.stringify(screen.id)}`);
+  await page.click(...(await centre("[data-clip-id]")));
+  await arrived(() => ui.copied.at(-1) === screen.id);
+  expect(ui.copied.at(-1)).toBe(screen.id);
+  // On every tab, not only the first.
+  await run("inspector.tab", { tab: "effects" });
+  await page.until("!!document.querySelector('[data-clip-id]')");
+  await select([screen.id, callout.id]);
+  await page.until(`document.querySelector('[data-clip-id]')?.textContent?.endsWith('+ 1 more')`);
+  // Below a callout's many rows: scrolled to, as the panel is.
+  await page.evaluate("document.querySelector('[data-clip-id]').scrollIntoView()");
+  await page.click(...(await centre("[data-clip-id]")));
+  await arrived(() => !!ui.copied.at(-1)?.includes(","));
+  expect(ui.copied.at(-1)!.split(", ").sort()).toEqual([screen.id, callout.id].sort());
+  await select([]);
+}, 15_000);
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

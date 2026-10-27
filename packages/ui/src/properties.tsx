@@ -10,6 +10,7 @@ import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, List
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
+import { copiedIds } from "./clip-ids";
 import { BrollTab } from "./broll";
 import { MotionTab } from "./motion";
 
@@ -124,7 +125,28 @@ function ClipProperties({
       {tab?.id === "effects" && clip.effects.map((e) => (
           <Effect key={e.id} clip={clip} effect={e} host={host} def={init?.effects.find((x) => x.id === e.type)} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
         ))}
+      <ClipId ids={selected.map((c) => c.id)} host={host} />
     </>
+  );
+}
+
+/** The clip's id at the foot of its properties, to name it to an agent: a click copies it (all of them, with several selected). */
+function ClipId({ ids, host }: { ids: string[]; host: Host }) {
+  const text = copiedIds(ids);
+  return (
+    <div className="mt-auto flex justify-center px-4 pt-6 pb-3">
+      <button
+        data-clip-id
+        title={ids.length > 1 ? "Copy these clips' ids, to name them to an agent" : "Copy this clip's id, to name it to an agent"}
+        className="max-w-full truncate rounded-md bg-control px-2 py-0.5 font-mono text-label text-text-faint hover:text-text-muted"
+        onClick={() => {
+          host.copyText(text);
+          replica.status(`Copied ${text}`);
+        }}
+      >
+        {ids.length > 1 ? `${ids[0]} + ${ids.length - 1} more` : ids[0]}
+      </button>
+    </div>
   );
 }
 

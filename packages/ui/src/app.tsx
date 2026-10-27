@@ -46,6 +46,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** Draws the selection and guides in the native preview: positions in canvas pixels, sizes in points; without it the overlay draws them itself. */
   canvasMarks?(marks: CanvasMark[]): void;
   clipMenu(clip: string, from?: "canvas"): void;
+  /** Text on the Mac's clipboard. */
+  copyText(text: string): void;
   /** The canvas's menu where no clip is under the pointer: Project Settings…, Paste, Zoom to Fit. */
   canvasMenu(): void;
   trackMenu(track: string | null): void;

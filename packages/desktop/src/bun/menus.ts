@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { ApplicationMenu, ContextMenu, Utils } from "electrobun/main";
 import { chordOf, keyOfCode, keysLabel, LABEL_COLORS, locateTrack, menuKey, MODIFIERS, walkClips, type Keys, type ShortcutInfo } from "@beacon/core";
-import { tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
+import { copiedIds, tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
 import { errorText, type App } from "./app";
 
 export interface MenusApp extends App {
@@ -259,6 +259,7 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       action("edit.cut"),
       action("edit.copy"),
+      own("Copy ID", "copyId"),
       SEPARATOR,
       action("edit.delete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
@@ -428,6 +429,12 @@ export function createMenus(app: MenusApp) {
     if (!current) return;
     tile = t;
     const adds = await applies(current.path, t.command, t.args);
+    if (op === "copyId")
+      void core.session(h).then((s) => {
+        const ids = copiedIds(s.selection, clip);
+        Utils.clipboardWriteText(ids);
+        status(`Copied ${ids}`);
+      });
     ContextMenu.showContextMenu(tileMenuItems(t).map(([label, choice]) => ({ label, action: `tile:${choice}`, enabled: choice !== "add" || adds })));
   }
 

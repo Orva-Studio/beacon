@@ -130,6 +130,7 @@ export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
+export { copiedIds } from "./clip-ids";
 // The timeline's geometry, for the UI harness's clicks.
 export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
 
@@ -356,6 +357,8 @@ export type AppRPC = {
       recordFrames: { params: { after: number }; response: RecordFrames };
       /** Show in Finder, or open in the default player. */
       showFile: { params: { path: string; open?: boolean }; response: void };
+      /** Puts text on the Mac's clipboard (a clip's id, for an agent). */
+      copyText: { params: { text: string }; response: void };
       /** What changed (the rest keep theirs); `snapshotFolder: null` goes back to the project's media folder. */
       setAppSettings: { params: SettingsPatch; response: void };
       /** Bytes every proxy video uses, in every project. */

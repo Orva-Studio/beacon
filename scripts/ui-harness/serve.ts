@@ -37,6 +37,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   const js = await built.outputs[0]!.text();
   const html = (await Bun.file(join(root, "packages/ui/src/index.html")).text()).replace("index.js", "view.js");
   const menus: string[] = [];
+  const copied: string[] = [];
   const bridges = new Map<unknown, ProjectBridge>();
   const appWatches = new Map<unknown, () => void>();
   const sockets = new Set<{ send(data: string): unknown }>();
@@ -131,6 +132,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           result = { ok: true };
         }
         else if (msg.type === "clipMenu") menus.push(p.clip);
+        else if (msg.type === "copyText") copied.push(p.text);
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
         else if (msg.type === "binMenu") menus.push(`asset:${p.asset}`);
@@ -253,6 +255,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     handle: h,
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,
+    /** What the UI put on the clipboard (Copy ID). */
+    copied,
     faults,
     /** Picks a choice ("add", "favorite", "unfavorite") from the tile menu shown last, as the app's native menu does. */
     chooseTile(choice: string) {

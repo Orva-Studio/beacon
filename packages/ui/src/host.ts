@@ -72,6 +72,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     testBeep: (output) => request("testBeep", output ? { output } : {}),
     cancelExport: (id) => void report(request("cancelExport", { id })),
     showFile: (path, open) => void request("showFile", { path, open }),
+    copyText: (text) => void request("copyText", { text }),
     setAppSettings: (s) => void request("setAppSettings", s),
     proxySpace: () => request("proxySpace", {}),
     deleteAllProxies: () => request("deleteAllProxies", {}),
