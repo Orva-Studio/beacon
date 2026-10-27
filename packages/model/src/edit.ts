@@ -41,7 +41,10 @@ export interface Placement {
 }
 
 export interface MovePlan {
+  /** Track indexes counted with the `below` new tracks put under the lowest one. */
   placements: Placement[];
+  /** New tracks a move past the lowest track adds under it, as one past the top adds them above. */
+  below: number;
   /** Why the move can't be dropped there, if it can't. */
   error?: string;
 }
@@ -60,24 +63,26 @@ export function planMove(tracks: Track[], rows: ReadonlyMap<string, number>, by:
   }
   const ids = new Set(rows.keys());
   const clip = (id: string) => tracks.flatMap((t) => t.clips).find((c) => c.id === id)!;
+  const below = Math.max(0, ...placements.map((p) => -p.track));
+  for (const p of placements) p.track += below;
   for (const p of placements) {
     const from = tracks.find((t) => t.clips.some((c) => c.id === p.clip))!;
-    if (from.locked) return { placements, error: `track "${trackName(from, tracks.indexOf(from))}" is locked` };
-    if (p.start < 0) return { placements, error: "it would start before the timeline" };
-    if (p.track < 0) return { placements, error: "there is no track below" };
-    const to = tracks[p.track];
+    if (from.locked) return { placements, below, error: `track "${trackName(from, tracks.indexOf(from))}" is locked` };
+    if (p.start < 0) return { placements, below, error: "it would start before the timeline" };
+    if (p.track < below) continue;
+    const to = tracks[p.track - below];
     if (!to) continue;
-    if (to.locked) return { placements, error: `track "${trackName(to, p.track)}" is locked` };
-    if (!to.magnetic && !isFree(to, p.start, p.start + clip(p.clip).duration, ids)) return { placements, error: `it would overlap media on "${trackName(to, p.track)}"` };
+    if (to.locked) return { placements, below, error: `track "${trackName(to, p.track - below)}" is locked` };
+    if (!to.magnetic && !isFree(to, p.start, p.start + clip(p.clip).duration, ids)) return { placements, below, error: `it would overlap media on "${trackName(to, p.track - below)}"` };
   }
   // Moved clips can also land on each other: a clip moved onto the track of a linked clip that only moves in time.
   for (const [i, p] of placements.entries()) {
-    if (tracks[p.track]?.magnetic) continue;
+    if (tracks[p.track - below]?.magnetic) continue;
     const end = p.start + clip(p.clip).duration;
     const hit = placements.slice(i + 1).find((q) => q.track === p.track && q.start < end && p.start < q.start + clip(q.clip).duration);
-    if (hit) return { placements, error: "the moved clips would overlap each other" };
+    if (hit) return { placements, below, error: "the moved clips would overlap each other" };
   }
-  return { placements };
+  return { placements, below };
 }
 
 /**

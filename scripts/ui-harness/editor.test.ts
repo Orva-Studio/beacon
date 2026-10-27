@@ -2304,6 +2304,29 @@ test.skipIf(skip)("a slider takes a press above or below its groove and past its
   await select([]);
 });
 
+test.skipIf(skip)("a clip dragged below the lowest track goes onto a new track there, its linked clips staying on theirs, one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await select([]);
+  await run("timeline.zoom", { to: "fit" });
+  await Bun.sleep(300);
+  const tracks = () => ui.core.doc(ui.handle).tracks;
+  const count = tracks().length;
+  const low = tracks()[0]!.clips[0]!;
+  const others = clips().filter((c) => c.linkId && c.linkId === low.linkId && c.id !== low.id).map((c) => [c.id, tracks().findIndex((t) => t.clips.some((k) => k.id === c.id))] as const);
+  const [x, y] = await timelineClipCentre(low.id);
+  const { h } = await timelinePlaces(low.id);
+  await page.drag([x, y], [x, y + h * 1.4]);
+  await arrived(() => tracks().length === count + 1);
+  expect(tracks().length).toBe(count + 1);
+  expect(tracks()[0]!.clips.map((c) => c.id)).toEqual([low.id]);
+  // Its linked clips kept their tracks, now one higher with the new one under them.
+  for (const [id, i] of others) expect(tracks()[i + 1]!.clips.some((c) => c.id === id)).toBe(true);
+  expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+  await ui.core.undo(ui.handle);
+  expect(tracks().length).toBe(count);
+  expect(tracks()[0]!.clips.some((c) => c.id === low.id)).toBe(true);
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

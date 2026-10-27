@@ -179,7 +179,7 @@ export const clipCommands = [
   defineCommand({
     id: "clip.move",
     description:
-      "Move clips in time (`start` for the first clip, or `by` seconds) and/or to other tracks (`track` for the first clip, or `tracks` up, negative down; past the top, tracks are added). The named clips move as a block; linked clips move by the same time but stay on their tracks. Refused if they would land on locked tracks or over other media, except on magnetic tracks, which make room. `ripple` (Shift-drag) also moves every later clip on their tracks",
+      "Move clips in time (`start` for the first clip, or `by` seconds) and/or to other tracks (`track` for the first clip, or `tracks` up, negative down; past the top or below the lowest, tracks are added there). The named clips move as a block; linked clips move by the same time but stay on their tracks. Refused if they would land on locked tracks or over other media, except on magnetic tracks, which make room. `ripple` (Shift-drag) also moves every later clip on their tracks",
     args: z
       .strictObject({
         clip: Id.optional(),
@@ -227,6 +227,7 @@ export const clipCommands = [
         came.set(c.id, from);
         from.clips.splice(from.clips.indexOf(c), 1);
       }
+      for (let i = 0; i < plan.below; i++) list.unshift({ id: ctx.newId("track"), name: "", clips: [] });
       for (const p of plan.placements) {
         while (list.length <= p.track) list.push({ id: ctx.newId("track"), name: "", clips: [] });
         const c = byId.get(p.clip)!;

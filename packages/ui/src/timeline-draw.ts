@@ -552,7 +552,8 @@ export function drawTimeline(t: TimelineDrawing) {
           if (rows === undefined) continue;
           const a = ticksToSeconds(clip.start) + d.by;
           const row = project.tracks.length - 1 - (ti + rows);
-          drawClip(clip, t, Math.max(0, row), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 }, d.by);
+          // Past the top or below the lowest track: on the new one there, dashed.
+          drawClip(clip, t, Math.min(Math.max(0, row), project.tracks.length), a, a + ticksToSeconds(clip.duration), 0.9, { bad: !!d.error, fresh: row < 0 || row >= project.tracks.length }, d.by);
         }
       });
     } else if (d?.kind === "trim" && d.extend) {
