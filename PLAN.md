@@ -2710,11 +2710,9 @@ Phase 11 so it can close with motion graphics.
 - **Edit Code: syntax highlighting** (the user, 2026-10-27): the code box
   coloured as HTML with its CSS and script, line numbers, matching brackets; ⌘F
   find. **Decided (the user, 2026-10-27):** CodeMirror 6, exact pinned versions.
-- **Edit Code's preview fully offline**: today a script that navigates its
-  page away is caught and the preview stopped, but that one request has left.
-  Show the preview in an Electrobun sandboxed webview with navigation rules
-  that allow nothing past its own page (needs the rules' syntax checked in the
-  app; the harness's Chromium can't test it).
+- ~~Edit Code's preview fully offline~~ (dropped by the user, 2026-10-27: Edit
+  Code needed only highlighting and line numbers; a script navigating its page
+  away is already caught and the preview stopped).
 - **A clip's id in the properties panel** (the user, 2026-10-27), to name clips
   to an agent over MCP: a small muted chip at the foot of every clip's
   properties ("clip-8a05d312"), a click copies it (with several selected, all
