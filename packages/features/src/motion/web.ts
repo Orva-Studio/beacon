@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { jobSignal } from "@beacon/media";
 
 const api = () => process.env.BEACON_FIRECRAWL_URL ?? "https://api.firecrawl.dev";
@@ -6,6 +8,59 @@ const MAX_IMAGE = 1_500_000;
 /** An SVG this small is shown to the author too, so it can restyle or animate its paths. */
 const SHOWN_SVG = 20_000;
 const ROUNDS = 8;
+const REDIRECTS = 5;
+
+/** IPv4 and IPv6 ranges that aren't the public internet: this Mac, the local network, link-local, multicast. */
+function privateAddress(ip: string): boolean {
+  const v4 = ip.startsWith("::ffff:") && isIP(ip.slice(7)) === 4 ? ip.slice(7) : ip;
+  if (isIP(v4) === 4) {
+    const [a, b] = v4.split(".").map(Number) as [number, number];
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19));
+  }
+  const v6 = ip.toLowerCase();
+  return v6 === "::" || v6 === "::1" || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith("ff");
+}
+
+/** The stand-ins tests run in place of the services, on this Mac: theirs are the only local addresses fetched. */
+const standIns = () =>
+  new Set(
+    [process.env.BEACON_FIRECRAWL_URL, process.env.BEACON_OPENAI_URL, process.env.BEACON_ANTHROPIC_URL].flatMap((u) => {
+      try {
+        return u ? [new URL(u).host] : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+/** Refused unless it's http(s) on the public internet: a model asked by a web page could name this Mac or the local network. */
+async function publicUrl(url: URL): Promise<void> {
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`not a web address: ${url.href}`);
+  if (standIns().has(url.host)) return;
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const addresses = isIP(host) ? [host] : (await lookup(host, { all: true })).map((a) => a.address);
+  if (!addresses.length || addresses.some(privateAddress)) throw new Error(`${url.hostname} isn't on the public internet`);
+}
+
+/** At most `max` bytes of a response, stopping the download as soon as it's over. */
+async function capped(res: Response, max: number): Promise<Buffer> {
+  if (Number(res.headers.get("content-length") ?? 0) > max) throw new Error(`the image is too big (over ${Math.round(max / 1000)} KB)`);
+  const reader = res.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      await reader.cancel();
+      throw new Error(`the image is too big (over ${Math.round(max / 1000)} KB)`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
 
 /** A tool the author may call while it writes, described as both OpenAI and Claude take it. */
 export interface Tool {
@@ -69,12 +124,29 @@ export class Web {
       mime = inline[1]!;
       bytes = inline[2] ? Buffer.from(inline[3]!, "base64") : Buffer.from(decodeURIComponent(inline[3]!));
     } else {
-      if (!/^https?:\/\//.test(url)) throw new Error(`not a web address: ${url}`);
-      const res = await fetch(url, { signal: AbortSignal.any([AbortSignal.timeout(30_000), ...(jobSignal() ? [jobSignal()!] : [])]) });
+      const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(jobSignal() ? [jobSignal()!] : [])]);
+      // Each redirect is checked as the first address is.
+      let at: URL;
+      try {
+        at = new URL(url);
+      } catch {
+        throw new Error(`not a web address: ${url}`);
+      }
+      let res: Response;
+      for (let hops = 0; ; hops++) {
+        await publicUrl(at);
+        res = await fetch(at, { signal, redirect: "manual" });
+        const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+        if (!next) break;
+        if (hops >= REDIRECTS) throw new Error("the image redirected too many times");
+        await res.body?.cancel();
+        at = new URL(next, at);
+      }
       if (!res.ok) throw new Error(`the image didn't download (${res.status})`);
-      bytes = Buffer.from(await res.arrayBuffer());
+      bytes = await capped(res, MAX_IMAGE);
       mime = (res.headers.get("content-type") ?? "").split(";")[0]!.trim();
-      if (!mime.startsWith("image/")) mime = /\.svg(\?|$)/i.test(url) || bytes.subarray(0, 300).toString().includes("<svg") ? "image/svg+xml" : mime;
+      // Served as something else, it's an SVG only if it reads as one: never text relabelled by its name.
+      if (!mime.startsWith("image/") && /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE svg[^>]*>\s*)?<svg[\s>]/i.test(bytes.subarray(0, 4096).toString())) mime = "image/svg+xml";
     }
     if (!/^image\/(svg\+xml|png|jpeg|webp|gif)$/.test(mime)) throw new Error(`not an image Beacon can use (${mime || "unknown type"})`);
     if (bytes.length > MAX_IMAGE) throw new Error(`the image is too big (${Math.round(bytes.length / 1000)} KB, up to 1500 KB)`);
@@ -128,7 +200,7 @@ export class Web {
 
   /** The page with each image it holds (a long data: URL) swapped for an asset id, to send it to the author without them. */
   keep(html: string): string {
-    return html.replace(/data:[a-z]+\/[a-z0-9.+-]+(;[a-z0-9=.+-]+)*,[^"')\s]{200,}/gi, (data) => {
+    return html.replace(/data:[a-z]+\/[a-z0-9.+-]+(;[a-z0-9=.+-]+)*,[^"'()<>\s]{200,}/gi, (data) => {
       const asset = `kept-${this.assets.size + 1}`;
       this.assets.set(asset, data);
       return `asset:${asset}`;

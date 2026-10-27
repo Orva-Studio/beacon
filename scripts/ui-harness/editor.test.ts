@@ -245,14 +245,22 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     // Save draws it as a new take, made by you.
     await page.until("(document.querySelector('[data-motion-revise]')?.textContent ?? '') === 'Revise · Needs OpenAI or Claude'");
     await page.until("document.querySelector('[data-motion-revise]').disabled");
+    // The timing change above draws it again 600 ms after (restyle's wait): let that run first, or Save is refused.
+    await Bun.sleep(700);
     await motionIdle();
     const takes = m().takes.length;
     await page.evaluate("document.querySelector('[data-motion-code]').click()");
     await page.until("!!document.querySelector('[data-motion-code-dialog]')");
     expect(await page.evaluate<string>("document.querySelector('[data-motion-code-text]').value")).toBe(m().takes[m().shown]!.html);
     await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('window.__seek')", 10_000);
+    // Code that navigates its page away stops the preview (the CSP can't forbid it): it says so, and comes back once fixed.
+    await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
+    await type('<script>location.href = "about:blank"</script>');
+    await page.until("!!document.querySelector('[data-motion-code-left]')", 10_000);
+    expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-code-preview]')")).toBe(true);
     await page.evaluate(`(() => { const t = document.querySelector('[data-motion-code-text]'); t.focus(); t.select(); })()`);
     await type("<div class=w data-t=0.1>Typed by hand</div>");
+    await page.until("!document.querySelector('[data-motion-code-left]')", 10_000);
     await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('Typed by hand')", 10_000);
     await page.evaluate("document.querySelector('[data-motion-code-save]').click()");
     await arrived(() => m().takes.length === takes + 1, 20_000);

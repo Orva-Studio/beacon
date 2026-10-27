@@ -109,9 +109,9 @@ const commands = [
   defineCommand({
     id: "motion.use",
     description:
-      "Show a drawing of a motion graphics clip's composition in it: `asset` (a drawing motion.make or motion.render made) with `html`, `prompt`, who wrote it (`by`: openai, claude, apple) and what it cost in dollars (`cost`) (a new take), or with `take` (that take drawn again); or `take` alone, an earlier take picked again. It plays from the clip's start at the size it was drawn, where the clip is",
-    args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1).optional(), take: z.int().nonnegative().optional(), html: z.string().optional(), prompt: z.string().optional(), cost: z.number().nonnegative().optional(), by: z.string().optional() }),
-    apply(doc, { clip, asset, take, html, prompt, cost, by }, ctx) {
+      "Show a drawing of a motion graphics clip's composition in it: `asset` (a drawing motion.make or motion.render made) with `html`, `prompt`, who wrote it (`by`: openai, claude, apple) and what it cost in dollars (`cost`) (a new take), or with `take` (that take drawn again); or `take` alone, an earlier take picked again. It plays from the clip's start at the size it was drawn, where the clip is; with `keep` (a drawing up to the clip's end in the composition's time) from where the clip's start was trimmed to",
+    args: z.strictObject({ clip: z.string().min(1), asset: z.string().min(1).optional(), take: z.int().nonnegative().optional(), html: z.string().optional(), prompt: z.string().optional(), cost: z.number().nonnegative().optional(), by: z.string().optional(), keep: z.boolean().default(false) }),
+    apply(doc, { clip, asset, take, html, prompt, cost, by, keep }, ctx) {
       const { clip: c, track } = findClip(doc, ctx.registry, clip);
       const m = motionOf(c);
       if (c.type !== "motion" || !m) throw new Error(`clip "${clip}" isn't a motion graphic`);
@@ -130,15 +130,25 @@ const commands = [
       const a = doc.assets[id] ?? fail(`no asset "${id}"`);
       const s = streamOf(a, "video", 0);
       // Drawn at the size it shows: no scale, so text stays sharp; a flip stays a flip.
-      const t = c.props.transform as { scaleX: number; scaleY: number } | undefined;
-      if (t) Object.assign(t, { scaleX: Math.sign(t.scaleX) || 1, scaleY: Math.sign(t.scaleY) || 1 });
+      const t = c.props.transform as { x: number; y: number; scaleX: number; scaleY: number; rotation?: number } | undefined;
+      // An uneven crop had the visible part off the clip's centre: the clip moves there, so the drawing shows where it did.
+      const crop = { left: 0, top: 0, right: 0, bottom: 0, ...(c.props.crop as Partial<Record<"left" | "top" | "right" | "bottom", number>> | undefined) };
+      const [dx, dy] = [((crop.left - crop.right) / 2) * (t?.scaleX ?? 1), ((crop.top - crop.bottom) / 2) * (t?.scaleY ?? 1)];
+      if (dx || dy) {
+        const moved = (c.props.transform ??= { ...ctx.registry.propGroups.get("transform")!.defaults() }) as NonNullable<typeof t>;
+        const [cos, sin] = [Math.cos(moved.rotation ?? 0), Math.sin(moved.rotation ?? 0)];
+        moved.x += cos * dx + sin * dy;
+        moved.y -= -sin * dx + cos * dy;
+      }
+      const shown = c.props.transform as typeof t;
+      if (shown) Object.assign(shown, { scaleX: Math.sign(shown.scaleX) || 1, scaleY: Math.sign(shown.scaleY) || 1 });
       delete c.props.crop;
       delete c.props.motionBox;
       c.props.media = { stream: 0 };
       c.assetId = id;
-      c.mediaStart = 0;
+      if (!keep) c.mediaStart = 0;
       delete c.speed;
-      c.duration = Math.min(c.duration, secondsToTicks(s.duration));
+      c.duration = Math.max(1, Math.min(c.duration, secondsToTicks(s.duration) - (c.mediaStart ?? 0)));
     },
   }),
   defineCommand({
@@ -220,12 +230,16 @@ const key = (env: { secret: (id: string) => Promise<string | undefined> }, plann
     : ((await env.secret(OPENAI)) ?? fail("no OpenAI API key: add one in Settings › AI, or choose another maker in Settings › AI"));
 
 /** What drawing a clip needs, read from it when the action starts: its box (as it shows now), length and Look. */
-function drawing(clip: Clip, ctx: Pick<ActionContext, "project" | "registry">) {
+/**
+ * How a clip's composition is drawn now. `keep`: a composition already made for it (drawn again, revised, edited)
+ * is drawn up to the clip's end in its own time, so a clip trimmed at its start keeps playing from where it was cut.
+ */
+function drawing(clip: Clip, ctx: Pick<ActionContext, "project" | "registry">, keep: boolean) {
   const m = motionOf(clip)!;
   const [, , w, h] = regionOfClip(clip, ctx.project, ctx.registry);
   // Even, as the encoder wants.
   const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
-  return { width: even(w), height: even(h), length: ticksToSeconds(clip.duration), look: lookOf(m.look), timing: m.timing, fallbackFont: textFont(ctx) };
+  return { width: even(w), height: even(h), length: ticksToSeconds((keep ? (clip.mediaStart ?? 0) : 0) + clip.duration), look: lookOf(m.look), timing: m.timing, fallbackFont: textFont(ctx), keep };
 }
 
 /** A composition drawn into the project's media/Motion graphics folder, its page kept beside it, as `asset.add` takes it. */
@@ -396,14 +410,14 @@ function shown(label: string, clips: string[], made: Drawn[]) {
       } catch {
         throw new Error("the motion graphics clip was deleted while it was made");
       }
-      const d = drawing(clip, now);
+      const d = drawing(clip, now, m.d.keep);
       if (page(m.html, d) !== page(m.html, m.d)) {
         again.push({ ...m, d });
         continue;
       }
       const added = steps.length;
       steps.push({ command: "asset.add", args: m.asset });
-      steps.push({ command: "motion.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added], ...("take" in m ? { take: m.take } : { html: m.html, prompt: m.name, cost: m.cost, by: m.by }) }) });
+      steps.push({ command: "motion.use", args: (r: unknown[]) => ({ clip: m.clip, asset: r[added], keep: m.d.keep, ...("take" in m ? { take: m.take } : { html: m.html, prompt: m.name, cost: m.cost, by: m.by }) }) });
     }
     const redrawn = again.map((m) => m.clip);
     const done = clips.filter((c) => !redrawn.includes(c));
@@ -486,7 +500,7 @@ const make = defineAction({
     const planner = String(ctx.pref(PLANNER));
     const reference = m.reference ? ctx.project.assets[m.reference]?.path : undefined;
     if (reference && planner === "apple") throw new Error("a reference image needs OpenAI or Claude to make it: choose one in Settings › AI, or remove the image");
-    const d = drawing(clip, ctx);
+    const d = drawing(clip, ctx, false);
     const skill = skillOf(m, ctx.pref);
     const ids = [clip.id];
     return {
@@ -535,7 +549,7 @@ const reviseAction = defineAction({
     const m = motionOf(clip)!;
     const brief = (m.source === "auto" ? m.prompt : m.manual).trim() || take.prompt;
     const said = saidUnder(clip, ctx);
-    const d = drawing(clip, ctx);
+    const d = drawing(clip, ctx, true);
     const skill = skillOf(m, ctx.pref);
     const ids = [clip.id];
     return {
@@ -570,7 +584,7 @@ const code = defineAction({
     notBusy(clip, ctx);
     const m = motionOf(clip)!;
     const brief = m.takes[m.shown]?.prompt ?? (m.source === "auto" ? m.prompt : m.manual).trim();
-    const d = drawing(clip, ctx);
+    const d = drawing(clip, ctx, true);
     const ids = [clip.id];
     const name = brief.startsWith("Edited: ") ? brief : brief ? `Edited: ${brief}` : "Edited";
     return {
@@ -601,7 +615,7 @@ const render = defineAction({
     if (clips.some((c) => busy.writing.includes(c.id) || busy.making.includes(c.id))) throw new Error("that clip is being written or made already");
     const jobs = clips.flatMap((c) => {
       const m = motionOf(c)!;
-      const job = { clip: c.id, take: m.shown, html: m.takes[m.shown]!.html, prompt: m.takes[m.shown]!.prompt, d: drawing(c, ctx) };
+      const job = { clip: c.id, take: m.shown, html: m.takes[m.shown]!.html, prompt: m.takes[m.shown]!.prompt, d: drawing(c, ctx, true) };
       // Drawn from this very page already (a Look or timing the composition doesn't use): nothing would change.
       const drawn = c.assetId ? ctx.project.assets[c.assetId]?.path.replace(/\.mov$/, ".html") : undefined;
       return drawn && existsSync(drawn) && readFileSync(drawn, "utf8") === page(job.html, job.d) ? [] : [job];
@@ -796,7 +810,7 @@ export const motion = defineFeature({
       run: ({ clip: id, html }, ctx) => {
         const { clip } = findClip(ctx.project, ctx.registry, id);
         const m = motionOf(clip) ?? fail(`clip "${id}" isn't a motion graphic`);
-        const d = drawing(clip, ctx);
+        const d = drawing(clip, ctx, true);
         const body = html ?? m.takes[m.shown]?.html ?? fail("make the motion graphic first");
         return { page: page(body, d), width: d.width, height: d.height, length: d.length };
       },

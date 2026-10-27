@@ -28,8 +28,9 @@ with the app open, below). The review's three branches were merged
 (v0.7.0-v0.10.0; v0.10.1 fixed ⌥-dragging a clip's start, 2026-10-22).
 Phase 11's first half shipped as v0.11.0 and v0.11.1 (2026-10-22: track
 keys, Clean with Auphonic, the Record dialog's permissions). Next (order set
-2026-10-22): **Phase 11's AI B-roll and animations** (on `feat/ai-broll`), 12 (device frames, and a spike on AI camera angles), 13 (security
-audit), 14 (Camtasia export) and 15 (Beacon learns how you edit).
+2026-10-22): **Phase 11's AI B-roll and animations** (on `feat/ai-broll`), 12 (Beacon learns how you edit, and Memory), 13 (device frames, and a spike
+on AI camera angles), 14 (security audit) and 15 (Camtasia export); order
+changed 2026-10-27, the user.
 Phase 5 was split into four parts, each with its own gate (§13). Format notes
 are in `docs/formats/`, versions in `docs/dependencies.md`. What exists is
 summarised in `ARCHITECTURE.md`.
@@ -2043,7 +2044,7 @@ Gone through item by item with the user: Add Color Label first; Cut, Copy,
 Delete, Unlink, Copy/Paste Properties kept; Ripple Cut, Ripple Delete, Add
 Animation Across Clip and Group/Stitch under More; Hide Properties, Select in
 Media Bin, Add Clip Speed and Split at Playhead removed. Clip Speed became a
-Visual Effects tile. **Done 2026-10-21.** Later (Phase 15): order menus by
+Visual Effects tile. **Done 2026-10-21.** Later (Phase 12): order menus by
 what the user actually uses, counted locally.
 
 #### Film Look: a look previewed on hover (the user, 2026-10-21; Phase 11 since 2026-10-22)
@@ -2677,6 +2678,14 @@ Phase 11 so it can close with motion graphics.
   one clicked (the anchor) to this one: from the earlier's start to the later's
   end, on the tracks from the anchor's to this one's, linked clips with them;
   ⌘-click stays the one-clip toggle. ⇧-drag still ripple-moves.
+- **Edit Code: syntax highlighting** (the user, 2026-10-27): the code box
+  coloured as HTML with its CSS and script (CodeMirror 6, pinned, or a small
+  highlighter over the textarea), line numbers, matching brackets; ⌘F find.
+- **Edit Code's preview fully offline**: today a script that navigates its
+  page away is caught and the preview stopped, but that one request has left.
+  Show the preview in an Electrobun sandboxed webview with navigation rules
+  that allow nothing past its own page (needs the rules' syntax checked in the
+  app; the harness's Chromium can't test it).
 - **A clip's id in the properties panel** (the user, 2026-10-27), to name clips
   to an agent over MCP: a small muted chip at the foot of every clip's
   properties ("clip-8a05d312"), a click copies it (with several selected, all
@@ -2685,129 +2694,7 @@ Phase 11 so it can close with motion graphics.
 **Gate:** each item has its UI-harness flow (or core test) and a
 `docs/tested.md` entry; the user checks them by hand.
 
-### Phase 12 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11)
-The user will bring a lot of information before any work starts: which
-devices, how each frame looks and where its screen sits, what it's for.
-Research and agree the design with them first; nothing is built before.
-- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
-  superimposed on a device (a phone, a laptop, a monitor), fitted into its
-  screen.
-
-#### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
-Not built in this phase until the spike says how: a new angle of the presenter
-(a close-up, a side profile, a wide) from one take, made with AI and placed as
-a cut to it, the take's own sound kept. The user's lead: **Seedance 2.5**.
-Spending limit: as Phase 11's (a Settings value), not a worry for now.
-
-**What is known (desk research, 2026-10-22).**
-- Seedance 2.5 re-angles an existing clip in its **editing** task:
-  `bytedance/seedance-2.5/reference-to-video` with `task: "editing"` on fal,
-  the take as `@Video1` (MP4/MOV, 1.8-30.2 s, up to 200 MB, 300-6,000 px a
-  side, 24-60 fps), an optional still for wardrobe and set; duration and
-  aspect follow the source ("auto"), 4-30 s out, the length kept to within
-  about 0.4 s. Prompts that work name the camera and lens and lock the rest:
-  "Medium close-up straight in front of him at seated eye level, 50mm feel,
-  locked", "a true 90-degree side profile at eye level", plus "camera
-  placement and lens are the only things you are allowed to change", "real-
-  time playback: no speed change, no retiming", no captions, text or logos.
-  ([fal guide](https://fal.ai/learn/tools/how-to-create-multi-angle-video-seedance-2-5),
-  [Kapwing](https://www.kapwing.com/resources/how-to-turn-one-clip-into-4-camera-angles-with-ai-seedance-2-5/),
-  [Morphic](https://morphic.com/resources/how-to/seedance-2-5-guide))
-- **Cost:** fal bills tokens (height × width × (input + output seconds) × 24
-  ÷ 1024, ×0.6 with a video input; $0.0214 per 1,000 at 480p/720p, about
-  $0.0234 at 1080p): a 20 s take was $5.18 at 480p, $9.24 at 720p, about
-  $27.40 at 1080p (≈$0.26/s, $0.46/s, $1.36/s). A 480p draft can be finished
-  at 1080p later from its `draft_id` (within seven days).
-- **Sync is not guaranteed:** "An edit cannot guarantee frame-by-frame
-  overlap with the source" (Morphic); Kapwing found speech and timing kept
-  but says to check the lips. So the take's own audio stays the master and
-  the generated picture is muted, checked for drift before it is placed.
-- **Weak points:** the farther the camera moves, the more AI invents (faces
-  drift, "inconsistent facial features"); exact text (a screen, a sign) is
-  for post, so screen recordings never go through it, only the camera; 8-10 s
-  pieces are the practical start.
-- **Replicate** has `bytedance/seedance-2.5` ("provide a reference video and
-  describe changes... preserves the original motion and camera work"), but its
-  page doesn't say whether it has the editing task, its field names or its
-  price ([Replicate](https://replicate.com/bytedance/seedance-2.5)). Phase 11
-  uses the user's Replicate token, so this decides the provider.
-- Earlier research (2026-10-15) still holds: no generation first (a punch-in
-  crop of the 4K source with a small ±5° depth-parallax move) costs nothing
-  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
-  model turning one frame then lip-sync (sync.so); no monocular 4D method
-  holds beyond 10-15° yet.
-
-**The spike (each answered with a real take, the user's go-ahead before any
-paid call, a few dollars at 480p):**
-1. Does Replicate's Seedance 2.5 do the editing task (one call with the
-   schema read from its API), or is fal needed (a second key)?
-2. On a 10 s camera take: a close-up, a side profile and a wide, at 480p:
-   lips against the original audio (offset by cross-correlation of mouth
-   movement, or by eye frame by frame), face and set drift, length kept.
-3. The same against the free punch-in crop: is a close-up worth generating?
-4. Longer takes: 8-10 s pieces cut at pauses (the transcript's), stitched;
-   do the seams show?
-5. Write the result into this plan as a spec in the B-roll review's shape
-   (pick a range, the angle and lens, a draft at 480p with its cost, then
-   1080p; applied as a cut on a camera track, one undo step), or park it.
-
-### Phase 13 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21)
-A review of what an attacker could reach, before Beacon is shared more widely,
-with each finding fixed or written down as an accepted risk in
-`docs/security.md`. What to look at:
-- **The automation socket.** Any local process that can open the unix socket
-  can drive the app (open, export, record the screen, camera and microphone).
-  Who may connect (file permissions, a per-launch token for MCP clients), and
-  whether recording over MCP needs the user's confirmation in the app.
-- **Untrusted files.** `.trec`, `.cmproj`, `.beproj` and media are parsed by
-  Beacon and its own FFmpeg: fuzz the `.trec` and project readers, keep
-  FFmpeg's demuxers and protocols to what Beacon needs (`file` only, as
-  today), and check paths read from projects (`..`, symlinks) never write
-  outside where they should (`checkOutput`).
-- **The webview.** What the window's RPC lets page script do (it runs
-  commands, opens files and dialogs); no remote content or inline HTML from
-  documents; the CSP.
-- **Secrets and uploads.** The OpenAI key stays in the Keychain and never in
-  logs, crash reports or project files; what is uploaded to OpenAI is only
-  the audio chunks, and the UI says so.
-- **Updates and the build.** In-app updates are signed and checked before
-  they run; the app is signed (hardened runtime) and notarized; pinned
-  dependencies with `bun run audit` (bun audit + cargo deny) in CI;
-  third-party binaries built from pinned, hashed sources.
-- **Permissions.** Screen recording, camera and microphone are asked for only
-  when used, and the recorder can't run without the window knowing.
-**Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
-and a fuzzing run of the file readers finds no crash.
-
-### Phase 14 — Camtasia export (the user, 2026-10-16)
-Handing a Beacon project to someone who keeps editing in Camtasia: File ›
-Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
-media beside it), one way and best effort, as import is (§11). Not for
-finished videos: MP4 and `.srt` export already covers those.
-- **The mappers, reversed.** Each feature's `CamtasiaMapper` gains an
-  export half for what it claims on import (clips, trims, speed, transform,
-  opacity, animation blocks, cursor effects, motion blur, the effects both
-  have); ticks map 1:1. What has no Camtasia equivalent (Beacon's captions
-  as drawn, Border, CRT...) is listed in an export report, as import lists
-  what it skips, never dropped silently. Core never names a feature: a
-  feature that can't export says so through the contract.
-- **The cursor.** Beacon's own recordings (`.brec`) have no cursor in the
-  screen video (Beacon draws it from the click log), and Camtasia draws one
-  only from `.trec` data. So a `.brec` screen is exported with Beacon's
-  cursor rendered into an MP4 (Camtasia's cursor effects can't apply); an
-  imported `.trec` goes as it is. Worth checking first whether Camtasia
-  accepts a `.trec` Beacon writes, which would keep its cursor editable.
-- **Versions.** Camtasia's format isn't documented and changes between
-  releases: write the version the user's projects use, check the result
-  opens in the Camtasia releases they have, and note findings in
-  `docs/formats/`.
-- Round trip as the test: a `.cmproj` imported then exported opens in
-  Camtasia looking the same, on copies (never the user's projects).
-**Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
-captions opens in Camtasia with its edit intact, and the report lists what
-didn't carry over.
-
-### Phase 15 — Beacon learns how you edit (the user, 2026-10-19)
+### Phase 12 — Beacon learns how you edit, and Memory (the user, 2026-10-19; was Phase 15, then 13, until 2026-10-27)
 The AI tools start from what the user tends to do, not fixed settings: if
 they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
@@ -2889,6 +2776,128 @@ across a few projects, the next review opens that way and says why; a
 Short and a long video each open with their own learned settings; one
 choice alone changes nothing; Settings shows and resets what was learned,
 per format.
+
+### Phase 13 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11, then Phase 12 until 2026-10-27)
+The user will bring a lot of information before any work starts: which
+devices, how each frame looks and where its screen sits, what it's for.
+Research and agree the design with them first; nothing is built before.
+- **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
+  superimposed on a device (a phone, a laptop, a monitor), fitted into its
+  screen.
+
+#### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
+Not built in this phase until the spike says how: a new angle of the presenter
+(a close-up, a side profile, a wide) from one take, made with AI and placed as
+a cut to it, the take's own sound kept. The user's lead: **Seedance 2.5**.
+Spending limit: as Phase 11's (a Settings value), not a worry for now.
+
+**What is known (desk research, 2026-10-22).**
+- Seedance 2.5 re-angles an existing clip in its **editing** task:
+  `bytedance/seedance-2.5/reference-to-video` with `task: "editing"` on fal,
+  the take as `@Video1` (MP4/MOV, 1.8-30.2 s, up to 200 MB, 300-6,000 px a
+  side, 24-60 fps), an optional still for wardrobe and set; duration and
+  aspect follow the source ("auto"), 4-30 s out, the length kept to within
+  about 0.4 s. Prompts that work name the camera and lens and lock the rest:
+  "Medium close-up straight in front of him at seated eye level, 50mm feel,
+  locked", "a true 90-degree side profile at eye level", plus "camera
+  placement and lens are the only things you are allowed to change", "real-
+  time playback: no speed change, no retiming", no captions, text or logos.
+  ([fal guide](https://fal.ai/learn/tools/how-to-create-multi-angle-video-seedance-2-5),
+  [Kapwing](https://www.kapwing.com/resources/how-to-turn-one-clip-into-4-camera-angles-with-ai-seedance-2-5/),
+  [Morphic](https://morphic.com/resources/how-to/seedance-2-5-guide))
+- **Cost:** fal bills tokens (height × width × (input + output seconds) × 24
+  ÷ 1024, ×0.6 with a video input; $0.0214 per 1,000 at 480p/720p, about
+  $0.0234 at 1080p): a 20 s take was $5.18 at 480p, $9.24 at 720p, about
+  $27.40 at 1080p (≈$0.26/s, $0.46/s, $1.36/s). A 480p draft can be finished
+  at 1080p later from its `draft_id` (within seven days).
+- **Sync is not guaranteed:** "An edit cannot guarantee frame-by-frame
+  overlap with the source" (Morphic); Kapwing found speech and timing kept
+  but says to check the lips. So the take's own audio stays the master and
+  the generated picture is muted, checked for drift before it is placed.
+- **Weak points:** the farther the camera moves, the more AI invents (faces
+  drift, "inconsistent facial features"); exact text (a screen, a sign) is
+  for post, so screen recordings never go through it, only the camera; 8-10 s
+  pieces are the practical start.
+- **Replicate** has `bytedance/seedance-2.5` ("provide a reference video and
+  describe changes... preserves the original motion and camera work"), but its
+  page doesn't say whether it has the editing task, its field names or its
+  price ([Replicate](https://replicate.com/bytedance/seedance-2.5)). Phase 11
+  uses the user's Replicate token, so this decides the provider.
+- Earlier research (2026-10-15) still holds: no generation first (a punch-in
+  crop of the 4K source with a small ±5° depth-parallax move) costs nothing
+  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
+  model turning one frame then lip-sync (sync.so); no monocular 4D method
+  holds beyond 10-15° yet.
+
+**The spike (each answered with a real take, the user's go-ahead before any
+paid call, a few dollars at 480p):**
+1. Does Replicate's Seedance 2.5 do the editing task (one call with the
+   schema read from its API), or is fal needed (a second key)?
+2. On a 10 s camera take: a close-up, a side profile and a wide, at 480p:
+   lips against the original audio (offset by cross-correlation of mouth
+   movement, or by eye frame by frame), face and set drift, length kept.
+3. The same against the free punch-in crop: is a close-up worth generating?
+4. Longer takes: 8-10 s pieces cut at pauses (the transcript's), stitched;
+   do the seams show?
+5. Write the result into this plan as a spec in the B-roll review's shape
+   (pick a range, the angle and lens, a draft at 480p with its cost, then
+   1080p; applied as a cut on a camera track, one undo step), or park it.
+
+### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
+A review of what an attacker could reach, before Beacon is shared more widely,
+with each finding fixed or written down as an accepted risk in
+`docs/security.md`. What to look at:
+- **The automation socket.** Any local process that can open the unix socket
+  can drive the app (open, export, record the screen, camera and microphone).
+  Who may connect (file permissions, a per-launch token for MCP clients), and
+  whether recording over MCP needs the user's confirmation in the app.
+- **Untrusted files.** `.trec`, `.cmproj`, `.beproj` and media are parsed by
+  Beacon and its own FFmpeg: fuzz the `.trec` and project readers, keep
+  FFmpeg's demuxers and protocols to what Beacon needs (`file` only, as
+  today), and check paths read from projects (`..`, symlinks) never write
+  outside where they should (`checkOutput`).
+- **The webview.** What the window's RPC lets page script do (it runs
+  commands, opens files and dialogs); no remote content or inline HTML from
+  documents; the CSP.
+- **Secrets and uploads.** The OpenAI key stays in the Keychain and never in
+  logs, crash reports or project files; what is uploaded to OpenAI is only
+  the audio chunks, and the UI says so.
+- **Updates and the build.** In-app updates are signed and checked before
+  they run; the app is signed (hardened runtime) and notarized; pinned
+  dependencies with `bun run audit` (bun audit + cargo deny) in CI;
+  third-party binaries built from pinned, hashed sources.
+- **Permissions.** Screen recording, camera and microphone are asked for only
+  when used, and the recorder can't run without the window knowing.
+**Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
+and a fuzzing run of the file readers finds no crash.
+
+### Phase 15 — Camtasia export (the user, 2026-10-16; was Phase 14 until 2026-10-27)
+Handing a Beacon project to someone who keeps editing in Camtasia: File ›
+Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
+media beside it), one way and best effort, as import is (§11). Not for
+finished videos: MP4 and `.srt` export already covers those.
+- **The mappers, reversed.** Each feature's `CamtasiaMapper` gains an
+  export half for what it claims on import (clips, trims, speed, transform,
+  opacity, animation blocks, cursor effects, motion blur, the effects both
+  have); ticks map 1:1. What has no Camtasia equivalent (Beacon's captions
+  as drawn, Border, CRT...) is listed in an export report, as import lists
+  what it skips, never dropped silently. Core never names a feature: a
+  feature that can't export says so through the contract.
+- **The cursor.** Beacon's own recordings (`.brec`) have no cursor in the
+  screen video (Beacon draws it from the click log), and Camtasia draws one
+  only from `.trec` data. So a `.brec` screen is exported with Beacon's
+  cursor rendered into an MP4 (Camtasia's cursor effects can't apply); an
+  imported `.trec` goes as it is. Worth checking first whether Camtasia
+  accepts a `.trec` Beacon writes, which would keep its cursor editable.
+- **Versions.** Camtasia's format isn't documented and changes between
+  releases: write the version the user's projects use, check the result
+  opens in the Camtasia releases they have, and note findings in
+  `docs/formats/`.
+- Round trip as the test: a `.cmproj` imported then exported opens in
+  Camtasia looking the same, on copies (never the user's projects).
+**Gate:** a Beacon project with a `.brec` take, a `.trec`, animations and
+captions opens in Camtasia with its edit intact, and the report lists what
+didn't carry over.
 
 **Gate (per feature):** the §6 checklist passes with no core changes.
 At every gate: review `docs/shared-candidates.md` and decide what moves to

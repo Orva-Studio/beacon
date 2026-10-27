@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MotionProps, MotionState } from "@beacon/features";
+import { regionOfClip, type MotionProps, type MotionState } from "@beacon/features";
+import { Web } from "@beacon/features/src/motion/web";
 import { secondsToTicks } from "@beacon/model";
 import { LocalCore } from "../src";
 
@@ -272,13 +273,20 @@ test("a clip resized and lengthened while it is made keeps what the AI wrote: dr
   let release!: () => void;
   hold = new Promise((r) => (release = r));
   const calls = asked.length;
-  await core.run(h, "motion.make", {});
+  const make = ((await core.run(h, "motion.make", {})).results.at(-1) as { job: string }).job;
   for (let i = 0; i < 300 && asked.length === calls; i++) await Bun.sleep(20);
   await core.run(h, "clip.set", { clip: id, props: { motionBox: { width: 640, height: 360 } } });
   await core.run(h, "clip.trim", { clip: id, end: 3 });
   release();
   hold = undefined;
-  await settled(core);
+  // Make's own job ends only once the drawing to fit is shown: one waiting on it (an agent) sees the take.
+  for (;;) {
+    const j = await core.job(make);
+    if (j.state === "failed") throw new Error(j.error);
+    if (j.state === "done") break;
+    await Bun.sleep(20);
+  }
+  expect((clip().props.motion as MotionProps).takes).toHaveLength(1);
   const state = (await core.session(h)).features.motion as MotionState;
   expect(state.errors[id]).toBeUndefined();
   expect(state.making).not.toContain(id);
@@ -294,8 +302,27 @@ test("a clip resized and lengthened while it is made keeps what the AI wrote: dr
   expect(clip().assetId).toBe(m.takes[0]!.assetId!);
   // Only the drawing to fit is in the Media Bin: the one made at the old size never was.
   expect(Object.values(core.doc(h).assets).filter((a) => a.path.endsWith(".mov"))).toHaveLength(1);
+
+  // Cropped unevenly, then drawn again: the drawing is the visible part's size, where the visible part was.
+  await core.run(h, "clip.set", { clip: id, props: { crop: { left: 100, top: 0, right: 0, bottom: 40 } } });
+  const region = regionOfClip(clip(), core.doc(h), core.registry);
+  await core.run(h, "motion.render", { clips: [id] });
+  await settled(core);
+  expect(clip().props.crop).toBeUndefined();
+  const after = regionOfClip(clip(), core.doc(h), core.registry);
+  for (const i of [0, 1, 2, 3]) expect(after[i]!).toBeCloseTo(region[i]!, 0);
+  // Trimmed at its start, then drawn again: it plays on from where it was cut, not from the composition's start.
+  await core.run(h, "clip.trim", { clip: id, start: 1 });
+  expect(clip().mediaStart).toBe(secondsToTicks(1));
+  await core.run(h, "motion.style", { clips: [id], look: "tech" });
+  await core.run(h, "motion.render", { clips: [id] });
+  await settled(core);
+  expect(clip().mediaStart).toBe(secondsToTicks(1));
+  expect(clip().duration).toBe(secondsToTicks(2));
+  const redrawn = core.doc(h).assets[clip().assetId!]!;
+  expect((redrawn.derived.media as { streams: { kind: string; duration: number }[] }).streams.find((s) => s.kind === "video")!.duration).toBeCloseTo(3, 1);
   await core.close(h);
-});
+}, 60_000);
 
 test("a reference image: copied into the project's media, sent to OpenAI with the brief to recreate and animate; Apple's model is refused; removed in one step", async () => {
   const secrets = new Map<string, string>([["openai-api-key", "openai-key"]]);
@@ -457,3 +484,50 @@ test("a skill of the user's: read from its SKILL.md, kept for every project, pic
   expect((later.doc(h2).tracks.flatMap((t) => t.clips).find((c) => c.id === second)!.props.motion as MotionProps).skill).toBeUndefined();
   await later.close(h2);
 }, 60_000);
+
+test("the author's downloads stay on the public internet and small: this Mac and the local network refused, redirects checked, a big image stopped as it streams, text never taken for an SVG; images kept out of a revision leave its markup alone", async () => {
+  let streamed = 0;
+  const local: Bun.Server<undefined> = Bun.serve({
+    port: 0,
+    fetch(req): Response {
+      const path = new URL(req.url).pathname;
+      if (path === "/secret.svg") return new Response("token=abc", { headers: { "Content-Type": "text/plain" } });
+      if (path === "/away") return new Response(null, { status: 302, headers: { location: "http://10.0.0.1/x.png" } });
+      if (path === "/huge.png")
+        return new Response(
+          new ReadableStream({
+            pull(c) {
+              streamed += 100_000;
+              c.enqueue(new Uint8Array(100_000));
+              if (streamed > 20_000_000) c.close();
+            },
+          }),
+          { headers: { "Content-Type": "image/png" } },
+        );
+      return new Response("", { status: 404 });
+    },
+  });
+  const web = new Web(undefined);
+  try {
+    // Not a stand-in's host: refused, by name and by address.
+    for (const url of ["http://127.0.0.1:9/a.png", "http://localhost/a.png", "http://192.168.1.4/a.png", "http://[::1]/a.png", "http://169.254.169.254/latest", "file:///etc/passwd"]) {
+      expect(await web.run("image", { url })).toMatch(/^error: .*(isn't on the public internet|not a web address)/);
+    }
+    // A stand-in's own host (tests only) is fetched, but its redirect to the local network isn't followed.
+    process.env.BEACON_FIRECRAWL_URL = local.url.origin;
+    expect(await web.run("image", { url: `${local.url.origin}/away` })).toMatch(/^error: 10\.0\.0\.1 isn't on the public internet/);
+    // Text served under an .svg name isn't relabelled as an SVG (and never shown to the author).
+    expect(await web.run("image", { url: `${local.url.origin}/secret.svg` })).toMatch(/^error: not an image Beacon can use \(text\/plain\)/);
+    // A 20 MB image is stopped soon after 1.5 MB, not read to its end.
+    expect(await web.run("image", { url: `${local.url.origin}/huge.png` })).toMatch(/^error: the image is too big/);
+    expect(streamed).toBeLessThan(5_000_000);
+  } finally {
+    delete process.env.BEACON_FIRECRAWL_URL;
+    local.stop(true);
+  }
+  // An unquoted data: URL is swapped for its id, and the markup after it is left as it was.
+  const html = `<img src=data:image/png;base64,${"A".repeat(300)}><p>Hello</p>`;
+  const kept = web.keep(html);
+  expect(kept).toMatch(/^<img src=asset:kept-\d+><p>Hello<\/p>$/);
+  expect(web.resolve(kept)).toBe(html);
+});

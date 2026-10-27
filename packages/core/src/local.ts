@@ -507,7 +507,8 @@ export class LocalCore implements BeaconCore {
       if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
       const plan = finish(this.#actionContext(p));
       const r = this.#applyPlan(p, plan, plan.label);
-      if (plan.task) this.#startTask(p, plan.task);
+      // The task it starts is this job's to finish: one waiting on this job waits for it, and hears if it fails.
+      if (plan.task) await this.#startTask(p, plan.task).done;
       return { label: plan.label, results: r.results };
     });
     if (task.failed) {

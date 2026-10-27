@@ -382,14 +382,14 @@ export const clipCommands = [
       const groups = new Set(ctx.registry.groupsFor("still").map((g) => g.id));
       const held = edge === "start" ? (c.mediaStart ?? 0) : mediaTimeAt(c, clipEnd(c) - frame);
       // A stitched clip's frame is its piece's there (its time on the clip's inner track), in the stitched clip's look.
-      const piece = stitched ? ctx.registry.nestedTracks(c).flatMap((t) => t.clips).find((p) => p.assetId && ctx.registry.hasTrait(p.type, "video") && p.start <= held && held < clipEnd(p)) : c;
+      const piece = stitched ? ctx.registry.nestedTracks(c).flatMap((t) => t.clips).find((p) => p.assetId && (p.type === "still" || ctx.registry.hasTrait(p.type, "video")) && p.start <= held && held < clipEnd(p)) : c;
       if (!piece) throw new Error(`clip "${clip}" has no picture at its ${edge}`);
       const frameAt = piece === c ? held : piece.type === "still" ? (piece.mediaStart ?? 0) : mediaTimeAt(piece, held);
       // The frame as it shows there, animations and all (a zoom in), since the still has none of its own.
       const animated = new Set(c.animations.flatMap((a) => Object.keys(a.to).map((target) => target.split(".")[0]!)));
       const shown = resolveProps(ctx.registry, c, held);
-      // Which of its recording's streams the piece shows is the piece's, not the stitched clip's.
-      const identity = piece === c ? {} : Object.fromEntries(Object.entries(piece.props).filter(([k]) => groups.has(k) && ctx.registry.propGroups.get(k)?.identity));
+      // What the piece carries itself (which stream, its cursor) is the piece's; the stitched clip's look goes over it.
+      const own = piece === c ? {} : Object.fromEntries(Object.entries(resolveProps(ctx.registry, piece, frameAt)).filter(([k]) => groups.has(k) && k in piece.props));
       const still: Clip = {
         id,
         type: "still",
@@ -397,8 +397,8 @@ export const clipCommands = [
         duration: d,
         mediaStart: frameAt,
         assetId: piece.assetId,
-        props: clone({ ...identity, ...Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k)))) }),
-        effects: c.effects.filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
+        props: clone({ ...own, ...Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k)))) }),
+        effects: [...(piece === c ? [] : piece.effects), ...c.effects].filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };
       track.clips.splice(track.clips.indexOf(c) + (edge === "start" ? 0 : 1), 0, still);

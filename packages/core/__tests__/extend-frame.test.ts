@@ -115,3 +115,26 @@ test.skipIf(!existsSync(RECORDING))("a stitched clip's frame held after it, and 
   expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
   await core.close(h);
 }, 120_000);
+
+test.skipIf(!existsSync(RECORDING))("a stitched clip ending in a held frame holds that frame again; the piece's own cursor (hidden) comes with it", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const h = await core.create({ path: join(dir, "stitched-still.beproj") });
+  const r = await core.import(h, [RECORDING], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const all = () => core.doc(h).tracks.flatMap((t) => t.clips);
+  const screen = all().find((c) => c.type === "screen")!;
+  await core.run(h, "clip.unlink", { clips: [screen.id] });
+  for (const c of all()) if (c.id !== screen.id) await core.run(h, "clip.remove", { clip: c.id }).catch(() => {});
+  await core.run(h, "clip.trim", { clip: screen.id, end: 3 });
+  const [later] = (await core.run(h, "clip.split", { at: 1.5, clips: [screen.id], linked: false })).results[0] as string[];
+  await core.run(h, "clip.set", { clip: later!, props: { cursor: { scale: 1, opacity: 0, smoothing: 1, smoothAcrossEdits: 0 } } });
+  const held = (await core.run(h, "clip.extendFrame", { clip: later!, duration: 1 })).results[0] as string;
+  expect((all().find((c) => c.id === held)!.props.cursor as { opacity: number }).opacity).toBe(0);
+  const heldAt = all().find((c) => c.id === held)!.mediaStart;
+  const stitched = (await core.run(h, "clip.stitch", { clips: [screen.id, later!, held] })).results[0] as string;
+  const again = (await core.run(h, "clip.extendFrame", { clip: stitched, duration: 1 })).results[0] as string;
+  const still = all().find((c) => c.id === again)!;
+  expect(still).toMatchObject({ type: "still", assetId: screen.assetId, mediaStart: heldAt });
+  expect((still.props.cursor as { opacity: number }).opacity).toBe(0);
+  await core.close(h);
+}, 60_000);

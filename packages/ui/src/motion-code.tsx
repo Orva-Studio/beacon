@@ -4,7 +4,7 @@ import { useQuery } from "./query";
 import type { Host } from "./app";
 
 /** The preview is a sandboxed frame: script runs, but it can't reach Beacon (another origin), so the time is posted to it. */
-const SEEKER = `<script>addEventListener("message", (e) => { if (typeof e.data?.t === "number" && window.__seek) window.__seek(e.data.t); });</script>`;
+const SEEKER = `<script>addEventListener("message", (e) => { if (typeof e.data?.t === "number" && window.__seek) window.__seek(e.data.t); }); parent.postMessage("beacon-page", "*");</script>`;
 const PREVIEW_WIDTH = 560;
 const FPS = 30;
 
@@ -21,6 +21,22 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
   }, [text]);
   const built = useQuery<{ page: string; width: number; height: number; length: number }>(host, "motion.page", { clip, html: shown });
   const frame = useRef<HTMLIFrameElement>(null);
+  // The page says when it's there; a load that doesn't is its script navigating away (the CSP can't forbid that), so it's taken down.
+  const loads = useRef(0);
+  const pages = useRef(0);
+  const [left, setLeft] = useState(false);
+  useEffect(() => {
+    loads.current = 0;
+    pages.current = 0;
+    setLeft(false);
+  }, [built?.page]);
+  useEffect(() => {
+    const heard = (e: MessageEvent) => {
+      if (e.source === frame.current?.contentWindow && e.data === "beacon-page") pages.current++;
+    };
+    addEventListener("message", heard);
+    return () => removeEventListener("message", heard);
+  }, []);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const seek = (t: number) => frame.current?.contentWindow?.postMessage({ t }, "*");
@@ -69,14 +85,24 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
         />
         <div className="flex shrink-0 flex-col gap-2" style={{ width: PREVIEW_WIDTH }}>
           <div className="flex h-[420px] items-center justify-center overflow-hidden rounded-lg bg-[repeating-conic-gradient(#3a3a3a_0_25%,#2e2e2e_0_50%)] bg-[length:16px_16px]">
-            {built && (
+            {left && (
+              <div className="max-w-[420px] p-4 text-center text-label text-danger" data-motion-code-left>
+                The code tried to open another page, so the preview stopped. Graphics stay offline: remove whatever sets location or opens a link.
+              </div>
+            )}
+            {built && !left && (
               <div style={{ width: built.width * scale, height: built.height * scale }}>
                 <iframe
                   ref={frame}
                   title="Preview"
                   sandbox="allow-scripts"
                   srcDoc={built.page.replace(/<\/body>/, `${SEEKER}</body>`)}
-                  onLoad={() => seek(time)}
+                  onLoad={() => {
+                    const n = ++loads.current;
+                    seek(time);
+                    // Its message can arrive just after the load event.
+                    setTimeout(() => n === loads.current && pages.current < n && setLeft(true), 500);
+                  }}
                   style={{ width: built.width, height: built.height, transform: `scale(${scale})`, transformOrigin: "0 0", border: 0, background: "transparent" }}
                   data-motion-code-preview
                 />
