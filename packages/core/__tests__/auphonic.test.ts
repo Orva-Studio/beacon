@@ -20,6 +20,21 @@ const uploadedNames: string[] = [];
 const downloaded: string[] = [];
 let stalled = false;
 let polls = 0;
+/** What Auphonic makes of the upload for a preset, made as the production is: a real download serves a file ready. */
+async function produce(production: string) {
+  const cut = production === "prod-p-cut" ? ["-ss", "1"] : [];
+  let source = join(dir, "uploaded.wav");
+  if (production === "prod-p-snip") {
+    // 0.3 s from 100 s out, by the samples (Beacon's FFmpeg has no filter for it).
+    const raw = Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-i", source, "-ac", "1", "-ar", "48000", "-f", "s16le", "-"]).stdout;
+    const pcm = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
+    await Bun.write(join(dir, "snip.pcm"), new Int16Array([...pcm.subarray(0, 100 * 48000), ...pcm.subarray(100.3 * 48000)]));
+    Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", "48000", "-ac", "1", "-i", join(dir, "snip.pcm"), join(dir, "snip.wav")]);
+    source = join(dir, "snip.wav");
+  }
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", source, ...cut, "-af", "adelay=46:all=1,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", join(dir, `${production}.m4a`)]);
+}
+
 const server = Bun.serve({
   port: 0,
   async fetch(req) {
@@ -35,6 +50,7 @@ const server = Bun.serve({
       uploadedNames.push(sent.name);
       await Bun.write(join(dir, "uploaded.m4a"), sent);
       Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", join(dir, "uploaded.m4a"), join(dir, "uploaded.wav")]);
+      await produce(`prod-${preset}`);
       uploads.push({ preset, key });
       return Response.json({ data: { uuid: `prod-${preset}` } });
     }
@@ -44,24 +60,13 @@ const server = Bun.serve({
     // As a real preset can: several formats, WAV listed first; Beacon takes the M4A.
     if (m) return Response.json({ data: { output_files: ["wav", "mp3", "m4a"].map((ext) => ({ format: ext, filename: `out.${ext}`, download_url: `${url.origin}/download/${m[1]}.${ext}` })) } });
     const got = url.pathname.match(/^\/download\/(prod-p-(?:echo|cut|snip))\.(\w+)$/);
-    // The first download never answers, as a dropped connection didn't for the user: it's tried again.
+    // The first download starts, then nothing more arrives, as a dropped connection didn't for the user: it's tried again.
     if (got && !stalled) {
       stalled = true;
-      return new Promise<Response>(() => {});
+      return new Response(new ReadableStream({ start: (c) => c.enqueue(new Uint8Array(1024)) }), { headers: { "content-type": "audio/mp4" } });
     }
     if (got) {
       const out = join(dir, `${got[1]}.${got[2]}`);
-      const cut = got[1] === "prod-p-cut" ? ["-ss", "1"] : [];
-      let source = join(dir, "uploaded.wav");
-      if (got[1] === "prod-p-snip") {
-        // 0.3 s from 100 s out, by the samples (Beacon's FFmpeg has no filter for it).
-        const raw = Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-i", source, "-ac", "1", "-ar", "48000", "-f", "s16le", "-"]).stdout;
-        const pcm = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
-        await Bun.write(join(dir, "snip.pcm"), new Int16Array([...pcm.subarray(0, 100 * 48000), ...pcm.subarray(100.3 * 48000)]));
-        Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", "48000", "-ac", "1", "-i", join(dir, "snip.pcm"), join(dir, "snip.wav")]);
-        source = join(dir, "snip.wav");
-      }
-      Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", source, ...cut, "-af", "adelay=46:all=1,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", out]);
       downloaded.push(got[2]!);
       return new Response(Bun.file(out));
     }
@@ -113,7 +118,7 @@ test.skipIf(!existsSync(RECORDING))("Clean with Auphonic: the selected audio as 
   const probe = Bun.spawnSync([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0", cleaned.path]).stdout.toString().trim();
   expect(probe).toBe("48000");
   expect(downloaded.at(-1)).toBe("m4a");
-  // It got there though the first download hung.
+  // It got there though the first download stopped part way.
   expect(stalled).toBe(true);
   const placed = doc.tracks.flatMap((t) => t.clips).filter((c) => c.assetId === cleaned.id);
   expect(placed).toHaveLength(1);

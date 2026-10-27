@@ -14,3 +14,4 @@ export * from "./dropped";
 export * from "./text";
 export * from "./sync";
 export * from "./html";
+export * from "./net";

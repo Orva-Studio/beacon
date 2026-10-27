@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
-import { jobSignal, runTool, runWorker, tool } from "@beacon/media";
+import { jobSignal, runTool, runWorker, saveBody, tool, until, watchdog } from "@beacon/media";
 import { clipEnd, defineAction, heardAudio, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Project, type Session, type SessionCommandDef } from "@beacon/model";
 
 const KEY = "auphonic-api-key";
@@ -10,7 +10,7 @@ const KEY = "auphonic-api-key";
 const api = () => process.env.BEACON_AUPHONIC_URL ?? "https://auphonic.com/api";
 /** How often a production's status is asked for, as tuneup does. */
 const POLL_MS = () => Number(process.env.BEACON_AUPHONIC_POLL_MS ?? 15_000);
-/** How long a request may go unanswered; an upload or download five times that. */
+/** How long a request may go with nothing arriving; an upload, which shows no progress, five times that. */
 const TIMEOUT_MS = () => Number(process.env.BEACON_AUPHONIC_TIMEOUT_MS ?? 60_000);
 const DONE = 3;
 const FAILED = 2;
@@ -71,28 +71,37 @@ export interface AuphonicPreset {
 }
 
 /**
- * A request to Auphonic on a connection of its own, given up after `ms`, a read tried once more. Bun kept a polling
- * connection for reuse and, once Auphonic's server had dropped it, waited on it for good (a download "took" 12 min).
+ * A request to Auphonic on a connection of its own, given up after `ms` with nothing arriving (on the wall clock, and
+ * even when fetch ignores its signal), a read tried once more; `read` takes the answer under the same watch. Bun kept a
+ * polling connection for reuse and, once Auphonic's server had dropped it, waited on it for good (a download "took"
+ * 12 min); on 2026-10-27 a download hung with no connection at all, past its timeout signal.
  */
-async function request(url: string, init: RequestInit, ms: number, what: string): Promise<Response> {
-  const read = !init.method || init.method === "GET";
+async function request<T>(url: string, init: RequestInit, ms: number, what: string, read: (r: Response, signal: AbortSignal, dog: { alive: () => void }) => Promise<T>): Promise<T> {
+  const once = !init.method || init.method === "GET" ? 2 : 1;
   for (let attempt = 1; ; attempt++) {
     const job = jobSignal();
+    const dog = watchdog(ms);
+    const signal = AbortSignal.any([dog.signal, ...(job ? [job] : [])]);
     try {
-      return await fetch(url, { ...init, keepalive: false, signal: AbortSignal.any([AbortSignal.timeout(ms), ...(job ? [job] : [])]) });
+      const r = await until(fetch(url, { ...init, keepalive: false, signal }), signal);
+      dog.alive();
+      return await until(read(r, signal, dog), signal);
     } catch (e) {
       job?.throwIfAborted();
       if ((e as Error).name !== "TimeoutError") throw e;
-      if (!read || attempt === 2) throw new Error(`Auphonic didn't answer within ${Math.round(ms / 1000)} s (${what}): try again`);
+      if (attempt === once) throw new Error(`Auphonic didn't answer within ${Math.round(ms / 1000)} s (${what}): try again`);
+    } finally {
+      dog.stop();
     }
   }
 }
 
 async function call<T>(key: string, path: string, init: RequestInit = {}, ms = TIMEOUT_MS()): Promise<T> {
-  const r = await request(`${api()}${path}`, { ...init, headers: { Authorization: `Bearer ${key}`, ...init.headers } }, ms, path.replace(/\?.*/, ""));
-  if (r.status === 401 || r.status === 403) throw new Error("Auphonic refused the API key: check it in Settings › AI");
-  if (!r.ok) throw new Error(`Auphonic: ${path} failed (${r.status}) ${(await r.text()).slice(0, 300)}`);
-  return (await r.json()) as T;
+  return request(`${api()}${path}`, { ...init, headers: { Authorization: `Bearer ${key}`, ...init.headers } }, ms, path.replace(/\?.*/, ""), async (r) => {
+    if (r.status === 401 || r.status === 403) throw new Error("Auphonic refused the API key: check it in Settings › AI");
+    if (!r.ok) throw new Error(`Auphonic: ${path} failed (${r.status}) ${(await r.text()).slice(0, 300)}`);
+    return (await r.json()) as T;
+  });
 }
 
 /** The audio files a preset can make, in the order taken: M4A, then MP3 (the user's, 2026-10-22), then the rest. */
@@ -239,10 +248,11 @@ const audioClean = defineAction({
             if (!file) throw new Error(`the preset "${chosen.preset_name}" makes no audio file (WAV, FLAC, M4A or MP3): add one as an output format in Auphonic`);
             say(4, 0.85, "Downloading");
             // Its link redirects to Auphonic's storage, which Bun asks without the key.
-            const got = await request(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow" }, TIMEOUT_MS() * 5, "the download");
-            if (!got.ok) throw new Error(`Auphonic's file couldn't be downloaded (${got.status})`);
             const back = join(tmp, `back${extname(file.filename!).toLowerCase()}`);
-            await Bun.write(back, got);
+            await request(file.download_url!, { headers: { Authorization: `Bearer ${key}` }, redirect: "follow" }, TIMEOUT_MS(), "the download", async (got, signal, dog) => {
+              if (!got.ok) throw new Error(`Auphonic's file couldn't be downloaded (${got.status})`);
+              await saveBody(got, back, signal, dog);
+            });
             say(5, 0.95, "Lining it up");
             // Taken by creating it: two cleans of the same audio at once would otherwise both pick the same name.
             const free = (suffix: string, ext: string) => {

@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { jobSignal } from "@beacon/media";
+import { jobSignal, saveBody, until, watchdog } from "@beacon/media";
 import type { VideoModel } from "./models";
 
 /** Replicate's API; a test points it at a stand-in. */
@@ -9,27 +9,6 @@ const POLL_MS = () => Number(process.env.BEACON_REPLICATE_POLL_MS ?? 3000);
 const STALL_MS = () => Number(process.env.BEACON_REPLICATE_STALL_MS ?? 60_000);
 /** Generations take a minute or several; past this one is given up (and cancelled on Replicate, so it stops charging). */
 const GIVE_UP_MS = 20 * 60_000;
-
-/**
- * A signal that fires when `ms` pass without `alive()`, on the wall clock: the Mac's sleep counts (timers alone measure
- * time awake), so a connection the sleep left dead is given up soon after it wakes.
- */
-function watchdog(ms: number) {
-  const c = new AbortController();
-  let last = Date.now();
-  const timer = setInterval(() => Date.now() - last > ms && c.abort(new DOMException("no answer", "TimeoutError")), 1000);
-  return { signal: c.signal, alive: () => void (last = Date.now()), stop: () => clearInterval(timer) };
-}
-
-/** `p`, or `signal`'s reason as soon as it fires: after a sleep, a request can hang without heeding its signal. */
-function until<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
-  return new Promise((resolve, reject) => {
-    const stop = () => reject(signal.reason);
-    signal.addEventListener("abort", stop, { once: true });
-    p.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
-  });
-}
 
 /** `cancellable`: false lets a request the job no longer wants finish anyway (a prediction's creation, to cancel it by its id). */
 async function call<T>(token: string, url: string, init: RequestInit = {}, cancellable = true): Promise<T> {
@@ -176,21 +155,7 @@ export async function generate(token: string, m: VideoModel, input: Record<strin
     // Replicate keeps a prediction's files for about an hour.
     if (got.status === 404 || got.status === 410) throw new Error("Replicate no longer has the footage (it keeps it about an hour): Make Again");
     if (!got.ok || !got.body) throw new Error(`the footage couldn't be downloaded (${got.status})`);
-    const reader = got.body.getReader();
-    const sink = Bun.file(out).writer();
-    try {
-      for (;;) {
-        const { done, value } = await until(reader.read(), signal);
-        if (done) break;
-        dog.alive();
-        sink.write(value);
-      }
-    } catch (e) {
-      reader.cancel().catch(() => {});
-      throw e;
-    } finally {
-      await sink.end();
-    }
+    await saveBody(got, out, signal, dog);
   } catch (e) {
     rmSync(out, { force: true });
     job?.throwIfAborted();
