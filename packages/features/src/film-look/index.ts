@@ -1,9 +1,15 @@
-import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
-import { defineCommand, defineFeature, defineQuery, eachRawClip, KeptLooksSchema, ticksToSeconds, walkClips, type EffectPreset, type KeptLook, type Preferences } from "@beacon/model";
+import { defineAction, defineCommand, defineFeature, defineQuery, eachRawClip, KeptLooksSchema, ticksToSeconds, walkClips, type EffectPreset, type KeptLook, type Preferences } from "@beacon/model";
 import wgsl from "./film-look.wgsl" with { type: "text" };
 import LOOKS from "./looks.json";
 import { fromHlook, KELVIN_PER_WARMTH, splitToneShifts, WARMTH_RANGE, type FilmLookParams } from "./hlook";
+import { tuneLook, type TuneSlider } from "./tune";
+
+/** The user's OpenAI key, as B-roll and motion graphics use it. */
+const OPENAI = "openai-api-key";
 
 export { fromHlook, type FilmLookParams } from "./hlook";
 
@@ -25,6 +31,12 @@ const params = z.strictObject({
   shadowHue: z.number().min(0).max(360).meta({ hue: true }).describe("The shadows' tint, in degrees (30 orange, 210 teal)"),
   highlightHue: z.number().min(0).max(360).meta({ hue: true }).describe("The highlights' tint, in degrees"),
   highlightStrength: z.number().min(0).max(1).meta({ percent: true }).describe("How strongly the highlights are tinted, against the shadows"),
+});
+
+/** Each slider Auto Tune may set, with its range and meaning, read from the params' schema. */
+const SLIDERS: TuneSlider[] = Object.entries(params.shape).map(([key, f]) => {
+  const n = f as z.ZodNumber;
+  return { key, min: n.minValue ?? 0, max: n.maxValue ?? 1, ...(n.description ? { description: n.description } : {}) };
 });
 
 /** hance's Default look, without the bloom, aberration and camera shake Film Look doesn't have. */
@@ -123,6 +135,7 @@ export const filmLook = defineFeature({
       },
       presets: PRESETS,
       importFile: { label: "Import .hlook…", extensions: ["hlook"], query: "filmLook.read", keep: KEPT },
+      tune: { label: "Auto Tune", title: "OpenAI (your key) looks at three frames of the clip and sets the sliders, a cent or so", action: "filmLook.autoTune", note: "Optional: warmer, less grain…" },
     },
   ],
   passes: [{ id: "film-look", wgsl, steps: ["fs_highlights", "fs_scatter_h", "fs_scatter_v", "fs_look"] }],
@@ -148,6 +161,47 @@ export const filmLook = defineFeature({
       description: "A hance look on Film Look's sliders, without applying it: `params`, and `notReproduced`, what the look does that Film Look can't (bloom, chromatic aberration, colour wheels…) or only partly",
       args: z.strictObject(LookArgs),
       run: (args) => readLook(args),
+    }),
+  ],
+  actions: [
+    defineAction({
+      id: "filmLook.autoTune",
+      description:
+        "Auto Tune: OpenAI's vision model (the user's key; GPT-6.1 Terra, about a cent) looks at three frames of the clip (`clip`, else the selected one) as it looks now and sets its Film Look's sliders, from the current values, within their ranges; `note` says what the user wants (\"warmer, less grain\"). One undo step, its label giving the cost. Runs as a job. Only when the user asks: it spends their money",
+      args: z.strictObject({ clip: z.string().min(1).optional(), note: z.string().max(500).optional() }),
+      resolve: ({ clip: id, note }, ctx) => {
+        const clip = ctx.scope.tracks.flatMap((t) => t.clips).find((c) => (id ? c.id === id : ctx.session.selection.includes(c.id)) && c.effects.some((e) => e.type === "film-look"));
+        if (!clip) throw new Error(id ? `no clip "${id}" with Film Look` : "select a clip with Film Look first");
+        const fx = clip.effects.find((e) => e.type === "film-look")!;
+        const [a, b] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
+        // Its start, middle and end (the user, 2026-10-27), a little in from the cuts.
+        const times = [a + (b - a) * 0.1, (a + b) / 2, a + (b - a) * 0.9];
+        const current = Object.fromEntries(Object.entries(fx.params).filter(([, v]) => typeof v === "number")) as Record<string, number>;
+        return {
+          label: "Auto Tune Film Look",
+          task: {
+            label: "Auto Tune Film Look",
+            run: async (env) => {
+              const key = await env.secret(OPENAI);
+              if (!key) throw new Error("no OpenAI API key: add one in Settings › AI");
+              const dir = mkdtempSync(join(tmpdir(), "beacon-tune-"));
+              try {
+                env.progress(0.1, "Drawing three frames");
+                const frames = times.map((_, i) => join(dir, `f${i}.png`));
+                for (const [i, t] of times.entries()) await env.frame(t, frames[i]!, 768);
+                env.progress(0.4, "OpenAI is looking at them");
+                const r = await tuneLook(key, frames, current, SLIDERS, note?.trim() ?? "");
+                return () => ({
+                  label: `Auto Tune Film Look ($${r.cost.toFixed(3)})`,
+                  steps: [{ command: "effect.set", args: { clip: clip.id, effect: fx.id, params: r.params } }],
+                });
+              } finally {
+                rmSync(dir, { recursive: true, force: true });
+              }
+            },
+          },
+        };
+      },
     }),
   ],
   commands: [

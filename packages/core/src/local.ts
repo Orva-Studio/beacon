@@ -503,6 +503,10 @@ export class LocalCore implements BeaconCore {
         mediaDir,
         bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, path),
         asset: async (path, kind) => ({ kind, path, fingerprint: fileFingerprint(path), derived: await probeAsset(path) }),
+        frame: async (time, path, width = 0) => {
+          const doc = p.store.doc;
+          writeFileSync(path, pngImage(p.frames.frame(doc, snapSeconds(time, doc.settings.fps), p.data.get, width)).png);
+        },
       });
       if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
       const plan = finish(this.#actionContext(p));

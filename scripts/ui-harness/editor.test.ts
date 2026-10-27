@@ -3450,6 +3450,27 @@ test.skipIf(skip)("an imported .hlook is kept for every project: under Your look
   }
 }, 30_000);
 
+test.skipIf(skip)("Film Look's Auto Tune: a note and a button on its section; pressed, it starts the job (with no OpenAI key here, it says so and changes nothing)", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("!!document.querySelector('[data-effect-tune-run]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-effect-tune-note]').placeholder")).toContain("warmer");
+    const params = JSON.stringify(clip(screen.id).effects.find((e) => e.type === "film-look")!.params);
+    await page.click(...(await centre("[data-effect-tune-run]")));
+    for (let i = 0; i < 100 && !(await ui.core.jobs()).some((j) => j.label === "Auto Tune Film Look" && j.state !== "running"); i++) await Bun.sleep(50);
+    const job = (await ui.core.jobs()).find((j) => j.label === "Auto Tune Film Look")!;
+    expect(job.state).toBe("failed");
+    expect(job.error).toMatch(/no OpenAI API key/);
+    expect(JSON.stringify(clip(screen.id).effects.find((e) => e.type === "film-look")!.params)).toBe(params);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+});
+
 test.skipIf(skip)("Film Look's looks preview on the canvas under the pointer and the arrow keys, with no edit; leaving the list or Esc shows the clip as it is; a click applies in one step", async () => {
   // The camera, which covers the screen until it is laid out.
   const camera = clips().find((c) => c.type === "video")!;
