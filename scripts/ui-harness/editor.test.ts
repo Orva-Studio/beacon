@@ -4849,6 +4849,9 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
 
     // Auto's prompt is read only; Manual is typed, starting from the words said under it.
     expect(await has("textarea[data-broll-prompt]")).toBe(false);
+    // Its buttons each on one line, Research (OpenAI's planner only) under them; no Try N Models (broll.compare is for agents).
+    expect(await page.evaluate<number>("document.querySelector('[data-broll-copy]').getBoundingClientRect().height")).toBeLessThan(40);
+    expect(await has("[data-broll-compare]")).toBe(false);
     await press('[data-broll-source] button:nth-child(2)');
     await page.until("!!document.querySelector('textarea[data-broll-prompt]')");
     const words = (await ui.core.query(ui.handle, "broll.words", { clip: clip.id })) as string;

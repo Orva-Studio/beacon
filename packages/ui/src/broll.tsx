@@ -127,8 +127,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
               <Button look="quiet" disabled={!b.prompt || planning} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: b.prompt }, "Copy B-roll Prompt to Manual")} data-broll-copy>
                 Copy to Manual
               </Button>
-              {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             </div>
+            {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             <span className="text-caption text-text-faint">
               {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
             </span>
@@ -176,11 +176,6 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
         <Button look="primary" disabled={!ready} title={online ? undefined : offline} onClick={() => host.run("broll.generate", { clips: [clip.id] })} data-broll-generate>
           {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
         </Button>
-        {cost && cost.compare.models > 1 && (
-          <Button look="quiet" disabled={!prompted || busy || !online} title={!online ? offline : `Make this clip with each of the ${cost.compare.models} models that can, to compare them`} onClick={() => host.run("broll.compare", { clip: clip.id })} data-broll-compare>
-            Try {cost.compare.models} Models · {dollars(cost.compare.cost)}
-          </Button>
-        )}
         <span className="text-caption text-text-faint">
           {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder. The default model is set in Settings › AI.
         </span>
