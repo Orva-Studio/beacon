@@ -31,8 +31,8 @@ const search = (entries: Entry[], query: string) => searchByName(entries, query,
 /**
  * The command palette (⌘K by default): what can be done to clips or added to the timeline, by name or what it
  * does. Annotations are added at the playhead; effects and fades go on the selected clips, as a double-click on
- * their tile does; an AI tool opens its review. Favourites come first. Media from the bin, once something is typed (a
- * big bin would bury the rest), go on the timeline at the playhead.
+ * their tile does; an AI tool opens its review; the selected clip's effects can be removed. Favourites come first.
+ * Media from the bin, once something is typed (a big bin would bury the rest), go on the timeline at the playhead.
  */
 export function Palette({ host }: { host: PaletteHost }) {
   const open = useView((v) => !!v.palette && !!v.opened);
@@ -44,6 +44,8 @@ function PaletteUi({ host }: { host: PaletteHost }) {
   const favorites = useView((v) => v.favorites);
   const assets = useView((v) => v.project?.assets);
   const thumbs = useView((v) => v.thumbs);
+  const tracks = useView((v) => v.project?.tracks);
+  const first = useView((v) => v.session?.selection[0]);
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -55,8 +57,16 @@ function PaletteUi({ host }: { host: PaletteHost }) {
       if (effect) h.run("inspector.tab", { tab: "effects" });
     } }));
     const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
-    return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...tools];
-  }, [init, favorites]);
+    // The effects of the clip the properties show; two of a kind numbered.
+    const clip = first ? (tracks ?? []).flatMap((t) => t.clips).find((c) => c.id === first) : undefined;
+    const title = (type: string) => init?.effects.find((d) => d.id === type)?.title ?? type;
+    const removals = (clip?.effects ?? []).map((fx, i, all): Entry => {
+      const same = all.filter((f) => f.type === fx.type);
+      const name = `Remove ${title(fx.type)}${same.length > 1 ? ` ${same.indexOf(fx) + 1}` : ""}`;
+      return { id: `remove:${fx.id}`, name, description: "Take this effect off the selected clip", group: "Selected Clip", icon: "trash", starred: false, start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
+    });
+    return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...removals, ...tools];
+  }, [init, favorites, tracks, first]);
   const media = useMemo(
     () =>
       // As the bin: a LUT or other file a feature imported isn't media to place.

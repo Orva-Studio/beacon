@@ -2419,6 +2419,50 @@ test.skipIf(skip)("an effect picked in the command palette opens its properties 
   await select([]);
 }, 15_000);
 
+test.skipIf(skip)("an effect comes off by keyboard: ⌘⌫ in its section (even typing in a value), ⌫ on its tick box, or Remove … in the palette; the clip stays, one undo step each", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const shadows = () => clip(screen.id).effects.filter((e) => e.type === "drop-shadow");
+  const add = async () => {
+    await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+    await arrived(() => shadows().length === 1);
+    return shadows()[0]!.id;
+  };
+  try {
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    // ⌘⌫ with the caret in its first value: the effect goes, not the clip (no ripple delete).
+    let id = await add();
+    await page.until(`!!document.querySelector('[data-effect="${id}"] [data-input]')`);
+    await page.evaluate(`document.querySelector('[data-effect="${id}"] [data-input]').focus()`);
+    await page.until(`document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('[data-effect="${id}"]')`);
+    const count = clips().length;
+    await page.key("Backspace", "Backspace", ["meta"]);
+    await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Remove Drop Shadow");
+    // ⌫ on its tick box (not typed in): the effect, where it used to delete the clip.
+    id = await add();
+    await page.until(`!!document.querySelector('[data-effect="${id}"] button[role=checkbox]')`);
+    await page.evaluate(`document.querySelector('[data-effect="${id}"] button[role=checkbox]').focus()`);
+    await page.key("Backspace", "Backspace");
+    await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+    // The palette lists the selected clip's effects to remove.
+    id = await add();
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("Remove Drop");
+    await page.until(`!!document.querySelector('[data-entry="remove:${id}"]')`);
+    await page.key("Enter", "Enter");
+    await arrived(() => !shadows().length);
+    expect(clips().length).toBe(count);
+  } finally {
+    await page.evaluate("document.activeElement?.blur()");
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("the eyedropper from a dialog: Project Settings' colour picks from the canvas without the dialog closing, the canvas undimmed, the colour landing in the dialog; Esc stops picking, not the dialog", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const before = "#123456";

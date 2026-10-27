@@ -6,7 +6,7 @@ import { contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TrashButton, Icon, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -50,6 +50,17 @@ export function Properties({ project: full, session, host, init }: { project: Pr
           e.stopPropagation();
           // A value box's own Escape runs first and cancels what was typed.
           setTimeout(() => (document.activeElement as HTMLElement | null)?.blur());
+          return;
+        }
+        // In an effect's section, ⌘⌫ removes the effect, as ⌫ does on a control that isn't typed in: not the clip (Delete) or a ripple.
+        const section = (e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && e.target instanceof Element ? e.target.closest("[data-effect]") : null;
+        if (section && clip && (e.metaKey || !isTyping(e.target))) {
+          e.preventDefault();
+          e.stopPropagation();
+          const fx = clip.effects.find((f) => f.id === section.getAttribute("data-effect"));
+          if (!fx) return;
+          (document.activeElement as HTMLElement | null)?.blur();
+          host.run("effect.remove", { clip: clip.id, effect: fx.id }, `Remove ${init?.effects.find((d) => d.id === fx.type)?.title ?? "Effect"}`);
           return;
         }
         if (e.key !== "Tab" || e.metaKey || e.ctrlKey || e.altKey) return;
