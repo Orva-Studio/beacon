@@ -3169,12 +3169,14 @@ glow only, or inner too; whether Film Look's halation/bloom shader can be
 shared; and a Favorites tile for it.
 
 ### Keyboard focus modes on the leader key (the user, 2026-10-28; candidate)
-Moving around the editor without the mouse, a panel at a time:
+Moving around the editor without the mouse, a panel at a time. Built only after
+Phase 12 removes Favorites (the user, 2026-10-28), so the sidebar it cycles has
+none.
 - **Leader `]`: the Properties panel.** Focused with a green border; Tab and
   ⇧Tab move between its tabs, Return goes into the tab's first input, Tab and
   ⇧Tab move down and up its inputs, Esc goes back out a level, then leaves.
-- **Leader `[`: the left sidebar.** Tab and ⇧Tab cycle its panels (Favorites
-  while they last, Media, Visual, Audio, Effects, AI); Return opens one with its
+- **Leader `[`: the left sidebar.** Tab and ⇧Tab cycle its panels (Media,
+  Visual, Audio, Effects, AI); Return opens one with its
   first item focused; Tab, ⇧Tab and arrows move between items; Return adds the
   item to the timeline at the playhead (as a double-click does), on the
   selected clip for an effect, and ⇧Return previews it (the user, 2026-10-28).
@@ -3188,8 +3190,7 @@ Moving around the editor without the mouse, a panel at a time:
   Properties panel's tabs today, with the first value ready to type (Phase
   11.5's `inspector.step`); the focus modes take both keys over, and Tab does
   the stepping inside the panel.
-- Questions: whether Favorites, going in Phase 12, needs a place in the cycle
-  at all; whether the modes should be reachable over MCP (`ui_state` saying
+- Question: whether the modes should be reachable over MCP (`ui_state` saying
   which panel has focus, for agents driving the app).
 
 ### Heavy screen recordings (the user, 2026-10-27; later)
