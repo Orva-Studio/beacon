@@ -2898,16 +2898,17 @@ edit.
     when built: with up to 10 learned, "none of the last 5" would remove most of
     them at once, so that count likely wants to be higher (20) or to apply only
     to shortcuts still showing "new".
-  - **Seen and undone:** Settings › Shortcuts lists them as "Learned", each
-    removable; removing one stops it being suggested again. Undo on the toast
-    removes it at once.
+  - **Added by itself, with Undo** (the user, 2026-10-28): no asking first;
+    Undo on the toast removes it at once.
+  - **Seen in Memory, not Shortcuts** (the user, 2026-10-28): Settings has one
+    Memory section for everything Beacon learned (the sentences, the review
+    habits, the learned shortcuts), kept apart from Settings › Shortcuts, which
+    stays the user's own keys. Each learned shortcut is listed there and
+    removable; removing one stops it being learned again.
   - **Counting:** local and light, in the same log as review decisions
     (`~/Library/Application Support`, never uploaded); only actions with no
     key of their own, run from ⌘K, a menu or a button, count. Agent edits over
     MCP never count.
-  - Questions: whether Memory should list them as sentences ("you add Drop
-    Shadow often: `: d s` does it") so they can be edited there too; whether a
-    suggested shortcut should ask first (a toast with Keep instead of Undo).
 - **A motion graphic's code in Finder** (the user, 2026-10-28; only showing
   it, no watching for edits made there: "too overkill"). **Built
   2026-10-28:** a folder button beside Edit Code shows the shown take's page
@@ -3176,22 +3177,20 @@ Moving around the editor without the mouse, a panel at a time:
   while they last, Media, Visual, Audio, Effects, AI); Return opens one with its
   first item focused; Tab, ⇧Tab and arrows move between items; Return adds the
   item to the timeline at the playhead (as a double-click does), on the
-  selected clip for an effect.
+  selected clip for an effect, and ⇧Return previews it (the user, 2026-10-28).
 - **Later:** the same for the timeline (arrows step clips and tracks) and the
   canvas (arrows nudge, Tab steps the clips shown).
 - **How it should feel (suggested):** a clear focus ring on the item, and a
   hint bar along the panel's foot with the keys that work there; focus held in
   the panel until Esc, but never taken from a field being typed in; the focus
   mode leaves when the mouse is used elsewhere.
-- **Clash:** leader `]` and `[` already step the Properties panel's tabs with
-  the first value ready to type (Phase 11.5's `inspector.step`), which is half
-  of the first mode. Either the focus mode takes over `]` and `[` (Tab then
-  steps tabs, as now `]` does), or the tab steps move (to `: ⇧]` / `: ⇧[`).
-  Recommended: the first, as it is the same idea made whole.
-- Questions: whether Return in the sidebar adds at the playhead or opens the
-  item's preview first; whether Favorites, going in Phase 12, needs a place in
-  the cycle at all; whether the modes should be reachable over MCP (`ui_state`
-  saying which panel has focus, for agents driving the app).
+- **Replaces leader `]` and `[`** (the user, 2026-10-28): they step the
+  Properties panel's tabs today, with the first value ready to type (Phase
+  11.5's `inspector.step`); the focus modes take both keys over, and Tab does
+  the stepping inside the panel.
+- Questions: whether Favorites, going in Phase 12, needs a place in the cycle
+  at all; whether the modes should be reachable over MCP (`ui_state` saying
+  which panel has focus, for agents driving the app).
 
 ### Heavy screen recordings (the user, 2026-10-27; later)
 A Retina screen recorded in full (3326×2160 HEVC at 60 fps) spins the Mac's fans
