@@ -2885,10 +2885,19 @@ edit.
   seconds ("⌥… now runs Add Drop Shadow", with Undo), and a "new" chip beside
   it in the leader popup until it has been used about 3 times. Longer term,
   Memory adapts more of the app to habits the same way.
-  - **Rules (suggested):** a threshold such as 5 uses in a week, never from a
-    burst in one session; a cap on how many it adds (say 10); never takes keys
+  - **Rules (the user, 2026-10-28):** made after about **5 uses**, not from a
+    burst in one session; at most **10** learned at once; never takes keys
     another action has, or that the user cleared; the keys picked from the
     action's name where free (Drop Shadow → `: d s`), else the next free pair.
+  - **Unused ones go by themselves** (the user, 2026-10-28), counted in use
+    of the app, not the calendar, as the user may not edit every day: one is
+    removed after a week of days Beacon was used (days it wasn't open don't
+    count) with no use of it, or once it is in none of the last few leader
+    sequences run (the user's example: 5). Removing one is said in a toast with
+    Undo, as adding is, and the action can be learned again later. To settle
+    when built: with up to 10 learned, "none of the last 5" would remove most of
+    them at once, so that count likely wants to be higher (20) or to apply only
+    to shortcuts still showing "new".
   - **Seen and undone:** Settings › Shortcuts lists them as "Learned", each
     removable; removing one stops it being suggested again. Undo on the toast
     removes it at once.
