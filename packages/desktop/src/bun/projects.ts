@@ -23,7 +23,7 @@ export interface ProjectsApp {
   /** Open Recent changed: the menu and the start screens follow. */
   recentChanged(): void;
   /** Finder's open dialog (Electrobun's `Utils.openFileDialog`): the paths picked, none if cancelled. */
-  openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string }): Promise<string[]>;
+  openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string; allowedFileTypes?: string }): Promise<string[]>;
   /** Asks before a project goes to the Trash: whether the user agreed. */
   confirmTrash(name: string): Promise<boolean>;
   /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`): whether it went. */
@@ -258,7 +258,8 @@ export function createProjects(app: ProjectsApp) {
 
   /** Opens a .beproj, or a Camtasia .cmproj as a new Beacon project beside the others (the .cmproj is only read). */
   async function openDialog() {
-    const [path] = await app.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: "~/" });
+    // Projects are packages, which the panel takes as files: a folder not yet seen as one is still a directory.
+    const [path] = await app.openFileDialog({ canChooseFiles: true, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: "beproj,cmproj" });
     if (path) await openProject(path);
   }
 

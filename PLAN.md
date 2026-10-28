@@ -2929,12 +2929,20 @@ edit.
   2026-10-28:** a folder button beside Edit Code shows the shown take's page
   (the `.html` written beside its movie) in Finder; `reveal` takes a file in
   the project's folder.
+- **⇧-click picks a run of silences** (the user, 2026-10-28). In Remove
+  Silences' review ⇧-click adds or drops one silence; it should pick every
+  silence from the one picked last to the one clicked, as Finder does, with
+  ⌘-click adding or dropping one. `silences.select` gets a `through` (the
+  time of the other end). Small; this phase.
 - **A Beacon icon on project folders** (the user, 2026-10-28, as Camtasia's
   `.cmproj` shows its own). A `.beproj` is a folder: declare it a document
   package (`CFBundleDocumentTypes` with `LSTypeIsPackage`, an exported UTI
   for `.beproj`) with a document icon in the app's Info.plist, so Finder
   shows the icon, opens it in Beacon on a double-click, and keeps it one
-  item. Open: whether it still opens as a folder (⌥ Show Package Contents).
+  item. Open: whether it still opens as a folder (⌥ Show Package Contents). **Built 2026-10-28:** `dev.beacon.project` in the Info.plist
+  (`info-plist.ts`), Beacon's app icon as the document icon, `open-url`
+  opening a double-clicked project; Show Package Contents opens it as a
+  folder.
 - **New Project chooses where** (the user, 2026-10-28): ⌘N names the project
   but always saves it in ~/Movies/Beacon. Add a location (the last one used,
   Choose… for a folder, remembered as a preference) to the New Project

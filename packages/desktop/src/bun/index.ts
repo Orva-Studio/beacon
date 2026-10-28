@@ -554,6 +554,12 @@ const quit = () => {
   quitLog("closed");
 };
 Electrobun.events.on("before-quit", quit);
+// A project double-clicked in Finder, or dropped on the Dock icon.
+Electrobun.events.on("open-url", (e: { data: { url: string } }) => {
+  if (!e.data.url.startsWith("file://")) return;
+  const path = decodeURIComponent(new URL(e.data.url).pathname).replace(/\/+$/, "");
+  if (path.endsWith(".beproj")) projects.open(path).catch((err: unknown) => status(String(err)));
+});
 checkForUpdatesSoon(status, () => stopped);
 process.on("exit", quit);
 process.on("SIGINT", () => process.exit(0));
