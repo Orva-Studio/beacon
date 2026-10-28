@@ -2878,6 +2878,27 @@ edit.
   Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
   and their preference; ⌘K lists recently and often used effects and
   annotations first before anything is typed, and leans on them when typing.
+- **Learned shortcuts** (the user, 2026-10-28; candidate, an extension of
+  Memory, after Favorites go, as it shares their usage counts). When the user
+  runs the same action often from ⌘K or with the mouse, Beacon gives it a
+  leader shortcut by itself and says so: a toast bottom-right for a few
+  seconds ("⌥… now runs Add Drop Shadow", with Undo), and a "new" chip beside
+  it in the leader popup until it has been used about 3 times. Longer term,
+  Memory adapts more of the app to habits the same way.
+  - **Rules (suggested):** a threshold such as 5 uses in a week, never from a
+    burst in one session; a cap on how many it adds (say 10); never takes keys
+    another action has, or that the user cleared; the keys picked from the
+    action's name where free (Drop Shadow → `: d s`), else the next free pair.
+  - **Seen and undone:** Settings › Shortcuts lists them as "Learned", each
+    removable; removing one stops it being suggested again. Undo on the toast
+    removes it at once.
+  - **Counting:** local and light, in the same log as review decisions
+    (`~/Library/Application Support`, never uploaded); only actions with no
+    key of their own, run from ⌘K, a menu or a button, count. Agent edits over
+    MCP never count.
+  - Questions: whether Memory should list them as sentences ("you add Drop
+    Shadow often: `: d s` does it") so they can be edited there too; whether a
+    suggested shortcut should ask first (a toast with Keep instead of Undo).
 - **A motion graphic's code in Finder** (the user, 2026-10-28; only showing
   it, no watching for edits made there: "too overkill"). **Built
   2026-10-28:** a folder button beside Edit Code shows the shown take's page
@@ -3136,6 +3157,32 @@ colour, size, strength and an optional pulse, all animatable. Wanted while
 dressing the Grok short (logo pop-ins, number cards). Open questions: outer
 glow only, or inner too; whether Film Look's halation/bloom shader can be
 shared; and a Favorites tile for it.
+
+### Keyboard focus modes on the leader key (the user, 2026-10-28; candidate)
+Moving around the editor without the mouse, a panel at a time:
+- **Leader `]`: the Properties panel.** Focused with a green border; Tab and
+  ⇧Tab move between its tabs, Return goes into the tab's first input, Tab and
+  ⇧Tab move down and up its inputs, Esc goes back out a level, then leaves.
+- **Leader `[`: the left sidebar.** Tab and ⇧Tab cycle its panels (Favorites
+  while they last, Media, Visual, Audio, Effects, AI); Return opens one with its
+  first item focused; Tab, ⇧Tab and arrows move between items; Return adds the
+  item to the timeline at the playhead (as a double-click does), on the
+  selected clip for an effect.
+- **Later:** the same for the timeline (arrows step clips and tracks) and the
+  canvas (arrows nudge, Tab steps the clips shown).
+- **How it should feel (suggested):** a clear focus ring on the item, and a
+  hint bar along the panel's foot with the keys that work there; focus held in
+  the panel until Esc, but never taken from a field being typed in; the focus
+  mode leaves when the mouse is used elsewhere.
+- **Clash:** leader `]` and `[` already step the Properties panel's tabs with
+  the first value ready to type (Phase 11.5's `inspector.step`), which is half
+  of the first mode. Either the focus mode takes over `]` and `[` (Tab then
+  steps tabs, as now `]` does), or the tab steps move (to `: ⇧]` / `: ⇧[`).
+  Recommended: the first, as it is the same idea made whole.
+- Questions: whether Return in the sidebar adds at the playhead or opens the
+  item's preview first; whether Favorites, going in Phase 12, needs a place in
+  the cycle at all; whether the modes should be reachable over MCP (`ui_state`
+  saying which panel has focus, for agents driving the app).
 
 ### Heavy screen recordings (the user, 2026-10-27; later)
 A Retina screen recorded in full (3326×2160 HEVC at 60 fps) spins the Mac's fans
