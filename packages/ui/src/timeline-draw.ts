@@ -20,7 +20,7 @@ import {
 } from "@beacon/model";
 import type { PanelItem } from "./drop";
 import { drawIcon, type IconName } from "./controls";
-import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, volumeY } from "./timeline-layout";
+import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, BAND, TRACKS_TOP, volumeY } from "./timeline-layout";
 import type { ViewState } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -39,6 +39,10 @@ export type Drag =
   | { kind: "volume"; clip: string; index: number | null; x0: number; y0: number; points: { time: number; value: number }[]; base: number; key: string; at?: [number, number] }
   | { kind: "range"; anchor: number }
   | { kind: "rangeEdge"; edge: "in" | "out"; other: number }
+  /** A new section dragged out on the band, from `a` to `b` (seconds, either order). */
+  | { kind: "sectionNew"; a: number; b: number; lo: number; hi: number }
+  /** A section's edge or body dragged: drawn from `a` to `b` (seconds), kept between `lo` and `hi` (its neighbours). */
+  | { kind: "section"; section: string; part: "start" | "end" | "body"; x0: number; a0: number; b0: number; a: number; b: number; lo: number; hi: number; moved: boolean }
   /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`); `playhead`: begun on it, which follows. */
   | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number; playhead?: boolean }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
@@ -47,6 +51,15 @@ export type Drag =
   /** `edges`: where each trimmed clip's dragged edge is drawn, the one grabbed (at `t`) and the others selected or linked with it. */
   | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean; edges: Map<string, number> };
 
+
+const SECTION_TONES = ["blue", "purple", "green", "yellow", "orange", "red"] as const;
+
+/** A section's colour, from its name: every "Intro" alike, in every project. */
+export function sectionTone(name: string): string {
+  let h = 0;
+  for (const ch of name.trim().toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `section-${SECTION_TONES[h % SECTION_TONES.length]}`;
+}
 
 /**
  * What the timeline shows: the project, or with a group open (its
@@ -196,7 +209,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
 /** What drawing the timeline reads: the component's latest render, its refs and its hit tests. */
 export interface TimelineDrawing {
   canvas: RefObject<HTMLCanvasElement | null>;
-  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[] }>;
+  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"] }>;
   size: RefObject<{ w: number; h: number }>;
   staticLayer: RefObject<{ canvas?: HTMLCanvasElement; key: unknown[] }>;
   dragState: RefObject<Drag | null>;
@@ -239,7 +252,7 @@ export function drawTimeline(t: TimelineDrawing) {
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -276,7 +289,7 @@ export function drawTimeline(t: TimelineDrawing) {
     const d = dragState.current ?? settling.current?.drag;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(HEADER, RULER, width, h - RULER);
+    ctx.rect(HEADER, TRACKS_TOP, width, h - TRACKS_TOP);
     ctx.clip();
     /**
      * A clip from `a` to `b` on row `i`: its colour, waveform or thumbnail, name and outline. `ghost`: where a move
@@ -636,6 +649,7 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.lineTo(px - 5, RULER - 5);
       ctx.fill();
     }
+    drawSections(ctx);
 
     ctx.fillStyle = color("well");
     ctx.fillRect(0, 0, HEADER, h);
@@ -675,7 +689,10 @@ export function drawTimeline(t: TimelineDrawing) {
 
     // The corner above the headers: track height slider and magnifier, add-track and options buttons.
     ctx.fillStyle = color("panel");
-    ctx.fillRect(0, 0, HEADER, RULER);
+    ctx.fillRect(0, 0, HEADER, TRACKS_TOP);
+    ctx.fillStyle = color("text-faint");
+    ctx.font = font(11);
+    ctx.fillText("Sections", 10, RULER + BAND / 2 + 4);
     const knob = HEIGHT_SLIDER.bottom - ((TRACK - TRACK_HEIGHT.min) / (TRACK_HEIGHT.max - TRACK_HEIGHT.min)) * (HEIGHT_SLIDER.bottom - HEIGHT_SLIDER.top);
     ctx.fillStyle = color("groove");
     ctx.fillRect(HEIGHT_SLIDER.x - 2, HEIGHT_SLIDER.top, 4, HEIGHT_SLIDER.bottom - HEIGHT_SLIDER.top);
@@ -715,6 +732,56 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.textBaseline = "alphabetic";
     }
 
+    }
+
+    /** The Sections band: each section a bar in its name's colour, the picked one outlined; one dragged drawn where it goes. */
+    function drawSections(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = color("panel");
+    ctx.fillRect(HEADER, RULER, width, BAND);
+    ctx.strokeStyle = color("track-line");
+    ctx.beginPath();
+    ctx.moveTo(HEADER, TRACKS_TOP - 0.5);
+    ctx.lineTo(w, TRACKS_TOP - 0.5);
+    ctx.stroke();
+    const d = dragState.current ?? settling.current?.drag;
+    const naming = latest.current.naming;
+    const bars: { id?: string; name: string; a: number; b: number; fresh?: boolean }[] = project.sections.map((s) =>
+      d?.kind === "section" && d.section === s.id ? { id: s.id, name: s.name, a: d.a, b: d.b } : { id: s.id, name: s.name, a: ticksToSeconds(s.start), b: ticksToSeconds(s.end) },
+    );
+    if (d?.kind === "sectionNew") bars.push({ name: "", a: Math.min(d.a, d.b), b: Math.max(d.a, d.b), fresh: true });
+    else if (naming && !naming.id) bars.push({ name: "", a: naming.start, b: naming.end, fresh: true });
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(HEADER, RULER, width, BAND);
+    ctx.clip();
+    ctx.font = font(11, 600);
+    for (const s of bars) {
+      const [a, b] = [x(s.a), x(s.b)];
+      if (b < HEADER || a > w) continue;
+      const y = RULER + 3;
+      const bh = BAND - 6;
+      ctx.globalAlpha = s.fresh ? 0.5 : 1;
+      ctx.fillStyle = color(sectionTone(s.name));
+      ctx.beginPath();
+      ctx.roundRect(a + 0.5, y, Math.max(2, b - a - 1), bh, 4);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (s.id && s.id === latest.current.section) {
+        ctx.strokeStyle = color("text-bright");
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      if (b - a > 24 && s.name) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(a + 6, y, b - a - 12, bh);
+        ctx.clip();
+        ctx.fillStyle = color("section-text");
+        ctx.fillText(s.name, Math.max(a, HEADER) + 6, y + bh / 2 + 4);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
     }
 
     function drawPlayhead(ctx: CanvasRenderingContext2D) {

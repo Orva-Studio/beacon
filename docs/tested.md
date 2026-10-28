@@ -13,11 +13,15 @@ feature lands and when it is checked.
 |---|---|---|---|
 | The leader key can change: Settings › Shortcuts lists Leader Key (`:` by default; one key, with or without modifiers, never None); every sequence moves to the new key at once (menus, the popup, Settings show it), a key another action has alone is asked first and moved on Replace, sequences recorded under it stay its own; `:` typed in a value box follows it (the new key leaves the box); Reset puts `:` back and the sequences with it; `app.leader` over MCP's `shortcuts_set` | 2026-10-28 | this branch | keymap core test (`the leader key can change…`: \\ and Space, a clash refused and replaced, saved for the next launch, reset); UI flow (`Settings › Shortcuts changes the leader key…`: no None, Space asks first, \\ then P opens the palette, : starts nothing) |
 | Animating a highlight's width (the user found it doing nothing): a new animation held only position, scale, rotation, opacity and crop, so a width set after it went to the whole clip. Add Animation now holds every field the clip's features can animate (a region's width, height and intensity; a cursor's size and opacity), not volume (its own points). Blocks made before keep what they held: add the animation again | 2026-10-28 | this branch | core test (`animate-region.test.ts`: the block holds `region.width`, a width set at 3 s eases in over the block, undone exactly; fails without the change) |
+| Sections: a band under the ruler naming the video's parts. Drag on empty band time to make one (it stops at its neighbours), then name it: typed, or picked from the project's names then Hook, Intro, Explanation, Demo, Example, Recap, Outro, Call to Action (Esc or a click away makes none); drag an edge or the body (between its neighbours), double-click to rename, click then ⌫ to delete (the clips stay), Esc lets it go; coloured by name. `section.add` / `.set` / `.remove` (MCP tools) refuse overlaps; ripple deletes and inserted or removed space move, grow or shrink them; `project_describe` lists them; schema v3 | 2026-10-28 | this branch | core test (`sections.test.ts`: overlaps refused, rename and resize, ripple delete and insert space, undone exactly), migrations test (v3), UI flow (`Sections: a band under the ruler…`: pick and type a name, stops at a neighbour, Esc makes none, edge and body drags, rename, ⌫) |
+| A motion graphic's code in Finder: a folder button beside Edit Code shows the shown take's page (its `.html`, beside its movie) in Finder, to open in any editor; only files in the project's folder can be shown | 2026-10-28 | this branch | UI flow (`Motion Graphics, as B-roll…`: the path revealed is the take's page, which holds its HTML; a file outside the project refused) |
 
 ### Not checked yet
 
 - Changing the leader key in Settings › Shortcuts in the app, and a sequence on the new key (above).
 - A highlight's width animated in the app: a new animation on it, then the width changed after it.
+- Sections in the app (above): making, naming, dragging, renaming and deleting them on your own project.
+- A motion graphic's code shown in Finder (above).
 
 ## Phase 11.5: editing polish (`phase-11.5`)
 

@@ -9,7 +9,7 @@ import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
 import { regionOfClip } from "@beacon/features";
-import { clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle } from "@beacon/ui";
+import { BAND, clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle, RULER, TRACKS_TOP } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -250,6 +250,17 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     await arrived(() => ui.menus.includes(`setPreference:motionSkill=${JSON.stringify(skillId)}`));
     await skillTo("");
     await arrived(() => !(motion().props.motion as { skill?: string }).skill);
+    // The page it was drawn from, shown in Finder (beside its movie, in the project), to open in any editor.
+    const revealed: (string | undefined)[] = [];
+    const reveal = ui.core.reveal;
+    ui.core.reveal = async (_h, path) => void revealed.push(path);
+    await page.evaluate("document.querySelector('[data-motion-reveal]').click()");
+    await arrived(() => revealed.length === 1);
+    ui.core.reveal = reveal;
+    const take = m().takes[m().shown]!;
+    expect(revealed[0]).toBe(ui.core.doc(ui.handle).assets[take.assetId!]!.path.replace(/\.mov$/, ".html"));
+    expect(readFileSync(revealed[0]!, "utf8")).toContain(take.html.split("\n")[0]!);
+    await expect(ui.core.reveal(ui.handle, "/etc/hosts")).rejects.toThrow("only files in the project's folder");
     // Edit: Revise needs OpenAI or Claude (Apple's model here); Edit Code… shows the code beside a live preview, and
     // Save draws it as a new take, made by you.
     await page.until("(document.querySelector('[data-motion-revise]')?.textContent ?? '') === 'Revise · Needs OpenAI or Claude'");
@@ -850,7 +861,7 @@ test.skipIf(skip)("a recording's camera and audio are linked and select together
   const header = headerWidth(doc.tracks);
   // Clear of the playhead (an earlier flow leaves it at 1 s), which a click near would grab.
   const x = box.x + header + ((3 - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const rowY = (id: string) => box.y + 40 + [...doc.tracks].reverse().findIndex((t) => t.clips.some((c) => c.id === id)) * s.timeline.trackHeight + s.timeline.trackHeight / 2;
+  const rowY = (id: string) => box.y + TRACKS_TOP + [...doc.tracks].reverse().findIndex((t) => t.clips.some((c) => c.id === id)) * s.timeline.trackHeight + s.timeline.trackHeight / 2;
   await page.click(x, rowY(camera.id));
   await Bun.sleep(300);
   expect([...(await session()).selection].sort()).toEqual([camera.id, audio.id].sort());
@@ -2151,7 +2162,7 @@ test.skipIf(skip)("dragging a clip above the top track drops it on a new top tra
   const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
   const header = headerWidth(ui.core.doc(ui.handle).tracks);
   const x = box.x + header + (((a + b) / 2 - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const y = box.y + 40 + s.timeline.trackHeight / 2;
+  const y = box.y + TRACKS_TOP + s.timeline.trackHeight / 2;
   await page.drag([x, y], [x, y - s.timeline.trackHeight * 1.2]);
   await Bun.sleep(300);
   const tracks = ui.core.doc(ui.handle).tracks;
@@ -3203,7 +3214,7 @@ test.skipIf(skip)("an animation is drawn as two diamonds joined by a band; the d
   const box = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; })()`);
   const row = doc.tracks.length - 1 - doc.tracks.findIndex((t) => t.clips.some((k) => k.id === screen.id));
   const px = header + ((end - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const py = 40 + row * s.timeline.trackHeight + s.timeline.trackHeight / 2;
+  const py = TRACKS_TOP + row * s.timeline.trackHeight + s.timeline.trackHeight / 2;
   const pixel = () => page.evaluate<number[]>(`(() => { const c = document.querySelector('canvas[data-timeline]'); const k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(${px} * k), Math.round(${py} * k), 1, 1).data]; })()`);
   const [r0, g0] = await pixel();
   expect(r0! > 150 && g0! < 150).toBe(false);
@@ -5162,7 +5173,7 @@ test.skipIf(skip)("with more tracks than fit, scrolling up and down moves throug
   const doc = () => ui.core.doc(ui.handle);
   const had = new Set(doc().tracks.map((t) => t.id));
   // Empty tracks until they don't all fit.
-  while (doc().tracks.length * 120 <= box.h - 40) await run("track.add", {});
+  while (doc().tracks.length * 120 <= box.h - TRACKS_TOP) await run("track.add", {});
   const added = doc().tracks.filter((t) => !had.has(t.id)).map((t) => t.id);
   const bottom = doc().tracks[0]!.clips[0]!;
   await Bun.sleep(300);
@@ -5170,7 +5181,7 @@ test.skipIf(skip)("with more tracks than fit, scrolling up and down moves throug
   await page.wheel(x, box.y + box.h / 2, 0, 2000);
   await arrived(() => false, 300);
   const s = await session();
-  expect(s.timeline.top).toBe(Math.round(doc().tracks.length * 120 - (box.h - 40)));
+  expect(s.timeline.top).toBe(Math.round(doc().tracks.length * 120 - (box.h - TRACKS_TOP)));
   expect(s.timeline.start).toBe(0);
   // The bottom track's row is at the timeline's foot now: a click there picks its clip.
   const p = await timelinePlaces(bottom.id);
@@ -5437,4 +5448,74 @@ test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the s
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await run("panel.show", { tool: null });
   await select([]);
+}, 30_000);
+
+test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part (a name picked or typed), never over another; edges and the body drag, a double-click renames, ⌫ deletes, Esc names nothing", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.snapping", { on: false });
+  const box = await timelineBox();
+  const s = await session();
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const y = box.y + RULER + BAND / 2;
+  const sections = () => ui.core.doc(ui.handle).sections.map((x) => [x.name, Math.round(ticksToSeconds(x.start) * 10) / 10, Math.round(ticksToSeconds(x.end) * 10) / 10]);
+  const span = s.timeline.end - s.timeline.start;
+  const t = (f: number) => s.timeline.start + span * f;
+  // Drag out a part, pick a name.
+  await page.drag([xAt(t(0.1)), y], [xAt(t(0.3)), y]);
+  await page.until("!!document.querySelector('[data-section-namer]')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section-pick]')].map((b) => b.textContent)")).toContain("Intro");
+  await page.screenshot(join(dir, "section-namer.png"));
+  await page.click(...(await centre('[data-section-pick="Intro"]')));
+  await arrived(() => ui.core.doc(ui.handle).sections.length === 1);
+  // The page's copy too, before the next drag reads where Intro ends.
+  await Bun.sleep(300);
+  expect(sections()[0]![0]).toBe("Intro");
+  // Another, its name typed; dragged over Intro it stops at Intro's end.
+  await page.drag([xAt(t(0.6)), y], [xAt(t(0.2)), y]);
+  await page.until("document.activeElement?.hasAttribute('data-section-name')");
+  await type("Demo");
+  await page.key("Enter", "Enter");
+  await arrived(() => ui.core.doc(ui.handle).sections.length === 2);
+  const [intro, demo] = ui.core.doc(ui.handle).sections;
+  expect(demo!.name).toBe("Demo");
+  expect(demo!.start).toBe(intro!.end);
+  await Bun.sleep(300);
+  await page.screenshot(join(dir, "sections.png"));
+  // The project's names come first now.
+  await page.drag([xAt(t(0.7)), y], [xAt(t(0.8)), y]);
+  await page.until("document.activeElement?.hasAttribute('data-section-name')");
+  expect((await page.evaluate<string[]>("[...document.querySelectorAll('[data-section-pick]')].map((b) => b.textContent)")).slice(0, 2)).toEqual(["Intro", "Demo"]);
+  // Esc names nothing, and no section is made.
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-section-namer]')");
+  expect(ui.core.doc(ui.handle).sections.length).toBe(2);
+  // Intro's start dragged left; Demo's body dragged right; neither past the other.
+  const introStart = ticksToSeconds(intro!.start);
+  await page.drag([xAt(introStart) + 1, y], [xAt(t(0.05)), y]);
+  await arrived(() => ticksToSeconds(ui.core.doc(ui.handle).sections[0]!.start) < introStart - 0.1);
+  const demoBefore = ui.core.doc(ui.handle).sections[1]!;
+  const mid = (ticksToSeconds(demoBefore.start) + ticksToSeconds(demoBefore.end)) / 2;
+  await page.drag([xAt(mid), y], [xAt(mid + span * 0.1), y]);
+  await arrived(() => ui.core.doc(ui.handle).sections[1]!.start > demoBefore.start);
+  expect(ui.core.doc(ui.handle).sections[1]!.end - ui.core.doc(ui.handle).sections[1]!.start).toBe(demoBefore.end - demoBefore.start);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Move Section");
+  // A double-click renames.
+  const demoNow = ui.core.doc(ui.handle).sections[1]!;
+  await page.dblclick(xAt((ticksToSeconds(demoNow.start) + ticksToSeconds(demoNow.end)) / 2), y);
+  await page.until("document.activeElement?.hasAttribute('data-section-name')");
+  expect(await page.evaluate<string>("document.activeElement.value")).toBe("Demo");
+  await type("Explanation");
+  await page.key("Enter", "Enter");
+  await arrived(() => ui.core.doc(ui.handle).sections[1]!.name === "Explanation");
+  // Picked, ⌫ deletes it (the clips stay).
+  const clipsBefore = clips().length;
+  await page.click(xAt((ticksToSeconds(demoNow.start) + ticksToSeconds(demoNow.end)) / 2), y);
+  await page.key("Backspace", "Backspace");
+  await arrived(() => ui.core.doc(ui.handle).sections.length === 1);
+  expect(clips().length).toBe(clipsBefore);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Section");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle).sections).toEqual([]);
+  await run("timeline.snapping", { on: true });
 }, 30_000);

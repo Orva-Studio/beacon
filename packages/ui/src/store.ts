@@ -28,6 +28,10 @@ export interface ViewState {
   renaming?: string;
   /** The Media Bin item whose name is being edited. */
   renamingMedia?: string;
+  /** The section picked on the timeline's Sections band (⌫ removes it). */
+  section?: string;
+  /** A section being named: a new one from `start` to `end` (seconds), or `id` renamed. */
+  namingSection?: { id?: string; start: number; end: number };
   /** False after a save failed, until one succeeds. */
   saved?: boolean;
   /** Assets whose proxy is being made, and its progress 0-1. */
@@ -175,6 +179,12 @@ export const replica = {
   },
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
+  },
+  section(section: string | undefined) {
+    if (section !== state.section) set({ section });
+  },
+  nameSection(naming: ViewState["namingSection"]) {
+    set({ namingSection: naming });
   },
   favorites(favorites: string[]) {
     set({ favorites });

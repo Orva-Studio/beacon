@@ -19,6 +19,14 @@ its timeline live and share its undo history with the user.
 - **Never modify the user's source files or `.cmproj` projects.** Media is read
   in place; projects are new `.beproj` folders.
 
+## Sections
+The user names the parts of a video (Intro, Explanation, Demo, Outro…) on the
+Sections band under the ruler: `project_describe` lists them, `section_add`,
+`section_set` and `section_remove` change them (each one undo step). They never
+overlap; gaps are fine; ripple edits move them with the clips. Name parts the
+way the user's other sections are named, and propose them only when asked:
+the user corrects what you add.
+
 ## Media
 `media_import` adds files at the end of the timeline (or at `at`). A Camtasia
 recording (`.trec`) becomes clips on separate tracks: "Screen" (with

@@ -2834,9 +2834,19 @@ edit.
   - after a few named videos, agents propose a new one's sections the user's
     way, then edit each part as the user does;
   - YouTube chapters (names and start times) for a video's description.
-  Agents read and set them as document data (commands, so they undo). Open:
-  whether sections may overlap or leave gaps; whether they move with a
-  ripple edit (they should, as clips do); how a Short cut from a long
+  Agents read and set them as document data (commands, so they undo).
+  **Decided (the user, 2026-10-28):** built first in the phase, before the
+  rest; sections never overlap (gaps allowed). **Built 2026-10-28:** schema
+  v3 `sections` ({id, start, end, name}); `section.add` / `section.set` /
+  `section.remove` (MCP tools, refusing overlaps); ripple deletes and
+  inserted or removed space move, grow or shrink them; a Sections band under
+  the ruler: drag on empty band time to make one (stops at its
+  neighbours), then name it (typed, or picked from the project's names then
+  Hook, Intro, Explanation, Demo, Example, Recap, Outro, Call to Action);
+  drag its edges or body, double-click to rename, click then ⌫ to delete;
+  colour by name. Still open: agents proposing sections from the
+  transcript (a reviewable proposal), YouTube chapters, habits per section,
+  a key to make one from the in/out range, how a Short cut from a long
   video's section carries it.
 - **Memory: sentences the user can read and write** (the user, 2026-10-23).
   Settings gets a **Memory** tab: a list of single sentences, each one habit
@@ -2852,9 +2862,9 @@ edit.
   (`memory.list`) and the MCP instructions say to; the reviews use the
   tallies for their defaults, and the sentences explain them.
   Open: whether a sentence is enforced as a rule (a number the review reads)
-  or only read by agents as text; per format (Short/long) as the tallies are;
-  whether agents may add sentences themselves (proposed, never saved
-  without the user).
+  or only read by agents as text; per format (Short/long) as the tallies are.
+  **Decided (the user, 2026-10-28):** agents may propose sentences (never
+  saved without the user accepting).
 - Fits as its own feature folder with session state and a preference
   store; the reviews ask it for defaults rather than knowing about it.
   Open: per speaker as well as per format (a guest in an interview);
@@ -2868,6 +2878,11 @@ edit.
   Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
   and their preference; ⌘K lists recently and often used effects and
   annotations first before anything is typed, and leans on them when typing.
+- **A motion graphic's code in Finder** (the user, 2026-10-28; only showing
+  it, no watching for edits made there: "too overkill"). **Built
+  2026-10-28:** a folder button beside Edit Code shows the shown take's page
+  (the `.html` written beside its movie) in Finder; `reveal` takes a file in
+  the project's folder.
 **Gate:** after the user cuts or keeps the same kind of item the same way
 across a few projects, the next review opens that way and says why; a
 Short and a long video each open with their own learned settings; one

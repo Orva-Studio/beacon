@@ -19,7 +19,8 @@ import {
 import { acceptFiles, addDropTarget, droppedFiles, takes, type DropTarget, type PanelItem } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
-import { arrowHalfHeight, clipBox, maxTop, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SNAP, volumeY } from "./timeline-layout";
+import { arrowHalfHeight, clipBox, maxTop, shownSpan, cornerButtonAt, EDGE, EDGE_ZONE, GRAB, headerIcons, headerWidth, HEIGHT_SLIDER, rangeEdgeAt, rowAt, rowTop, RULER, SECTION_EDGE, SNAP, TRACKS_TOP, volumeY } from "./timeline-layout";
+import { SectionNamer } from "./section-namer";
 import { replica, useView } from "./store";
 import { arrows, clipLabel, drawTimeline, keepImages, timelineView, volumeAt, volumePoints, type Drag, type MoveDrag, type PressDrag, type TimelineMark } from "./timeline-draw";
 import { propsOf } from "./props";
@@ -53,6 +54,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
   const renaming = useView((s) => s.renaming);
   const dragging = useView((s) => s.dragging);
+  const pickedSection = useView((s) => s.section);
+  const namingSection = useView((s) => s.namingSection);
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const size = useRef({ w: 0, h: 0 });
@@ -74,7 +77,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   }, [session.animation?.id]);
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
-  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks });
+  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection });
   useEffect(() => keepImages(full, thumbs), [full, thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
@@ -82,7 +85,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   /** When each clip last had an effect added, for its badge's flash. */
   const flashes = useRef(new Map<string, number>());
   const effectCounts = useRef<Map<string, number> | null>(null);
-  latest.current = { project, session, waveforms, thumbs, dragging, marks };
+  latest.current = { project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection };
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
@@ -148,7 +151,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const d = dragState.current;
-      if (e.key !== "Escape" || !d || !["press", "move", "trim", "space", "track"].includes(d.kind)) return;
+      if (e.key !== "Escape" || !d || !["press", "move", "trim", "space", "track", "section", "sectionNew"].includes(d.kind)) return;
       e.preventDefault();
       e.stopPropagation();
       dragState.current = null;
@@ -353,6 +356,48 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     edge.current.raf = requestAnimationFrame(step);
   };
 
+  /** The section under `x` on the band, and which part: an edge within `SECTION_EDGE` points, else its body. */
+  const sectionAt = (x: number) => {
+    for (const s of latest.current.project.sections) {
+      const [a, b] = [xOf(ticksToSeconds(s.start)), xOf(ticksToSeconds(s.end))];
+      if (x < a - SECTION_EDGE || x > b + SECTION_EDGE) continue;
+      const part: "start" | "end" | "body" = Math.abs(x - a) <= SECTION_EDGE && b - a > SECTION_EDGE * 2 ? "start" : Math.abs(x - b) <= SECTION_EDGE ? "end" : x < a ? "start" : "body";
+      return { section: s, part };
+    }
+    return undefined;
+  };
+
+  /** How far a section from `a` to `b` (seconds) can reach: the ends of its neighbours, other than `skip`. */
+  const sectionRoom = (a: number, b: number, skip?: string): [number, number] => {
+    let [lo, hi] = [0, Infinity];
+    for (const s of latest.current.project.sections) {
+      if (s.id === skip) continue;
+      const [sa, sb] = [ticksToSeconds(s.start), ticksToSeconds(s.end)];
+      if (sb <= a + 1e-9) lo = Math.max(lo, sb);
+      else if (sa >= b - 1e-9) hi = Math.min(hi, sa);
+    }
+    return [lo, hi];
+  };
+
+  /** A press on the Sections band: pick and drag a section or its edge, or drag out a new one on empty time. */
+  const sectionPress = (e: React.PointerEvent, x: number) => {
+    canvas.current!.setPointerCapture(e.pointerId);
+    const hit = sectionAt(x);
+    if (hit) {
+      replica.section(hit.section.id);
+      const [a, b] = [ticksToSeconds(hit.section.start), ticksToSeconds(hit.section.end)];
+      const [lo, hi] = sectionRoom(a, b, hit.section.id);
+      dragState.current = { kind: "section", section: hit.section.id, part: hit.part, x0: x, a0: a, b0: b, a, b, lo, hi, moved: false };
+    } else {
+      replica.section(undefined);
+      let t = timeAt(e.clientX);
+      t += snapped([t], new Set(), e.ctrlKey);
+      const [lo, hi] = sectionRoom(t, t);
+      dragState.current = { kind: "sectionNew", a: t, b: t, lo, hi };
+    }
+    draw();
+  };
+
   const pointer = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -432,7 +477,16 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
     if (canvas.current!.hasPointerCapture(e.pointerId)) canvas.current!.releasePointerCapture(e.pointerId);
     if (!d) return;
     const { session } = latest.current;
-    if (d.kind === "track") {
+    if (d.kind === "sectionNew") {
+      const [a, b] = [Math.min(d.a, d.b), Math.max(d.a, d.b)];
+      if (b - a >= 1 / rationalToNumber(latest.current.project.settings.fps)) replica.nameSection({ start: a, end: b });
+      draw();
+    } else if (d.kind === "section") {
+      if (d.moved && (Math.abs(d.a - d.a0) > 1e-9 || Math.abs(d.b - d.b0) > 1e-9)) {
+        settle(d);
+        run("section.set", { section: d.section, start: d.a, end: d.b }, d.part === "body" ? "Move Section" : "Resize Section");
+      } else draw();
+    } else if (d.kind === "track") {
       // Display rows run top to bottom; tracks are stored bottom to top.
       if (d.to !== d.from) run("track.move", { track: d.track, index: tracks.length - 1 - d.to }, "Move Track");
     } else if (d.kind === "press") {
@@ -524,6 +578,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             dragState.current = { kind: "track", track: t.id, from: i, to: i };
             return capture();
           }
+          if (y >= RULER && y < TRACKS_TOP) return sectionPress(e, x);
+          if (latest.current.section) replica.section(undefined);
           const ph = xOf(session.playhead);
           // A range's edges are dragged on the ruler.
           if (session.range && y < RULER) {
@@ -600,10 +656,36 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           const { x, y } = pointer(e);
           const { project, session } = latest.current;
           if (!d) {
+            if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
+              const part = sectionAt(x)?.part;
+              canvas.current!.style.cursor = part === "start" || part === "end" ? "ew-resize" : "default";
+              return;
+            }
             const clip = y > RULER && x > HEADER ? clipAt(e.clientX, e.clientY) : undefined;
             const onPlayhead = x > HEADER && (y < RULER || Math.abs(x - xOf(session.playhead)) <= GRAB);
             canvas.current!.style.cursor = onPlayhead || (clip && edgeAt(clip, e.clientX)) ? "ew-resize" : "default";
             return;
+          }
+          if (d.kind === "sectionNew") {
+            let t = timeAt(e.clientX);
+            t += snapped([t], new Set(), e.ctrlKey);
+            dragState.current = { ...d, b: Math.min(d.hi, Math.max(d.lo, t)) };
+            return draw();
+          }
+          if (d.kind === "section") {
+            const frame = 1 / rationalToNumber(project.settings.fps);
+            let dt = (x - d.x0) * spp();
+            const edges = d.part === "start" ? [d.a0 + dt] : d.part === "end" ? [d.b0 + dt] : [d.a0 + dt, d.b0 + dt];
+            dt += snapped(edges, new Set(), e.ctrlKey);
+            let [a, b] = [d.a0, d.b0];
+            if (d.part === "start") a = Math.min(d.b0 - frame, Math.max(d.lo, d.a0 + dt));
+            else if (d.part === "end") b = Math.max(d.a0 + frame, Math.min(d.hi, d.b0 + dt));
+            else {
+              const by = Math.min(d.hi - d.b0, Math.max(d.lo - d.a0, dt));
+              [a, b] = [d.a0 + by, d.b0 + by];
+            }
+            dragState.current = { ...d, a, b, moved: d.moved || Math.abs(x - d.x0) > 2 };
+            return draw();
           }
           if (d.kind === "playhead") {
             // Every move, so a pointer back out of the edge stops the scrolling.
@@ -643,7 +725,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             return;
           }
           if (d.kind === "track") {
-            dragState.current = { ...d, to: Math.min(tracks.length - 1, Math.max(0, Math.floor((y - RULER + TOP) / TRACK))) };
+            dragState.current = { ...d, to: Math.min(tracks.length - 1, Math.max(0, Math.floor((y - TRACKS_TOP + TOP) / TRACK))) };
             return draw();
           }
           if (d.kind === "height") return setHeight(e.clientY);
@@ -722,6 +804,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         onLostPointerCapture={(e) => dragState.current && finish(e)}
         onDoubleClick={(e) => {
           const { x, y } = pointer(e as unknown as React.PointerEvent);
+          if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
+            const s = sectionAt(x)?.section;
+            if (s) replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
+            return;
+          }
           const i = rowUnder(y);
           if (x < HEADER && i !== undefined && !headerIcon(x, y, i)) replica.rename(tracks[i]!.id);
           if (x < HEADER || i === undefined) return;
@@ -773,6 +860,20 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
         }}
       />
+      {namingSection && (
+        <SectionNamer
+          key={namingSection.id ?? `${namingSection.start}`}
+          project={project}
+          value={project.sections.find((s) => s.id === namingSection.id)?.name ?? ""}
+          style={{ left: Math.min(Math.max(HEADER, xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2 }}
+          onDone={(name) => {
+            replica.nameSection(undefined);
+            if (name === null) return draw();
+            if (namingSection.id) run("section.set", { section: namingSection.id, name }, "Rename Section");
+            else run("section.add", { start: namingSection.start, end: namingSection.end, name }, "Add Section");
+          }}
+        />
+      )}
       {renaming && tracks.some((t) => t.id === renaming) && (
         <RenameField
           key={renaming}

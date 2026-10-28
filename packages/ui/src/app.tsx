@@ -62,6 +62,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** Shows an effect with other params on the canvas without an edit (a look under the pointer); null ends it. */
   previewEffect(preview: EffectPreview | null): void;
   binFrame(asset: string, time: number): Promise<string | null>;
+  /** Shows a file in the project's folder in Finder; resolves to why not, if it couldn't. */
+  reveal(path: string): Promise<string | undefined>;
   /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
   chooseFile(extensions: string[]): Promise<string | null>;
   /** Imports a picked file an effect reads (a LUT): its asset id, or why it couldn't be. */
@@ -164,6 +166,15 @@ export function App({ host }: { host: Host }) {
         }
       }
       const b = match(keymap, e);
+      // A section picked on the Sections band: ⌫ removes it, Esc lets it go; the clips under it stay.
+      const section = replica.get().section;
+      if (section && !field && (b?.command === "edit.delete" || b?.command === "edit.rippleDelete" || e.key === "Escape")) {
+        e.preventDefault();
+        e.stopPropagation();
+        replica.section(undefined);
+        if (e.key !== "Escape" && !e.repeat) host.run("section.remove", { section }, "Delete Section");
+        return;
+      }
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
       if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;

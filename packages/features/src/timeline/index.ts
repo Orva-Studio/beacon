@@ -30,6 +30,7 @@ import {
 import { visualSize } from "../media";
 import { actions, animationActions } from "./actions";
 import { clipCommands, packMagnetic } from "./clips";
+import { sectionCommands } from "./sections";
 
 
 export { rippleDeleteRanges } from "./clips";
@@ -236,6 +237,7 @@ function describe(project: Project): string {
     }
   }
   if (project.markers.length) lines.push(`markers: ${project.markers.map((m) => `${s(m.time)}s "${m.name}"`).join(", ")}`);
+  if (project.sections.length) lines.push(`sections: ${project.sections.map((x) => `${x.id} "${x.name}" ${s(x.start)}-${s(x.end)}s`).join(", ")}`);
   return lines.join("\n");
 }
 
@@ -290,7 +292,7 @@ const queries = [
 export const timeline = defineFeature({
   id: "timeline",
   version: 1,
-  commands: [...clipCommands, ...commands],
+  commands: [...clipCommands, ...commands, ...sectionCommands],
   queries,
   normalize: packMagnetic,
   actions: [...actions, ...animationActions],

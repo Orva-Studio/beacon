@@ -39,6 +39,7 @@ import {
   IdSchema as Id,
   SecondsSchema as Seconds,
 } from "@beacon/model";
+import { cutSections, openSections } from "./sections";
 
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
 
@@ -119,6 +120,7 @@ function removeRange(doc: Project, tracks: Track[], a: Ticks, b: Ticks, ctx: Com
   if (ripple && tracks === doc.tracks) {
     for (let i = doc.markers.length - 1; i >= 0; i--) if (doc.markers[i]!.time >= a && doc.markers[i]!.time < b) doc.markers.splice(i, 1);
     for (const m of doc.markers) if (m.time >= b) m.time -= gap;
+    cutSections(doc, a, b);
   }
 }
 
@@ -515,7 +517,10 @@ export const clipCommands = [
         for (const c of [...tr.clips]) if (c.start < t && clipEnd(c) > t) splitAt(tr, c, t, ctx, links);
         shiftLater(tr, t, d);
       }
-      if (!track) for (const m of doc.markers) if (m.time >= t) m.time += d;
+      if (!track) {
+        for (const m of doc.markers) if (m.time >= t) m.time += d;
+        openSections(doc, t, d);
+      }
     },
   }),
   defineCommand({
@@ -533,7 +538,10 @@ export const clipCommands = [
       if (d <= 0) return;
       if (d > room) throw new Error("there is media in that time; only empty time can be closed");
       for (const tr of tracks) shiftLater(tr, t, -d);
-      if (!track) for (const m of doc.markers) if (m.time >= t - d) m.time = Math.max(t - d, m.time - d);
+      if (!track) {
+        for (const m of doc.markers) if (m.time >= t - d) m.time = Math.max(t - d, m.time - d);
+        cutSections(doc, t - d, t);
+      }
     },
   }),
 ];
