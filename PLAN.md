@@ -2883,6 +2883,22 @@ edit.
   2026-10-28:** a folder button beside Edit Code shows the shown take's page
   (the `.html` written beside its movie) in Finder; `reveal` takes a file in
   the project's folder.
+- **A Beacon icon on project folders** (the user, 2026-10-28, as Camtasia's
+  `.cmproj` shows its own). A `.beproj` is a folder: declare it a document
+  package (`CFBundleDocumentTypes` with `LSTypeIsPackage`, an exported UTI
+  for `.beproj`) with a document icon in the app's Info.plist, so Finder
+  shows the icon, opens it in Beacon on a double-click, and keeps it one
+  item. Open: whether it still opens as a folder (⌥ Show Package Contents).
+- **New Project chooses where** (the user, 2026-10-28): ⌘N names the project
+  but always saves it in ~/Movies/Beacon. Add a location (the last one used,
+  Choose… for a folder, remembered as a preference) to the New Project
+  dialog.
+- **Set a take's camera delay by hand** (the user, 2026-10-28). Settings ›
+  Recording already takes a typed delay per camera and microphone, but only
+  takes recorded after it use it. For a take already on the timeline: a
+  "Camera Delay" on the camera clip (ms, + later / − earlier) that moves it
+  against its audio without unlinking, one undo step, and an offer to save
+  it for the pair so the next take is right.
 **Gate:** after the user cuts or keeps the same kind of item the same way
 across a few projects, the next review opens that way and says why; a
 Short and a long video each open with their own learned settings; one
