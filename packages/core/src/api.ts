@@ -277,8 +277,8 @@ export interface BeaconCore {
    * folder too. The project stays open as it was; returns the copy's path, to `open`.
    */
   saveAs(h: ProjectHandle, path: string, opts?: { standalone?: boolean }): Promise<string>;
-  /** Show in Finder: the project's folder, selected in a Finder window. */
-  reveal(h: ProjectHandle): Promise<void>;
+  /** Show in Finder: the project's folder, or `path` (a file in it, a motion graphic's page), selected in a Finder window. */
+  reveal(h: ProjectHandle, path?: string): Promise<void>;
   close(h: ProjectHandle): Promise<void>;
   run(h: ProjectHandle, command: string, args: unknown, opts?: RunOptions): Promise<CommandResult>;
   transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }): Promise<CommandResult>;

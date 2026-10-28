@@ -343,8 +343,11 @@ export class LocalCore implements BeaconCore {
     return to;
   }
 
-  async reveal(h: ProjectHandle): Promise<void> {
-    this.#reveal(this.#get(h).path);
+  async reveal(h: ProjectHandle, path?: string): Promise<void> {
+    const dir = this.#get(h).path;
+    if (path !== undefined && !isInside(dir, path)) throw new Error("only files in the project's folder can be shown");
+    if (path !== undefined && !existsSync(path)) throw new Error(`${basename(path)} isn't there any more`);
+    this.#reveal(path ?? dir);
   }
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
@@ -714,7 +717,7 @@ export class LocalCore implements BeaconCore {
     const picture = media?.streams?.find((s) => s.kind === "video" && s.width && s.height);
     const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
     const settings = picture ? { ...base.settings, width: even(picture.width!), height: even(picture.height!) } : base.settings;
-    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], markers: [] }, { newId: shortId, data: p.data.get });
+    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], markers: [], sections: [] }, { newId: shortId, data: p.data.get });
     store.run("asset.place", { asset: assetId, time: 0 });
     const doc = store.doc;
     const kind = asset.kind === "image" ? "image" : picture ? "video" : "audio";

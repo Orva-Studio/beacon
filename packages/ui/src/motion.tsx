@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Clip, Project, Session } from "@beacon/model";
 import type { CustomStyle, Look, MotionProps, MotionState } from "@beacon/features";
-import { Button, Section, Segmented, Select, TextArea } from "./controls";
+import { Button, Icon, Section, Segmented, Select, TextArea } from "./controls";
 import { MotionCode } from "./motion-code";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
-import { useView } from "./store";
+import { replica, useView } from "./store";
 import type { Host } from "./app";
 
 export const motionStateOf = (s: Session | undefined) => (s?.features.motion as MotionState | undefined) ?? { writing: [], making: [], errors: {} };
@@ -80,6 +80,8 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const looks = useQuery<Look[]>(host, "motion.looks");
   const look = looks?.find((l) => l.id === m.look);
   const reference = m.reference ? project.assets[m.reference] : undefined;
+  /** The page the shown take was drawn from, written beside its movie. */
+  const page = ((id) => (id ? project.assets[id]?.path.replace(/\.mov$/, ".html") : undefined))(m.takes[m.shown]?.assetId);
   const by = m.takes[m.shown]?.by;
   const designed = by === "openai" || by === "claude" || by === "you";
   const cost = typicalCost(project, planner ?? "openai");
@@ -311,6 +313,17 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             >
               {m.shown >= 0 ? "Edit Code…" : "Write Code…"}
             </Button>
+            {page && (
+              <Button
+                look="quiet"
+                title="Show its page (HTML, CSS and script) in Finder, to open in any editor"
+                aria-label="Show Code in Finder"
+                onClick={() => void host.reveal(page).then((why) => why && replica.status(`Can't show the code: ${why}`))}
+                data-motion-reveal
+              >
+                <Icon name="folder-open" size={14} />
+              </Button>
+            )}
           </div>
         </div>
         {editing && <MotionCode host={host} clip={clip.id} html={m.takes[m.shown]?.html ?? ""} onClose={() => setEditing(false)} />}

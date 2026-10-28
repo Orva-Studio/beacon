@@ -49,6 +49,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     // Coalesced: sweeping down a list sends only the newest look once the last one is in.
     previewEffect: (preview) => commands.send(() => request("previewEffect", { preview }), "previewEffect"),
     binFrame: (asset, time) => request("binFrame", { asset, time }),
+    reveal: async (path) => ((r) => (r.ok ? undefined : r.error))(await request("reveal", { path })),
     analyze: (key, asset) => void request("analyze", { key, asset }),
     favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, ...(index !== undefined ? { index } : {}) })),
     favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),

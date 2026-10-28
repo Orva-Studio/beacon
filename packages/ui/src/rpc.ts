@@ -132,7 +132,7 @@ export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
 export { copiedIds } from "./clip-ids";
 // The timeline's geometry, for the UI harness's clicks.
-export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
+export { BAND, clipBox, cornerButtons, headerIcons, headerWidth, RULER, TRACKS_TOP } from "./timeline-layout";
 
 export interface Notice {
   title: string;
@@ -324,6 +324,8 @@ export type AppRPC = {
       previewEffect: { params: { preview: EffectPreview | null }; response: RunReply };
       /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
       binFrame: { params: { asset: string; time: number }; response: string | null };
+      /** Show a file in the project's folder in Finder. */
+      reveal: { params: { path: string }; response: { ok: boolean; error?: string } };
       /** Starts a media item's background analysis unless it is running (Remove Silences' missing transcripts). */
       analyze: { params: { key: string; asset: string }; response: void };
       /** A folder picked in the Finder dialog, starting at `start`. */
