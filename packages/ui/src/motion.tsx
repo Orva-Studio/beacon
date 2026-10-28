@@ -6,6 +6,7 @@ import { MotionCode } from "./motion-code";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { replica, useView } from "./store";
+import { useDraft } from "./draft";
 import type { Host } from "./app";
 
 export const motionStateOf = (s: Session | undefined) => (s?.features.motion as MotionState | undefined) ?? { writing: [], making: [], errors: {} };
@@ -60,12 +61,12 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const making = state.making.includes(clip.id);
   const busy = writing || making;
   const error = state.errors[clip.id];
-  const [manual, setManual] = useState(m.manual);
+  // Saved a second after typing stops, so an agent asked to make it reads what was typed; one undo step.
+  const [manual, setManual, saveManual] = useDraft(clip.id, m.manual, (text) => host.run("clip.set", { clip: clip.id, props: { motion: { manual: text } } }, "Motion Graphics Prompt", `motion-prompt-${clip.id}`));
   const [note, setNote] = useState("");
   const [editing, setEditing] = useState(false);
   // A change asked for is done once its take arrives.
   useEffect(() => setNote(""), [m.takes.length, clip.id]);
-  useEffect(() => setManual(m.manual), [m.manual]);
   const planner = useView((v) => v.preferences.find((p) => p.id === "motionPlanner")?.value);
   const online = useOnline();
   const needsNet = planner !== "apple" && !online;
@@ -218,7 +219,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
               placeholder={said || 'Describe it: "a title: Ship faster", "Sarah Chen, head of design", "87% counting up, revenue growth"'}
               value={manual}
               onChange={(e) => setManual(e.target.value)}
-              onBlur={() => manual !== m.manual && set({ manual }, "Motion Graphics Prompt")}
+              onBlur={saveManual}
               data-motion-prompt
             />
             <span className="text-caption text-text-faint">A title, a name and role, a number, a list, or a line of text, with the words to show.</span>

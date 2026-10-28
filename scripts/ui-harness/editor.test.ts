@@ -2139,7 +2139,9 @@ test.skipIf(skip)("the ruler moves the playhead past the last clip, and an edit 
   await Bun.sleep(1000);
   const followed = await session();
   expect(followed.playhead).toBeGreaterThan(s.timeline.end + 1);
-  expect(followed.timeline.end).toBeCloseTo(followed.playhead, 0);
+  // Each step moves the playhead, then the view: read between the two, they are up to a step (40 points) apart.
+  const stepSeconds = (40 * (followed.timeline.end - followed.timeline.start)) / (box.w - header);
+  expect(Math.abs(followed.timeline.end - followed.playhead)).toBeLessThanOrEqual(stepSeconds + 0.5);
   // Back out of the edge, still held: the view stops.
   await page.move(box.x + box.w / 2, y);
   await Bun.sleep(300);
@@ -5068,6 +5070,24 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     await ui.core.undo(ui.handle);
     expect(props()).toMatchObject({ source: "auto", manual: `${words} at dusk` });
     await run("clip.set", { clip: clip.id, props: { broll: { source: "manual", manual: words } } });
+    // Typed, it's saved a second after typing stops, the box still focused (an agent asked to generate reads it);
+    // typed on after that, the same undo step.
+    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === ${JSON.stringify(words)}`);
+    const typedFrom = (await ui.core.history(ui.handle)).undo.length;
+    await page.evaluate("document.querySelector('textarea[data-broll-prompt]').focus()");
+    await type("A drone shot over a city");
+    await Bun.sleep(400);
+    expect(props().manual).toBe(words);
+    await arrived(() => props().manual === "A drone shot over a city", 3000);
+    expect(await page.evaluate<boolean>("document.activeElement?.hasAttribute('data-broll-prompt')")).toBe(true);
+    await page.evaluate("document.execCommand('insertText', false, ' at night')");
+    await arrived(() => props().manual === "A drone shot over a city at night", 3000);
+    expect(await page.evaluate<string>("document.querySelector('textarea[data-broll-prompt]').value")).toBe("A drone shot over a city at night");
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(typedFrom + 1);
+    await ui.core.undo(ui.handle);
+    expect(props().manual).toBe(words);
+    await page.until(`document.querySelector('textarea[data-broll-prompt]')?.value === ${JSON.stringify(words)}`);
+    await page.evaluate("document.activeElement.blur()");
 
     // No Replicate token: the tab says so, with the way to Settings › AI, where the planner is Apple's by default.
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').startsWith('Generate')");

@@ -15,6 +15,7 @@ feature lands and when it is checked.
 | Animating a highlight's width (the user found it doing nothing): a new animation held only position, scale, rotation, opacity and crop, so a width set after it went to the whole clip. Add Animation now holds every field the clip's features can animate (a region's width, height and intensity; a cursor's size and opacity), not volume (its own points). Blocks made before keep what they held: add the animation again | 2026-10-28 | this branch | core test (`animate-region.test.ts`: the block holds `region.width`, a width set at 3 s eases in over the block, undone exactly; fails without the change) |
 | Sections: a band under the ruler naming the video's parts. Drag on empty band time to make one (it stops at its neighbours), then name it: typed, or picked from the project's names then Hook, Intro, Explanation, Demo, Example, Recap, Outro, Call to Action (Esc or a click away makes none); drag an edge or the body (between its neighbours), double-click to rename, click then ⌫ to delete (the clips stay), Esc lets it go; coloured by name. `section.add` / `.set` / `.remove` (MCP tools) refuse overlaps; ripple deletes and inserted or removed space move, grow or shrink them; `project_describe` lists them; schema v3 | 2026-10-28 | this branch | core test (`sections.test.ts`: overlaps refused, rename and resize, ripple delete and insert space, undone exactly), migrations test (v3), UI flow (`Sections: a band under the ruler…`: pick and type a name, stops at a neighbour, Esc makes none, edge and body drags, rename, ⌫) |
 | A motion graphic's code in Finder: a folder button beside Edit Code shows the shown take's page (its `.html`, beside its movie) in Finder, to open in any editor; only files in the project's folder can be shown | 2026-10-28 | this branch | UI flow (`Motion Graphics, as B-roll…`: the path revealed is the take's page, which holds its HTML; a file outside the project refused) |
+| A typed B-roll or motion graphic prompt (Manual) saves itself a second after typing stops, the box still focused, so an agent asked to generate or make it reads what was typed; typing on after a save is the same undo step; on leaving the box or picking another clip it saves at once, to the clip it was typed for; an undo or an agent's change shows in the box (`useDraft`) | 2026-10-28 | this branch | UI flow (`B-roll from the AI panel adds a clip…`: not saved at 0.4 s, saved by 3 s while focused, typed on into one undo step, undone; `Motion Graphics, as B-roll…` still passes) |
 
 ### Not checked yet
 
@@ -22,6 +23,7 @@ feature lands and when it is checked.
 - A highlight's width animated in the app: a new animation on it, then the width changed after it.
 - Sections in the app (above): making, naming, dragging, renaming and deleting them on your own project.
 - A motion graphic's code shown in Finder (above).
+- A typed B-roll prompt saved by itself, then "generate it" asked of an agent over MCP.
 
 ## Phase 11.5: editing polish (`phase-11.5`)
 

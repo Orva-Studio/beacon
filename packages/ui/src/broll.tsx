@@ -7,6 +7,7 @@ import type { Placed } from "./canvas";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { replica, useView } from "./store";
+import { useDraft } from "./draft";
 import type { Host } from "./app";
 import { innerTracks, timelineView } from "./timeline-draw";
 
@@ -66,8 +67,8 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const making = state.making.includes(clip.id);
   const busy = planning || making;
   const error = state.errors[clip.id];
-  const [manual, setManual] = useState(b.manual);
-  useEffect(() => setManual(b.manual), [b.manual]);
+  // Saved a second after typing stops, so an agent asked to generate it reads what was typed; one undo step.
+  const [manual, setManual, saveManual] = useDraft(clip.id, b.manual, (text) => host.run("clip.set", { clip: clip.id, props: { broll: { manual: text } } }, "B-roll Prompt", `broll-prompt-${clip.id}`));
   const planner = useView((v) => v.preferences.find((p) => p.id === "brollPlanner")?.value);
   const auto = b.source === "auto";
   // Adding and Apple's planner work offline; Replicate, and OpenAI's planner, need the internet.
@@ -135,7 +136,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           </div>
         ) : (
           <label className="flex flex-col gap-1">
-            <TextArea rows={4} placeholder={said || "Describe the shot"} value={manual} onChange={(e) => setManual(e.target.value)} onBlur={() => manual !== b.manual && set({ manual }, "B-roll Prompt")} data-broll-prompt />
+            <TextArea rows={4} placeholder={said || "Describe the shot"} value={manual} onChange={(e) => setManual(e.target.value)} onBlur={saveManual} data-broll-prompt />
             <span className="text-caption text-text-faint">Starts from the words said under the clip. Say the look you want here (anime, realistic, 3D animation…).</span>
           </label>
         )}
