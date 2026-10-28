@@ -100,7 +100,8 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   frames), then tell them it is marked on the timeline for Apply; or
   `silences_apply` when they say so.
 - Remove Retakes, the same way: `transcript_retakes` groups each line said
-  more than once (a restart, a sentence said again) into takes, with the one
+  more than once (a restart, a sentence said again, a stutter: a word or a
+  few said again straight away) into takes, with the one
   kept and who picked it (the user's Best Take setting: Beacon's own scoring,
   or OpenAI with their key, which `analyze` with `retakes` asks once the
   transcript is there). `retakes_review`, `retakes_keep` a take you judge

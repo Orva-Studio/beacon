@@ -783,7 +783,7 @@ export const transcript = defineFeature({
     {
       id: "transcript",
       description: "Word-timed transcript of every audio stream (by the chosen transcriber, clipped to detected speech)",
-      version: 7,
+      version: 8,
       needs: (pref) => (transcriber(pref) === "whisper" ? "whisper-model" : undefined),
       // Local Whisper's results keep the cache entries made before there was a choice.
       variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
@@ -891,7 +891,7 @@ export const transcript = defineFeature({
     defineQuery({
       id: "transcript.retakes",
       description:
-        "What Remove Retakes would cut: each line said more than once (a restart, a sentence said again after a stumble) as a group of takes, each take's times (timeline seconds) and words, the take kept (`best`, from 0; -1 when every take is cut, by retakes.cutAll), its takes' words as one `key` and who picked it (`by`: you, OpenAI or Beacon's own scoring), and the seconds saved. Of the takes after the kept one only what repeats the line is cut, so what the last goes on to say stays. `waiting`: media with no transcript yet; `judging`: media OpenAI hasn't judged yet (when Best take is OpenAI: the analyze tool with `retakes` asks)",
+        "What Remove Retakes would cut: each line said more than once (a restart, a sentence said again after a stumble, a word or a few said again straight away) as a group of takes, each take's times (timeline seconds) and words, the take kept (`best`, from 0; -1 when every take is cut, by retakes.cutAll), its takes' words as one `key` and who picked it (`by`: you, OpenAI or Beacon's own scoring), and the seconds saved. Of the takes after the kept one only what repeats the line is cut, so what the last goes on to say stays. `waiting`: media with no transcript yet; `judging`: media OpenAI hasn't judged yet (when Best take is OpenAI: the analyze tool with `retakes` asks)",
       args: z.strictObject({
         minWords: RetakeSettings.minWords.optional(),
         within: RetakeSettings.within.optional(),

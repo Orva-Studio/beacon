@@ -98,8 +98,32 @@ export function findRetakes(words: Word[], o: RetakeOptions): Take[][] {
       break;
     }
   }
-  return groups.map((g) => g.starts.map((s, k) => ({ first: tok[s]!.i, last: k + 1 < g.starts.length ? tok[g.starts[k + 1]!]!.i - 1 : tok[g.end]!.i })));
+  const inGroup = (k: number) => groups.some((g) => k >= g.starts[0]! && k <= g.end);
+  // Too short to restart a line by `minWords`, a stutter: a word or a few said again straight after ("I I think",
+  // "like HelloFresh, like HelloFresh, who've"). Words some say twice on purpose ("and lots and lots") aren't one.
+  const stutters: typeof groups = [];
+  for (let k = 0; k < t.length; k++) {
+    if (inGroup(k)) continue;
+    for (let n = 1; n < m && k + 2 * n <= t.length; n++) {
+      if (DOUBLED.has(t[k + n - 1]!)) continue;
+      if (tok[k + n]!.start - tok[k]!.start > o.within || [...Array(2 * n).keys()].some((x) => inGroup(k + x))) continue;
+      if (!t.slice(k, k + n).every((x, d) => x === t[k + n + d])) continue;
+      const g = stutters.at(-1);
+      if (g && g.starts.at(-1) === k && g.end === k + n - 1) {
+        g.starts.push(k + n);
+        g.end = k + 2 * n - 1;
+      } else stutters.push({ starts: [k, k + n], end: k + 2 * n - 1 });
+      k += n - 1;
+      break;
+    }
+  }
+  return [...groups, ...stutters]
+    .sort((x, y) => x.starts[0]! - y.starts[0]!)
+    .map((g) => g.starts.map((s, k) => ({ first: tok[s]!.i, last: k + 1 < g.starts.length ? tok[g.starts[k + 1]!]!.i - 1 : tok[g.end]!.i })));
 }
+
+/** Said twice in a row on purpose ("had had", "that that", "very very", "lots and lots"): a repeat ending in one isn't a stutter. */
+const DOUBLED = new Set(["had", "that", "is", "do", "very", "really", "so", "no", "bye", "ha", "go", "yeah", "well", "now", "far", "more", "over", "again", "and", "lots", "many", "much", "times"]);
 
 /** Long enough between two words of one take to be a stumble. */
 const HESITATION = 1;
