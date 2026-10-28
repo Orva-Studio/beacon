@@ -345,6 +345,7 @@ function openWindow(): Win {
             ...(await initPayload(core)),
             opened: w.current ? await openedPayload(w, w.current.path) : undefined,
             recent: projects.recentProjects(),
+            projectsFolder: projects.projectsFolder(),
             keyLog: !!keyLog,
             socket,
           };
@@ -380,7 +381,7 @@ function openWindow(): Win {
         testBeep: (params) => recorder.testBeep(params),
         checkSync: (params) => replyWith(() => recorder.checkSync(params)),
         setAppSettings: (next) => setAppSettings(next, w),
-        newProject: ({ name, settings, standalone }) => reply(() => projects.createProject(name, settings, standalone)),
+        newProject: ({ name, settings, standalone, folder }) => reply(() => projects.createProject(name, settings, standalone, folder)),
         saveAs: (params) => reply(() => projects.saveAs(w, params)),
         fetchResource: ({ id }) => replyWith(async () => (await core.fetchResource(id)).id),
         declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }, w),

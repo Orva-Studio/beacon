@@ -14,7 +14,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   status: ({ text }) => replica.status(text),
   rename: ({ track }) => replica.rename(track),
   renameMedia: ({ asset }) => replica.renameMedia(asset),
-  newProjectSheet: ({ name }) => replica.newProject({ name }),
+  newProjectSheet: ({ name, folder }) => replica.newProject({ name, folder }),
   recent: (r) => replica.recent(r),
   saveAsSheet: (s) => replica.saveAs(s),
   resourceSheet: (r) => replica.resource(r),

@@ -489,10 +489,14 @@ test.skipIf(skip)("the Y dial tilts a clip in perspective and its outline follow
   await run("clip.set", { clips: [screen.id], props: { transform: { rotationY: 0 } } });
 });
 
-test.skipIf(skip)("New Project asks for a name and the canvas (presets); the project's name renames it", async () => {
-  ui.send("newProjectSheet", { name: "Untitled Project" });
+test.skipIf(skip)("New Project asks for a name, where (Choose…) and the canvas (presets); the project's name renames it", async () => {
+  ui.send("newProjectSheet", { name: "Untitled Project", folder: "/Users/someone/Movies/Beacon" });
   await page.until("document.body.innerText.includes('New Project')");
   await type("Episode 12");
+  // Where it goes: the folder last used, shown from ~; Choose… picks another.
+  expect(await page.evaluate<string>("document.querySelector('[data-project-where] span').textContent")).toBe("~/Movies/Beacon");
+  await page.evaluate(`[...document.querySelectorAll('[data-project-where] button')][0].click()`);
+  await page.until("document.querySelector('[data-project-where] span').textContent === '~/Shared'");
   const dims = `[...document.querySelectorAll('[data-canvas-settings] input')].map((i) => i.value).join('x')`;
   const pick = (size: string) => page.evaluate(`(() => { const s = document.querySelector('[data-canvas-size]'); s.value = '${size}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   // The Portrait tab starts from 9:16 FHD; its list holds only portrait sizes.
@@ -527,6 +531,7 @@ test.skipIf(skip)("New Project asks for a name and the canvas (presets); the pro
   expect(ui.menus).toContain(`newProjectSettings:${JSON.stringify({ width: 1440, height: 2560, fps: 30, background: "#000000", normalize: true })}`);
   expect(ui.menus).toContain("renameProject:Client Demo");
   expect(ui.menus).toContain("newProjectStandalone");
+  expect(ui.menus).toContain("newProjectFolder:/Users/someone/Shared");
 });
 
 test.skipIf(skip)("opened without a project, the start screen offers New Project, the last four projects with when each was opened, and Open…", async () => {

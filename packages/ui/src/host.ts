@@ -77,7 +77,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     setAppSettings: (s) => void request("setAppSettings", s),
     proxySpace: () => request("proxySpace", {}),
     deleteAllProxies: () => request("deleteAllProxies", {}),
-    newProject: (name, settings, standalone) => commands.ordered(() => request("newProject", { name, settings, standalone })),
+    newProject: (name, settings, standalone, folder) => commands.ordered(() => request("newProject", { name, settings, standalone, folder })),
     saveAs: (params) => commands.ordered(() => request("saveAs", params)),
     fetchResource: (id) => request("fetchResource", { id }),
     declineResource: (id) => void request("declineResource", { id }),

@@ -72,7 +72,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     if (dialog === "settings") return sendAll("settingsSheet", await settingsSheet(core, tab ? { tab } : {}));
     if (dialog === "projectSettings") return sendAll("projectSettings", {});
     if (dialog === "export" || dialog === "exportSelection") return exportSheet(dialog === "exportSelection");
-    if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project" });
+    if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project", folder: "/Users/someone/Movies/Beacon" });
     if (dialog === "record") return sendAll("recordSheet", { ...(narrationDevices as object), mode: "take", sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } } });
   });
 
@@ -122,7 +122,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         if (msg.type === "setPreference" || msg.type === "setSecret") menus.push(msg.type === "setPreference" ? `setPreference:${p.id}=${p.value}` : `setSecret:${p.id}=${p.value === null ? "removed" : "set"}`);
         if (shared[msg.type]) result = await shared[msg.type]!(p as never);
         else if (msg.type === "init") {
-          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], socket: "" };
+          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], projectsFolder: "/Users/someone/Movies/Beacon", socket: "" };
         }
         else if (msg.type === "resync") result = await opened(ws);
         else if (msg.type === "openRecent" || msg.type === "openDialog") {
@@ -217,6 +217,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           menus.push(`${msg.type}:${p.name}`);
           if (p.settings) menus.push(`newProjectSettings:${JSON.stringify(p.settings)}`);
           if (p.standalone) menus.push("newProjectStandalone");
+          if (p.folder) menus.push(`newProjectFolder:${p.folder}`);
           result = { ok: true };
         }
         else if (msg.type === "saveAs") {

@@ -95,7 +95,7 @@ export interface ViewState {
   /** Where the preview is playing. */
   previewClock: { time: number; playing: boolean };
   /** The New Project dialog, while open, with the name it offers. */
-  newProject?: { name: string };
+  newProject?: { name: string; folder: string };
   saveAs?: import("./project-name").SaveAsSheet;
   /** The dialog asking to download a resource (the speech model), and its download. */
   resource?: import("./resource").ResourceInfo;

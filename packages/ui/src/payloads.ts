@@ -10,8 +10,8 @@ import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } fr
 
 type Core = Pick<BeaconCore, "schema" | "shortcuts" | "favorites" | "preferences" | "settings" | "resources" | "secrets">;
 
-/** The window's init payload, but for what only the app knows (the open project, recent projects, its socket). */
-export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "recent" | "socket" | "keyLog">> {
+/** The window's init payload, but for what only the app knows (the open project, recent projects, where new ones go, its socket). */
+export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "recent" | "projectsFolder" | "socket" | "keyLog">> {
   const schema = core.schema();
   return {
     shortcuts: await core.shortcuts(),

@@ -70,6 +70,8 @@ export interface RecentProject {
 export interface Init {
   opened?: Opened;
   recent: RecentProject[];
+  /** Where New Project puts a project: the folder last chosen for one, else ~/Movies/Beacon. */
+  projectsFolder: string;
   /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
   shortcuts: ShortcutInfo[];
   propGroups: PropGroupInfo[];
@@ -367,7 +369,7 @@ export type AppRPC = {
       proxySpace: { params: {}; response: number };
       /** Settings > General > Delete All Proxy Videos; replies with the bytes still used. */
       deleteAllProxies: { params: {}; response: number };
-      newProject: { params: { name: string; settings: CanvasValues; standalone: boolean }; response: RunReply };
+      newProject: { params: { name: string; settings: CanvasValues; standalone: boolean; folder: string }; response: RunReply };
       /** File > Save As…: `name`.beproj in `folder`, opened in place of the open project. */
       saveAs: { params: { name: string; folder: string; standalone: boolean }; response: RunReply };
       /** Download a resource (the speech model): replies with its job id. */
@@ -423,7 +425,7 @@ export type AppRPC = {
       /** The Media Bin preview's clock. */
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
-      newProjectSheet: { name: string };
+      newProjectSheet: { name: string; folder: string };
       recent: RecentProject[];
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;

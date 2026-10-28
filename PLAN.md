@@ -2938,7 +2938,9 @@ edit.
 - **New Project chooses where** (the user, 2026-10-28): ⌘N names the project
   but always saves it in ~/Movies/Beacon. Add a location (the last one used,
   Choose… for a folder, remembered as a preference) to the New Project
-  dialog.
+  dialog. **Built 2026-10-28:** a Where row with Choose…, the folder chosen
+  kept in `new-project.json` and offered next time (from the start screen
+  too); Camtasia copies still go to ~/Movies/Beacon.
 - **Set a take's camera delay by hand** (the user, 2026-10-28). Settings ›
   Recording already takes a typed delay per camera and microphone, but only
   takes recorded after it use it. For a take already on the timeline: a
