@@ -2946,7 +2946,11 @@ edit.
   takes recorded after it use it. For a take already on the timeline: a
   "Camera Delay" on the camera clip (ms, + later / − earlier) that moves it
   against its audio without unlinking, one undo step, and an offer to save
-  it for the pair so the next take is right.
+  it for the pair so the next take is right. **Built 2026-10-28:** Camera delay in the camera
+  clip's Visual tab (`media.cameraDelay`), every camera piece of the take
+  slipped in place. **Not built:** the offer to save it for the pair, as a
+  take's `recording.json` doesn't say which camera and microphone it used;
+  writing their ids into new takes would allow it.
 **Gate:** after the user cuts or keeps the same kind of item the same way
 across a few projects, the next review opens that way and says why; a
 Short and a long video each open with their own learned settings; one

@@ -2,8 +2,11 @@ import { existsSync, rmSync } from "node:fs";
 import { z } from "zod";
 import {
   animationRamps,
+  defineCommand,
   defineFeature,
   eachRawClip,
+  original,
+  ticksPerFrame,
   defineQuery,
   IDENTITY,
   clipSpeed,
@@ -169,7 +172,44 @@ function importClips(asset: Asset, project: Project): ImportClipSpec[] {
 const mediaGroup = z.strictObject({
   /** Index among the asset's video streams (visual clips) or audio streams (audio clips). */
   stream: z.int().nonnegative(),
+  /** A take's camera: milliseconds its picture was moved against the take's sound by hand (`media.cameraDelay`). */
+  delay: z.number().optional(),
 });
+
+/** A take's camera clip: a recording's video that isn't its screen. */
+const isTakeCamera = (project: Project, clip: Clip) => clip.type === "video" && project.assets[clip.assetId ?? ""]?.kind === "recording";
+
+/**
+ * Moves a take's camera picture against its sound: every camera clip of `asset` (stream `stream`) shows its media
+ * `shift` ticks later, in place, its animations and effect spans with it. Pieces at the ends of the media lose what
+ * would run past them, in whole frames.
+ */
+function slipCamera(doc: Project, asset: Asset, stream: number, shift: number, delay: number) {
+  const frame = ticksPerFrame(doc.settings.fps);
+  const seconds = streamOf(asset, "video", stream).duration || mediaInfo(asset).duration;
+  const length = secondsToTicks(seconds);
+  const tracks = original(doc)!.tracks;
+  for (const [ti, track] of tracks.entries()) {
+    for (const [ci, c] of track.clips.entries()) {
+      if (c.assetId !== asset.id || c.type !== "video" || clipStream(c) !== stream) continue;
+      const clip = doc.tracks[ti]!.clips[ci]!;
+      const speed = clipSpeed(c);
+      let from = (c.mediaStart ?? 0) + shift;
+      let { start, duration } = c;
+      if (from < 0) {
+        const cut = Math.ceil(-from / speed / frame) * frame;
+        [start, duration, from] = [start + cut, duration - cut, from + Math.round(cut * speed)];
+      }
+      const over = from + Math.round(duration * speed) - length;
+      if (over > 0) duration -= Math.ceil(over / speed / frame) * frame;
+      if (duration <= 0) throw new Error(`a ${delay} ms camera delay leaves nothing of the camera clip at ${ticksToSeconds(c.start)} s`);
+      Object.assign(clip, { start, duration, mediaStart: from });
+      for (const a of clip.animations) a.end += shift;
+      for (const e of clip.effects) if (e.span) e.span = { start: e.span.start + shift, end: e.span.end + shift };
+      clip.props.media = { ...(clip.props.media as object), delay };
+    }
+  }
+}
 
 function visual(e: ClipEval, layer: Omit<VisualLayer, "kind" | "transform">) {
   const main: VisualLayer = { kind: "visual", transform: IDENTITY, ...layer };
@@ -307,6 +347,22 @@ export const media = defineFeature({
         const importer = registry.importerFor(a.path.slice(a.path.lastIndexOf(".")));
         if (!importer) throw new Error(`no feature places ${a.path}`);
         return importer.clips(a, project).map((c) => ({ track: c.track, type: c.type, seconds: ticksToSeconds(c.duration) }));
+      },
+    }),
+  ],
+  commands: [
+    defineCommand({
+      id: "media.cameraDelay",
+      description:
+        "Line up a take's camera with its sound by hand: `ms` the camera is late (its picture shown that much earlier; negative: early), for every camera clip of the take, kept where they are; replaces the delay set before (0 undoes it). The take's sound and screen don't move. One undo step. For a take recorded before the camera's delay was measured (Settings › Recording › Check Sync), or one still out",
+      args: z.strictObject({ clip: z.string().describe("A camera clip of the take"), ms: z.number().min(-2000).max(2000) }),
+      apply(doc, { clip: id, ms }) {
+        const clip = original(doc)!.tracks.flatMap((t) => t.clips).find((c) => c.id === id);
+        if (!clip || !isTakeCamera(doc, clip)) throw new Error(`clip "${id}" is not a take's camera`);
+        const before = (clip.props.media as { delay?: number } | undefined)?.delay ?? 0;
+        const delay = Math.round(ms);
+        if (delay === before) return;
+        slipCamera(doc, doc.assets[clip.assetId!]!, clipStream(clip), secondsToTicks((delay - before) / 1000), delay);
       },
     }),
   ],

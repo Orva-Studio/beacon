@@ -2629,6 +2629,34 @@ test.skipIf(skip)("Settings › Recording sets where a new recording goes and th
   }
 });
 
+test.skipIf(skip)("a take's camera has a Camera delay in its Visual tab: typed, every camera piece of the take moves against the sound, one undo step", async () => {
+  const camera = clips().find((c) => c.assetId === screen.assetId && c.type === "video")!;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("playhead.set", { time: ticksToSeconds(camera.start) + 1 });
+    await select([camera.id]);
+    await run("inspector.tab", { tab: "transform" });
+    await page.until("!!document.querySelector('[data-camera-delay] [data-input]')");
+    // Not on the screen.
+    await select([screen.id]);
+    await page.until("!document.querySelector('[data-camera-delay]')");
+    await select([camera.id]);
+    await page.until("!!document.querySelector('[data-camera-delay] [data-input]')");
+    await page.click(...(await centre("[data-camera-delay] [data-input]")));
+    await page.until("document.activeElement?.tagName === 'INPUT'");
+    await type("80");
+    await page.key("Enter", "Enter");
+    await arrived(() => (clip(camera.id).props.media as { delay?: number }).delay === 80);
+    expect(clip(camera.id).mediaStart! - camera.mediaStart!).toBe(secondsToTicks(0.08));
+    expect(clip(camera.id).start).toBe(camera.start);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+    await page.until(`document.querySelector('[data-camera-delay] [data-input]').textContent === '80 ms'`);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  }
+  expect(clip(camera.id).mediaStart).toBe(camera.mediaStart);
+});
+
 test.skipIf(skip)("Stitch (⌥⌘I) of two pieces of a take, the second zoomed in: the stitched clip eases to the second's zoom over the half second before the join", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   try {

@@ -140,6 +140,7 @@ function ClipProperties({
       {selected.length > 1 && <div className="border-b border-divider bg-panel py-2 text-center text-label text-text-faint">Editing {selected.length} clips</div>}
       {session.animation?.clip === clip.id && <AnimationSection clip={clip} id={session.animation.id} host={host} />}
       {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} />}
+      {tab?.id === "transform" && clip.type === "video" && project.assets[clip.assetId ?? ""]?.kind === "recording" && <CameraDelay key={clip.id} clip={clip} host={host} />}
       {tab?.id === "speed" && (
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
       )}
@@ -203,6 +204,22 @@ function ClipId({ ids, host }: { ids: string[]; host: Host }) {
         {ids.length > 1 ? `${ids[0]} + ${ids.length - 1} more` : ids[0]}
       </button>
     </div>
+  );
+}
+
+/** A take's camera against its sound, set by hand: every camera clip of the take moves, one undo step. */
+function CameraDelay({ clip, host }: { clip: Clip; host: Host }) {
+  const delay = (clip.props.media as { delay?: number } | undefined)?.delay ?? 0;
+  return (
+    <Section>
+      <Row label="Camera delay" title="How late this take's camera is behind its sound, in milliseconds: its picture is shown that much earlier (negative: later). Every camera clip of the take moves; the sound and screen stay">
+        <div className="flex-1" />
+        <div data-camera-delay>
+          <NumberBox value={delay} unit=" ms" digits={0} min={-2000} max={2000} onCommit={(ms) => host.run("media.cameraDelay", { clip: clip.id, ms: Math.round(ms) }, "Camera Delay")} />
+        </div>
+      </Row>
+      <div className="ml-[92px] text-caption text-text-faint">Positive if the lips move after the sound</div>
+    </Section>
   );
 }
 
