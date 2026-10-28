@@ -2768,12 +2768,6 @@ they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
 only after the user has made the same choice several times, never from one
 edit.
-- **Favorites go; the palette learns what you use** (the user, 2026-10-27:
-  "the favourites feature is a bit pointless based on how I use it"). ⌘K and
-  the leader key reach everything, so starring is upkeep with no payoff.
-  Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
-  and their preference; ⌘K lists recently and often used effects and
-  annotations first before anything is typed, and leans on them when typing.
 - **Built for talking heads, long and short** (the user, 2026-10-19:
   Beacon is an editor for talking-head videos, long-form and Shorts). So
   what it learns is how this person tightens their own speech: pauses,
@@ -2822,6 +2816,28 @@ edit.
   Reset All, and a switch to turn learning off (as Imagen lets its profile
   be adjusted). Agents read the same list through the preferences, so they
   prepare reviews the user's way.
+- **Sections: what each part of a video is** (the user, 2026-10-28). A
+  named stretch of the timeline ("Intro", "Explanation", "Demo", "Outro"),
+  drawn as a band above the tracks, across every track. Not a clip group:
+  groups nest clips and change how they're edited, and a section spans the
+  screen, camera, B-roll and captions alike (markers are a point, colour
+  labels one clip). Names come from a short list the user picks from, their
+  own allowed, since learning only works on names that repeat. An agent
+  proposes the sections from the transcript and the user corrects them, so
+  nobody has to name every video by hand; proposals are reviewable, as other
+  AI edits are. What it gives:
+  - the tallies above are kept per section kind as well as per format
+    ("in intros you cut every pause over 0.4 s"), falling back to the whole
+    format when a kind has too few decisions;
+  - Memory's sentences can name them ("no B-roll in the intro", "zoom in
+    during demos") and agents act on them;
+  - after a few named videos, agents propose a new one's sections the user's
+    way, then edit each part as the user does;
+  - YouTube chapters (names and start times) for a video's description.
+  Agents read and set them as document data (commands, so they undo). Open:
+  whether sections may overlap or leave gaps; whether they move with a
+  ripple edit (they should, as clips do); how a Short cut from a long
+  video's section carries it.
 - **Memory: sentences the user can read and write** (the user, 2026-10-23).
   Settings gets a **Memory** tab: a list of single sentences, each one habit
   ("I cut silences over 0.8 s but keep the breath before a sentence", "the
@@ -2845,6 +2861,13 @@ edit.
   whether a long video and its Shorts cut from it share decisions; how
   fast old habits fade; whether hand edits outside the reviews are a clear
   enough signal.
+- **Favorites go; the palette learns what you use** (last in the phase: the user
+  works without it first, 2026-10-28; the user, 2026-10-27:
+  "the favourites feature is a bit pointless based on how I use it"). ⌘K and
+  the leader key reach everything, so starring is upkeep with no payoff.
+  Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
+  and their preference; ⌘K lists recently and often used effects and
+  annotations first before anything is typed, and leans on them when typing.
 **Gate:** after the user cuts or keeps the same kind of item the same way
 across a few projects, the next review opens that way and says why; a
 Short and a long video each open with their own learned settings; one
