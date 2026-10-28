@@ -94,12 +94,31 @@ function normalizeRanges(doc: Project, ranges: { start: number; end: number }[])
   return mergeSpans(snapped).reverse() as [Ticks, Ticks][];
 }
 
+/**
+ * `base` and every other track holding a clip linked to one of theirs that is still going at `a`: what moves time
+ * from `a` on `base` moves those too, as linked clips move together. A locked one refuses it.
+ */
+function withLinkedTracks(tracks: Track[], base: Track[], a: Ticks): Track[] {
+  const out = new Set(base);
+  for (let grew = true; grew; ) {
+    grew = false;
+    const linked = new Set([...out].flatMap((t) => t.clips.filter((c) => c.linkId && clipEnd(c) > a).map((c) => c.linkId!)));
+    for (const t of tracks) {
+      if (out.has(t) || !t.clips.some((c) => c.linkId && linked.has(c.linkId))) continue;
+      if (t.locked) throw new Error(`track "${t.name}" is locked, and holds clips linked to ones this would move`);
+      out.add(t);
+      grew = true;
+    }
+  }
+  return tracks.filter((t) => out.has(t));
+}
+
 /** Removes `[a, b)` from each unlocked, enabled track; with `ripple`, later media moves left to close the gap. */
 function removeRange(doc: Project, tracks: Track[], a: Ticks, b: Ticks, ctx: CommandContext, ripple: boolean) {
   const gap = b - a;
   const links = new Map<string, string>();
-  for (const track of tracks) {
-    if (track.locked || track.hidden) continue;
+  const enabled = tracks.filter((t) => !t.locked && !t.hidden);
+  for (const track of ripple ? withLinkedTracks(tracks, enabled, a) : enabled) {
     for (const clip of [...track.clips]) {
       const end = clipEnd(clip);
       if (end <= a) continue;
@@ -129,7 +148,42 @@ export function rippleDeleteRanges(doc: Project, ranges: { start: number; end: n
   for (const [a, b] of normalizeRanges(doc, ranges)) removeRange(doc, doc.tracks, a, b, ctx, true);
 }
 
-/** Moves every clip on `track` starting at or after `from` (other than `except`) by `by`. */
+/**
+ * Closes the time `removed` left on `affected` tracks, and on every track holding a later clip linked to one on
+ * them, so a link group moves as one. Each clip would move left by the removed time its track has free before it;
+ * a link group then moves by the least any of its clips can, and a clip held back holds back those after it on its
+ * track, until nothing changes. A locked track's clips stay.
+ */
+function rippleOut(tracks: Track[], affected: Set<Track>, removed: [Ticks, Ticks][]) {
+  const from = removed[0]?.[0];
+  if (from === undefined) return;
+  const rippling = new Set(affected);
+  for (let grew = true; grew; ) {
+    grew = false;
+    const links = new Set([...rippling].flatMap((t) => t.clips.filter((c) => c.linkId && clipEnd(c) > from).map((c) => c.linkId!)));
+    for (const t of tracks) if (!rippling.has(t) && t.clips.some((c) => c.linkId && links.has(c.linkId))) (rippling.add(t), (grew = true));
+  }
+  const shift = new Map<Clip, Ticks>();
+  for (const track of rippling) {
+    // Time a clip left behind still covers isn't removed from its track, so nothing overlaps.
+    const gaps = removed.flatMap((span) => subtractSpans(span, track.clips.map((c) => [c.start, clipEnd(c)])));
+    for (const c of track.clips) shift.set(c, track.locked ? 0 : gaps.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, c.start) - a), 0));
+  }
+  const groups = new Map<string, Clip[]>();
+  for (const c of shift.keys()) if (c.linkId) groups.set(c.linkId, [...(groups.get(c.linkId) ?? []), c]);
+  const ordered = [...rippling].map((t) => [...t.clips].sort((x, y) => x.start - y.start));
+  for (let changed = true; changed; ) {
+    changed = false;
+    const lower = (c: Clip, to: Ticks) => to < shift.get(c)! && (shift.set(c, to), (changed = true));
+    for (const g of groups.values()) {
+      const least = Math.min(...g.map((c) => shift.get(c)!));
+      for (const c of g) lower(c, least);
+    }
+    for (const cs of ordered) for (let i = 1; i < cs.length; i++) lower(cs[i]!, shift.get(cs[i - 1]!)! + cs[i]!.start - clipEnd(cs[i - 1]!));
+  }
+  for (const [c, d] of shift) c.start -= d;
+}
+
 /** The main timeline's tracks a space edit moves: one, or every unlocked one. */
 function spaceTracks(doc: Project, track?: string): Track[] {
   if (!track) return doc.tracks.filter((t) => !t.locked);
@@ -139,6 +193,7 @@ function spaceTracks(doc: Project, track?: string): Track[] {
   return [one];
 }
 
+/** Moves every clip on `track` starting at or after `from` (other than `except`) by `by`. */
 function shiftLater(track: Track, from: Ticks, by: Ticks, except?: Clip) {
   for (const c of track.clips) if (c !== except && c.start >= from) c.start += by;
 }
@@ -160,7 +215,7 @@ export const clipCommands = [
   defineCommand({
     id: "clip.remove",
     description:
-      "Remove clips (and the clips linked to them). With `ripple`, later clips on the tracks they were on move left by the time removed, by the same amount on every one of those tracks, so they stay in sync",
+      "Remove clips (and the clips linked to them). With `ripple`, later clips on the tracks they were on move left by the time removed where their track has it free, and so do later clips on other tracks linked to them: linked clips always move together, so they stay in sync (a clip that can't move holds back those after it)",
     args: z.strictObject({ clip: Id.optional(), clips: z.array(Id).min(1).optional(), linked: Linked, ripple: z.boolean().default(false) }).refine(one, ONE),
     apply(doc, { clip, clips, linked, ripple }, ctx) {
       const locs = locate(doc, ctx.registry, clips ?? [clip!], linked);
@@ -170,12 +225,7 @@ export const clipCommands = [
       const affected = new Set(locs.map((l) => l.track));
       for (const { clip: c, track } of locs) track.clips.splice(track.clips.indexOf(c), 1);
       if (!ripple) return;
-      for (const track of affected) {
-        // Time a clip left behind still covers isn't removed from its track, so nothing overlaps.
-        const gaps = union.flatMap((span) => subtractSpans(span, track.clips.map((c) => [c.start, clipEnd(c)])));
-        const removedBefore = (t: Ticks) => gaps.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, t) - a), 0);
-        for (const c of track.clips) c.start -= removedBefore(c.start);
-      }
+      for (const list of new Set(locs.map((l) => l.tracks))) rippleOut(list, new Set(list.filter((t) => affected.has(t))), union);
     },
   }),
   defineCommand({
@@ -513,7 +563,7 @@ export const clipCommands = [
       const d = snapSeconds(duration, doc.settings.fps);
       if (!d) return;
       const links = new Map<string, string>();
-      for (const tr of spaceTracks(doc, track)) {
+      for (const tr of withLinkedTracks(doc.tracks, spaceTracks(doc, track), t)) {
         for (const c of [...tr.clips]) if (c.start < t && clipEnd(c) > t) splitAt(tr, c, t, ctx, links);
         shiftLater(tr, t, d);
       }
@@ -530,7 +580,7 @@ export const clipCommands = [
     args: z.strictObject({ at: Seconds, duration: z.number().positive(), track: Id.optional() }),
     apply(doc, { at, duration, track }) {
       const t = snapSeconds(at, doc.settings.fps);
-      const tracks = spaceTracks(doc, track);
+      const tracks = withLinkedTracks(doc.tracks, spaceTracks(doc, track), t);
       const room = t - Math.max(0, ...tracks.flatMap((tr) => tr.clips.filter((c) => c.start < t).map((c) => Math.min(clipEnd(c), t))));
       let d = Math.min(snapSeconds(duration, doc.settings.fps), t);
       // All the room asked for, rounded to a frame past media that ends between frames: as far as the media.
