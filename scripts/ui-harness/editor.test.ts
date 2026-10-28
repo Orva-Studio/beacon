@@ -2673,6 +2673,48 @@ test.skipIf(skip)("a Highlight from the palette: a yellow box at half opacity; i
   }
 });
 
+test.skipIf(skip)("a highlight's width animated: its box on the canvas follows the width at the playhead, and a resize there changes the width it animates to", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("edit.addAnnotation", { preset: "highlight", time: 0, duration: 5 });
+    const hl = clips().find((c) => c.type === "region" && ticksToSeconds(c.start) === 0 && (c.props.region as { kind: string }).kind === "highlight")!;
+    const width = (hl.props.region as { width: number }).width;
+    await run("edit.addAnimation", { clip: hl.id, time: 1, duration: 1 });
+    await run("clip.set", { clip: hl.id, props: { region: { width: width * 2 } }, at: 3 });
+    await select([hl.id]);
+    const across = async () => {
+      await page.until(`!!document.querySelector('[data-handle="e"][data-clip="${hl.id}"]')`);
+      return (await centre(`[data-handle="e"][data-clip="${hl.id}"]`))[0] - (await centre(`[data-handle="w"][data-clip="${hl.id}"]`))[0];
+    };
+    const at = async (time: number) => {
+      await run("playhead.set", { time });
+      await Bun.sleep(300);
+      return across();
+    };
+    const [before, mid, after] = [await at(0.5), await at(1.5), await at(3)];
+    expect(mid / before).toBeCloseTo(1.5, 1);
+    expect(after / before).toBeCloseTo(2, 1);
+    // The Visual tab's Size says the same.
+    await run("inspector.tab", { tab: "transform" });
+    await at(1.5);
+    const shownWidth = `Number([...document.querySelectorAll('span')].find((s) => s.textContent === 'Width')?.nextElementSibling?.textContent)`;
+    await page.until(`${shownWidth} === ${width * 1.5}`);
+    // Halfway through, a resize changes the width animated to, by the drag (drawn there half as much); the start keeps its width.
+    await at(1.5);
+    const [ex, ey] = await centre(`[data-handle="e"][data-clip="${hl.id}"]`);
+    await page.drag([ex, ey], [ex + 40, ey]);
+    await Bun.sleep(300);
+    const to = clip(hl.id).animations[0]!.to["region.width"] as number;
+    expect(to).toBeGreaterThan(width * 2);
+    expect((clip(hl.id).props.region as { width: number }).width).toBe(width);
+    expect(Math.abs((await at(3)) - after - 40)).toBeLessThan(3);
+    expect(Math.abs((await at(0.5)) - before)).toBeLessThan(1);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+});
+
 test.skipIf(skip)("an annotation's corner handle sizes its box, not its scale, and the opposite corner stays", async () => {
   await run("playhead.set", { time: 1 });
   await select([callout.id]);

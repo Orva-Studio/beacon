@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
 import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, KeptLooksSchema, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
-import { contentSize, valueAt } from "./canvas-clips";
+import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
@@ -207,7 +207,9 @@ function ClipId({ ids, host }: { ids: string[]; host: Host }) {
 }
 
 function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean }) {
-  const size = contentSize(project, clip);
+  const stored = contentSize(project, clip);
+  const box = boxGroup(clip);
+  const size: [number, number] | undefined = stored && box ? [value(box, "width", stored[0]), value(box, "height", stored[1])] : stored;
   const crop = (side: string) => value("crop", side);
   const sx = value("transform", "scaleX", 1);
   const sy = value("transform", "scaleY", 1);
