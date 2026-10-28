@@ -423,12 +423,22 @@ const silenceSessionCommands: SessionCommandDef[] = [
   {
     id: "silences.select",
     description:
-      "In Remove Silences' review, pick a silence to cut (a click on it on the timeline): `at`, a time inside it, e.g. its start from transcript_silences, replacing the picked ones; with `add`, picked or unpicked alongside them (⇧-click). Without `at`, none picked",
-    args: z.strictObject({ at: z.number().nonnegative().optional(), add: z.boolean().default(false) }),
-    apply: (s, { at, add }: { at?: number; add: boolean }, { project, registry, data }) => {
+      "In Remove Silences' review, pick a silence to cut (a click on it on the timeline): `at`, a time inside it, e.g. its start from transcript_silences, replacing the picked ones; with `add`, picked or unpicked alongside them (⌘-click); with `through`, it and every silence back to the one picked last, alongside them (⇧-click). Without `at`, none picked",
+    args: z.strictObject({ at: z.number().nonnegative().optional(), add: z.boolean().default(false), through: z.boolean().default(false) }),
+    apply: (s, { at, add, through }: { at?: number; add: boolean; through: boolean }, { project, registry, data }) => {
       const r = silenceReview(s);
       if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
       if (at === undefined) return void (r.selected = []);
+      const anchor = r.selected.at(-1);
+      if (through && anchor !== undefined) {
+        // The one picked last stays last, so the next ⇧-click runs from it too, as in Finder.
+        const [lo, hi] = [Math.min(anchor, at), Math.max(anchor, at)];
+        const all = silencePlan(project, registry, data, r).silences;
+        const picked = (x: { start: number; end: number }) => r.selected.some((t) => t >= x.start - 1e-3 && t <= x.end + 1e-3);
+        const run = all.filter((x) => x.end >= lo - 1e-3 && x.start <= hi + 1e-3 && !picked(x)).map((x) => (x.start + x.end) / 2);
+        r.selected = [...r.selected.slice(0, -1), ...run, anchor];
+        return;
+      }
       if (!add) return void (r.selected = [at]);
       // Any time in a silence picks it, so any time in the same one unpicks it.
       const hit = silencePlan(project, registry, data, r).silences.find((x) => at >= x.start && at <= x.end);

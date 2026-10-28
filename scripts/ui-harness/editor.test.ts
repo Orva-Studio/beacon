@@ -3865,7 +3865,7 @@ test.skipIf(skip)("Remove Silences opens with the shortest pause the user cuts, 
   }
 });
 
-test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⇧-click more (again to drop one); Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
+test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⌘-click more (again to drop one), ⇧-click every one back to the last; Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
   await run("panel.show", { tool: "ai" });
@@ -3911,7 +3911,7 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   const first = await found();
   expect(first.silences.some((x) => x.selected)).toBe(false);
   expect(await page.evaluate<boolean>("document.querySelector('[data-silences-apply]').disabled")).toBe(true);
-  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("⇧-click to select more");
+  expect(await page.evaluate<string>("document.querySelector('[data-review-hint]').textContent")).toContain("⌘-click to add or drop one");
   const [wide, next] = [...first.silences].sort((a, b) => b.end - b.start - (a.end - a.start));
   const s = await session();
   const box = await page.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
@@ -3935,13 +3935,19 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   expect(red(await rgb(...on(wide!)))).toBe(true);
   const [r, g] = await rgb(...leftEdge(next!));
   expect(g > r + 30).toBe(false);
-  await page.click(...on(next!), ["shift"]);
+  await page.click(...on(next!), ["meta"]);
   expect((await picked(2)).map((x) => x.start).sort()).toEqual([wide!.start, next!.start].sort());
-  await page.click(...on(wide!), ["shift"]);
+  await page.click(...on(wide!), ["meta"]);
   expect((await picked(1)).map((x) => x.start)).toEqual([next!.start]);
+  // ⇧-click: every silence from the one picked last to this one, those between too.
+  await page.click(...on(wide!));
+  const between = first.silences.filter((x) => x.end >= Math.min(wide!.start, next!.start) && x.start <= Math.max(wide!.end, next!.end));
+  expect(between.length).toBeGreaterThan(2);
+  await page.click(...on(next!), ["shift"]);
+  expect((await picked(between.length)).map((x) => x.start)).toEqual(between.map((x) => x.start));
   // A plain click picks only that one again.
   await page.click(...on(wide!));
-  await page.click(...on(next!), ["shift"]);
+  await page.click(...on(next!), ["meta"]);
   await page.until("/^2 of /.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
   const chosen = await found();
   const length = () => ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));

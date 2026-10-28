@@ -2933,7 +2933,8 @@ edit.
   Silences' review ⇧-click adds or drops one silence; it should pick every
   silence from the one picked last to the one clicked, as Finder does, with
   ⌘-click adding or dropping one. `silences.select` gets a `through` (the
-  time of the other end). Small; this phase.
+  time of the other end). Small; this phase. **Built 2026-10-28:**
+  `through` picks from the last one picked, which stays the anchor.
 - **A Beacon icon on project folders** (the user, 2026-10-28, as Camtasia's
   `.cmproj` shows its own). A `.beproj` is a folder: declare it a document
   package (`CFBundleDocumentTypes` with `LSTypeIsPackage`, an exported UTI

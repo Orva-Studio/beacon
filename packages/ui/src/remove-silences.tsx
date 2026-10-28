@@ -76,7 +76,7 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
       )}
       <Learned notes={review.learned} />
       <div className="mb-4 text-label text-text-muted" data-review-hint>
-        Click a silence on the timeline to select it, ⇧-click to select more, then Apply.
+        Click a silence on the timeline to select it, ⇧-click to select every one up to another, ⌘-click to add or drop one, then Apply.
       </div>
       <div className="mt-auto flex flex-wrap justify-end gap-2">
         <Button onClick={() => host.run("silences.close")} data-silences-cancel>

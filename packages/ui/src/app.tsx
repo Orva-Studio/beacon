@@ -255,15 +255,15 @@ export function App({ host }: { host: Host }) {
                     ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
                     : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
               }
-              markClick={(m, alt, shift) =>
+              markClick={(m, alt, shift, meta) =>
                 retakes
                   ? // A click picks the line to look at; a click on one of its takes then keeps that one.
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
                   : silences
-                    ? // A click selects a silence to cut, ⇧-click selects more.
-                      host.run("silences.select", { at: (m.start + m.end) / 2, add: shift })
+                    ? // A click selects a silence to cut, ⇧-click those back to the last one selected, ⌘-click one more (or one fewer).
+                      host.run("silences.select", { at: (m.start + m.end) / 2, add: meta, through: shift && !meta })
                     : alt
                       ? goTo(host, "fillers", m)
                       : host.run("fillers.flip", { at: m.start })

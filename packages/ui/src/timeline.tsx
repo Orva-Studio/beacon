@@ -45,7 +45,7 @@ interface Props {
   /** Spans marked across the tracks while something is reviewed (Remove Silences: every one red, the selected outlined). */
   marks?: TimelineMark[];
   /** A click on a mark (not by the playhead): Remove Silences flips it, or with ⌥ goes to it. */
-  markClick?: (mark: TimelineMark, alt: boolean, shift: boolean) => void;
+  markClick?: (mark: TimelineMark, alt: boolean, shift: boolean, meta: boolean) => void;
 }
 
 export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
@@ -606,7 +606,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           }
           const t = timeAt(e.clientX);
           const mark = y >= RULER && markClick ? latest.current.marks?.find((m) => t >= m.start && t <= m.end) : undefined;
-          if (mark) return markClick!(mark, e.altKey, e.shiftKey);
+          if (mark) return markClick!(mark, e.altKey, e.shiftKey, e.metaKey);
           capture();
           const arrow = arrowAt(e.clientX, e.clientY);
           if (arrow) {
