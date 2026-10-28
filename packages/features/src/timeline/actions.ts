@@ -567,13 +567,27 @@ export const animationActions = [
  */
 function targets(ctx: ActionContext, c: Clip, preset: "custom" | "restore", time?: number): Record<string, number> {
   const to: Record<string, number> = {};
-  for (const [group, fields] of Object.entries(ANIMATED)) {
+  for (const [group, fields] of Object.entries(animated(ctx, c))) {
     for (const [field, base] of Object.entries(fields)) {
       const own = (c.props[group] as Record<string, number> | undefined)?.[field] ?? base;
       to[`${group}.${field}`] = preset === "restore" ? own : Number(at(ctx, c, group, field, base, time));
     }
   }
   return to;
+}
+
+/**
+ * What a new block holds: every field the clip's prop groups can animate (a highlight's width, a cursor's size), so
+ * edits after it go to it, not to the whole clip. Not volume, which has its own points on the clip.
+ */
+function animated(ctx: ActionContext, c: Clip): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = { ...ANIMATED };
+  for (const g of ctx.registry.groupsFor(c.type)) {
+    if (!g.animatable?.length || g.id in out || g.traits.includes("audio")) continue;
+    const defaults = g.defaults() as Record<string, unknown>;
+    out[g.id] = Object.fromEntries(g.animatable.map((f) => [f, Number(defaults[f] ?? 0)]));
+  }
+  return out;
 }
 
 /** The value an edit at the playhead changes: mid-animation, the block's end value rather than the one shown. */

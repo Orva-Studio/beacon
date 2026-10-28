@@ -12,10 +12,12 @@ feature lands and when it is checked.
 | What | Date | Commit | How |
 |---|---|---|---|
 | The leader key can change: Settings › Shortcuts lists Leader Key (`:` by default; one key, with or without modifiers, never None); every sequence moves to the new key at once (menus, the popup, Settings show it), a key another action has alone is asked first and moved on Replace, sequences recorded under it stay its own; `:` typed in a value box follows it (the new key leaves the box); Reset puts `:` back and the sequences with it; `app.leader` over MCP's `shortcuts_set` | 2026-10-28 | this branch | keymap core test (`the leader key can change…`: \\ and Space, a clash refused and replaced, saved for the next launch, reset); UI flow (`Settings › Shortcuts changes the leader key…`: no None, Space asks first, \\ then P opens the palette, : starts nothing) |
+| Animating a highlight's width (the user found it doing nothing): a new animation held only position, scale, rotation, opacity and crop, so a width set after it went to the whole clip. Add Animation now holds every field the clip's features can animate (a region's width, height and intensity; a cursor's size and opacity), not volume (its own points). Blocks made before keep what they held: add the animation again | 2026-10-28 | this branch | core test (`animate-region.test.ts`: the block holds `region.width`, a width set at 3 s eases in over the block, undone exactly; fails without the change) |
 
 ### Not checked yet
 
 - Changing the leader key in Settings › Shortcuts in the app, and a sequence on the new key (above).
+- A highlight's width animated in the app: a new animation on it, then the width changed after it.
 
 ## Phase 11.5: editing polish (`phase-11.5`)
 
