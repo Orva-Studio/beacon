@@ -410,7 +410,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("shortcuts_set", {
     description:
-      "Give an action (its id from shortcuts_list) these keys, replacing its own; [] removes its shortcut. A key another action has is refused, naming it, unless `replace` moves it here. Only when the user asks: the keys are theirs",
+      "Give an action (its id from shortcuts_list) these keys, replacing its own; [] removes its shortcut. A key another action has is refused, naming it, unless `replace` moves it here. `app.leader` is the leader key: one key, which every sequence starts with (changing it moves them all). Only when the user asks: the keys are theirs",
     schema: z.strictObject({ action: z.string(), keys: z.array(KeysSchema), replace: z.boolean().default(false) }),
     run: async ({ action, keys, replace }) => (await core.shortcutSet(action, keys, replace)).filter((s) => s.id === action || !s.standard),
   });

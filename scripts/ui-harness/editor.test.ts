@@ -1766,6 +1766,41 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   await select([]);
 }, 30_000);
 
+test.skipIf(skip)("Settings › Shortcuts changes the leader key: the Leader Key row takes one key, has no None, and the sequences start with it at once (\\ p opens the palette; : starts nothing)", async () => {
+  const row = '[data-shortcut="app.leader"]';
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
+  await page.until("!!document.querySelector('[data-shortcuts]')");
+  await page.evaluate(`document.querySelector('${row}').scrollIntoView({ block: "center" })`);
+  expect(await page.evaluate<string>(`document.querySelector('${row} [data-shortcut-keys]').textContent`)).toBe(":");
+  await page.click(...(await centre(`${row} [data-shortcut-keys]`)));
+  await page.until("document.activeElement?.hasAttribute('data-recording')");
+  expect(await page.evaluate<boolean>(`!!document.querySelector('${row} [data-shortcut-clear]')`)).toBe(false);
+  // Space is Play or Pause's: asked first, as any key taken is.
+  await page.key(" ", "Space");
+  await page.until("!!document.querySelector('[data-shortcut-clash]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-shortcut-clash]').textContent")).toContain("Space is Play or Pause's shortcut");
+  await page.evaluate("[...document.querySelectorAll('[data-shortcut-clash] button')].find((b) => b.textContent === 'Cancel').click()");
+  await page.click(...(await centre(`${row} [data-shortcut-keys]`)));
+  await page.until("document.activeElement?.hasAttribute('data-recording')");
+  await page.key("\\", "Backslash");
+  await page.until(`document.querySelector('${row} [data-shortcut-keys]').textContent === "\\\\"`);
+  expect(await page.evaluate<string>(`document.querySelector('[data-shortcut="app.palette"] [data-shortcut-keys]').textContent`)).toContain("\\ P");
+  expect(await page.evaluate<string>("document.querySelector('[data-shortcuts] p').textContent")).toContain("Leader Key (\\)");
+  await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+  await page.until("!document.querySelector('[data-shortcuts]')");
+  await page.key(":", "Semicolon", ["shift"]);
+  await Bun.sleep(150);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-leader]')")).toBe(false);
+  await page.key("\\", "Backslash");
+  await page.until("document.querySelector('[data-leader]')?.textContent.includes('\\\\ …')");
+  await page.key("p", "KeyP");
+  await page.until("!!document.querySelector('[data-palette]')");
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-palette]')");
+  await ui.core.shortcutReset("app.leader");
+  expect((await ui.core.shortcuts()).find((s) => s.id === "app.palette")!.keys.map(keysLabel)).toEqual(["⌘K", ": P"]);
+}, 30_000);
+
 test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressing keys rebinds one, a key taken asks first and moves it; the keys work at once; Reset All puts them back", async () => {
   const keysOf = async (id: string) => (await ui.core.shortcuts()).find((s) => s.id === id)!.keys;
   const row = (id: string) => `[data-shortcut="${id}"]`;

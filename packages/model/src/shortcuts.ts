@@ -117,6 +117,16 @@ export const keysClash = (a: Keys, b: Keys): boolean => {
   return !!x && !!y && (x === y || x.startsWith(`${y} `) || y.startsWith(`${x} `));
 };
 
+/** The action whose one key starts every sequence (Settings › Shortcuts' Leader Key); it runs nothing itself. */
+export const LEADER_ACTION = "app.leader";
+export const DEFAULT_LEADER: Keys = { key: ":", modifiers: [] };
+
+/** Whether the leader key and another action's keys can't both be kept: only the same key alone, as the sequences it starts are its own. */
+export const leaderClash = (a: Keys, b: Keys): boolean => !a.then && !b.then && !!chordId(a) && chordId(a) === chordId(b);
+
+/** The user's leader key, from the shortcuts list. */
+export const leaderOf = (shortcuts: ShortcutInfo[]): Keys => shortcuts.find((s) => s.id === LEADER_ACTION)?.keys[0] ?? DEFAULT_LEADER;
+
 type KeyEventLike = { code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean };
 
 const held = (e: KeyEventLike) => MODIFIERS.filter((m) => (m === "control" ? e.ctrlKey : m === "option" ? e.altKey : m === "shift" ? e.shiftKey : e.metaKey));

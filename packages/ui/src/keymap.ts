@@ -1,12 +1,12 @@
-import { chordId, eventChordId, keysLabel, sameArgs, type ShortcutInfo } from "@beacon/model";
+import { chordId, eventChordId, keysLabel, LEADER_ACTION, sameArgs, type ShortcutInfo } from "@beacon/model";
 import type { Binding } from "./rpc";
 import { useMemo } from "react";
 import { AI_TOOLS } from "./panel-items";
 import { replica, useView } from "./store";
 
-/** Each action's keys as the window matches them. */
+/** Each action's keys as the window matches them; the leader key's own only starts the sequences that have it. */
 const bindingsOf = (shortcuts: ShortcutInfo[]): Binding[] =>
-  shortcuts.flatMap((s) => s.keys.map((keys) => ({ keys, command: s.command, ...(s.args ? { args: s.args } : {}), action: s.id })));
+  shortcuts.filter((s) => s.id !== LEADER_ACTION).flatMap((s) => s.keys.map((keys) => ({ keys, command: s.command, ...(s.args ? { args: s.args } : {}), action: s.id })));
 
 /** " (⌘T)" for a button's tooltip: the first key of the action that runs `command` with `args`, as the user has them. */
 export function useShortcutTip() {

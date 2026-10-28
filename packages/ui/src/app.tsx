@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
+import { chordId, eventChordId, leaderOf, rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { match, menuKey, runAction, sequenceStep, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { LeaderKeys } from "./leader";
 import { Palette } from "./palette";
@@ -146,8 +146,8 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // ":" never goes in a number: in a value box it starts the leader key, the box left as a click away leaves it.
-      const numberLeader = e.key === ":" && e.target instanceof HTMLInputElement && e.target.matches("[data-number-box]");
+      // The leader key never goes in a number: in a value box it starts a sequence, the box left as a click away leaves it.
+      const numberLeader = eventChordId(e) === chordId(leaderOf(replica.get().shortcuts)) && e.target instanceof HTMLInputElement && e.target.matches("[data-number-box]");
       if (numberLeader) (e.target as HTMLInputElement).blur();
       const field = isTyping(e.target) && !numberLeader;
       // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.

@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 12: Beacon learns how you edit (`phase-12`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| The leader key can change: Settings › Shortcuts lists Leader Key (`:` by default; one key, with or without modifiers, never None); every sequence moves to the new key at once (menus, the popup, Settings show it), a key another action has alone is asked first and moved on Replace, sequences recorded under it stay its own; `:` typed in a value box follows it (the new key leaves the box); Reset puts `:` back and the sequences with it; `app.leader` over MCP's `shortcuts_set` | 2026-10-28 | this branch | keymap core test (`the leader key can change…`: \\ and Space, a clash refused and replaced, saved for the next launch, reset); UI flow (`Settings › Shortcuts changes the leader key…`: no None, Space asks first, \\ then P opens the palette, : starts nothing) |
+
+### Not checked yet
+
+- Changing the leader key in Settings › Shortcuts in the app, and a sequence on the new key (above).
+
 ## Phase 11.5: editing polish (`phase-11.5`)
 
 ### Checked by hand
