@@ -9,6 +9,7 @@ import {
   SESSION_COMMANDS,
   withPatch,
   type AppSettings,
+  type Decision,
   type FeatureRegistry,
   type Keys,
   type SettingsPatch,
@@ -30,6 +31,8 @@ function fits(schema: ZodType, value: string): boolean {
     return false;
   }
 }
+
+const DECISIONS_KEPT = 5000;
 
 const inRange = (v: string, r: { min: number; max: number }) => v.trim() !== "" && Number(v) >= r.min && Number(v) <= r.max;
 
@@ -174,6 +177,17 @@ export class AppConfig {
     items.splice(from, 1);
     items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
     return this.#saveFavorites(items);
+  }
+
+  /** The user's review decisions (`decisions.json`), oldest first. */
+  decisions(): Decision[] {
+    const saved = this.read("decisions.json");
+    return Array.isArray(saved) ? (saved as Decision[]) : [];
+  }
+
+  /** Adds decisions, keeping the newest `DECISIONS_KEPT`: old ones count for little by then. */
+  recordDecisions(decisions: Decision[]) {
+    if (decisions.length) this.write("decisions.json", [...this.decisions(), ...decisions].slice(-DECISIONS_KEPT));
   }
 
   /** The settings last told (written here, or found changed by `reloadSettings`). */

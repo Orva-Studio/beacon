@@ -61,6 +61,18 @@ export const useReviewed = <T extends { waiting: string[]; judging?: string[] }>
 type Review = "silences" | "fillers" | "retakes";
 type Item = { start: number; end: number; cut: boolean };
 
+/** What a review opened with from the user's habits, so a surprise can be traced and changed. */
+export function Learned({ notes }: { notes: string[] | undefined }) {
+  if (!notes?.length) return null;
+  return (
+    <div className="mb-2 flex flex-col gap-1 rounded-md border border-accent/40 px-3 py-2 text-label text-text" data-review-learned>
+      {notes.map((n) => (
+        <span key={n}>{n}</span>
+      ))}
+    </div>
+  );
+}
+
 /** Goes to one silence, filler or group of takes, with the playhead a second before it to play across it. */
 export function goTo(host: Host, review: Review, item: { start: number }) {
   host.run(`${review}.focus`, { at: item.start });
@@ -149,8 +161,10 @@ export function ReviewPanel<T extends Item>(props: {
   note?: ReactNode;
   /** Every one listed, a click going to it, for reviews with few (a talk's retakes, not its silences). */
   list?: boolean;
+  /** The user's habits it opened with. */
+  learned?: string[];
 }) {
-  const { review, title, noun, project, host, found, items = [], none, describe, one, children, tally, legend, detail, note, list } = props;
+  const { review, title, noun, project, host, found, items = [], none, describe, one, children, tally, legend, detail, note, list, learned } = props;
   const length = ticksToSeconds(projectDuration(project));
   const cut = items.filter((s) => s.cut).length;
   const kept = items.length - cut;
@@ -172,6 +186,7 @@ export function ReviewPanel<T extends Item>(props: {
         {summary}
         {!!found?.waiting.length && <Progress value={progress ?? 0} className="mt-2" />}
       </div>
+      <Learned notes={learned} />
       {note}
       <div className="mb-4 flex flex-col gap-1 text-label text-text-muted">
         {legend ?? (

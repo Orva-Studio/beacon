@@ -44,6 +44,8 @@ import {
   type ActionPlan,
   type ActionTask,
   type ActionStep,
+  type Memory,
+  projectFormat,
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -191,10 +193,16 @@ export class LocalCore implements BeaconCore {
     const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get });
     lock(path, this.#owner);
     store.subscribe((e) => void (current = e.doc));
+    const project = Bun.hash(path).toString(36);
+    const memory: Memory = {
+      decisions: () => this.#config.decisions(),
+      record: (ds) => this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() }))),
+    };
     const p: OpenProject = {
       path,
       store,
-      session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get),
+      memory,
+      session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get, memory),
       data,
       frames: new FrameRenderer(this.registry, this.cacheDir),
       ticking: false,
@@ -469,7 +477,7 @@ export class LocalCore implements BeaconCore {
 
   #actionContext(p: OpenProject): ActionContext {
     const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref };
+    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref, memory: p.memory };
   }
 
   #applyPlan(p: OpenProject, plan: ActionPlan, label: string): CommandResult {
@@ -485,6 +493,7 @@ export class LocalCore implements BeaconCore {
       if (p.session.state !== before) p.session.restore(before);
       throw e;
     }
+    if (plan.decisions) p.memory.record(plan.decisions);
     // The document change is committed: an editor step after it that fails is reported, not thrown, or a retry would apply the change twice.
     try {
       for (const s of plan.after?.(result.results) ?? []) p.session.run(s.command, s.args, p.store.doc);
@@ -817,7 +826,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, memory: p.memory, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {

@@ -107,6 +107,14 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   transcript is there). `retakes_review`, `retakes_keep` a take you judge
   better (read the takes' words), `retakes_apply` when the user says so. Of
   the takes after the kept one only what repeats the line is cut.
+- The reviews open the user's way: Beacon learns from their choices in
+  Remove Silences, Filler Words and Retakes (the shortest pause they cut, the
+  fillers they keep, the take they keep), per format (a 9:16 Short or a long
+  video), once they have made the same choice about 5 times over 2 projects.
+  `transcript_habits` lists what it learned and why; `transcript_silences`,
+  `_fillers` and `_retakes` use it when not given settings. Apply from a
+  review records the user's choices, so leave the deciding to them: flip or
+  keep only what they ask.
 - B-roll, generated footage over a stretch of the talk, is a clip: `broll_add`
   puts a placeholder over the range (or at `time` for `duration`) on a B-roll
   track above the talk, in a `region` (canvas pixels from the top left); move,

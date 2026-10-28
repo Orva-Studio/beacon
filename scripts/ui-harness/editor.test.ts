@@ -3810,6 +3810,28 @@ test.skipIf(skip)("Drop Shadow's angle shows in degrees and its opacity as a per
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("Remove Silences opens with the shortest pause the user cuts, learned from their decisions, and says why; moving the slider drops the note", async () => {
+  // Their decisions over two projects: pauses of 0.8 s kept, 1.6 s cut.
+  const now = Date.now();
+  const decided = (project: string, choice: string, value: number) => ({ rule: "silence", choice, flipped: false, value, format: "long", project, at: now });
+  const file = join(ui.core.configDir, "decisions.json");
+  writeFileSync(file, JSON.stringify(["a", "b"].flatMap((p) => [decided(p, "keep", 0.8), decided(p, "keep", 0.8), decided(p, "cut", 1.6)])));
+  try {
+    await select([]);
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=silences]')");
+    await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+    await page.until("!!document.querySelector('[data-review-learned]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-review-learned]').textContent")).toBe("Longer than 1.2 s: you cut pauses longer than this and keep shorter ones in long videos (6 of 6)");
+    expect(((await session()).features.transcript as { silences: { min: number } }).silences.min).toBe(1.2);
+    await run("silences.review", { min: 0.6 });
+    await page.until("!document.querySelector('[data-review-learned]')");
+  } finally {
+    await run("silences.close").catch(() => {});
+    rmSync(file, { force: true });
+  }
+});
+
 test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⇧-click more (again to drop one); Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });

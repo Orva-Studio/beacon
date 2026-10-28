@@ -227,7 +227,7 @@ export function App({ host }: { host: Host }) {
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
-              <FillerReviewPanel project={project} host={host} found={fillers} />
+              <FillerReviewPanel project={project} session={session} host={host} found={fillers} />
             ) : retakeReviewOf(session) ? (
               <RetakeReviewPanel project={project} session={session} host={host} found={retakes} />
             ) : (

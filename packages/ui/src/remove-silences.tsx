@@ -1,7 +1,7 @@
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import { Button, Progress, Slider } from "./controls";
 import { useShortcutTip } from "./keymap";
-import { useReviewed, useTranscribing } from "./review";
+import { Learned, useReviewed, useTranscribing } from "./review";
 import { clock } from "./time";
 import type { Host } from "./app";
 
@@ -10,6 +10,7 @@ interface Review {
   min: number;
   keep: number;
   selected: number[];
+  learned?: string[];
 }
 
 /** What `transcript.silences` answers. */
@@ -73,6 +74,7 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
           {!!found?.waiting.length && <Progress value={progress ?? 0} className="mt-2" />}
         </div>
       )}
+      <Learned notes={review.learned} />
       <div className="mb-4 text-label text-text-muted" data-review-hint>
         Click a silence on the timeline to select it, ⇧-click to select more, then Apply.
       </div>

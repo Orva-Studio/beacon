@@ -1,5 +1,5 @@
 import { measureLoudness, probeMedia } from "@beacon/media";
-import { randomId, type Asset, type FeatureRegistry, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
+import { randomId, type Asset, type FeatureRegistry, type Memory, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
 import type { DerivedData, FrameRenderer, LiveView } from "@beacon/render";
 import type { CoreEvent, Job, ProjectHandle } from "./api";
 
@@ -7,6 +7,8 @@ export interface OpenProject {
   path: string;
   store: ProjectStore;
   session: SessionStore;
+  /** The user's review decisions, recorded as this project's. */
+  memory: Memory;
   data: DerivedData;
   frames: FrameRenderer;
   view?: LiveView;

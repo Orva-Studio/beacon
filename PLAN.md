@@ -2816,6 +2816,21 @@ edit.
   Reset All, and a switch to turn learning off (as Imagen lets its profile
   be adjusted). Agents read the same list through the preferences, so they
   prepare reviews the user's way.
+- **Built 2026-10-28: the decision log and learning** (the user: these
+  first, then the three small items, then Memory, Favorites, learned
+  shortcuts). Apply in each review records its choices (`ActionPlan.decisions`,
+  or `memory.record` from a session command: the feature contract's `Memory`)
+  in `decisions.json` in the config folder, the newest 5,000 kept; Remove
+  Silences counts silences left before the last one cut as kept when it
+  closes. `transcript/habits.ts` learns three habits per format with the rules
+  above (5 decisions, 2 projects, 80% with a Beta(1, 1) prior, a 90-day
+  half-life): the shortest pause cut, fillers kept by word, the first or last
+  take kept. Reviews open with them and say why (a line under the summary);
+  `transcript_habits` lists them for agents, and the transcript queries use
+  them when not given settings. **Not yet:** the format from length as well
+  as shape (only 9:16 vs not); edits made by hand after Apply; Leave and
+  the retake settings learned; Settings showing, resetting and turning off
+  what was learned (with Memory, item 3).
 - **Sections: what each part of a video is** (the user, 2026-10-28). A
   named stretch of the timeline ("Intro", "Explanation", "Demo", "Outro"),
   drawn as a band above the tracks, across every track. Not a clip group:

@@ -245,6 +245,39 @@ export interface SecretDef {
 /** The current value of each preference, by id. */
 export type Preferences = (id: string) => string;
 
+/** How a project is edited: a vertical Short (taller than wide) or a long video; habits are learned for each. */
+export type Format = "short" | "long";
+
+export const projectFormat = (settings: { width: number; height: number }): Format => (settings.height > settings.width ? "short" : "long");
+
+/** A choice the user made in a review, kept app-wide on this Mac (never uploaded) to learn their habits from. */
+export interface Decision {
+  /** What it is about, named by the feature: "filler:um", "silence". */
+  rule: string;
+  /** What the user chose: "cut", "keep", or the feature's own ("last" take). */
+  choice: string;
+  /** Whether it differs from what the review proposed. */
+  flipped: boolean;
+  /** A number describing it: a silence's length in seconds. */
+  value?: number;
+  format: Format;
+  /** Which project, as a hash of its folder: a habit needs more than one. */
+  project: string;
+  /** When, in Unix milliseconds. */
+  at: number;
+}
+
+export type DecisionInput = Pick<Decision, "rule" | "choice" | "flipped" | "value">;
+
+/** The decisions made so far, and a way to add this project's (its format and project are filled in). */
+export interface Memory {
+  decisions: () => Decision[];
+  record: (decisions: DecisionInput[]) => void;
+}
+
+/** No decisions, recording nothing: where there is no project or nothing must be kept (a dry run). */
+export const NO_MEMORY: Memory = { decisions: () => [], record: () => {} };
+
 export interface JobAnalyzerDef {
   id: string;
   description: string;
@@ -384,6 +417,8 @@ export interface QueryContext {
   data<T>(assetId: string, key: string): T | undefined;
   /** The current preferences (who judges retakes). */
   pref: Preferences;
+  /** The user's review decisions, to read their habits from. */
+  memory?: Memory;
   /** The editor's state, when the query is about an open project (the safe areas shown). */
   session?: Session;
   /** A secret's value (an API key), undefined when it isn't set; only for queries about an open project. */
@@ -429,6 +464,8 @@ export interface ActionPlan {
   after?: (results: unknown[]) => ActionStep[];
   /** Slow work started once the steps are done (audio sent to Auphonic), its edit made when it finishes. */
   task?: ActionTask;
+  /** The user's choices this records (`Memory`), once the steps are done. */
+  decisions?: DecisionInput[];
 }
 
 /**
@@ -472,6 +509,7 @@ export interface ActionContext {
   /** Derived per-asset data, as in `QueryContext.data` (a clip's waveform, its transcript). */
   data<T>(assetId: string, key: string): T | undefined;
   pref: Preferences;
+  memory: Memory;
 }
 
 /**
