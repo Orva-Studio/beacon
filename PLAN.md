@@ -2905,7 +2905,7 @@ Short and a long video each open with their own learned settings; one
 choice alone changes nothing; Settings shows and resets what was learned,
 per format.
 
-### Phase 13 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11, then Phase 12 until 2026-10-27)
+### Phase 13 — Device frames, AI camera angles (a spike), sped-up export and Epidemic Sound (the user, 2026-10-22; device frames were Phase 11, then Phase 12 until 2026-10-27)
 The user will bring a lot of information before any work starts: which
 devices, how each frame looks and where its screen sits, what it's for.
 Research and agree the design with them first; nothing is built before.
@@ -2970,6 +2970,51 @@ paid call, a few dollars at 480p):**
 5. Write the result into this plan as a spec in the B-roll review's shape
    (pick a range, the angle and lens, a draft at 480p with its cost, then
    1080p; applied as a cut on a camera track, one undo step), or park it.
+
+#### Export sped up (the user, 2026-10-28)
+An export option for the whole video played faster, for Shorts: a speed
+between 1× and 2× (1.1, 1.2, 1.25 and 1.5 offered, any value in 0.05 steps),
+in the Export sheet and as `export_start`'s `speed`. The project is not
+changed; only the file is. Picture: the timeline sampled faster at the same
+frame rate. Sound: sped up with its pitch kept (FFmpeg's `atempo`), so a voice
+doesn't go high. The sheet shows the length the file will be. Open questions:
+whether a project remembers its export speed (a Short always at 1.2×), and
+whether captions' and motion graphics' timing needs anything (they ride the
+timeline, so they should simply speed up with it).
+
+#### Music and sound effects from Epidemic Sound (the user, 2026-10-28; moved from the backlog the same day)
+Music and sound effects found, placed and mixed from Beacon, as B-roll and
+Auphonic are: a feature folder with its own commands, so the agent uses it
+through MCP as the user does.
+- **Music:** search by mood, genre or words (or from what is said under a
+  range, as B-roll writes its prompts), preview, and place on a Music track
+  fitted to the range. Epidemic's "create versions" (beta) edits a track to a
+  target length, and its beat data could snap cuts or pop-ins to the beat.
+- **Sound effects:** search in words, placed on an SFX track; an option
+  drops whooshes and pops on motion-graphic, screenshot and logo pop-ins.
+- **Ducking:** music dips under speech, from the transcript's speech
+  regions, as volume points (already in the model), so it stays editable.
+- **What Epidemic's API allows (checked 2026-10-28):** partner-gated; a
+  partnership agreement gives credentials. Auth by API key (recommended),
+  partner token (legacy) or Epidemic Sound Connect (OAuth 2.0, for users with
+  their own subscription). A free tier for prototyping: 50 downloads and 100
+  previews, lifetime, and nothing made with it may be published. Downloads
+  and previews are metered, and exports must be reported when users publish.
+  There is also a soundtracking API (beta: upload a video, get it scored) and
+  an official MCP server (beta).
+
+Open questions:
+1. **Access:** apply for a partnership (Orva as the partner, Connect so each
+   user signs in with their own subscription; recommended), or prototype on
+   the free tier first, or use Epidemic's MCP server directly from the agent
+   (no Beacon code, but no Beacon UI either).
+2. **Reporting exports:** the API wants each publish reported; Beacon only
+   knows about exports, not publishing. What counts as a report: every
+   export, or a "mark as published" step.
+3. **Where it lives in the UI:** a Music tile in the AI panel beside B-roll,
+   or its own panel with a browser of tracks.
+4. **Sound effects on pop-ins:** automatic, or suggested for the user to
+   accept.
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -3082,6 +3127,15 @@ HyperFrames' renders as the single graphics were.
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### A Glow effect (the user, 2026-10-28; candidate)
+A Glow effect in the effects list beside Drop Shadow and Round Corners, for
+logo tiles, screenshots, callouts and text: a soft, coloured bloom around a
+clip's opaque pixels (its alpha, blurred and tinted, drawn under it), with
+colour, size, strength and an optional pulse, all animatable. Wanted while
+dressing the Grok short (logo pop-ins, number cards). Open questions: outer
+glow only, or inner too; whether Film Look's halation/bloom shader can be
+shared; and a Favorites tile for it.
 
 ### Heavy screen recordings (the user, 2026-10-27; later)
 A Retina screen recorded in full (3326×2160 HEVC at 60 fps) spins the Mac's fans
