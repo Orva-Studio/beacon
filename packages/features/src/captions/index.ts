@@ -408,25 +408,33 @@ export const captions = defineFeature({
     defineCommand({
       id: "caption.place",
       description:
-        "Place a caption on its own, where the shared place doesn't suit it (a face in the way): `place` is anchors and offsets as in captions.style, over where it sits now; with `onward`, the captions after it on its track take the same place. `place: null` puts them back in the shared place",
-      args: z.strictObject({ clip: z.string(), place: placeSchema.nullable(), onward: z.boolean().default(false) }),
-      apply(doc, { clip: id, place, onward }) {
+        "Place a caption on its own, where the shared place doesn't suit it (a face in the way): `place` is anchors and offsets as in captions.style, over where it sits now; `clips` (other captions) take the same place as it; with `onward`, the captions after it on its track do too. `place: null` puts them back in the shared place",
+      args: z.strictObject({ clip: z.string(), clips: z.array(z.string()).default([]), place: placeSchema.nullable(), onward: z.boolean().default(false) }),
+      apply(doc, { clip: id, clips: also, place, onward }) {
         const tracks = original(doc)!.tracks;
         const ti = tracks.findIndex((t) => t.clips.some((c) => c.id === id));
         const from = ti < 0 ? undefined : tracks[ti]!.clips.find((c) => c.id === id);
         if (!from || !isCaption(from)) throw new Error(`clip "${id}" is not a caption`);
-        const shared = trackStyle(tracks[ti], doc.settings.height);
         const now = clipStyle(from, tracks[ti], doc.settings.height);
         const target = { anchorX: now.anchorX, offsetX: now.offsetX, anchorY: now.anchorY, offsetY: now.offsetY, ...place };
+        const ids = new Set([id, ...also]);
+        const found = new Set<string>();
         let n = 0;
-        for (const [ci, c] of tracks[ti]!.clips.entries()) {
-          if (!isCaption(c) || (c.id !== id && !(onward && c.start > from.start))) continue;
-          const clip = doc.tracks[ti]!.clips[ci]!;
+        for (const [tj, track] of tracks.entries()) {
+          const shared = trackStyle(track, doc.settings.height);
           const same = target.anchorX === shared.anchorX && target.offsetX === shared.offsetX && target.anchorY === shared.anchorY && target.offsetY === shared.offsetY;
-          if (place === null || same) delete clip.props.captionPlace;
-          else clip.props.captionPlace = target;
-          n++;
+          for (const [ci, c] of track.clips.entries()) {
+            if (!ids.has(c.id) && !(onward && tj === ti && isCaption(c) && c.start > from.start)) continue;
+            if (!isCaption(c)) throw new Error(`clip "${c.id}" is not a caption`);
+            found.add(c.id);
+            const clip = doc.tracks[tj]!.clips[ci]!;
+            if (place === null || same) delete clip.props.captionPlace;
+            else clip.props.captionPlace = target;
+            n++;
+          }
         }
+        const missing = also.find((c) => !found.has(c));
+        if (missing) throw new Error(`clip "${missing}" is not a caption`);
         return n;
       },
     }),

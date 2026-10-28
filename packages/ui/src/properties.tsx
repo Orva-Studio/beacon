@@ -146,7 +146,7 @@ function ClipProperties({
       {tab?.id === "cursor" && <Cursor value={value} clip={clip} edit={edit} />}
       {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
-      {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} project={project} host={host} />}
+      {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} selected={selected} project={project} host={host} />}
       {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "motion" && <MotionTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
@@ -433,7 +433,7 @@ const ALIGN: { label: string; icon: IconName; fields: (margin: number) => Partia
 ];
 
 /** The caption's words, then how every caption looks: one style for all of them (`captions.style`). */
-function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; host: Host }) {
+function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected: Clip[]; project: Project; host: Host }) {
   const installed = useQuery<string[]>(host, "callout.fonts");
   const [draft, setDraft] = useState<string>();
   // One style for all the captions on a track, kept on the track.
@@ -449,8 +449,9 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
   const set = (fields: Partial<CaptionStyle>, label: string, key?: string) => host.run("captions.style", { style: fields }, label, key);
   const own = clip.props.captionPlace as Partial<CaptionStyle> | undefined;
   const place = { ...style, ...own };
-  // Align to page moves a caption placed on its own by itself, else every caption.
-  const align = (fields: Partial<CaptionStyle>) => (own ? host.run("caption.place", { clip: clip.id, place: fields }, "Align Caption") : set(fields, "Align Captions"));
+  const others = selected.filter((c) => c.type === "caption" && c.id !== clip.id).map((c) => c.id);
+  // Align to page moves a caption placed on its own by itself (with the other captions selected), else every caption.
+  const align = (fields: Partial<CaptionStyle>) => (own ? host.run("caption.place", { clip: clip.id, clips: others, place: fields }, others.length ? "Align Captions" : "Align Caption") : set(fields, "Align Captions"));
   return (
     <>
       <Section>
@@ -486,7 +487,7 @@ function CaptionProps({ clip, project, host }: { clip: Clip; project: Project; h
         {own && (
           <div className="mb-3 flex items-center justify-between gap-2 rounded-md bg-groove px-3 py-2 text-label text-text" data-caption-own>
             This caption has its own position
-            <Button look="quiet" onClick={() => host.run("caption.place", { clip: clip.id, place: null }, "Use Shared Position")}>
+            <Button look="quiet" onClick={() => host.run("caption.place", { clip: clip.id, clips: others, place: null }, "Use Shared Position")}>
               Use shared
             </Button>
           </div>
