@@ -2901,11 +2901,11 @@ edit.
   annotations first before anything is typed, and leans on them when typing.
 - **Learned shortcuts** (the user, 2026-10-28; candidate, an extension of
   Memory, after Favorites go, as it shares their usage counts). When the user
-  runs the same action often from ⌘K or with the mouse, Beacon gives it a
-  leader shortcut by itself and says so: a toast bottom-right for a few
-  seconds ("⌥… now runs Add Drop Shadow", with Undo), and a "new" chip beside
-  it in the leader popup until it has been used about 3 times. Longer term,
-  Memory adapts more of the app to habits the same way.
+  runs the same action often from ⌘K or with the mouse, Beacon offers it a
+  leader shortcut: a toast bottom-right ("You often use Add Drop Shadow: give
+  it `: d s`?" with Add and Not Now), and once added a "new" chip beside it in
+  the leader popup until it has been used about 3 times. Longer term, Memory
+  adapts more of the app to habits the same way, always by asking.
   - **Rules (the user, 2026-10-28):** made after about **5 uses**, not from a
     burst in one session; at most **10** learned at once; never takes keys
     another action has, or that the user cleared; the keys picked from the
@@ -2919,8 +2919,12 @@ edit.
     when built: with up to 10 learned, "none of the last 5" would remove most of
     them at once, so that count likely wants to be higher (20) or to apply only
     to shortcuts still showing "new".
-  - **Added by itself, with Undo** (the user, 2026-10-28): no asking first;
-    Undo on the toast removes it at once.
+  - **Asked, never added by itself** (the user, 2026-10-31, replacing
+    2026-10-28's "added by itself, with Undo"): Beacon makes no change the
+    user hasn't agreed to. The offer waits until they click Add; Not Now (or
+    the toast going) adds nothing, and that action isn't offered again until
+    it has been used as often again. Offers not yet answered are listed in
+    Settings › Memory with an Add button, as agents' proposed sentences are.
   - **Seen in Memory, not Shortcuts** (the user, 2026-10-28): Settings has one
     Memory section for everything Beacon learned (the sentences, the review
     habits, the learned shortcuts), kept apart from Settings › Shortcuts, which
