@@ -7,8 +7,9 @@ import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
 import { TranscriptsSettings, type TranscriptsHost } from "./transcripts-settings";
 import { ShortcutsSettings, type ShortcutsHost } from "./shortcuts-settings";
+import { MemorySettings, type MemoryHost } from "./memory-settings";
 
-export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost {
+export interface SettingsHost extends SyncCheckHost, TranscriptsHost, ShortcutsHost, MemoryHost {
   run(command: string, args?: unknown, label?: string): void;
   setAppSettings(patch: SettingsPatch): void;
   proxySpace(): Promise<number>;
@@ -29,6 +30,7 @@ const SECTIONS: { id: SettingsTab; title: string }[] = [
   { id: "recording", title: "Recording" },
   { id: "transcripts", title: "Transcripts" },
   { id: "ai", title: "AI" },
+  { id: "memory", title: "Memory" },
   { id: "shortcuts", title: "Shortcuts" },
 ];
 
@@ -172,6 +174,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
           {tab === "ai" && prefs && keys && (
             <AiSettings prefs={prefs} secrets={keys} host={host} changed={setPrefs} keySet={(id, set) => setKeys((all) => all?.map((k) => (k.id === id ? { ...k, set } : k)))} waiting={waiting} />
           )}
+          {tab === "memory" && <MemorySettings host={host} />}
           {tab === "shortcuts" && <ShortcutsSettings host={host} />}
         </div>
       </div>

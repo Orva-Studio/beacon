@@ -23,6 +23,7 @@ import {
   mediaWindow,
   type Clip,
   type DecisionInput,
+  type HabitInfo,
   type Memory,
   NO_MEMORY,
   projectFormat,
@@ -31,7 +32,7 @@ import {
 import { clipStream, mediaInfo, sourceOf } from "../media";
 import { rippleDeleteRanges } from "../timeline";
 import type { CursorData } from "../cursor";
-import { fillerRule, keptFillers, retakeTake, silenceMin, where } from "./habits";
+import { fillerRule, keptFillers, retakeTake, silenceMin, where, type Habit } from "./habits";
 import { RETAKE_DEFAULTS, bestTake, findRetakes, isFiller, judgeTakes, retakeCuts, takeKey, takeText, type Judgment, type RetakeOptions, type Take, type Word } from "./retakes";
 
 /** `Asset.derived.transcript` / the `transcript` analyzer: one transcription per audio stream index. */
@@ -1038,6 +1039,16 @@ export const transcript = defineFeature({
       },
     }),
   ],
+  habits: (decisions, format) => {
+    const out: HabitInfo[] = [];
+    const info = <T,>(id: string, text: string, h: Habit<T>, rules: string[]): HabitInfo => ({ id, text, agree: h.agree, of: h.of, ...(h.format ? { format: h.format } : {}), rules });
+    const min = silenceMin(decisions, format);
+    if (min) out.push(info("silence", `Remove Silences finds pauses longer than ${min.value} s: you cut those and keep shorter ones`, min, ["silence"]));
+    for (const [word, h] of keptFillers(decisions, format)) out.push(info(`filler:${word}`, `Remove Filler Words keeps "${word}"`, h, [`filler:${word}`]));
+    const take = retakeTake(decisions, format);
+    if (take) out.push(info("retake", `Remove Retakes keeps the ${take.value} take of a line said again`, take, ["retake"]));
+    return out;
+  },
   sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands, ...retakeSessionCommands, reviewShift],
   actions: [retakesApply, silencesApply, fillersApply],
   commands: [

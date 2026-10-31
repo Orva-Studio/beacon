@@ -62,6 +62,8 @@ export interface ViewState {
   confirmSaved?: number;
   /** Every action with its keys (`Init.shortcuts`). */
   shortcuts: import("@beacon/model").ShortcutInfo[];
+  /** Settings › Memory (`Init.memory`), kept up to date as decisions are recorded. */
+  memory?: import("@beacon/model").MemoryState;
   /** The command palette, while open. */
   palette?: boolean;
   /** Project Settings, while open. */
@@ -127,7 +129,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, preferences: init.preferences });
+    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, memory: init.memory, preferences: init.preferences });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -191,6 +193,9 @@ export const replica = {
   },
   preferences(preferences: ViewState["preferences"]) {
     set({ preferences });
+  },
+  memory(memory: ViewState["memory"]) {
+    set({ memory });
   },
   shortcuts(shortcuts: ViewState["shortcuts"]) {
     set({ shortcuts });

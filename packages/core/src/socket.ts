@@ -54,7 +54,7 @@ export const PROTOCOL_VERSION = 1;
 export const FORWARDED = [
   "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "redo", "history", "query", "frame", "captureFrame", "sheet",
   "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences", "secrets",
-  "setPreference", "favorites", "favoriteAdd", "favoriteRemove", "favoriteMove", "shortcuts", "shortcutSet", "shortcutReset", "settings",
+  "setPreference", "favorites", "favoriteAdd", "favoriteRemove", "favoriteMove", "shortcuts", "shortcutSet", "shortcutReset", "memory", "memoryChange", "settings",
   "setSettings", "uiOpen", "summary", "checkOutput", "recorderDevices", "recorderAccess", "recordStart", "recordStatus", "recordStop",
   "session", "snapshot",
 ] as const satisfies readonly (keyof BeaconCore)[];

@@ -103,6 +103,9 @@ function followConfig() {
     "settings.json": () => void core.reloadSettings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "favorites.json": () => void core.favorites().then((items) => broadcast("favorites", { items })),
+    // An agent's proposal, or its project's decisions: Settings › Memory shows them.
+    "memory.json": () => void core.memory().then((memory) => broadcast("memory", { memory })),
+    "decisions.json": () => void core.memory().then((memory) => broadcast("memory", { memory })),
   };
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   try {
@@ -387,6 +390,7 @@ function openWindow(): Win {
         declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }, w),
         shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
         shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
+        memoryChange: (change) => replyWith(() => core.memoryChange(change)),
         appAction: ({ action }) => appAction(action, w),
         previewOpen: ({ asset }) => w.views.previewOpen(asset),
         previewView: ({ id, x, y, width, height, scale }) => w.views.previewView(id, { x, y, width, height }, scale),

@@ -2012,6 +2012,52 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await ui.core.shortcutReset();
 }, 30000);
 
+test.skipIf(skip)("Settings › Memory: what was learned per format with its evidence, each forgotten on its own; sentences added in the window; an agent's proposal accepted; learning turned off and on", async () => {
+  const now = Date.now();
+  const decided = (project: string) => ({ rule: "filler:um", choice: "keep", flipped: true, format: "long", project, at: now });
+  const decisions = join(ui.core.configDir, "decisions.json");
+  writeFileSync(decisions, JSON.stringify(["a", "a", "a", "b", "b"].map(decided)));
+  try {
+    await ui.core.uiOpen(ui.handle, "settings", "memory");
+    await page.until("!!document.querySelector('[data-memory]')");
+    // Opened before this test wrote the decisions, the window hears of them with the next change; any change will do.
+    await ui.core.memoryChange({ learning: true });
+    await page.until(`!!document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habit="filler:um"]').textContent`)).toContain('Remove Filler Words keeps "um"5 of your 5 choices');
+    // Shorts have none of their own: every format's, said so.
+    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habits="Shorts"] [data-memory-habit="filler:um"]').textContent`)).toContain("from every kind of video");
+    // A sentence typed in.
+    await page.click(...(await centre("[data-memory-add] input")));
+    await type("No B-roll in the intro");
+    await page.key("Enter", "Enter");
+    for (let i = 0; i < 50 && !(await ui.core.memory()).sentences.length; i++) await Bun.sleep(50);
+    expect((await ui.core.memory()).sentences.map((x) => [x.text, x.by])).toEqual([["No B-roll in the intro", "you"]]);
+    await page.until("document.querySelectorAll('[data-memory-sentence]').length === 1");
+    // The sentence gets the row; its format beside it doesn't squeeze it.
+    expect(await page.evaluate<number>("document.querySelector('[data-memory-sentence] input').getBoundingClientRect().width")).toBeGreaterThan(200);
+    // An agent's proposal waits until accepted.
+    await ui.core.memoryChange({ propose: { text: "Captions at the top", format: "short" } });
+    await page.until("!!document.querySelector('[data-memory-accept]')");
+    await page.evaluate("document.querySelector('[data-memory-accept]').click()");
+    await page.until("document.querySelectorAll('[data-memory-sentence]').length === 2 && !document.querySelector('[data-memory-proposal]')");
+    expect((await ui.core.memory()).sentences.map((x) => [x.text, x.format, x.by])).toEqual([["No B-roll in the intro", undefined, "you"], ["Captions at the top", "short", "agent"]]);
+    // Forget: the habit's decisions go.
+    await page.evaluate(`document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"] [data-memory-forget]').click()`);
+    await page.until("!document.querySelector('[data-memory-habit]')");
+    expect((await ui.core.memory()).decisions).toBe(0);
+    // Learning off hides what was learned.
+    await page.click(...(await centre("[data-memory-learning]")));
+    await page.until("!document.querySelector('[data-memory-habits]')");
+    expect((await ui.core.memory()).learning).toBe(false);
+    await page.click(...(await centre("[data-memory-learning]")));
+    await page.until("!!document.querySelector('[data-memory-habits]')");
+  } finally {
+    await ui.core.uiOpen(ui.handle, null);
+    rmSync(decisions, { force: true });
+    rmSync(join(ui.core.configDir, "memory.json"), { force: true });
+  }
+});
+
 test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it changes the app's settings, which an open Settings window shows, and the window's changes reach core", async () => {
   const title = () => page.evaluate<string | null>("document.querySelector('.text-title')?.textContent ?? null");
   const open = async (dialog: Parameters<typeof ui.core.uiOpen>[1], tab?: string) => {
@@ -3463,7 +3509,7 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
 test.skipIf(skip)("Settings is one size with its sections down a sidebar; Project Settings is a dialog of its own, from ⌥⌘, or an agent, its changes undoable", async () => {
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences() });
   await page.until("!!document.querySelector('[data-settings-nav]')");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "AI", "Shortcuts"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section]')].map((b) => b.textContent)")).toEqual(["General", "Recording", "Transcripts", "AI", "Memory", "Shortcuts"]);
   const size = () => page.evaluate<string>("(() => { const r = document.querySelector('[data-settings-window]').closest('[tabindex=\"-1\"]').getBoundingClientRect(); return `${r.width}x${r.height}`; })()");
   const first = await size();
   for (const section of ["recording", "transcripts", "shortcuts", "general"]) {

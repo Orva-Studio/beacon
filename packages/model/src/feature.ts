@@ -4,6 +4,7 @@ import type { Asset, Clip, Easing, Project, Track } from "./schema";
 import type { FeatureRegistry } from "./registry";
 import type { Layer, SourceDef, VisualLayer } from "./scene";
 import type { Ticks } from "./ticks";
+import type { HabitInfo } from "./memory";
 import type { Session, SessionCommandDef } from "./session";
 
 export interface ClipTypeDef {
@@ -590,6 +591,8 @@ export interface Feature {
   annotations?: Record<string, AnnotationDef>;
   /** Editor commands keeping the feature's own state in `session.features[<feature id>]`. */
   sessionCommands?: SessionCommandDef[];
+  /** What it learned of the user's habits in a format from their decisions (`Memory`), for Settings › Memory and agents. */
+  habits?: (decisions: Decision[], format: Format) => HabitInfo[];
   /**
    * Panels of its own with Cancel and Apply (Remove Silences, Clean with Auphonic): whether one is open, the session
    * command its Cancel (⎋) runs, and the actions its Apply (↩) and Apply All (⇧↩) run (`reviews.*`).

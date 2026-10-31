@@ -1,6 +1,6 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
-import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
+import type { AppSettings, CameraSync, Keys, MemoryChange, MemoryState, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
 import type { CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
@@ -74,6 +74,8 @@ export interface Init {
   projectsFolder: string;
   /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
   shortcuts: ShortcutInfo[];
+  /** Settings › Memory: the user's sentences, proposals, learned habits and whether Beacon learns. */
+  memory: MemoryState;
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
   effects: SchemaInfo["effects"];
@@ -387,6 +389,8 @@ export type AppRPC = {
       /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
       shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
       shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
+      /** A change in Settings › Memory: replies with the memory as it now is. */
+      memoryChange: { params: MemoryChange; response: RunReply & { result?: MemoryState } };
       /** One of the app's own actions (`app.export`, `app.new`…), as its menu item runs it: the command palette and rebound keys. */
       appAction: { params: { action: string }; response: void };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
@@ -463,6 +467,7 @@ export type AppRPC = {
       projectSettings: {};
       /** Keyboard shortcuts changed (in Settings or by an agent). */
       shortcuts: { shortcuts: ShortcutInfo[] };
+      memory: { memory: MemoryState };
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };
       /** Beacon > Settings… (⌘,). */

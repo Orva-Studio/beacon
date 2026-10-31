@@ -50,6 +50,12 @@ it is downloaded, imports report it in `needs` and no transcript starts.
 575 MB, once) as a job. Ask the user before fetching; transcripts of media
 already imported start when it is done.
 
+The user's memory is how they edit, app-wide: read `memory_list` before
+editing for them (a rough cut, B-roll, captions) and follow its `sentences`
+for the project's format (a Short is taller than wide). What you notice of
+their habits, or what they tell you to remember, goes to `memory_propose`:
+they accept it in Settings › Memory; never treat a proposal as theirs.
+
 The Favorites panel is the user's, app-wide: `favorites_list` reads it
 (`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);
 `favorites_add`, `favorites_remove` and `favorites_move` change it, only when

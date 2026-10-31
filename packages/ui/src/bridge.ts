@@ -43,7 +43,8 @@ export function appBridge(core: Pick<LocalCore, "watchApp" | "preferences">, sen
     } else if (e.kind === "shortcuts") {
       if (hooks.shortcuts) hooks.shortcuts(e.shortcuts);
       else send("shortcuts", { shortcuts: e.shortcuts });
-    } else if (e.kind === "settings") {
+    } else if (e.kind === "memory") send("memory", { memory: e.memory });
+    else if (e.kind === "settings") {
       if (hooks.settings) hooks.settings(e.settings);
       else send("appSettings", e.settings);
     } else if (e.kind === "job") hooks.job?.(e.job);

@@ -36,6 +36,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   settingsSheet: (s) => replica.settings(s),
   favorites: ({ items }) => replica.favorites(items),
   shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
+  memory: ({ memory }) => replica.memory(memory),
   palette: () => replica.palette(true),
   projectSettings: () => replica.projectSettings(true),
   appSettings: (a) => replica.appSettings(a),

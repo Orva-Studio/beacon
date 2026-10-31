@@ -2880,6 +2880,12 @@ edit.
   or only read by agents as text; per format (Short/long) as the tallies are.
   **Decided (the user, 2026-10-28):** agents may propose sentences (never
   saved without the user accepting).
+  **Built 2026-10-31:** Settings › Memory (learning on/off; Learned per
+  format with evidence, Forget, Forget All; sentences with a format;
+  proposals), `memory.json`, `Feature.habits`, `memory_list` and
+  `memory_propose` over MCP. Sentences are text agents read, not rules a
+  review enforces; Beacon doesn't yet propose sentences itself from repeated
+  crops, positions or B-roll placements.
 - Fits as its own feature folder with session state and a preference
   store; the reviews ask it for defaults rather than knowing about it.
   Open: per speaker as well as per format (a guest in an interview);

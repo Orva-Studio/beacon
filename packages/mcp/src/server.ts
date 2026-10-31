@@ -398,7 +398,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("ui_open", {
     description:
-      "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, transcripts or shortcuts), projectSettings (the project's canvas, frame rate, background, loudness), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
+      "Show a dialog in the app's window as its menus do, to see it with ui_snapshot: settings (on `tab`: general, recording, transcripts, ai, memory or shortcuts), projectSettings (the project's canvas, frame rate, background, loudness), export, exportSelection, newProject or record; null closes the open one. Only with the project open in the app. It changes nothing by itself: settings_set, export_start and the like do",
     schema: z.strictObject({ dialog: z.enum(UI_DIALOGS).nullable(), tab: z.enum(SETTINGS_TABS).optional() }),
     run: async ({ dialog, tab }) => (await core.uiOpen(project(), dialog, tab), dialog ? `${dialog} is open` : "closed"),
   });
@@ -418,6 +418,18 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     description: "Put an action's shortcut back to the default, or every action's (no `action`)",
     schema: z.strictObject({ action: z.string().optional() }),
     run: async ({ action }) => (await core.shortcutReset(action)).filter((s) => !s.standard),
+  });
+  add("memory_list", {
+    description:
+      "How the user edits, app-wide (Settings › Memory): `sentences`, habits in their own words, each for Shorts, long videos or both (`format`) — read them before editing for them (a rough cut, B-roll, captions) and edit their way; `habits`, what Beacon learned from their choices in Remove Silences, Filler Words and Retakes per format (the reviews already open with these); `proposals` waiting for them to accept; `learning`, whether it learns. A project is a Short when it is taller than wide",
+    schema: z.strictObject({}),
+    run: async () => core.memory(),
+  });
+  add("memory_propose", {
+    description:
+      "Propose a sentence for the user's memory: a habit of theirs you noticed or they told you (\"Captions at the top in Shorts\"), one line, in their voice. It waits in Settings › Memory until they accept it: never read as memory before. The same sentence isn't proposed twice",
+    schema: z.strictObject({ text: z.string().trim().min(1).max(500), format: z.enum(["short", "long"]).optional().describe("Only for Shorts or long videos; omitted: both") }),
+    run: async ({ text, format }) => (await core.memoryChange({ propose: { text, ...(format ? { format } : {}) } })).proposals,
   });
   add("job_status", {
     description: "Status of a background job (export, transcript, download), or of all jobs. With `wait`, blocks up to that many seconds for the job to finish",

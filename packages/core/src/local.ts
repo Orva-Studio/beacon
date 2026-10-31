@@ -45,6 +45,9 @@ import {
   type ActionTask,
   type ActionStep,
   type Memory,
+  MemoryChangeSchema,
+  type MemoryChange,
+  type MemoryState,
   projectFormat,
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
@@ -195,7 +198,7 @@ export class LocalCore implements BeaconCore {
     store.subscribe((e) => void (current = e.doc));
     const project = Bun.hash(path).toString(36);
     const memory: Memory = {
-      decisions: () => this.#config.decisions(),
+      decisions: () => (this.#config.learning() ? this.#config.decisions() : []),
       record: (ds) => this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() }))),
     };
     const p: OpenProject = {
@@ -1166,6 +1169,14 @@ export class LocalCore implements BeaconCore {
 
   async shortcutSet(action: string, keys: Keys[], replace = false): Promise<ShortcutInfo[]> {
     return this.#config.shortcutSet(action, keys, replace);
+  }
+
+  async memory(): Promise<MemoryState> {
+    return this.#config.memory();
+  }
+
+  async memoryChange(change: MemoryChange): Promise<MemoryState> {
+    return this.#config.memoryChange(MemoryChangeSchema.parse(change));
   }
 
   async shortcutReset(action?: string): Promise<ShortcutInfo[]> {

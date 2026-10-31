@@ -237,6 +237,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         }
         else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(p.action, p.keys, p.replace));
         else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(p.action));
+        else if (msg.type === "memoryChange") result = await reply(() => core.memoryChange(p));
         // The app's own actions open dialogs the main process owns: recorded, as menus are.
         else if (msg.type === "appAction") {
           menus.push(`app:${p.action}`);

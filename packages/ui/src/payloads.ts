@@ -8,13 +8,14 @@ import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } fr
  * for it), so the two can't drift. Only core's types are imported: this runs in those processes, not the page.
  */
 
-type Core = Pick<BeaconCore, "schema" | "shortcuts" | "favorites" | "preferences" | "settings" | "resources" | "secrets">;
+type Core = Pick<BeaconCore, "schema" | "shortcuts" | "memory" | "favorites" | "preferences" | "settings" | "resources" | "secrets">;
 
 /** The window's init payload, but for what only the app knows (the open project, recent projects, where new ones go, its socket). */
 export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "recent" | "projectsFolder" | "socket" | "keyLog">> {
   const schema = core.schema();
   return {
     shortcuts: await core.shortcuts(),
+    memory: await core.memory(),
     propGroups: schema.props.map((p) => ({ id: p.id, description: p.description, defaults: p.defaults })),
     effects: schema.effects,
     panelItems: schema.panelItems,

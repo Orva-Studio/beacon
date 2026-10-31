@@ -23,6 +23,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
 
   const shortcuts = applyReply(replica.shortcuts);
   const favorites = applyReply(replica.favorites);
+  const memory = applyReply(replica.memory);
 
   return {
     run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }), coalesce),
@@ -56,6 +57,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
     shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, ...(replace ? { replace } : {}) })),
     shortcutReset: (action) => void shortcuts(request("shortcutReset", action ? { action } : {})),
+    memoryChange: (change) => void memory(request("memoryChange", change)),
     app: (action) => void request("appAction", { action }),
     chooseFolder: (start) => request("chooseFolder", { start }),
     chooseFile: (extensions) => request("chooseFile", { extensions }),

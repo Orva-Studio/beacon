@@ -11,6 +11,11 @@ import {
   type AppSettings,
   type Decision,
   type FeatureRegistry,
+  type Format,
+  MemoryFileSchema,
+  type MemoryChange,
+  type MemoryFile,
+  type MemoryState,
   type Keys,
   type SettingsPatch,
   type ShortcutInfo,
@@ -185,9 +190,65 @@ export class AppConfig {
     return Array.isArray(saved) ? (saved as Decision[]) : [];
   }
 
-  /** Adds decisions, keeping the newest `DECISIONS_KEPT`: old ones count for little by then. */
+  /** Adds decisions, keeping the newest `DECISIONS_KEPT`: old ones count for little by then. None while learning is off. */
   recordDecisions(decisions: Decision[]) {
-    if (decisions.length) this.write("decisions.json", [...this.decisions(), ...decisions].slice(-DECISIONS_KEPT));
+    if (!decisions.length || !this.#memoryFile().learning) return;
+    this.write("decisions.json", [...this.decisions(), ...decisions].slice(-DECISIONS_KEPT));
+    this.emit({ kind: "memory", memory: this.memory() });
+  }
+
+  /** Whether reviews learn from decisions and open with what they learned (Settings › Memory). */
+  learning(): boolean {
+    return this.#memoryFile().learning;
+  }
+
+  #memoryFile(): MemoryFile {
+    const saved = MemoryFileSchema.safeParse(this.read("memory.json") ?? {});
+    return saved.success ? saved.data : MemoryFileSchema.parse({});
+  }
+
+  /** Settings › Memory: the sentences, those proposed, and what the features learned for each format. */
+  memory(): MemoryState {
+    const file = this.#memoryFile();
+    const decisions = this.decisions();
+    const habits = (format: Format) => [...this.registry.features.values()].flatMap((f) => f.habits?.(decisions, format) ?? []);
+    return { ...file, habits: { short: habits("short"), long: habits("long") }, decisions: decisions.length };
+  }
+
+  memoryChange(change: MemoryChange): MemoryState {
+    const file = this.#memoryFile();
+    const find = (list: MemoryFile["sentences"], id: string) => {
+      const found = list.find((x) => x.id === id);
+      if (!found) throw new Error(`no sentence "${id}" in the memory${list === file.proposals ? "'s proposals" : ""}`);
+      return found;
+    };
+    const fresh = (text: string, format: Format | undefined, by: "you" | "agent") => ({ id: crypto.randomUUID().slice(0, 8), text, ...(format ? { format } : {}), by, at: Date.now() });
+    if ("add" in change) file.sentences.push(fresh(change.add.text, change.add.format, "you"));
+    else if ("edit" in change) {
+      const s = find(file.sentences, change.edit.id);
+      s.text = change.edit.text;
+      if (change.edit.format === null) delete s.format;
+      else if (change.edit.format) s.format = change.edit.format;
+    } else if ("remove" in change) file.sentences = file.sentences.filter((x) => x !== find(file.sentences, change.remove));
+    else if ("propose" in change) {
+      // Said already, or waiting: not twice.
+      const same = (x: { text: string }) => x.text.toLowerCase() === change.propose.text.toLowerCase();
+      if (!file.sentences.some(same) && !file.proposals.some(same)) file.proposals.push(fresh(change.propose.text, change.propose.format, "agent"));
+    } else if ("accept" in change) {
+      const s = find(file.proposals, change.accept);
+      file.proposals = file.proposals.filter((x) => x !== s);
+      file.sentences.push({ ...s, at: Date.now() });
+    } else if ("dismiss" in change) file.proposals = file.proposals.filter((x) => x !== find(file.proposals, change.dismiss));
+    else if ("learning" in change) file.learning = change.learning;
+    else {
+      const f = change.forget;
+      const kept = f === "all" ? [] : this.decisions().filter((d) => !f.rules.includes(d.rule) || (f.format !== undefined && d.format !== f.format));
+      this.write("decisions.json", kept);
+    }
+    if (!("forget" in change)) this.write("memory.json", file);
+    const memory = this.memory();
+    this.emit({ kind: "memory", memory });
+    return memory;
   }
 
   /** The settings last told (written here, or found changed by `reloadSettings`). */
