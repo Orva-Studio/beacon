@@ -3102,8 +3102,13 @@ search and preview; music placed over the range on a Music track, re-cut by
 Epidemic to fit (its track adaptation, up to 5 min) or cut and faded, ducked
 under speech as audio points (`music.duck` again after edits); its
 instruments alone when its singing is off; a sound effect at the playhead on
-an SFX track; library audio isn't transcribed. Still to do: the pop-in
-sound-effect review; snapping to the beat.
+an SFX track; library audio isn't transcribed. Pop-ins (2026-11-02): the
+Music panel's third tab lists where motion graphics, B-roll and pictures
+come onto the picture (within 0.25 s is one), one sound per kind (the
+first found for "whoosh" and "pop", changeable), each ticked, marked on the
+timeline; Apply downloads and places them on SFX tracks in one undo step
+(`sfx.popIns`, `sfx.addMany`). Still to do: snapping to the beat (Epidemic's
+MCP server gives no beat data: our own detection).
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,

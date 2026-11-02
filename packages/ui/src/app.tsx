@@ -24,7 +24,7 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
-import { MusicPanel, musicReviewOf } from "./music";
+import { MusicPanel, musicReviewOf, popInMarks, usePopIns } from "./music";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
@@ -95,6 +95,7 @@ export function App({ host }: { host: Host }) {
   const silences = useSilences(host, session, project);
   const fillers = useFillers(host, session, project);
   const retakes = useRetakes(host, session, project);
+  const popIns = usePopIns(host, session, project);
   useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
@@ -223,7 +224,7 @@ export function App({ host }: { host: Host }) {
             (auphonicReviewOf(session) ? (
               <AuphonicPanel project={project} session={session} host={host} init={init} />
             ) : musicReviewOf(session) ? (
-              <MusicPanel project={project} session={session} host={host} />
+              <MusicPanel project={project} session={session} host={host} popIns={popIns} />
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
@@ -249,7 +250,9 @@ export function App({ host }: { host: Host }) {
               trackMenu={host.trackMenu}
               dropFiles={host.dropFiles}
               marks={
-                retakes
+                popIns && session && musicReviewOf(session)
+                  ? popInMarks(popIns, musicReviewOf(session)!)
+                  : retakes
                   ? retakeMarks(retakes)
                   : silences
                     ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))

@@ -5285,6 +5285,75 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
   }
 }, 60_000);
 
+test.skipIf(skip)("Pop-ins in the Music panel: each picture coming onto the picture listed and marked, a pop picked by itself (changeable), one left out, and Apply puts the sounds on an SFX track, one undo step", async () => {
+  const wav = join(dir, "pop.wav");
+  const pcm = Float32Array.from({ length: 0.4 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 880 * i) / 48000));
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", wav], { stdin: new Uint8Array(pcm.buffer) });
+  const png = join(dir, "pop-logo.png");
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x64", "-i", "pipe:0", "-frames:v", "1", png], { stdin: new Uint8Array(64 * 64).fill(200) });
+  const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
+  const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  const terms: string[] = [];
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/pop.wav") return new Response(Bun.file(wav));
+      const body = (await req.json()) as { id?: number; method: string; params?: { name: string; arguments: any } };
+      if (body.method === "initialize") return sse(body.id, { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "stand-in", version: "0" } });
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const { name, arguments: args } = body.params!;
+      const audioFile = { durationInMilliseconds: 400, lqmp3Url: `${url.origin}/pop.wav`, waveformUrl: "" };
+      if (name === "SearchSoundEffects") {
+        terms.push(args.query?.term);
+        return answer(body.id, { soundEffects: { nodes: ["Bubble Pop", "Click Pop"].map((title, i) => ({ soundEffect: { id: `pop-${i}`, title, audioFile } })), meta: { total: 2 }, pageInfo: { hasNextPage: false } } });
+      }
+      if (name === "DownloadSoundEffect") return answer(body.id, { soundEffectDownload: { assetUrl: `${url.origin}/pop.wav` } });
+      return sse(body.id, { isError: true, content: [{ type: "text", text: `no ${name}` }] });
+    },
+  });
+  process.env.BEACON_EPIDEMIC_URL = `${fake.url.origin}/mcp`;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await ui.core.setSecret("epidemic-sound-api-key", "es-key");
+    const one = (await ui.core.import(ui.handle, [png], { at: 3 })).clips[0]!;
+    const two = (await ui.core.import(ui.handle, [png], { at: 8 })).clips[0]!;
+    const steps2 = (await ui.core.history(ui.handle)).undo.length;
+    await run("music.review", { tab: "popins" });
+    await run("panel.show", { properties: true });
+    await page.until("!!document.querySelector('[data-popins]')");
+    await page.until(`document.querySelectorAll('[data-popin]').length === 2`);
+    // The first "pop" found is picked by itself; the Change list offers the rest.
+    await page.until("document.querySelector('[data-pop-sound=picture] [data-pop-pick]')?.textContent === 'Bubble Pop'");
+    expect(terms).toContain("pop");
+    await page.evaluate("[...document.querySelectorAll('[data-pop-sound=picture] button')].find((b) => b.textContent === 'Change').click()");
+    await page.until("!!document.querySelector('[data-pop-option=pop-1]')");
+    await page.evaluate("document.querySelector('[data-pop-option=pop-1]').click()");
+    await page.until("document.querySelector('[data-pop-sound=picture] [data-pop-pick]')?.textContent === 'Click Pop'");
+    // The one at 8 s left out.
+    await page.evaluate(`document.querySelector('[data-popin="${two}"] [role=checkbox]').click()`);
+    await page.until("(document.querySelector('[data-music-where]')?.textContent ?? '').startsWith('1 sound on SFX tracks')");
+    await page.screenshot(join(dir, "popins.png"));
+    expect(await page.evaluate<string>("document.querySelector('[data-music-apply]').textContent")).toContain("Apply");
+    await page.evaluate("document.querySelector('[data-music-apply]').click()");
+    await page.until("!document.querySelector('[data-music-review]')");
+    await arrived(() => ui.core.doc(ui.handle).tracks.some((t) => t.name === "SFX" && t.clips.length > 0), 20_000);
+    const sfx = ui.core.doc(ui.handle).tracks.find((t) => t.name === "SFX")!;
+    expect(sfx.clips.map((c) => ticksToSeconds(c.start))).toEqual([3]);
+    expect(ui.core.doc(ui.handle).assets[sfx.clips[0]!.assetId!]!.name).toBe("Click Pop");
+    expect((await ui.core.history(ui.handle)).undo.length - steps2).toBe(1);
+    expect(one).toBeDefined();
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_EPIDEMIC_URL;
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
 test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {

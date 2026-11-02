@@ -213,3 +213,41 @@ test.skipIf(!existsSync(AUDIO))("Music from Epidemic Sound: searched with the us
   expect(calls.at(-1)).toEqual({ tool: "DownloadRecording", args: { id: "rec-1", options: { fileType: "MP3", stemType: "INSTRUMENTS" } } });
   await core.close(h);
 }, 120_000);
+
+test("Pop-ins: a sound on each picture coming onto the picture, those left out skipped, overlapping ones on another SFX track, one undo step; a sound already in the project isn't downloaded again", async () => {
+  const secrets = new Map([["epidemic-sound-api-key", "es-key"]]);
+  const core = new LocalCore({ cacheDir: join(dir, "pop-cache"), configDir: join(dir, "pop-config"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  const h = await core.create({ path: join(dir, "pops.beproj") });
+  const png = join(dir, "logo.png");
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x64", "-i", "pipe:0", "-frames:v", "1", png], { stdin: new Uint8Array(64 * 64).fill(200) });
+  // Pictures at 2 s and 2.3 s (apart enough to be two) and 6 s; one at 2.1 s is the same pop-in as 2 s's.
+  const at = async (time: number, track?: string) => (await core.import(h, [png], { at: time, ...(track ? { track } : {}) })).clips[0]!;
+  const first = await at(2);
+  await at(2.3);
+  const late = await at(6);
+  const t2 = (await core.run(h, "track.add", { name: "Logos" })).results[0] as string;
+  await at(2.1, t2);
+  await core.run(h, "edit.addAnnotation", { preset: "text", time: 4, duration: 1 });
+  const found = (await core.query(h, "sfx.popIns", {})) as { time: number; clip: string; kind: string }[];
+  expect(found.map((p) => [p.time, p.kind])).toEqual([[2, "picture"], [2.3, "picture"], [6, "picture"]]);
+  expect(found[0]!.clip).toBe(first);
+
+  await core.run(h, "music.review", { tab: "popins", popSound: { kind: "picture", pick: { id: "sfx-1", title: "Whoosh", ms: 500 } }, popOff: { clip: late, off: true } });
+  const steps = (await core.history(h)).undo.length;
+  const before = calls.length;
+  await waitJob(core, ((await core.run(h, "music.apply", {})).results.at(-1) as { job: string }).job);
+  expect(calls.slice(before).map((c) => c.tool)).toEqual(["DownloadSoundEffect"]);
+  expect((await core.history(h)).undo.length - steps).toBe(1);
+  const sfx = () => core.doc(h).tracks.filter((t) => t.name === "SFX");
+  // 2 s's sound lasts to 2.5 s, so 2.3 s's goes on a second SFX track; 6 s was left out.
+  expect(sfx().map((t) => t.clips.map((c) => ticksToSeconds(c.start)))).toEqual([[2], [2.3]]);
+  expect((await core.session(h)).features.music).toBeUndefined();
+
+  // Again: placed at once from the project, no download, onto the SFX tracks there are.
+  const again = calls.length;
+  const direct = await core.run(h, "sfx.addMany", { sounds: [{ id: "sfx-1", title: "Whoosh", time: 6 }] });
+  expect(direct.results.at(-1)).not.toHaveProperty("job");
+  expect(calls.length).toBe(again);
+  expect(sfx().map((t) => t.clips.map((c) => ticksToSeconds(c.start)))).toEqual([[2, 6], [2.3]]);
+  await core.close(h);
+}, 60_000);
