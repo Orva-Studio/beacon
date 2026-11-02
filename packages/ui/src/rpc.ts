@@ -1,6 +1,6 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
-import type { AppSettings, CameraSync, Keys, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
+import type { AppSettings, CameraSync, Keys, MemoryChange, MemoryState, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
 import type { CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
@@ -70,8 +70,12 @@ export interface RecentProject {
 export interface Init {
   opened?: Opened;
   recent: RecentProject[];
+  /** Where New Project puts a project: the folder last chosen for one, else ~/Movies/Beacon. */
+  projectsFolder: string;
   /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
   shortcuts: ShortcutInfo[];
+  /** Settings › Memory: the user's sentences, proposals, learned habits and whether Beacon learns. */
+  memory: MemoryState;
   propGroups: PropGroupInfo[];
   /** `schema`: JSON Schema of the params, for the properties panel's controls; `traits`: clips with any of them take it. */
   effects: SchemaInfo["effects"];
@@ -125,14 +129,14 @@ export interface TileMenu {
 }
 
 export { exportOptions } from "./export-options";
-export { appWideMessage, exportCanvas, exportSheetFor, initPayload, settingsSheet } from "./payloads";
+export { appWideMessage, exportCanvas, exportFileChoices, exportSheetFor, initPayload, settingsSheet } from "./payloads";
 export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
 export { copiedIds } from "./clip-ids";
 // The timeline's geometry, for the UI harness's clicks.
-export { clipBox, cornerButtons, headerIcons, headerWidth } from "./timeline-layout";
+export { BAND, clipBox, cornerButtons, headerIcons, headerWidth, RULER, TRACKS_TOP } from "./timeline-layout";
 
 export interface Notice {
   title: string;
@@ -178,6 +182,8 @@ export interface ExportSettings {
   audio: boolean;
   /** kbit/s; null: automatic. */
   audioBitrate: number | null;
+  /** Files written beside a video (`ExportFileDef` ids: "captions"); remembered with the rest. */
+  files: string[];
 }
 
 /** What File > Export opens the dialog with. */
@@ -190,6 +196,8 @@ export interface ExportSheet {
   /** Export Selection with clips selected (it wins over the range): only those, over their span. */
   clips?: { ids: string[]; in: number; out: number; silent?: boolean; usual?: Pick<ExportSettings, "format" | "audio"> };
   canvas: { width: number; height: number; fps: number };
+  /** Files features can write beside a video, a tick box each. */
+  files: { id: string; title: string }[];
 }
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */
@@ -324,6 +332,8 @@ export type AppRPC = {
       previewEffect: { params: { preview: EffectPreview | null }; response: RunReply };
       /** A Media Bin item's picture `time` seconds in, as a data URL, for scrubbing it under the pointer. */
       binFrame: { params: { asset: string; time: number }; response: string | null };
+      /** Show a file in the project's folder in Finder. */
+      reveal: { params: { path: string }; response: { ok: boolean; error?: string } };
       /** Starts a media item's background analysis unless it is running (Remove Silences' missing transcripts). */
       analyze: { params: { key: string; asset: string }; response: void };
       /** A folder picked in the Finder dialog, starting at `start`. */
@@ -365,7 +375,7 @@ export type AppRPC = {
       proxySpace: { params: {}; response: number };
       /** Settings > General > Delete All Proxy Videos; replies with the bytes still used. */
       deleteAllProxies: { params: {}; response: number };
-      newProject: { params: { name: string; settings: CanvasValues; standalone: boolean }; response: RunReply };
+      newProject: { params: { name: string; settings: CanvasValues; standalone: boolean; folder: string }; response: RunReply };
       /** File > Save As…: `name`.beproj in `folder`, opened in place of the open project. */
       saveAs: { params: { name: string; folder: string; standalone: boolean }; response: RunReply };
       /** Download a resource (the speech model): replies with its job id. */
@@ -383,6 +393,8 @@ export type AppRPC = {
       /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
       shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
       shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
+      /** A change in Settings › Memory: replies with the memory as it now is. */
+      memoryChange: { params: MemoryChange; response: RunReply & { result?: MemoryState } };
       /** One of the app's own actions (`app.export`, `app.new`…), as its menu item runs it: the command palette and rebound keys. */
       appAction: { params: { action: string }; response: void };
       previewOpen: { params: { asset: string }; response: AssetPreviewInfo | null };
@@ -421,7 +433,7 @@ export type AppRPC = {
       /** The Media Bin preview's clock. */
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
-      newProjectSheet: { name: string };
+      newProjectSheet: { name: string; folder: string };
       recent: RecentProject[];
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;
@@ -459,6 +471,7 @@ export type AppRPC = {
       projectSettings: {};
       /** Keyboard shortcuts changed (in Settings or by an agent). */
       shortcuts: { shortcuts: ShortcutInfo[] };
+      memory: { memory: MemoryState };
       /** Snapshot saved a frame: shown with Show in Finder. */
       snapshotSaved: { path: string };
       /** Beacon > Settings… (⌘,). */

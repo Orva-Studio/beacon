@@ -5,8 +5,8 @@ import { Button, Check, Modal, RenameField, SettingsRow, TextInput } from "./con
 import { replica, useView } from "./store";
 
 export interface ProjectHost {
-  /** A new project of that name in the projects folder, with these canvas settings, opened. */
-  newProject(name: string, settings: CanvasValues, standalone: boolean): Promise<{ ok: boolean; error?: string }>;
+  /** A new project of that name in `folder`, with these canvas settings, opened. */
+  newProject(name: string, settings: CanvasValues, standalone: boolean, folder: string): Promise<{ ok: boolean; error?: string }>;
   /** Renames the open project's folder. */
   renameProject(name: string): Promise<{ ok: boolean; error?: string }>;
   /** A copy of the open project, `name`.beproj in `folder`, opened in its place. */
@@ -32,15 +32,30 @@ function StandaloneCheck({ checked, onChange }: { checked: boolean; onChange: (o
 }
 
 
+/** The folder a project goes in, with Choose… for another. */
+function WhereRow({ folder, host, onChange }: { folder: string; host: ProjectHost; onChange: (folder: string) => void }) {
+  return (
+    <SettingsRow label="Where">
+      <div className="flex min-w-0 flex-1 items-center gap-2" data-project-where>
+        <span className="min-w-0 flex-1 truncate text-text-strong" title={folder}>
+          {folder.replace(/^\/Users\/[^/]+/, "~")}
+        </span>
+        <Button onClick={async () => void (await host.chooseFolder(folder).then((f) => f && onChange(f)))}>Choose…</Button>
+      </div>
+    </SettingsRow>
+  );
+}
+
 /** File > New Project (⌘N): its name and canvas (Project Settings), in the window as the Export dialog. */
-function NewProjectDialog({ name: initial, host }: { name: string; host: ProjectHost }) {
-  const [name, setName] = useState(initial);
+function NewProjectDialog({ sheet, host }: { sheet: { name: string; folder: string }; host: ProjectHost }) {
+  const [name, setName] = useState(sheet.name);
+  const [folder, setFolder] = useState(sheet.folder);
   const [canvas, setCanvas] = useState(DEFAULT_CANVAS);
   const [standalone, setStandalone] = useState(false);
   const [error, setError] = useState<string>();
   const close = () => replica.newProject(undefined);
   const create = async () => {
-    const r = await host.newProject(name.trim(), canvas, standalone);
+    const r = await host.newProject(name.trim(), canvas, standalone, folder);
     if (r.ok) close();
     else setError(r.error);
   };
@@ -55,6 +70,7 @@ function NewProjectDialog({ name: initial, host }: { name: string; host: Project
           onChange={(e) => (setName(e.target.value), setError(undefined))}
         />
       </SettingsRow>
+      <WhereRow folder={folder} host={host} onChange={(f) => (setFolder(f), setError(undefined))} />
       <CanvasSettings value={canvas} onChange={(patch) => setCanvas({ ...canvas, ...patch })} />
       <StandaloneCheck checked={standalone} onChange={setStandalone} />
       <div className="mt-3 flex justify-end gap-2">
@@ -69,7 +85,7 @@ function NewProjectDialog({ name: initial, host }: { name: string; host: Project
 
 export function NewProjectUi({ host }: { host: ProjectHost }) {
   const sheet = useView((v) => v.newProject);
-  return sheet ? <NewProjectDialog name={sheet.name} host={host} /> : null;
+  return sheet ? <NewProjectDialog sheet={sheet} host={host} /> : null;
 }
 
 /** File > Save As… (⇧⌘S): a copy under a new name and folder, opened in place of this one. */
@@ -95,14 +111,7 @@ function SaveAsDialog({ sheet, host }: { sheet: SaveAsSheet; host: ProjectHost }
           onChange={(e) => (setName(e.target.value), setError(undefined))}
         />
       </SettingsRow>
-      <SettingsRow label="Where">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-text-strong" title={folder}>
-            {folder.replace(/^\/Users\/[^/]+/, "~")}
-          </span>
-          <Button onClick={async () => (await host.chooseFolder(folder).then((f) => f && setFolder(f)), setError(undefined))}>Choose…</Button>
-        </div>
-      </SettingsRow>
+      <WhereRow folder={folder} host={host} onChange={(f) => (setFolder(f), setError(undefined))} />
       <StandaloneCheck checked={standalone} onChange={setStandalone} />
       <div className="mt-3 flex justify-end gap-2">
         <Button onClick={close}>Cancel</Button>

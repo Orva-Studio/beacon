@@ -88,7 +88,7 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "captions",
     label: "Captions",
-    title: "Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export, with an .srt beside it",
+    title: "Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export (an .srt beside it is a tick box in Export)",
     art: "captions",
     start: () => replica.pendCaptions(true),
   },

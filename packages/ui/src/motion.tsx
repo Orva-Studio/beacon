@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Clip, Project, Session } from "@beacon/model";
 import type { CustomStyle, Look, MotionProps, MotionState } from "@beacon/features";
-import { Button, Section, Segmented, Select, TextArea } from "./controls";
+import { Button, Icon, Section, Segmented, Select, TextArea } from "./controls";
 import { MotionCode } from "./motion-code";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
-import { useView } from "./store";
+import { replica, useView } from "./store";
+import { useDraft } from "./draft";
 import type { Host } from "./app";
 
 export const motionStateOf = (s: Session | undefined) => (s?.features.motion as MotionState | undefined) ?? { writing: [], making: [], errors: {} };
@@ -60,12 +61,12 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const making = state.making.includes(clip.id);
   const busy = writing || making;
   const error = state.errors[clip.id];
-  const [manual, setManual] = useState(m.manual);
+  // Saved a second after typing stops, so an agent asked to make it reads what was typed; one undo step.
+  const [manual, setManual, saveManual] = useDraft(clip.id, m.manual, (text) => host.run("clip.set", { clip: clip.id, props: { motion: { manual: text } } }, "Motion Graphics Prompt", `motion-prompt-${clip.id}`));
   const [note, setNote] = useState("");
   const [editing, setEditing] = useState(false);
   // A change asked for is done once its take arrives.
   useEffect(() => setNote(""), [m.takes.length, clip.id]);
-  useEffect(() => setManual(m.manual), [m.manual]);
   const planner = useView((v) => v.preferences.find((p) => p.id === "motionPlanner")?.value);
   const online = useOnline();
   const needsNet = planner !== "apple" && !online;
@@ -80,6 +81,8 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const looks = useQuery<Look[]>(host, "motion.looks");
   const look = looks?.find((l) => l.id === m.look);
   const reference = m.reference ? project.assets[m.reference] : undefined;
+  /** The page the shown take was drawn from, written beside its movie. */
+  const page = ((id) => (id ? project.assets[id]?.path.replace(/\.mov$/, ".html") : undefined))(m.takes[m.shown]?.assetId);
   const by = m.takes[m.shown]?.by;
   const designed = by === "openai" || by === "claude" || by === "you";
   const cost = typicalCost(project, planner ?? "openai");
@@ -216,7 +219,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
               placeholder={said || 'Describe it: "a title: Ship faster", "Sarah Chen, head of design", "87% counting up, revenue growth"'}
               value={manual}
               onChange={(e) => setManual(e.target.value)}
-              onBlur={() => manual !== m.manual && set({ manual }, "Motion Graphics Prompt")}
+              onBlur={saveManual}
               data-motion-prompt
             />
             <span className="text-caption text-text-faint">A title, a name and role, a number, a list, or a line of text, with the words to show.</span>
@@ -311,6 +314,17 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             >
               {m.shown >= 0 ? "Edit Code…" : "Write Code…"}
             </Button>
+            {page && (
+              <Button
+                look="quiet"
+                title="Show its page (HTML, CSS and script) in Finder, to open in any editor"
+                aria-label="Show Code in Finder"
+                onClick={() => void host.reveal(page).then((why) => why && replica.status(`Can't show the code: ${why}`))}
+                data-motion-reveal
+              >
+                <Icon name="folder-open" size={14} />
+              </Button>
+            )}
           </div>
         </div>
         {editing && <MotionCode host={host} clip={clip.id} html={m.takes[m.shown]?.html ?? ""} onClose={() => setEditing(false)} />}

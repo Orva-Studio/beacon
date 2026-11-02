@@ -87,6 +87,13 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences cuts only the silences picked w
   expect(await picked()).toEqual([5, 2]);
   await core.run(h, "silences.select", { at: 6, add: true });
   expect(await picked()).toEqual([2]);
+  // With `through` (⇧-click), every silence back to the one picked last, which stays last for the next.
+  const found = (await core.query(h, "transcript.silences", SETTINGS)) as { silences: { start: number; end: number }[] };
+  const last = found.silences.at(-1)!;
+  await core.run(h, "silences.select", { at: (last.start + last.end) / 2, through: true });
+  const all = (await core.query(h, "transcript.silences", { ...SETTINGS, selected: await picked() })) as { silences: { start: number; selected: boolean }[] };
+  expect(all.silences.filter((x) => x.start >= 1.5).every((x) => x.selected)).toBe(true);
+  expect((await picked()).at(-1)).toBe(2);
   await core.run(h, "silences.close", {});
 
   // A second voice over it: refused, both named, nothing cut; muted, it no longer counts.

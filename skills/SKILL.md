@@ -19,6 +19,14 @@ its timeline live and share its undo history with the user.
 - **Never modify the user's source files or `.cmproj` projects.** Media is read
   in place; projects are new `.beproj` folders.
 
+## Sections
+The user names the parts of a video (Intro, Explanation, Demo, Outro…) on the
+Sections band under the ruler: `project_describe` lists them, `section_add`,
+`section_set` and `section_remove` change them (each one undo step). They never
+overlap; gaps are fine; ripple edits move them with the clips. Name parts the
+way the user's other sections are named, and propose them only when asked:
+the user corrects what you add.
+
 ## Media
 `media_import` adds files at the end of the timeline (or at `at`). A Camtasia
 recording (`.trec`) becomes clips on separate tracks: "Screen" (with
@@ -41,6 +49,14 @@ it is downloaded, imports report it in `needs` and no transcript starts.
 `resource_list` says whether it is there; `resource_fetch` downloads it (about
 575 MB, once) as a job. Ask the user before fetching; transcripts of media
 already imported start when it is done.
+
+The user's memory is how they edit, app-wide: read `memory_list` before
+editing for them (a rough cut, B-roll, captions) and follow its `sentences`
+for the project's format (a Short is taller than wide). What you notice of
+their habits, or what they tell you to remember, goes to `memory_propose`:
+they accept it in Settings › Memory; never treat a proposal as theirs.
+The sentences are `memory.md` in Beacon's config folder (`file`), which the
+user may edit by hand; never write it yourself.
 
 The Favorites panel is the user's, app-wide: `favorites_list` reads it
 (`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);
@@ -92,12 +108,21 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   frames), then tell them it is marked on the timeline for Apply; or
   `silences_apply` when they say so.
 - Remove Retakes, the same way: `transcript_retakes` groups each line said
-  more than once (a restart, a sentence said again) into takes, with the one
+  more than once (a restart, a sentence said again, a stutter: a word or a
+  few said again straight away) into takes, with the one
   kept and who picked it (the user's Best Take setting: Beacon's own scoring,
   or OpenAI with their key, which `analyze` with `retakes` asks once the
   transcript is there). `retakes_review`, `retakes_keep` a take you judge
   better (read the takes' words), `retakes_apply` when the user says so. Of
   the takes after the kept one only what repeats the line is cut.
+- The reviews open the user's way: Beacon learns from their choices in
+  Remove Silences, Filler Words and Retakes (the shortest pause they cut, the
+  fillers they keep, the take they keep), per format (a 9:16 Short or a long
+  video), once they have made the same choice about 5 times over 2 projects.
+  `transcript_habits` lists what it learned and why; `transcript_silences`,
+  `_fillers` and `_retakes` use it when not given settings. Apply from a
+  review records the user's choices, so leave the deciding to them: flip or
+  keep only what they ask.
 - B-roll, generated footage over a stretch of the talk, is a clip: `broll_add`
   puts a placeholder over the range (or at `time` for `duration`) on a B-roll
   track above the talk, in a `region` (canvas pixels from the top left); move,

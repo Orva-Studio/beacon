@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { importDropped, LocalCore, nestedOf } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportOptions, exportSheetFor, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
+import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportFileChoices, exportOptions, exportSheetFor, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
@@ -63,7 +63,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   };
   /** ⌘E and Export Selection…, as the app's exports module opens them. */
   const exportSheet = async (selection: boolean) => {
-    const sheet = exportSheetFor({ name: "project", project: core.doc(h), session: await core.session(h), traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [], nested: nestedOf(core.registry), folder: tmpdir(), settings: DEFAULT_EXPORT, selection });
+    const sheet = exportSheetFor({ name: "project", project: core.doc(h), session: await core.session(h), traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [], nested: nestedOf(core.registry), files: exportFileChoices(core.registry), folder: tmpdir(), settings: DEFAULT_EXPORT, selection });
     if (sheet) sendAll("exportSheet", sheet);
   };
   // The window agents open dialogs in (`ui_open`), as the app's does: what its menus would send.
@@ -72,7 +72,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     if (dialog === "settings") return sendAll("settingsSheet", await settingsSheet(core, tab ? { tab } : {}));
     if (dialog === "projectSettings") return sendAll("projectSettings", {});
     if (dialog === "export" || dialog === "exportSelection") return exportSheet(dialog === "exportSelection");
-    if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project" });
+    if (dialog === "newProject") return sendAll("newProjectSheet", { name: "Untitled Project", folder: "/Users/someone/Movies/Beacon" });
     if (dialog === "record") return sendAll("recordSheet", { ...(narrationDevices as object), mode: "take", sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } } });
   });
 
@@ -122,7 +122,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         if (msg.type === "setPreference" || msg.type === "setSecret") menus.push(msg.type === "setPreference" ? `setPreference:${p.id}=${p.value}` : `setSecret:${p.id}=${p.value === null ? "removed" : "set"}`);
         if (shared[msg.type]) result = await shared[msg.type]!(p as never);
         else if (msg.type === "init") {
-          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], socket: "" };
+          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], projectsFolder: "/Users/someone/Movies/Beacon", socket: "" };
         }
         else if (msg.type === "resync") result = await opened(ws);
         else if (msg.type === "openRecent" || msg.type === "openDialog") {
@@ -217,6 +217,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
           menus.push(`${msg.type}:${p.name}`);
           if (p.settings) menus.push(`newProjectSettings:${JSON.stringify(p.settings)}`);
           if (p.standalone) menus.push("newProjectStandalone");
+          if (p.folder) menus.push(`newProjectFolder:${p.folder}`);
           result = { ok: true };
         }
         else if (msg.type === "saveAs") {
@@ -236,6 +237,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         }
         else if (msg.type === "shortcutSet") result = await reply(() => core.shortcutSet(p.action, p.keys, p.replace));
         else if (msg.type === "shortcutReset") result = await reply(() => core.shortcutReset(p.action));
+        else if (msg.type === "memoryChange") result = await reply(() => core.memoryChange(p));
         // The app's own actions open dialogs the main process owns: recorded, as menus are.
         else if (msg.type === "appAction") {
           menus.push(`app:${p.action}`);

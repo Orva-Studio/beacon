@@ -12,6 +12,7 @@ interface Review {
   minWords: number;
   within: number;
   kept: number[];
+  learned?: string[];
 }
 
 export interface RetakeGroup {
@@ -22,7 +23,7 @@ export interface RetakeGroup {
   key: string;
   /** The take kept, from 0; -1 when every take is cut. */
   best: number;
-  by: "you" | "openai" | "beacon";
+  by: "you" | "openai" | "beacon" | "habit";
   reason?: string;
   /** Every group cuts something; `ReviewPanel` counts these. */
   cut?: true;
@@ -49,7 +50,7 @@ export const useRetakes = (host: Host, session: Session | undefined, project: Pr
 export const retakeMarks = (found: Retakes): TimelineMark[] =>
   found.groups.flatMap((g, i) => g.takes.map((t, k) => ({ start: t.start, end: t.end, tone: k === g.best ? ("take" as const) : ("cut" as const), current: i === found.current })));
 
-const BY = { you: "Chosen by you", openai: "Picked by OpenAI", beacon: "Picked by Beacon" };
+const BY = { you: "Chosen by you", openai: "Picked by OpenAI", beacon: "Picked by Beacon", habit: "The take you usually keep" };
 
 /** Takes a group cuts: all but the one kept, or every one. */
 const cutCount = (g: RetakeGroup) => (g.best < 0 ? g.takes.length : g.takes.length - 1);
@@ -140,6 +141,7 @@ export function RetakeReviewPanel({ project, session, host, found }: { project: 
       tally={(groups) => `${groups.length} ${groups.length === 1 ? "line" : "lines"} said more than once, ${groups.reduce((n, g) => n + cutCount(g), 0)} takes to cut.`}
       describe={(g) => `${clock(g.start)}: ${g.takes.length} takes, ${g.best < 0 ? "cutting them all" : `keeping take ${g.best + 1}`}`}
       list
+      learned={review.learned}
       detail={(g) => <Takes group={g} host={host} session={session} />}
       legend={
         <>

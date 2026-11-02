@@ -23,6 +23,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
 
   const shortcuts = applyReply(replica.shortcuts);
   const favorites = applyReply(replica.favorites);
+  const memory = applyReply(replica.memory);
 
   return {
     run: (command, args, label, coalesce) => commands.send(() => request("run", { command, args, label, coalesce }), coalesce),
@@ -49,12 +50,14 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     // Coalesced: sweeping down a list sends only the newest look once the last one is in.
     previewEffect: (preview) => commands.send(() => request("previewEffect", { preview }), "previewEffect"),
     binFrame: (asset, time) => request("binFrame", { asset, time }),
+    reveal: async (path) => ((r) => (r.ok ? undefined : r.error))(await request("reveal", { path })),
     analyze: (key, asset) => void request("analyze", { key, asset }),
     favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, ...(index !== undefined ? { index } : {}) })),
     favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
     favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
     shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, ...(replace ? { replace } : {}) })),
     shortcutReset: (action) => void shortcuts(request("shortcutReset", action ? { action } : {})),
+    memoryChange: (change) => void memory(request("memoryChange", change)),
     app: (action) => void request("appAction", { action }),
     chooseFolder: (start) => request("chooseFolder", { start }),
     chooseFile: (extensions) => request("chooseFile", { extensions }),
@@ -76,7 +79,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     setAppSettings: (s) => void request("setAppSettings", s),
     proxySpace: () => request("proxySpace", {}),
     deleteAllProxies: () => request("deleteAllProxies", {}),
-    newProject: (name, settings, standalone) => commands.ordered(() => request("newProject", { name, settings, standalone })),
+    newProject: (name, settings, standalone, folder) => commands.ordered(() => request("newProject", { name, settings, standalone, folder })),
     saveAs: (params) => commands.ordered(() => request("saveAs", params)),
     fetchResource: (id) => request("fetchResource", { id }),
     declineResource: (id) => void request("declineResource", { id }),

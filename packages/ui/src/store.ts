@@ -28,6 +28,10 @@ export interface ViewState {
   renaming?: string;
   /** The Media Bin item whose name is being edited. */
   renamingMedia?: string;
+  /** The section picked on the timeline's Sections band (⌫ removes it). */
+  section?: string;
+  /** A section being named: a new one from `start` to `end` (seconds), or `id` renamed. */
+  namingSection?: { id?: string; start: number; end: number };
   /** False after a save failed, until one succeeds. */
   saved?: boolean;
   /** Assets whose proxy is being made, and its progress 0-1. */
@@ -58,6 +62,8 @@ export interface ViewState {
   confirmSaved?: number;
   /** Every action with its keys (`Init.shortcuts`). */
   shortcuts: import("@beacon/model").ShortcutInfo[];
+  /** Settings › Memory (`Init.memory`), kept up to date as decisions are recorded. */
+  memory?: import("@beacon/model").MemoryState;
   /** The command palette, while open. */
   palette?: boolean;
   /** Project Settings, while open. */
@@ -91,7 +97,7 @@ export interface ViewState {
   /** Where the preview is playing. */
   previewClock: { time: number; playing: boolean };
   /** The New Project dialog, while open, with the name it offers. */
-  newProject?: { name: string };
+  newProject?: { name: string; folder: string };
   saveAs?: import("./project-name").SaveAsSheet;
   /** The dialog asking to download a resource (the speech model), and its download. */
   resource?: import("./resource").ResourceInfo;
@@ -123,7 +129,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, preferences: init.preferences });
+    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, memory: init.memory, preferences: init.preferences });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -148,7 +154,9 @@ export const replica = {
   },
   /** Merges the session's changed keys; unchanged ones keep their identity, so views keyed on them don't redraw. */
   session(changes: Partial<Session>) {
-    if (state.session) set({ session: { ...state.session, ...changes } });
+    // Clips picked (in the preview, by ⌘A, by an agent) take over from a picked section: ⌫ is theirs then.
+    const picked = changes.selection?.length && changes.selection !== state.session?.selection;
+    if (state.session) set({ session: { ...state.session, ...changes }, ...(picked ? { section: undefined } : {}) });
   },
   media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, analyzing, analysisFailed, jobFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; analyzing?: ViewState["analyzing"]; analysisFailed?: ViewState["analysisFailed"]; jobFailed?: ViewState["jobFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
@@ -176,11 +184,20 @@ export const replica = {
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
   },
+  section(section: string | undefined) {
+    if (section !== state.section) set({ section });
+  },
+  nameSection(naming: ViewState["namingSection"]) {
+    set({ namingSection: naming });
+  },
   favorites(favorites: string[]) {
     set({ favorites });
   },
   preferences(preferences: ViewState["preferences"]) {
     set({ preferences });
+  },
+  memory(memory: ViewState["memory"]) {
+    set({ memory });
   },
   shortcuts(shortcuts: ViewState["shortcuts"]) {
     set({ shortcuts });

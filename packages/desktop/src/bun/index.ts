@@ -99,10 +99,23 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
  * follow them, so the menus, keys, favourites and settings here don't stay stale (and aren't saved back over it).
  */
 function followConfig() {
+  // This process's own changes reach the windows as core's events: the files they write aren't told again.
+  let told = "";
+  core.watchApp((e) => void (e.kind === "memory" && (told = JSON.stringify(e.memory))));
+  const memoryChanged = () =>
+    void core.memory().then((memory) => {
+      const now = JSON.stringify(memory);
+      if (now !== told) broadcast("memory", { memory });
+      told = now;
+    });
   const reload: Record<string, () => void> = {
     "settings.json": () => void core.reloadSettings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "favorites.json": () => void core.favorites().then((items) => broadcast("favorites", { items })),
+    // An agent's proposal, or its project's decisions, or memory.md edited by hand: Settings › Memory shows them.
+    "memory.json": memoryChanged,
+    "memory.md": memoryChanged,
+    "decisions.json": memoryChanged,
   };
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   try {
@@ -345,6 +358,7 @@ function openWindow(): Win {
             ...(await initPayload(core)),
             opened: w.current ? await openedPayload(w, w.current.path) : undefined,
             recent: projects.recentProjects(),
+            projectsFolder: projects.projectsFolder(),
             keyLog: !!keyLog,
             socket,
           };
@@ -380,12 +394,13 @@ function openWindow(): Win {
         testBeep: (params) => recorder.testBeep(params),
         checkSync: (params) => replyWith(() => recorder.checkSync(params)),
         setAppSettings: (next) => setAppSettings(next, w),
-        newProject: ({ name, settings, standalone }) => reply(() => projects.createProject(name, settings, standalone)),
+        newProject: ({ name, settings, standalone, folder }) => reply(() => projects.createProject(name, settings, standalone, folder)),
         saveAs: (params) => reply(() => projects.saveAs(w, params)),
         fetchResource: ({ id }) => replyWith(async () => (await core.fetchResource(id)).id),
         declineResource: async ({ id }) => setAppSettings({ declinedResources: [...new Set([...((await core.settings()).declinedResources ?? []), id])] }, w),
         shortcutSet: ({ action, keys, replace }) => replyWith(() => core.shortcutSet(action, keys, replace)),
         shortcutReset: ({ action }) => replyWith(() => core.shortcutReset(action)),
+        memoryChange: (change) => replyWith(() => core.memoryChange(change)),
         appAction: ({ action }) => appAction(action, w),
         previewOpen: ({ asset }) => w.views.previewOpen(asset),
         previewView: ({ id, x, y, width, height, scale }) => w.views.previewView(id, { x, y, width, height }, scale),
@@ -553,6 +568,12 @@ const quit = () => {
   quitLog("closed");
 };
 Electrobun.events.on("before-quit", quit);
+// A project double-clicked in Finder, or dropped on the Dock icon.
+Electrobun.events.on("open-url", (e: { data: { url: string } }) => {
+  if (!e.data.url.startsWith("file://")) return;
+  const path = decodeURIComponent(new URL(e.data.url).pathname).replace(/\/+$/, "");
+  if (path.endsWith(".beproj")) projects.open(path).catch((err: unknown) => status(String(err)));
+});
 checkForUpdatesSoon(status, () => stopped);
 process.on("exit", quit);
 process.on("SIGINT", () => process.exit(0));

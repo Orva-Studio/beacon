@@ -47,6 +47,14 @@ test("core then feature migrations bring an old document up to date without touc
   expect(doc.tracks[0]!.clips[0]!.props).toEqual({ look: { opacity: 0.5 } });
 });
 
+test("v3: a document from before sections gets none", () => {
+  const registry = new FeatureRegistry([testFeature]);
+  const { sections: _, ...doc } = createProject(registry);
+  const migrated = migrateProject({ ...doc, schemaVersion: 2 }, registry);
+  expect(migrated.schemaVersion).toBe(3);
+  expect(migrated.sections).toEqual([]);
+});
+
 test("documents from a newer Beacon are refused", () => {
   const registry = new FeatureRegistry([testFeature]);
   const doc = createProject(registry);

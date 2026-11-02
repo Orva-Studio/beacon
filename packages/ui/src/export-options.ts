@@ -1,3 +1,4 @@
+import { isAudioFormat } from "@beacon/model";
 import type { ExportSettings } from "./rpc";
 
 /** The Export dialog's settings as core's export options (those that apply to the format). */
@@ -12,5 +13,6 @@ export function exportOptions(s: ExportSettings) {
     ...(s.fps !== null ? { fps: s.fps } : {}),
     ...(s.size ? { size: s.size } : {}),
     ...(!gif ? { audio: s.audio, ...(s.audioBitrate !== null ? { audioBitrate: s.audioBitrate } : {}) } : {}),
+    ...(s.files.length && !isAudioFormat(s.format) ? { files: s.files } : {}),
   };
 }

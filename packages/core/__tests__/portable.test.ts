@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { SCHEMA_VERSION } from "@beacon/model";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -27,7 +28,7 @@ test.skipIf(!existsSync(VIDEO))("media inside a project is stored relative to it
   await core.close(h);
 
   const disk = stored(from);
-  expect(disk.schemaVersion).toBe(2);
+  expect(disk.schemaVersion).toBe(SCHEMA_VERSION);
   expect(disk.assets[inside].path).toBe("media/inside.mp4");
   expect(disk.assets[outside].path).toBe(VIDEO);
 
@@ -57,7 +58,7 @@ test.skipIf(!existsSync(VIDEO))("a schema 1 project, its paths all absolute, is 
   const again = await core.open(project);
   expect(core.doc(again).assets[asset]!.path).toBe(join(project, "media", "clip.mp4"));
   const disk = stored(project);
-  expect(disk.schemaVersion).toBe(2);
+  expect(disk.schemaVersion).toBe(SCHEMA_VERSION);
   expect(disk.assets[asset].path).toBe("media/clip.mp4");
   await core.close(again);
 }, 60_000);

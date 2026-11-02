@@ -1,4 +1,4 @@
-import type { AppSettings, CommandResult, EffectPreset, Keys, PanelItemDef, Patch, Session, SettingsChange, SettingsPatch, ShortcutInfo, UiDialog, VideoEncoding } from "@beacon/model";
+import type { AppSettings, CommandResult, EffectPreset, Keys, MemoryChange, MemoryState, PanelItemDef, Patch, Session, SettingsChange, SettingsPatch, ShortcutInfo, UiDialog, VideoEncoding } from "@beacon/model";
 import type { RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 
 export type { CommandResult, Session };
@@ -58,6 +58,8 @@ export interface ExportOptions extends VideoEncoding {
   to?: number;
   /** Only these timeline clips (an export of the selection): the others are left out of the picture and the sound. */
   clips?: string[];
+  /** Files features write beside a video from the same range, by id (`captions`: the captions as .srt); none unless named. */
+  files?: string[];
 }
 
 export interface ImportOptions {
@@ -248,6 +250,7 @@ export type CoreEvent =
   | { kind: "settings"; settings: AppSettings }
   /** Keyboard shortcuts changed (app-wide): every action with its keys. */
   | { kind: "shortcuts"; shortcuts: ShortcutInfo[] }
+  | { kind: "memory"; memory: MemoryState }
   /** A preference changed (the transcriber); analyses it decides start again where they have no result for it. */
   | { kind: "preference"; id: string; value: string }
   /** Media being prepared for the editor (proxies, waveforms): each asset's progress 0-1; empty when nothing is left. */
@@ -264,7 +267,7 @@ export type CoreEvent =
   | { kind: "session"; changes: Partial<Session>; changed: (keyof Session)[] };
 
 /** What concerns the whole app, from any project or none: favourites, settings, keys, a preference, and every job. */
-export type AppEvent = Extract<CoreEvent, { kind: "favorites" | "settings" | "shortcuts" | "preference" | "job" }>;
+export type AppEvent = Extract<CoreEvent, { kind: "favorites" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
 
 /** Everything an agent or the app can do (PLAN §7.1). */
 export interface BeaconCore {
@@ -277,8 +280,8 @@ export interface BeaconCore {
    * folder too. The project stays open as it was; returns the copy's path, to `open`.
    */
   saveAs(h: ProjectHandle, path: string, opts?: { standalone?: boolean }): Promise<string>;
-  /** Show in Finder: the project's folder, selected in a Finder window. */
-  reveal(h: ProjectHandle): Promise<void>;
+  /** Show in Finder: the project's folder, or `path` (a file in it, a motion graphic's page), selected in a Finder window. */
+  reveal(h: ProjectHandle, path?: string): Promise<void>;
   close(h: ProjectHandle): Promise<void>;
   run(h: ProjectHandle, command: string, args: unknown, opts?: RunOptions): Promise<CommandResult>;
   transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }): Promise<CommandResult>;
@@ -356,6 +359,13 @@ export interface BeaconCore {
   shortcutSet(action: string, keys: Keys[], replace?: boolean): Promise<ShortcutInfo[]>;
   /** Puts an action's keys back to the defaults, or every action's. Returns the list. */
   shortcutReset(action?: string): Promise<ShortcutInfo[]>;
+  /**
+   * Settings › Memory, app-wide: the user's habits in their own words (`sentences`; `proposals` an agent made,
+   * waiting for them), what Beacon learned from their review decisions per format (`habits`), and whether it learns.
+   */
+  memory(): Promise<MemoryState>;
+  /** Adds, edits or removes a sentence, proposes one (an agent's only change), accepts or dismisses a proposal, turns learning on or off, or forgets a habit's decisions. Returns the memory. */
+  memoryChange(change: MemoryChange): Promise<MemoryState>;
   /**
    * Downloads a resource as a job (only once the user has agreed: it can be large); analyses waiting for it
    * start when it is done. Returns the running download if there is one.

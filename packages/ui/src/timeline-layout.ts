@@ -7,6 +7,12 @@
 import { color, font } from "./theme";
 
 export const RULER = 40;
+/** The Sections band under the ruler: the video's named parts. */
+export const BAND = 22;
+/** Where the tracks begin: under the ruler and the Sections band. */
+export const TRACKS_TOP = RULER + BAND;
+/** Within this many points of a section's edge, a press drags the edge. */
+export const SECTION_EDGE = 5;
 export const HEADER = 156;
 
 /** The track headers' width: room for names only when a track has one (unnamed tracks show just their icons). */
@@ -31,15 +37,15 @@ export const EDGE = 6;
 export const SNAP = 12;
 
 /** The top of display row `i` (top track first) for tracks `track` points tall, with the tracks scrolled up by `top`. */
-export const rowTop = (i: number, track: number, top = 0) => RULER + i * track - top;
+export const rowTop = (i: number, track: number, top = 0) => TRACKS_TOP + i * track - top;
 
 /** How far the tracks scroll up: as far as shows the bottom track at the timeline's foot, `height` points tall. */
-export const maxTop = (rows: number, track: number, height: number) => Math.max(0, rows * track - (height - RULER));
+export const maxTop = (rows: number, track: number, height: number) => Math.max(0, rows * track - (height - TRACKS_TOP));
 
 /** The row under `y`, of `rows` (display order: top first), if any. */
 export const rowAt = (y: number, track: number, rows: number, top = 0): number | undefined => {
-  const i = Math.floor((y - RULER + top) / track);
-  return y > RULER && i >= 0 && i < rows ? i : undefined;
+  const i = Math.floor((y - TRACKS_TOP + top) / track);
+  return y > TRACKS_TOP && i >= 0 && i < rows ? i : undefined;
 };
 
 /** A clip narrower than this is drawn, clicked and marquee-selected this wide, so a frame left by a cut can still be grabbed. */

@@ -1,6 +1,7 @@
 import { produce } from "immer";
 import { z } from "zod";
 import { clipSpeed, timelineTimeAt } from "./evaluate";
+import { NO_MEMORY, type Memory } from "./feature";
 import type { FeatureRegistry } from "./registry";
 import { formatIssues, type Animation, type Clip, type EffectInstance, type Project, type Track } from "./schema";
 import { projectDuration } from "./project";
@@ -86,6 +87,8 @@ export interface SessionContext {
   pref: (id: string) => string;
   /** Media's derived data (transcripts), for a command that picks what it finds (a silence). */
   data: <T>(assetId: string, key: string) => T | undefined;
+  /** The user's review decisions: a review opens with the habits learned from them, and records more. */
+  memory: Memory;
 }
 
 export interface SessionCommandDef<A = any> {
@@ -725,6 +728,7 @@ export class SessionStore {
     shared: Partial<SharedSession> = {},
     readonly pref: (id: string) => string = (id) => registry.preferences.get(id)?.default ?? "",
     readonly data: <T>(assetId: string, key: string) => T | undefined = () => undefined,
+    readonly memory: Memory = NO_MEMORY,
   ) {
     this.#state = defaultSession(project, shared);
     this.commands = new Map([...SESSION_COMMANDS, ...registry.sessionCommands.values()].map((c) => [c.id, c]));
@@ -750,7 +754,7 @@ export class SessionStore {
     const parsed = def.args.safeParse(args ?? {});
     if (!parsed.success) throw new Error(`${id}: ${formatIssues(parsed.error)}`);
     // With a group open, the editor works on its tracks, at main-timeline times.
-    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref, data: this.data };
+    const ctx = { project: scopedProject(project, editScope(project, this.#state.group, nestedOf(this.registry))), full: project, registry: this.registry, fitPercent: this.fitPercent, pref: this.pref, data: this.data, memory: opts.dryRun ? { ...this.memory, record: () => {} } : this.memory };
     // One panel with Cancel and Apply at a time (a review, Clean with Auphonic): opening one cancels any other.
     const open = this.registry.panels.filter((p) => p.open(this.#state));
     const next = produce(this.#state, (d) => {

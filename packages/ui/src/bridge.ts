@@ -43,7 +43,8 @@ export function appBridge(core: Pick<LocalCore, "watchApp" | "preferences">, sen
     } else if (e.kind === "shortcuts") {
       if (hooks.shortcuts) hooks.shortcuts(e.shortcuts);
       else send("shortcuts", { shortcuts: e.shortcuts });
-    } else if (e.kind === "settings") {
+    } else if (e.kind === "memory") send("memory", { memory: e.memory });
+    else if (e.kind === "settings") {
       if (hooks.settings) hooks.settings(e.settings);
       else send("appSettings", e.settings);
     } else if (e.kind === "job") hooks.job?.(e.job);
@@ -154,8 +155,8 @@ export async function tileChoice(core: Pick<LocalCore, "run" | "favoriteAdd" | "
 /** The items of a tile's right-click menu, as [label, choice]. */
 export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"], tile.favorite ? ["Remove from Favorites", "unfavorite"] : ["Add to Favorites", "favorite"]];
 
-type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage" | "previewEffect";
-type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect">;
+type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
+type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
 
 const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const done = async (fn: () => Promise<unknown>) => {
@@ -213,6 +214,7 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
       return png(h ? await core.assetThumbnail(h, asset, 128, time).catch(() => undefined) : undefined);
     },
     previewEffect: ({ preview }) => edit((h) => core.previewEffect(h, preview)),
+    reveal: ({ path }) => done(() => core.reveal(open(), path)),
     frameImage: async () => {
       const h = project();
       return h ? png((await core.frame(h, (await core.session(h)).playhead)).png) : null;

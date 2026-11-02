@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { chordId, keysClash, KeysSchema, keysLabel, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
+import { chordId, DEFAULT_LEADER, keysClash, KeysSchema, keysLabel, LEADER_ACTION, leaderClash, sameArgs, type ActionListing, type Keys, type ShortcutInfo } from "@beacon/model";
 import actionList from "../../../keymaps/actions.json";
 import defaultKeymap from "../../../keymaps/default.json";
 
@@ -22,19 +22,30 @@ const DEFAULT_KEYS = new Map(
     return [a.id, [...keys.values()]];
   }),
 );
+DEFAULT_KEYS.set(LEADER_ACTION, [DEFAULT_LEADER]);
 const defaultKeys = (id: string) => DEFAULT_KEYS.get(id) ?? [];
+
+const savedLeader = (overrides: KeymapOverrides) => overrides[LEADER_ACTION]?.[0] ?? DEFAULT_LEADER;
+
+/** A sequence's first key swapped from one leader to another; other keys as they are. Saved keys use the default leader, so changing it moves every sequence. */
+const swapLeader = (keys: Keys, from: Keys, to: Keys): Keys => {
+  if (!keys.then || chordId({ key: keys.key, modifiers: keys.modifiers }) !== chordId(from)) return keys;
+  return { key: to.key, modifiers: to.modifiers, then: keys.then };
+};
 
 /** Every action with its keys: the defaults, with the user's overrides merged over them. */
 export function shortcutList(overrides: KeymapOverrides, describe: (command: string) => string | undefined): ShortcutInfo[] {
+  const leader = savedLeader(overrides);
   return ACTIONS.map((a) => {
     const own = overrides[a.id];
+    const keys = own && !a.fixed ? own : defaultKeys(a.id);
     return {
       id: a.id,
       name: a.name,
       description: (a.description ?? describe(a.command ?? a.id) ?? "").replace(keyHints, ""),
       command: a.command ?? a.id,
       ...(a.args ? { args: a.args } : {}),
-      keys: own && !a.fixed ? own : defaultKeys(a.id),
+      keys: a.id === LEADER_ACTION ? keys : keys.map((k) => swapLeader(k, DEFAULT_LEADER, leader)),
       standard: !own || !!a.fixed,
       ...(a.fixed ? { fixed: a.fixed } : {}),
     };
@@ -50,20 +61,24 @@ export function setShortcut(overrides: KeymapOverrides, id: string, keys: Keys[]
   if (!action) throw new Error(`no action "${id}"; shortcuts_list lists them`);
   if (action.fixed) throw new Error(`${action.name}'s keys can't be changed: ${action.fixed}`);
   for (const k of keys) if (!chordId(k)) throw new Error(`"${keysLabel(k)}" isn't a key Beacon can bind`);
-  const clashing = (k: Keys) => keys.some((mine) => keysClash(mine, k));
+  if (id === LEADER_ACTION && (keys.length !== 1 || keys[0]!.then)) throw new Error("The leader key is one key (with or without modifiers)");
+  const leader = savedLeader(overrides);
+  const clashing = (otherId: string) => (k: Keys) => keys.some((mine) => (otherId === LEADER_ACTION || id === LEADER_ACTION ? leaderClash : keysClash)(mine, k));
+  const saved = (list: Keys[]) => list.map((k) => swapLeader(k, leader, DEFAULT_LEADER));
   const next = { ...overrides };
   for (const other of shortcutList(overrides, () => undefined)) {
     if (other.id === id) continue;
-    const taken = other.keys.filter(clashing);
+    const taken = other.keys.filter(clashing(other.id));
     if (!taken.length) continue;
     if (!replace) throw new Error(`${keysLabel(taken[0]!)} is ${other.name}'s shortcut`);
     if (other.fixed) throw new Error(`${keysLabel(taken[0]!)} is ${other.name}'s, which can't change (${other.fixed})`);
-    const rest = other.keys.filter((k) => !clashing(k));
+    const rest = saved(other.keys.filter((k) => !clashing(other.id)(k)));
     if (sameKeys(rest, defaultKeys(other.id))) delete next[other.id];
     else next[other.id] = rest;
   }
-  if (sameKeys(keys, defaultKeys(id))) delete next[id];
-  else next[id] = keys;
+  const mine = id === LEADER_ACTION ? keys : saved(keys);
+  if (sameKeys(mine, defaultKeys(id))) delete next[id];
+  else next[id] = mine;
   return next;
 }
 

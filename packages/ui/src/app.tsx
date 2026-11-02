@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
+import { chordId, eventChordId, leaderOf, rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { match, menuKey, runAction, sequenceStep, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { LeaderKeys } from "./leader";
 import { Palette } from "./palette";
@@ -62,6 +62,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** Shows an effect with other params on the canvas without an edit (a look under the pointer); null ends it. */
   previewEffect(preview: EffectPreview | null): void;
   binFrame(asset: string, time: number): Promise<string | null>;
+  /** Shows a file in the project's folder in Finder; resolves to why not, if it couldn't. */
+  reveal(path: string): Promise<string | undefined>;
   /** A file picked in Finder, of these extensions ("hlook"); null if cancelled. */
   chooseFile(extensions: string[]): Promise<string | null>;
   /** Imports a picked file an effect reads (a LUT): its asset id, or why it couldn't be. */
@@ -146,8 +148,8 @@ export function App({ host }: { host: Host }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // ":" never goes in a number: in a value box it starts the leader key, the box left as a click away leaves it.
-      const numberLeader = e.key === ":" && e.target instanceof HTMLInputElement && e.target.matches("[data-number-box]");
+      // The leader key never goes in a number: in a value box it starts a sequence, the box left as a click away leaves it.
+      const numberLeader = eventChordId(e) === chordId(leaderOf(replica.get().shortcuts)) && e.target instanceof HTMLInputElement && e.target.matches("[data-number-box]");
       if (numberLeader) (e.target as HTMLInputElement).blur();
       const field = isTyping(e.target) && !numberLeader;
       // A sequence under way (the leader key, :): this key completes it, goes on with it, or drops it.
@@ -164,6 +166,15 @@ export function App({ host }: { host: Host }) {
         }
       }
       const b = match(keymap, e);
+      // A section picked on the Sections band: ⌫ removes it, Esc lets it go; the clips under it stay.
+      const section = replica.get().section;
+      if (section && !field && (b?.command === "edit.delete" || b?.command === "edit.rippleDelete" || e.key === "Escape")) {
+        e.preventDefault();
+        e.stopPropagation();
+        replica.section(undefined);
+        if (e.key !== "Escape" && !e.repeat) host.run("section.remove", { section }, "Delete Section");
+        return;
+      }
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
       if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;
@@ -216,7 +227,7 @@ export function App({ host }: { host: Host }) {
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (
-              <FillerReviewPanel project={project} host={host} found={fillers} />
+              <FillerReviewPanel project={project} session={session} host={host} found={fillers} />
             ) : retakeReviewOf(session) ? (
               <RetakeReviewPanel project={project} session={session} host={host} found={retakes} />
             ) : (
@@ -244,15 +255,15 @@ export function App({ host }: { host: Host }) {
                     ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
                     : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
               }
-              markClick={(m, alt, shift) =>
+              markClick={(m, alt, shift, meta) =>
                 retakes
                   ? // A click picks the line to look at; a click on one of its takes then keeps that one.
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
                   : silences
-                    ? // A click selects a silence to cut, ⇧-click selects more.
-                      host.run("silences.select", { at: (m.start + m.end) / 2, add: shift })
+                    ? // A click selects a silence to cut, ⇧-click those back to the last one selected, ⌘-click one more (or one fewer).
+                      host.run("silences.select", { at: (m.start + m.end) / 2, add: meta, through: shift && !meta })
                     : alt
                       ? goTo(host, "fillers", m)
                       : host.run("fillers.flip", { at: m.start })

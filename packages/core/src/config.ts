@@ -9,7 +9,16 @@ import {
   SESSION_COMMANDS,
   withPatch,
   type AppSettings,
+  type Decision,
   type FeatureRegistry,
+  type Format,
+  memoryMarkdown,
+  MemoryFileSchema,
+  readMemoryMarkdown,
+  type MemoryChange,
+  type MemoryFile,
+  type MemoryState,
+  type Sentence,
   type Keys,
   type SettingsPatch,
   type ShortcutInfo,
@@ -30,6 +39,8 @@ function fits(schema: ZodType, value: string): boolean {
     return false;
   }
 }
+
+const DECISIONS_KEPT = 5000;
 
 const inRange = (v: string, r: { min: number; max: number }) => v.trim() !== "" && Number(v) >= r.min && Number(v) <= r.max;
 
@@ -174,6 +185,107 @@ export class AppConfig {
     items.splice(from, 1);
     items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
     return this.#saveFavorites(items);
+  }
+
+  /** The user's review decisions (`decisions.json`), oldest first. */
+  decisions(): Decision[] {
+    const saved = this.read("decisions.json");
+    return Array.isArray(saved) ? (saved as Decision[]) : [];
+  }
+
+  /** Adds decisions, keeping the newest `DECISIONS_KEPT`: old ones count for little by then. None while learning is off. */
+  recordDecisions(decisions: Decision[]) {
+    if (!decisions.length || !this.#memoryFile().learning) return;
+    this.write("decisions.json", [...this.decisions(), ...decisions].slice(-DECISIONS_KEPT));
+    this.emit({ kind: "memory", memory: this.memory() });
+  }
+
+  /** Takes back the decisions an undo step recorded, returning them for its redo. */
+  dropDecisions(step: string): Decision[] {
+    const all = this.decisions();
+    const dropped = all.filter((d) => d.step === step);
+    if (!dropped.length) return [];
+    this.write("decisions.json", all.filter((d) => d.step !== step));
+    this.emit({ kind: "memory", memory: this.memory() });
+    return dropped;
+  }
+
+  /** Whether reviews learn from decisions and open with what they learned (Settings › Memory). */
+  learning(): boolean {
+    return this.#memoryFile().learning;
+  }
+
+  #memoryFile(): MemoryFile {
+    const saved = MemoryFileSchema.safeParse(this.read("memory.json") ?? {});
+    return saved.success ? saved.data : MemoryFileSchema.parse({});
+  }
+
+  get #memoryMd() {
+    return join(this.dir, "memory.md");
+  }
+
+  /** `memory.md`'s sentences; before it was written, those `memory.json` kept. */
+  #sentences(file: MemoryFile): Sentence[] {
+    let md: string | undefined;
+    try {
+      md = readFileSync(this.#memoryMd, "utf8");
+    } catch {}
+    const list = md === undefined ? (file.sentences ?? []) : readMemoryMarkdown(md);
+    return list.map((s) => ({ id: Bun.hash(`${s.format ?? ""}:${s.text}`).toString(36), text: s.text, ...(s.format ? { format: s.format } : {}) }));
+  }
+
+  /** Settings › Memory: the sentences, those proposed, and what the features learned for each format. */
+  memory(): MemoryState {
+    const file = this.#memoryFile();
+    const decisions = this.decisions();
+    const habits = (format: Format) => [...this.registry.features.values()].flatMap((f) => f.habits?.(decisions, format) ?? []);
+    return { learning: file.learning, sentences: this.#sentences(file), proposals: file.proposals, file: this.#memoryMd, habits: { short: habits("short"), long: habits("long") }, decisions: decisions.length };
+  }
+
+  memoryChange(change: MemoryChange): MemoryState {
+    const file = this.#memoryFile();
+    let sentences = this.#sentences(file);
+    const before = JSON.stringify(sentences);
+    const find = <T extends { id: string }>(list: T[], id: string, what: string) => {
+      const found = list.find((x) => x.id === id);
+      if (!found) throw new Error(`no ${what} "${id}" in the memory`);
+      return found;
+    };
+    const same = (text: string, format?: Format) => (x: { text: string; format?: Format }) => x.text.toLowerCase() === text.toLowerCase() && x.format === format;
+    const add = (text: string, format?: Format) => void (sentences.some(same(text, format)) || sentences.push({ id: "", text, ...(format ? { format } : {}) }));
+    if ("add" in change) add(change.add.text, change.add.format);
+    else if ("edit" in change) {
+      const s = find(sentences, change.edit.id, "sentence");
+      s.text = change.edit.text;
+      if (change.edit.format === null) delete s.format;
+      else if (change.edit.format) s.format = change.edit.format;
+    } else if ("remove" in change) sentences = sentences.filter((x) => x !== find(sentences, change.remove, "sentence"));
+    else if ("propose" in change) {
+      // Said already, or waiting: not twice.
+      const { text, format } = change.propose;
+      const said = (x: { text: string }) => x.text.toLowerCase() === text.toLowerCase();
+      if (!sentences.some(said) && !file.proposals.some(said)) file.proposals.push({ id: crypto.randomUUID().slice(0, 8), text, ...(format ? { format } : {}), at: Date.now() });
+    } else if ("accept" in change) {
+      const p = find(file.proposals, change.accept, "proposal");
+      file.proposals = file.proposals.filter((x) => x !== p);
+      add(p.text, p.format);
+    } else if ("dismiss" in change) file.proposals = file.proposals.filter((x) => x !== find(file.proposals, change.dismiss, "proposal"));
+    else if ("learning" in change) file.learning = change.learning;
+    else {
+      const f = change.forget;
+      const kept = f === "all" ? [] : this.decisions().filter((d) => !f.rules.includes(d.rule) || (f.format !== undefined && d.format !== f.format));
+      this.write("decisions.json", kept);
+    }
+    // Rewritten only when its sentences change (or it isn't there yet), so a hand edit's layout stays until then.
+    if (JSON.stringify(sentences) !== before || !existsSync(this.#memoryMd)) {
+      mkdirSync(this.dir, { recursive: true });
+      writeFileSync(`${this.#memoryMd}.tmp`, memoryMarkdown(sentences));
+      renameSync(`${this.#memoryMd}.tmp`, this.#memoryMd);
+    }
+    if (!("forget" in change)) this.write("memory.json", { learning: file.learning, proposals: file.proposals });
+    const memory = this.memory();
+    this.emit({ kind: "memory", memory });
+    return memory;
   }
 
   /** The settings last told (written here, or found changed by `reloadSettings`). */

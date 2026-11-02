@@ -42,7 +42,7 @@ export interface Placed {
   t: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
   crop: { left: number; top: number; right: number; bottom: number };
   /** What an edit at the playhead changes: mid-animation, the block's end values rather than those shown. */
-  stored: { t: Placed["t"]; crop: Placed["crop"] };
+  stored: { t: Placed["t"]; crop: Placed["crop"]; size: [number, number] };
   /** Content pixels → overlay points. */
   m: Affine;
   /** The visible (cropped) box's corners in overlay points: top-left, top-right, bottom-right, bottom-left. */
@@ -62,7 +62,7 @@ function placedClips(project: Project, session: Session, view: Affine, visual: (
   for (const track of [...project.tracks].reverse().filter(visible)) {
     for (const clip of track.clips) {
       if (clip.start > at || clip.start + clip.duration <= at || !visual(clip)) continue;
-      const size = contentSize(project, clip);
+      const size = contentSize(project, clip, session.playhead);
       if (!size) continue;
       const v = (g: string, f: string, d: number) => valueAt(clip, session.playhead, g, f, d);
       const t = { x: v("transform", "x", 0), y: v("transform", "y", 0), scaleX: v("transform", "scaleX", 1), scaleY: v("transform", "scaleY", 1), rotation: v("transform", "rotation", 0) };
@@ -73,6 +73,7 @@ function placedClips(project: Project, session: Session, view: Affine, visual: (
       const stored = {
         t: { x: e("transform", "x", 0), y: e("transform", "y", 0), scaleX: e("transform", "scaleX", 1), scaleY: e("transform", "scaleY", 1), rotation: e("transform", "rotation", 0) },
         crop: { left: e("crop", "left", 0), top: e("crop", "top", 0), right: e("crop", "right", 0), bottom: e("crop", "bottom", 0) },
+        size: ((g) => (g ? ([e(g, "width", size[0]), e(g, "height", size[1])] as [number, number]) : size))(boxGroup(clip)),
       };
       const m = compose(view, contentToCanvas(project, size, t));
       // A tilted clip's outline follows its perspective; drags still work in its flat placement.
@@ -132,7 +133,7 @@ type Drag =
   | { kind: "rotate"; key: string; clip: Placed; a0: number }
   /** A caption dragged: the box when it started (canvas pixels) and the anchors and offsets it moves. */
   /** `alone`: the caption moves on its own (⌥, or it already is), `onward` with those after it (⌥⇧); else all move. */
-  | { kind: "captionMove"; key: string; x0: number; y0: number; box: [number, number][]; style: CaptionPlace; alone: boolean; onward: boolean }
+  | { kind: "captionMove"; key: string; x0: number; y0: number; box: [number, number][]; style: CaptionPlace; alone: boolean; onward: boolean; others: string[] }
   /** A caption's side handle: its text's width when it started, which the handle widens or narrows. */
   | { kind: "captionWidth"; key: string; sx: number; x0: number; width: number; style: CaptionPlace }
   /** A middle-button drag: `c`, the canvas point grabbed. */
@@ -270,7 +271,7 @@ export function CanvasOverlay({
     const { x, y, width, height } = caption.box;
     const t = { x: x + width / 2 - CW / 2, y: CH / 2 - (y + height / 2), scaleX: 1, scaleY: 1, rotation: 0 };
     const crop = { left: 0, top: 0, right: 0, bottom: 0 };
-    const p: Placed = { clip: captionClip, size: [width, height], t, crop, stored: { t, crop }, m: compose(view, translate(x, y)), corners: [apply(view, x, y), apply(view, x + width, y), apply(view, x + width, y + height), apply(view, x, y + height)] };
+    const p: Placed = { clip: captionClip, size: [width, height], t, crop, stored: { t, crop, size: [width, height] }, m: compose(view, translate(x, y)), corners: [apply(view, x, y), apply(view, x + width, y), apply(view, x + width, y + height), apply(view, x, y + height)] };
     // Drawn in track order like the rest: above the clips on lower tracks.
     const at = placed.findIndex((q) => (where.get(q.clip.id)?.track ?? -1) < captionAt!.track);
     placed.splice(at < 0 ? placed.length : at, 0, p);
@@ -454,11 +455,14 @@ export function CanvasOverlay({
           setTyping(hit.clip.id);
           return;
         }
-        // A caption moves every caption, which share one place, unless it is placed on its own or ⌥ places it so.
+        // A caption moves every caption, which share one place, unless it is placed on its own or ⌥ places it so,
+        // with the other captions selected along with it.
         if (hit && isCaption(hit) && !e.metaKey && (!e.shiftKey || e.altKey)) {
-          if (!session.selection.includes(hit.clip.id) || session.selection.length > 1) host.run("selection.set", { clips: [hit.clip.id], linked: false });
+          const captions = new Set(project.tracks.flatMap((t) => t.clips.filter((c) => c.type === "caption").map((c) => c.id)));
+          const others = e.altKey && session.selection.includes(hit.clip.id) ? session.selection.filter((id) => id !== hit.clip.id && captions.has(id)) : [];
+          if (!others.length && (!session.selection.includes(hit.clip.id) || session.selection.length > 1)) host.run("selection.set", { clips: [hit.clip.id], linked: false });
           const alone = e.altKey || !!caption?.own;
-          drag.current = { kind: "captionMove", key, x0: pt[0], y0: pt[1], box: hit.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as [number, number]), style: captionPlace(), alone, onward: e.altKey && e.shiftKey };
+          drag.current = { kind: "captionMove", key, x0: pt[0], y0: pt[1], box: hit.corners.map(([x, y]) => [(x - ox) / k, (y - oy) / k] as [number, number]), style: captionPlace(), alone, onward: e.altKey && e.shiftKey, others };
           setMoved(undefined);
           return;
         }
@@ -503,7 +507,7 @@ export function CanvasOverlay({
           const [x, y] = [Math.round(offsetX) - s.offsetX, Math.round(offsetY) - s.offsetY];
           setMoved({ clip: captionClip!.id, x: d.box[0]![0] + (s.anchorX === "right" ? -x : x), y: d.box[0]![1] + (s.anchorY === "bottom" ? -y : y) });
           const place = { offsetX: Math.round(offsetX), offsetY: Math.round(offsetY) };
-          if (d.alone) host.run("caption.place", { clip: captionClip!.id, place, onward: d.onward }, d.onward ? "Move Captions From Here" : "Move Caption", d.key);
+          if (d.alone) host.run("caption.place", { clip: captionClip!.id, clips: d.others, place, onward: d.onward }, d.onward ? "Move Captions From Here" : d.others.length ? "Move Captions" : "Move Caption", d.key);
           else host.run("captions.style", { style: place }, "Move Captions", d.key);
           return;
         }
@@ -567,7 +571,9 @@ export function CanvasOverlay({
           const before = apply(contentToCanvas(project, p.size, p.t), ...fixed(p.size));
           const after = apply(contentToCanvas(project, size, p.t), ...fixed(size));
           const st = p.stored.t;
-          send([{ clip: p.clip.id, props: { [box]: { width: size[0], height: size[1] }, transform: { x: st.x - (after[0] - before[0]), y: st.y + (after[1] - before[1]) } } }], "Resize", d.key);
+          // Mid-animation the box drawn is between sizes: the drag changes the size being animated to by as much.
+          const ss = p.stored.size;
+          send([{ clip: p.clip.id, props: { [box]: { width: Math.max(8, ss[0] + size[0] - p.size[0]), height: Math.max(8, ss[1] + size[1] - p.size[1]) }, transform: { x: st.x - (after[0] - before[0]), y: st.y + (after[1] - before[1]) } } }], "Resize", d.key);
           return;
         }
         // Scale about the opposite side or corner, which stays put.

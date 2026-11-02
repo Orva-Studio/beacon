@@ -16,6 +16,11 @@
       "description": "Settings › Shortcuts: every action's keys, to change them"
     },
     {
+      "id": "app.leader",
+      "name": "Leader Key",
+      "description": "The key that starts every sequence (it, then a key: : then A deletes a recording's audio), never a shortcut alone; changing it moves every sequence to the new key"
+    },
+    {
       "id": "app.projectSettings",
       "name": "Project Settings…",
       "description": "The open project's canvas size, frame rate, background and loudness"

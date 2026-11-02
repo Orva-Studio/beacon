@@ -50,9 +50,10 @@ function RecentCard({ project, host }: { project: RecentProject; host: StartHost
 export function StartScreen({ host }: { host: StartHost }) {
   const show = useView((v) => !!v.init && !v.opened && !v.newProject && !v.settings && !v.resource);
   const recent = useView((v) => v.init?.recent);
+  const folder = useView((v) => v.init?.projectsFolder ?? "");
   const keymap = useKeymap();
   if (!show) return null;
-  const newProject = () => replica.newProject({ name: "Untitled Project" });
+  const newProject = () => replica.newProject({ name: "Untitled Project", folder });
   return (
     <Modal
       width={560}

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -98,6 +98,14 @@ const MarkerSchema = z.strictObject({
   name: z.string(),
 });
 
+/** A named part of the video (Intro, Demo, Outro): a stretch of the main timeline. Sections never overlap; gaps are allowed. */
+const SectionSchema = z.strictObject({
+  id: IdSchema,
+  start: TicksSchema,
+  end: TicksSchema,
+  name: z.string(),
+});
+
 export const SettingsSchema = z.strictObject({
   width: z.int().positive(),
   height: z.int().positive(),
@@ -119,6 +127,8 @@ export const ProjectSchema = z.strictObject({
   /** Ordered bottom → top. */
   tracks: z.array(TrackSchema),
   markers: z.array(MarkerSchema),
+  /** Sorted by start. */
+  sections: z.array(SectionSchema),
 });
 
 export type Easing = z.infer<typeof EasingSchema>;
@@ -128,6 +138,7 @@ export type Clip = z.infer<typeof ClipSchema>;
 export type Track = z.infer<typeof TrackSchema>;
 export type Asset = z.infer<typeof AssetSchema>;
 export type Marker = z.infer<typeof MarkerSchema>;
+export type Section = z.infer<typeof SectionSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
 /** Settings changed, as `project.settings.set` and a new project take them: `loudnessTarget: null` turns Auto-normalize off. */

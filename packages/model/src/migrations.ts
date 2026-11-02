@@ -6,6 +6,7 @@ import { SCHEMA_VERSION, type Project } from "./schema";
 export const CORE_MIGRATIONS: Migration[] = [
   // Asset paths inside the project folder may be relative on disk; the reader resolves them before this runs.
   { version: 2, migrate: (doc) => doc },
+  { version: 3, migrate: (doc) => ({ ...(doc as object), sections: [] }) },
 ];
 
 type Raw = Record<string, any>;

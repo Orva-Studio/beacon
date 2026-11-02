@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { isAudioFormat, nestedOf, type JobInfo } from "@beacon/core";
-import { DEFAULT_EXPORT, exportOptions, exportSheetFor, type ExportSettings } from "@beacon/ui";
+import { DEFAULT_EXPORT, exportFileChoices, exportOptions, exportSheetFor, type ExportSettings } from "@beacon/ui";
 import type { App } from "./app";
 
 /** The Export dialog's last folder and settings, offered next time, and the last audio format an audio-only selection starts on. */
@@ -38,6 +38,7 @@ export function createExports(app: App) {
       session: await core.session(current.path),
       traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [],
       nested: nestedOf(core.registry),
+      files: exportFileChoices(core.registry),
       ...prefs,
       selection,
     });

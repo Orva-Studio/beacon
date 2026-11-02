@@ -72,6 +72,20 @@ const SEARCH: Record<Transcriber, [number, number]> = { whisper: [0.25, 0.03], a
 const CHUNK_GAP = 0.3;
 const MAX_CHUNK = 25;
 const PAD = 0.2;
+/**
+ * A pause between words can sit above the silence threshold (breath, the room with someone in front of the mic):
+ * this far below the recording's speech level, for at least `MIN_PAUSE`, between louder sound, is a pause too.
+ * Measured on a take whose sentence ends sat at -54 dB, speech at -26 and the threshold at -56.
+ */
+const PAUSE_BELOW_SPEECH = 24;
+const MIN_PAUSE = 0.2;
+/**
+ * A word longer than this (seconds, plus per letter) has another's sound in it: whisper dropped a repeat (it
+ * dedupes takes said close together in one chunk), and the word before or the first after a pause took its
+ * time. Its stretch is transcribed again on its own.
+ */
+const STRETCHED = [0.4, 0.08] as const;
+const NEIGHBOUR = 0.1;
 
 
 /** RMS level in dB of each `WINDOW` of samples. */
@@ -129,7 +143,30 @@ function speechRegions(pcm: Int16Array, rate = RATE): [number, number][] {
     if (last && i * step - last[1] < MIN_GAP) last[1] = (i + 1) * step;
     else raw.push([i * step, (i + 1) * step]);
   }
-  return raw.filter(([x, y]) => y - x >= MIN_SPEECH);
+  const quiet = loud - PAUSE_BELOW_SPEECH;
+  return raw.filter(([x, y]) => y - x >= MIN_SPEECH).flatMap((r) => (quiet > threshold ? splitAtPauses(r, db, quiet, step) : [r]));
+}
+
+/** `region` split where it stays under `quiet` for `MIN_PAUSE` or more with louder sound on both sides. */
+function splitAtPauses([a, b]: [number, number], db: number[], quiet: number, step: number): [number, number][] {
+  const out: [number, number][] = [];
+  const first = Math.round(a / step);
+  const last = Math.round(b / step) - 1;
+  let from = a;
+  let run = -1;
+  for (let k = first; k <= last; k++) {
+    if (db[k]! < quiet) {
+      if (run < 0) run = k;
+      continue;
+    }
+    if (run > first && (k - run) * step >= MIN_PAUSE) {
+      out.push([from, run * step]);
+      from = k * step;
+    }
+    run = -1;
+  }
+  out.push([from, b]);
+  return out;
 }
 
 /**
@@ -208,13 +245,14 @@ function chunkWords(tokens: WhisperToken[], [offset, end]: [number, number]): Wo
     .filter((w) => w.text);
 }
 
-/** Raw word times from whisper.cpp, chunked at pauses (see `transcribe`). */
-async function whisperWords(dir: string, pcm: Int16Array, speech: [number, number][], opts: TranscribeOptions, language: string): Promise<{ words: Word[]; model: string }> {
-  const model = opts.model ?? process.env.BEACON_WHISPER_MODEL ?? DEFAULT_WHISPER_MODEL;
+const whisperModel = (opts: TranscribeOptions) => opts.model ?? process.env.BEACON_WHISPER_MODEL ?? DEFAULT_WHISPER_MODEL;
+
+/** whisper.cpp over each span of the audio (seconds), in one run: each span's words. */
+async function whisperSpans(dir: string, name: string, pcm: Int16Array, spans: [number, number][], opts: TranscribeOptions, language: string, progress?: (f: number) => void): Promise<Word[][]> {
+  const model = whisperModel(opts);
   if (!existsSync(model)) throw new Error(`whisper model not found at ${model}; download ggml-large-v3-turbo-q5_0.bin from huggingface.co/ggerganov/whisper.cpp`);
-  const chunks = chunksOf(speech, pcm.length / RATE);
-  const files = chunks.map(([a, b], i) => {
-    const file = join(dir, `c${i}.wav`);
+  const files = spans.map(([a, b], i) => {
+    const file = join(dir, `${name}${i}.wav`);
     writeFileSync(file, wavFile(pcm.subarray(Math.floor(a * RATE), Math.ceil(b * RATE))));
     return file;
   });
@@ -223,15 +261,44 @@ async function whisperWords(dir: string, pcm: Int16Array, speech: [number, numbe
     const dtw = opts.dtw ?? process.env.BEACON_WHISPER_DTW ?? "large.v3.turbo";
     await runTool([tool("whisper-cli"), "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
       done += chunk.match(/saving output/g)?.length ?? 0;
-      opts.onProgress?.(done / files.length);
+      progress?.(done / files.length);
     } });
   }
-  const words: Word[] = [];
+  const out: Word[][] = [];
   for (const [i, file] of files.entries()) {
     const json = (await Bun.file(`${file}.json`).json()) as { transcription: { tokens: WhisperToken[] }[] };
-    words.push(...chunkWords(json.transcription.flatMap((seg) => seg.tokens), chunks[i]!));
+    out.push(chunkWords(json.transcription.flatMap((seg) => seg.tokens), spans[i]!));
   }
-  return { words, model: model.split("/").pop()! };
+  return out;
+}
+
+/** Raw word times from whisper.cpp, chunked at pauses (see `transcribe`). */
+async function whisperWords(dir: string, pcm: Int16Array, speech: [number, number][], opts: TranscribeOptions, language: string): Promise<{ words: Word[]; model: string }> {
+  const words = (await whisperSpans(dir, "c", pcm, chunksOf(speech, pcm.length / RATE), opts, language, opts.onProgress)).flat();
+  return { words, model: whisperModel(opts).split("/").pop()! };
+}
+
+const said = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const stretched = (w: Word) => w.end - w.start > STRETCHED[0] + STRETCHED[1] * said(w.text).length;
+
+/**
+ * Words placed in speech, with each stretched one (see `STRETCHED`) transcribed again on its own: when that
+ * hears it with more words, they take its place; otherwise it stays.
+ */
+async function unstretch(dir: string, pcm: Int16Array, placed: Word[], speech: [number, number][], opts: TranscribeOptions, language: string): Promise<Word[]> {
+  const long = placed.filter(stretched);
+  if (!long.length) return placed;
+  const duration = pcm.length / RATE;
+  const heard = await whisperSpans(dir, "s", pcm, long.map((w) => [Math.max(0, w.start - PAD), Math.min(duration, w.end + PAD)]), opts, language);
+  const again = new Map<Word, Word[]>();
+  for (const [i, w] of long.entries()) {
+    // The padding lets the words beside it in: DTW starts lag the sound, so one starting before it, or this close
+    // to its end, is a neighbour, not one more of this.
+    const inside = heard[i]!.filter((x) => x.start >= w.start && x.start < w.end - NEIGHBOUR).map((x) => ({ ...x, end: Math.min(x.end, w.end) }));
+    if (inside.length > 1 && inside.some((x) => said(x.text) === said(w.text))) again.set(w, inside);
+  }
+  if (!again.size) return placed;
+  return placeInSpeech(placed.flatMap((w) => again.get(w) ?? [w]), speech);
 }
 
 /** Raw word times from Apple's SpeechTranscriber, through `beacon-speech`, over the whole stream at once. */
@@ -338,7 +405,9 @@ export async function transcribe(path: string, opts: TranscribeOptions = {}): Pr
     const transcriber = opts.transcriber ?? "whisper";
     const { words, model } =
       transcriber === "apple" ? await appleWords(dir, pcm, opts, language) : transcriber === "openai" ? await openaiWords(pcm, speech, opts, language) : await whisperWords(dir, pcm, speech, opts, language);
-    const heard = quietBoundaries(placeInSpeech(words, speech), speech, db, SEARCH[transcriber]);
+    const placed = placeInSpeech(words, speech);
+    const whole = transcriber === "whisper" ? await unstretch(dir, pcm, placed, speech, opts, language) : placed;
+    const heard = quietBoundaries(whole, speech, db, SEARCH[transcriber]);
     return {
       model,
       language,

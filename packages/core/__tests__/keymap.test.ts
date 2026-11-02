@@ -50,6 +50,40 @@ test("the leader key: : then a key is a shortcut of its own, labelled as typed; 
   }
 });
 
+test("the leader key can change: every sequence moves to it, a key taken alone is refused unless moved, and keys set while it's changed follow it back", async () => {
+  const configDir = mkdtempSync(join(tmpdir(), "beacon-leader-change-"));
+  try {
+    const core = new LocalCore({ configDir });
+    const labels = async (id: string) => (await core.shortcuts()).find((s) => s.id === id)!.keys.map(keysLabel);
+    expect(await labels("app.leader")).toEqual([":"]);
+    const space = { key: "Space", modifiers: [] };
+    await expect(core.shortcutSet("app.leader", [space])).rejects.toThrow("Space is Play or Pause's shortcut");
+    await expect(core.shortcutSet("app.leader", [{ key: "\\", modifiers: [], then: [{ key: "a", modifiers: [] }] }])).rejects.toThrow("one key");
+    await core.shortcutSet("app.leader", [{ key: "\\", modifiers: [] }]);
+    expect(await labels("edit.deleteAudio")).toEqual(["\\ A"]);
+    expect(await labels("edit.label:red")).toEqual(["\\ C R"]);
+    expect(await labels("edit.unlink")).toEqual(["⌘L", "\\ U"]);
+    // A sequence recorded under the new leader is one of its own, not a clash with it.
+    await core.shortcutSet("edit.split", [{ key: "\\", modifiers: [], then: [{ key: "x", modifiers: [] }] }]);
+    expect(await labels("edit.split")).toEqual(["\\ X"]);
+    // : is free now, as a key alone.
+    await core.shortcutSet("edit.duplicate", [{ key: ":", modifiers: [] }]);
+    await expect(core.shortcutSet("app.leader", [{ key: ":", modifiers: [] }])).rejects.toThrow("is Duplicate's shortcut");
+    await core.shortcutReset("edit.duplicate");
+    await core.shortcutSet("app.leader", [space], true);
+    const again = new LocalCore({ configDir });
+    const list = await again.shortcuts();
+    expect(list.find((s) => s.id === "playback.toggle")!.keys).toEqual([]);
+    expect(list.find((s) => s.id === "edit.split")!.keys.map(keysLabel)).toEqual(["Space X"]);
+    expect(list.find((s) => s.id === "edit.deleteAudio")!.keys.map(keysLabel)).toEqual(["Space A"]);
+    await core.shortcutReset("app.leader");
+    expect(await labels("edit.split")).toEqual([": X"]);
+    expect(await labels("edit.deleteAudio")).toEqual([": A"]);
+  } finally {
+    rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
 test("an action's keys are one per chord, labelled as pressed: capital I is ⇧I, < is itself", async () => {
   const list = await new LocalCore().shortcuts();
   const labels = (id: string) => list.find((s) => s.id === id)!.keys.map(keysLabel);

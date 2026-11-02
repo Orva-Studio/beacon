@@ -2768,12 +2768,6 @@ they always keep short silences but cut long ones, or keep "so" and "like"
 but always cut "um", the next review opens that way. A preference changes
 only after the user has made the same choice several times, never from one
 edit.
-- **Favorites go; the palette learns what you use** (the user, 2026-10-27:
-  "the favourites feature is a bit pointless based on how I use it"). ⌘K and
-  the leader key reach everything, so starring is upkeep with no payoff.
-  Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
-  and their preference; ⌘K lists recently and often used effects and
-  annotations first before anything is typed, and leans on them when typing.
 - **Built for talking heads, long and short** (the user, 2026-10-19:
   Beacon is an editor for talking-head videos, long-form and Shorts). So
   what it learns is how this person tightens their own speech: pauses,
@@ -2822,6 +2816,53 @@ edit.
   Reset All, and a switch to turn learning off (as Imagen lets its profile
   be adjusted). Agents read the same list through the preferences, so they
   prepare reviews the user's way.
+- **Built 2026-10-28: the decision log and learning** (the user: these
+  first, then the three small items, then Memory, Favorites, learned
+  shortcuts). Apply in each review records its choices (`ActionPlan.decisions`,
+  or `memory.record` from a session command: the feature contract's `Memory`)
+  in `decisions.json` in the config folder, the newest 5,000 kept; Remove
+  Silences counts silences left before the last one cut as kept when it
+  closes. `transcript/habits.ts` learns three habits per format with the rules
+  above (5 decisions, 2 projects, 80% with a Beta(1, 1) prior, a 90-day
+  half-life): the shortest pause cut, fillers kept by word, the first or last
+  take kept. Reviews open with them and say why (a line under the summary);
+  `transcript_habits` lists them for agents, and the transcript queries use
+  them when not given settings. **Not yet:** the format from length as well
+  as shape (only 9:16 vs not); edits made by hand after Apply; Leave and
+  the retake settings learned; Settings showing, resetting and turning off
+  what was learned (with Memory, item 3).
+- **Sections: what each part of a video is** (the user, 2026-10-28). A
+  named stretch of the timeline ("Intro", "Explanation", "Demo", "Outro"),
+  drawn as a band above the tracks, across every track. Not a clip group:
+  groups nest clips and change how they're edited, and a section spans the
+  screen, camera, B-roll and captions alike (markers are a point, colour
+  labels one clip). Names come from a short list the user picks from, their
+  own allowed, since learning only works on names that repeat. An agent
+  proposes the sections from the transcript and the user corrects them, so
+  nobody has to name every video by hand; proposals are reviewable, as other
+  AI edits are. What it gives:
+  - the tallies above are kept per section kind as well as per format
+    ("in intros you cut every pause over 0.4 s"), falling back to the whole
+    format when a kind has too few decisions;
+  - Memory's sentences can name them ("no B-roll in the intro", "zoom in
+    during demos") and agents act on them;
+  - after a few named videos, agents propose a new one's sections the user's
+    way, then edit each part as the user does;
+  - YouTube chapters (names and start times) for a video's description.
+  Agents read and set them as document data (commands, so they undo).
+  **Decided (the user, 2026-10-28):** built first in the phase, before the
+  rest; sections never overlap (gaps allowed). **Built 2026-10-28:** schema
+  v3 `sections` ({id, start, end, name}); `section.add` / `section.set` /
+  `section.remove` (MCP tools, refusing overlaps); ripple deletes and
+  inserted or removed space move, grow or shrink them; a Sections band under
+  the ruler: drag on empty band time to make one (stops at its
+  neighbours), then name it (typed, or picked from the project's names then
+  Hook, Intro, Explanation, Demo, Example, Recap, Outro, Call to Action);
+  drag its edges or body, double-click to rename, click then ⌫ to delete;
+  colour by name. Still open: agents proposing sections from the
+  transcript (a reviewable proposal), YouTube chapters, habits per section,
+  a key to make one from the in/out range, how a Short cut from a long
+  video's section carries it.
 - **Memory: sentences the user can read and write** (the user, 2026-10-23).
   Settings gets a **Memory** tab: a list of single sentences, each one habit
   ("I cut silences over 0.8 s but keep the breath before a sentence", "the
@@ -2836,22 +2877,106 @@ edit.
   (`memory.list`) and the MCP instructions say to; the reviews use the
   tallies for their defaults, and the sentences explain them.
   Open: whether a sentence is enforced as a rule (a number the review reads)
-  or only read by agents as text; per format (Short/long) as the tallies are;
-  whether agents may add sentences themselves (proposed, never saved
-  without the user).
+  or only read by agents as text; per format (Short/long) as the tallies are.
+  **Decided (the user, 2026-10-28):** agents may propose sentences (never
+  saved without the user accepting).
+  **Built 2026-10-31:** Settings › Memory (learning on/off; Learned per
+  format with evidence, Forget, Forget All; sentences with a format;
+  proposals), `memory.json`, `Feature.habits`, `memory_list` and
+  `memory_propose` over MCP. Sentences are text agents read, not rules a
+  review enforces; Beacon doesn't yet propose sentences itself from repeated
+  crops, positions or B-roll placements.
 - Fits as its own feature folder with session state and a preference
   store; the reviews ask it for defaults rather than knowing about it.
   Open: per speaker as well as per format (a guest in an interview);
   whether a long video and its Shorts cut from it share decisions; how
   fast old habits fade; whether hand edits outside the reviews are a clear
   enough signal.
+- **Favorites go; the palette learns what you use** (last in the phase: the user
+  works without it first, 2026-10-28; the user, 2026-10-27:
+  "the favourites feature is a bit pointless based on how I use it"). ⌘K and
+  the leader key reach everything, so starring is upkeep with no payoff.
+  Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
+  and their preference; ⌘K lists recently and often used effects and
+  annotations first before anything is typed, and leans on them when typing.
+- **Learned shortcuts** (the user, 2026-10-28; candidate, an extension of
+  Memory, after Favorites go, as it shares their usage counts). When the user
+  runs the same action often from ⌘K or with the mouse, Beacon offers it a
+  leader shortcut: a toast bottom-right ("You often use Add Drop Shadow: give
+  it `: d s`?" with Add and Not Now), and once added a "new" chip beside it in
+  the leader popup until it has been used about 3 times. Longer term, Memory
+  adapts more of the app to habits the same way, always by asking.
+  - **Rules (the user, 2026-10-28):** made after about **5 uses**, not from a
+    burst in one session; at most **10** learned at once; never takes keys
+    another action has, or that the user cleared; the keys picked from the
+    action's name where free (Drop Shadow → `: d s`), else the next free pair.
+  - **Unused ones go by themselves** (the user, 2026-10-28), counted in use
+    of the app, not the calendar, as the user may not edit every day: one is
+    removed after a week of days Beacon was used (days it wasn't open don't
+    count) with no use of it, or once it is in none of the last few leader
+    sequences run (the user's example: 5). Removing one is said in a toast with
+    Undo, as adding is, and the action can be learned again later. To settle
+    when built: with up to 10 learned, "none of the last 5" would remove most of
+    them at once, so that count likely wants to be higher (20) or to apply only
+    to shortcuts still showing "new".
+  - **Asked, never added by itself** (the user, 2026-10-31, replacing
+    2026-10-28's "added by itself, with Undo"): Beacon makes no change the
+    user hasn't agreed to. The offer waits until they click Add; Not Now (or
+    the toast going) adds nothing, and that action isn't offered again until
+    it has been used as often again. Offers not yet answered are listed in
+    Settings › Memory with an Add button, as agents' proposed sentences are.
+  - **Seen in Memory, not Shortcuts** (the user, 2026-10-28): Settings has one
+    Memory section for everything Beacon learned (the sentences, the review
+    habits, the learned shortcuts), kept apart from Settings › Shortcuts, which
+    stays the user's own keys. Each learned shortcut is listed there and
+    removable; removing one stops it being learned again.
+  - **Counting:** local and light, in the same log as review decisions
+    (`~/Library/Application Support`, never uploaded); only actions with no
+    key of their own, run from ⌘K, a menu or a button, count. Agent edits over
+    MCP never count.
+- **A motion graphic's code in Finder** (the user, 2026-10-28; only showing
+  it, no watching for edits made there: "too overkill"). **Built
+  2026-10-28:** a folder button beside Edit Code shows the shown take's page
+  (the `.html` written beside its movie) in Finder; `reveal` takes a file in
+  the project's folder.
+- **⇧-click picks a run of silences** (the user, 2026-10-28). In Remove
+  Silences' review ⇧-click adds or drops one silence; it should pick every
+  silence from the one picked last to the one clicked, as Finder does, with
+  ⌘-click adding or dropping one. `silences.select` gets a `through` (the
+  time of the other end). Small; this phase. **Built 2026-10-28:**
+  `through` picks from the last one picked, which stays the anchor.
+- **A Beacon icon on project folders** (the user, 2026-10-28, as Camtasia's
+  `.cmproj` shows its own). A `.beproj` is a folder: declare it a document
+  package (`CFBundleDocumentTypes` with `LSTypeIsPackage`, an exported UTI
+  for `.beproj`) with a document icon in the app's Info.plist, so Finder
+  shows the icon, opens it in Beacon on a double-click, and keeps it one
+  item. Open: whether it still opens as a folder (⌥ Show Package Contents). **Built 2026-10-28:** `dev.beacon.project` in the Info.plist
+  (`info-plist.ts`), Beacon's app icon as the document icon, `open-url`
+  opening a double-clicked project; Show Package Contents opens it as a
+  folder.
+- **New Project chooses where** (the user, 2026-10-28): ⌘N names the project
+  but always saves it in ~/Movies/Beacon. Add a location (the last one used,
+  Choose… for a folder, remembered as a preference) to the New Project
+  dialog. **Built 2026-10-28:** a Where row with Choose…, the folder chosen
+  kept in `new-project.json` and offered next time (from the start screen
+  too); Camtasia copies still go to ~/Movies/Beacon.
+- **Set a take's camera delay by hand** (the user, 2026-10-28). Settings ›
+  Recording already takes a typed delay per camera and microphone, but only
+  takes recorded after it use it. For a take already on the timeline: a
+  "Camera Delay" on the camera clip (ms, + later / − earlier) that moves it
+  against its audio without unlinking, one undo step, and an offer to save
+  it for the pair so the next take is right. **Built 2026-10-28:** Camera delay in the camera
+  clip's Visual tab (`media.cameraDelay`), every camera piece of the take
+  slipped in place. **Not built:** the offer to save it for the pair, as a
+  take's `recording.json` doesn't say which camera and microphone it used;
+  writing their ids into new takes would allow it.
 **Gate:** after the user cuts or keeps the same kind of item the same way
 across a few projects, the next review opens that way and says why; a
 Short and a long video each open with their own learned settings; one
 choice alone changes nothing; Settings shows and resets what was learned,
 per format.
 
-### Phase 13 — Device frames, and AI camera angles (a spike) (the user, 2026-10-22; device frames were Phase 11, then Phase 12 until 2026-10-27)
+### Phase 13 — Device frames, AI camera angles (a spike), sped-up export and Epidemic Sound (the user, 2026-10-22; device frames were Phase 11, then Phase 12 until 2026-10-27)
 The user will bring a lot of information before any work starts: which
 devices, how each frame looks and where its screen sits, what it's for.
 Research and agree the design with them first; nothing is built before.
@@ -2916,6 +3041,51 @@ paid call, a few dollars at 480p):**
 5. Write the result into this plan as a spec in the B-roll review's shape
    (pick a range, the angle and lens, a draft at 480p with its cost, then
    1080p; applied as a cut on a camera track, one undo step), or park it.
+
+#### Export sped up (the user, 2026-10-28)
+An export option for the whole video played faster, for Shorts: a speed
+between 1× and 2× (1.1, 1.2, 1.25 and 1.5 offered, any value in 0.05 steps),
+in the Export sheet and as `export_start`'s `speed`. The project is not
+changed; only the file is. Picture: the timeline sampled faster at the same
+frame rate. Sound: sped up with its pitch kept (FFmpeg's `atempo`), so a voice
+doesn't go high. The sheet shows the length the file will be. Open questions:
+whether a project remembers its export speed (a Short always at 1.2×), and
+whether captions' and motion graphics' timing needs anything (they ride the
+timeline, so they should simply speed up with it).
+
+#### Music and sound effects from Epidemic Sound (the user, 2026-10-28; moved from the backlog the same day)
+Music and sound effects found, placed and mixed from Beacon, as B-roll and
+Auphonic are: a feature folder with its own commands, so the agent uses it
+through MCP as the user does.
+- **Music:** search by mood, genre or words (or from what is said under a
+  range, as B-roll writes its prompts), preview, and place on a Music track
+  fitted to the range. Epidemic's "create versions" (beta) edits a track to a
+  target length, and its beat data could snap cuts or pop-ins to the beat.
+- **Sound effects:** search in words, placed on an SFX track; an option
+  drops whooshes and pops on motion-graphic, screenshot and logo pop-ins.
+- **Ducking:** music dips under speech, from the transcript's speech
+  regions, as volume points (already in the model), so it stays editable.
+- **What Epidemic's API allows (checked 2026-10-28):** partner-gated; a
+  partnership agreement gives credentials. Auth by API key (recommended),
+  partner token (legacy) or Epidemic Sound Connect (OAuth 2.0, for users with
+  their own subscription). A free tier for prototyping: 50 downloads and 100
+  previews, lifetime, and nothing made with it may be published. Downloads
+  and previews are metered, and exports must be reported when users publish.
+  There is also a soundtracking API (beta: upload a video, get it scored) and
+  an official MCP server (beta).
+
+Open questions:
+1. **Access:** apply for a partnership (Orva as the partner, Connect so each
+   user signs in with their own subscription; recommended), or prototype on
+   the free tier first, or use Epidemic's MCP server directly from the agent
+   (no Beacon code, but no Beacon UI either).
+2. **Reporting exports:** the API wants each publish reported; Beacon only
+   knows about exports, not publishing. What counts as a report: every
+   export, or a "mark as published" step.
+3. **Where it lives in the UI:** a Music tile in the AI panel beside B-roll,
+   or its own panel with a browser of tracks.
+4. **Sound effects on pop-ins:** automatic, or suggested for the user to
+   accept.
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -3028,6 +3198,40 @@ HyperFrames' renders as the single graphics were.
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### A Glow effect (the user, 2026-10-28; candidate)
+A Glow effect in the effects list beside Drop Shadow and Round Corners, for
+logo tiles, screenshots, callouts and text: a soft, coloured bloom around a
+clip's opaque pixels (its alpha, blurred and tinted, drawn under it), with
+colour, size, strength and an optional pulse, all animatable. Wanted while
+dressing the Grok short (logo pop-ins, number cards). Open questions: outer
+glow only, or inner too; whether Film Look's halation/bloom shader can be
+shared; and a Favorites tile for it.
+
+### Keyboard focus modes on the leader key (the user, 2026-10-28; candidate)
+Moving around the editor without the mouse, a panel at a time. Built only after
+Phase 12 removes Favorites (the user, 2026-10-28), so the sidebar it cycles has
+none.
+- **Leader `]`: the Properties panel.** Focused with a green border; Tab and
+  ⇧Tab move between its tabs, Return goes into the tab's first input, Tab and
+  ⇧Tab move down and up its inputs, Esc goes back out a level, then leaves.
+- **Leader `[`: the left sidebar.** Tab and ⇧Tab cycle its panels (Media,
+  Visual, Audio, Effects, AI); Return opens one with its
+  first item focused; Tab, ⇧Tab and arrows move between items; Return adds the
+  item to the timeline at the playhead (as a double-click does), on the
+  selected clip for an effect, and ⇧Return previews it (the user, 2026-10-28).
+- **Later:** the same for the timeline (arrows step clips and tracks) and the
+  canvas (arrows nudge, Tab steps the clips shown).
+- **How it should feel (suggested):** a clear focus ring on the item, and a
+  hint bar along the panel's foot with the keys that work there; focus held in
+  the panel until Esc, but never taken from a field being typed in; the focus
+  mode leaves when the mouse is used elsewhere.
+- **Replaces leader `]` and `[`** (the user, 2026-10-28): they step the
+  Properties panel's tabs today, with the first value ready to type (Phase
+  11.5's `inspector.step`); the focus modes take both keys over, and Tab does
+  the stepping inside the panel.
+- Question: whether the modes should be reachable over MCP (`ui_state` saying
+  which panel has focus, for agents driving the app).
 
 ### Heavy screen recordings (the user, 2026-10-27; later)
 A Retina screen recorded in full (3326×2160 HEVC at 60 fps) spins the Mac's fans

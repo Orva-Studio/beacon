@@ -23,7 +23,7 @@ export interface ProjectsApp {
   /** Open Recent changed: the menu and the start screens follow. */
   recentChanged(): void;
   /** Finder's open dialog (Electrobun's `Utils.openFileDialog`): the paths picked, none if cancelled. */
-  openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string }): Promise<string[]>;
+  openFileDialog(opts: { canChooseFiles: boolean; canChooseDirectory: boolean; allowsMultipleSelection: boolean; startingFolder: string; allowedFileTypes?: string }): Promise<string[]>;
   /** Asks before a project goes to the Trash: whether the user agreed. */
   confirmTrash(name: string): Promise<boolean>;
   /** Moves a file or folder to the Trash (Electrobun's `Utils.moveToTrash`): whether it went. */
@@ -35,14 +35,14 @@ export interface ProjectsApp {
 /** File > Open Recent and the start screen: the last projects opened, newest first, with when (ms since 1970). */
 type Recent = { path: string; opened: number };
 
-/** Where new projects (and copies of Camtasia projects) go. */
+/** Where new projects (and copies of Camtasia projects) go, unless New Project was given another folder. */
 const PROJECTS = join(homedir(), "Movies/Beacon");
 
-/** `name`.beproj in the projects folder, numbered if taken. */
-function freshProject(name: string): string {
-  mkdirSync(PROJECTS, { recursive: true });
+/** `name`.beproj in `folder`, numbered if taken. */
+function freshProject(name: string, folder = PROJECTS): string {
+  mkdirSync(folder, { recursive: true });
   for (let n = 1; ; n++) {
-    const path = join(PROJECTS, `${name}${n > 1 ? ` ${n}` : ""}.beproj`);
+    const path = join(folder, `${name}${n > 1 ? ` ${n}` : ""}.beproj`);
     if (!existsSync(path)) return path;
   }
 }
@@ -258,7 +258,8 @@ export function createProjects(app: ProjectsApp) {
 
   /** Opens a .beproj, or a Camtasia .cmproj as a new Beacon project beside the others (the .cmproj is only read). */
   async function openDialog() {
-    const [path] = await app.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: "~/" });
+    // Projects are packages, which the panel takes as files: a folder not yet seen as one is still a directory.
+    const [path] = await app.openFileDialog({ canChooseFiles: true, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: "beproj,cmproj" });
     if (path) await openProject(path);
   }
 
@@ -315,13 +316,21 @@ export function createProjects(app: ProjectsApp) {
     return result;
   };
 
-  /** File > New Project: `w` asks for the name, then `createProject`. */
-  function newProject(w: ProjectWindow) {
-    w.message("newProjectSheet", { name: "Untitled Project" });
+  /** Where New Project offers to put a project: the folder chosen for the last one, while it is there. */
+  function projectsFolder(): string {
+    const folder = (core.readConfig("new-project.json") as { folder?: string } | undefined)?.folder;
+    return folder && existsSync(folder) ? folder : PROJECTS;
   }
 
-  async function createProject(name: string, canvas?: CanvasValues, standalone = false) {
-    const to = freshProject(projectName(name));
+  /** File > New Project: `w` asks for the name and where, then `createProject`. */
+  function newProject(w: ProjectWindow) {
+    w.message("newProjectSheet", { name: "Untitled Project", folder: projectsFolder() });
+  }
+
+  async function createProject(name: string, canvas?: CanvasValues, standalone = false, folder?: string) {
+    if (folder && !existsSync(folder)) throw new Error(`${folder} doesn't exist`);
+    const to = freshProject(projectName(name), folder ?? projectsFolder());
+    if (folder) core.writeConfig("new-project.json", { folder });
     await core.create({ path: to, ...(canvas ? { settings: canvasChange(canvas) } : {}), ...(standalone ? { standalone } : {}) });
     await open(to);
     windowFor(to).status(`New project: ${to}`);
@@ -375,6 +384,7 @@ export function createProjects(app: ProjectsApp) {
     importFile,
     newProject,
     createProject,
+    projectsFolder,
     saveAsDialog,
     saveAs,
     renameProject,

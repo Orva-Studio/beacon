@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Asset } from "@beacon/model";
 import { DerivedData } from "@beacon/render";
+import { findRetakes, RETAKE_DEFAULTS } from "@beacon/features/src/transcript/retakes";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -43,7 +44,7 @@ const TALK =
 type Group = { start: number; end: number; key: string; takes: { start: number; end: number; text: string }[]; best: number; by: string; reason?: string };
 type Found = { waiting: string[]; judging: string[]; judge: string; groups: Group[]; saved: number; current?: number };
 
-async function talk(name: string, secrets = new Map<string, string>()) {
+async function talk(name: string, secrets = new Map<string, string>(), lines = TALK) {
   const core = new LocalCore({
     cacheDir: join(dir, `${name}-cache`),
     configDir: join(dir, `${name}-config`),
@@ -55,7 +56,7 @@ async function talk(name: string, secrets = new Map<string, string>()) {
   const r = await core.import(h, [copy], { at: 0 });
   for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
   const asset = core.doc(h).assets[r.assets[0]!]!;
-  transcribed(core, asset, said(TALK));
+  transcribed(core, asset, said(lines));
   const text = async () => ((await core.query(h, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).join(" ");
   return { core, h, asset, text };
 }
@@ -83,6 +84,27 @@ test.skipIf(!existsSync(AUDIO))("Remove Retakes finds each line said again, keep
   expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("a stutter, a word or a few said again straight away, is a retake too; a word doubled on purpose isn't", async () => {
+  const { core, h, text } = await talk("stutter", undefined, "I I think we should start | with brands like Acme, like Acme, who ran the same ads. | We had had enough of lots and lots of them.");
+  await core.run(h, "retakes.review", {});
+  const found = (await core.query(h, "transcript.retakes", {})) as Found;
+  expect(found.groups.map((g) => g.takes.map((t) => t.text))).toEqual([
+    ["I", "I"],
+    ["like Acme,", "like Acme,"],
+  ]);
+  await core.run(h, "retakes.apply", {});
+  expect(await text()).toBe("I think we should start with brands like Acme, who ran the same ads. We had had enough of lots and lots of them.");
+  await core.close(h);
+}, 60_000);
+
+test("a stutter inside a stutter isn't a group of its own: no word is in two groups", () => {
+  const words = "I want I want want it".split(" ").map((text, i) => ({ text, start: i * 0.5, end: i * 0.5 + 0.4, p: 1 }));
+  const groups = findRetakes(words, RETAKE_DEFAULTS);
+  const cut = groups.flatMap((g) => g.flatMap((t) => Array.from({ length: t.last - t.first + 1 }, (_, k) => t.first + k)));
+  expect(new Set(cut).size).toBe(cut.length);
+  expect(groups.map((g) => g.map((t) => [t.first, t.last]))).toEqual([[[0, 1], [2, 3]]]);
+});
 
 test.skipIf(!existsSync(AUDIO))("keeping an earlier take cuts only what the later one repeats, so what it goes on to say stays; Cut This One cuts one group", async () => {
   const { core, h, text } = await talk("keep");

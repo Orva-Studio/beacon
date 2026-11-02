@@ -44,6 +44,11 @@ import {
   type ActionPlan,
   type ActionTask,
   type ActionStep,
+  type Memory,
+  MemoryChangeSchema,
+  type MemoryChange,
+  type MemoryState,
+  projectFormat,
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
@@ -188,13 +193,21 @@ export class LocalCore implements BeaconCore {
   #attach(path: string, doc: Project): ProjectHandle {
     let current = doc;
     const data = new DerivedData(this.registry, this.cacheDir, () => current, this.#pref);
-    const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get });
+    const project = Bun.hash(path).toString(36);
+    const memory: Memory = {
+      decisions: () => (this.#config.learning() ? this.#config.decisions() : []),
+      record: (ds) => this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() }))),
+    };
+    // Commands only read the decisions: what they cut is recorded by the plan that runs them.
+    const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get, memory: { ...memory, record: () => {} } });
     lock(path, this.#owner);
     store.subscribe((e) => void (current = e.doc));
     const p: OpenProject = {
       path,
       store,
-      session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get),
+      memory,
+      decided: new WeakMap(),
+      session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get, memory),
       data,
       frames: new FrameRenderer(this.registry, this.cacheDir),
       ticking: false,
@@ -343,8 +356,11 @@ export class LocalCore implements BeaconCore {
     return to;
   }
 
-  async reveal(h: ProjectHandle): Promise<void> {
-    this.#reveal(this.#get(h).path);
+  async reveal(h: ProjectHandle, path?: string): Promise<void> {
+    const dir = this.#get(h).path;
+    if (path !== undefined && !isInside(dir, path)) throw new Error("only files in the project's folder can be shown");
+    if (path !== undefined && !existsSync(path)) throw new Error(`${basename(path)} isn't there any more`);
+    this.#reveal(path ?? dir);
   }
 
   /** Saves and releases the project; if the save fails it is still released, and the failure is the error. */
@@ -466,7 +482,7 @@ export class LocalCore implements BeaconCore {
 
   #actionContext(p: OpenProject): ActionContext {
     const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref };
+    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref, memory: p.memory };
   }
 
   #applyPlan(p: OpenProject, plan: ActionPlan, label: string): CommandResult {
@@ -482,13 +498,23 @@ export class LocalCore implements BeaconCore {
       if (p.session.state !== before) p.session.restore(before);
       throw e;
     }
-    // The document change is committed: an editor step after it that fails is reported, not thrown, or a retry would apply the change twice.
+    // The document change is committed: what fails after it (keeping the decisions, an editor step) is reported, not thrown, or a retry would apply the change twice.
+    const failed: string[] = [];
+    if (plan.decisions?.length) {
+      const step = result.patches.length ? crypto.randomUUID().slice(0, 8) : undefined;
+      try {
+        p.memory.record(step ? plan.decisions.map((d) => ({ ...d, step })) : plan.decisions);
+        if (step) p.decided.set(result.patches, { step });
+      } catch (e) {
+        failed.push(`(your choices weren't kept for Settings › Memory: ${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
     try {
       for (const s of plan.after?.(result.results) ?? []) p.session.run(s.command, s.args, p.store.doc);
     } catch (e) {
-      return { ...result, diff: [...result.diff, `(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`] };
+      failed.push(`(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`);
     }
-    return result;
+    return failed.length ? { ...result, diff: [...result.diff, ...failed] } : result;
   }
 
   /** An action's background work; its edit is planned on the document as it is when the work is done. */
@@ -714,7 +740,7 @@ export class LocalCore implements BeaconCore {
     const picture = media?.streams?.find((s) => s.kind === "video" && s.width && s.height);
     const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
     const settings = picture ? { ...base.settings, width: even(picture.width!), height: even(picture.height!) } : base.settings;
-    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], markers: [] }, { newId: shortId, data: p.data.get });
+    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], markers: [], sections: [] }, { newId: shortId, data: p.data.get });
     store.run("asset.place", { asset: assetId, time: 0 });
     const doc = store.doc;
     const kind = asset.kind === "image" ? "image" : picture ? "video" : "audio";
@@ -778,12 +804,18 @@ export class LocalCore implements BeaconCore {
 
   async undo(h: ProjectHandle) {
     const p = this.#get(h);
-    return this.#saved(p, p.store.undo())?.label;
+    const entry = this.#saved(p, p.store.undo());
+    const d = entry && p.decided.get(entry.patches);
+    if (d) d.undone = this.#config.dropDecisions(d.step);
+    return entry?.label;
   }
 
   async redo(h: ProjectHandle) {
     const p = this.#get(h);
-    return this.#saved(p, p.store.redo())?.label;
+    const entry = this.#saved(p, p.store.redo());
+    const d = entry && p.decided.get(entry.patches);
+    if (d?.undone) this.#config.recordDecisions(d.undone);
+    return entry?.label;
   }
 
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
@@ -814,7 +846,7 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
+    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, memory: p.memory, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {
@@ -888,11 +920,11 @@ export class LocalCore implements BeaconCore {
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
-    // Beside a video, files features write from the same range (captions as .srt), named after it.
+    // Beside a video, files features write from the same range (captions as .srt) when asked for, named after it.
     const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)) };
     const sides = opts.output.endsWith("/")
       ? []
-      : [...this.registry.exportFiles.values()].flatMap((f) => {
+      : [...this.registry.exportFiles.values()].filter((f) => opts.files?.includes(f.id)).flatMap((f) => {
           const text = f.write(range, { project, registry: this.registry, data: data.get, pref: data.pref });
           return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
         });
@@ -1154,6 +1186,14 @@ export class LocalCore implements BeaconCore {
 
   async shortcutSet(action: string, keys: Keys[], replace = false): Promise<ShortcutInfo[]> {
     return this.#config.shortcutSet(action, keys, replace);
+  }
+
+  async memory(): Promise<MemoryState> {
+    return this.#config.memory();
+  }
+
+  async memoryChange(change: MemoryChange): Promise<MemoryState> {
+    return this.#config.memoryChange(MemoryChangeSchema.parse(change));
   }
 
   async shortcutReset(action?: string): Promise<ShortcutInfo[]> {

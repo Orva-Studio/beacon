@@ -138,6 +138,7 @@ export async function importCmproj(cmproj: string, registry: FeatureRegistry): P
     assets,
     tracks,
     markers: [],
+    sections: [],
   };
   registry.validate(project);
   return { project, report };
