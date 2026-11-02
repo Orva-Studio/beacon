@@ -34,7 +34,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   importing: (i) => replica.importing(i),
   snapshotSaved: ({ path }) => replica.snapshot(path),
   settingsSheet: (s) => replica.settings(s),
-  favorites: ({ items }) => replica.favorites(items),
+  usage: ({ items }) => replica.usedItems(items),
   shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
   memory: ({ memory }) => replica.memory(memory),
   palette: () => replica.palette(true),
@@ -44,7 +44,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   closeDialogs: () => replica.closeDialogs(),
 };
 
-/** Applies a request's reply (the favourites or shortcuts as they now are), or shows why it failed. */
+/** Applies a request's reply (the items by use, or shortcuts, as they now are), or shows why it failed. */
 export const applyReply =
   <T,>(set: (value: T) => void) =>
   async (p: Promise<unknown>) => {

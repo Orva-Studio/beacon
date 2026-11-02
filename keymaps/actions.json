@@ -914,15 +914,6 @@
       "command": "range.clear"
     },
     {
-      "id": "panel.show:favorites",
-      "name": "Show Favorites",
-      "command": "panel.show",
-      "args": {
-        "tool": "favorites"
-      },
-      "description": "Open the Favorites panel on the left"
-    },
-    {
       "id": "panel.show:media",
       "name": "Show Media Bin",
       "command": "panel.show",

@@ -214,8 +214,8 @@ function calloutFromCamtasia(media: CamtasiaObject, report: (m: string) => void)
 export const callouts = defineFeature({
   id: "callouts",
   panelItems: [
-    { id: "annotation:text", label: "Text", title: "White text with a drop shadow", command: "edit.addAnnotation", args: { preset: "text" }, seconds: 5, favorite: true },
-    { id: "annotation:rectangle", label: "Rectangle", title: "A black rounded rectangle", command: "edit.addAnnotation", args: { preset: "rectangle" }, seconds: 5, favorite: true },
+    { id: "annotation:text", label: "Text", title: "White text with a drop shadow", command: "edit.addAnnotation", args: { preset: "text" }, seconds: 5 },
+    { id: "annotation:rectangle", label: "Rectangle", title: "A black rounded rectangle", command: "edit.addAnnotation", args: { preset: "rectangle" }, seconds: 5 },
   ],
   // The settings the user's projects use most.
   annotations: {

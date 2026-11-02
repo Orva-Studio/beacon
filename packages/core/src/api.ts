@@ -246,8 +246,8 @@ export type CoreEvent =
   | { kind: "saved"; path: string }
   /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
   | { kind: "needs"; resource: ResourceInfo }
-  /** The favourites changed (app-wide): the Favorites panel's items, in order. */
-  | { kind: "favorites"; items: string[] }
+  /** A panel item was used (app-wide): the items by use, most first. */
+  | { kind: "usage"; items: string[] }
   /** The app's settings changed (app-wide), from Settings or an agent. */
   | { kind: "settings"; settings: AppSettings }
   /** Keyboard shortcuts changed (app-wide): every action with its keys. */
@@ -268,8 +268,8 @@ export type CoreEvent =
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
   | { kind: "session"; changes: Partial<Session>; changed: (keyof Session)[] };
 
-/** What concerns the whole app, from any project or none: favourites, settings, keys, a preference, and every job. */
-export type AppEvent = Extract<CoreEvent, { kind: "favorites" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
+/** What concerns the whole app, from any project or none: panel items' use, settings, keys, a preference, and every job. */
+export type AppEvent = Extract<CoreEvent, { kind: "usage" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
 
 /** Everything an agent or the app can do (PLAN §7.1). */
 export interface BeaconCore {
@@ -330,16 +330,12 @@ export interface BeaconCore {
    */
   setPreference(id: string, value: string): Promise<void>;
   /**
-   * The Favorites panel's items, in order, app-wide: `annotation:<preset>` (text, rectangle…), `effect:<id>`
-   * (drop-shadow…) or `audio:fade-in` / `audio:fade-out`. New users start with a few.
+   * Panel items by use, app-wide, most used (and most lately) first: `annotation:<preset>`, `effect:<id>`,
+   * `audio:fade-in`, `ai:<tool>`. ⌘K lists them first.
    */
-  favorites(): Promise<string[]>;
-  /** Stars an item (at `index`, else at the end); one already there stays where it is. Returns the list. */
-  favoriteAdd(item: string, index?: number): Promise<string[]>;
-  /** Un-stars an item. Returns the list. */
-  favoriteRemove(item: string): Promise<string[]>;
-  /** Moves a favourite to `index` (0 first). Returns the list. */
-  favoriteMove(item: string, index: number): Promise<string[]>;
+  recentItems(): Promise<string[]>;
+  /** Counts a use of a panel item (a tile, the palette). Returns the items by use. */
+  itemUsed(item: string): Promise<string[]>;
   /**
    * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
    * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
@@ -413,7 +409,7 @@ export interface BeaconCore {
    * goes on a new track where it began, lined up with what was heard. One undo step.
    */
   recordStop(opts?: RecordStopOptions): Promise<RecordResult>;
-  /** A project's changes; app-wide ones (favourites, settings, keys, preferences, jobs) come through `watchApp`. */
+  /** A project's changes; app-wide ones (panel items' use, settings, keys, preferences, jobs) come through `watchApp`. */
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
   /** App-wide changes and every job's progress, whichever project started it, or none (a download), and after it is closed. */
   watchApp(fn: (e: AppEvent) => void): () => void;

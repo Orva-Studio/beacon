@@ -27,8 +27,12 @@ import type { AppEvent, PreferenceInfo } from "./api";
 import type { Secrets } from "./keychain";
 import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
 
+/** Uses of a panel item kept, newest last; and how fast one counts for less (a use two weeks old counts half). */
+const USES_KEPT = 20;
+const USE_HALF_LIFE = 14 * 24 * 3600 * 1000;
+
 /**
- * The app's own choices, kept as JSON files in one folder (and secrets in the Keychain): preferences, favourites,
+ * The app's own choices, kept as JSON files in one folder (and secrets in the Keychain): preferences, panel items' use,
  * settings and keys. Each change is written at once and told to `emit`, for the app's windows and agents.
  */
 /** JSON text a schema preference accepts. */
@@ -69,7 +73,7 @@ export class AppConfig {
     return v !== undefined && (def.range ? inRange(v, def.range) : def.schema ? fits(def.schema, v) : def.options.some((o) => o.id === v)) ? v : def.default;
   };
 
-  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
+  /** A JSON file of the app's own (panel items' use, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
   read(name: string): unknown {
     try {
       return JSON.parse(readFileSync(join(this.dir, name), "utf8"));
@@ -145,46 +149,40 @@ export class AppConfig {
     return [...this.registry.preferences.values()].filter((def) => this.pref(def.id) !== def.default && def.options.find((o) => o.id === this.pref(def.id))?.secret === id).map((def) => def.id);
   }
 
-  favorites(): string[] {
-    const items = this.read("favorites.json");
-    if (Array.isArray(items)) return items.filter((i): i is string => typeof i === "string" && this.#favoriteKnown(i));
-    return this.registry.favorites.filter((i) => this.#favoriteKnown(i));
+  /** Panel items by use (`usage.json`): those used most, and most lately, first. */
+  recentItems(now = Date.now()): string[] {
+    const usage = this.#usage();
+    const score = (times: number[]) => times.reduce((sum, t) => sum + 0.5 ** ((now - t) / USE_HALF_LIFE), 0);
+    return Object.entries(usage)
+      .filter(([item]) => this.#itemKnown(item))
+      .map(([item, times]) => [item, score(times)] as const)
+      .sort((a, b) => b[1] - a[1])
+      .map(([item]) => item);
   }
 
-  /** An item the panels have: one a feature lists, or a Visual Effects panel effect. */
-  #favoriteKnown(item: string): boolean {
-    if (this.registry.panelItems.some((i) => i.id === item)) return true;
-    const effect = item.startsWith("effect:") ? this.registry.effects.get(item.slice(7)) : undefined;
-    return !!effect && isPanelEffect(effect.traits);
-  }
-
-  #saveFavorites(items: string[]): string[] {
-    this.write("favorites.json", items);
-    this.emit({ kind: "favorites", items });
+  /** Counts a use of a panel item (from a tile, the palette or an agent): what ⌘K lists first. */
+  itemUsed(item: string, now = Date.now()): string[] {
+    if (!this.#itemKnown(item)) throw new Error(`"${item}" isn't an item of the panels: ${this.registry.panelItems.map((i) => i.id).join(", ")}, effect:<id>, or ai:<tool>`);
+    const usage = this.#usage();
+    usage[item] = [...(usage[item] ?? []), now].slice(-USES_KEPT);
+    this.write("usage.json", usage);
+    const items = this.recentItems(now);
+    this.emit({ kind: "usage", items });
     return items;
   }
 
-  favoriteAdd(item: string, index?: number): string[] {
-    if (!this.#favoriteKnown(item)) throw new Error(`"${item}" isn't an item of the panels: ${this.registry.panelItems.map((i) => i.id).join(", ")}, or effect:<id> as effect_add takes`);
-    const items = this.favorites();
-    if (items.includes(item)) return items;
-    items.splice(index === undefined ? items.length : Math.max(0, Math.min(index, items.length)), 0, item);
-    return this.#saveFavorites(items);
+  #usage(): Record<string, number[]> {
+    const raw = this.read("usage.json");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return Object.fromEntries(Object.entries(raw).filter((e): e is [string, number[]] => Array.isArray(e[1]) && e[1].every((t) => typeof t === "number")));
   }
 
-  favoriteRemove(item: string): string[] {
-    const items = this.favorites();
-    if (!items.includes(item)) return items;
-    return this.#saveFavorites(items.filter((i) => i !== item));
-  }
-
-  favoriteMove(item: string, index: number): string[] {
-    const items = this.favorites();
-    const from = items.indexOf(item);
-    if (from < 0) throw new Error(`"${item}" isn't a favourite; there are: ${items.join(", ")}`);
-    items.splice(from, 1);
-    items.splice(Math.max(0, Math.min(index, items.length)), 0, item);
-    return this.#saveFavorites(items);
+  /** An item the panels have (one a feature lists, a Visual Effects panel effect), or an AI panel tool (the UI's own). */
+  #itemKnown(item: string): boolean {
+    if (/^ai:[a-z-]+$/.test(item)) return true;
+    if (this.registry.panelItems.some((i) => i.id === item)) return true;
+    const effect = item.startsWith("effect:") ? this.registry.effects.get(item.slice(7)) : undefined;
+    return !!effect && isPanelEffect(effect.traits);
   }
 
   /** The user's review decisions (`decisions.json`), oldest first. */

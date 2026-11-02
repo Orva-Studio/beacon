@@ -152,7 +152,7 @@ export class LocalCore implements BeaconCore {
   #shared: SharedSession = { clipboard: null, properties: null };
   #imports = 0;
 
-  /** Preferences, favourites, settings and keys, and the secrets. */
+  /** Preferences, panel items' use, settings and keys, and the secrets. */
   readonly #config: AppConfig;
   readonly #pref: (id: string) => string;
   readonly #parts: CoreParts;
@@ -1141,12 +1141,12 @@ export class LocalCore implements BeaconCore {
     for (const pref of await this.#config.setSecret(id, value)) await this.setPreference(pref, this.registry.preferences.get(pref)!.default);
   }
 
-  /** Where the app-wide files (preferences, favourites, settings, keys) are kept. */
+  /** Where the app-wide files (preferences, panel items' use, settings, keys) are kept. */
   get configDir(): string {
     return this.#config.dir;
   }
 
-  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
+  /** A JSON file of the app's own (panel items' use, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
   readConfig(name: string): unknown {
     return this.#config.read(name);
   }
@@ -1156,20 +1156,12 @@ export class LocalCore implements BeaconCore {
     this.#config.write(name, value);
   }
 
-  async favorites(): Promise<string[]> {
-    return this.#config.favorites();
+  async recentItems(): Promise<string[]> {
+    return this.#config.recentItems();
   }
 
-  async favoriteAdd(item: string, index?: number): Promise<string[]> {
-    return this.#config.favoriteAdd(item, index);
-  }
-
-  async favoriteRemove(item: string): Promise<string[]> {
-    return this.#config.favoriteRemove(item);
-  }
-
-  async favoriteMove(item: string, index: number): Promise<string[]> {
-    return this.#config.favoriteMove(item, index);
+  async itemUsed(item: string): Promise<string[]> {
+    return this.#config.itemUsed(item);
   }
 
   async settings(): Promise<AppSettings> {

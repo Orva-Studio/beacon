@@ -16,7 +16,7 @@ function zodIssues(path: string, error: z.ZodError): string[] {
   return error.issues.map((i) => `${[path, ...i.path].filter((p) => p !== "").join(".")}: ${i.message}`);
 }
 
-/** An effect the Visual Effects panel shows (and favourites can name): one for what is seen, not the cursor's or the audio's (those have their own tab and panel items). */
+/** An effect the Visual Effects panel shows (and ⌘K counts uses of): one for what is seen, not the cursor's or the audio's (those have their own tab and panel items). */
 export const isPanelEffect = (traits: string[]) => traits.includes("visual") || traits.includes("video");
 
 export class FeatureRegistry {
@@ -40,8 +40,6 @@ export class FeatureRegistry {
   /** Every feature's panel items (`Feature.panelItems`), in registration order. */
   readonly panelItems: PanelItemDef[] = [];
   readonly annotations = new Map<string, AnnotationDef & { id: string }>();
-  /** A new user's Favorites panel: the items and effects features mark `favorite`, in registration order. */
-  readonly favorites: string[] = [];
   /** Every feature's panels with Cancel and Apply. */
   readonly panels: NonNullable<Feature["panels"]> = [];
 
@@ -100,7 +98,6 @@ export class FeatureRegistry {
     this.panelItems.push(...(feature.panelItems ?? []));
     claim(this.annotations, annotations, "annotation", feature.id);
     this.panels.push(...(feature.panels ?? []));
-    this.favorites.push(...(feature.panelItems ?? []).filter((i) => i.favorite).map((i) => i.id), ...(feature.effects ?? []).filter((e) => e.favorite).map((e) => `effect:${e.id}`));
     this.features.set(feature.id, feature);
     return this;
   }

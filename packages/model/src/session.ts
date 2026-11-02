@@ -113,7 +113,6 @@ const inspected = (s: Session, project: Project) => project.tracks.flatMap((t) =
 
 /** The tool panels, in sidebar order. */
 const TOOL_PANELS = [
-  "favorites",
   "media",
   "annotations",
   "visualEffects",

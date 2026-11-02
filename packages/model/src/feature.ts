@@ -50,8 +50,6 @@ export interface EffectDef {
   /** Its name in the editor's panels. */
   title: string;
   description: string;
-  /** In a new user's Favorites panel (`effect:<id>`), in registration order. */
-  favorite?: boolean;
   traits: string[];
   /** Validates `EffectInstance.params`. */
   params: z.ZodType<Record<string, unknown>>;
@@ -537,7 +535,7 @@ export interface ActionDef<A = any> {
  * timeline or double-clicked, it runs `command` with `args`, as the command palette does.
  */
 export interface PanelItemDef {
-  /** What favourites call it: `annotation:text`, `audio:fade-in`. */
+  /** What its uses are counted as (⌘K's order): `annotation:text`, `audio:fade-in`. */
   id: string;
   label: string;
   /** Its tooltip. */
@@ -548,8 +546,6 @@ export interface PanelItemDef {
   traits?: string[];
   /** Seconds it lasts, dropped on a track. */
   seconds?: number;
-  /** In a new user's Favorites panel, in registration order. */
-  favorite?: boolean;
 }
 
 /** A clip `edit.addAnnotation` adds by its preset's name: an Annotations panel item's. */

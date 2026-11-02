@@ -260,7 +260,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     /** What the UI put on the clipboard (Copy ID). */
     copied,
     faults,
-    /** Picks a choice ("add", "favorite", "unfavorite") from the tile menu shown last, as the app's native menu does. */
+    /** Picks a choice ("add") from the tile menu shown last, as the app's native menu does. */
     chooseTile(choice: string) {
       return tileChoice(core, h, tile!, choice);
     },

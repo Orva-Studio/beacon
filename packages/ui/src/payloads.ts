@@ -8,7 +8,7 @@ import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } fr
  * for it), so the two can't drift. Only core's types are imported: this runs in those processes, not the page.
  */
 
-type Core = Pick<BeaconCore, "schema" | "shortcuts" | "memory" | "favorites" | "preferences" | "settings" | "resources" | "secrets">;
+type Core = Pick<BeaconCore, "schema" | "shortcuts" | "memory" | "recentItems" | "preferences" | "settings" | "resources" | "secrets">;
 
 /** The window's init payload, but for what only the app knows (the open project, recent projects, where new ones go, its socket). */
 export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "recent" | "projectsFolder" | "socket" | "keyLog">> {
@@ -23,14 +23,14 @@ export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "re
     nested: Object.fromEntries(schema.clipTypes.flatMap((c) => (c.nested ? [[c.id, c.nested]] : []))),
     tabs: Object.fromEntries(schema.clipTypes.map((c) => [c.id, c.tabs])),
     retimes: schema.clipTypes.filter((c) => c.retimes).map((c) => c.id),
-    favorites: await core.favorites(),
+    usedItems: await core.recentItems(),
     preferences: await core.preferences(),
   };
 }
 
-/** The app-wide changes the window follows as they are: favourites and preferences. (Settings and keys are applied by the main process first.) */
-export async function appWideMessage(core: Pick<Core, "preferences">, e: CoreEvent): Promise<{ type: "favorites"; data: { items: string[] } } | { type: "preferences"; data: Init["preferences"] } | undefined> {
-  if (e.kind === "favorites") return { type: "favorites", data: { items: e.items } };
+/** The app-wide changes the window follows as they are: panel items' use and preferences. (Settings and keys are applied by the main process first.) */
+export async function appWideMessage(core: Pick<Core, "preferences">, e: CoreEvent): Promise<{ type: "usage"; data: { items: string[] } } | { type: "preferences"; data: Init["preferences"] } | undefined> {
+  if (e.kind === "usage") return { type: "usage", data: { items: e.items } };
   if (e.kind === "preference") return { type: "preferences", data: await core.preferences() };
   return undefined;
 }

@@ -109,11 +109,8 @@ export function RailButton({ active, ...props }: ButtonHTMLAttributes<HTMLButton
   );
 }
 
-/**
- * A tool panel's item: its picture (an `art-<id>` class from art/art.css) over its name. `star`: shown while
- * selected (white, adds it to Favorites) and on favourites (gold, removes it); clicking it calls `onStar`.
- */
-export function ItemTile({ art, children, selected, star, onStar, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { art?: string; selected?: boolean; star?: "off" | "on"; onStar?: () => void }) {
+/** A tool panel's item: its picture (an `art-<id>` class from art/art.css) over its name. */
+export function ItemTile({ art, children, selected, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { art?: string; selected?: boolean }) {
   return (
     <button
       {...props}
@@ -121,24 +118,6 @@ export function ItemTile({ art, children, selected, star, onStar, ...props }: Bu
     >
       {art && <span className={`aspect-[3/2] w-full rounded-md bg-groove bg-cover bg-center art-${art}`} data-art={art} />}
       <span className="px-0.5">{children}</span>
-      {star && (
-        <span
-          role="button"
-          aria-label={star === "on" ? "Remove from Favorites" : "Add to Favorites"}
-          title={star === "on" ? "Remove from Favorites" : "Add to Favorites"}
-          data-star={star}
-          className={`absolute top-2.5 right-2.5 flex size-6 cursor-pointer items-center justify-center rounded-full bg-clip-badge ${star === "on" ? "text-favorite" : "text-white hover:text-favorite"}`}
-          // Its own click: the tile's press would select or start a drag.
-          onPointerDown={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onStar?.();
-          }}
-        >
-          <Icon name="star" size={15} filled={star === "on"} />
-        </span>
-      )}
     </button>
   );
 }

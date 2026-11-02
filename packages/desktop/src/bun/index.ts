@@ -64,7 +64,7 @@ let focused: Win | undefined;
 const safeAreas = new WeakMap<Win, string | undefined>();
 
 const winFor = (h: string) => [...windows].find((w) => w.current?.path === h);
-/** Messages for every window: what concerns the app (keys, favourites, settings, recent projects). */
+/** Messages for every window: what concerns the app (keys, panel items' use, settings, recent projects). */
 const broadcast: Send = (type, data) => {
   for (const w of windows) w.message(type, data);
 };
@@ -96,7 +96,7 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
 
 /**
  * An agent's MCP server, with the project not open here, runs its own core and writes the same app-wide files:
- * follow them, so the menus, keys, favourites and settings here don't stay stale (and aren't saved back over it).
+ * follow them, so the menus, keys, panel items' use and settings here don't stay stale (and aren't saved back over it).
  */
 function followConfig() {
   // This process's own changes reach the windows as core's events: the files they write aren't told again.
@@ -111,7 +111,7 @@ function followConfig() {
   const reload: Record<string, () => void> = {
     "settings.json": () => void core.reloadSettings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
-    "favorites.json": () => void core.favorites().then((items) => broadcast("favorites", { items })),
+    "usage.json": () => void core.recentItems().then((items) => broadcast("usage", { items })),
     // An agent's proposal, or its project's decisions, or memory.md edited by hand: Settings › Memory shows them.
     "memory.json": memoryChanged,
     "memory.md": memoryChanged,

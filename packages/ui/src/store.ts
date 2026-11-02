@@ -54,8 +54,8 @@ export interface ViewState {
   proxies: Record<string, boolean>;
   /** Media whose file was moved or deleted. */
   missing: string[];
-  /** The Favorites panel's items, in order (`Init.favorites`). */
-  favorites: string[];
+  /** Panel items and AI tools by use, most first (`Init.usedItems`): ⌘K's order. */
+  usedItems: string[];
   /** App-wide choices (the transcriber), `Init.preferences`. */
   preferences: import("./transcripts-settings").PreferenceInfo[];
   /** When ⌘S last asked for a save (`app.save`): the title bar says the project is saved already. */
@@ -115,7 +115,7 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -129,7 +129,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, memory: init.memory, preferences: init.preferences });
+    set({ init, usedItems: init.usedItems, shortcuts: init.shortcuts, memory: init.memory, preferences: init.preferences });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -190,8 +190,8 @@ export const replica = {
   nameSection(naming: ViewState["namingSection"]) {
     set({ namingSection: naming });
   },
-  favorites(favorites: string[]) {
-    set({ favorites });
+  usedItems(usedItems: string[]) {
+    set({ usedItems });
   },
   preferences(preferences: ViewState["preferences"]) {
     set({ preferences });

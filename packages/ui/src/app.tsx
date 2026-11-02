@@ -71,10 +71,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   importFile(path: string): Promise<RunReply & { result?: string }>;
   /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
   analyze(key: string, asset: string): void;
-  /** Stars an item for the Favorites panel (at `index`, else at the end), un-stars it, or moves a favourite to `index`. */
-  favoriteAdd(item: string, index?: number): void;
-  favoriteRemove(item: string): void;
-  favoriteMove(item: string, index: number): void;
+  /** Counts a use of a panel item or AI tool (a tile, the palette): ⌘K lists what is used most first. */
+  itemUsed(item: string): void;
 }
 
 /** Points around the canvas preview, where handles on its edges can still be grabbed. */

@@ -22,7 +22,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
   const commands = commandQueue(report);
 
   const shortcuts = applyReply(replica.shortcuts);
-  const favorites = applyReply(replica.favorites);
+  const used = applyReply(replica.usedItems);
   const memory = applyReply(replica.memory);
 
   return {
@@ -52,9 +52,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     binFrame: (asset, time) => request("binFrame", { asset, time }),
     reveal: async (path) => ((r) => (r.ok ? undefined : r.error))(await request("reveal", { path })),
     analyze: (key, asset) => void request("analyze", { key, asset }),
-    favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, ...(index !== undefined ? { index } : {}) })),
-    favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
-    favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
+    itemUsed: (item) => void used(request("itemUsed", { item })),
     shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, ...(replace ? { replace } : {}) })),
     shortcutReset: (action) => void shortcuts(request("shortcutReset", action ? { action } : {})),
     memoryChange: (change) => void memory(request("memoryChange", change)),

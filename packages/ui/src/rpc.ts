@@ -93,8 +93,8 @@ export interface Init {
   socket: string;
   /** App-wide choices (the transcriber), as Settings shows them; `preferences` messages follow changes. */
   preferences: PreferenceInfo[];
-  /** The Favorites panel's items in order (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`. */
-  favorites: string[];
+  /** Panel items and AI tools by use, most first (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in`, `ai:<tool>`. */
+  usedItems: string[];
   /** BEACON_KEYLOG=1: the window reports every key event it sees (`keyLog`), to debug shortcuts in the app. */
   keyLog?: boolean;
 }
@@ -120,14 +120,13 @@ export interface RunReply {
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */
 export type { DroppedFile };
 
-/** A tile's right-click menu: what its Add item runs (the tile's own double-click) and whether it is a favourite. */
+/** A tile's right-click menu: what its Add item runs (the tile's own double-click). */
 export interface TileMenu {
   item: string;
   /** "Add to Selected Media", or "Add at Playhead" for an annotation. */
   add: string;
   command: string;
   args: Record<string, unknown>;
-  favorite: boolean;
 }
 
 export { exportOptions } from "./export-options";
@@ -392,10 +391,8 @@ export type AppRPC = {
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
-      /** Stars an item (at `index`, else at the end), un-stars it, or moves a favourite: replies with the list as it now is. */
-      favoriteAdd: { params: { item: string; index?: number }; response: RunReply & { result?: string[] } };
-      favoriteRemove: { params: { item: string }; response: RunReply & { result?: string[] } };
-      favoriteMove: { params: { item: string; index: number }; response: RunReply & { result?: string[] } };
+      /** Counts a use of a panel item or AI tool: replies with the items by use as they now are. */
+      itemUsed: { params: { item: string }; response: RunReply & { result?: string[] } };
       /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
       shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
       shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
@@ -463,8 +460,8 @@ export type AppRPC = {
       /** A feature's background job (Clean with Auphonic): its stage and progress, then how it ended. */
       taskJob: TaskJob;
       importing: ImportingFiles;
-      /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
-      favorites: { items: string[] };
+      /** A panel item was used (in any window): the items by use, most first. */
+      usage: { items: string[] };
       /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */
       appSettings: AppSettings;
       /** An agent closed the open dialog (`ui_open` with none). */

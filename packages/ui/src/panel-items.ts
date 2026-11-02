@@ -3,8 +3,8 @@ import type { Init } from "./rpc";
 import { replica } from "./store";
 import { isPanelEffect } from "@beacon/model";
 
-/** A panel item with its tooltip, its tile's picture (`art/<art>.webp`) and what favourites call it (`LocalCore.favorites`). */
-export type Item = PanelItem & { title: string; art?: string; favorite: string };
+/** A panel item with its tooltip, its tile's picture (`art/<art>.webp`) and what its uses are counted as (`LocalCore.recentItems`). */
+export type Item = PanelItem & { title: string; art?: string; item: string };
 
 /** The features' items of one panel (`annotation:`, `visual:` or `audio:`), its tile's picture named after what follows. */
 function featureItems(init: Init | undefined, panel: "annotation" | "visual" | "audio"): Item[] {
@@ -14,7 +14,7 @@ function featureItems(init: Init | undefined, panel: "annotation" | "visual" | "
       label: it.label,
       title: it.title,
       art: it.id.slice(panel.length + 1),
-      favorite: it.id,
+      item: it.id,
       command: it.command,
       args: it.args,
       traits: it.traits ?? [],
@@ -31,7 +31,7 @@ export const audioEffects = (init: Init | undefined) => featureItems(init, "audi
 export const visualEffects = (init: Init | undefined): Item[] => [
   ...(init?.effects ?? [])
     .filter((e) => isPanelEffect(e.traits))
-    .map((e) => ({ label: e.title, title: e.description, art: e.id, favorite: `effect:${e.id}`, command: "edit.addEffect", args: { type: e.id }, traits: e.traits })),
+    .map((e) => ({ label: e.title, title: e.description, art: e.id, item: `effect:${e.id}`, command: "edit.addEffect", args: { type: e.id }, traits: e.traits })),
   ...featureItems(init, "visual"),
 ];
 
@@ -42,10 +42,10 @@ export const allItems = (init: Init | undefined): (Item & { group: string })[] =
   ...audioEffects(init).map((it) => ({ ...it, group: "Audio Effect" })),
 ];
 
-/** The items that are favourites, in the favourites' order. */
-export function inFavoriteOrder<T extends { favorite: string }>(items: T[], favorites: string[]): T[] {
-  const byId = new Map(items.map((it) => [it.favorite, it]));
-  return favorites.flatMap((f) => byId.get(f) ?? []);
+/** The items by use (`recent`, most first), then the rest as they were. */
+export function inUseOrder<T extends { item: string }>(items: T[], recent: string[]): T[] {
+  const rank = new Map(recent.map((id, i) => [id, i]));
+  return [...items].sort((a, b) => (rank.get(a.item) ?? recent.length) - (rank.get(b.item) ?? recent.length));
 }
 
 interface AiHost {

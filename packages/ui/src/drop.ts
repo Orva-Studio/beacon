@@ -42,9 +42,9 @@ export const takes = (item: PanelItem, traits: string[] | undefined) => item.tra
 
 /**
  * Starts dragging a panel item from a pointer press: a drop on a clip runs it on that clip. `click`: a press
- * without movement; `missed`: a drop that hits no media, at that point (the Favorites panel reorders by it).
+ * without movement.
  */
-export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: string, args: object) => void, on: { click?: () => void; missed?: (x: number, y: number) => void } = {}) {
+export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: string, args: object) => void, on: { click?: () => void } = {}) {
   if (e.button !== 0) return;
   const [x0, y0] = [e.clientX, e.clientY];
   let moved = false;
@@ -60,8 +60,8 @@ export function pressItem(e: ReactPointerEvent, item: PanelItem, run: (command: 
     replica.drag(undefined);
     if (!moved) return on.click?.();
     const hit = dropAt(ev.clientX, ev.clientY, item);
-    if (!hit) on.missed?.(ev.clientX, ev.clientY);
-    else if (item.media) run(item.command, { ...item.args, time: hit.time, ...(hit.track ? { track: hit.track } : {}) });
+    if (!hit) return;
+    if (item.media) run(item.command, { ...item.args, time: hit.time, ...(hit.track ? { track: hit.track } : {}) });
     else run(item.command, { ...item.args, clip: hit.clip, ...(item.timed ? { time: hit.time } : {}) });
   };
   const cancel = () => {

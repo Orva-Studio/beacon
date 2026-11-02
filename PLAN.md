@@ -2899,6 +2899,12 @@ edit.
   Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
   and their preference; ⌘K lists recently and often used effects and
   annotations first before anything is typed, and leans on them when typing.
+  **Built (2026-11-02, on phase-13):** the panel, stars, tile menu's star item,
+  Show Favorites and `favorites_*` are gone; each use of a panel item or AI
+  tool (double-click, drop, tile menu, ⌘K) is counted in `usage.json` (its
+  last 20 uses; a use two weeks old counts half), and ⌘K lists used ones
+  first by that score; typed searches keep that order within each match.
+  `favorites.json` is left unread.
 - **Learned shortcuts** (the user, 2026-10-28; candidate, an extension of
   Memory, after Favorites go, as it shares their usage counts). When the user
   runs the same action often from ⌘K or with the mouse, Beacon offers it a

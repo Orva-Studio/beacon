@@ -1628,12 +1628,10 @@ test.skipIf(skip)("a track and a medium are renamed in place: Return keeps the n
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favorites; a double-click applies it to the selection; Favorites reorder by dropping one tile on another", async () => {
+test.skipIf(skip)("a click selects a panel's tile; a double-click applies it to the selection and counts a use (⌘K's order); there is no Favorites panel or star (Favorites went: ⌘K lists what is used)", async () => {
   const tile = (item: string) => `[data-item="${item}"]`;
-  const star = (item: string) => page.evaluate<string | null>(`document.querySelector('${tile(item)} [data-star]')?.dataset.star ?? null`);
   const outlined = (item: string) => page.evaluate<boolean>(`document.querySelector('${tile(item)}').className.includes('ring-tile-selected')`);
-  // A new user's favourites, in the features' order; the panels list what the features declare.
-  expect(await ui.core.favorites()).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "effect:round-corners", "effect:crt-monitor", "effect:drop-shadow", "effect:motion-blur"]);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[aria-label=\"Favorites\"]')")).toBe(false);
   await run("panel.show", { tool: "visualEffects" });
   await page.until(`!!document.querySelector('${tile("effect:round-corners")}')`);
   expect(await page.evaluate<string>(`document.querySelector('${tile("effect:round-corners")}').innerText`)).toContain("Corner Rounding");
@@ -1643,50 +1641,25 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
   expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
-  // A favourite shows its gold star; another tile shows none until selected.
-  expect(await star("annotation:text")).toBe("on");
-  expect(await star("annotation:blur")).toBe(null);
+  // A click selects it, adding nothing; no star.
   const before = clips().length;
   await page.click(...(await centre(tile("annotation:blur"))));
-  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="off"]')`);
+  await page.until(`document.querySelector('${tile("annotation:blur")}').className.includes('ring-tile-selected')`);
   expect(await outlined("annotation:blur")).toBe(true);
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-star]').length")).toBe(0);
   expect(clips().length).toBe(before);
-  await page.click(...(await centre(`${tile("annotation:blur")} [data-star]`)));
-  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="on"]')`);
-  expect((await ui.core.favorites()).at(-1)).toBe("annotation:blur");
-  await page.screenshot(join(dir, "favorite-starred.png"));
-  await page.click(...(await centre(`${tile("annotation:blur")} [data-star]`)));
-  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="off"]')`);
-  expect(await ui.core.favorites()).not.toContain("annotation:blur");
 
-  // A double-click applies it to the selected clip, one undo step.
+  // A double-click applies it to the selected clip, one undo step, and counts a use: first in ⌘K's order.
   await select([screen.id]);
   await run("panel.show", { tool: "visualEffects" });
   await page.until(`!!document.querySelector('${tile("effect:drop-shadow")}')`);
   await page.dblclick(...(await centre(tile("effect:drop-shadow"))));
   await arrived(() => clip(screen.id).effects.some((e) => e.type === "drop-shadow"));
   expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(1);
+  for (let i = 0; i < 50 && !(await ui.core.recentItems()).includes("effect:drop-shadow"); i++) await Bun.sleep(20);
+  expect(await ui.core.recentItems()).toContain("effect:drop-shadow");
   await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "drop-shadow")).toBe(false);
-
-  // The Favorites panel in the list's order; a change from elsewhere (an agent) shows.
-  await run("panel.show", { tool: "favorites" });
-  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-favorites] [data-item]')].map((e) => e.dataset.item)");
-  await page.until("document.querySelectorAll('[data-favorites] [data-item]').length > 2");
-  expect(await shown()).toEqual(await ui.core.favorites());
-  await ui.core.favoriteAdd("audio:fade-in", 0);
-  await page.until(`document.querySelector('[data-favorites] [data-item]').dataset.item === "audio:fade-in"`);
-  // Dropped on the third tile, the first takes its place.
-  const [first, , third] = await shown();
-  await page.drag(await centre(tile(first!)), await centre(tile(third!)));
-  await page.until(`document.querySelectorAll('[data-favorites] [data-item]')[2].dataset.item === ${JSON.stringify(first)}`);
-  expect((await ui.core.favorites())[2]).toBe(first!);
-  expect(clips().length).toBe(before);
-  await page.screenshot(join(dir, "favorites-panel.png"));
-  // Un-starred in the panel, it leaves it.
-  await page.click(...(await centre(`${tile("audio:fade-in")} [data-star]`)));
-  await page.until(`!document.querySelector('[data-favorites] ${tile("audio:fade-in")}')`);
-  expect(await ui.core.favorites()).not.toContain("audio:fade-in");
   await select([]);
 });
 
@@ -2021,19 +1994,20 @@ test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Ret
   await added("n", "KeyN", (c) => c.type === "callout");
 });
 
-test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
+test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; what is used most and lately first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
   const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
   const clear = () => page.evaluate("(() => { const i = document.querySelector('[data-palette-search]'); i.select(); document.execCommand('delete'); })()");
   await page.key("k", "KeyK", ["meta"]);
   await open();
-  // Favourites first, in their order; then every annotation, effect and AI tool, and nothing else.
-  const favorites = await ui.core.favorites();
+  // What has been used first, most and lately first; then every annotation, effect and AI tool, and nothing else.
+  const used = await ui.core.recentItems();
   const all = await shown();
-  expect(all.slice(0, favorites.length)).toEqual(favorites);
+  expect(all.slice(0, used.length)).toEqual(used);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-7)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:music", "ai:captions"]);
+  const tools = ["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:music", "ai:captions"];
+  expect(all.slice(-tools.filter((t) => !used.includes(t)).length)).toEqual(tools.filter((t) => !used.includes(t)));
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -2059,8 +2033,10 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await arrived(() => clip(screen.id).effects.some((e) => e.type === "drop-shadow"));
   expect(clip(screen.id).effects.some((e) => e.type === "drop-shadow")).toBe(true);
   await ui.core.undo(ui.handle);
+  // Used just now, it leads the list before anything is typed.
   await page.key("k", "KeyK", ["meta"]);
   await open();
+  await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'effect:drop-shadow'");
   await type("um");
   await page.until("[...document.querySelectorAll('[data-entry]')].some((e) => e.dataset.entry === 'ai:fillers')");
   await clear();
@@ -5796,32 +5772,26 @@ test.skipIf(skip)("⌥⇧A animates a clip from its start to its end, wherever t
   await select([]);
 }, 30_000);
 
-test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the selection, or an annotation at the playhead) and to star or unstar it", async () => {
+test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the selection, or an annotation at the playhead), counted as a use", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
-  const starred = await ui.core.favorites();
   await select([screen.id]);
   await run("panel.show", { tool: "visualEffects" });
-  const shadow = `[data-item="effect:drop-shadow"]`;
+  const shadow = `[data-item="effect:crt-monitor"]`;
   await page.until(`!!document.querySelector('${shadow}')`);
-  const before = clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length;
+  const before = clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length;
   await page.rightClick(...(await centre(shadow)));
   await arrived(() => ui.menus.some((m) => m.startsWith("tile:")));
-  expect(ui.menus.at(-1)).toBe(`tile:Add to Selected Media|${starred.includes("effect:drop-shadow") ? "Remove from Favorites" : "Add to Favorites"}`);
+  expect(ui.menus.at(-1)).toBe("tile:Add to Selected Media");
   await ui.chooseTile("add");
-  expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(before + 1);
-  await ui.chooseTile(starred.includes("effect:drop-shadow") ? "unfavorite" : "favorite");
-  expect((await ui.core.favorites()).includes("effect:drop-shadow")).toBe(!starred.includes("effect:drop-shadow"));
+  expect(clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length).toBe(before + 1);
+  expect(await ui.core.recentItems()).toContain("effect:crt-monitor");
 
   await run("panel.show", { tool: "annotations" });
   const text = `[data-item="annotation:text"]`;
   await page.until(`!!document.querySelector('${text}')`);
   await page.rightClick(...(await centre(text)));
-  await arrived(() => ui.menus.at(-1)!.startsWith("tile:Add at Playhead"));
-  expect(ui.menus.at(-1)!.startsWith("tile:Add at Playhead|")).toBe(true);
-
-  if (starred.includes("effect:drop-shadow")) await ui.core.favoriteAdd("effect:drop-shadow", starred.indexOf("effect:drop-shadow"));
-  else await ui.core.favoriteRemove("effect:drop-shadow");
-  expect(await ui.core.favorites()).toEqual(starred);
+  await arrived(() => ui.menus.at(-1) === "tile:Add at Playhead");
+  expect(ui.menus.at(-1)).toBe("tile:Add at Playhead");
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await run("panel.show", { tool: null });
   await select([]);
