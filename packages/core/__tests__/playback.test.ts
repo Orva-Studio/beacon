@@ -144,14 +144,21 @@ test.skipIf(!existsSync(AUDIO))("playback's sound starts from a short mix of the
       expect(d).toBeLessThan(0.003);
     }
   }
+  // Nothing heard in the first seconds: those are silence as long as they are, so the rest isn't heard early.
+  await core.run(h, "clip.move", { clip: core.doc(h).tracks[0]!.clips[0]!.id, start: 12, ripple: true });
+  const late = audioPlaybackChain(core.doc(h), core.registry, 0, 30);
+  expect(inputs(late[0]!)).toBe(0);
+  const [hush, rest] = await Promise.all(late.map(mixed));
+  expect(hush!.length / 2).toBe(480_000);
+  expect(hush!.every((v) => v === 0)).toBe(true);
+  expect(rest!.length / 2).toBe(960_000);
   await core.close(h);
 
   // The device plays a chain one mix after the other (silence here: nothing heard).
-  const { ffmpegArgs } = await import("@beacon/media");
-  const quiet = (t: number) => [...ffmpegArgs(), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", String(t)];
+  const quiet = late[0]!.slice(0, -1).concat("0.3");
   const out = new AudioOutput();
   try {
-    out.play([quiet(0.3), quiet(0.3)], 0);
+    out.play([quiet, quiet], 0);
     await Bun.sleep(500);
     expect(out.time()!).toBeGreaterThan(0.1);
     expect(out.heard()!.stalled).toBe(0);

@@ -340,7 +340,8 @@ export function audioPlaybackChain(project: Project, registry: FeatureRegistry, 
   if (length <= head * 1.5) return [audioPlaybackArgs(project, registry, start, length, source, rate)];
   // Each mix is exactly as long as it says (-t), so the second takes over at the first's last sample; a silent part is silence, not nothing.
   const part = (from: number, len: number) => audioPlaybackArgs(project, registry, from, len, source, rate) as string[];
-  const silence = (len: number) => [...ffmpegArgs(), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", (len / rate).toFixed(6)];
+  // A filter source: Beacon's FFmpeg has no lavfi input.
+  const silence = (len: number) => [...ffmpegArgs(), "-filter_complex", "anullsrc=r=48000:cl=stereo[aout]", "-map", "[aout]", "-t", (len / rate).toFixed(6)];
   const parts = [part(start, head), part(start + head, length - head)];
   if (!parts[0]!.length && !parts[1]!.length) return [];
   // After the sound ends the clock runs on by itself.
