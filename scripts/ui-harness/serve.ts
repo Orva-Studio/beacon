@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { importDropped, LocalCore, nestedOf } from "@beacon/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportOptions, exportSheetFor, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
+import { appBridge, coreRequests, tileChoice, tileMenuItems, type TileMenu, DEFAULT_EXPORT, exportFileChoices, exportOptions, exportSheetFor, initPayload, projectBridge, settingsSheet, type ProjectBridge, type RecentProject, type Send } from "@beacon/ui";
 
 /** A 16×9 grey JPEG, the camera preview's stand-in. */
 const PREVIEW_JPEG = "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAQQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAJABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCZgBO//9k=";
@@ -63,7 +63,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   };
   /** ⌘E and Export Selection…, as the app's exports module opens them. */
   const exportSheet = async (selection: boolean) => {
-    const sheet = exportSheetFor({ name: "project", project: core.doc(h), session: await core.session(h), traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [], nested: nestedOf(core.registry), folder: tmpdir(), settings: DEFAULT_EXPORT, selection });
+    const sheet = exportSheetFor({ name: "project", project: core.doc(h), session: await core.session(h), traits: (type) => core.registry.clipTypes.get(type)?.traits ?? [], nested: nestedOf(core.registry), files: exportFileChoices(core.registry), folder: tmpdir(), settings: DEFAULT_EXPORT, selection });
     if (sheet) sendAll("exportSheet", sheet);
   };
   // The window agents open dialogs in (`ui_open`), as the app's does: what its menus would send.

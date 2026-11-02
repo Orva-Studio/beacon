@@ -920,11 +920,11 @@ export class LocalCore implements BeaconCore {
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
-    // Beside a video, files features write from the same range (captions as .srt), named after it.
+    // Beside a video, files features write from the same range (captions as .srt) when asked for, named after it.
     const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)) };
     const sides = opts.output.endsWith("/")
       ? []
-      : [...this.registry.exportFiles.values()].flatMap((f) => {
+      : [...this.registry.exportFiles.values()].filter((f) => opts.files?.includes(f.id)).flatMap((f) => {
           const text = f.write(range, { project, registry: this.registry, data: data.get, pref: data.pref });
           return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
         });

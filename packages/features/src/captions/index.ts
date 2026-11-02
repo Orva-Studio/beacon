@@ -306,7 +306,7 @@ export function srt(project: Project, from = 0, to = Infinity): string {
 
 const StyleArgs = styleSchema.partial();
 
-/** Captions: phrases from the transcript as caption clips on their own track, burned into the export with an `.srt` beside it. */
+/** Captions: phrases from the transcript as caption clips on their own track, burned into the export, with an `.srt` beside it when the Export sheet asks. */
 export const captions = defineFeature({
   id: "captions",
   version: 3,
@@ -331,7 +331,7 @@ export const captions = defineFeature({
     defineCommand({
       id: "captions.create",
       description:
-        "Captions from the transcript: each phrase (up to `maxWords` words, a new one at sentence ends and pauses) becomes a caption clip on a Captions track at the top, replacing captions made before; burned into exports, with an .srt beside them. With `from`/`to` (timeline seconds), only the words starting in that span, replacing only the captions over it and keeping the rest. Returns the caption clip ids. Use 2-4 words for short phrase captions, or about 12 for a line at a time",
+        "Captions from the transcript: each phrase (up to `maxWords` words, a new one at sentence ends and pauses) becomes a caption clip on a Captions track at the top, replacing captions made before; burned into exports, with an .srt beside them when asked for (export_start `files`). With `from`/`to` (timeline seconds), only the words starting in that span, replacing only the captions over it and keeping the rest. Returns the caption clip ids. Use 2-4 words for short phrase captions, or about 12 for a line at a time",
       args: z
         .strictObject({
           maxWords: z.int().min(1).max(20).default(3),
@@ -505,6 +505,7 @@ export const captions = defineFeature({
     {
       id: "captions",
       extension: ".srt",
+      title: "Captions file",
       description: "The captions as SubRip subtitles",
       write: ({ from, to }, { project }) => (project.tracks.some((t) => !t.hidden && t.clips.some(isCaption)) ? srt(project, from, to) : undefined),
     },

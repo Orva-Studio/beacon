@@ -58,6 +58,8 @@ export interface ExportOptions extends VideoEncoding {
   to?: number;
   /** Only these timeline clips (an export of the selection): the others are left out of the picture and the sound. */
   clips?: string[];
+  /** Files features write beside a video from the same range, by id (`captions`: the captions as .srt); none unless named. */
+  files?: string[];
 }
 
 export interface ImportOptions {

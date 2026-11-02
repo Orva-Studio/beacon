@@ -9,7 +9,7 @@ import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
 import { regionOfClip } from "@beacon/features";
-import { BAND, clipBox, cornerButtons, DEFAULT_EXPORT, headerIcons, headerWidth, recordingTitle, RULER, TRACKS_TOP } from "@beacon/ui";
+import { BAND, clipBox, cornerButtons, DEFAULT_EXPORT, exportFileChoices, exportOptions, headerIcons, headerWidth, recordingTitle, RULER, TRACKS_TOP } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -983,7 +983,7 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   const cameraTrack = tracks.find((t) => t.clips.some((c) => c.type === "video"))!;
   await run("track.set", { track: audioTrack.id, muted: true });
   await run("track.set", { track: cameraTrack.id, muted: true });
-  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } };
+  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: [] };
   ui.send("exportSheet", sheet);
   await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
   await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
@@ -1062,7 +1062,7 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
 }, 90_000);
 
 test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
-  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 } });
+  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: [] });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
   const rate = `document.querySelector('input[data-rate]')`;
@@ -1074,8 +1074,24 @@ test.skipIf(skip)("Export's data rate is Automatic by default, by the output's s
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("Export offers the captions' .srt as a tick box, off unless ticked, and not for audio only", async () => {
+  ui.send("exportSheet", { name: "Subs", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: exportFileChoices(ui.core.registry) });
+  const box = `document.querySelector('[data-export-file="captions"]')`;
+  await page.until(`!!${box}`);
+  expect(await page.evaluate<string>(`${box}.textContent`)).toBe("Captions file (.srt)");
+  expect(await page.evaluate<string>(`${box}.getAttribute('aria-checked')`)).toBe("false");
+  await page.evaluate(`${box}.click()`);
+  await page.until(`${box}.getAttribute('aria-checked') === 'true'`);
+  // Audio only has no video for it to go beside.
+  await page.evaluate(`[...document.querySelectorAll('[role=checkbox]')].find((b) => b.textContent === 'Audio only').click()`);
+  await page.until(`!${box}`);
+  expect(exportOptions({ ...DEFAULT_EXPORT, files: ["captions"] })).toMatchObject({ files: ["captions"] });
+  expect(exportOptions(DEFAULT_EXPORT)).not.toHaveProperty("files");
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("Audio only lists just .wav, .m4a and .mp3, comes back to each side's last pick, and writes the mix with the video options hidden", async () => {
-  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 } });
+  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 }, files: [] });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
   const menu = `[...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp4' || o.value === 'mp3'))`;
   const listed = () => page.evaluate<string>(`(() => { const s = ${menu}; return s.value + ':' + [...s.options].map((o) => o.value).join(','); })()`);

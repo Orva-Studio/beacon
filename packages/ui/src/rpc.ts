@@ -129,7 +129,7 @@ export interface TileMenu {
 }
 
 export { exportOptions } from "./export-options";
-export { appWideMessage, exportCanvas, exportSheetFor, initPayload, settingsSheet } from "./payloads";
+export { appWideMessage, exportCanvas, exportFileChoices, exportSheetFor, initPayload, settingsSheet } from "./payloads";
 export { appBridge, coreRequests, projectBridge, tileChoice, tileMenuItems, type AppBridgeHooks, type BridgeHooks, type ProjectBridge, type Send } from "./bridge";
 export { DEFAULT_EXPORT } from "./export-defaults";
 export { panelHeight, recordingTitle } from "./record-panel-size";
@@ -182,6 +182,8 @@ export interface ExportSettings {
   audio: boolean;
   /** kbit/s; null: automatic. */
   audioBitrate: number | null;
+  /** Files written beside a video (`ExportFileDef` ids: "captions"); remembered with the rest. */
+  files: string[];
 }
 
 /** What File > Export opens the dialog with. */
@@ -194,6 +196,8 @@ export interface ExportSheet {
   /** Export Selection with clips selected (it wins over the range): only those, over their span. */
   clips?: { ids: string[]; in: number; out: number; silent?: boolean; usual?: Pick<ExportSettings, "format" | "audio"> };
   canvas: { width: number; height: number; fps: number };
+  /** Files features can write beside a video, a tick box each. */
+  files: { id: string; title: string }[];
 }
 
 /** What a take records; a missing source isn't recorded, a device without an id is the default one. */

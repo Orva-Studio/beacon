@@ -143,6 +143,12 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
         <Row label="">
           <Check label="Audio only" checked={audioOnly} disabled={silent} title={silent ? "The selected clips have no sound" : undefined} onChange={() => (setOther(s.format), pick(other))} />
         </Row>
+        {!audioOnly &&
+          sheet.files.map((f) => (
+            <Row key={f.id} label="">
+              <Check label={f.title} checked={s.files.includes(f.id)} onChange={(on) => set({ files: on ? [...s.files, f.id] : s.files.filter((x) => x !== f.id) })} data-export-file={f.id} />
+            </Row>
+          ))}
       </div>
       {advanced && (
         <div className="mt-4 flex flex-col gap-3 rounded-md bg-well/60 p-4">

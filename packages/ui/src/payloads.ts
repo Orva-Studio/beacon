@@ -1,5 +1,5 @@
 import type { BeaconCore, CoreEvent } from "@beacon/core";
-import { isAudioFormat, onlyClips, type Clip, type Project, type Session, type Track } from "@beacon/model";
+import { isAudioFormat, onlyClips, type Clip, type FeatureRegistry, type Project, type Session, type Track } from "@beacon/model";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } from "./rpc";
 
@@ -38,6 +38,9 @@ export async function appWideMessage(core: Pick<Core, "preferences">, e: CoreEve
 /** The Export dialog's canvas line: size and frame rate (to two decimals). */
 export const exportCanvas = ({ width, height, fps }: Project["settings"]) => ({ width, height, fps: Math.round((fps.num / fps.den) * 100) / 100 });
 
+/** The Export sheet's tick boxes for the files features write beside a video: "Captions file (.srt)". */
+export const exportFileChoices = (registry: FeatureRegistry): ExportSheet["files"] => [...registry.exportFiles.values()].map((f) => ({ id: f.id, title: `${f.title} (${f.extension})` }));
+
 /**
  * The Export sheet for ⌘E, or Export Selection… (`selection`, undefined with nothing to export): the selected clips
  * (only those, over their span), else the in/out range, else the whole project. Only audio clips start on the last
@@ -54,6 +57,8 @@ export function exportSheetFor(o: {
   selection?: boolean;
   /** A group's or stitched clip's own tracks, to find clips selected inside an open group. */
   nested: (c: Clip) => Track[] | undefined;
+  /** Files features can write beside a video (`registry.exportFiles`). */
+  files: ExportSheet["files"];
 }): ExportSheet | undefined {
   const only = onlyClips(o.project, o.session.selection, o.nested);
   const chosen = only.found;
@@ -74,7 +79,7 @@ export function exportSheetFor(o: {
     if (settings.format !== usual.format || settings.audio !== usual.audio) clips.usual = usual;
   }
   const selected = !!clips || (!!o.selection && !!range);
-  return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings) };
+  return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings), files: o.files };
 }
 
 /** Settings as it opens: the app settings, the tab, and what General's transcript and download choices need. */
