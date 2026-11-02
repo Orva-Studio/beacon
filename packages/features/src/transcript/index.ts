@@ -69,6 +69,13 @@ function* audioClips(project: Project, registry: FeatureRegistry, data: Data) {
   }
 }
 
+/** Where speech is heard on the timeline (timeline seconds, merged), from every audio clip's transcript. */
+export function speechSpans(project: Project, registry: FeatureRegistry, data: Data): [number, number][] {
+  const speech: [number, number][] = [];
+  for (const { t, from, to, map } of audioClips(project, registry, data)) for (const [a, b] of t.speech) if (b > from && a < to) speech.push([map(a), map(b)]);
+  return mergeSpans(speech.sort((x, y) => x[0] - y[0]));
+}
+
 /**
  * The words audible on the timeline: every audio clip on an unmuted track,
  * through its window into its source, in timeline seconds.
@@ -869,7 +876,8 @@ export const transcript = defineFeature({
       needs: (pref) => (transcriber(pref) === "whisper" ? "whisper-model" : undefined),
       // Local Whisper's results keep the cache entries made before there was a choice.
       variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
-      applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
+      // Music and sound effects from a library say nothing to transcribe (a song's lyrics would become captions).
+      applies: (asset) => !!asset.derived.media && !asset.derived.library && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
       async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};

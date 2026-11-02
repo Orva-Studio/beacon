@@ -72,3 +72,35 @@ test.skipIf(!existsSync(TAKE))("a ripple delete of a range cuts a disabled track
   await expect(core.run(h, "timeline.rippleDelete", { ranges: [range] })).rejects.toThrow("is locked");
   await core.close(h);
 }, 60_000);
+
+// Shift-dragging an end to the right kept the gap after it, pushing the next clips along (the user, 2026-11-02).
+test.skipIf(!existsSync(TAKE))("a ripple trim lengthening an end fills the gap after it first, then pushes what is after, linked clips in step", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const h = await core.create({ path: join(dir, "fill.beproj") });
+  const r = await core.import(h, [TAKE]);
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  // A gap from 0.6 s to 1 s on every track (the take is 1.93 s).
+  await core.run(h, "timeline.deleteRanges", { ranges: [{ start: 0.6, end: 1 }] });
+  const before = structuredClone(core.doc(h));
+  const pieces = (type: string) => core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === type).sort((a, b) => a.start - b.start);
+  const spans = (t: { clips: { start: number; duration: number }[] }) => [...t.clips].sort((a, b) => a.start - b.start).map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)]);
+  /** The camera's track and both of its sound's (microphone and system audio), each read on its own. */
+  const linkedTracks = () => core.doc(h).tracks.filter((t) => t.clips.some((c) => c.linkId)).map(spans);
+  const video = pieces("video")[0]!;
+  expect(video.linkId).toBeDefined();
+  // Halfway into the gap: nothing after it moves.
+  const next = ticksToSeconds(pieces("video")[1]!.duration);
+  await core.run(h, "clip.trim", { clip: video.id, end: 0.8, ripple: true });
+  expect(linkedTracks().length).toBe(3);
+  for (const t of linkedTracks()) expect(t).toEqual([[0, 0.8], [1, 1 + next]]);
+  // Past it: the gap is filled, and what is after moves on by the rest, in step.
+  await core.run(h, "clip.trim", { clip: video.id, end: 1.2, ripple: true });
+  for (const t of linkedTracks()) expect(t).toEqual([[0, 1.2], [1.2, 1.2 + next]]);
+  expect(lined(core.doc(h))).toBe(true);
+  // Shortening still pulls what is after back with it.
+  await core.run(h, "clip.trim", { clip: video.id, end: 1.1, ripple: true });
+  for (const t of linkedTracks()) expect(t[1]![0]).toBe(1.1);
+  for (let i = 0; i < 3; i++) await core.undo(h);
+  expect(core.doc(h)).toEqual(before);
+  await core.close(h);
+});

@@ -417,6 +417,17 @@ test.skipIf(skip)("Clip Speed (a Visual Effects tile, double-clicked) shows the 
   expect(others.length).toBeGreaterThan(0);
   for (const o of others) expect(o.speed).toBeUndefined();
   await run("clip.speed", { clips: [screen.id], speed: null });
+  // From the command palette too (the user found it showing nothing): its speed tab stays shown.
+  await run("inspector.tab", { tab: "transform" });
+  await page.until("!document.querySelector('[title=\"Clip Speed\"]')");
+  await page.key("k", "KeyK", ["meta"]);
+  await page.until("!!document.querySelector('[data-palette]')");
+  await type("Clip Speed");
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-palette]')");
+  await Bun.sleep(300);
+  expect((await session()).inspector).toBe("speed");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[title=\"Clip Speed\"]') && document.body.innerText.includes('Minutes')")).toBe(true);
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-asset]').length >= 2");
 });
@@ -766,19 +777,19 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 6");
-    expect(await greyed()).toEqual([false, false, false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 7");
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript.
-    expect(await greyed()).toEqual([true, true, true, false, false, true]);
+    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript. Music is from Epidemic Sound, online.
+    expect(await greyed()).toEqual([true, true, true, false, false, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
     // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
-    expect(await greyed()).toEqual([false, false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, true, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -796,7 +807,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -1831,6 +1842,31 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   await select([]);
 }, 30_000);
 
+test.skipIf(skip)(": u unlinks the selected recording (the user found it doing nothing), as ⌘L does; undone it is linked again", async () => {
+  const audio = clips().find((c) => c.type === "audio" && c.linkId)!;
+  const linked = clips().filter((c) => c.linkId === audio.linkId).map((c) => c.id);
+  await select([audio.id]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)")).toContain("UUnlink Recording");
+  await page.key("u", "KeyU");
+  await page.until("!document.querySelector('[data-leader]')");
+  await arrived(() => !clip(audio.id).linkId);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unlink Recording");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clip(audio.id).linkId).toBe(audio.linkId);
+  // On the screen, never linked, it says why rather than doing nothing (the user tried it there).
+  const screenClip = clips().find((c) => c.type === "screen")!;
+  await select([screenClip.id]);
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("u", "KeyU");
+  await page.until("document.body.innerText.includes('its screen never is')");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+  await select([]);
+});
+
 test.skipIf(skip)("Settings › Shortcuts changes the leader key: the Leader Key row takes one key, has no None, and the sequences start with it at once (\\ p opens the palette; : starts nothing)", async () => {
   const row = '[data-shortcut="app.leader"]';
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
@@ -1997,7 +2033,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, favorites.length)).toEqual(favorites);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-6)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:captions"]);
+  expect(all.slice(-7)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:music", "ai:captions"]);
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -3581,6 +3617,14 @@ test.skipIf(skip)("Settings is one size with its sections down a sidebar; Projec
     await page.until(`document.querySelector('[data-settings-section]')?.dataset.settingsSection === '${section}'`);
     expect(await size()).toBe(first);
   }
+  // AI's key rows fit, their Save buttons inside the window (the user found them cut off at its edge).
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-settings-nav]')");
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "ai" });
+  await page.until("document.querySelectorAll('[data-api-key=unset] button').length >= 6");
+  const overflow = await page.evaluate<number>("(() => { const edge = document.querySelector('[data-settings-section]').getBoundingClientRect().right; return Math.max(...[...document.querySelectorAll('[data-api-key=unset] button')].map((b) => b.getBoundingClientRect().right - edge)); })()");
+  expect(overflow).toBeLessThanOrEqual(0);
+  expect(await size()).toBe(first);
   // The long section scrolls inside it.
   await page.evaluate("document.querySelector('[data-section=\"shortcuts\"]').click()");
   await page.until("!!document.querySelector('[data-shortcut]')");
@@ -5182,6 +5226,88 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await select([]);
   }
 }, 120_000);
+
+test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a key it says where to add one; with one, Epidemic Sound's tracks to listen to and pick, and Apply puts the pick on a Music track over the range, re-cut to fit, as a job", async () => {
+  // Epidemic Sound's MCP server standing in (downloads count against a subscription): one track, its edit cut to length.
+  const track = join(dir, "music-track.mp3");
+  const pcm = Float32Array.from({ length: 20 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 440 * i) / 48000));
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", "-ac", "2", track], { stdin: new Uint8Array(pcm.buffer) });
+  let target = 0;
+  const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
+  const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/preview.mp3") return new Response(Bun.file(track));
+      if (url.pathname === "/edit.mp3") {
+        const out = join(dir, "music-edit.mp3");
+        Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", track, "-t", String(target), out]);
+        return new Response(Bun.file(out));
+      }
+      const body = (await req.json()) as { id?: number; method: string; params?: { name: string; arguments: any } };
+      if (body.method === "initialize") return sse(body.id, { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "stand-in", version: "0" } });
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const { name, arguments: args } = body.params!;
+      const audioFile = { durationInMilliseconds: 20_000, lqmp3Url: `${url.origin}/preview.mp3`, waveformUrl: "" };
+      if (name === "SearchRecordings")
+        return answer(body.id, { recordings: { nodes: [{ recording: { id: "rec-1", title: "Bright Days", bpm: 120, coverArtUrl: "", audioFile, credits: [{ role: "MAIN_ARTIST", artist: { name: "The Band" } }], stems: [], tags: [{ displayName: "happy", dimension: { name: "mood" } }] } }], meta: { total: 1 }, pageInfo: { hasNextPage: false } } });
+      if (name === "EditRecording") {
+        target = args.input.targetDurationMs / 1000;
+        return answer(body.id, { recordingEdit: { id: "job", status: "PENDING" } });
+      }
+      if (name === "PollEditRecordingJob") return answer(body.id, { recordingEditJob: { id: "job", status: "COMPLETED", edits: [{ id: "edit" }] } });
+      if (name === "DownloadRecordingEdit") return answer(body.id, { recordingEditDownload: { assetUrl: `${url.origin}/edit.mp3` } });
+      return sse(body.id, { isError: true, content: [{ type: "text", text: `no ${name}` }] });
+    },
+  });
+  process.env.BEACON_EPIDEMIC_URL = `${fake.url.origin}/mcp`;
+  process.env.BEACON_EPIDEMIC_POLL_MS = "10";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    await run("range.set", { in: 1, out: 7 });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=music]')");
+    await page.evaluate("document.querySelector('[data-ai=music]').click()");
+    await page.until("!!document.querySelector('[data-music-review]')");
+    await page.until("(document.querySelector('[data-music-error]')?.textContent ?? '').includes('Settings › AI')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-music-apply]').disabled")).toBe(true);
+    // With the key, a search lists the track: its artist, length, BPM and mood, a preview to listen to.
+    await ui.core.setSecret("epidemic-sound-api-key", "es-key");
+    await page.click(...(await centre("[data-music-term]")));
+    await type("happy");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-music-item=rec-1]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-item=rec-1]').textContent")).toContain("The Band · 0:20 · 120 BPM · happy");
+    await page.evaluate("document.querySelector('[data-music-item=rec-1] [data-music-listen]').click()");
+    await page.until(`document.querySelector('[data-music-review] audio')?.src === '${fake.url.origin}/preview.mp3'`);
+    await page.evaluate("document.querySelector('[data-music-item=rec-1]').click()");
+    await page.until("document.querySelector('[data-music-item=rec-1]')?.getAttribute('aria-selected') === 'true'");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-where]').textContent")).toContain("Over the range, 0:01–0:07 (0:06): re-cut by Epidemic Sound to fit");
+    await page.screenshot(join(dir, "music-panel.png"));
+    // Apply (↩): the panel closes, the job fits and downloads it, then it is on a Music track at the bottom.
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-music-review]')");
+    // An earlier flow's finished toast can still be up: the track itself says it's done.
+    await arrived(() => ui.core.doc(ui.handle).tracks[0]!.name === "Music", 20_000);
+    const doc = ui.core.doc(ui.handle);
+    const placed = doc.tracks[0]!.clips[0]!;
+    expect([ticksToSeconds(placed.start), ticksToSeconds(placed.duration)]).toEqual([1, 6]);
+    expect(doc.assets[placed.assetId!]!.name).toBe("Bright Days");
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Music");
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_EPIDEMIC_URL;
+    delete process.env.BEACON_EPIDEMIC_POLL_MS;
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("range.clear");
+    await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
 
 test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.

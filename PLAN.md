@@ -3078,18 +3078,26 @@ through MCP as the user does.
   There is also a soundtracking API (beta: upload a video, get it scored) and
   an official MCP server (beta).
 
-Open questions:
-1. **Access:** apply for a partnership (Orva as the partner, Connect so each
-   user signs in with their own subscription; recommended), or prototype on
-   the free tier first, or use Epidemic's MCP server directly from the agent
-   (no Beacon code, but no Beacon UI either).
-2. **Reporting exports:** the API wants each publish reported; Beacon only
-   knows about exports, not publishing. What counts as a report: every
-   export, or a "mark as published" step.
-3. **Where it lives in the UI:** a Music tile in the AI panel beside B-roll,
-   or its own panel with a browser of tracks.
-4. **Sound effects on pop-ins:** automatic, or suggested for the user to
-   accept.
+Decided (the user, 2026-11-02):
+1. **Access:** Epidemic's MCP server, called by Beacon itself with each
+   user's own key (their Epidemic Sound account › API keys; Settings › AI,
+   in the Keychain). No partnership: the MCP server works on the user's own
+   subscription, which licenses what they download (searching and previews
+   are free; downloads need a paid plan). OAuth isn't open to other apps.
+2. **Reporting exports:** none needed. Reporting is the partner API's rule;
+   through the MCP server tracks are licensed by the user's subscription.
+3. **UI:** a Music tile in the AI panel opening the Music panel (music and
+   sound effects tabs, search, previews, Apply).
+4. **Sound effects on pop-ins:** suggested as a review for the user to
+   accept, never added on their own (not built yet).
+
+**Built (2026-11-02):** the `music` feature (`packages/features/src/music`):
+search and preview; music placed over the range on a Music track, re-cut by
+Epidemic to fit (its track adaptation, up to 5 min) or cut and faded, ducked
+under speech as audio points (`music.duck` again after edits); its
+instruments alone when its singing is off; a sound effect at the playhead on
+an SFX track; library audio isn't transcribed. Still to do: the pop-in
+sound-effect review; snapping to the beat.
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,

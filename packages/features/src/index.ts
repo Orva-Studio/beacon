@@ -20,6 +20,7 @@ import { lut } from "./lut";
 import { noise } from "./noise";
 import { polish } from "./polish";
 import { auphonic } from "./auphonic";
+import { music } from "./music";
 import { broll } from "./broll";
 import { motion } from "./motion";
 import { toggles } from "./toggles";
@@ -44,6 +45,7 @@ export * from "./labels";
 export * from "./safe-areas";
 export * from "./film-look";
 export * from "./auphonic";
+export * from "./music";
 export * from "./broll";
 export { styleFromFile, type CustomStyle } from "./text-file";
 export * from "./motion";
@@ -53,7 +55,7 @@ export * from "./motion";
  * content space, `transform` maps them to the canvas, then effects.
  * Editing-only features come last.
  */
-export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, removeBackground, transform, lut, filmLook, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, polish, auphonic, zoom, transcript, broll, motion, toggles, labels, safeAreas];
+export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, removeBackground, transform, lut, filmLook, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, polish, auphonic, music, zoom, transcript, broll, motion, toggles, labels, safeAreas];
 
 export function createRegistry(): FeatureRegistry {
   return new FeatureRegistry(FEATURES);

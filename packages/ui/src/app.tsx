@@ -24,6 +24,7 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
+import { MusicPanel, musicReviewOf } from "./music";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
@@ -223,7 +224,8 @@ export function App({ host }: { host: Host }) {
             project &&
             (auphonicReviewOf(session) ? (
               <AuphonicPanel project={project} session={session} host={host} init={init} />
-
+            ) : musicReviewOf(session) ? (
+              <MusicPanel project={project} session={session} host={host} />
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
             ) : fillerReviewOf(session) ? (

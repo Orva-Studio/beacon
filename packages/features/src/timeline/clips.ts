@@ -198,6 +198,17 @@ function shiftLater(track: Track, from: Ticks, by: Ticks, except?: Clip) {
   for (const c of track.clips) if (c !== except && c.start >= from) c.start += by;
 }
 
+/** The free time on `track` from `at` to its next clip (none: unbounded). */
+function gapAfter(track: Track, at: Ticks, except: Clip): Ticks {
+  return Math.min(Infinity, ...track.clips.filter((c) => c !== except && c.start >= at).map((c) => c.start - at));
+}
+
+/**
+ * How far a ripple trim lengthening clips' ends by `by` pushes what comes after: a gap after them is filled first
+ * (the user's, 2026-11-02), the same on every track so linked clips stay in step.
+ */
+const ripplePush = (by: Ticks, ends: { track: Track; at: Ticks; clip: Clip }[]) => (by <= 0 ? by : Math.max(0, by - Math.min(...ends.map((e) => gapAfter(e.track, e.at, e.clip)))));
+
 /** The earliest time on the clip's own track that shows: 0 on the timeline, the start of its group's window inside one. */
 function groupFloor(doc: Project, registry: FeatureRegistry, loc: ClipLocation): Ticks {
   if (loc.tracks === doc.tracks) return 0;
@@ -293,7 +304,7 @@ export const clipCommands = [
   defineCommand({
     id: "clip.trim",
     description:
-      "Move a clip's start and/or end edge (timeline seconds) without moving its content; edges stop where the media begins or ends. Linked clips are trimmed to the same edges. `ripple` (Shift-drag of an edge) moves later clips on the track so no gap opens or closes: the start edge then stays put and the content slides. `with` (several clips selected, one edge dragged): those clips' same edge, and their linked clips', moves by as much as this one's, all stopping where the first can go no further",
+      "Move a clip's start and/or end edge (timeline seconds) without moving its content; edges stop where the media begins or ends. Linked clips are trimmed to the same edges. `ripple` (Shift-drag of an edge) moves later clips on the track so no gap opens or closes: the start edge then stays put and the content slides; an end lengthened into a gap fills it first, then pushes what is after. `with` (several clips selected, one edge dragged): those clips' same edge, and their linked clips', moves by as much as this one's, all stopping where the first can go no further",
     args: z
       .strictObject({
         clip: Id,
@@ -317,6 +328,7 @@ export const clipCommands = [
           const [lo, hi] = trimRoom(doc, track, c, edge, holds(ctx.registry, c), ripple);
           by = Math.min(Math.max(by, lo), hi);
         }
+        const push = edge === "end" ? ripplePush(by, all.map(({ clip: c, track }) => ({ track, at: clipEnd(c), clip: c }))) : by;
         for (const { clip: c, track } of all) {
           const oldStart = c.start;
           const oldEnd = clipEnd(c);
@@ -328,14 +340,18 @@ export const clipCommands = [
             }
           } else {
             c.duration += by;
-            if (ripple) shiftLater(track, oldEnd, by, c);
+            if (ripple) shiftLater(track, oldEnd, push, c);
           }
         }
         return;
       }
       const s = start === undefined ? undefined : onTrack(doc, loc, start);
       const e = end === undefined ? undefined : onTrack(doc, loc, end);
-      for (const { clip: c, track } of withLinked(loc, linked)) {
+      const trimmed = withLinked(loc, linked);
+      // Every end moves to the same time, so the gap after them all is measured before any moves.
+      const ends = trimmed.map(({ clip: c, track }) => ({ track, at: clipEnd(c), clip: c }));
+      let push: Ticks | undefined;
+      for (const { clip: c, track } of trimmed) {
         unlocked(track);
         const oldStart = c.start;
         const oldEnd = clipEnd(c);
@@ -351,7 +367,8 @@ export const clipCommands = [
         }
         if (e !== undefined) {
           c.duration = Math.min(e, mediaBounds(doc, c, holds(ctx.registry, c))[1], hi) - c.start;
-          if (ripple) shiftLater(track, oldEnd, clipEnd(c) - oldEnd, c);
+          push ??= ripplePush(clipEnd(c) - oldEnd, ends);
+          if (ripple) shiftLater(track, oldEnd, push, c);
         }
         if (c.duration <= 0) throw new Error(`clip "${c.id}" would be empty`);
       }

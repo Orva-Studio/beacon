@@ -86,6 +86,15 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
     },
   },
   {
+    id: "music",
+    label: "Music",
+    title: "Music and sound effects from Epidemic Sound (on your own subscription): search and listen, then add a track fitted to the range and ducked under speech, or a sound effect at the playhead",
+    art: "music",
+    online: true,
+    transcript: false,
+    start: (host) => review(host, "music.review"),
+  },
+  {
     id: "captions",
     label: "Captions",
     title: "Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export (an .srt beside it is a tick box in Export)",

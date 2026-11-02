@@ -61,7 +61,7 @@ export function Row({ label, title, children }: { label: string; title?: string;
 /** A dialog's row (Settings, Export, New Project): the label in its own column, a hint or error under the control. */
 export function SettingsRow({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-1">
+    <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
       <span className="text-right text-text-dim">{label}</span>
       <div className="flex min-w-0 items-center gap-2">{children}</div>
       {hint !== undefined && <div className="col-start-2 text-label text-text-faint">{hint}</div>}

@@ -55,7 +55,8 @@ function PaletteUi({ host }: { host: PaletteHost }) {
       const effect = it.group !== "Annotation";
       replica.focusInputs(effect);
       h.run(it.command, it.args);
-      if (effect) h.run("inspector.tab", { tab: "effects" });
+      // Others show their own tab (Clip Speed its speed): switching after would hide it.
+      if (it.command === "edit.addEffect") h.run("inspector.tab", { tab: "effects" });
     } }));
     const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
     // The effects of the clip the properties show; two of a kind numbered.

@@ -366,8 +366,10 @@ export const actions = [
     description: "Unlink the selected clips from the clips recorded with them, so each can be moved and cut on its own",
     args: none,
     resolve: (_, ctx) => {
-      const clips = selectedClips(ctx).filter((c) => c.linkId).map((c) => c.id);
-      if (!clips.length) throw new Error("select linked clips first");
+      const selected = selectedClips(ctx);
+      const clips = selected.filter((c) => c.linkId).map((c) => c.id);
+      // A recording's screen was taken for a link it never had (the user, 2026-11-02).
+      if (!clips.length) throw new Error(selected.length ? "nothing selected is linked: a recording's camera and sound are linked, its screen never is, so it moves and cuts on its own already" : "select linked clips first");
       return { label: "Unlink Recording", steps: [{ command: "clip.unlink", args: { clips } }] };
     },
   }),

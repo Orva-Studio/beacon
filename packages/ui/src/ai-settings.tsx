@@ -11,6 +11,7 @@ const KEYS: { id: string; label: string; use: string; placeholder: string }[] = 
   { id: "firecrawl-api-key", label: "Firecrawl", use: "Optional: motion graphics search the web (real logos, icons) keyless, about 1,000 lookups a month; a free key gives more", placeholder: "fc-…" },
   { id: "replicate-api-token", label: "Replicate", use: "For B-roll footage", placeholder: "r8_…" },
   { id: "auphonic-api-key", label: "Auphonic", use: "For Clean with Auphonic", placeholder: "Auphonic API key" },
+  { id: "epidemic-sound-api-key", label: "Epidemic Sound", use: "For Music: a key from your Epidemic Sound account (Account › API keys); downloads need a paid subscription", placeholder: "Epidemic Sound key" },
 ];
 
 /** A choice made elsewhere in Settings that waits for a key: once the key is saved here, it is made and Settings goes back. */

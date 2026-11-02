@@ -70,7 +70,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
     setTab("ai");
   };
   return (
-    <Modal title="Settings" width={760} onClose={close}>
+    <Modal title="Settings" width={880} onClose={close}>
       <div className="flex gap-4" style={{ height: HEIGHT }} data-settings-window>
         <nav className="flex w-36 shrink-0 flex-col gap-0.5 border-r border-divider pr-3" data-settings-nav>
           {SECTIONS.map((x) => (
