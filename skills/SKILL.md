@@ -55,6 +55,8 @@ editing for them (a rough cut, B-roll, captions) and follow its `sentences`
 for the project's format (a Short is taller than wide). What you notice of
 their habits, or what they tell you to remember, goes to `memory_propose`:
 they accept it in Settings › Memory; never treat a proposal as theirs.
+The sentences are `memory.md` in Beacon's config folder (`file`), which the
+user may edit by hand; never write it yourself.
 
 The Favorites panel is the user's, app-wide: `favorites_list` reads it
 (`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);

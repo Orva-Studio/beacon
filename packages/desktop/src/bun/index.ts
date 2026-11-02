@@ -105,6 +105,8 @@ function followConfig() {
     "favorites.json": () => void core.favorites().then((items) => broadcast("favorites", { items })),
     // An agent's proposal, or its project's decisions: Settings › Memory shows them.
     "memory.json": () => void core.memory().then((memory) => broadcast("memory", { memory })),
+    // Edited by hand, in any editor.
+    "memory.md": () => void core.memory().then((memory) => broadcast("memory", { memory })),
     "decisions.json": () => void core.memory().then((memory) => broadcast("memory", { memory })),
   };
   const timers = new Map<string, ReturnType<typeof setTimeout>>();

@@ -2031,7 +2031,7 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await type("No B-roll in the intro");
     await page.key("Enter", "Enter");
     for (let i = 0; i < 50 && !(await ui.core.memory()).sentences.length; i++) await Bun.sleep(50);
-    expect((await ui.core.memory()).sentences.map((x) => [x.text, x.by])).toEqual([["No B-roll in the intro", "you"]]);
+    expect((await ui.core.memory()).sentences.map((x) => x.text)).toEqual(["No B-roll in the intro"]);
     await page.until("document.querySelectorAll('[data-memory-sentence]').length === 1");
     // The sentence gets the row; its format beside it doesn't squeeze it.
     expect(await page.evaluate<number>("document.querySelector('[data-memory-sentence] input').getBoundingClientRect().width")).toBeGreaterThan(200);
@@ -2040,7 +2040,13 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await page.until("!!document.querySelector('[data-memory-accept]')");
     await page.evaluate("document.querySelector('[data-memory-accept]').click()");
     await page.until("document.querySelectorAll('[data-memory-sentence]').length === 2 && !document.querySelector('[data-memory-proposal]')");
-    expect((await ui.core.memory()).sentences.map((x) => [x.text, x.format, x.by])).toEqual([["No B-roll in the intro", undefined, "you"], ["Captions at the top", "short", "agent"]]);
+    expect((await ui.core.memory()).sentences.map((x) => [x.text, x.format])).toEqual([["No B-roll in the intro", undefined], ["Captions at the top", "short"]]);
+    // They are memory.md, named in the window; a line written there by hand shows (the app follows the file; here, the next change tells it).
+    expect(await page.evaluate<string>("document.querySelector('[data-memory-file]').textContent")).toContain("memory.md");
+    const md = join(ui.core.configDir, "memory.md");
+    writeFileSync(md, readFileSync(md, "utf8").replace("## Long videos\n", "## Long videos\n- Zoom in on code\n"));
+    await ui.core.memoryChange({ learning: true });
+    await page.until("document.querySelectorAll('[data-memory-sentence]').length === 3");
     // Forget: the habit's decisions go.
     await page.evaluate(`document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"] [data-memory-forget]').click()`);
     await page.until("!document.querySelector('[data-memory-habit]')");
@@ -2055,6 +2061,7 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await ui.core.uiOpen(ui.handle, null);
     rmSync(decisions, { force: true });
     rmSync(join(ui.core.configDir, "memory.json"), { force: true });
+    rmSync(join(ui.core.configDir, "memory.md"), { force: true });
   }
 });
 

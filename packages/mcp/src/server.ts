@@ -421,7 +421,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("memory_list", {
     description:
-      "How the user edits, app-wide (Settings › Memory): `sentences`, habits in their own words, each for Shorts, long videos or both (`format`) — read them before editing for them (a rough cut, B-roll, captions) and edit their way; `habits`, what Beacon learned from their choices in Remove Silences, Filler Words and Retakes per format (the reviews already open with these); `proposals` waiting for them to accept; `learning`, whether it learns. A project is a Short when it is taller than wide",
+      "How the user edits, app-wide (Settings › Memory): `sentences`, habits in their own words, each for Shorts, long videos or both (`format`), kept in `file` (memory.md, which they may edit by hand) — read them before editing for them (a rough cut, B-roll, captions) and edit their way; `habits`, what Beacon learned from their choices in Remove Silences, Filler Words and Retakes per format (the reviews already open with these); `proposals` waiting for them to accept; `learning`, whether it learns. A project is a Short when it is taller than wide",
     schema: z.strictObject({}),
     run: async () => core.memory(),
   });

@@ -114,7 +114,9 @@ export function MemorySettings({ host }: { host: MemoryHost }) {
         </>
       )}
       <Heading>In your words</Heading>
-      <div className="text-label text-text-faint">How you like your videos edited, one habit a line. Agents read these before they edit for you.</div>
+      <div className="text-label text-text-faint" data-memory-file>
+        How you like your videos edited, one habit a line. Agents read these before they edit for you. Kept in <span className="select-text text-text-muted">{memory.file.replace(/^\/Users\/[^/]+/, "~")}</span>, which you can also edit by hand.
+      </div>
       {memory.sentences.map((s) => (
         <SentenceRow key={`${s.id}:${s.text}`} sentence={s} host={host} />
       ))}

@@ -20,16 +20,20 @@ test("Memory keeps the user's sentences and agents' proposals until accepted, li
   const told: AppEvent[] = [];
   core.watchApp((e) => void (e.kind === "memory" && told.push(e)));
   // A new user: learning on, nothing kept.
-  expect(await core.memory()).toEqual({ learning: true, sentences: [], proposals: [], habits: { short: [], long: [] }, decisions: 0 });
+  const md = join(configDir, "memory.md");
+  expect(await core.memory()).toEqual({ learning: true, sentences: [], proposals: [], file: md, habits: { short: [], long: [] }, decisions: 0 });
 
   let m = await core.memoryChange({ add: { text: "No B-roll in the intro" } });
   m = await core.memoryChange({ add: { text: "Captions at the top", format: "short" } });
-  expect(m.sentences.map((s) => [s.text, s.format, s.by])).toEqual([["No B-roll in the intro", undefined, "you"], ["Captions at the top", "short", "you"]]);
+  expect(m.sentences.map((s) => [s.text, s.format])).toEqual([["No B-roll in the intro", undefined], ["Captions at the top", "short"]]);
   const [intro, captions] = m.sentences;
   m = await core.memoryChange({ edit: { id: intro!.id, text: "No B-roll in the first 10 seconds", format: "long" } });
   m = await core.memoryChange({ edit: { id: captions!.id, text: "Captions at the top", format: null } });
-  expect(m.sentences.map((s) => [s.text, s.format])).toEqual([["No B-roll in the first 10 seconds", "long"], ["Captions at the top", undefined]]);
-  m = await core.memoryChange({ remove: captions!.id });
+  // In memory.md's order: every video, then Shorts, then long videos.
+  expect(m.sentences.map((s) => [s.text, s.format])).toEqual([["Captions at the top", undefined], ["No B-roll in the first 10 seconds", "long"]]);
+  // An id comes from the line, so a changed one has a new id.
+  expect(m.sentences[0]!.id).not.toBe(captions!.id);
+  m = await core.memoryChange({ remove: m.sentences[0]!.id });
   expect(m.sentences.length).toBe(1);
   await expect(core.memoryChange({ remove: "nope" })).rejects.toThrow('no sentence "nope"');
 
@@ -38,13 +42,30 @@ test("Memory keeps the user's sentences and agents' proposals until accepted, li
   m = await core.memoryChange({ propose: { text: "zoom in on code" } });
   m = await core.memoryChange({ propose: { text: "No B-roll in the first 10 seconds" } });
   m = await core.memoryChange({ propose: { text: "Cut every um", format: "short" } });
-  expect(m.proposals.map((p) => [p.text, p.by])).toEqual([["Zoom in on code", "agent"], ["Cut every um", "agent"]]);
+  expect(m.proposals.map((p) => p.text)).toEqual(["Zoom in on code", "Cut every um"]);
   m = await core.memoryChange({ accept: m.proposals[0]!.id });
   m = await core.memoryChange({ dismiss: m.proposals[0]!.id });
   expect(m.proposals).toEqual([]);
-  expect(m.sentences.map((s) => [s.text, s.by])).toEqual([["No B-roll in the first 10 seconds", "you"], ["Zoom in on code", "agent"]]);
-  // Kept in the config folder, for the next launch.
-  expect(JSON.parse(readFileSync(join(configDir, "memory.json"), "utf8")).sentences.length).toBe(2);
+  expect(m.sentences.map((s) => s.text)).toEqual(["Zoom in on code", "No B-roll in the first 10 seconds"]);
+  // The sentences are memory.md, by kind of video, for the user to read and edit anywhere; proposals stay in memory.json.
+  expect(readFileSync(md, "utf8")).toContain("## Every video\n- Zoom in on code\n\n## Shorts\n\n## Long videos\n- No B-roll in the first 10 seconds\n");
+  expect(JSON.parse(readFileSync(join(configDir, "memory.json"), "utf8")).sentences).toBeUndefined();
+
+  // A hand edit: a list marker or none, a heading of its own, a comment; read as written, its layout kept until Beacon changes a sentence.
+  const hand = "# My memory\n<!-- mine -->\nNo music under the demo\n\n## Shorts only\n* Captions at the top\n1. Hook in 2 seconds\n## Notes\n- Zoom in on code\n";
+  writeFileSync(md, hand);
+  m = await core.memory();
+  expect(m.sentences.map((s) => [s.text, s.format])).toEqual([["No music under the demo", undefined], ["Captions at the top", "short"], ["Hook in 2 seconds", "short"], ["Zoom in on code", undefined]]);
+  const hook = m.sentences[2]!.id;
+  expect((await core.memory()).sentences[2]!.id).toBe(hook);
+  await core.memoryChange({ learning: true });
+  expect(readFileSync(md, "utf8")).toBe(hand);
+  m = await core.memoryChange({ edit: { id: hook, text: "Hook in 3 seconds" } });
+  expect(readFileSync(md, "utf8")).toContain("## Shorts\n- Captions at the top\n- Hook in 3 seconds\n");
+  m = await core.memoryChange({ remove: m.sentences.find((s) => s.text === "No music under the demo")!.id });
+  m = await core.memoryChange({ remove: m.sentences.find((s) => s.text.startsWith("Captions"))!.id });
+  m = await core.memoryChange({ remove: m.sentences.find((s) => s.text.startsWith("Hook"))!.id });
+  expect(m.sentences.map((s) => s.text)).toEqual(["Zoom in on code"]);
 
   // Habits from decisions: kept "um" in long videos over two projects, cut pauses over 1 s in Shorts.
   writeFileSync(join(configDir, "decisions.json"), JSON.stringify([
@@ -69,6 +90,19 @@ test("Memory keeps the user's sentences and agents' proposals until accepted, li
   expect(m.habits).toEqual({ short: [], long: [] });
   // Each change is told, for the open windows.
   expect(told.length).toBeGreaterThan(10);
+});
+
+test("sentences kept in memory.json before memory.md move there on the next change, proposals and learning with them", async () => {
+  const configDir = join(dir, "old-config");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, "memory.json"), JSON.stringify({ learning: false, sentences: [{ id: "a1", text: "Captions at the top", format: "short", by: "you", at: 1 }], proposals: [{ id: "p1", text: "Zoom in on code", by: "agent", at: 2 }] }));
+  const core = new LocalCore({ cacheDir: join(dir, "old-cache"), configDir });
+  expect((await core.memory()).sentences.map((s) => [s.text, s.format])).toEqual([["Captions at the top", "short"]]);
+  const m = await core.memoryChange({ learning: true });
+  expect(m.sentences.map((s) => s.text)).toEqual(["Captions at the top"]);
+  expect(m.proposals.map((p) => p.text)).toEqual(["Zoom in on code"]);
+  expect(readFileSync(join(configDir, "memory.md"), "utf8")).toContain("## Shorts\n- Captions at the top\n");
+  expect(JSON.parse(readFileSync(join(configDir, "memory.json"), "utf8"))).toEqual({ learning: true, proposals: [{ id: "p1", text: "Zoom in on code", at: 2 }] });
 });
 
 test.skipIf(!existsSync(AUDIO))("with learning off, a review opens with Beacon's defaults and its choices aren't kept; on again, it learns", async () => {
