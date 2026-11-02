@@ -133,5 +133,22 @@ test.skipIf(!existsSync(AUDIO))("with learning off, a review opens with Beacon's
   await core.undo(h);
   await core.run(h, "silences.review", {});
   expect((await review())?.min).toBe(1.2);
+  // An Apply undone wasn't the user's choice: its decisions go with it, and come back on redo.
+  await core.run(h, "silences.review", { min: 0.6 });
+  await core.run(h, "silences.apply", { all: true });
+  const applied = (await core.memory()).decisions;
+  expect(applied).toBeGreaterThan(6);
+  await core.undo(h);
+  expect((await core.memory()).decisions).toBe(6);
+  await core.redo(h);
+  expect((await core.memory()).decisions).toBe(applied);
+  // Choices that can't be kept don't undo the cut or leave the review open: it's said, not thrown.
+  await core.undo(h);
+  rmSync(join(configDir, "decisions.json"));
+  mkdirSync(join(configDir, "decisions.json"));
+  await core.run(h, "silences.review", { min: 0.6 });
+  const result = await core.run(h, "silences.apply", { all: true });
+  expect(result.diff.at(-1)).toContain("weren't kept");
+  expect(await review()).toBeUndefined();
   await core.close(h);
 });

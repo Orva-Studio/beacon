@@ -99,15 +99,23 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
  * follow them, so the menus, keys, favourites and settings here don't stay stale (and aren't saved back over it).
  */
 function followConfig() {
+  // This process's own changes reach the windows as core's events: the files they write aren't told again.
+  let told = "";
+  core.watchApp((e) => void (e.kind === "memory" && (told = JSON.stringify(e.memory))));
+  const memoryChanged = () =>
+    void core.memory().then((memory) => {
+      const now = JSON.stringify(memory);
+      if (now !== told) broadcast("memory", { memory });
+      told = now;
+    });
   const reload: Record<string, () => void> = {
     "settings.json": () => void core.reloadSettings(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "favorites.json": () => void core.favorites().then((items) => broadcast("favorites", { items })),
-    // An agent's proposal, or its project's decisions: Settings › Memory shows them.
-    "memory.json": () => void core.memory().then((memory) => broadcast("memory", { memory })),
-    // Edited by hand, in any editor.
-    "memory.md": () => void core.memory().then((memory) => broadcast("memory", { memory })),
-    "decisions.json": () => void core.memory().then((memory) => broadcast("memory", { memory })),
+    // An agent's proposal, or its project's decisions, or memory.md edited by hand: Settings › Memory shows them.
+    "memory.json": memoryChanged,
+    "memory.md": memoryChanged,
+    "decisions.json": memoryChanged,
   };
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   try {

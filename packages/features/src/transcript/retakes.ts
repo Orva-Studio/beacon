@@ -112,7 +112,8 @@ export function findRetakes(words: Word[], o: RetakeOptions): Take[][] {
       if (g && g.starts.at(-1) === k && g.end === k + n - 1) {
         g.starts.push(k + n);
         g.end = k + 2 * n - 1;
-      } else stutters.push({ starts: [k, k + n], end: k + 2 * n - 1 });
+      } else if (g && k <= g.end) continue; // Inside the stutter before ("I want I want want it"): one cut per word.
+      else stutters.push({ starts: [k, k + n], end: k + 2 * n - 1 });
       k += n - 1;
       break;
     }

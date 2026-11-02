@@ -1,5 +1,5 @@
 import { applyPatches, current, enablePatches, freeze, isDraft, produceWithPatches, type Objectish, type Patch } from "immer";
-import type { CommandContext } from "./feature";
+import type { CommandContext, Memory } from "./feature";
 import type { FeatureRegistry } from "./registry";
 import { formatIssues, type Project } from "./schema";
 
@@ -48,6 +48,7 @@ export interface StoreOptions {
   newId?: (prefix: string) => string;
   historyLimit?: number;
   data?: <T>(assetId: string, key: string) => T | undefined;
+  memory?: Memory;
 }
 
 export function randomId(prefix: string, hexDigits = 12): string {
@@ -70,7 +71,7 @@ export class ProjectStore {
   constructor(readonly registry: FeatureRegistry, doc: Project, opts: StoreOptions = {}) {
     registry.validate(doc);
     this.#doc = freeze(structuredClone(doc), true);
-    this.#ctx = { registry, newId: opts.newId ?? randomId, data: opts.data ?? (() => undefined) };
+    this.#ctx = { registry, newId: opts.newId ?? randomId, data: opts.data ?? (() => undefined), ...(opts.memory ? { memory: opts.memory } : {}) };
     this.#historyLimit = opts.historyLimit ?? 500;
   }
 

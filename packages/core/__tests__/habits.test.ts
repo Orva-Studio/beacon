@@ -81,6 +81,10 @@ test.skipIf(!existsSync(AUDIO))("Remove Filler Words learns a filler the user ke
   // Apply keeps them: only the "uh" goes.
   await core.run(next, "fillers.apply", {});
   expect(((await core.query(next, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text)).toContain("Um");
+  // An agent's transcript_removeFillers, not given `keep`, keeps them too, as transcript_fillers shows.
+  const agent = await project(FILLERS);
+  await core.run(agent, "transcript.removeFillers", {});
+  expect(((await core.query(agent, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).filter((w) => /^(um|uh)$/i.test(w))).toEqual(["um", "Um"]);
   // A Short has none of its own yet, so it starts from every format's...
   const short = await project(FILLERS, true);
   await core.run(short, "fillers.review", {});
@@ -174,4 +178,8 @@ test.skipIf(!existsSync(AUDIO))("Remove Retakes learns which take the user keeps
   const text = ((await core.query(next, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).join(" ");
   // The second takes' repeats go; what each went on to say stays.
   expect(text).toBe("So the first step is to open the settings. Then we click on Bluetooth and pair it. And that is how it is done.");
+  // An agent's transcript_removeRetakes, not given `prefer`, keeps the same takes.
+  const agent = await project(RETAKES);
+  await core.run(agent, "transcript.removeRetakes", { minWords: 3, within: 30 });
+  expect(((await core.query(agent, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).join(" ")).toBe(text);
 });

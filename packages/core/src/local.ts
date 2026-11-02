@@ -193,18 +193,20 @@ export class LocalCore implements BeaconCore {
   #attach(path: string, doc: Project): ProjectHandle {
     let current = doc;
     const data = new DerivedData(this.registry, this.cacheDir, () => current, this.#pref);
-    const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get });
-    lock(path, this.#owner);
-    store.subscribe((e) => void (current = e.doc));
     const project = Bun.hash(path).toString(36);
     const memory: Memory = {
       decisions: () => (this.#config.learning() ? this.#config.decisions() : []),
       record: (ds) => this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() }))),
     };
+    // Commands only read the decisions: what they cut is recorded by the plan that runs them.
+    const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get, memory: { ...memory, record: () => {} } });
+    lock(path, this.#owner);
+    store.subscribe((e) => void (current = e.doc));
     const p: OpenProject = {
       path,
       store,
       memory,
+      decided: new WeakMap(),
       session: new SessionStore(this.registry, doc, this.#shared, this.#pref, data.get, memory),
       data,
       frames: new FrameRenderer(this.registry, this.cacheDir),
@@ -496,14 +498,23 @@ export class LocalCore implements BeaconCore {
       if (p.session.state !== before) p.session.restore(before);
       throw e;
     }
-    if (plan.decisions) p.memory.record(plan.decisions);
-    // The document change is committed: an editor step after it that fails is reported, not thrown, or a retry would apply the change twice.
+    // The document change is committed: what fails after it (keeping the decisions, an editor step) is reported, not thrown, or a retry would apply the change twice.
+    const failed: string[] = [];
+    if (plan.decisions?.length) {
+      const step = result.patches.length ? crypto.randomUUID().slice(0, 8) : undefined;
+      try {
+        p.memory.record(step ? plan.decisions.map((d) => ({ ...d, step })) : plan.decisions);
+        if (step) p.decided.set(result.patches, { step });
+      } catch (e) {
+        failed.push(`(your choices weren't kept for Settings › Memory: ${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
     try {
       for (const s of plan.after?.(result.results) ?? []) p.session.run(s.command, s.args, p.store.doc);
     } catch (e) {
-      return { ...result, diff: [...result.diff, `(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`] };
+      failed.push(`(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`);
     }
-    return result;
+    return failed.length ? { ...result, diff: [...result.diff, ...failed] } : result;
   }
 
   /** An action's background work; its edit is planned on the document as it is when the work is done. */
@@ -793,12 +804,18 @@ export class LocalCore implements BeaconCore {
 
   async undo(h: ProjectHandle) {
     const p = this.#get(h);
-    return this.#saved(p, p.store.undo())?.label;
+    const entry = this.#saved(p, p.store.undo());
+    const d = entry && p.decided.get(entry.patches);
+    if (d) d.undone = this.#config.dropDecisions(d.step);
+    return entry?.label;
   }
 
   async redo(h: ProjectHandle) {
     const p = this.#get(h);
-    return this.#saved(p, p.store.redo())?.label;
+    const entry = this.#saved(p, p.store.redo());
+    const d = entry && p.decided.get(entry.patches);
+    if (d?.undone) this.#config.recordDecisions(d.undone);
+    return entry?.label;
   }
 
   /** Autosave after a change; a failed save is the caller's error, not a log line. */

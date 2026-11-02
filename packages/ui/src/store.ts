@@ -154,7 +154,9 @@ export const replica = {
   },
   /** Merges the session's changed keys; unchanged ones keep their identity, so views keyed on them don't redraw. */
   session(changes: Partial<Session>) {
-    if (state.session) set({ session: { ...state.session, ...changes } });
+    // Clips picked (in the preview, by ⌘A, by an agent) take over from a picked section: ⌫ is theirs then.
+    const picked = changes.selection?.length && changes.selection !== state.session?.selection;
+    if (state.session) set({ session: { ...state.session, ...changes }, ...(picked ? { section: undefined } : {}) });
   },
   media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, analyzing, analysisFailed, jobFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; analyzing?: ViewState["analyzing"]; analysisFailed?: ViewState["analysisFailed"]; jobFailed?: ViewState["jobFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({

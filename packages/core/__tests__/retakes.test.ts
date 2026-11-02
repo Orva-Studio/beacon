@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Asset } from "@beacon/model";
 import { DerivedData } from "@beacon/render";
+import { findRetakes, RETAKE_DEFAULTS } from "@beacon/features/src/transcript/retakes";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -96,6 +97,14 @@ test.skipIf(!existsSync(AUDIO))("a stutter, a word or a few said again straight 
   expect(await text()).toBe("I think we should start with brands like Acme, who ran the same ads. We had had enough of lots and lots of them.");
   await core.close(h);
 }, 60_000);
+
+test("a stutter inside a stutter isn't a group of its own: no word is in two groups", () => {
+  const words = "I want I want want it".split(" ").map((text, i) => ({ text, start: i * 0.5, end: i * 0.5 + 0.4, p: 1 }));
+  const groups = findRetakes(words, RETAKE_DEFAULTS);
+  const cut = groups.flatMap((g) => g.flatMap((t) => Array.from({ length: t.last - t.first + 1 }, (_, k) => t.first + k)));
+  expect(new Set(cut).size).toBe(cut.length);
+  expect(groups.map((g) => g.map((t) => [t.first, t.last]))).toEqual([[[0, 1], [2, 3]]]);
+});
 
 test.skipIf(!existsSync(AUDIO))("keeping an earlier take cuts only what the later one repeats, so what it goes on to say stays; Cut This One cuts one group", async () => {
   const { core, h, text } = await talk("keep");

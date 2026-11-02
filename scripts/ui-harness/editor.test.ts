@@ -2035,6 +2035,14 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await page.until("document.querySelectorAll('[data-memory-sentence]').length === 1");
     // The sentence gets the row; its format beside it doesn't squeeze it.
     expect(await page.evaluate<number>("document.querySelector('[data-memory-sentence] input').getBoundingClientRect().width")).toBeGreaterThan(200);
+    // Its text typed over, then its format picked straight away: both kept, as one edit.
+    await page.click(...(await centre("[data-memory-sentence] input")));
+    await type("No B-roll in the first 10 seconds");
+    await page.evaluate(`(() => { const el = document.querySelector('[data-memory-sentence] select'); el.focus(); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, 'long'); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    for (let i = 0; i < 50 && (await ui.core.memory()).sentences[0]?.format !== "long"; i++) await Bun.sleep(50);
+    expect((await ui.core.memory()).sentences.map((x) => [x.text, x.format])).toEqual([["No B-roll in the first 10 seconds", "long"]]);
+    await ui.core.memoryChange({ edit: { id: (await ui.core.memory()).sentences[0]!.id, text: "No B-roll in the intro", format: null } });
+    await page.until(`document.querySelector('[data-memory-sentence] input')?.value === 'No B-roll in the intro'`);
     // An agent's proposal waits until accepted.
     await ui.core.memoryChange({ propose: { text: "Captions at the top", format: "short" } });
     await page.until("!!document.querySelector('[data-memory-accept]')");
@@ -5702,8 +5710,15 @@ test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part
   await type("Explanation");
   await page.key("Enter", "Enter");
   await arrived(() => ui.core.doc(ui.handle).sections[1]!.name === "Explanation");
-  // Picked, ⌫ deletes it (the clips stay).
+  // Picked, then a clip selected (as in the preview): ⌫ is the clip's, the section stays.
   const clipsBefore = clips().length;
+  await page.click(xAt((ticksToSeconds(demoNow.start) + ticksToSeconds(demoNow.end)) / 2), y);
+  await select([clips()[0]!.id]);
+  await page.key("Backspace", "Backspace");
+  await arrived(() => clips().length < clipsBefore);
+  expect(ui.core.doc(ui.handle).sections.length).toBe(2);
+  await ui.core.undo(ui.handle);
+  // Picked, ⌫ deletes it (the clips stay).
   await page.click(xAt((ticksToSeconds(demoNow.start) + ticksToSeconds(demoNow.end)) / 2), y);
   await page.key("Backspace", "Backspace");
   await arrived(() => ui.core.doc(ui.handle).sections.length === 1);

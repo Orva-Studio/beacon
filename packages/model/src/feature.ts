@@ -266,9 +266,11 @@ export interface Decision {
   project: string;
   /** When, in Unix milliseconds. */
   at: number;
+  /** The undo step that made it: undone, it is no longer the user's choice. */
+  step?: string;
 }
 
-export type DecisionInput = Pick<Decision, "rule" | "choice" | "flipped" | "value">;
+export type DecisionInput = Pick<Decision, "rule" | "choice" | "flipped" | "value" | "step">;
 
 /** The decisions made so far, and a way to add this project's (its format and project are filled in). */
 export interface Memory {
@@ -369,6 +371,8 @@ export interface CommandContext {
   newId: (prefix: string) => string;
   /** Derived per-asset data (e.g. a transcript), as in `EvalContext.data`. */
   data<T>(assetId: string, key: string): T | undefined;
+  /** The user's decisions, for a command's settings not given to default to their habit as its query's do. */
+  memory?: Memory;
 }
 
 export interface CommandDef<A = any, R = unknown> {

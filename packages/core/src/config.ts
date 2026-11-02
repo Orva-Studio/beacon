@@ -200,6 +200,16 @@ export class AppConfig {
     this.emit({ kind: "memory", memory: this.memory() });
   }
 
+  /** Takes back the decisions an undo step recorded, returning them for its redo. */
+  dropDecisions(step: string): Decision[] {
+    const all = this.decisions();
+    const dropped = all.filter((d) => d.step === step);
+    if (!dropped.length) return [];
+    this.write("decisions.json", all.filter((d) => d.step !== step));
+    this.emit({ kind: "memory", memory: this.memory() });
+    return dropped;
+  }
+
   /** Whether reviews learn from decisions and open with what they learned (Settings › Memory). */
   learning(): boolean {
     return this.#memoryFile().learning;

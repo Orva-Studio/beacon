@@ -56,18 +56,21 @@ function Habits({ title, habits, host }: { title: string; habits: HabitInfo[]; h
   );
 }
 
-/** A sentence: its text edited in place (saved on leaving it or Return), who it is for, and delete. */
+/**
+ * A sentence: its text edited in place, who it is for, and delete. Saved as one edit when the row loses the focus,
+ * or with its new format: its id comes from its text and format, so the two saved apart would name it by an old id.
+ */
 function SentenceRow({ sentence, host }: { sentence: Sentence; host: MemoryHost }) {
   const [text, setText] = useState(sentence.text);
-  const save = () => {
-    const t = text.trim();
-    if (!t) setText(sentence.text);
-    else if (t !== sentence.text) host.memoryChange({ edit: { id: sentence.id, text: t } });
+  const save = (format?: Format | null) => {
+    const t = text.trim() || sentence.text;
+    if (t !== text) setText(t);
+    if (t !== sentence.text || format !== undefined) host.memoryChange({ edit: { id: sentence.id, text: t, ...(format === undefined ? {} : { format }) } });
   };
   return (
-    <div className="flex items-center gap-2" data-memory-sentence={sentence.id}>
-      <TextInput className="min-w-0 flex-1" value={text} onChange={(e) => setText(e.target.value)} onBlur={save} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
-      <FormatSelect value={sentence.format} onChange={(format) => host.memoryChange({ edit: { id: sentence.id, text: sentence.text, format: format ?? null } })} />
+    <div className="flex items-center gap-2" data-memory-sentence={sentence.id} onBlur={(e) => e.currentTarget.contains(e.relatedTarget as Node | null) || save()}>
+      <TextInput className="min-w-0 flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+      <FormatSelect value={sentence.format} onChange={(format) => save(format ?? null)} />
       <TrashButton label="Delete" onClick={() => host.memoryChange({ remove: sentence.id })} />
     </div>
   );

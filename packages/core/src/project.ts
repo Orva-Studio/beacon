@@ -1,5 +1,5 @@
 import { measureLoudness, probeMedia } from "@beacon/media";
-import { randomId, type Asset, type FeatureRegistry, type Memory, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
+import { randomId, type Asset, type Decision, type FeatureRegistry, type Memory, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
 import type { DerivedData, FrameRenderer, LiveView } from "@beacon/render";
 import type { CoreEvent, Job, ProjectHandle } from "./api";
 
@@ -9,6 +9,8 @@ export interface OpenProject {
   session: SessionStore;
   /** The user's review decisions, recorded as this project's. */
   memory: Memory;
+  /** The decisions each undo step recorded (by its patches), taken back while it is undone. */
+  decided: WeakMap<object, { step: string; undone?: Decision[] }>;
   data: DerivedData;
   frames: FrameRenderer;
   view?: LiveView;

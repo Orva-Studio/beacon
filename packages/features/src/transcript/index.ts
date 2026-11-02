@@ -943,7 +943,7 @@ export const transcript = defineFeature({
     defineQuery({
       id: "transcript.silences",
       description:
-        "What Remove Silences finds: each silence over `min` seconds (timeline seconds), whether it is screen action (the recording's cursor moved or clicked) and whether it is picked to cut, with the seconds cutting all of them (`saved`) or the picked ones (`selectedSaved`) saves. Settings not given are the user's last (the open review's are in ui_state). `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one). `stacked`: why it can't cut (two voices heard at once)",
+        "What Remove Silences finds: each silence over `min` seconds (timeline seconds; the `min` and `keep` used are returned, the user's habit when not given: pass them to transcript_removeSilences), whether it is screen action (the recording's cursor moved or clicked) and whether it is picked to cut, with the seconds cutting all of them (`saved`) or the picked ones (`selectedSaved`) saves. Settings not given are the user's last (the open review's are in ui_state). `waiting`: media heard on the timeline with no transcript yet (the analyze tool with `transcript` makes one). `stacked`: why it can't cut (two voices heard at once)",
       args: z.strictObject({
         min: SilenceSettings.min.optional(),
         keep: SilenceSettings.keep.optional(),
@@ -955,7 +955,7 @@ export const transcript = defineFeature({
         const o = { ...learnedSilences(silenceSettings(pref), memory ?? NO_MEMORY, project), ...Object.fromEntries(Object.entries(given).filter(([, v]) => v !== undefined)) } as SilenceReview;
         const plan = silencePlan(project, registry, data, o);
         const seconds = (ranges: { start: number; end: number }[]) => roundSeconds(cutRanges(project, registry, data, ranges).reduce((n, c) => n + c.end - c.start, 0));
-        return { waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
+        return { min: o.min, keep: o.keep, waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
       },
     }),
     defineQuery({
@@ -1055,10 +1055,17 @@ export const transcript = defineFeature({
     defineCommand({
       id: "transcript.removeRetakes",
       description:
-        "Remove Retakes: of each line said more than once, keep one take and cut the others (of those after it only what repeats the line), as transcript_retakes shows; one undo step. The take kept is the one `kept` names, else Beacon's own pick; groups `cutAll` names lose every take; retakes.apply runs it from the open review with OpenAI's picks too",
-      args: z.strictObject({ ...RetakeSettings, kept: z.array(z.number()).default([]), cutAll: CutAll.default([]), only: Only }),
-      apply(doc, { only, ...o }, ctx) {
-        const plan = retakePlan(doc, ctx.registry, ctx.data, () => "beacon", { ...o, ...(only === undefined ? {} : { current: only }) });
+        "Remove Retakes: of each line said more than once, keep one take and cut the others (of those after it only what repeats the line), as transcript_retakes shows; one undo step. The take kept is the one `kept` names, else the user's habit (`prefer`), else Beacon's own pick; groups `cutAll` names lose every take; retakes.apply runs it from the open review with OpenAI's picks too",
+      args: z.strictObject({
+        ...RetakeSettings,
+        kept: z.array(z.number()).default([]),
+        cutAll: CutAll.default([]),
+        only: Only,
+        prefer: z.enum(["first", "last"]).optional().describe("The take kept where none is chosen; the user's habit when not given, as transcript_retakes shows"),
+      }),
+      apply(doc, { only, prefer, ...o }, ctx) {
+        const habit = prefer ? { prefer } : learnedRetakes(ctx.memory ?? NO_MEMORY, doc);
+        const plan = retakePlan(doc, ctx.registry, ctx.data, () => "beacon", { ...o, ...(habit.prefer ? { prefer: habit.prefer } : {}), ...(only === undefined ? {} : { current: only }) });
         if (!plan.words) throw new Error("no transcript on the timeline yet");
         refuseUntranscribed(doc, ctx.registry, ctx.data);
         if (only === undefined) return cut(doc, ctx, plan.ranges);
@@ -1070,9 +1077,9 @@ export const transcript = defineFeature({
       id: "transcript.removeFillers",
       description:
         "Remove Filler Words: cut every filler the transcript has (\"um\", \"uh\", \"er\", \"hmm\") with the shorter of the pauses either side (the longer is left, for Remove Silences), except those `flipped` names, and keeping the words in `keep` unless flipped, as transcript_fillers shows; one undo step. fillers.apply runs it from the open review",
-      args: z.strictObject({ flipped: z.array(z.number()).default([]), keep: z.array(z.string()).default([]).describe('Filler words kept unless flipped ("um")'), only: Only }),
+      args: z.strictObject({ flipped: z.array(z.number()).default([]), keep: z.array(z.string()).optional().describe('Filler words kept unless flipped ("um"); the user\'s habit when not given, as transcript_fillers shows'), only: Only }),
       apply(doc, { flipped, keep, only }, ctx) {
-        const plan = fillerPlan(doc, ctx.registry, ctx.data, { flipped, keep, ...(only === undefined ? {} : { current: only }) });
+        const plan = fillerPlan(doc, ctx.registry, ctx.data, { flipped, keep: keep ?? learnedFillers(ctx.memory ?? NO_MEMORY, doc).keep ?? [], ...(only === undefined ? {} : { current: only }) });
         if (!plan.words) throw new Error("no transcript on the timeline yet");
         refuseUntranscribed(doc, ctx.registry, ctx.data);
         if (only === undefined) return cut(doc, ctx, plan.ranges);

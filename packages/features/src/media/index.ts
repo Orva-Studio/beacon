@@ -6,6 +6,7 @@ import {
   defineFeature,
   eachRawClip,
   original,
+  walkClips,
   ticksPerFrame,
   defineQuery,
   IDENTITY,
@@ -180,34 +181,32 @@ const mediaGroup = z.strictObject({
 const isTakeCamera = (project: Project, clip: Clip) => clip.type === "video" && project.assets[clip.assetId ?? ""]?.kind === "recording";
 
 /**
- * Moves a take's camera picture against its sound: every camera clip of `asset` (stream `stream`) shows its media
- * `shift` ticks later, in place, its animations and effect spans with it. Pieces at the ends of the media lose what
- * would run past them, in whole frames.
+ * Moves a take's camera picture against its sound: every camera clip of `asset` (stream `stream`), in groups too,
+ * shows its media `delay` ms later than with none, each from the delay it has (one placed later has none), in place,
+ * its animations and effect spans with it. Pieces at the ends of the media lose what would run past them, in whole frames.
  */
-function slipCamera(doc: Project, asset: Asset, stream: number, shift: number, delay: number) {
+function slipCamera(doc: Project, registry: FeatureRegistry, asset: Asset, stream: number, delay: number) {
   const frame = ticksPerFrame(doc.settings.fps);
   const seconds = streamOf(asset, "video", stream).duration || mediaInfo(asset).duration;
   const length = secondsToTicks(seconds);
-  const tracks = original(doc)!.tracks;
-  for (const [ti, track] of tracks.entries()) {
-    for (const [ci, c] of track.clips.entries()) {
-      if (c.assetId !== asset.id || c.type !== "video" || clipStream(c) !== stream) continue;
-      const clip = doc.tracks[ti]!.clips[ci]!;
-      const speed = clipSpeed(c);
-      let from = (c.mediaStart ?? 0) + shift;
-      let { start, duration } = c;
-      if (from < 0) {
-        const cut = Math.ceil(-from / speed / frame) * frame;
-        [start, duration, from] = [start + cut, duration - cut, from + Math.round(cut * speed)];
-      }
-      const over = from + Math.round(duration * speed) - length;
-      if (over > 0) duration -= Math.ceil(over / speed / frame) * frame;
-      if (duration <= 0) throw new Error(`a ${delay} ms camera delay leaves nothing of the camera clip at ${ticksToSeconds(c.start)} s`);
-      Object.assign(clip, { start, duration, mediaStart: from });
-      for (const a of clip.animations) a.end += shift;
-      for (const e of clip.effects) if (e.span) e.span = { start: e.span.start + shift, end: e.span.end + shift };
-      clip.props.media = { ...(clip.props.media as object), delay };
+  for (const { clip } of walkClips(doc.tracks, registry)) {
+    if (clip.assetId !== asset.id || clip.type !== "video" || clipStream(clip) !== stream) continue;
+    const shift = secondsToTicks((delay - ((clip.props.media as { delay?: number } | undefined)?.delay ?? 0)) / 1000);
+    if (!shift) continue;
+    const speed = clipSpeed(clip);
+    let from = (clip.mediaStart ?? 0) + shift;
+    let { start, duration } = clip;
+    if (from < 0) {
+      const cut = Math.ceil(-from / speed / frame) * frame;
+      [start, duration, from] = [start + cut, duration - cut, from + Math.round(cut * speed)];
     }
+    const over = from + Math.round(duration * speed) - length;
+    if (over > 0) duration -= Math.ceil(over / speed / frame) * frame;
+    if (duration <= 0) throw new Error(`a ${delay} ms camera delay leaves nothing of the camera clip at ${ticksToSeconds(clip.start)} s`);
+    Object.assign(clip, { start, duration, mediaStart: from });
+    for (const a of clip.animations) a.end += shift;
+    for (const e of clip.effects) if (e.span) e.span = { start: e.span.start + shift, end: e.span.end + shift };
+    clip.props.media = { ...(clip.props.media as object), delay };
   }
 }
 
@@ -356,13 +355,10 @@ export const media = defineFeature({
       description:
         "Line up a take's camera with its sound by hand: `ms` the camera is late (its picture shown that much earlier; negative: early), for every camera clip of the take, kept where they are; replaces the delay set before (0 undoes it). The take's sound and screen don't move. One undo step. For a take recorded before the camera's delay was measured (Settings › Recording › Check Sync), or one still out",
       args: z.strictObject({ clip: z.string().describe("A camera clip of the take"), ms: z.number().min(-2000).max(2000) }),
-      apply(doc, { clip: id, ms }) {
-        const clip = original(doc)!.tracks.flatMap((t) => t.clips).find((c) => c.id === id);
+      apply(doc, { clip: id, ms }, { registry }) {
+        const clip = [...walkClips(original(doc)!.tracks, registry)].find((l) => l.clip.id === id)?.clip;
         if (!clip || !isTakeCamera(doc, clip)) throw new Error(`clip "${id}" is not a take's camera`);
-        const before = (clip.props.media as { delay?: number } | undefined)?.delay ?? 0;
-        const delay = Math.round(ms);
-        if (delay === before) return;
-        slipCamera(doc, doc.assets[clip.assetId!]!, clipStream(clip), secondsToTicks((delay - before) / 1000), delay);
+        slipCamera(doc, registry, doc.assets[clip.assetId!]!, clipStream(clip), Math.round(ms));
       },
     }),
   ],
