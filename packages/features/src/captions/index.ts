@@ -298,9 +298,10 @@ function srtLines(text: string): string {
   return `${words.slice(0, best).join(" ")}\n${words.slice(best).join(" ")}`;
 }
 
-export function srt(project: Project, from = 0, to = Infinity): string {
+/** `speed`: for an export played faster, its times divided by it. */
+export function srt(project: Project, from = 0, to = Infinity, speed = 1): string {
   return captionEntries(project, from, to)
-    .map((c, i) => `${i + 1}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${srtLines(c.text)}\n`)
+    .map((c, i) => `${i + 1}\n${srtTime(c.start / speed)} --> ${srtTime(c.end / speed)}\n${srtLines(c.text)}\n`)
     .join("\n");
 }
 
@@ -507,7 +508,7 @@ export const captions = defineFeature({
       extension: ".srt",
       title: "Captions file",
       description: "The captions as SubRip subtitles",
-      write: ({ from, to }, { project }) => (project.tracks.some((t) => !t.hidden && t.clips.some(isCaption)) ? srt(project, from, to) : undefined),
+      write: ({ from, to, speed }, { project }) => (project.tracks.some((t) => !t.hidden && t.clips.some(isCaption)) ? srt(project, from, to, speed) : undefined),
     },
   ],
   evaluate: {

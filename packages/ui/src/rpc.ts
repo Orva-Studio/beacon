@@ -72,6 +72,8 @@ export interface Init {
   recent: RecentProject[];
   /** Where New Project puts a project: the folder last chosen for one, else ~/Movies/Beacon. */
   projectsFolder: string;
+  /** Whether New Project starts with Standalone ticked: as the last project made with it was. */
+  newStandalone?: boolean;
   /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
   shortcuts: ShortcutInfo[];
   /** Settings › Memory: the user's sentences, proposals, learned habits and whether Beacon learns. */
@@ -184,6 +186,8 @@ export interface ExportSettings {
   audioBitrate: number | null;
   /** Files written beside a video (`ExportFileDef` ids: "captions"); remembered with the rest. */
   files: string[];
+  /** The whole file played faster, 1 to 2 (1.2 for a Short); remembered with the rest, for every project. */
+  speed: number;
 }
 
 /** What File > Export opens the dialog with. */
@@ -196,6 +200,8 @@ export interface ExportSheet {
   /** Export Selection with clips selected (it wins over the range): only those, over their span. */
   clips?: { ids: string[]; in: number; out: number; silent?: boolean; usual?: Pick<ExportSettings, "format" | "audio"> };
   canvas: { width: number; height: number; fps: number };
+  /** The project's length in seconds, for the file's length at the chosen speed. */
+  duration: number;
   /** Files features can write beside a video, a tick box each. */
   files: { id: string; title: string }[];
 }
@@ -433,7 +439,7 @@ export type AppRPC = {
       /** The Media Bin preview's clock. */
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
-      newProjectSheet: { name: string; folder: string };
+      newProjectSheet: { name: string; folder: string; standalone?: boolean };
       recent: RecentProject[];
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;

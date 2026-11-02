@@ -316,21 +316,24 @@ export function createProjects(app: ProjectsApp) {
     return result;
   };
 
+  const lastNewProject = () => (core.readConfig("new-project.json") as { folder?: string; standalone?: boolean } | undefined) ?? {};
+
   /** Where New Project offers to put a project: the folder chosen for the last one, while it is there. */
   function projectsFolder(): string {
-    const folder = (core.readConfig("new-project.json") as { folder?: string } | undefined)?.folder;
+    const { folder } = lastNewProject();
     return folder && existsSync(folder) ? folder : PROJECTS;
   }
 
-  /** File > New Project: `w` asks for the name and where, then `createProject`. */
+  /** File > New Project: `w` asks for the name and where (and standalone, as the last one was), then `createProject`. */
   function newProject(w: ProjectWindow) {
-    w.message("newProjectSheet", { name: "Untitled Project", folder: projectsFolder() });
+    w.message("newProjectSheet", { name: "Untitled Project", folder: projectsFolder(), standalone: !!lastNewProject().standalone });
   }
 
   async function createProject(name: string, canvas?: CanvasValues, standalone = false, folder?: string) {
     if (folder && !existsSync(folder)) throw new Error(`${folder} doesn't exist`);
     const to = freshProject(projectName(name), folder ?? projectsFolder());
-    if (folder) core.writeConfig("new-project.json", { folder });
+    const last = lastNewProject();
+    core.writeConfig("new-project.json", { ...last, ...(folder ? { folder } : {}), standalone });
     await core.create({ path: to, ...(canvas ? { settings: canvasChange(canvas) } : {}), ...(standalone ? { standalone } : {}) });
     await open(to);
     windowFor(to).status(`New project: ${to}`);
@@ -385,6 +388,7 @@ export function createProjects(app: ProjectsApp) {
     newProject,
     createProject,
     projectsFolder,
+    newStandalone: () => !!lastNewProject().standalone,
     saveAsDialog,
     saveAs,
     renameProject,

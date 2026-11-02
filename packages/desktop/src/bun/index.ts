@@ -359,6 +359,7 @@ function openWindow(): Win {
             opened: w.current ? await openedPayload(w, w.current.path) : undefined,
             recent: projects.recentProjects(),
             projectsFolder: projects.projectsFolder(),
+            newStandalone: projects.newStandalone(),
             keyLog: !!keyLog,
             socket,
           };

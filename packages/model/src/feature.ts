@@ -451,8 +451,8 @@ export interface ExportFileDef {
   /** The Export sheet's tick box: "Captions file". */
   title: string;
   description: string;
-  /** The file's contents for timeline seconds [from, to), times counted from `from`; undefined writes none. */
-  write: (range: { from: number; to: number }, ctx: QueryContext) => string | undefined;
+  /** The file's contents for timeline seconds [from, to), times as the exported file plays them (counted from `from`, divided by `speed`); undefined writes none. */
+  write: (range: { from: number; to: number; speed: number }, ctx: QueryContext) => string | undefined;
 }
 
 export interface ActionStep {

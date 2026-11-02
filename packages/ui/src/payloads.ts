@@ -1,5 +1,5 @@
 import type { BeaconCore, CoreEvent } from "@beacon/core";
-import { isAudioFormat, onlyClips, type Clip, type FeatureRegistry, type Project, type Session, type Track } from "@beacon/model";
+import { isAudioFormat, onlyClips, projectDuration, ticksToSeconds, type Clip, type FeatureRegistry, type Project, type Session, type Track } from "@beacon/model";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportSettings, ExportSheet, Init, SettingsSheet, SettingsTab } from "./rpc";
 
@@ -79,7 +79,7 @@ export function exportSheetFor(o: {
     if (settings.format !== usual.format || settings.audio !== usual.audio) clips.usual = usual;
   }
   const selected = !!clips || (!!o.selection && !!range);
-  return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings), files: o.files };
+  return { name: selected ? `${o.name} selection` : o.name, folder: o.folder, settings, ...(range ? { range } : {}), ...(clips ? { clips } : {}), canvas: exportCanvas(o.project.settings), duration: ticksToSeconds(projectDuration(o.project)), files: o.files };
 }
 
 /** Settings as it opens: the app settings, the tab, and what General's transcript and download choices need. */

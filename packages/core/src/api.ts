@@ -60,6 +60,8 @@ export interface ExportOptions extends VideoEncoding {
   clips?: string[];
   /** Files features write beside a video from the same range, by id (`captions`: the captions as .srt); none unless named. */
   files?: string[];
+  /** The whole video played faster, 1 to 2 (1.2 for a Short): the timeline sampled faster at the same frame rate, the sound's pitch kept. The project isn't changed. */
+  speed?: number;
 }
 
 export interface ImportOptions {

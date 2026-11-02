@@ -5,6 +5,20 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 13: device frames, sped-up export, Epidemic Sound (`phase-13`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Export sped up (for Shorts): Speed in the Export sheet, Normal, 1.1×, 1.2×, 1.25×, 1.5× or Custom… (1× to 2×, 0.05 steps), with the length the file comes out at (1:00.0 → 0:50.0); remembered with the export settings for every project; `export_start`'s `speed`. The timeline sampled faster at the same frame rate, the sound sped up with its pitch kept (`atempo`), the captions' .srt timed to the file, audio-only exports too; the project isn't changed | 2026-11-02 | this branch | core test (`export-speed.test.ts`, real media: 3 s at 1.25× is 72 frames at 30 fps and 2.4 s of sound, the .srt's times divided, a .wav at 1.5× 2 s long, 3× refused, the project unchanged); UI flow (`Export's Speed plays the whole file faster…`) |
+| New Project remembers Standalone: ticked for a project, it starts ticked for the next (`new-project.json`, beside the folder), from ⌘N and the start screen | 2026-11-02 | this branch | UI flow (`New Project starts Standalone ticked…`; fails without the change); the desktop's remembering only in the app |
+
+### Not checked yet
+
+- A sped-up export in the app: a Short at 1.2×; does the voice sound natural (pitch kept), do captions and motion graphics stay with it, and is 1.2× ticked again next time?
+- New Project in the app: tick Standalone, Create, then ⌘N (and the start screen) starts with it ticked; untick it and the next one starts unticked.
+
 ## Phase 12: Beacon learns how you edit (`phase-12`)
 
 ### Checked by hand

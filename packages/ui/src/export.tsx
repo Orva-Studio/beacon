@@ -33,6 +33,46 @@ const SIZES = [
   [854, 480],
 ] as const;
 
+const SPEEDS = [1, 1.1, 1.2, 1.25, 1.5];
+
+/** The whole file played faster (for Shorts): the offered speeds or any from 1× to 2× in 0.05 steps, and the length it comes out at. */
+function SpeedRow({ speed, length, onChange }: { speed: number; length: number; onChange: (speed: number) => void }) {
+  const [custom, setCustom] = useState(!SPEEDS.includes(speed));
+  return (
+    <Row label="Speed">
+      <div className="w-36">
+        <Select
+          value={custom ? "custom" : String(speed)}
+          onChange={(e) => (e.target.value === "custom" ? setCustom(true) : (setCustom(false), onChange(Number(e.target.value))))}
+          data-export-speed
+        >
+          {SPEEDS.map((x) => (
+            <option key={x} value={String(x)}>
+              {x === 1 ? "Normal (1×)" : `${x}×`}
+            </option>
+          ))}
+          <option value="custom">Custom…</option>
+        </Select>
+      </div>
+      {custom && (
+        <TextInput
+          type="number"
+          className="w-20 text-right"
+          min={1}
+          max={2}
+          step={0.05}
+          value={speed}
+          onChange={(e) => onChange(Math.min(2, Math.max(1, Math.round((Number(e.target.value) || 1) * 20) / 20)))}
+          data-export-speed-custom
+        />
+      )}
+      <span className="text-text-dim" data-export-length>
+        {speed === 1 ? clock(length, { tenths: true }) : `${clock(length, { tenths: true })} → ${clock(length / speed, { tenths: true })}`}
+      </span>
+    </Row>
+  );
+}
+
 /** Automatic or a custom rate on a slider, as the Data rate rows. */
 function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: { value: number | null; min: number; max: number; auto: number; autoLabel?: string; onChange: (v: number | null) => void }) {
   const shown = value ?? auto;
@@ -149,6 +189,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
               <Check label={f.title} checked={s.files.includes(f.id)} onChange={(on) => set({ files: on ? [...s.files, f.id] : s.files.filter((x) => x !== f.id) })} data-export-file={f.id} />
             </Row>
           ))}
+        <SpeedRow speed={s.speed} length={span && selectionOnly ? span.out - span.in : sheet.duration} onChange={(speed) => set({ speed })} />
       </div>
       {advanced && (
         <div className="mt-4 flex flex-col gap-3 rounded-md bg-well/60 p-4">
@@ -238,7 +279,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
             </>
           )}
           <div>
-            <Button onClick={() => setS({ ...DEFAULT_EXPORT, format: s.format })}>Restore Defaults</Button>
+            <Button onClick={() => setS({ ...DEFAULT_EXPORT, format: s.format, files: s.files, speed: s.speed })}>Restore Defaults</Button>
           </div>
         </div>
       )}

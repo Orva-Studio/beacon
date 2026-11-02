@@ -917,11 +917,13 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/")) checkEncoding(videoFormat(output), opts);
+    const speed = opts.speed ?? 1;
+    if (!(speed >= 1 && speed <= 2)) throw new Error(`an export plays at 1× to 2×, not ${opts.speed}×`);
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
     // Beside a video, files features write from the same range (captions as .srt) when asked for, named after it.
-    const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)) };
+    const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)), speed };
     const sides = opts.output.endsWith("/")
       ? []
       : [...this.registry.exportFiles.values()].filter((f) => opts.files?.includes(f.id)).flatMap((f) => {
@@ -942,10 +944,11 @@ export class LocalCore implements BeaconCore {
         to,
         cacheDir: this.cacheDir,
         data: data.get,
+        speed,
         onProgress: (f, total) => progress(f / total),
       });
       for (const f of sides) writeFileSync(f.path, f.text);
-      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)), ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };
+      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)) / speed, ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };
     });
   }
 

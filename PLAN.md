@@ -2959,7 +2959,9 @@ edit.
   Choose… for a folder, remembered as a preference) to the New Project
   dialog. **Built 2026-10-28:** a Where row with Choose…, the folder chosen
   kept in `new-project.json` and offered next time (from the start screen
-  too); Camtasia copies still go to ~/Movies/Beacon.
+  too); Camtasia copies still go to ~/Movies/Beacon. Standalone is remembered
+  the same way (the user, 2026-11-02): ticked for one project, New Project
+  starts ticked for the next.
 - **Set a take's camera delay by hand** (the user, 2026-10-28). Settings ›
   Recording already takes a typed delay per camera and microphone, but only
   takes recorded after it use it. For a take already on the timeline: a
@@ -3048,10 +3050,12 @@ between 1× and 2× (1.1, 1.2, 1.25 and 1.5 offered, any value in 0.05 steps),
 in the Export sheet and as `export_start`'s `speed`. The project is not
 changed; only the file is. Picture: the timeline sampled faster at the same
 frame rate. Sound: sped up with its pitch kept (FFmpeg's `atempo`), so a voice
-doesn't go high. The sheet shows the length the file will be. Open questions:
-whether a project remembers its export speed (a Short always at 1.2×), and
-whether captions' and motion graphics' timing needs anything (they ride the
-timeline, so they should simply speed up with it).
+doesn't go high. The sheet shows the length the file will be. The speed is
+remembered app-wide with the other export settings, not per project (the
+user, 2026-11-02). Captions and motion graphics ride the timeline, so they
+speed up with it; the captions' .srt is timed to the file. **Built
+2026-11-02** (`phase-13`): a Speed row (Normal, 1.1, 1.2, 1.25, 1.5, Custom…)
+with the length before and after, `export_start`'s `speed` (1 to 2).
 
 #### Music and sound effects from Epidemic Sound (the user, 2026-10-28; moved from the backlog the same day)
 Music and sound effects found, placed and mixed from Beacon, as B-roll and

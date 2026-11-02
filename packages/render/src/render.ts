@@ -39,6 +39,8 @@ export interface RenderOptions {
   to?: Ticks;
   /** Render only these frame numbers (PNG output). */
   frames?: number[];
+  /** The whole range played this many times faster (1.2 for a Short), the sound's pitch kept; 1 by default. */
+  speed?: number;
   /** Where frame indexes and other derived data are cached. */
   cacheDir?: string;
   onProgress?: (frame: number, total: number) => void;
@@ -153,12 +155,14 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
   const frameTicks = ticksPerFrame(project.settings.fps);
   const from = opts.from ?? 0;
   const to = opts.to ?? projectDuration(project);
+  const speed = opts.speed ?? 1;
+  if (!(speed > 0)) throw new Error(`can't export at ${speed}× speed`);
   if (opts.output.kind === "video" && isAudioFormat(videoFormat(opts.output.path))) {
-    await exportAudio(project, registry, opts.output, ticksToSeconds(from), ticksToSeconds(to - from));
+    await exportAudio(project, registry, opts.output, ticksToSeconds(from), ticksToSeconds(to - from), speed);
     opts.onProgress?.(1, 1);
     return { frames: 0 };
   }
-  const frames = opts.frames ?? Array.from({ length: Math.ceil((to - from) / frameTicks) }, (_, i) => Math.round(from / frameTicks) + i);
+  const frames = opts.frames ?? Array.from({ length: Math.ceil((to - from) / (frameTicks * speed)) }, (_, i) => Math.round(from / frameTicks) + i);
   const tmp = opts.output.kind === "video" ? mkdtempSync(join(tmpdir(), "beacon-")) : undefined;
   try {
     const format = opts.output.kind === "video" ? videoFormat(opts.output.path) : undefined;
@@ -168,11 +172,14 @@ export async function renderProject(project: Project, registry: FeatureRegistry,
     // Natively encoded at another rate, frames are evaluated at that rate rather than dropped or repeated, each at the
     // tick nearest its time (a rate like 12.5 fps doesn't divide the tick clock).
     const step = native ? (TICKS_PER_SECOND * native.fps.den) / native.fps.num : frameTicks;
-    const times = native && opts.frames === undefined ? Array.from({ length: Math.ceil((to - from) / step) }, (_, i) => from + Math.round(i * step)) : frames.map((f) => f * frameTicks);
+    // Sped up, the timeline is sampled `speed` frames' worth apart at the same frame rate.
+    const span = step * speed;
+    const times =
+      opts.frames === undefined && (native || speed !== 1) ? Array.from({ length: Math.ceil((to - from) / span) }, (_, i) => from + Math.round(i * span)) : frames.map((f) => f * frameTicks);
 
     const job = renderJob(project, registry, opts.cacheDir, output);
     // The audio is mixed while the video renders; the two are muxed after.
-    const audio = opts.output.kind === "video" && format !== "gif" ? mixAudio(project, registry, opts.output, tmp!, ticksToSeconds(times[0]!), times.length * ticksToSeconds(step)) : undefined;
+    const audio = opts.output.kind === "video" && format !== "gif" ? mixAudio(project, registry, opts.output, tmp!, ticksToSeconds(times[0]!), times.length * ticksToSeconds(span), speed) : undefined;
     audio?.catch(() => {});
 
     const proc = spawn([workerPath()], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, BEACON_TOOLS_DIR: toolsDir() } });
@@ -316,15 +323,22 @@ export function audioPlaybackArgs(project: Project, registry: FeatureRegistry, s
   return [...ffmpegArgs(), ...inputs, "-filter_complex", sped, "-map", rate === 1 ? "[aout]" : "[sped]", "-t", (length / rate).toFixed(6)];
 }
 
-/** Mixes every audible segment in the rendered range into a file in `dir`; undefined when silent or without audio. */
-async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, dir: string, start: number, length: number) {
-  const { inputs, filter } = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length);
-  if (!filter) return undefined;
+/** A mix's graph played `speed` times faster, its pitch kept: the graph and the label to map. */
+function spedUp(filter: string, speed: number) {
+  return speed === 1 ? { filter, map: "[aout]" } : { filter: `${filter};[aout]${atempo(speed).slice(1)}[sped]`, map: "[sped]" };
+}
+
+/** Mixes every audible segment in the rendered range into a file in `dir` (`length` timeline seconds, played at `speed`); undefined when silent or without audio. */
+async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, dir: string, start: number, length: number, speed: number) {
+  const mix = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length);
+  if (!mix.filter) return undefined;
+  const { inputs } = mix;
+  const { filter, map } = spedUp(mix.filter, speed);
   const webm = videoFormat(o.path) === "webm";
   // Opus runs at 48 kHz only.
   const codec = webm ? ["-c:a", "libopus", "-ar", "48000"] : ["-c:a", "aac", "-ar", String(project.settings.sampleRate)];
   const path = join(dir, webm ? "audio.webm" : "audio.mov");
-  const args = [...ffmpegArgs(), "-y", ...inputs, "-filter_complex", filter, "-map", "[aout]", ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", length.toFixed(6), path];
+  const args = [...ffmpegArgs(), "-y", ...inputs, "-filter_complex", filter, "-map", map, ...codec, "-b:a", `${o.audioBitrate ?? 256}k`, "-t", (length / speed).toFixed(6), path];
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio mix failed: ${e.message}`);
   });
@@ -338,15 +352,15 @@ const AUDIO_CODECS: Record<string, (o: Extract<RenderOutput, { kind: "video" }>)
   mp3: (o) => ["-c:a", "libmp3lame", "-b:a", `${Math.min(320, o.audioBitrate ?? 256)}k`],
 };
 
-/** The mix of [start, start + length) alone, written straight to the output (.wav, .m4a, .mp3). */
-async function exportAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number) {
+/** The mix of [start, start + length) alone, played at `speed`, written straight to the output (.wav, .m4a, .mp3). */
+async function exportAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, start: number, length: number, speed: number) {
   const format = videoFormat(o.path);
   // MP3 stops at 48 kHz; a project at 96 kHz is resampled for it.
   const rate = format === "mp3" ? Math.min(48000, project.settings.sampleRate) : project.settings.sampleRate;
   const mix = audioMix(project, registry, start, length);
   // Nothing audible in the range: that much silence, as a range with some sound keeps its quiet parts.
-  const filter = mix.filter ?? `anullsrc=r=${rate}:cl=stereo[aout]`;
-  const args = [...ffmpegArgs(), "-y", ...mix.inputs, "-filter_complex", filter, "-map", "[aout]", ...AUDIO_CODECS[format]!(o), "-ar", String(rate), "-t", length.toFixed(6), o.path];
+  const { filter, map } = spedUp(mix.filter ?? `anullsrc=r=${rate}:cl=stereo[aout]`, speed);
+  const args = [...ffmpegArgs(), "-y", ...mix.inputs, "-filter_complex", filter, "-map", map, ...AUDIO_CODECS[format]!(o), "-ar", String(rate), "-t", (length / speed).toFixed(6), o.path];
   await runTool(args).catch((e: Error) => {
     throw new Error(`audio export failed: ${e.message}`);
   });

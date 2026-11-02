@@ -534,6 +534,14 @@ test.skipIf(skip)("New Project asks for a name, where (Choose…) and the canvas
   expect(ui.menus).toContain("newProjectFolder:/Users/someone/Shared");
 });
 
+test.skipIf(skip)("New Project starts Standalone ticked when the last project was made standalone", async () => {
+  ui.send("newProjectSheet", { name: "Untitled Project", folder: "/Users/someone/Movies/Beacon", standalone: true });
+  await page.until("document.body.innerText.includes('New Project')");
+  expect(await page.evaluate<string>(`document.querySelector('[aria-label="Standalone project"]').getAttribute('aria-checked')`)).toBe("true");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+  await page.until("!document.body.innerText.includes('New Project')");
+});
+
 test.skipIf(skip)("opened without a project, the start screen offers New Project, the last four projects with when each was opened, and Open…", async () => {
   const path = join(dir, "start.beproj");
   const core = new LocalCore();
@@ -983,7 +991,7 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   const cameraTrack = tracks.find((t) => t.clips.some((c) => c.type === "video"))!;
   await run("track.set", { track: audioTrack.id, muted: true });
   await run("track.set", { track: cameraTrack.id, muted: true });
-  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: [] };
+  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] };
   ui.send("exportSheet", sheet);
   await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
   await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
@@ -1062,7 +1070,7 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
 }, 90_000);
 
 test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
-  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: [] });
+  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
   const rate = `document.querySelector('input[data-rate]')`;
@@ -1075,7 +1083,7 @@ test.skipIf(skip)("Export's data rate is Automatic by default, by the output's s
 });
 
 test.skipIf(skip)("Export offers the captions' .srt as a tick box, off unless ticked, and not for audio only", async () => {
-  ui.send("exportSheet", { name: "Subs", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: exportFileChoices(ui.core.registry) });
+  ui.send("exportSheet", { name: "Subs", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: exportFileChoices(ui.core.registry) });
   const box = `document.querySelector('[data-export-file="captions"]')`;
   await page.until(`!!${box}`);
   expect(await page.evaluate<string>(`${box}.textContent`)).toBe("Captions file (.srt)");
@@ -1090,8 +1098,33 @@ test.skipIf(skip)("Export offers the captions' .srt as a tick box, off unless ti
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("Export's Speed plays the whole file faster: the offered speeds or a custom one in 0.05 steps, with the length it comes out at", async () => {
+  ui.send("exportSheet", { name: "Short", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1080, height: 1920, fps: 30 }, duration: 60, files: [] });
+  const speed = `document.querySelector('[data-export-speed]')`;
+  const length = () => page.evaluate<string>(`document.querySelector('[data-export-length]').textContent`);
+  await page.until(`!!${speed}`);
+  expect(await page.evaluate<string>(`[...${speed}.options].map((o) => o.textContent).join(',')`)).toBe("Normal (1×),1.1×,1.2×,1.25×,1.5×,Custom…");
+  expect(await length()).toBe("1:00.0");
+  const choose = (v: string) => page.evaluate(`(() => { const s = ${speed}; s.value = '${v}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await choose("1.2");
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:50.0'`);
+  await choose("custom");
+  const custom = `document.querySelector('[data-export-speed-custom]')`;
+  await page.until(`!!${custom}`);
+  await page.evaluate(`(() => {
+    const i = ${custom};
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '1.37');
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  // Rounded to 0.05: 1.35×, so a minute comes out at 44.4 s.
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:44.4'`);
+  expect(exportOptions({ ...DEFAULT_EXPORT, speed: 1.35 })).toMatchObject({ speed: 1.35 });
+  expect(exportOptions(DEFAULT_EXPORT)).not.toHaveProperty("speed");
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("Audio only lists just .wav, .m4a and .mp3, comes back to each side's last pick, and writes the mix with the video options hidden", async () => {
-  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 }, files: [] });
+  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, range: { in: 1, out: 3 }, files: [] });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
   const menu = `[...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp4' || o.value === 'mp3'))`;
   const listed = () => page.evaluate<string>(`(() => { const s = ${menu}; return s.value + ':' + [...s.options].map((o) => o.value).join(','); })()`);
