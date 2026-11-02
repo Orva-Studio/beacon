@@ -42,9 +42,10 @@ pub struct FfiAudio {
     _stream: cpal::Stream,
     state: Arc<Mutex<Play>>,
     generation: Arc<AtomicU64>,
-    child: Option<Child>,
+    children: Vec<Child>,
     rate: u32,
 }
+
 
 fn handle<'a>(h: *mut FfiAudio) -> Result<&'a mut FfiAudio, String> {
     unsafe { h.as_mut() }.ok_or_else(|| "handle is null".into())
@@ -113,7 +114,7 @@ pub extern "C" fn beacon_audio_new() -> *mut FfiAudio {
             )
             .map_err(|e| e.to_string())?;
         stream.play().map_err(|e| e.to_string())?;
-        Ok(Box::into_raw(Box::new(FfiAudio { _stream: stream, state, generation: Arc::new(AtomicU64::new(0)), child: None, rate })))
+        Ok(Box::into_raw(Box::new(FfiAudio { _stream: stream, state, generation: Arc::new(AtomicU64::new(0)), children: Vec::new(), rate })))
     })
 }
 
@@ -125,7 +126,7 @@ impl FfiAudio {
             p.playing = false;
             p.buf.clear();
         }
-        if let Some(mut c) = self.child.take() {
+        for mut c in self.children.drain(..) {
             let _ = c.kill();
             let _ = c.wait();
         }
@@ -143,7 +144,10 @@ pub unsafe extern "C" fn beacon_audio_rate(h: *mut FfiAudio) -> i32 {
 
 /// Starts playing at timeline second `start`: `args_json` is an ffmpeg argv
 /// (inputs and filters) whose output this appends as f32 stereo at the
-/// device rate on stdout. An empty argv plays silence.
+/// device rate on stdout, or a list of them played one after another (each
+/// exactly as long as it says: the next takes over at its last sample). All
+/// start at once, so a short first mix is heard while a long one opens its
+/// inputs. An empty argv plays silence.
 ///
 /// # Safety
 /// `h` must be a live handle; `args_json` NUL-terminated.
@@ -151,25 +155,47 @@ pub unsafe extern "C" fn beacon_audio_rate(h: *mut FfiAudio) -> i32 {
 pub unsafe extern "C" fn beacon_audio_play(h: *mut FfiAudio, args_json: *const c_char, start: f64) -> i32 {
     guard(-1, || {
         let a = handle(h)?;
-        let args: Vec<String> = serde_json::from_str(str_arg(args_json)?).map_err(|e| format!("args: {e}"))?;
+        let value: serde_json::Value = serde_json::from_str(str_arg(args_json)?).map_err(|e| format!("args: {e}"))?;
+        // One argv, or a list of them.
+        let mixes: Vec<Vec<String>> = if value.as_array().is_some_and(|a| a.iter().any(|x| x.is_array())) {
+            serde_json::from_value(value)
+        } else {
+            serde_json::from_value(value).map(|one| vec![one])
+        }
+        .map_err(|e| format!("args: {e}"))?;
+        let mixes: Vec<Vec<String>> = mixes.into_iter().filter(|m| !m.is_empty()).collect();
         a.stop();
         let generation = a.generation.load(Ordering::SeqCst);
         {
             let mut p = a.state.lock().map_err(|_| "audio state poisoned")?;
-            *p = Play { playing: true, eof: args.is_empty(), start, latency: p.latency, ..Default::default() };
+            *p = Play { playing: true, eof: mixes.is_empty(), start, latency: p.latency, ..Default::default() };
         }
-        let Some((bin, rest)) = args.split_first() else { return Ok(0) };
-        let mut child = Command::new(bin)
-            .args(rest)
-            .args(["-f", "f32le", "-ac", "2", "-ar", &a.rate.to_string(), "pipe:1"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            // Stopping playback kills the mix mid-write; its broken-pipe complaint is expected.
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("ffmpeg: {e}"))?;
-        let mut out = child.stdout.take().unwrap();
-        a.child = Some(child);
+        let mut outs = Vec::new();
+        for args in &mixes {
+            let (bin, rest) = args.split_first().unwrap();
+            let mut child = match Command::new(bin)
+                .args(rest)
+                .args(["-f", "f32le", "-ac", "2", "-ar", &a.rate.to_string(), "pipe:1"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                // Stopping playback kills the mix mid-write; its broken-pipe complaint is expected.
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    a.stop();
+                    return Err(format!("ffmpeg: {e}"));
+                }
+            };
+            outs.push(child.stdout.take().unwrap());
+            a.children.push(child);
+        }
+        if outs.is_empty() {
+            return Ok(0);
+        }
+        let mut outs = outs.into_iter();
+        let mut out = outs.next().unwrap();
         let (state, current, cap) = (a.state.clone(), a.generation.clone(), a.rate as usize * 2 * AHEAD_SECONDS);
         std::thread::Builder::new()
             .name("ot-audio".into())
@@ -186,6 +212,11 @@ pub unsafe extern "C" fn beacon_audio_play(h: *mut FfiAudio, args_json: *const c
                     }
                     let n = match out.read(&mut bytes) {
                         Ok(n) if n > 0 => n,
+                        // This mix is done: the next one carries on from its last sample.
+                        Ok(_) if outs.len() > 0 => {
+                            out = outs.next().unwrap();
+                            continue;
+                        }
                         end => {
                             // A stopped mix ends too (killed): it must not mark the next play's mix ended.
                             if let Ok(mut p) = state.lock()

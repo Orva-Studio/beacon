@@ -2,7 +2,7 @@ import type { Pointer } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { AudioOutput, NativePreview, type PlaybackHeard, type PreviewMark, type PreviewStats } from "@beacon/media";
 import { evaluateAudio, projectDuration, roundSeconds, snapSeconds, ticksPerFrame, ticksToSeconds, type FeatureRegistry, type Project } from "@beacon/model";
-import { audioPlaybackArgs, canvasKey, renderJob, sceneAt, type AudioSource } from "./render";
+import { audioPlaybackChain, canvasKey, renderJob, sceneAt, type AudioSource } from "./render";
 
 export type ViewTarget = { layer: Pointer; width: number; height: number } | { offscreen: { width: number; height: number } };
 
@@ -22,7 +22,7 @@ export interface LiveViewOptions {
 /** Plays nothing; the time is wall-clock time since `play`. */
 class SilentClock {
   #start?: { at: number; from: number };
-  play(_: string[], from: number) {
+  play(_: unknown, from: number) {
     this.#start = { at: performance.now(), from };
   }
   time() {
@@ -221,7 +221,7 @@ export class LiveView {
     this.#clock = clock;
     if (rate > 0) {
       this.#mix = this.muted ? "" : JSON.stringify(evaluateAudio(project, this.opts.registry));
-      clock.play(this.muted ? [] : audioPlaybackArgs(project, this.opts.registry, from, Math.max(0, end - from), this.#audioProxy(project), rate), from);
+      clock.play(this.muted ? [] : audioPlaybackChain(project, this.opts.registry, from, Math.max(0, end - from), this.#audioProxy(project), rate), from);
     } else clock.play([], from);
     this.#lastFrame = -1;
     this.#prerolled.clear();
@@ -279,6 +279,22 @@ export class LiveView {
   /** When the current play's first sound was heard, on the host clock (the audio device's clock only). */
   heard(): PlaybackHeard | undefined {
     return this.#clock instanceof AudioOutput ? this.#clock.heard() : undefined;
+  }
+
+  /**
+   * Pauses where the sound stopped rather than where the picture is: sound already sent to the device (its latency,
+   * ~0.2 s over some outputs) is still heard after a pause, so a play from the picture would hear it again. Returns
+   * that timeline second, or undefined when nothing was playing forward.
+   */
+  stop(): number | undefined {
+    const clock = this.#clock;
+    if (!clock || !this.playing || this.#rate <= 0) return void this.pause();
+    const sent = clock.halt();
+    this.pause();
+    if (sent === undefined) return undefined;
+    const project = this.opts.project();
+    const last = ticksToSeconds(projectDuration(project) - ticksPerFrame(project.settings.fps));
+    return Math.max(0, Math.min(this.#from + (sent - this.#from) * this.#rate, last));
   }
 
   pause() {

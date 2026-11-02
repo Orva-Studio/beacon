@@ -102,3 +102,92 @@ test("a seek while playing starts where it says, even close to where playback wa
     await core.close(h);
   }
 });
+
+const AUDIO = join(FIXTURES, "audio.m4a");
+
+/** A mix's output as the device takes it: f32 stereo at 48 kHz. */
+async function mixed(args: string[]): Promise<Float32Array> {
+  const p = Bun.spawn([...args, "-f", "f32le", "-ac", "2", "-ar", "48000", "pipe:1"], { stdout: "pipe", stderr: "ignore" });
+  const buf = Buffer.from(await new Response(p.stdout).arrayBuffer());
+  return new Float32Array(buf.buffer, buf.byteOffset, buf.length / 4);
+}
+
+// From the start of a rough-cut talk, one mix opened all 126 of its pieces before a sound (~0.4 s; the user, 2026-11-02).
+test.skipIf(!existsSync(AUDIO))("playback's sound starts from a short mix of the next seconds, the rest joined on at its last sample", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "chain-cache") });
+  const h = await core.create({ path: join(dir, "chain.beproj") });
+  const r = await core.import(h, [AUDIO], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  // A rough cut: 60 pieces.
+  await core.run(h, "timeline.rippleDelete", { ranges: Array.from({ length: 59 }, (_, i) => ({ start: 3 * i + 2.5, end: 3 * i + 3 })).reverse() });
+  const doc = core.doc(h);
+  const { audioPlaybackArgs, audioPlaybackChain } = await import("@beacon/render");
+  const { evaluateAudio } = await import("@beacon/model");
+  expect(evaluateAudio(doc, core.registry).length).toBe(60);
+  const inputs = (args: string[]) => args.filter((a) => a === "-i").length;
+  const one = audioPlaybackArgs(doc, core.registry, 0, 40);
+  const chain = audioPlaybackChain(doc, core.registry, 0, 40);
+  expect(inputs(one)).toBe(16);
+  expect(chain.map(inputs)).toEqual([4, 12]);
+  const whole = await mixed(one);
+  const parts = await Promise.all(chain.map(mixed));
+  expect(parts.map((p) => p.length / 2)).toEqual([480_000, 1_440_000]);
+  const joined = new Float32Array(whole.length);
+  joined.set(parts[0]!);
+  joined.set(parts[1]!, parts[0]!.length);
+  // The same sound, but for the resampler's edges (a 44.1 kHz file played at 48 kHz) within 16 samples of the join, far under hearing.
+  const seam = parts[0]!.length;
+  for (let i = 0; i < whole.length; i++) {
+    const d = Math.abs(joined[i]! - whole[i]!);
+    if (d > 1e-6) {
+      expect(Math.abs(i - seam)).toBeLessThanOrEqual(34);
+      expect(d).toBeLessThan(0.003);
+    }
+  }
+  await core.close(h);
+
+  // The device plays a chain one mix after the other (silence here: nothing heard).
+  const { ffmpegArgs } = await import("@beacon/media");
+  const quiet = (t: number) => [...ffmpegArgs(), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", String(t)];
+  const out = new AudioOutput();
+  try {
+    out.play([quiet(0.3), quiet(0.3)], 0);
+    await Bun.sleep(500);
+    expect(out.time()!).toBeGreaterThan(0.1);
+    expect(out.heard()!.stalled).toBe(0);
+  } finally {
+    out.close();
+  }
+}, 60_000);
+
+// Sound on its way to the speakers when Space paused was heard again from the paused frame on the next play (the user, 2026-11-02).
+test("a pause stops the playhead where the sound stopped, not where the picture was, so playing on doesn't repeat it", async () => {
+  // The device's latency: what is sent but not yet heard.
+  const out = new AudioOutput();
+  out.play([], 0);
+  await Bun.sleep(300);
+  const heard = out.time()!;
+  const latency = out.halt()! - heard;
+  out.close();
+
+  const core = new LocalCore({ cacheDir: join(dir, "pause-cache") });
+  const h = await core.create({ path: join(dir, "pause.beproj") });
+  await core.run(h, "edit.addAnnotation", { preset: "text", time: 0, duration: 10 });
+  const view = core.attachView(h, { offscreen: { width: 320, height: 180 } }, { proxies: false });
+  view.muted = true;
+  try {
+    await core.run(h, "playhead.set", { time: 1 });
+    await core.run(h, "playback.play", {});
+    await Bun.sleep(800);
+    const shown = (await core.session(h)).playhead;
+    await core.run(h, "playback.pause", {});
+    const paused = (await core.session(h)).playhead;
+    // A frame or so may tick by between reading the playhead and pausing.
+    expect(paused - shown).toBeGreaterThanOrEqual(latency - 0.04);
+    expect(paused - shown).toBeLessThan(latency + 0.08);
+    expect(view.playing).toBe(false);
+  } finally {
+    view.close();
+    await core.close(h);
+  }
+}, 60_000);

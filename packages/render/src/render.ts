@@ -328,6 +328,26 @@ function spedUp(filter: string, speed: number) {
   return speed === 1 ? { filter, map: "[aout]" } : { filter: `${filter};[aout]${atempo(speed).slice(1)}[sped]`, map: "[sped]" };
 }
 
+/** Timeline seconds the first of a playback's mixes covers: few inputs to open, so the sound starts at once. */
+export const PLAYBACK_HEAD_SECONDS = 10;
+
+/**
+ * `audioPlaybackArgs` as mixes played one after another: the next `PLAYBACK_HEAD_SECONDS` alone, then the rest.
+ * One mix opens every segment to the end before its first sample (126 on a rough-cut talk: ~0.4 s from its start).
+ */
+export function audioPlaybackChain(project: Project, registry: FeatureRegistry, start: number, length: number, source?: AudioSource, rate = 1): string[][] {
+  const head = PLAYBACK_HEAD_SECONDS;
+  if (length <= head * 1.5) return [audioPlaybackArgs(project, registry, start, length, source, rate)];
+  // Each mix is exactly as long as it says (-t), so the second takes over at the first's last sample; a silent part is silence, not nothing.
+  const part = (from: number, len: number) => audioPlaybackArgs(project, registry, from, len, source, rate) as string[];
+  const silence = (len: number) => [...ffmpegArgs(), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", (len / rate).toFixed(6)];
+  const parts = [part(start, head), part(start + head, length - head)];
+  if (!parts[0]!.length && !parts[1]!.length) return [];
+  // After the sound ends the clock runs on by itself.
+  if (!parts[1]!.length) return [parts[0]!];
+  return [parts[0]!.length ? parts[0]! : silence(head), parts[1]!];
+}
+
 /** Mixes every audible segment in the rendered range into a file in `dir` (`length` timeline seconds, played at `speed`); undefined when silent or without audio. */
 async function mixAudio(project: Project, registry: FeatureRegistry, o: Extract<RenderOutput, { kind: "video" }>, dir: string, start: number, length: number, speed: number) {
   const mix = o.audio === false ? { inputs: [] } : audioMix(project, registry, start, length);

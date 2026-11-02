@@ -604,8 +604,10 @@ export class LocalCore implements BeaconCore {
     const view = p.view;
     if (!view || p.ticking) return;
     if (changed.includes("playing") && session.playing) p.preview = undefined;
-    if (changed.includes("playing") && !session.playing) view.pause();
-    else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
+    if (changed.includes("playing") && !session.playing) {
+      const at = view.stop();
+      if (at !== undefined && at > session.playhead) p.session.run("playhead.set", { time: at }, p.store.doc);
+    } else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
     else if (changed.includes("playhead")) view.show(session.playhead);
   }
 
