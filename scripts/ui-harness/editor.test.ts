@@ -2519,6 +2519,45 @@ test.skipIf(skip)("Remove Unused Media takes out every medium no clip uses, keep
   while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
 }, 30_000);
 
+test.skipIf(skip)("two media selected in the bin (click, ⇧-click): the menu of one adds both to the timeline, one after the other in the bin's order, in one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const copies = ["first", "second"].map((n) => {
+    const copy = join(dir, `${n}-${Date.now()}.mp4`);
+    copyFileSync(join(FIXTURES, "video.mp4"), copy);
+    return copy;
+  });
+  const ids = [] as string[];
+  for (const c of copies) ids.push((await ui.core.import(ui.handle, [c])).assets[0]!);
+  await run("clip.remove", { clips: clips().filter((c) => ids.includes(c.assetId!)).map((c) => c.id), linked: true });
+  try {
+    await run("panel.show", { tool: "media" });
+    for (const id of ids) await page.until(`!!document.querySelector('[data-asset="${id}"]')`);
+    await page.click(...(await centre(`[data-asset="${ids[0]}"]`)));
+    await page.click(...(await centre(`[data-asset="${ids[1]}"]`)), ["shift"]);
+    await page.until(`document.querySelectorAll('[data-asset="${ids[0]}"][data-selected], [data-asset="${ids[1]}"][data-selected]').length === 2`);
+    const menus = ui.menus.length;
+    await page.rightClick(...(await centre(`[data-asset="${ids[1]}"]`)));
+    await arrived(() => ui.menus.length > menus);
+    const [, asset, list] = ui.menus.at(-1)!.split(":");
+    expect(asset).toBe(ids[1]);
+    const order = await page.evaluate<string[]>("[...document.querySelectorAll('[data-asset]')].map((e) => e.dataset.asset)");
+    expect(list!.split(",")).toEqual(order.filter((id) => ids.includes(id)));
+
+    // Add to Timeline at Playhead, as the app's menu runs it.
+    await run("playhead.set", { time: 5 });
+    await run("edit.addMedia", { asset: list!.split(",") });
+    const placed = list!.split(",").map((id) => clips().filter((c) => c.assetId === id).sort((a, b) => a.start - b.start)[0]!);
+    expect(placed.every(Boolean)).toBe(true);
+    expect(ticksToSeconds(placed[0]!.start)).toBeCloseTo(5, 2);
+    expect(placed[1]!.start).toBe(placed[0]!.start + placed[0]!.duration);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Media");
+    expect([...(await session()).selection].sort()).toEqual(clips().filter((c) => ids.includes(c.assetId!)).map((c) => c.id).sort());
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("a slider takes a press above or below its groove and past its ends, the value still read along the groove", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await select([screen.id]);

@@ -274,15 +274,29 @@ export const actions = [
   defineAction({
     id: "edit.addMedia",
     description:
-      "Put media from the Media Bin on the timeline (Add to Timeline at Playhead, Add to End of Timeline, or a drag from the bin): at `time` (default the playhead), or after the last clip with `end`, on `track` when dropped on one, and select it",
-    args: z.strictObject({ asset: z.string().min(1), time: z.number().nonnegative().optional(), end: z.boolean().optional(), track: z.string().min(1).optional() }),
+      "Put media from the Media Bin on the timeline (Add to Timeline at Playhead, Add to End of Timeline, or a drag from the bin): at `time` (default the playhead), or after the last clip with `end`, on `track` when dropped on one, and select it. Several (`asset` a list, as the bin's selection) go one after another in that order, one undo step",
+    args: z.strictObject({
+      asset: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+      time: z.number().nonnegative().optional(),
+      end: z.boolean().optional(),
+      track: z.string().min(1).optional(),
+    }),
     resolve: ({ asset, time, end, track }, ctx) => {
       mainTimelineOnly(ctx, "add media");
-      const at = end ? ticksToSeconds(projectDuration(ctx.project)) : (time ?? ctx.session.playhead);
+      const assets = typeof asset === "string" ? [asset] : [...new Set(asset)];
+      let at = end ? ticksToSeconds(projectDuration(ctx.project)) : (time ?? ctx.session.playhead);
+      const steps = assets.map((id) => {
+        const a = ctx.project.assets[id];
+        if (!a) throw new Error(`no asset "${id}"`);
+        const specs = ctx.registry.importerFor(a.path.slice(a.path.lastIndexOf(".")))?.clips(a, ctx.project) ?? [];
+        const step = { command: "asset.place", args: { asset: id, time: at, ...(track ? { track } : {}) } };
+        at += ticksToSeconds(Math.max(0, ...specs.map((c) => c.duration)));
+        return step;
+      });
       return {
         label: "Add Media",
-        steps: [{ command: "asset.place", args: { asset, time: at, ...(track ? { track } : {}) } }],
-        after: (results) => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }],
+        steps,
+        after: (results) => [{ command: "selection.set", args: { clips: (results as string[][]).flat(), linked: false } }],
       };
     },
   }),

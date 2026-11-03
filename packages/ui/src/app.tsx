@@ -55,7 +55,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   trackMenu(track: string | null): void;
   sectionMenu(section: string): void;
   /** A Media Bin item's menu; without one, the bin's own (its empty space). */
-  binMenu(asset?: string): void;
+  /** `assets`: the selected media it acts on, when it is one of several selected. */
+  binMenu(asset?: string, assets?: string[]): void;
   tileMenu(tile: TileMenu): void;
   /** The agent sessions Beacon's MCP server serves, newest first. */
   agents(): Promise<import("@beacon/core").AgentSession[]>;

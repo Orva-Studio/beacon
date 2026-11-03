@@ -282,13 +282,15 @@ export function createMenus(app: MenusApp) {
     ]);
   }
 
-  function binMenu({ asset }: { asset?: string }) {
+  function binMenu({ asset, assets }: { asset?: string; assets?: string[] }) {
     const current = app.current();
     if (!current) return;
     const unused = { label: "Remove Unused Media", action: "media:removeUnused:" };
     if (!asset) return void ContextMenu.showContextMenu([action("app.import"), SEPARATOR, unused]);
     const used = [...walkClips(core.doc(current.path).tracks, core.registry)].some((l) => l.clip.assetId === asset);
     const own = (label: string, op: string, enabled = true) => ({ label, action: `media:${op}:${asset}`, enabled });
+    // One of several selected: Add and Delete act on all of them.
+    const all = (label: string, op: string) => ({ label: assets ? `${label} (${assets.length})` : label, action: `media:${op}:${(assets ?? [asset]).join(",")}`, enabled: true });
     const a = core.doc(current.path).assets[asset];
     const proxyable = !!a && !!core.registry.jobAnalyzers.get("proxy")?.applies(a);
     const hasProxy = core.derived(current.path, asset, "proxy") !== undefined;
@@ -296,11 +298,11 @@ export function createMenus(app: MenusApp) {
     const missing = !!a && !existsSync(a.path);
     ContextMenu.showContextMenu([
       ...(missing ? [own("Locate Media…", "locate"), SEPARATOR] : []),
-      own("Add to Timeline at Playhead", "add"),
-      own("Add to End of Timeline", "addEnd"),
+      all("Add to Timeline at Playhead", "add"),
+      all("Add to End of Timeline", "addEnd"),
       ...(proxyable ? [{ label: "Proxy Video", submenu: [own("Create Proxy Video", "proxyCreate", !hasProxy && !making), own("Delete Proxy Video", "proxyDelete", hasProxy || making)] }] : []),
       SEPARATOR,
-      own("Delete", "delete"),
+      all("Delete", "delete"),
       unused,
       own("Rename…", "rename"),
       // Only what was imported from elsewhere: a recording's streams are clips of their own.
@@ -417,12 +419,13 @@ export function createMenus(app: MenusApp) {
   /** Media Bin menu items. */
   function mediaAction(h: string, op: string, asset: string) {
     if (op === "removeUnused") return void removeUnused(h).catch(fail);
+    const ids = asset.split(",");
+    if (op === "add") return void core.run(h, "edit.addMedia", { asset: ids }).catch(fail);
+    if (op === "addEnd") return void core.run(h, "edit.addMedia", { asset: ids, end: true }).catch(fail);
+    if (op === "delete") return void core.run(h, "edit.deleteMedia", { asset: ids }).catch(fail);
     const a = core.doc(h).assets[asset];
     if (!a) return;
-    if (op === "add") void core.run(h, "edit.addMedia", { asset }).catch(fail);
-    else if (op === "addEnd") void core.run(h, "edit.addMedia", { asset, end: true }).catch(fail);
-    else if (op === "delete") void core.run(h, "edit.deleteMedia", { asset }).catch(fail);
-    else if (op === "rename") message("renameMedia", { asset });
+    if (op === "rename") message("renameMedia", { asset });
     else if (op === "reveal") Utils.showItemInFolder(a.path);
     else if (op === "select") void core.run(h, "edit.selectMedia", { asset }).catch(fail);
     else if (op === "proxyCreate") void core.analyze(h, "proxy", asset).catch(fail);
