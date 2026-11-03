@@ -119,6 +119,8 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
+const earlyReplies = new Map<string, { state: AgentRequest["state"]; text?: string }>();
+
 /** A request sent to an agent from the app: sent, acknowledged, done, or never acknowledged. */
 export interface AgentRequest {
   id: string;
@@ -129,6 +131,8 @@ export interface AgentRequest {
   copy: string;
   state: "sent" | "received" | "done" | "silent";
   text?: string;
+  /** A run Beacon started (Codex): it can be cancelled; its id is its job's. */
+  run?: boolean;
 }
 
 let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
@@ -233,10 +237,14 @@ export const replica = {
     set({ askAgent: about && state.opened ? about : undefined });
   },
   agentSent(request: AgentRequest) {
-    set({ agentRequests: [...state.agentRequests, request] });
+    // A run's answers can come before its id did.
+    const early = earlyReplies.get(request.id);
+    earlyReplies.delete(request.id);
+    set({ agentRequests: [...state.agentRequests, early ? { ...request, state: early.state, ...(early.text ? { text: early.text } : {}) } : request] });
   },
   /** An agent's answer; a request it never acknowledged goes `silent` (the session doesn't take channels). */
   agentState(id: string, state2: AgentRequest["state"], text?: string) {
+    if (state2 !== "silent" && !state.agentRequests.some((r) => r.id === id)) return void earlyReplies.set(id, { state: state2, ...(text ? { text } : {}) });
     set({ agentRequests: state.agentRequests.map((r) => (r.id === id && !(state2 === "silent" && r.state !== "sent") ? { ...r, state: state2, ...(text ? { text } : {}) } : r)) });
   },
   dismissAgent(id: string) {

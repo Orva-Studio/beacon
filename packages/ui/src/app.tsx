@@ -296,7 +296,7 @@ export function App({ host }: { host: Host }) {
         <Toasts>
           <ExportToast host={host} />
           <TaskToasts host={host} />
-          <AgentToasts />
+          <AgentToasts host={host} />
           <SnapshotSaved host={host} />
           <ImportProgress project={project} />
         </Toasts>

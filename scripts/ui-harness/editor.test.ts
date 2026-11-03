@@ -5428,6 +5428,61 @@ test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… 
   }
 }, 60_000);
 
+test.skipIf(skip)("Ask an Agent with Codex: 'New run with Codex' is offered when it is installed, and a run's steps and last message show in its toast", async () => {
+  // A stand-in Codex where the harness looks for it: it speaks codex exec's JSON events.
+  const codex = join(ui.controlDir, "codex");
+  const jsonl = join(ui.controlDir, "codex-events.jsonl");
+  const events = [
+    { type: "item.completed", item: { type: "agent_message", text: "Opening the project" } },
+    { type: "item.started", item: { type: "mcp_tool_call", server: "beacon", tool: "timeline_clips" } },
+    { type: "item.completed", item: { type: "agent_message", text: "Moved the logo to the top right" } },
+  ];
+  writeFileSync(jsonl, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(codex, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 1.0.0"; exit 0; fi\nsleep 0.5\ncat ${JSON.stringify(jsonl)}\n`);
+  Bun.spawnSync(["chmod", "755", codex]);
+  try {
+    await select([screen.id]);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("[...(document.querySelector('[data-ask-session]')?.options ?? [])].some((o) => o.value === 'run:codex')");
+    expect(await page.evaluate<string>("[...document.querySelector('[data-ask-session]').options].find((o) => o.value === 'run:codex').textContent")).toBe("New run with Codex");
+    await page.evaluate("(() => { const s = document.querySelector('[data-ask-session]'); s.value = 'run:codex'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await page.click(...(await centre("[data-ask-prompt]")));
+    await type("Move the logo to the top right");
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+    // While it runs: Cancel; then what it did.
+    await page.until("!!document.querySelector('[data-agent-cancel]')");
+    await page.until("[...document.querySelectorAll('[data-agent-state=done]')].some((e) => e.textContent.includes('Moved the logo to the top right'))", 10_000);
+    expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-agent-state=done]')].some((e) => e.closest('[data-toast]').textContent.startsWith('Codex: done'))")).toBe(true);
+    // A run cancelled from its toast says so in its title. The harness only records cancelJob, so it is passed on here.
+    writeFileSync(codex, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 1.0.0"; exit 0; fi\nhead -n 1 ${JSON.stringify(jsonl)}\nsleep 30\n`);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("[...(document.querySelector('[data-ask-session]')?.options ?? [])].some((o) => o.value === 'run:codex')");
+    await page.evaluate("(() => { const s = document.querySelector('[data-ask-session]'); s.value = 'run:codex'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await page.click(...(await centre("[data-ask-prompt]")));
+    await type("Something slow");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-agent-cancel]')");
+    const id = await page.evaluate<string>("document.querySelector('[data-agent-cancel]').closest('[data-agent-request]').dataset.agentRequest");
+    await page.evaluate("document.querySelector('[data-agent-cancel]').click()");
+    await arrived(() => ui.menus.includes(`cancelJob:${id}`));
+    expect(ui.menus).toContain(`cancelJob:${id}`);
+    await ui.core.cancelJob(id);
+    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.closest('[data-toast]').textContent.startsWith('Codex: cancelled')`);
+  } finally {
+    rmSync(codex, { force: true });
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {

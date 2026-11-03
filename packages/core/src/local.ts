@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
+import { fileFingerprint, jobSignal, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
 import {
   changedSettings,
   createProject,
@@ -93,6 +93,7 @@ import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { askControl, controlSockets } from "./socket";
+import { findAgentCli, RUN_AGENTS, runCodex, type RunAgent } from "./agent-run";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
 /** An action's document steps in one transaction, each given the results of those before it when it asks. */
@@ -119,6 +120,8 @@ export interface LocalCoreOptions {
   secrets?: Secrets;
   /** Where agent sessions' control sockets are (`agents`); tests keep the user's out. */
   controlDir?: string;
+  /** The agent CLIs Beacon may start a run of, by name (`codex`); unset, those installed are found. Tests give their own. */
+  agentClis?: Partial<Record<RunAgent, string>>;
 }
 
 const DEFAULT_CONFIG_DIR = join(homedir(), "Library/Application Support/Beacon");
@@ -164,6 +167,7 @@ export class LocalCore implements BeaconCore {
   readonly #analyses: Analyses;
   readonly #recording: Recording;
   readonly #controlDir: string | undefined;
+  readonly #agentClis: Partial<Record<RunAgent, string>> | undefined;
 
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
@@ -174,6 +178,7 @@ export class LocalCore implements BeaconCore {
     });
     this.#pref = this.#config.pref;
     this.#controlDir = opts.controlDir;
+    this.#agentClis = opts.agentClis;
     this.#owner = { ...(opts.name ? { name: opts.name } : {}), ...(opts.socket ? { socket: opts.socket } : {}), ...(opts.control ? { control: opts.control } : {}) };
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
@@ -1184,16 +1189,47 @@ export class LocalCore implements BeaconCore {
         }
       }),
     );
-    return found.filter((a): a is AgentSession => !!a).sort((a, b) => b.started - a.started);
+    const sessions = found.filter((a): a is AgentSession => !!a).sort((a, b) => b.started - a.started);
+    const runs = await Promise.all(RUN_AGENTS.map(async (name) => ({ name, cli: await this.#agentCli(name) })));
+    return [...sessions, ...runs.flatMap(({ name, cli }) => (cli ? [{ socket: `run:${name}`, name, version: cli.version, started: 0, run: true }] : []))];
+  }
+
+  #agentCli(name: RunAgent) {
+    if (this.#agentClis) return this.#agentClis[name] ? findAgentCli(name, this.#agentClis[name]) : Promise.resolve(null);
+    return findAgentCli(name);
   }
 
   async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
+    if (socket.startsWith("run:")) return this.#runAgent(socket.slice(4) as RunAgent, prompt, about);
     if (!controlSockets(this.#controlDir).includes(socket)) throw new Error("that agent session has ended");
     const request = shortId("ask");
     const meta: Record<string, string> = { request, ...(this.#owner.socket ? { reply_to: this.#owner.socket } : {}) };
     for (const [k, v] of Object.entries(about)) if (v !== undefined) meta[k] = typeof v === "number" ? v.toFixed(2) : v;
     await askControl(socket, "prompt", [prompt, meta]);
     return request;
+  }
+
+  /** A run of an agent's CLI on the request, as a job whose id is the request's: its steps and last message as `agent` events. */
+  async #runAgent(name: RunAgent, prompt: string, about: AgentAbout): Promise<string> {
+    if (!RUN_AGENTS.includes(name)) throw new Error(`Beacon can't start a run of ${name}`);
+    const cli = await this.#agentCli(name);
+    if (!cli) throw new Error(`${name} isn't installed`);
+    const tell = (status: "received" | "done", text?: string) => void this.agentReply(job.id, status, text);
+    const job = this.#jobs.start("agent", `Codex: ${prompt.slice(0, 60)}`, async (progress) => {
+      const last = await runCodex(cli.path, prompt, about, (s) => {
+        const text = s.tool ? `Using ${s.tool.replace(/_/g, " ")}` : s.message;
+        progress(0, text);
+        tell("received", text);
+      }).catch((e: Error) => {
+        tell("done", jobSignal()?.aborted || e.message === "cancelled" ? "Cancelled" : e.message);
+        throw e;
+      });
+      tell("done", last || "Done");
+      return { message: last };
+    });
+    // Told once the id is known: it is the request's.
+    queueMicrotask(() => tell("received"));
+    return job.id;
   }
 
   async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {

@@ -26,6 +26,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     ...(opts.cacheDir ? { cacheDir: opts.cacheDir } : {}),
     configDir,
     controlDir,
+    // Nor their agent CLIs: a flow writes its stand-in Codex here.
+    agentClis: { codex: join(controlDir, "codex") },
     secrets: { get: async (id) => secrets.get(id), set: async (id, value) => void (value === null ? secrets.delete(id) : secrets.set(id, value)) },
   });
   // Every medium gets its proxy on its own here (the app's default is none), for the flows that watch one being made.

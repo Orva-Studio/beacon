@@ -340,12 +340,15 @@ export interface BeaconCore {
   itemUsed(item: string): Promise<string[]>;
   /**
    * The agent sessions Beacon's MCP server serves now (Claude Code…), newest first: each with its control socket,
-   * the agent's name and version, and the project it has open.
+   * the agent's name and version, and the project it has open; then the agents installed that Beacon can start a run
+   * of (`run`, socket `run:<agent>`).
    */
   agents(): Promise<AgentSession[]>;
   /**
    * Sends a request the user typed to an agent session (Claude Code takes it as a channel message, when started with
    * Beacon as a channel), with what it is about; returns the request's id, which its replies (`agent` events) carry.
+   * To a `run:` agent it starts a run as a job (the request's id is the job's, so `cancelJob` stops it), its steps and
+   * last message told as `agent` events.
    */
   askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string>;
   /** An agent's answer to a request (`app_reply`): it has it, or it is done. Raises an `agent` event. */
@@ -438,8 +441,10 @@ export interface AgentSession {
   version: string;
   /** The project it has open. */
   project?: string;
-  /** When it started (ms since the epoch). */
+  /** When it started (ms since the epoch); 0 for a new run. */
   started: number;
+  /** Not a session but an agent Beacon starts a run of for the request (Codex: `codex exec`), with Beacon's tools. */
+  run?: boolean;
 }
 
 /** What a request to an agent is about: the project, and the clip or section and timeline span. */

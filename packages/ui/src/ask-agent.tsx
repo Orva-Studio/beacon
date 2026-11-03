@@ -63,7 +63,7 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     void host.agents().then((all) => {
-      const usable = all.filter((a) => TAKES_REQUESTS.has(a.name));
+      const usable = all.filter((a) => a.run || TAKES_REQUESTS.has(a.name));
       setSessions(usable);
       // The one with this project open, else the newest.
       setSocket((usable.find((a) => a.project === about.project) ?? usable[0])?.socket);
@@ -75,9 +75,9 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
     if (!chosen || !prompt.trim()) return;
     const r = await host.askAgent(chosen.socket, prompt.trim(), about);
     if ("error" in r) return setError(r.error);
-    replica.agentSent({ id: r.id, agent: agentName(chosen.name), prompt: prompt.trim(), copy: withContext(prompt.trim(), about), state: "sent" });
+    replica.agentSent({ id: r.id, agent: agentName(chosen.name), prompt: prompt.trim(), copy: withContext(prompt.trim(), about), state: "sent", ...(chosen.run ? { run: true } : {}) });
     close();
-    setTimeout(() => replica.agentState(r.id, "silent"), ACK_SECONDS * 1000);
+    if (!chosen.run) setTimeout(() => replica.agentState(r.id, "silent"), ACK_SECONDS * 1000);
   };
   const copy = async () => {
     await navigator.clipboard.writeText(withContext(prompt.trim(), about)).catch(() => {});
@@ -113,8 +113,9 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
             <Select value={socket ?? ""} onChange={(e) => setSocket(e.target.value)} data-ask-session>
               {sessions.map((s) => (
                 <option key={s.socket} value={s.socket}>
-                  {agentName(s.name)}
-                  {s.project ? ` · ${s.project.split("/").pop()}` : ""} · started {new Date(s.started).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {s.run
+                    ? `New run with ${agentName(s.name)}`
+                    : `${agentName(s.name)}${s.project ? ` · ${s.project.split("/").pop()}` : ""} · started ${new Date(s.started).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
                 </option>
               ))}
             </Select>
@@ -122,7 +123,7 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
         )}
         {sessions && !sessions.length && (
           <div className="flex flex-col gap-2 rounded-md bg-groove px-3 py-2" data-ask-none>
-            <span className="text-warning">No Claude Code session is connected to Beacon.</span>
+            <span className="text-warning">No Claude Code session is connected to Beacon, and Codex isn't installed.</span>
             <span className="text-caption text-text-muted">Start one in the project's folder that takes requests from Beacon:</span>
             <code className="rounded-sm bg-chip px-2 py-1 text-caption text-text-strong select-text">{START_COMMAND}</code>
             <span className="text-caption text-text-faint">Or copy the request with what it's about, and paste it into any agent.</span>
@@ -144,18 +145,30 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
 }
 
 /** Requests sent to agents: sent, then acknowledged, then what they did; one never acknowledged says why and offers its text. */
-export function AgentToasts() {
+export function AgentToasts({ host }: { host: Pick<Host, "cancelJob"> }) {
   const requests = useView((v) => v.agentRequests);
-  return requests.map((r) => <AgentToast key={r.id} request={r} />);
+  return requests.map((r) => <AgentToast key={r.id} request={r} host={host} />);
 }
 
-function AgentToast({ request: r }: { request: AgentRequest }) {
+function AgentToast({ request: r, host }: { request: AgentRequest; host: Pick<Host, "cancelJob"> }) {
   const [copied, setCopied] = useState(false);
-  const title = r.state === "done" ? `${r.agent}: done` : r.state === "received" ? `${r.agent} is on it` : r.state === "silent" ? `${r.agent} didn't answer` : `Sent to ${r.agent}`;
+  // A run's job reports its cancelling as a reply whose text is "Cancelled" (LocalCore's #runAgent).
+  const cancelled = !!r.run && r.state === "done" && r.text === "Cancelled";
+  const title = cancelled ? `${r.agent}: cancelled` : r.state === "done" ? `${r.agent}: done` : r.state === "received" ? `${r.agent} is on it` : r.state === "silent" ? `${r.agent} didn't answer` : `Sent to ${r.agent}`;
   return (
     <Toast title={title} done={r.state === "done"} onDismiss={r.state === "sent" ? undefined : () => replica.dismissAgent(r.id)}>
       <div data-agent-request={r.id} data-agent-state={r.state}>
-        {r.state === "done" && r.text ? <div className="text-label text-text">{r.text}</div> : <div className="truncate text-label text-text-muted">{r.prompt}</div>}
+        {r.state === "done" && r.text && !cancelled ? <div className="text-label text-text">{r.text}</div> : <div className="truncate text-label text-text-muted">{r.prompt}</div>}
+        {r.state === "received" && r.text && (
+          <div className="mt-1 truncate text-caption text-text-faint" data-agent-step>
+            {r.text}
+          </div>
+        )}
+        {r.run && r.state !== "done" && (
+          <Button className="mt-2" onClick={() => host.cancelJob(r.id)} data-agent-cancel>
+            Cancel
+          </Button>
+        )}
         {r.state === "silent" && (
           <div className="mt-2 flex flex-col items-start gap-2">
             <span className="text-caption text-text-muted">Its session may not take requests from Beacon: start one with</span>

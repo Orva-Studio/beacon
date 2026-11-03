@@ -3132,8 +3132,15 @@ Claude Code first, Codex after.
   server:beacon` in the project's folder (a warning to confirm once). A
   session without it drops requests silently: Beacon says so when one isn't
   acknowledged within 10 s.
-- **Built (2026-11-03).** Next: Codex, which can't take a pushed request (a
-  new background run, `codex exec`, in the project's folder).
+- **Built (2026-11-03).**
+- **Codex (built 2026-11-03):** it can't take a request into an open session,
+  so the box offers "New run with Codex" when its CLI is installed (found in
+  the usual places, else through the login shell). Beacon runs `codex exec
+  --json` in the project's folder with Beacon's MCP server attached and its
+  tools approved for that run only (`-c mcp_servers.beacon.…`,
+  `default_tools_approval_mode="approve"`), in a read-only sandbox (it changes
+  the project through Beacon's tools alone); a job whose id is the request's,
+  its steps in the toast with Cancel, its last message as done.
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,
