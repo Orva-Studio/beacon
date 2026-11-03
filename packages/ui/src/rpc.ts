@@ -68,6 +68,8 @@ export interface RecentProject {
 }
 
 export interface Init {
+  /** The timeline's share of the window's height, as last dragged (app-wide). */
+  timelineShare?: number;
   opened?: Opened;
   recent: RecentProject[];
   /** Where New Project puts a project: the folder last chosen for one, else ~/Movies/Beacon. */

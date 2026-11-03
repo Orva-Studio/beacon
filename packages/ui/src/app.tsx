@@ -216,6 +216,9 @@ export function App({ host }: { host: Host }) {
     };
   }, [keymap, host]);
 
+  const [dragged, setTimelineShare] = useState<number>();
+  const timelineShare = dragged ?? init?.timelineShare ?? TIMELINE_SHARE;
+
   return (
     <EyedropperContext.Provider value={EYEDROPPER}>
       <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
@@ -243,8 +246,9 @@ export function App({ host }: { host: Host }) {
               <Properties project={project} session={session} host={host} init={init} />
             ))}
         </div>
+        {project && session && <TimelineDivider share={timelineShare} set={setTimelineShare} host={host} />}
         {project && session ? (
-          <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
+          <div className="panel-card flex min-h-[180px] flex-col overflow-hidden" style={{ height: `${timelineShare * 100}%` }} data-timeline-card>
             <Toolbar session={session} host={host} />
             <Timeline
               project={project}
@@ -567,5 +571,44 @@ function Transport({ project, session, host }: { project: Project; session: Sess
         {session.playing && session.rate !== 1 && <span className="ml-2 font-mono text-xs text-accent">{session.rate < 0 ? "◀ " : ""}{Math.abs(session.rate)}x</span>}
       </span>
     </div>
+  );
+}
+
+const TIMELINE_SHARE = 0.38;
+
+/**
+ * The gap between the canvas and the timeline, dragged up or down to give one more room (the canvas row keeps
+ * 200 px, the timeline 180); remembered app-wide when let go. A double-click puts it back.
+ */
+function TimelineDivider({ share, set, host }: { share: number; set: (share: number) => void; host: Pick<Host, "setAppSettings"> }) {
+  const shareAt = (column: HTMLElement, y: number) => {
+    const r = column.getBoundingClientRect();
+    return Math.min(0.9, (r.bottom - 200 - 80) / r.height, Math.max(0.1, 180 / r.height, (r.bottom - y) / r.height));
+  };
+  return (
+    <div
+      className="relative z-10 -my-gutter h-gutter shrink-0 cursor-row-resize rounded-full hover:bg-white/10 active:bg-white/20"
+      data-timeline-divider={share.toFixed(3)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const handle = e.currentTarget;
+        const column = handle.parentElement!;
+        handle.setPointerCapture(e.pointerId);
+        let last = share;
+        const move = (m: PointerEvent) => set((last = shareAt(column, m.clientY)));
+        const up = () => {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          if (last !== share) host.setAppSettings({ timelineShare: Math.round(last * 1000) / 1000 });
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+      }}
+      onDoubleClick={() => {
+        set(TIMELINE_SHARE);
+        host.setAppSettings({ timelineShare: TIMELINE_SHARE });
+      }}
+    />
   );
 }

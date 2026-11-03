@@ -2458,6 +2458,8 @@ test.skipIf(skip)("dragging one selected clip's edge trims every selected clip's
 test.skipIf(skip)("a clip's id sits at the foot of its properties: a click copies it, with several selected all of them, comma-separated", async () => {
   await select([screen.id]);
   await page.until(`document.querySelector('[data-clip-id]')?.textContent === ${JSON.stringify(screen.id)}`);
+  // At the foot of a panel taller than the window: scrolled to first, as a person would.
+  await page.evaluate("document.querySelector('[data-clip-id]').scrollIntoView({ block: 'center' })");
   await page.click(...(await centre("[data-clip-id]")));
   await arrived(() => ui.copied.at(-1) === screen.id);
   expect(ui.copied.at(-1)).toBe(screen.id);
@@ -2555,6 +2557,34 @@ test.skipIf(skip)("two media selected in the bin (click, ⇧-click): the menu of
   } finally {
     while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
     await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("the divider above the timeline drags it taller or shorter (the canvas giving or taking the room, neither collapsing), remembered app-wide when let go; a double-click puts it back", async () => {
+  const box = (sel: string) => page.evaluate<{ y: number; h: number }>(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { y: r.y, h: r.height }; })()`);
+  const [timeline, canvas] = [await box("[data-timeline-card]"), await box("canvas[data-timeline]")];
+  const stage = async () => (await page.evaluate<number>("document.querySelector('[data-timeline-card]').previousElementSibling.previousElementSibling.getBoundingClientRect().height"));
+  const before = await stage();
+  const [x, y] = await centre("[data-timeline-divider]");
+  try {
+    await page.drag([x, y], [x, y - 150]);
+    await page.until(`document.querySelector('[data-timeline-card]').getBoundingClientRect().height > ${timeline.h + 140}`);
+    expect(await stage()).toBeLessThan(before - 140);
+    await arrived(() => ui.menus.some((m) => m.startsWith("setAppSettings:") && m.includes("timelineShare")));
+    const saved = (await ui.core.settings()).timelineShare!;
+    expect(saved).toBeGreaterThan(0.38);
+    // Dragged past the top: the canvas row keeps its room.
+    const [, y2] = await centre("[data-timeline-divider]");
+    await page.drag([x, y2], [x, 5]);
+    await Bun.sleep(200);
+    expect(await stage()).toBeGreaterThanOrEqual(199);
+    // A double-click puts it back.
+    await page.dblclick(...(await centre("[data-timeline-divider]")));
+    await page.until(`Math.abs(document.querySelector('[data-timeline-card]').getBoundingClientRect().height - ${timeline.h}) < 2`);
+    expect((await ui.core.settings()).timelineShare).toBe(0.38);
+    expect(canvas.h).toBeGreaterThan(0);
+  } finally {
+    await ui.core.setSettings({ timelineShare: 0.38 });
   }
 }, 30_000);
 

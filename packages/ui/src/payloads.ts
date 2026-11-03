@@ -25,6 +25,7 @@ export async function initPayload(core: Core): Promise<Omit<Init, "opened" | "re
     retimes: schema.clipTypes.filter((c) => c.retimes).map((c) => c.id),
     usedItems: await core.recentItems(),
     preferences: await core.preferences(),
+    timelineShare: (await core.settings()).timelineShare,
   };
 }
 

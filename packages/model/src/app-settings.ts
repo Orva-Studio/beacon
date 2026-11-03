@@ -24,6 +24,8 @@ export const AppSettingsSchema = z.object({
   cursorScale: z.number().min(0.25).max(10).optional(),
   /** Where a take just recorded goes: the end of the timeline (unset), the playhead, or only the Media Bin. */
   recordingPlace: z.enum(["end", "playhead", "bin"]).optional(),
+  /** The share of the window's height the timeline takes, dragged on the divider above it (unset: 38%). */
+  timelineShare: z.number().min(0.1).max(0.9).optional(),
 });
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
