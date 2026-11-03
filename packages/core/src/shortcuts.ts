@@ -23,12 +23,12 @@ const DEFAULT_KEYS = new Map(
   }),
 );
 DEFAULT_KEYS.set(LEADER_ACTION, [DEFAULT_LEADER]);
-const defaultKeys = (id: string) => DEFAULT_KEYS.get(id) ?? [];
+export const defaultKeys = (id: string) => DEFAULT_KEYS.get(id) ?? [];
 
-const savedLeader = (overrides: KeymapOverrides) => overrides[LEADER_ACTION]?.[0] ?? DEFAULT_LEADER;
+export const savedLeader = (overrides: KeymapOverrides) => overrides[LEADER_ACTION]?.[0] ?? DEFAULT_LEADER;
 
 /** A sequence's first key swapped from one leader to another; other keys as they are. Saved keys use the default leader, so changing it moves every sequence. */
-const swapLeader = (keys: Keys, from: Keys, to: Keys): Keys => {
+export const swapLeader = (keys: Keys, from: Keys, to: Keys): Keys => {
   if (!keys.then || chordId({ key: keys.key, modifiers: keys.modifiers }) !== chordId(from)) return keys;
   return { key: to.key, modifiers: to.modifiers, then: keys.then };
 };

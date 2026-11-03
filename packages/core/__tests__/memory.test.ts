@@ -21,7 +21,7 @@ test("Memory keeps the user's sentences and agents' proposals until accepted, li
   core.watchApp((e) => void (e.kind === "memory" && told.push(e)));
   // A new user: learning on, nothing kept.
   const md = join(configDir, "memory.md");
-  expect(await core.memory()).toEqual({ learning: true, sentences: [], proposals: [], file: md, habits: { short: [], long: [] }, decisions: 0 });
+  expect(await core.memory()).toEqual({ learning: true, sentences: [], proposals: [], file: md, habits: { short: [], long: [] }, decisions: 0, shortcuts: { learned: [], offers: [], removed: [] } });
 
   let m = await core.memoryChange({ add: { text: "No B-roll in the intro" } });
   m = await core.memoryChange({ add: { text: "Captions at the top", format: "short" } });

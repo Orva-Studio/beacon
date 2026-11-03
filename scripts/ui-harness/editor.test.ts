@@ -5483,6 +5483,52 @@ test.skipIf(skip)("Ask an Agent with Codex: 'New run with Codex' is offered when
   }
 }, 30_000);
 
+test.skipIf(skip)("learned shortcuts: an effect used 5 times over 2 days is offered a leader shortcut, added only on Add; the leader popup shows it as new, its keys apply it, and Settings › Memory lists it", async () => {
+  const CRT = "effect:crt-monitor";
+  const yesterday = Date.now() - 26 * 3600 * 1000;
+  const usage = (ui.core.readConfig("usage.json") ?? {}) as Record<string, number[]>;
+  ui.core.writeConfig("usage.json", { ...usage, [CRT]: [0, 1, 2, 3].map((i) => yesterday + i * 60_000) });
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    // The fifth use, today: offered, and nothing added until Add.
+    await select([screen.id]);
+    await run("panel.show", { tool: "visualEffects" });
+    await page.until(`!!document.querySelector('[data-item="${CRT}"]')`);
+    await page.dblclick(...(await centre(`[data-item="${CRT}"]`)));
+    await page.until(`!!document.querySelector('[data-shortcut-offer="${CRT}"]')`);
+    const text = await page.evaluate<string>(`document.querySelector('[data-shortcut-offer="${CRT}"]').textContent`);
+    expect(text).toMatch(/^You often use CRT Monitor: give it : [A-Z] [A-Z]\?/);
+    expect((await ui.core.shortcuts()).some((s) => s.learned)).toBe(false);
+    await page.screenshot(join(dir, "shortcut-offer.png"));
+    await page.evaluate(`document.querySelector('[data-shortcut-offer="${CRT}"] [data-shortcut-add]').click()`);
+    await page.until(`!document.querySelector('[data-shortcut-offer="${CRT}"]')`);
+    const learned = (await ui.core.shortcuts()).find((s) => s.id === `learned:${CRT}`)!;
+    expect(learned).toMatchObject({ name: "CRT Monitor", fresh: true });
+    const [, a, b] = keysLabel(learned.keys[0]!).split(" ") as [string, string, string];
+    expect(text).toContain(`: ${a} ${b}?`);
+    // The leader popup marks it new; its keys put it on the selected clip.
+    await ui.core.undo(ui.handle);
+    const before = clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length;
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until(`!!document.querySelector('[data-leader-next="${a}"] [data-leader-new]')`);
+    await page.key(a.toLowerCase(), `Key${a}`);
+    await page.until(`[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent.startsWith("${b}CRT Monitor"))`);
+    await page.key(b.toLowerCase(), `Key${b}`);
+    await arrived(() => clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length === before + 1);
+    // Settings › Memory lists it, with its keys.
+    await ui.core.uiOpen(ui.handle, "settings", "memory");
+    await page.until(`!!document.querySelector('[data-learned-shortcut="${CRT}"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-learned-shortcut="${CRT}"]').textContent`)).toContain(`: ${a} ${b}CRT Monitor1 use`);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-settings-nav]')");
+  } finally {
+    await ui.core.memoryChange({ shortcut: { remove: CRT } }).catch(() => {});
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {

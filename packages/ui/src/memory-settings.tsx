@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { HabitInfo, MemoryChange, Sentence } from "@beacon/model";
 import { Button, Check, Select, TextInput, TrashButton } from "./controls";
+import { LearnedShortcuts } from "./learned";
 import { useView } from "./store";
 
 export interface MemoryHost {
@@ -149,6 +150,8 @@ export function MemorySettings({ host }: { host: MemoryHost }) {
           ))}
         </>
       )}
+      <Heading>Learned shortcuts</Heading>
+      <LearnedShortcuts host={host} shortcuts={memory.shortcuts} />
     </div>
   );
 }

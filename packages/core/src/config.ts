@@ -22,10 +22,16 @@ import {
   type Keys,
   type SettingsPatch,
   type ShortcutInfo,
+  type LearnedShortcut,
+  chordId,
+  keysClash,
+  DEFAULT_LEADER,
+  LEADER_ACTION,
 } from "@beacon/model";
 import type { AppEvent, PreferenceInfo } from "./api";
 import type { Secrets } from "./keychain";
-import { KeymapFileSchema, setShortcut, shortcutList, type KeymapOverrides } from "./shortcuts";
+import { clearedKeys, dayOf, emptyLearned, firstKeys, learnedInfo, offers, sweep, type ItemAction, type LearnedFile } from "./learned";
+import { defaultKeys, KeymapFileSchema, savedLeader, setShortcut, shortcutList, swapLeader, type KeymapOverrides } from "./shortcuts";
 
 /** Uses of a panel item kept, newest last; and how fast one counts for less (a use two weeks old counts half). */
 const USES_KEPT = 20;
@@ -164,11 +170,113 @@ export class AppConfig {
   itemUsed(item: string, now = Date.now()): string[] {
     if (!this.#itemKnown(item)) throw new Error(`"${item}" isn't an item of the panels: ${this.registry.panelItems.map((i) => i.id).join(", ")}, effect:<id>, or ai:<tool>`);
     const usage = this.#usage();
+    const before = JSON.stringify(this.#offers(now));
     usage[item] = [...(usage[item] ?? []), now].slice(-USES_KEPT);
     this.write("usage.json", usage);
     const items = this.recentItems(now);
     this.emit({ kind: "usage", items });
+    // A learned shortcut's own use keeps it, and counts towards losing "new".
+    const learned = this.#learned();
+    const mine = learned.shortcuts.find((s) => s.item === item);
+    if (mine) {
+      mine.uses++;
+      mine.last = dayOf(now);
+      this.#saveLearned(learned);
+      this.emit({ kind: "shortcuts", shortcuts: this.shortcuts() });
+    }
+    if (mine || JSON.stringify(this.#offers(now)) !== before) this.emit({ kind: "memory", memory: this.memory(now) });
     return items;
+  }
+
+  /** The panel items a shortcut can run, by id: the features' panel items and the Visual Effects panel's effects. */
+  #items(): Map<string, ItemAction> {
+    const out = new Map<string, ItemAction>();
+    for (const i of this.registry.panelItems) out.set(i.id, { item: i.id, name: i.label, command: i.command, args: i.args });
+    for (const e of this.registry.effects.values()) if (isPanelEffect(e.traits)) out.set(`effect:${e.id}`, { item: `effect:${e.id}`, name: e.title, command: "edit.addEffect", args: { type: e.id } });
+    return out;
+  }
+
+  #learned(): LearnedFile {
+    const raw = this.read("learned.json") as Partial<LearnedFile> | undefined;
+    return { ...emptyLearned(), ...(raw && typeof raw === "object" ? raw : {}) };
+  }
+
+  #saveLearned(file: LearnedFile) {
+    this.write("learned.json", file);
+  }
+
+  /** Every key in use: Beacon's actions', those the user cleared, and the learned ones (as their leader is now). */
+  #takenKeys(): Keys[] {
+    // The leader key itself starts every sequence: not a key a sequence clashes with.
+    const base = this.#shortcutList(this.#keymapOverrides(), false).filter((s) => s.id !== LEADER_ACTION);
+    return [...base.flatMap((s) => s.keys), ...clearedKeys(base, defaultKeys), ...this.#learnedList().flatMap((s) => s.keys)];
+  }
+
+  #offers(now = Date.now()) {
+    const leader = savedLeader(this.#keymapOverrides());
+    const own = this.#shortcutList(this.#keymapOverrides(), false).filter((s) => s.id !== LEADER_ACTION).flatMap((s) => s.keys);
+    return offers(this.#learned(), this.#usage(), this.#items(), leader, this.#takenKeys(), firstKeys(own, leader));
+  }
+
+  /** The learned shortcuts as the shortcut list has them, their keys on the leader as it is now. */
+  #learnedList(): ShortcutInfo[] {
+    const items = this.#items();
+    const leader = savedLeader(this.#keymapOverrides());
+    // One whose keys the user has since given an action of Beacon's yields to it.
+    const own = this.#shortcutList(this.#keymapOverrides(), false).filter((x) => x.id !== LEADER_ACTION).flatMap((x) => x.keys);
+    return this.#learned().shortcuts.flatMap((s) => {
+      const action = items.get(s.item);
+      const keys = swapLeader(s.keys, DEFAULT_LEADER, leader);
+      return action && !own.some((k) => keysClash(k, keys)) ? [learnedInfo(s, action, keys)] : [];
+    });
+  }
+
+  /** Memory's learned shortcuts: added, offered, gone for going unused; the unused ones are swept first, today counted. */
+  #memoryShortcuts(now: number): MemoryState["shortcuts"] {
+    const swept = sweep(this.#learned(), now);
+    if (swept.removed.length || !this.#learned().days.includes(dayOf(now))) {
+      this.#saveLearned(swept.file);
+      if (swept.removed.length) this.emit({ kind: "shortcuts", shortcuts: this.shortcuts() });
+    }
+    const items = this.#items();
+    const leader = savedLeader(this.#keymapOverrides());
+    const shown = (item: string, keys: Keys, uses: number, at?: number): LearnedShortcut[] => {
+      const action = items.get(item);
+      return action ? [{ item, name: action.name, keys: swapLeader(keys, DEFAULT_LEADER, leader), uses, ...(at ? { at } : {}) }] : [];
+    };
+    return {
+      learned: swept.file.shortcuts.flatMap((s) => shown(s.item, s.keys, s.uses, s.added)),
+      offers: this.#offers(now).flatMap((o) => shown(o.item, swapLeader(o.keys, leader, DEFAULT_LEADER), o.uses)),
+      removed: swept.file.removed.filter((r) => !swept.file.shortcuts.some((s) => s.item === r.item)).flatMap((r) => shown(r.item, r.keys, 0, r.at)),
+    };
+  }
+
+  /** An offer added or turned down, a learned shortcut removed, or one gone for going unused put back. */
+  #shortcutChange(change: Extract<MemoryChange, { shortcut: unknown }>["shortcut"], now: number) {
+    const file = this.#learned();
+    if ("add" in change) {
+      const offer = this.#offers(now).find((o) => o.item === change.add);
+      if (!offer) throw new Error(`"${change.add}" isn't offered a shortcut`);
+      const leader = savedLeader(this.#keymapOverrides());
+      file.shortcuts.push({ item: offer.item, keys: swapLeader(offer.keys, leader, DEFAULT_LEADER), added: now, uses: 0, last: dayOf(now) });
+      delete file.declined[offer.item];
+    } else if ("decline" in change) file.declined[change.decline] = now;
+    else if ("remove" in change) {
+      if (!file.shortcuts.some((s) => s.item === change.remove)) throw new Error(`no learned shortcut for "${change.remove}"`);
+      file.shortcuts = file.shortcuts.filter((s) => s.item !== change.remove);
+      file.stopped = [...new Set([...file.stopped, change.remove])];
+    } else {
+      const r = file.removed.findLast((x) => x.item === change.restore);
+      if (!r) throw new Error(`"${change.restore}" wasn't removed`);
+      // Its keys again, unless something has taken them since.
+      const taken = this.#takenKeys();
+      const leader = savedLeader(this.#keymapOverrides());
+      if (taken.some((k) => chordId(k) === chordId(swapLeader(r.keys, DEFAULT_LEADER, leader)))) throw new Error("its keys are another shortcut's now");
+      file.shortcuts.push({ item: r.item, keys: r.keys, added: now, uses: 0, last: dayOf(now) });
+      file.removed = file.removed.filter((x) => x !== r);
+    }
+    this.#saveLearned(file);
+    this.emit({ kind: "shortcuts", shortcuts: this.shortcuts() });
   }
 
   #usage(): Record<string, number[]> {
@@ -233,14 +341,20 @@ export class AppConfig {
   }
 
   /** Settings › Memory: the sentences, those proposed, and what the features learned for each format. */
-  memory(): MemoryState {
+  memory(now = Date.now()): MemoryState {
     const file = this.#memoryFile();
     const decisions = this.decisions();
     const habits = (format: Format) => [...this.registry.features.values()].flatMap((f) => f.habits?.(decisions, format) ?? []);
-    return { learning: file.learning, sentences: this.#sentences(file), proposals: file.proposals, file: this.#memoryMd, habits: { short: habits("short"), long: habits("long") }, decisions: decisions.length };
+    return { learning: file.learning, sentences: this.#sentences(file), proposals: file.proposals, file: this.#memoryMd, habits: { short: habits("short"), long: habits("long") }, decisions: decisions.length, shortcuts: this.#memoryShortcuts(now) };
   }
 
-  memoryChange(change: MemoryChange): MemoryState {
+  memoryChange(change: MemoryChange, now = Date.now()): MemoryState {
+    if ("shortcut" in change) {
+      this.#shortcutChange(change.shortcut, now);
+      const memory = this.memory(now);
+      this.emit({ kind: "memory", memory });
+      return memory;
+    }
     const file = this.#memoryFile();
     let sentences = this.#sentences(file);
     const before = JSON.stringify(sentences);
@@ -319,12 +433,13 @@ export class AppConfig {
     return saved.success ? saved.data.overrides : {};
   }
 
-  #shortcutList(overrides: KeymapOverrides): ShortcutInfo[] {
+  #shortcutList(overrides: KeymapOverrides, learned = true): ShortcutInfo[] {
     this.#descriptions ??= new Map(
       [...this.registry.commands.values(), ...SESSION_COMMANDS, ...this.registry.sessionCommands.values(), ...this.registry.actions.values()].map((c) => [c.id, c.description]),
     );
     const described = this.#descriptions;
-    return shortcutList(overrides, (command) => described.get(command));
+    const own = shortcutList(overrides, (command) => described.get(command));
+    return learned ? [...own, ...this.#learnedList()] : own;
   }
 
   #saveKeymap(overrides: KeymapOverrides): ShortcutInfo[] {

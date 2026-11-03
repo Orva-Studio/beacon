@@ -25,6 +25,7 @@ import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
 import { AgentToasts, AskAgent } from "./ask-agent";
+import { LearnedToasts } from "./learned";
 import { MusicPanel, musicReviewOf, popInMarks, usePopIns } from "./music";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
@@ -297,6 +298,7 @@ export function App({ host }: { host: Host }) {
           <ExportToast host={host} />
           <TaskToasts host={host} />
           <AgentToasts host={host} />
+          <LearnedToasts host={host} />
           <SnapshotSaved host={host} />
           <ImportProgress project={project} />
         </Toasts>

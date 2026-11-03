@@ -2940,6 +2940,20 @@ edit.
     (`~/Library/Application Support`, never uploaded); only actions with no
     key of their own, run from ⌘K, a menu or a button, count. Agent edits over
     MCP never count.
+  - **Built (2026-11-03, on phase-13; the user's choices that day: panel
+    items only, removed after 7 days of use unused, no leader-sequence
+    rule).** Uses come from `usage.json` (⌘K, tile double-clicks, drops, the
+    tile menu); an item used 5 times on 2 days or more is offered in a toast
+    (Add / Not Now; closing it is Not Now, offered again after 5 more uses)
+    and in Settings › Memory › Learned shortcuts. Keys: two letters of its
+    name where free (Drop Shadow `: D S`), never a first key Beacon's own
+    sequences start with (CRT Monitor `: O C`, not inside Color Label's `: C`),
+    keys of other actions or keys the user cleared. A learned shortcut is in
+    the shortcut list as `learned:<item>` (it follows the leader key, and
+    yields to keys the user gives one of Beacon's actions), marked "new" in
+    the leader popup until used 3 times; removed after 7 days Beacon was used
+    without it (a toast with Undo), or by the user in Memory (never offered
+    again). `learned.json` in the config folder.
 - **A motion graphic's code in Finder** (the user, 2026-10-28; only showing
   it, no watching for edits made there: "too overkill"). **Built
   2026-10-28:** a folder button beside Edit Code shows the shown take's page
