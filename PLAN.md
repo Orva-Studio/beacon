@@ -3064,6 +3064,57 @@ paid call, a few dollars at 480p):**
    (pick a range, the angle and lens, a draft at 480p with its cost, then
    1080p; applied as a cut on a camera track, one undo step), or park it.
 
+**Spike results (2026-11-03, round 1; the user's go-ahead for each paid call).**
+Takes: 9.8 s of the ai-slop camera (4K 29.97, `recording.trec` 187.75–197.55 s,
+cut at pauses) and 8.9 s of the user's hermes outro (71.95–80.85 s), both
+scaled to 720p H.264. Spent: one Seedance generation, about $3.89; every
+failed call made no output (both models bill per output second).
+- **Replicate's Seedance 2.5 does the editing task** (no fal needed):
+  `reference_videos` (≤30 s), `duration: -1` and `aspect_ratio: "adaptive"`
+  required, `generate_audio: false`. Only **480p and 720p** (no 1080p), and with
+  a video in it costs **$0.4304/s at 480p, $0.9676/s at 720p** (the $0.10/$0.23
+  rates are without a video in). Output: 854×480 at **24 fps** (the source was
+  29.97), 9.04 s from 8.9 s (+0.14 s), in about 3 minutes.
+- **Seedance refuses some takes**: the ai-slop take (the presenter in a
+  Firecrawl cap) was "flagged as sensitive" (E005) twice; the same face in the
+  hermes take (plain cap) went through. So it isn't a block on real faces;
+  something in that take (likely the brand) trips ByteDance's moderation. Beacon
+  must say so plainly and offer the free crop instead; never work around it.
+- **Seedance's "true 90° profile" came out a ¾ angle** (about 45–60°), a
+  convincing one: face, cap, mic arm, shelf and plant held. Wardrobe drifted to a
+  hoodie, because the prompt named one (it was written for the other take): the
+  lock line must not describe the wardrobe, or must be written from the take.
+- **Lips: in sync for about the first 2 s only** (the user, by eye, 2026-11-03,
+  the picture on the take's own sound). Mouth motion, window by window (1.5 s):
+  0 s +1 frame (correlation 0.62); from 1 s on the best lag jumps between
+  −458 and +458 ms with weak correlation (0.3–0.5): the mouth is invented after
+  the start, not stretched, so retiming can't fix it. As it stands Seedance's
+  editing task can't be placed over the take's sound.
+- **Runway:** `runwayml/gen4-aleph` is retired (Runway's sunset 2026-07-30);
+  Replicate now has `runwayml/aleph-2` (2–30 s in, <16 MB, a prompt, optional
+  keyframe images, $0.336/s). It fails on Replicate-hosted files: Runway reads
+  their Content-Type as `application/octet-stream` and refuses them, so it needs
+  the take at a public URL with `video/mp4`. Not run yet.
+- **The free punch-in** (a 1600×900 crop of the 4K source, scaled to 720p) is a
+  sharp medium close-up, the real frames in sync: **the close-up card needs no
+  generation** when the source has the pixels (4K camera).
+- Replicate throttles an account under $5 credit to 6 predictions a minute
+  (burst 1): Beacon's calls queue rather than fail on 429.
+
+- **With the take's own sound** (`reference_audios: [wav]` as [Audio1], "his
+  lips move exactly to [Audio1]"; an `.m4a` was refused as invalid, E006, a WAV
+  taken; about $3.75): a near-true profile (75–80°), the wardrobe right once the
+  prompt named none, the face held; lips steadier (2–5 s within 125–250 ms,
+  correlation up to 0.72) but drifting towards the end (−583 ms at 6 s), and the
+  clip 8.71 s from 8.9 s. It rebuilt the room mirrored (plant left, shelf right,
+  a radiator invented): photos of the room from the new angle's side as
+  `reference_images` should hold the set (the user's idea, 2026-11-03).
+
+Open after round 1: the user's verdict on the lip-synced profile; shorter pieces
+cut at pauses (3–4 s, where it held) stitched, and room photos as references;
+aleph-2 (how to give it the take); the wide shot (needs room the camera never
+saw). Spent so far about $7.64.
+
 #### Export sped up (the user, 2026-10-28)
 An export option for the whole video played faster, for Shorts: a speed
 between 1× and 2× (1.1, 1.2, 1.25 and 1.5 offered, any value in 0.05 steps),
