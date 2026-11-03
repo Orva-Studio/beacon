@@ -22,6 +22,7 @@ import {
   type FeatureRegistry,
   clone,
   freshEffect,
+  oneOfEach,
   findClip,
   onTrack,
   IdSchema as Id,
@@ -80,7 +81,7 @@ const commands = [
         const fits = effects.filter((e) => ctx.registry.effectFits(e.type, c.type));
         const types = new Set(fits.map((e) => e.type));
         const replaced = (e: { type: string }) => types.has(e.type) || (type !== undefined && ctx.registry.effectFits(e.type, type));
-        c.effects = [...c.effects.filter((e) => !replaced(e)), ...fits.map((e) => freshEffect(e, ctx.newId))];
+        c.effects = oneOfEach([...c.effects.filter((e) => !replaced(e)), ...fits.map((e) => freshEffect(e, ctx.newId))]);
       }
     },
   }),
@@ -127,10 +128,16 @@ const commands = [
   }),
   defineCommand({
     id: "effect.add",
-    description: "Add an effect to a clip with its default params, overridden by `params` (e.g. type \"round-corners\", \"drop-shadow\"; every effect id and its params is in the beacon://reference/commands resource). Returns the effect id",
+    description: "Add an effect to a clip with its default params, overridden by `params`; a clip has one effect of a type, so adding one it has changes that one (its params merged) and returns its id (e.g. type \"round-corners\", \"drop-shadow\"; every effect id and its params is in the beacon://reference/commands resource). Returns the effect id",
     args: z.strictObject({ clip: Id, type: z.string().min(1), params: z.record(z.string(), z.unknown()).default({}), enabled: z.boolean().default(true) }),
     apply(doc, { clip, type, params, enabled }, ctx) {
       const { clip: c } = findClip(doc, ctx.registry, clip);
+      const had = c.effects.find((e) => e.type === type);
+      if (had) {
+        had.params = { ...had.params, ...params };
+        had.enabled = enabled;
+        return had.id;
+      }
       const id = ctx.newId("fx");
       c.effects.push({ id, type, enabled, params: { ...ctx.registry.effect(type).defaults(), ...params } });
       return id;

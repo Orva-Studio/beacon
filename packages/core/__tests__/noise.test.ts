@@ -78,7 +78,7 @@ test.skipIf(!existsSync(RECORDING))("Noise Removal learns the noise from the in/
   await core.close(h);
 }, 180_000);
 
-test.skipIf(!existsSync(RECORDING))("each cleaned clip learns its own noise, a range up to a cut takes only the clip it covers, and stacked effects each learn their own", async () => {
+test.skipIf(!existsSync(RECORDING))("each cleaned clip learns its own noise, a range up to a cut takes only the clip it covers, and a second Noise Removal on a clip changes the one it has", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache2") });
   const h = await core.create({ path: join(dir, "two.beproj") });
   for (let i = 0; i < 2; i++) {
@@ -115,14 +115,14 @@ test.skipIf(!existsSync(RECORDING))("each cleaned clip learns its own noise, a r
   expect(db(after, quiet, quiet + 0.5)).toBeLessThan(db(before, quiet, quiet + 0.5) - 6);
   expect(Math.abs(lag(before, after))).toBeLessThanOrEqual(1);
 
-  // A second Noise Removal on one clip, with a stretch of its own: two stages, each fed its own lead, in step and whole.
+  // A second Noise Removal on one clip, with a stretch of its own: the one it has learns from that stretch, still whole.
   const one = audio().at(-1)!;
   await core.run(h, "effect.add", { clip: one.id, type: "noise-removal", params: { learnFrom: quiet + 0.1, learnTo: quiet + 0.4, strength: 6 } });
-  const stacked = audioPlaybackArgs(core.doc(h), core.registry, cut, 10).join(" ");
-  expect(stacked.match(/concat=n=2/g)!.length).toBeGreaterThanOrEqual(2);
-  await (await core.export(h, { output: join(dir, "stacked.wav"), ...range })).done;
-  const twice = samples(join(dir, "stacked.wav"));
-  expect(twice.length).toBe(before.length);
-  expect(Math.abs(lag(before, twice))).toBeLessThanOrEqual(1);
+  const removals = audio().at(-1)!.effects.filter((e) => e.type === "noise-removal");
+  expect(removals).toHaveLength(1);
+  expect(removals[0]!.params).toMatchObject({ learnFrom: quiet + 0.1, learnTo: quiet + 0.4, strength: 6 });
+  await (await core.export(h, { output: join(dir, "again.wav"), ...range })).done;
+  const again = samples(join(dir, "again.wav"));
+  expect(again.length).toBe(before.length);
   await core.close(h);
 }, 240_000);

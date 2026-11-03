@@ -32,6 +32,7 @@ import {
   type Track,
   clone,
   freshEffect,
+  oneOfEach,
   findClip,
   locate,
   onTrack,
@@ -503,7 +504,7 @@ export const clipCommands = [
         mediaStart: frameAt,
         assetId: piece.assetId,
         props: clone({ ...own, ...Object.fromEntries(Object.entries(shown).filter(([k]) => groups.has(k) && (k in c.props || animated.has(k)))) }),
-        effects: [...(piece === c ? [] : piece.effects), ...c.effects].filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
+        effects: oneOfEach([...(piece === c ? [] : piece.effects), ...c.effects]).filter((fx) => ctx.registry.effectFits(fx.type, "still")).map((fx) => freshEffect(fx, ctx.newId)),
         animations: [],
       };
       track.clips.splice(track.clips.indexOf(c) + (edge === "start" ? 0 : 1), 0, still);

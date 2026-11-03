@@ -74,12 +74,11 @@ test.skipIf(!existsSync(VIDEO))("Auto Tune sends three frames of the clip with F
   await core.undo(h);
   expect(JSON.stringify(fx().params)).toBe(before);
 
-  // Two Film Looks on the clip: the one whose button was pressed is tuned, not the first.
+  // A clip has one Film Look: adding another changes the one it has, and Auto Tune by its id tunes it.
   await core.run(h, "effect.add", { clip, type: "film-look" });
   const looks = () => core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === clip)!.effects.filter((e) => e.type === "film-look");
-  const [one, two] = looks();
-  await waitJob(core, job(await core.run(h, "filmLook.autoTune", { clip, effect: two!.id })));
-  expect(JSON.stringify(looks()[0]!.params)).toBe(JSON.stringify(one!.params));
-  expect(looks()[1]!.params).toMatchObject({ warmth: 0.5 });
+  expect(looks()).toHaveLength(1);
+  await waitJob(core, job(await core.run(h, "filmLook.autoTune", { clip, effect: looks()[0]!.id })));
+  expect(looks()[0]!.params).toMatchObject({ warmth: 0.5 });
   await core.close(h);
 }, 60_000);

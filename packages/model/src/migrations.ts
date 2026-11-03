@@ -1,5 +1,6 @@
 import type { Migration } from "./feature";
 import type { FeatureRegistry } from "./registry";
+import { oneOfEach } from "./edit";
 import { SCHEMA_VERSION, type Project } from "./schema";
 
 /** Core migrations; `version: n` takes a document from n - 1 to n. */
@@ -7,6 +8,15 @@ export const CORE_MIGRATIONS: Migration[] = [
   // Asset paths inside the project folder may be relative on disk; the reader resolves them before this runs.
   { version: 2, migrate: (doc) => doc },
   { version: 3, migrate: (doc) => ({ ...(doc as object), sections: [] }) },
+  {
+    version: 4,
+    migrate: (doc) => {
+      eachRawClip(doc, (clip) => {
+        if (Array.isArray(clip.effects)) clip.effects = oneOfEach(clip.effects as { type: string }[]);
+      });
+      return doc;
+    },
+  },
 ];
 
 type Raw = Record<string, any>;

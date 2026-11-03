@@ -104,3 +104,24 @@ test.skipIf(!existsSync(TAKE))("a ripple trim lengthening an end fills the gap a
   expect(core.doc(h)).toEqual(before);
   await core.close(h);
 });
+
+test.skipIf(!existsSync(TAKE))("a clip has one effect of a type: adding it again changes the one it has, and unstitching keeps the stitched clip's", async () => {
+  const { core, h, of } = await twoTakes("one-effect");
+  const video = () => of(0, "video");
+  const first = (await core.run(h, "effect.add", { clip: video().id, type: "round-corners", params: { radius: 20 } })).results[0] as string;
+  const again = (await core.run(h, "effect.add", { clip: video().id, type: "round-corners", params: { radius: 8 } })).results[0] as string;
+  expect(again).toBe(first);
+  expect(video().effects.filter((e) => e.type === "round-corners").map((e) => e.params.radius)).toEqual([8]);
+
+  // Split, both pieces carry it; stitched, the stitched clip gets its own; unstitched, each piece has one.
+  await core.run(h, "clip.unlink", { clips: [video().id] });
+  const id = video().id;
+  await core.run(h, "clip.split", { at: ticksToSeconds(video().start) + 1, clips: [id] });
+  const track = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === id))!;
+  const halves = track.clips.filter((c) => c.assetId === video().assetId).slice(0, 2).map((c) => c.id);
+  const stitched = (await core.run(h, "clip.stitch", { clips: halves })).results[0] as string;
+  await core.run(h, "effect.add", { clip: stitched, type: "round-corners", params: { radius: 30 } });
+  const pieces = (await core.run(h, "clip.unstitch", { clip: stitched })).results[0] as string[];
+  const clips = core.doc(h).tracks.flatMap((t) => t.clips);
+  for (const id of pieces) expect(clips.find((c) => c.id === id)!.effects.filter((e) => e.type === "round-corners").map((e) => e.params.radius)).toEqual([30]);
+});

@@ -16,6 +16,12 @@ export const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 /** A copy of an effect under a new id (ids are unique across the document). */
 export const freshEffect = <E extends { id: string }>(fx: E, newId: (prefix: string) => string): E => ({ ...clone(fx), id: newId("fx") });
 
+/** A clip has at most one effect of a type: where lists are combined, the last of each type wins, in its place. */
+export function oneOfEach<E extends { type: string }>(effects: E[]): E[] {
+  const last = new Map(effects.map((e, i) => [e.type, i]));
+  return effects.filter((e, i) => last.get(e.type) === i);
+}
+
 export const clipEnd = (c: Clip): Ticks => c.start + c.duration;
 
 /**

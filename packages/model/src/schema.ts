@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);

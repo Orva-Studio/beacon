@@ -51,8 +51,18 @@ test("v3: a document from before sections gets none", () => {
   const registry = new FeatureRegistry([testFeature]);
   const { sections: _, ...doc } = createProject(registry);
   const migrated = migrateProject({ ...doc, schemaVersion: 2 }, registry);
-  expect(migrated.schemaVersion).toBe(3);
+  expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
   expect(migrated.sections).toEqual([]);
+});
+
+test("v4: a clip with the same effect twice keeps one, the last, nested clips too", () => {
+  const fx = (id: string, type: string) => ({ id, type, enabled: true, params: {} });
+  const clip = (id: string, effects: unknown[], props = {}) => ({ id, type: "video", start: 0, duration: 10, props, effects, animations: [] });
+  const inner = clip("c2", [fx("d", "blur"), fx("e", "blur")]);
+  const doc = { tracks: [{ id: "t1", clips: [clip("c1", [fx("a", "round-corners"), fx("b", "cursor-shadow"), fx("c", "round-corners")], { group: { tracks: [{ id: "t2", clips: [inner] }] } })] }] };
+  const out = CORE_MIGRATIONS.find((m) => m.version === 4)!.migrate(structuredClone(doc)) as any;
+  expect(out.tracks[0].clips[0].effects.map((e: { id: string }) => e.id)).toEqual(["b", "c"]);
+  expect(out.tracks[0].clips[0].props.group.tracks[0].clips[0].effects.map((e: { id: string }) => e.id)).toEqual(["e"]);
 });
 
 test("documents from a newer Beacon are refused", () => {
