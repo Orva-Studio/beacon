@@ -361,6 +361,12 @@ export function createMenus(app: MenusApp) {
     ]);
   }
 
+  function sectionMenu({ section }: { section: string }) {
+    if (!app.current()) return;
+    const own = (label: string, op: string) => ({ label, action: `section:${op}:${section}` });
+    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), SEPARATOR, own("Delete Section", "remove")]);
+  }
+
   /** Track menu items, as track commands. */
   function trackAction(h: string, op: string, track: string) {
     const found = track ? trackAt(h, track) : undefined;
@@ -483,7 +489,11 @@ export function createMenus(app: MenusApp) {
     if (kind === "track") trackAction(current.path, op, id);
     else if (kind === "media") mediaAction(current.path, op, id);
     else if (kind === "clip") clipAction(current.path, op, id);
+    else if (kind === "section") {
+      if (op === "remove") void core.run(current.path, "section.remove", { section: id }, { label: "Delete Section" }).catch(fail);
+      else message("sectionAction", { section: id, op: op as "ask" | "rename" });
+    }
   });
 
-  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, tileMenu, recentMenu };
+  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, tileMenu, recentMenu };
 }

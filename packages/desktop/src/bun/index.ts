@@ -420,6 +420,7 @@ function openWindow(): Win {
         recentMenu: ({ path }) => void menus.recentMenu(path),
         dropFiles: ({ files, time, track, timing }) => reply(() => projects.dropFiles(w, files, { time, track }, timing)),
         trackMenu: (params) => menus.trackMenu(params),
+        sectionMenu: (params) => menus.sectionMenu(params),
         captureFrame: () =>
           reply(async () => {
             if (!w.current) return;

@@ -4,7 +4,7 @@ export * from "./remote";
 export { findDropped, importDropped } from "./dropped";
 export { LOCK_FILE, lockOwner, ProjectLockedError, projectName, readProject, writeProject, type Owner } from "./persist";
 export { summarizeReport } from "@beacon/camtasia";
-export { askOwner, CONTROL_SOCKET, DEFAULT_SOCKET, serveControl, serveCore, type CoreServer } from "./socket";
+export { askControl, askOwner, CONTROL_SOCKET, controlSockets, DEFAULT_SOCKET, serveControl, serveCore, type ControlHandlers, type CoreServer } from "./socket";
 export {
   chordOf,
   enginePlacement,

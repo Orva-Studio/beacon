@@ -1,5 +1,7 @@
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
+import { ticksToSeconds } from "@beacon/model";
+import { aboutSection } from "./ask-agent";
 import { replica } from "./store";
 
 type Messages = AppRPC["webview"]["messages"];
@@ -13,6 +15,12 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   session: ({ changes }) => replica.session(changes),
   status: ({ text }) => replica.status(text),
   rename: ({ track }) => replica.rename(track),
+  sectionAction: ({ section, op }) => {
+    const s = replica.get().project?.sections.find((x) => x.id === section);
+    if (!s) return;
+    if (op === "rename") replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
+    else replica.askAgent(aboutSection(s));
+  },
   renameMedia: ({ asset }) => replica.renameMedia(asset),
   newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),
@@ -35,6 +43,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   snapshotSaved: ({ path }) => replica.snapshot(path),
   settingsSheet: (s) => replica.settings(s),
   usage: ({ items }) => replica.usedItems(items),
+  agentReply: ({ request, status, text }) => replica.agentState(request, status, text),
   shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
   memory: ({ memory }) => replica.memory(memory),
   palette: () => replica.palette(true),

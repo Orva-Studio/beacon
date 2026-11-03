@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -13,7 +13,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { formatIssues, fpsRational, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, VideoEncodingSchema, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
+import { CONTROL_SOCKET, RemoteCore, formatIssues, fpsRational, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, VideoEncodingSchema, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
 import { DOCS, INSTRUCTIONS, WORKFLOWS, type Workflow } from "./docs";
 
 type Content = CallToolResult["content"];
@@ -66,7 +66,7 @@ export interface ServerOptions {
  * The `beacon-mcp` server (PLAN §7): every registered command and query
  * becomes a tool, beside project, media, frame, export and job tools.
  */
-export function createServer(local: BeaconCore, version: string, opts: ServerOptions = {}): Server & { letGo(path: string): Promise<void> } {
+export function createServer(local: BeaconCore, version: string, opts: ServerOptions = {}): Server & { letGo(path: string): Promise<void>; agent(): AgentInfo; prompt(content: string, meta?: Record<string, string>): Promise<void> } {
   /** The core holding the session's project: local, or the open app's. */
   let core = local;
   let current: ProjectHandle | undefined;
@@ -365,6 +365,22 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     schema: z.strictObject({ id: z.string(), value: z.string() }),
     run: async ({ id, value }) => (await core.setPreference(id, value), core.preferences()),
   });
+  add("app_reply", {
+    description:
+      "Answer a request the user sent from the Beacon app (a <channel source=\"beacon\"> message): status `received` as soon as you read it, then `done` with one line on what you did (or why you couldn't) when finished. Pass its `request` and `reply_to` attributes as they are",
+    schema: z.strictObject({ request: z.string().min(1), reply_to: z.string().min(1), status: z.enum(["received", "done"]), text: z.string().max(400).optional() }),
+    run: async ({ request, reply_to, status, text }) => {
+      // Only a Beacon app's own socket: the attribute comes in a message, so it could be anything.
+      if (dirname(resolve(reply_to)) !== dirname(CONTROL_SOCKET) || !/^app-\d+\.sock$/.test(basename(reply_to))) throw new Error("reply_to isn't a Beacon app's socket");
+      const app = await RemoteCore.connect(resolve(reply_to));
+      try {
+        await app.agentReply(request, status, text);
+      } finally {
+        app.disconnect();
+      }
+      return "told the app";
+    },
+  });
   add("settings_get", {
     description:
       "The app's settings (the user's, app-wide; Settings › General and Recording): exportColorSpace (bt709 or srgb, what export_start uses unless told), autoProxy (which media get proxies made on their own: recording, video), proxyMode (quiet: one at a time at background priority; fast: two at once), snapshotFolder (where frame_capture saves; unset, the project's media folder), cameraSync (each camera and microphone's measured delay)",
@@ -461,7 +477,8 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     add(toolName(q.id), { description: q.description, schema: z.unknown(), run: (args) => core.query(project(), q.id, args ?? {}) });
   }
 
-  const server = new Server({ name: "beacon", version }, { capabilities: { tools: {}, resources: {}, prompts: {} }, instructions: INSTRUCTIONS });
+  // A Claude Code channel too: the user's requests from the Beacon app arrive in the session (`prompt`).
+  const server = new Server({ name: "beacon", version }, { capabilities: { tools: {}, resources: {}, prompts: {}, experimental: { "claude/channel": {} } }, instructions: `${INSTRUCTIONS}\n\n${CHANNEL}` });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [...tools].map(([name, def]): Tool => {
@@ -543,8 +560,30 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     handedOver = dir;
   };
 
-  return Object.assign(server, { letGo });
+  /** Asked by the app: which agent this session is, and the project it has open. */
+  const agent = (): AgentInfo => {
+    const client = server.getClientVersion();
+    return { name: client?.name ?? "unknown", version: client?.version ?? "", ...(current ? { project: current } : {}) };
+  };
+
+  /** A request the user typed in the Beacon app, pushed into the session (dropped by agents that don't take channels). */
+  const prompt = async (content: string, meta: Record<string, string> = {}) => {
+    await server.notification({ method: "notifications/claude/channel", params: { content, meta } });
+  };
+
+  return Object.assign(server, { letGo, agent, prompt });
 }
+
+/** What the app is told of a session: its agent (`claude-code`, `codex`…) and the project it has open. */
+export interface AgentInfo {
+  name: string;
+  version: string;
+  project?: string;
+}
+
+/** How the session reads requests from the app (Claude Code's channels). */
+const CHANNEL =
+  "Requests the user types in the Beacon app arrive as <channel source=\"beacon\" …> messages: the user's own words about their project, with attributes saying what they refer to (`project`, `clip`, `section`, `from` and `to` in timeline seconds). Work on them with Beacon's tools in that project, as if the user had typed them here. Call app_reply with the message's `request` and `reply_to` at once (status received), and again when finished (status done, one line on what you did); a question for the user goes in the terminal.";
 
 function expandHome(p: string): string {
   return resolve(p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p) + (p.endsWith("/") ? "/" : "");

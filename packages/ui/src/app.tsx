@@ -24,6 +24,7 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
+import { AgentToasts, AskAgent } from "./ask-agent";
 import { MusicPanel, musicReviewOf, popInMarks, usePopIns } from "./music";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
@@ -51,9 +52,14 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** The canvas's menu where no clip is under the pointer: Project Settings…, Paste, Zoom to Fit. */
   canvasMenu(): void;
   trackMenu(track: string | null): void;
+  sectionMenu(section: string): void;
   /** A Media Bin item's menu; without one, the bin's own (its empty space). */
   binMenu(asset?: string): void;
   tileMenu(tile: TileMenu): void;
+  /** The agent sessions Beacon's MCP server serves, newest first. */
+  agents(): Promise<import("@beacon/core").AgentSession[]>;
+  /** Sends a request the user typed to an agent session: its id, or why it couldn't be sent. */
+  askAgent(socket: string, prompt: string, about: import("@beacon/core").AgentAbout): Promise<{ id: string } | { error: string }>;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
@@ -248,6 +254,7 @@ export function App({ host }: { host: Host }) {
               run={host.run}
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
+              sectionMenu={host.sectionMenu}
               dropFiles={host.dropFiles}
               marks={
                 popIns && session && musicReviewOf(session)
@@ -289,6 +296,7 @@ export function App({ host }: { host: Host }) {
         <Toasts>
           <ExportToast host={host} />
           <TaskToasts host={host} />
+          <AgentToasts />
           <SnapshotSaved host={host} />
           <ImportProgress project={project} />
         </Toasts>
@@ -301,6 +309,7 @@ export function App({ host }: { host: Host }) {
         <MediaPreviewUi host={host} />
         <NoticeUi />
         <Palette host={host} />
+        <AskAgent host={host} />
         <LeaderKeys />
         {/* The dragged panel item; a mask so it shows over the native canvas too. */}
         {dragging && (

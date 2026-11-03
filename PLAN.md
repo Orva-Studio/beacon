@@ -3110,6 +3110,31 @@ timeline; Apply downloads and places them on SFX tracks in one undo step
 (`sfx.popIns`, `sfx.addMany`). Still to do: snapping to the beat (Epidemic's
 MCP server gives no beat data: our own detection).
 
+#### Ask an agent from Beacon (the user, 2026-11-03)
+A request typed in Beacon goes to an agent the user has open, so a motion
+graphic or section can be handed over without switching to its terminal.
+Claude Code first, Codex after.
+- **How (spike proved 2026-11-03):** Beacon's MCP server is also a Claude
+  Code channel (`experimental: { "claude/channel": {} }`). The app finds
+  agent sessions through the MCP servers' control sockets (`agent`: the
+  agent's name and version, its project) and sends a request (`prompt`),
+  which the server pushes into the session as `notifications/claude/channel`
+  with what it is about (`project`, `clip`, `section`, `from`, `to`, `label`,
+  `request`, `reply_to`). The agent answers with `app_reply` (received, then
+  done with one line), which reaches the app on its own socket (only a
+  Beacon app's socket in Beacon's folder) as an `agent` event.
+- **The user's choices (2026-11-03):** Send to Agent… under Make on a motion
+  graphic, Ask an Agent… on a section's right-click menu and in ⌘K (the
+  selected clip, else the range, else the project); toasts for "on it" and
+  "done"; with no session, the command to start one and Copy Prompt.
+- **Starting a session that takes requests:** during the research preview a
+  custom channel needs `claude --dangerously-load-development-channels
+  server:beacon` in the project's folder (a warning to confirm once). A
+  session without it drops requests silently: Beacon says so when one isn't
+  acknowledged within 10 s.
+- **Built (2026-11-03).** Next: Codex, which can't take a pushed request (a
+  new background run, `codex exec`, in the project's folder).
+
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in

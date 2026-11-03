@@ -66,6 +66,10 @@ export interface ViewState {
   memory?: import("@beacon/model").MemoryState;
   /** The command palette, while open. */
   palette?: boolean;
+  /** "Ask an agent", while open: what the request is about. */
+  askAgent?: import("@beacon/core").AgentAbout;
+  /** Requests sent to agents from here, as their toasts show them. */
+  agentRequests: AgentRequest[];
   /** Project Settings, while open. */
   projectSettings?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
@@ -115,7 +119,19 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image";
 
-let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+/** A request sent to an agent from the app: sent, acknowledged, done, or never acknowledged. */
+export interface AgentRequest {
+  id: string;
+  /** "Claude Code". */
+  agent: string;
+  prompt: string;
+  /** The prompt with its context, to paste elsewhere when the session never answers. */
+  copy: string;
+  state: "sent" | "received" | "done" | "silent";
+  text?: string;
+}
+
+let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -212,6 +228,19 @@ export const replica = {
   palette(palette: boolean) {
     // A focus asked for before (an effect added, then undone at once) mustn't take the caret from the palette.
     set({ palette: palette && !!state.opened, ...(palette ? { focusInputs: undefined } : {}) });
+  },
+  askAgent(about: import("@beacon/core").AgentAbout | undefined) {
+    set({ askAgent: about && state.opened ? about : undefined });
+  },
+  agentSent(request: AgentRequest) {
+    set({ agentRequests: [...state.agentRequests, request] });
+  },
+  /** An agent's answer; a request it never acknowledged goes `silent` (the session doesn't take channels). */
+  agentState(id: string, state2: AgentRequest["state"], text?: string) {
+    set({ agentRequests: state.agentRequests.map((r) => (r.id === id && !(state2 === "silent" && r.state !== "sent") ? { ...r, state: state2, ...(text ? { text } : {}) } : r)) });
+  },
+  dismissAgent(id: string) {
+    set({ agentRequests: state.agentRequests.filter((r) => r.id !== id) });
   },
   projectSettings(open: boolean) {
     set({ projectSettings: open && !!state.opened });

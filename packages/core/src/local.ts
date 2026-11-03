@@ -52,6 +52,8 @@ import {
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
+  AgentAbout,
+  AgentSession,
   AssetPreview,
   CommandInfo,
   AppEvent,
@@ -90,6 +92,7 @@ import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeP
 import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
+import { askControl, controlSockets } from "./socket";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
 /** An action's document steps in one transaction, each given the results of those before it when it asks. */
@@ -114,6 +117,8 @@ export interface LocalCoreOptions {
   configDir?: string;
   /** Where secrets (API keys) are kept: the login Keychain. */
   secrets?: Secrets;
+  /** Where agent sessions' control sockets are (`agents`); tests keep the user's out. */
+  controlDir?: string;
 }
 
 const DEFAULT_CONFIG_DIR = join(homedir(), "Library/Application Support/Beacon");
@@ -158,6 +163,7 @@ export class LocalCore implements BeaconCore {
   readonly #parts: CoreParts;
   readonly #analyses: Analyses;
   readonly #recording: Recording;
+  readonly #controlDir: string | undefined;
 
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
@@ -167,6 +173,7 @@ export class LocalCore implements BeaconCore {
       for (const l of this.#appListeners) l(e);
     });
     this.#pref = this.#config.pref;
+    this.#controlDir = opts.controlDir;
     this.#owner = { ...(opts.name ? { name: opts.name } : {}), ...(opts.socket ? { socket: opts.socket } : {}), ...(opts.control ? { control: opts.control } : {}) };
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
@@ -1162,6 +1169,35 @@ export class LocalCore implements BeaconCore {
 
   async itemUsed(item: string): Promise<string[]> {
     return this.#config.itemUsed(item);
+  }
+
+  async agents(): Promise<AgentSession[]> {
+    const mine = this.#owner.control;
+    const found = await Promise.all(
+      controlSockets(this.#controlDir).filter((s) => s !== mine).map(async (socket): Promise<AgentSession | undefined> => {
+        try {
+          const info = (await askControl(socket, "agent", [], 1000)) as { name: string; version: string; project?: string };
+          return { socket, name: info.name, version: info.version, ...(info.project ? { project: info.project } : {}), started: statSync(socket).mtimeMs };
+        } catch {
+          // An MCP server from before Beacon asked this, or one that is gone.
+          return undefined;
+        }
+      }),
+    );
+    return found.filter((a): a is AgentSession => !!a).sort((a, b) => b.started - a.started);
+  }
+
+  async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
+    if (!controlSockets(this.#controlDir).includes(socket)) throw new Error("that agent session has ended");
+    const request = shortId("ask");
+    const meta: Record<string, string> = { request, ...(this.#owner.socket ? { reply_to: this.#owner.socket } : {}) };
+    for (const [k, v] of Object.entries(about)) if (v !== undefined) meta[k] = typeof v === "number" ? v.toFixed(2) : v;
+    await askControl(socket, "prompt", [prompt, meta]);
+    return request;
+  }
+
+  async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {
+    for (const l of this.#appListeners) l({ kind: "agent", request, status, ...(text ? { text } : {}) });
   }
 
   async settings(): Promise<AppSettings> {

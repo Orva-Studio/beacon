@@ -44,6 +44,7 @@ export function appBridge(core: Pick<LocalCore, "watchApp" | "preferences">, sen
       if (hooks.shortcuts) hooks.shortcuts(e.shortcuts);
       else send("shortcuts", { shortcuts: e.shortcuts });
     } else if (e.kind === "memory") send("memory", { memory: e.memory });
+    else if (e.kind === "agent") send("agentReply", { request: e.request, status: e.status, ...(e.text ? { text: e.text } : {}) });
     else if (e.kind === "settings") {
       if (hooks.settings) hooks.settings(e.settings);
       else send("appSettings", e.settings);
@@ -155,8 +156,8 @@ export async function tileChoice(core: Pick<LocalCore, "run" | "itemUsed">, h: s
 /** The items of a tile's right-click menu, as [label, choice]. */
 export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"]];
 
-type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "itemUsed" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
-type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "itemUsed" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
+type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "itemUsed" | "agents" | "askAgent" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
+type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "itemUsed" | "agents" | "askAgent" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
 
 const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const done = async (fn: () => Promise<unknown>) => {
@@ -203,6 +204,8 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
     setPreference: ({ id, value }) => answer(async () => (await core.setPreference(id, value), core.preferences())),
     setSecret: ({ id, value }) => answer(async () => (await core.setSecret(id, value), core.preferences())),
     itemUsed: ({ item }) => answer(() => core.itemUsed(item)),
+    agents: () => core.agents(),
+    askAgent: ({ socket, prompt, about }) => answer(() => core.askAgent(socket, prompt, about)),
     analyze: async ({ key, asset }) => {
       const h = project();
       if (h) await core.analyze(h, key, asset).catch((e: Error) => status(e.message));

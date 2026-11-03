@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalCore } from "@beacon/core";
+import { LocalCore, serveControl } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
 import { assetName, EASINGS, ease, evaluate, keysLabel, mediaBounds, projectDuration, secondsToTicks, ticksToSeconds, trimBounds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
@@ -2007,7 +2007,8 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
   const tools = ["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:music", "ai:captions"];
-  expect(all.slice(-tools.filter((t) => !used.includes(t)).length)).toEqual(tools.filter((t) => !used.includes(t)));
+  expect(all.at(-1)).toBe("agent:ask");
+  expect(all.slice(-tools.filter((t) => !used.includes(t)).length - 1, -1)).toEqual(tools.filter((t) => !used.includes(t)));
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -5349,6 +5350,79 @@ test.skipIf(skip)("Pop-ins in the Music panel: each picture coming onto the pict
     await ui.core.setSecret("epidemic-sound-api-key", null);
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
+test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… or a section's menu, the request goes to the open Claude Code session with what it is about, and its answers show as toasts; with none, how to start one", async () => {
+  // A stand-in Claude Code session: Beacon's MCP server's control socket, as `agents()` finds them.
+  const sent: { prompt: string; meta: Record<string, string> }[] = [];
+  const session = serveControl(
+    { letGo: async () => {}, agent: () => ({ name: "claude-code", version: "2.1", project: "/somewhere/else.beproj" }), prompt: async (prompt, meta) => void sent.push({ prompt, meta }) },
+    join(ui.controlDir, "mcp-1.sock"),
+  );
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await select([screen.id]);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-ask-agent]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-ask-about]').textContent")).toMatch(/^About: Clip “recording”, 0:00–/);
+    await page.until("document.querySelector('[data-ask-session]')?.selectedOptions[0]?.textContent.startsWith('Claude Code · else.beproj')");
+    await page.screenshot(join(dir, "ask-agent.png"));
+    await page.click(...(await centre("[data-ask-prompt]")));
+    await type("Lay this out like the intro");
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+    await page.until("document.querySelector('[data-agent-state]')?.dataset.agentState === 'sent'");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.prompt).toBe("Lay this out like the intro");
+    expect(sent[0]!.meta).toMatchObject({ clip: screen.id, from: "0.00", label: expect.stringContaining("Clip “recording”") });
+    const id = sent[0]!.meta.request!;
+    // Its answers: on it, then done with what it did.
+    await ui.core.agentReply(id, "received");
+    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'received'`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').closest('[data-toast]').textContent`)).toContain("Claude Code is on it");
+    await ui.core.agentReply(id, "done", "Laid it out as the intro");
+    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'done'`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').textContent`)).toBe("Laid it out as the intro");
+
+    // A section's menu offers it; its choice opens the box about that section.
+    await run("section.add", { start: 1, end: 3, name: "Intro" });
+    const section = ui.core.doc(ui.handle).sections.find((x) => x.name === "Intro")!;
+    ui.send("sectionAction", { section: section.id, op: "ask" });
+    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').includes('Section “Intro”, 0:01–0:03')");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+
+    // A motion graphic's panel has Send to Agent….
+    await run("motion.add", {});
+    await run("panel.show", { properties: true });
+    await page.until("!!document.querySelector('[data-motion-ask]')");
+    await page.evaluate("document.querySelector('[data-motion-ask]').click()");
+    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').startsWith('About: Motion graphic')");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+
+    // With no session, it says how to start one and offers the request to copy.
+    session.stop();
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-ask-none]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-ask-none]').textContent")).toContain("claude --dangerously-load-development-channels server:beacon");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-ask-send]').disabled")).toBe(true);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+  } finally {
+    session.stop();
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("panel.show", { tool: null });
     await select([]);
   }

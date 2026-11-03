@@ -1,7 +1,7 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, MemoryChange, MemoryState, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
-import type { CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
+import type { AgentAbout, AgentSession, CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export type { RecorderLive } from "@beacon/media";
@@ -331,6 +331,8 @@ export type AppRPC = {
       dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string; timing?: { over?: number; drop?: number; read?: number } }; response: RunReply };
       /** A track's menu, or the track options (null). */
       trackMenu: { params: { track: string | null }; response: void };
+      /** A section's right-click menu: Ask an Agent…, Rename…, Delete Section. */
+      sectionMenu: { params: { section: string }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
       /** An effect shown with other params on the canvas only, or null to show it as it is (a look under the pointer). */
@@ -391,6 +393,10 @@ export type AppRPC = {
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
+      /** The agent sessions Beacon's MCP server serves (Claude Code…), newest first. */
+      agents: { params: Record<string, never>; response: AgentSession[] };
+      /** Sends a request the user typed to an agent session: replies with its id, which `agentReply` messages carry. */
+      askAgent: { params: { socket: string; prompt: string; about: AgentAbout }; response: RunReply & { result?: string } };
       /** Counts a use of a panel item or AI tool: replies with the items by use as they now are. */
       itemUsed: { params: { item: string }; response: RunReply & { result?: string[] } };
       /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
@@ -429,6 +435,8 @@ export type AppRPC = {
       saved: { ok: boolean };
       /** Start editing a track's name (Rename… in its menu). */
       rename: { track: string };
+      /** A section menu's choice the window carries out: ask an agent about it, or rename it. */
+      sectionAction: { section: string; op: "ask" | "rename" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
       /** Something to read and dismiss (what a `.cmproj` import left out). */
@@ -460,6 +468,8 @@ export type AppRPC = {
       /** A feature's background job (Clean with Auphonic): its stage and progress, then how it ended. */
       taskJob: TaskJob;
       importing: ImportingFiles;
+      /** An agent answered a request sent from here: it has it, or it is done (with what it did). */
+      agentReply: { request: string; status: "received" | "done"; text?: string };
       /** A panel item was used (in any window): the items by use, most first. */
       usage: { items: string[] };
       /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */

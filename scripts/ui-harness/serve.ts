@@ -20,9 +20,12 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   // Never the user's preferences or Keychain: a folder of its own, and secrets kept in memory.
   const secrets = new Map<string, string>();
   const configDir = mkdtempSync(join(tmpdir(), "beacon-ui-config-"));
+  // Never the user's agent sessions either: a request sent from a flow would reach their Claude Code.
+  const controlDir = mkdtempSync(join(tmpdir(), "beacon-ui-control-"));
   const core = new LocalCore({
     ...(opts.cacheDir ? { cacheDir: opts.cacheDir } : {}),
     configDir,
+    controlDir,
     secrets: { get: async (id) => secrets.get(id), set: async (id, value) => void (value === null ? secrets.delete(id) : secrets.set(id, value)) },
   });
   // Every medium gets its proxy on its own here (the app's default is none), for the flows that watch one being made.
@@ -135,6 +138,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         else if (msg.type === "copyText") copied.push(p.text);
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
+        else if (msg.type === "sectionMenu") menus.push(`section:${p.section}`);
         else if (msg.type === "binMenu") menus.push(p.asset ? `asset:${p.asset}` : "bin");
         else if (msg.type === "recentMenu") menus.push(`recent:${p.path}`);
         else if (msg.type === "tileMenu") {
@@ -254,6 +258,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
   return {
     url: `http://127.0.0.1:${server.port}/`,
     core,
+    /** Where flows serve stand-in agent sessions (`serveControl`), so `agents()` finds them and no real one. */
+    controlDir,
     handle: h,
     /** Clips whose right-click menu the UI asked for, and new or renamed projects. */
     menus,

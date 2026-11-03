@@ -248,6 +248,8 @@ export type CoreEvent =
   | { kind: "needs"; resource: ResourceInfo }
   /** A panel item was used (app-wide): the items by use, most first. */
   | { kind: "usage"; items: string[] }
+  /** An agent answered a request sent from the app (`askAgent`): it has it, or it is done (with what it did). */
+  | { kind: "agent"; request: string; status: "received" | "done"; text?: string }
   /** The app's settings changed (app-wide), from Settings or an agent. */
   | { kind: "settings"; settings: AppSettings }
   /** Keyboard shortcuts changed (app-wide): every action with its keys. */
@@ -269,7 +271,7 @@ export type CoreEvent =
   | { kind: "session"; changes: Partial<Session>; changed: (keyof Session)[] };
 
 /** What concerns the whole app, from any project or none: panel items' use, settings, keys, a preference, and every job. */
-export type AppEvent = Extract<CoreEvent, { kind: "usage" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
+export type AppEvent = Extract<CoreEvent, { kind: "usage" | "agent" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
 
 /** Everything an agent or the app can do (PLAN §7.1). */
 export interface BeaconCore {
@@ -336,6 +338,18 @@ export interface BeaconCore {
   recentItems(): Promise<string[]>;
   /** Counts a use of a panel item (a tile, the palette). Returns the items by use. */
   itemUsed(item: string): Promise<string[]>;
+  /**
+   * The agent sessions Beacon's MCP server serves now (Claude Code…), newest first: each with its control socket,
+   * the agent's name and version, and the project it has open.
+   */
+  agents(): Promise<AgentSession[]>;
+  /**
+   * Sends a request the user typed to an agent session (Claude Code takes it as a channel message, when started with
+   * Beacon as a channel), with what it is about; returns the request's id, which its replies (`agent` events) carry.
+   */
+  askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string>;
+  /** An agent's answer to a request (`app_reply`): it has it, or it is done. Raises an `agent` event. */
+  agentReply(request: string, status: "received" | "done", text?: string): Promise<void>;
   /**
    * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
    * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
@@ -413,4 +427,28 @@ export interface BeaconCore {
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
   /** App-wide changes and every job's progress, whichever project started it, or none (a download), and after it is closed. */
   watchApp(fn: (e: AppEvent) => void): () => void;
+}
+
+/** An agent session Beacon's MCP server serves. */
+export interface AgentSession {
+  /** Its control socket, to send it requests. */
+  socket: string;
+  /** "claude-code", "codex"…, as the agent names itself. */
+  name: string;
+  version: string;
+  /** The project it has open. */
+  project?: string;
+  /** When it started (ms since the epoch). */
+  started: number;
+}
+
+/** What a request to an agent is about: the project, and the clip or section and timeline span. */
+export interface AgentAbout {
+  project?: string;
+  clip?: string;
+  section?: string;
+  from?: number;
+  to?: number;
+  /** What the user sees it as ("Motion graphic “Stat” at 0:12"). */
+  label?: string;
 }
