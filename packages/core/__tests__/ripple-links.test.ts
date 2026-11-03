@@ -105,6 +105,19 @@ test.skipIf(!existsSync(TAKE))("a ripple trim lengthening an end fills the gap a
   await core.close(h);
 });
 
+test.skipIf(!existsSync(TAKE))("a cut never leaves a sliver: a piece under half a second it would leave goes with it, on every track, in one undo step", async () => {
+  const { core, h, of, take } = await twoTakes("slivers");
+  const end = ticksToSeconds(of(0, "audio").start + of(0, "audio").duration);
+  const before = structuredClone(core.doc(h));
+  // Leaves the first take's last 0.2 s: gone with the cut, so the second take follows its first 0.5 s.
+  await core.run(h, "timeline.rippleDelete", { ranges: [{ start: 0.5, end: end - 0.2 }] });
+  for (const c of take(0)) expect(ticksToSeconds(c.duration)).toBeCloseTo(0.5, 2);
+  expect(ticksToSeconds(of(1, "audio").start)).toBeCloseTo(0.5, 2);
+  expect(lined(core.doc(h))).toBe(true);
+  await core.undo(h);
+  expect(core.doc(h)).toEqual(before);
+});
+
 test.skipIf(!existsSync(TAKE))("a clip has one effect of a type: adding it again changes the one it has, and unstitching keeps the stitched clip's", async () => {
   const { core, h, of } = await twoTakes("one-effect");
   const video = () => of(0, "video");

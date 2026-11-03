@@ -612,6 +612,11 @@ export interface Feature {
    * gaps); its changes are part of the same undo step.
    */
   normalize?: (doc: Draft<Project>, ctx: CommandContext) => void;
+  /**
+   * Timeline time (ticks) a cut must not take as a sliver of a clip: the words said there. A short piece a cut
+   * would leave that holds one is widened instead, back into the cut beside it.
+   */
+  keepWhole?: (doc: Project, registry: FeatureRegistry, data: CommandContext["data"]) => [Ticks, Ticks][];
 }
 
 export function defineFeature(feature: Feature): Feature {

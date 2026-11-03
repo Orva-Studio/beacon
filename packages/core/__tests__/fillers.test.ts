@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Asset } from "@beacon/model";
+import { ticksToSeconds, type Asset } from "@beacon/model";
 import { DerivedData } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -52,7 +52,7 @@ test.skipIf(!existsSync(AUDIO))("Remove Filler Words never cuts into a kept word
   await core.close(h);
 }, 60_000);
 
-test.skipIf(!existsSync(AUDIO))("Remove Filler Words keeps a short word a sliver of a clip would have taken, and words a transcriber wrote overlapping a filler", async () => {
+test.skipIf(!existsSync(AUDIO))("Remove Filler Words keeps a short word a sliver of a clip would have taken, its piece widened to half a second from the cut beside it, and words a transcriber wrote overlapping a filler", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache-b") });
   const h = await core.create({ path: join(dir, "slivers.beproj") });
   const audio = join(dir, "short.m4a");
@@ -78,7 +78,8 @@ test.skipIf(!existsSync(AUDIO))("Remove Filler Words keeps a short word a sliver
   const kept = words.filter((w) => !["um", "uh"].includes(w.text));
   for (const c of cuts) for (const w of kept) expect(c.end <= w.start + 1e-3 || c.start >= w.end - 1e-3).toBe(true);
   const left = (await core.query(h, "transcript.get", { format: "words" })) as Said[];
-  expect(left.map((w) => w.text)).toEqual(kept.map((w) => w.text));
+  expect(left.map((w) => w.text).filter((t) => !["um", "uh"].includes(t))).toEqual(kept.map((w) => w.text));
+  for (const c of core.doc(h).tracks.flatMap((t) => t.clips)) expect(ticksToSeconds(c.duration)).toBeGreaterThanOrEqual(0.5 - 1e-6);
   await core.undo(h);
   expect(JSON.stringify(core.doc(h).tracks)).toBe(before);
   await core.close(h);

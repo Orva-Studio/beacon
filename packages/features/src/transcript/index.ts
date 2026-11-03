@@ -30,7 +30,7 @@ import {
   assetName,
 } from "@beacon/model";
 import { clipStream, mediaInfo, sourceOf } from "../media";
-import { rippleDeleteRanges } from "../timeline";
+import { rangesCut, rippleDeleteRanges } from "../timeline";
 import type { CursorData } from "../cursor";
 import { fillerRule, keptFillers, retakeTake, silenceMin, where, type Habit } from "./habits";
 import { RETAKE_DEFAULTS, bestTake, findRetakes, isFiller, judgeTakes, retakeCuts, takeKey, takeText, type Judgment, type RetakeOptions, type Take, type Word } from "./retakes";
@@ -160,50 +160,14 @@ function lines(words: TimelineWord[], gap: number): string {
   return out.join("\n");
 }
 
-/** Pieces of clips this short or shorter that a cut would leave are cut too: a flash of a frame or two between cuts. */
-const SLIVER_FRAMES = 2;
-
-/**
- * Ranges in ticks, merged and widened so no clip on an unlocked track is left
- * with only a sliver between two cuts or between a cut and its own edge, unless
- * the sliver holds one of the words `kept` (ticks): a short word is no flash.
- */
-function withoutSlivers(doc: Project, ranges: [number, number][], kept: [number, number][]): [number, number][] {
-  const sliver = SLIVER_FRAMES * ticksPerFrame(doc.settings.fps);
-  const clips = doc.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
-  const holdsWord = (a: number, b: number) => kept.some(([k0, k1]) => k1 > a && k0 < b);
-  let out: [number, number][] = ranges.map((r) => [...r]);
-  for (let changed = true; changed; ) {
-    changed = false;
-    const merged: [number, number][] = [];
-    for (const [a, b] of [...out].sort((x, y) => x[0] - y[0])) {
-      const last = merged.at(-1);
-      if (last && (a <= last[1] || (a - last[1] <= sliver && !holdsWord(last[1], a)))) last[1] = Math.max(last[1], b);
-      else merged.push([a, b]);
-    }
-    for (const r of merged) {
-      for (const c of clips) {
-        const end = c.start + c.duration;
-        if (c.start < r[0] && end > r[0] && r[0] - c.start <= sliver && !holdsWord(c.start, r[0])) [r[0], changed] = [c.start, true];
-        if (end > r[1] && c.start < r[1] && end - r[1] <= sliver && !holdsWord(r[1], end)) [r[1], changed] = [end, true];
-      }
-    }
-    out = merged;
-  }
-  return out;
-}
-
 /** The ranges `cut` removes: out to whole frames, so a cut never leaves the edge of a word it removes, nor a sliver of a clip. */
 function cutRanges(doc: Project, registry: FeatureRegistry, data: Data, ranges: { start: number; end: number }[]) {
   const { fps } = doc.settings;
-  const kept = timelineWords(doc, registry, data)
-    .filter((w) => !ranges.some((r) => (w.start + w.end) / 2 >= r.start && (w.start + w.end) / 2 < r.end))
-    .map((w) => [secondsToTicks(w.start), secondsToTicks(w.end)] as [number, number]);
-  return withoutSlivers(
-    doc,
-    ranges.map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number]).filter(([a, b]) => b > a),
-    kept,
-  ).map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+  const framed = ranges
+    .map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number])
+    .filter(([a, b]) => b > a)
+    .map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+  return rangesCut(doc, framed, registry, data);
 }
 
 /**
@@ -812,6 +776,7 @@ const openReviewKey = (s: Session): ReviewKey | undefined => (["silences", "fill
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
+  keepWhole: (doc, registry, data) => timelineWords(doc, registry, data).map((w) => [secondsToTicks(w.start), secondsToTicks(w.end)]),
   panels: [
     { open: (s: Session) => openReviewKey(s) === "silences", cancel: "silences.close", apply: { action: "silences.apply" }, applyAll: { action: "silences.apply", args: { all: true } } },
     ...(["fillers", "retakes"] as const).map((key) => ({ open: (s: Session) => openReviewKey(s) === key, cancel: `${key}.close`, apply: { action: `${key}.apply` } })),

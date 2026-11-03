@@ -34,7 +34,7 @@ import { clipCommands, packMagnetic } from "./clips";
 import { sectionCommands } from "./sections";
 
 
-export { rippleDeleteRanges } from "./clips";
+export { rangesCut, rippleDeleteRanges } from "./clips";
 
 const commands = [
   defineCommand({

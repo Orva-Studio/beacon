@@ -33,6 +33,8 @@ import {
   clone,
   freshEffect,
   oneOfEach,
+  secondsToTicks,
+  ticksToSeconds,
   findClip,
   locate,
   onTrack,
@@ -89,10 +91,51 @@ function splitAt(track: Track, clip: Clip, at: Ticks, ctx: CommandContext, links
   return right;
 }
 
-/** Merged, frame-snapped, latest first, so earlier ranges are unaffected by later deletions. */
-function normalizeRanges(doc: Project, ranges: { start: number; end: number }[]): [Ticks, Ticks][] {
+/** A piece of a clip a cut would leave shorter than this goes with the cut: a sliver is never wanted (the user, 2026-11-03). */
+export const MIN_PIECE = 0.5;
+
+/**
+ * Merged, frame-snapped, latest first, so earlier ranges are unaffected by later deletions. No piece of a cut clip
+ * on a track the cut reaches is left shorter than `MIN_PIECE`: one holding a word kept (features' `keepWhole`) takes
+ * time back from the cuts beside it until it is that long (or they are used up); any other goes with the cut. A clip
+ * no range touches stays however short it is.
+ */
+function normalizeRanges(doc: Project, ranges: { start: number; end: number }[], registry: FeatureRegistry, data: CommandContext["data"]): [Ticks, Ticks][] {
   const snapped = ranges.map((r) => [snapSeconds(r.start, doc.settings.fps), snapSeconds(r.end, doc.settings.fps)] as [Ticks, Ticks]).filter(([a, b]) => b > a);
-  return mergeSpans(snapped).reverse() as [Ticks, Ticks][];
+  let spans = mergeSpans(snapped) as [Ticks, Ticks][];
+  const min = secondsToTicks(MIN_PIECE);
+  const asked = spans;
+  const words = [...registry.features.values()].flatMap((f) => f.keepWhole?.(doc, registry, data) ?? []).filter(([a, b]) => !asked.some(([x, y]) => (a + b) / 2 >= x && (a + b) / 2 < y));
+  const holdsWord = (a: Ticks, b: Ticks) => words.some(([w0, w1]) => w1 > a && w0 < b);
+  const clips = doc.tracks.filter((t) => !t.locked && !t.hidden).flatMap((t) => t.clips);
+  // A change on one track can leave a short piece on another: until none is left.
+  for (let i = 0; i < 8; i++) {
+    let changed = false;
+    for (const c of clips) {
+      const pieces = subtractSpans([c.start, clipEnd(c)], spans) as [Ticks, Ticks][];
+      if (pieces.reduce((sum, [a, b]) => sum + b - a, 0) === c.duration) continue;
+      for (const [a, b] of pieces.filter(([a, b]) => b - a < min)) {
+        if (!holdsWord(a, b)) {
+          spans = mergeSpans([...spans, [a, b]]) as [Ticks, Ticks][];
+          changed = true;
+          continue;
+        }
+        const left = spans.find(([, y]) => y === a);
+        const right = spans.find(([x]) => x === b);
+        const room = { left: left ? Math.min(a - left[0], a - c.start) : 0, right: right ? Math.min(right[1] - b, clipEnd(c) - b) : 0 };
+        const need = min - (b - a);
+        const fromLeft = Math.min(room.left, Math.max(Math.ceil(need / 2), need - room.right));
+        const fromRight = Math.min(room.right, need - fromLeft);
+        if (!fromLeft && !fromRight) continue;
+        spans = spans
+          .map(([x, y]): [Ticks, Ticks] => (left && x === left[0] ? [x, y - fromLeft] : right && x === right[0] ? [x + fromRight, y] : [x, y]))
+          .filter(([x, y]) => y > x);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return spans.reverse();
 }
 
 /**
@@ -144,9 +187,16 @@ function removeRange(doc: Project, tracks: Track[], a: Ticks, b: Ticks, ctx: Com
   }
 }
 
+/** What deleting `ranges` (seconds) removes once a cut takes no sliver: for a review's estimate to match its cut. */
+export function rangesCut(doc: Project, ranges: { start: number; end: number }[], registry: FeatureRegistry, data: CommandContext["data"]) {
+  return normalizeRanges(doc, ranges, registry, data)
+    .reverse()
+    .map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+}
+
 /** Deletes timeline ranges (seconds, read against the timeline before any of them) from every unlocked, enabled track and closes the gaps. */
 export function rippleDeleteRanges(doc: Project, ranges: { start: number; end: number }[], ctx: CommandContext) {
-  for (const [a, b] of normalizeRanges(doc, ranges)) removeRange(doc, doc.tracks, a, b, ctx, true);
+  for (const [a, b] of normalizeRanges(doc, ranges, ctx.registry, ctx.data)) removeRange(doc, doc.tracks, a, b, ctx, true);
 }
 
 /**
@@ -556,7 +606,7 @@ export const clipCommands = [
   defineCommand({
     id: "timeline.rippleDelete",
     description:
-      "Delete time ranges (timeline seconds) from every unlocked, enabled track (locked and disabled tracks are left as they are) and close the gaps, splitting clips that cross a range edge. Ranges are all read against the timeline as it is before this command, so pass every cut at once. The rough-cut workhorse",
+      "Delete time ranges (timeline seconds) from every unlocked, enabled track (locked and disabled tracks are left as they are) and close the gaps, splitting clips that cross a range edge. Ranges are all read against the timeline as it is before this command, so pass every cut at once. A piece of a cut clip that would be left under half a second goes with the cut (no slivers). The rough-cut workhorse",
     args: z.strictObject({ ranges: Ranges }),
     apply(doc, { ranges }, ctx) {
       rippleDeleteRanges(doc, ranges, ctx);
@@ -565,10 +615,10 @@ export const clipCommands = [
   defineCommand({
     id: "timeline.deleteRanges",
     description:
-      "Delete time ranges (timeline seconds) from every unlocked, enabled track, splitting clips that cross a range edge and leaving gaps (Delete with an in/out selection); `timeline.rippleDelete` closes them",
+      "Delete time ranges (timeline seconds) from every unlocked, enabled track, splitting clips that cross a range edge and leaving gaps (Delete with an in/out selection); a piece of a cut clip that would be left under half a second goes too; `timeline.rippleDelete` closes them",
     args: z.strictObject({ ranges: Ranges }),
     apply(doc, { ranges }, ctx) {
-      for (const [a, b] of normalizeRanges(doc, ranges)) removeRange(doc, doc.tracks, a, b, ctx, false);
+      for (const [a, b] of normalizeRanges(doc, ranges, ctx.registry, ctx.data)) removeRange(doc, doc.tracks, a, b, ctx, false);
     },
   }),
   defineCommand({
