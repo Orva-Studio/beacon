@@ -3224,6 +3224,21 @@ speed up with it; the captions' .srt is timed to the file. **Built
 2026-11-02** (`phase-13`): a Speed row (Normal, 1.1, 1.2, 1.25, 1.5, Custom…)
 with the length before and after, `export_start`'s `speed` (1 to 2).
 
+#### Remove Silences follows the sound (the user, 2026-11-04)
+The user saw low noise kept at a cut after Remove Silences. Measured on their
+shorts project: silences were only where the transcript's speech detector heard
+none (its threshold set once per take, between its noise floor and speech
+level), and Leave kept 0.15 s of each cut silence a side.
+**Decided (the user, 2026-11-04): cuts follow the sound.** A Trim quiet setting
+(on, 30 dB under the voice): sound that low counts as silence even inside
+detected speech, read from the waveform; Leave becomes the most kept, a guard of
+0.04 s a side. **Built (2026-11-04):** `quiet` in Remove Silences' review and
+panel (a slider, `silenceQuiet` remembered app-wide), transcript_silences,
+transcript_removeSilences and transcript_removePauses (0 when not given: pass
+the query's). The spot the user showed turned out to be the words themselves
+(0.08 s of "reel." fading, 0.05 s of "Then" starting, 10–25 dB under the voice)
+and stays.
+
 #### Music and sound effects from Epidemic Sound (the user, 2026-10-28; moved from the backlog the same day)
 Music and sound effects found, placed and mixed from Beacon, as B-roll and
 Auphonic are: a feature folder with its own commands, so the agent uses it
@@ -3436,6 +3451,21 @@ Sources: [OpusClip caption presets](https://www.opus.pro/blog/best-caption-prese
 [caption styles ranked (vendor)](https://www.clipspeed.ai/blog/11-caption-styles-ranked-viral-performance-2026.html).
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
+
+#### First: Undo Agents' Last Change, a history per author (the user, 2026-11-04; before the audit)
+The user edits by hand while an agent (Claude, Codex) edits another part of the
+same project, sharing one undo history: ⌘Z undid the agent's last change
+rather than the user's mistake. Decided (the user, 2026-11-04): each undo step
+records who made it (the user, or the agent by name, known from its
+connection); **⌘Z and ⇧⌘Z undo and redo the user's own steps**, skipping the
+agents'; **Edit › Undo Agents' Last Change** (and an agent's `project_undo`)
+undoes theirs; the History list says who made each step. A step that a later
+step of someone else's touched (the same clip, or one a ripple moved) isn't
+undone under it: Beacon says whose change is in the way ("an agent changed
+this clip since: undo the agent's change first"). Why its own item, before the
+audit: undo steps are Immer patches by position ("track 2's 5th clip"), so
+undoing an older step out of order needs patches found by id; every command's
+undo exactness rides on it (unit tests for undo exactness are the rule).
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:

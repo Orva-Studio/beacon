@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Asset } from "@beacon/model";
+import { projectDuration, ticksToSeconds, type Asset } from "@beacon/model";
 import { DerivedData } from "@beacon/render";
 import { LocalCore } from "../src";
 
@@ -25,7 +25,7 @@ function transcribed(core: LocalCore, asset: Asset, streams: Record<number, Stre
   writeFileSync(file, JSON.stringify({ streams: full }));
 }
 
-const SETTINGS = { min: 0.6, keep: 0.3 };
+const SETTINGS = { min: 0.6, keep: 0.3, quiet: 0 };
 
 test.skipIf(!existsSync(AUDIO))("Remove Silences cuts nothing while audio heard with a transcribed clip still has no transcript", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache-a") });
@@ -236,3 +236,34 @@ test.skipIf(!existsSync(AUDIO))("Remove Silences finds a pause split across a cu
   expect(across!.start).toBeCloseTo(1, 1);
   expect(across!.end).toBeCloseTo(1.6, 1);
 });
+
+test.skipIf(!existsSync(AUDIO))("Trim quiet: low sound inside detected speech counts as silence, and the cut follows the sound, keeping no more than a few hundredths of the quiet", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-quiet") });
+  const h = await core.create({ path: join(dir, "quiet.beproj") });
+  copyFileSync(AUDIO, join(dir, "quiet.m4a"));
+  const r = await core.import(h, [join(dir, "quiet.m4a")], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const asset = core.doc(h).assets[r.assets[0]!]!;
+  await (await core.analyze(h, "waveform", asset.id)).done;
+  const length = ticksToSeconds(core.doc(h).tracks.flatMap((t) => t.clips)[0]!.duration);
+  // A detector that heard the whole take as speech: only the waveform can find its quiet.
+  transcribed(core, asset, { 0: { words: [{ text: "first", start: 0.2, end: 0.6 }, { text: "last", start: length - 0.6, end: length - 0.2 }], speech: [[0, length]] } });
+  const found = async (quiet: number) => ((await core.query(h, "transcript.silences", { min: 0.3, keep: 0.3, quiet })) as { silences: { start: number; end: number }[]; quiet: number }).silences;
+  expect(await found(0)).toEqual([]);
+  const quiet = await found(30);
+  expect(quiet.length).toBeGreaterThan(0);
+  // Each is quiet throughout by the waveform: 30 dB under the voice, read the way Remove Silences reads it.
+  const wave = JSON.parse(await Bun.file(new DerivedData(core.registry, core.cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("waveform")!)).text()) as { streams: Record<number, number[]> };
+  const p = wave.streams[0]!;
+  const heard = p.filter((x) => x > 0).sort((a, b) => a - b);
+  const threshold = heard[Math.floor(heard.length * 0.9)]! * 10 ** (-30 / 40);
+  for (const s of quiet) for (let i = Math.ceil(s.start * 100) + 1; i < Math.floor(s.end * 100) - 1; i++) expect(p[i]!).toBeLessThan(threshold);
+  // Cut with Leave at 0.3 s, a silence keeps 0.04 s each side, not 0.15 s.
+  const before = ticksToSeconds(projectDuration(core.doc(h)));
+  const total = quiet.filter((s) => s.end - s.start > 0.3).reduce((n, s) => n + s.end - s.start, 0);
+  await core.run(h, "transcript.removeSilences", { min: 0.3, keep: 0.3, quiet: 30 });
+  const cut = before - ticksToSeconds(projectDuration(core.doc(h)));
+  const n = quiet.filter((s) => s.end - s.start > 0.3).length;
+  expect(cut).toBeGreaterThan(total - n * 0.08 - 0.1);
+  await core.close(h);
+}, 60_000);

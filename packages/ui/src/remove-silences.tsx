@@ -9,6 +9,7 @@ import type { Host } from "./app";
 interface Review {
   min: number;
   keep: number;
+  quiet?: number;
   selected: number[];
   learned?: string[];
 }
@@ -38,11 +39,13 @@ const tenths = (v: number) => Math.round(v * 10) / 10;
  */
 export function SilenceReviewPanel({ project, session, host, found }: { project: Project; session: Session; host: Host; found: Silences | undefined }) {
   const review = reviewOf(session)!;
+  const quiet = review.quiet ?? 0;
   // The user's settings are remembered app-wide, as an animation's easing is; an agent's (silences.review) aren't.
   const set = (args: Partial<Review>) => {
     host.run("silences.review", args);
     if (args.min !== undefined) void host.setPreference("silenceMin", String(args.min));
     if (args.keep !== undefined) void host.setPreference("silenceKeep", String(args.keep));
+    if (args.quiet !== undefined) void host.setPreference("silenceQuiet", String(args.quiet));
   };
   const progress = useTranscribing();
   const tip = useShortcutTip();
@@ -63,7 +66,22 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
     <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-silence-review>
       <div className="mb-4 text-title font-semibold text-text-strong">Remove Silences</div>
       <Slider label="Longer than" title="Silences longer than this are found" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
-      <Slider label="Leave" title="How much of each cut silence is left in, half each side" value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
+      <Slider label="Leave" title={quiet ? "Most of each cut silence left in, half each side: with Trim quiet on the cut follows the sound, so no noise is kept" : "How much of each cut silence is left in, half each side"} value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
+      <Slider
+        label="Trim quiet"
+        title="Low noise this far under your voice counts as silence too (a breath, the room after a word), and each cut follows the sound so none of it is kept. 0 for off"
+        value={quiet}
+        unit=" dB"
+        digits={0}
+        step={1}
+        min={0}
+        max={50}
+        onChange={(v) => set({ quiet: Math.round(v) })}
+        data-silences-quiet
+      />
+      <div className="mb-2 ml-[92px] text-caption text-text-faint" data-silences-quiet-hint>
+        {quiet ? `Sound ${quiet} dB under your voice is cut as silence` : "Off: only where no speech was found"}
+      </div>
       {found?.stacked ? (
         <div className="mt-2 mb-4 rounded-md bg-groove px-3 py-2 text-danger" data-silences-stacked>
           {found.stacked}.

@@ -4065,6 +4065,23 @@ test.skipIf(skip)("Remove Silences opens with the shortest pause the user cuts, 
   }
 });
 
+test.skipIf(skip)("Remove Silences' Trim quiet is on at 30 dB under the voice, says so, and goes off at 0", async () => {
+  try {
+    await select([]);
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=silences]')");
+    await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+    await page.until("!!document.querySelector('[data-silences-quiet-hint]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-silences-quiet-hint]').textContent")).toBe("Sound 30 dB under your voice is cut as silence");
+    await run("silences.review", { quiet: 0 });
+    await page.until("document.querySelector('[data-silences-quiet-hint]').textContent.startsWith('Off')");
+    expect(((await session()).features.transcript as { silences: { quiet: number } }).silences.quiet).toBe(0);
+    await run("silences.review", { quiet: 30 });
+  } finally {
+    await run("silences.close").catch(() => {});
+  }
+});
+
 test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⌘-click more (again to drop one), ⇧-click every one back to the last; Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
@@ -4088,12 +4105,12 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   // The sliders are remembered app-wide: closed and opened again, the review has them; an agent's settings aren't kept.
   const prefs = async () => Object.fromEntries((await ui.core.preferences()).filter((p) => p.id.startsWith("silence")).map((p) => [p.id, p.value]));
-  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1", silenceQuiet: "30" });
   await run("silences.close");
   await run("silences.review");
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   await run("silences.review", { min: 0.6, keep: 0.3 });
-  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1", silenceQuiet: "30" });
   await ui.core.setPreference("silenceMin", "0.6");
   await ui.core.setPreference("silenceKeep", "0.3");
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");

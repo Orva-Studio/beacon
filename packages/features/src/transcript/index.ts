@@ -29,7 +29,7 @@ import {
   projectFormat,
   assetName,
 } from "@beacon/model";
-import { clipStream, mediaInfo, sourceOf } from "../media";
+import { clipStream, mediaInfo, sourceOf, type WaveformData } from "../media";
 import { rangesCut, rippleDeleteRanges } from "../timeline";
 import type { CursorData } from "../cursor";
 import { fillerRule, keptFillers, retakeTake, silenceMin, where, type Habit } from "./habits";
@@ -91,6 +91,53 @@ export function timelineWords(project: Project, registry: FeatureRegistry, data:
   return words.sort((a, b) => a.start - b.start).map((w, i) => ({ i, ...w }));
 }
 
+/** Seconds of sound kept each side of a cut that follows the sound (`quiet`): against a click, not to keep noise. */
+const QUIET_GUARD = 0.04;
+/** Quiet runs shorter than this inside the sound don't split it (the gap between two syllables). */
+const QUIET_JOIN = 0.1;
+
+const voiceLevels = new WeakMap<number[], number>();
+/** A stream's voice, as a waveform peak (0–255): its 90th percentile, counting only where there is sound. */
+function voiceOf(peaks: number[]): number {
+  let v = voiceLevels.get(peaks);
+  if (v === undefined) {
+    const heard = peaks.filter((p) => p > 0).sort((a, b) => a - b);
+    v = heard[Math.floor(heard.length * 0.9)] ?? 0;
+    voiceLevels.set(peaks, v);
+  }
+  return v;
+}
+
+/**
+ * Where each audio clip's sound is within `under` dB of its voice (timeline seconds, merged), from its waveform
+ * (peaks per 10 ms, 0–255 as the square root of the peak). A clip whose waveform isn't made yet counts as sound
+ * throughout, so nothing more is cut from it.
+ */
+function soundSpans(project: Project, registry: FeatureRegistry, data: Data, under: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (const { clip, from, to, map } of audioClips(project, registry, data)) {
+    const peaks = data<WaveformData>(clip.assetId!, "waveform")?.streams[clipStream(clip)];
+    if (!peaks?.length) {
+      out.push([map(from), map(to)]);
+      continue;
+    }
+    // A peak's waveform value is 255·√peak, so `under` dB lower is 10^(−under/40) of it.
+    const threshold = voiceOf(peaks) * 10 ** (-under / 40);
+    let run: [number, number] | undefined;
+    for (let i = Math.max(0, Math.floor(from * 100)); i < Math.min(peaks.length, Math.ceil(to * 100)); i++) {
+      if (peaks[i]! < threshold) continue;
+      const [a, b] = [i / 100, (i + 1) / 100];
+      if (run && a - run[1] < QUIET_JOIN) run[1] = b;
+      else {
+        if (run) out.push([map(run[0]), map(run[1])]);
+        run = [a, b];
+      }
+    }
+    if (run) out.push([map(run[0]), map(run[1])]);
+  }
+  return mergeSpans(out.sort((x, y) => x[0] - y[0]));
+}
+
 /**
  * Silences on the timeline: where no audio clip has detected speech. Based
  * on the audio rather than gaps between words, so speech whisper missed is
@@ -100,14 +147,20 @@ export function timelineWords(project: Project, registry: FeatureRegistry, data:
  * across the talk (its camera, from the same take or another file) is cut
  * with its silences. `after` is the index of the last word before.
  */
-export function pauses(project: Project, registry: FeatureRegistry, data: Data, words: TimelineWord[]): { start: number; end: number; after?: number }[] {
-  const speech: [number, number][] = [];
+export function pauses(project: Project, registry: FeatureRegistry, data: Data, words: TimelineWord[], under = 0): { start: number; end: number; after?: number }[] {
+  let speech: [number, number][] = [];
   const heard: [number, number][] = [];
   for (const { clip, t, from, to, map } of audioClips(project, registry, data)) {
     heard.push([ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)]);
     for (const [a, b] of t.speech) if (b > from && a < to) speech.push([map(a), map(b)]);
   }
   speech.sort((x, y) => x[0] - y[0]);
+  // `under`: speech is only where it is also heard within `under` dB of the voice, so low noise kept inside a
+  // speech region (a breath, the room after a word) is silence too.
+  if (under > 0) {
+    const sound = soundSpans(project, registry, data, under);
+    speech = mergeSpans(speech).flatMap(([a, b]) => sound.filter(([x, y]) => y > a && x < b).map(([x, y]) => [Math.max(a, x), Math.min(b, y)] as [number, number]));
+  }
   const end = ticksToSeconds(projectDuration(project));
   const quiet: [number, number][] = [];
   let at = 0;
@@ -186,15 +239,20 @@ function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: nu
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
 
-/** What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it before the first word, none after the last), outside `except`. */
-function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
+/**
+ * What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it
+ * before the first word, none after the last), outside `except`. With `quiet` (dB under the voice) the cut follows
+ * the sound: low noise counts as silence and `keep` is at most a few hundredths each side, so none of it is kept.
+ */
+function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; quiet?: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
   const words = timelineWords(doc, registry, data);
   if (!words.length) return undefined;
-  return pauses(doc, registry, data, words)
+  const side = o.quiet ? Math.min(o.keep / 2, QUIET_GUARD) : o.keep / 2;
+  return pauses(doc, registry, data, words, o.quiet)
     .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
     .flatMap((p) =>
       subtractSpans(
-        [p.after === undefined ? p.start : p.start + o.keep / 2, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2],
+        [p.after === undefined ? p.start : p.start + side, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - side],
         o.except.map((x) => [x.start, x.end]),
       ).map(([start, end]) => ({ start, end })),
     );
@@ -266,6 +324,8 @@ function refuseUntranscribed(project: Project, registry: FeatureRegistry, data: 
 export interface SilenceReview {
   min: number;
   keep: number;
+  /** dB under the voice counted as silence too, the cut following the sound; 0 for detected speech alone. */
+  quiet: number;
   /** A time inside each silence picked on the timeline (a click, ⇧-click for more): Apply cuts those. */
   selected: number[];
   /** The habits it opened with, said in the panel ("Longer than 0.45 s: …"). */
@@ -274,10 +334,10 @@ export interface SilenceReview {
   reach?: number;
 }
 
-const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, selected: [] };
+const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, quiet: 30, selected: [] };
 
 /** A review's settings as the user last left them (its sliders), else the defaults. */
-const silenceSettings = (pref: Preferences): SilenceReview => ({ min: Number(pref("silenceMin")), keep: Number(pref("silenceKeep")), selected: [] });
+const silenceSettings = (pref: Preferences): SilenceReview => ({ min: Number(pref("silenceMin")), keep: Number(pref("silenceKeep")), quiet: Number(pref("silenceQuiet")), selected: [] });
 const retakeSettings = (pref: Preferences): RetakeOptions => ({ minWords: Number(pref("retakeMinWords")), within: Number(pref("retakeWithin")) });
 
 const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
@@ -310,23 +370,24 @@ function stackedSpeech(project: Project, registry: FeatureRegistry, data: Data):
  * Remove Silences with `o`: each silence over `min`, whether it is screen action and whether it is picked, the
  * ranges cutting all of them would remove and those cutting only the picked ones would, and whether two voices overlap.
  */
-function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; selected?: number[] }) {
+function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; quiet?: number; selected?: number[] }) {
   const waiting = untranscribed(project, registry, data);
   const stacked = stackedSpeech(project, registry, data);
   const words = timelineWords(project, registry, data);
   if (!words.length) return { waiting, stacked, words: 0, silences: [], all: [], chosen: [] };
   const picked = o.selected ?? [];
-  const silences = pauses(project, registry, data, words)
+  const silences = pauses(project, registry, data, words, o.quiet)
     .filter((p) => p.end - p.start > o.min)
     .map((p) => ({ start: p.start, end: p.end, active: screenActive(project, data, p.start, p.end), selected: picked.some((t) => t >= p.start - 1e-3 && t <= p.end + 1e-3) }));
-  const all = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except: [] }) ?? [];
-  const chosen = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except: silences.filter((p) => !p.selected).map(({ start, end }) => ({ start, end })) }) ?? [];
+  const all = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, quiet: o.quiet ?? 0, except: [] }) ?? [];
+  const chosen = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, quiet: o.quiet ?? 0, except: silences.filter((p) => !p.selected).map(({ start, end }) => ({ start, end })) }) ?? [];
   return { waiting, stacked, words: words.length, silences: silences.map((p) => ({ ...p, start: roundSeconds(p.start), end: roundSeconds(p.end) })), all, chosen };
 }
 
 const SilenceSettings = {
   min: z.number().positive().max(10).describe("Silences longer than this many seconds are found"),
   keep: z.number().nonnegative().max(2).describe("Seconds of each cut silence left in, half each side"),
+  quiet: z.number().min(0).max(60).describe("Sound this many dB under the voice counts as silence too (low noise, a breath, the room after a word), and the cut follows the sound: `keep` is then at most 0.04 s each side. 0: only where no speech was detected"),
 };
 
 type ReviewKey = "silences" | "fillers" | "retakes";
@@ -384,7 +445,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
     id: "silences.review",
     description:
       "Open Remove Silences' review (the AI panel's tile does): the timeline marks each silence and the properties panel shows these settings, until silences.apply or silences.close; nothing is cut until the user picks silences (silences.select) and cuts them, or cuts all. With settings, change them. An agent can pick silences for the user to look over",
-    args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional() }),
+    args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional(), quiet: SilenceSettings.quiet.optional() }),
     apply: (s, a: Partial<SilenceReview>, { pref, project, memory }) => {
       const r = { ...(silenceReview(s) ?? learnedSilences(silenceSettings(pref), memory, project)), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
       // Moved from the habit, it no longer says why.
@@ -743,11 +804,12 @@ const silencesApply = defineAction({
     const r = silenceReview(session);
     if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
     const { min, keep, selected } = r;
+    const quiet = r.quiet ?? 0;
     const cut = silencePlan(project, registry, data, r).silences.filter((x) => all || x.selected);
     const decisions = cut.map((x): DecisionInput => ({ rule: "silence", choice: "cut", flipped: false, value: roundSeconds(x.end - x.start) }));
-    if (all) return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep } }], after: () => [{ command: "silences.close" }], decisions };
+    if (all) return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, quiet } }], after: () => [{ command: "silences.close" }], decisions };
     if (!selected.length) throw new Error("no silences picked: click one on the timeline (⇧-click for more), or Apply All");
-    return { label: selected.length === 1 ? "Remove Silence" : "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, at: selected } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }], decisions };
+    return { label: selected.length === 1 ? "Remove Silence" : "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, quiet, at: selected } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }], decisions };
   },
 });
 
@@ -786,6 +848,7 @@ export const transcript = defineFeature({
       [
         ["silenceMin", "Remove Silences: longer than", "Silences longer than this many seconds are found", SILENCE_DEFAULTS.min, { min: 0.2, max: 5 }],
         ["silenceKeep", "Remove Silences: leave", "Seconds of each cut silence left in, half each side", SILENCE_DEFAULTS.keep, { min: 0, max: 2 }],
+        ["silenceQuiet", "Remove Silences: trim quiet", "Sound this many dB under the voice counts as silence too, the cut following the sound; 0 for off", SILENCE_DEFAULTS.quiet, { min: 0, max: 60 }],
         ["retakeMinWords", "Remove Retakes: repeats", "Words in a row a take must say again to count as a retake", RETAKE_DEFAULTS.minWords, { min: 2, max: 8 }],
         ["retakeWithin", "Remove Retakes: within", "Seconds between the starts of two takes, at most", RETAKE_DEFAULTS.within, { min: 5, max: 120 }],
       ] as const
@@ -920,6 +983,7 @@ export const transcript = defineFeature({
       args: z.strictObject({
         min: SilenceSettings.min.optional(),
         keep: SilenceSettings.keep.optional(),
+        quiet: SilenceSettings.quiet.optional(),
         selected: z.array(z.number()).optional().describe("Times inside the silences picked, as silences.select sets"),
         ...ReviewOwn,
       }),
@@ -928,7 +992,7 @@ export const transcript = defineFeature({
         const o = { ...learnedSilences(silenceSettings(pref), memory ?? NO_MEMORY, project), ...Object.fromEntries(Object.entries(given).filter(([, v]) => v !== undefined)) } as SilenceReview;
         const plan = silencePlan(project, registry, data, o);
         const seconds = (ranges: { start: number; end: number }[]) => roundSeconds(cutRanges(project, registry, data, ranges).reduce((n, c) => n + c.end - c.start, 0));
-        return { min: o.min, keep: o.keep, waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
+        return { min: o.min, keep: o.keep, quiet: o.quiet, waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
       },
     }),
     defineQuery({
@@ -1063,8 +1127,8 @@ export const transcript = defineFeature({
     defineCommand({
       id: "transcript.removeSilences",
       description:
-        "Remove Silences: cut every silence over `min` seconds down to `keep` (screen action included: check it with frames), or with `at` only the silences holding those times, as transcript_silences shows; one undo step. Refused while two voices are heard at once. silences.apply runs it from the open review",
-      args: z.strictObject({ ...SilenceSettings, at: z.array(z.number()).min(1).optional().describe("A time inside each silence to cut; without it, all of them") }),
+        "Remove Silences: cut every silence over `min` seconds down to `keep`, with `quiet` the cut following the sound (pass transcript_silences' `quiet`, the user's setting) (screen action included: check it with frames), or with `at` only the silences holding those times, as transcript_silences shows; one undo step. Refused while two voices are heard at once. silences.apply runs it from the open review",
+      args: z.strictObject({ ...SilenceSettings, quiet: SilenceSettings.quiet.default(0), at: z.array(z.number()).min(1).optional().describe("A time inside each silence to cut; without it, all of them") }),
       apply(doc, { at, ...o }, ctx) {
         const plan = silencePlan(doc, ctx.registry, ctx.data, { ...o, ...(at ? { selected: at } : {}) });
         if (plan.stacked) throw new Error(plan.stacked);
@@ -1099,12 +1163,13 @@ export const transcript = defineFeature({
       args: z.strictObject({
         min: z.number().positive().default(0.6),
         keep: z.number().nonnegative().default(0.3),
+        quiet: SilenceSettings.quiet.default(0),
         from: z.number().nonnegative().optional(),
         to: z.number().nonnegative().optional(),
         except: z.array(z.strictObject({ start: z.number(), end: z.number() })).default([]),
       }),
-      apply(doc, { min, keep, from, to, except }, ctx) {
-        const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, from, to, except });
+      apply(doc, { min, keep, quiet, from, to, except }, ctx) {
+        const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, quiet, from, to, except });
         if (!ranges) throw new Error("no transcript on the timeline yet");
         refuseUntranscribed(doc, ctx.registry, ctx.data);
         return cut(doc, ctx, ranges);
