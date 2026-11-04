@@ -80,7 +80,7 @@ HyperFrames
 -----------
 Motion graphics' author is shown examples from HyperFrames' registry
 (https://github.com/heygen-com/hyperframes, commit
-2d1b5cfbd2ffff65bdd342d78ce64a7dd36c4695, Copyright HeyGen, licensed under
+73e65e2c7826ba1e33382f1f09d66f4e115e3aaa, Copyright HeyGen, licensed under
 the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0):
 the code of its blocks and components, without their images, sounds and
 fonts and without the CDN script tags, in
