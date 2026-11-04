@@ -3170,6 +3170,24 @@ about $1.72 at 480p). Angles: a side profile, a wide, and a **close-up** on the
 face or eyes (the punch-in crop when the source has the pixels, free and in
 sync; Seedance otherwise, not yet tried).
 
+**Resolution on Replicate (checked 2026-11-04, the user wanting to stay on
+Replicate).** Seedance 2.5 there is 480p/720p only (its version of 23 Oct).
+Seedance 2.0 there takes `1080p` and `4k` by its API schema (its page still
+says 480p/720p; 3 videos and 3 audios in, 15 s in all), not yet tried.
+**ByteDance's Video Upscaler** on Replicate (`bytedance/video-upscaler`:
+`scene: aigc` for Seedance output, `target_resolution` to 4k, `target_fps`
+interpolating, `processing_type` standard or pro) was run on round 2's 5 s
+profile (854×480, 24 fps) to 1080p at 30 fps, both tiers (about 1.5 minutes
+each; the price isn't shown to a token, the user's billing has it): the beard,
+skin, ear and the set much sharper, the face unchanged (it adds detail, it
+doesn't redraw); pro a touch smoother in the skin, standard a little crisper.
+So Seedance 2.5 at 480p or 720p, then this upscaler, gives 1080p without
+leaving Replicate; a 720p source should do better still (1.5×, not 2.25×).
+Replicate throttles an account under $5 of credit to one prediction at a time:
+Beacon's calls queue.
+**Decided (the user, 2026-11-04):** the upscaler's **standard** tier ("upscaled
+1080p standard looks good"): angles are Seedance 2.5 at 480p, upscaled to 1080p.
+
 **What a Seedance multi-shot prompt teaches (a Lovart × Seedance 2.5 demo, the
 user's find, 2026-11-04).** One 20 s generation from one take gave eight shots
 (a tracking shot, a slow-motion close-up, a low angle, top-down, an extreme
