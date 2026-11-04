@@ -3475,6 +3475,17 @@ HyperFrames' renders as the single graphics were.
 
 ## 16. Backlog (ideas parked, not scheduled)
 
+### Relight the camera after the take (the user, 2026-11-04; a future feature)
+The camera's light changed after recording: a key moved to the side, warmer or
+cooler, brighter on a dull UK evening, or matched to a generated angle or a
+B-roll shot. Beeble's relighting models (SwitchLight 3, 3D Relight, SwitchX
+2: per frame, masks to protect areas) are the lead, through its API
+(developer.beeble.ai), with the user's own key as Replicate's and Epidemic's
+are. To find out first: the API's price per second, whether it takes a short
+range and a lighting setup in words or a reference picture, how long it takes,
+and whether the face and lips stay true. A spike with the user's go-ahead
+before any paid call, then a plan.
+
 ### Ideas from Beeble (the user's find, 2026-11-04; candidates)
 Beeble (beeble.ai: a cloud with an API at developer.beeble.ai, and a local
 Beeble Studio) sells VFX models for footage. What could serve Beacon:
