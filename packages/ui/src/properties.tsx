@@ -538,7 +538,13 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
         <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
         <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
         <ColorRow label="Shadow" color={style.shadow} onChange={(shadow, key) => set({ shadow }, "Caption Shadow", key)} />
-        {style.shadow[3] > 0 && <Slider unit="" label="Softness" value={style.shadowBlur} max={60} onChange={(v, key) => set({ shadowBlur: Math.max(0, v) }, "Caption Shadow", key)} />}
+        {style.shadow[3] > 0 && (
+          <>
+            <Slider unit="" label="Softness" value={style.shadowBlur} max={60} onChange={(v, key) => set({ shadowBlur: Math.max(0, v) }, "Caption Shadow", key)} />
+            <Slider unit="" label="Distance" value={style.shadowDistance} max={100} onChange={(v, key) => set({ shadowDistance: Math.min(200, Math.max(0, v)) }, "Caption Shadow", key)} data-caption-shadow-distance />
+            <Slider unit="°" label="Angle" value={Math.round((((style.shadowAngle * 180) / Math.PI) % 360) + 360) % 360} max={359} onChange={(v, key) => set({ shadowAngle: (v * Math.PI) / 180 }, "Caption Shadow", key)} data-caption-shadow-angle />
+          </>
+        )}
         <div className="mt-3 ml-[92px]">
           <Check label="All capitals" checked={style.uppercase} onChange={(uppercase) => set({ uppercase }, "Caption Capitals")} />
         </div>

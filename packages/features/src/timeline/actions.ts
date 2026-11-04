@@ -456,8 +456,20 @@ export const actions = [
     args: z.strictObject({ type: z.string().min(1), clip: z.string().min(1).optional() }),
     resolve: ({ type, clip }, ctx) => {
       const def = ctx.registry.effect(type);
-      const clips = dropTargets(ctx, clip).filter((c) => def.traits.some((t) => ctx.registry.hasTrait(c.type, t)));
-      if (!clips.length) throw new Error(clip ? `"${type}" doesn't apply to that media` : `select media that "${type}" applies to first`);
+      const targets = dropTargets(ctx, clip);
+      const clips = targets.filter((c) => def.traits.some((t) => ctx.registry.hasTrait(c.type, t)));
+      if (!clips.length) {
+        // A clip type that has its own way of taking it (the captions' shadow) does so; else it says what the effect is for.
+        const located = targets.flatMap((c) => {
+          const track = ctx.project.tracks.find((t) => t.clips.some((x) => x.id === c.id));
+          const instead = track ? ctx.registry.clipTypes.get(c.type)?.effectInstead?.(type, c, track) : undefined;
+          return instead ? [instead] : [];
+        });
+        const first = located[0];
+        if (first) return { label: def.title, steps: [{ command: first.command, args: first.args }], after: () => [...selectDropped(ctx, clip), ...(first.tab ? [{ command: "inspector.tab", args: { tab: first.tab } }] : [])] };
+        const kinds = [...new Set(targets.map((c) => c.type))].join(", ");
+        throw new Error(clip ? `${def.title} doesn't apply to ${kinds || "that"} clips` : `select media that ${def.title} applies to first`);
+      }
       return { label: `Add ${type}`, steps: clips.map((c) => ({ command: "effect.add", args: { clip: c.id, type } })), after: () => selectDropped(ctx, clip) };
     },
   }),

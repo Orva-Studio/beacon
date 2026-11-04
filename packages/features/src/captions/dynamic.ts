@@ -43,6 +43,10 @@ export const dynamicFields = {
   shadow: RgbaSchema,
   /** Canvas pixels. */
   shadowBlur: z.number().nonnegative(),
+  /** Radians, as Drop Shadow's: 0 points right, counter-clockwise (−π/2 straight down). */
+  shadowAngle: z.number().meta({ degrees: true }),
+  /** Canvas pixels the shadow falls from the text. */
+  shadowDistance: z.number().min(0).max(200),
   /** `headline`: emphasised words on lines of their own, large, the rest small around them. */
   layout: z.enum(["line", "headline"]),
   emphasis: emphasisSchema,
@@ -76,6 +80,8 @@ export interface DynamicStyle {
   exit: "none" | "fade" | "blur";
   shadow: RGBA;
   shadowBlur: number;
+  shadowAngle: number;
+  shadowDistance: number;
   layout: "line" | "headline";
   emphasis: Emphasis;
   stretch: boolean;
@@ -93,6 +99,8 @@ export function dynamicDefaults(height = 1080): Pick<DynamicStyle, keyof typeof 
     exit: "none",
     shadow: [0, 0, 0, 0],
     shadowBlur: Math.round(6 * k),
+    shadowAngle: -Math.PI / 2,
+    shadowDistance: Math.round(6 * k * 0.3),
     layout: "line",
     emphasis: { color: [1, 0.84, 0.2, 1], scale: 1, font: "", weight: 800, italic: false, glow: [0, 0, 0, 0], decoration: "none", decorationColor: [1, 0.84, 0.2, 1] },
     stretch: false,
@@ -402,7 +410,7 @@ export function evaluateDynamic(e: ClipEval, ctx: EvalContext, words: CaptionWor
     size: [gw, gh],
     transform: [1, 0, 0, 1, gx, gy],
   };
-  if (style.shadow[3] > 0) group.passes = [{ pass: "drop-shadow", params: shadowParams({ angle: -Math.PI / 2, offset: style.shadowBlur * 0.3, blur: style.shadowBlur, opacity: 1, color: style.shadow }) }];
+  if (style.shadow[3] > 0) group.passes = [{ pass: "drop-shadow", params: shadowParams({ angle: style.shadowAngle, offset: style.shadowDistance, blur: style.shadowBlur, opacity: 1, color: style.shadow }) }];
   if (style.exit === "blur" && exit < 1) (group.passes ??= []).push({ pass: "remove-background-blur", params: [(1 - exit) * style.size * 0.35] });
   e.layers.push(group);
   e.main = group;

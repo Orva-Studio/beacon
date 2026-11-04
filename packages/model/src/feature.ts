@@ -15,6 +15,11 @@ export interface ClipTypeDef {
   traits: string[];
   /** Its speed can change though it has no media of its own (stitched pieces): it gets the Clip Speed tab. */
   retimes?: boolean;
+  /**
+   * How it takes an effect that doesn't apply to it as one (Drop Shadow on a caption: the captions' own shadow):
+   * the command to run instead and the inspector tab that shows it, or undefined when it can't.
+   */
+  effectInstead?: (effect: string, clip: Clip, track: Track) => { command: string; args: unknown; tab?: string } | undefined;
 }
 
 /**

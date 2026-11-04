@@ -63,6 +63,15 @@ test.skipIf(!existsSync(AUDIO))("Dynamic Captions: with word-by-word reveal a wo
   expect(wide.box.width).toBeGreaterThan(two.box.width * 1.1);
   expect(wide.box.width).toBeLessThanOrEqual(1920 * 0.9 + 60);
 
+  // Drop Shadow dropped on a caption turns on its track's shadow (angle and distance included) and shows it.
+  await core.run(h, "edit.addEffect", { type: "drop-shadow", clip: id });
+  expect(core.doc(h).tracks.find((t) => t.id === track)!.props!.captionStyle).toMatchObject({ shadow: [0, 0, 0, 0.6], shadowAngle: 5.49779, shadowDistance: 8 });
+  expect(core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.effects).toEqual([]);
+  expect((await core.session(h)).inspector).toBe("caption");
+  // Where there is no such way, it says what it is for.
+  const sound = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "audio")!;
+  await expect(core.run(h, "edit.addEffect", { type: "drop-shadow", clip: sound.id })).rejects.toThrow("Drop Shadow doesn't apply to audio clips");
+
   // A look sets everything at once; the preset list says which are for headlines.
   const presets = (await core.query(h, "captions.presets")) as { id: string; headline: boolean }[];
   expect(presets.filter((p) => p.headline).map((p) => p.id)).toEqual(["editorial-headline", "headline", "headline-glow"]);

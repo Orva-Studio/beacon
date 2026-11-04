@@ -283,10 +283,19 @@ function styleOnTrack(doc: unknown): unknown {
 /** v4: Dynamic Captions' fields on every caption track's style (those v4 had). */
 function dynamicStyle(doc: unknown): unknown {
   const height = (doc as { settings?: { height?: number } }).settings?.height ?? 1080;
-  const { stretch: _s, lineWords: _l, countUp: _c, behind: _b, ...v4 } = dynamicDefaults(height);
+  const { stretch: _s, lineWords: _l, countUp: _c, behind: _b, shadowAngle: _a, shadowDistance: _d, ...v4 } = dynamicDefaults(height);
   eachRawTrack(doc, (t) => {
     const style = t.props?.captionStyle as Record<string, unknown> | undefined;
     if (style) t.props.captionStyle = { ...v4, ...style };
+  });
+  return doc;
+}
+
+/** v6: the shadow's angle and distance, where it was always straight down at 0.3 of its softness. */
+function shadowPlace(doc: unknown): unknown {
+  eachRawTrack(doc, (t) => {
+    const style = t.props?.captionStyle as Record<string, unknown> | undefined;
+    if (style) t.props.captionStyle = { shadowAngle: -Math.PI / 2, shadowDistance: Math.round(Number(style.shadowBlur ?? 0) * 0.3 * 100) / 100, ...style };
   });
   return doc;
 }
@@ -426,7 +435,7 @@ const StyleArgs = styleSchema.partial().extend({ emphasis: emphasisSchema.partia
 /** Captions: phrases from the transcript as caption clips on their own track, burned into the export, with an `.srt` beside it when the Export sheet asks. */
 export const captions = defineFeature({
   id: "captions",
-  version: 5,
+  version: 6,
   // Captions behind the person need the matte of the camera under them.
   needs: (doc) => {
     const out: { asset: string; analyzer: string }[] = [];
@@ -447,8 +456,18 @@ export const captions = defineFeature({
     { version: 3, migrate: styleOnTrack },
     { version: 4, migrate: dynamicStyle },
     { version: 5, migrate: editorialStyle },
+    { version: 6, migrate: shadowPlace },
   ],
-  clipTypes: [{ id: "caption", description: "A caption: words from the transcript, shown with the captions' style while they are spoken", traits: ["caption"] }],
+  clipTypes: [
+    {
+      id: "caption",
+      description: "A caption: words from the transcript, shown with the captions' style while they are spoken",
+      traits: ["caption"],
+      // Captions draw their track's shadow, not an effect per caption: Drop Shadow dropped on one turns that on.
+      effectInstead: (effect, _clip, track) =>
+        effect === "drop-shadow" ? { command: "captions.style", args: { track: track.id, style: { shadow: [0, 0, 0, 0.6], shadowBlur: 12, shadowAngle: 5.49779, shadowDistance: 8 } }, tab: "caption" } : undefined,
+    },
+  ],
   props: [
     { id: "caption", description: "The caption's words, timed in its media seconds", traits: ["caption"], tab: { title: "Caption Properties", icon: "closed-captioning", order: 4 }, schema: captionSchema, defaults: () => ({ words: [] }), identity: true },
     { id: "captionPlace", description: "Where this caption sits when placed on its own (caption.place), instead of where its track's captions all sit", traits: ["caption"], schema: placeSchema, defaults: () => ({}) },

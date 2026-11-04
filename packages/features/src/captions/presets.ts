@@ -22,7 +22,7 @@ const CREAM: RGBA = [0.99, 0.94, 0.88, 1];
  * Looks a caption track takes in one step; afterwards each field is the user's to change. Placed for 9:16 Reels
  * (and Shorts, TikTok): above the bottom quarter and clear of the right edge, where their buttons and caption sit.
  */
-export const PRESETS: CaptionPreset[] = [
+const LOOKS: CaptionPreset[] = [
   {
     id: "classic",
     title: "Classic",
@@ -185,3 +185,12 @@ export const PRESETS: CaptionPreset[] = [
     },
   },
 ];
+
+/** Each look's shadow falls straight down at 0.3 of its softness, as captions' shadows did before they had a distance. */
+export const PRESETS: CaptionPreset[] = LOOKS.map((p) => ({
+  ...p,
+  style: (canvas) => {
+    const s = p.style(canvas);
+    return s.shadowBlur !== undefined && s.shadowDistance === undefined ? { ...s, shadowDistance: Math.round(s.shadowBlur * 0.3) } : s;
+  },
+}));
