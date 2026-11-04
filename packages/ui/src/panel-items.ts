@@ -74,6 +74,15 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
     },
   },
   {
+    id: "angles",
+    label: "Camera Angle",
+    title: "A 3 s cutaway of you from another angle (side profile, wide, close-up, detail) at the playhead or over the range, made with AI from your camera and your own sound (on your Replicate account), or a free close-up crop when your camera has the pixels",
+    art: "remove-background",
+    online: true,
+    transcript: false,
+    start: (host) => review(host, "angles.add"),
+  },
+  {
     id: "motion",
     label: "Motion Graphics",
     title: "Add a motion graphics clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size its box on the canvas, then Make it into a title, name, number or list",

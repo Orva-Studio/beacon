@@ -12,6 +12,7 @@ import { useQuery } from "./query";
 import { propsOf } from "./props";
 import { copiedIds } from "./clip-ids";
 import { BrollTab } from "./broll";
+import { AngleTab } from "./angles";
 import { MotionTab } from "./motion";
 
 /**
@@ -149,6 +150,7 @@ function ClipProperties({
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} selected={selected} project={project} host={host} />}
       {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
+      {tab?.id === "angle" && <AngleTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "motion" && <MotionTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
         <Section>

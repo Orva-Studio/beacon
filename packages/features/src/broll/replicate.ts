@@ -116,9 +116,32 @@ const MISSES = 5;
  * Runs the model with `input` and downloads what it makes to `out`; `stage` is told where it is at each check. Cancelled
  * on Replicate if the job is. A check that fails is tried again: one slow answer mustn't lose footage being paid for.
  */
-export async function generate(token: string, m: VideoModel, input: Record<string, unknown>, out: string, stage: (s: MakeStage) => void): Promise<void> {
+export async function generate(token: string, m: Pick<VideoModel, "slug" | "title">, input: Record<string, unknown>, out: string, stage: (s: MakeStage) => void): Promise<void> {
+  const url = await predict(token, m, input, stage);
+  stage("downloading");
+  await download(url, out);
+}
+
+/** Creates a prediction, retried while Replicate throttles (an account under $5 of credit makes one at a time). */
+async function create(token: string, slug: string, input: Record<string, unknown>): Promise<Prediction> {
+  for (let tries = 0; ; tries++) {
+    try {
+      return await call<Prediction>(token, `/models/${slug}/predictions`, { method: "POST", body: JSON.stringify({ input }) }, false);
+    } catch (e) {
+      if (!/^Replicate: 429/.test((e as Error).message) || tries >= 10) throw e;
+      jobSignal()?.throwIfAborted();
+      await Bun.sleep(Number(process.env.BEACON_REPLICATE_THROTTLE_MS ?? 12_000));
+    }
+  }
+}
+
+/**
+ * Runs the model with `input` and answers the URL of what it made (Replicate keeps it about an hour), cancelled on
+ * Replicate if the job is. A check that fails is tried again.
+ */
+export async function predict(token: string, m: Pick<VideoModel, "slug" | "title">, input: Record<string, unknown>, stage: (s: MakeStage) => void): Promise<string> {
   // Replicate may start it before it answers: the answer is waited for even when the job is cancelled meanwhile, so it can be cancelled there too.
-  let p = await call<Prediction>(token, `/models/${m.slug}/predictions`, { method: "POST", body: JSON.stringify({ input }) }, false);
+  let p = await create(token, m.slug, input);
   const started = Date.now();
   try {
     jobSignal()?.throwIfAborted();
@@ -144,7 +167,30 @@ export async function generate(token: string, m: VideoModel, input: Record<strin
   if (p.status !== "succeeded") throw new Error(`${m.title} ${p.status === "canceled" ? "was cancelled on Replicate" : `couldn't make it: ${p.error ?? "no reason given"}`}`);
   const url = Array.isArray(p.output) ? p.output[0] : p.output;
   if (!url) throw new Error(`${m.title} made no file`);
-  stage("downloading");
+  return url;
+}
+
+/** Puts a file of ours on Replicate for a model to read (its URL answered), as `type`. */
+export async function upload(token: string, path: string, type: string): Promise<string> {
+  const form = new FormData();
+  form.append("content", new File([await Bun.file(path).arrayBuffer()], path.split("/").at(-1)!, { type }));
+  const job = jobSignal();
+  const dog = watchdog(STALL_MS());
+  const signal = AbortSignal.any([dog.signal, ...(job ? [job] : [])]);
+  try {
+    const r = await until(fetch(`${api()}/files`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form, signal }), signal);
+    return (await answer<{ urls: { get: string } }>(r)).urls.get;
+  } catch (e) {
+    job?.throwIfAborted();
+    if ((e as Error).name === "TimeoutError") throw new Error("uploading to Replicate stopped (the Mac slept, or the connection dropped): try again");
+    throw e;
+  } finally {
+    dog.stop();
+  }
+}
+
+/** Downloads what a model made to `out`. */
+export async function download(url: string, out: string): Promise<void> {
   const job = jobSignal();
   // Given up after a while with nothing arriving, the Mac's sleep included; Cancel stops it at once.
   const dog = watchdog(STALL_MS());

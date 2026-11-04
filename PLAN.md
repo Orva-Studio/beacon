@@ -3188,6 +3188,42 @@ Beacon's calls queue.
 **Decided (the user, 2026-11-04):** the upscaler's **standard** tier ("upscaled
 1080p standard looks good"): angles are Seedance 2.5 at 480p, upscaled to 1080p.
 
+**The spec (the user's choices, 2026-11-04).**
+- **An Angle clip, as B-roll's:** the AI panel's Camera Angle tile, or the
+  camera's right-click › New Angle Here, puts a 3 s Angle clip on an Angles
+  track above the camera (at the in/out range, else the playhead), over the
+  camera clip it is of. It is moved and trimmed like any clip (at most 3 s,
+  ripples with edits); its Properties tab picks the angle and generates it.
+- **Angles:** Side profile (left or right), Wide, Close-up, Detail (hands,
+  desk, an object), each with Locked or Handheld (micro-drift, the default);
+  a few words of the user's own are optional.
+- **Close-up crops when the pixels are there:** on a camera with at least
+  1.6× the canvas's height of pixels for the framing (a 4K camera in a 1080p
+  project), the close-up is a crop of the real frames, free and in sync; on
+  less it is generated; Generate Anyway is there.
+- **Generate (a job on the user's Replicate token):** the camera and its sound
+  under the clip, from its start, at least 4 s (Seedance's shortest), are cut
+  and uploaded with the project's room photos; Seedance 2.5 at 480p re-films
+  them with a brief Beacon writes (the look and lock lines, the angle's camera,
+  lens and move, "his lips move exactly to [Audio1]", the photos for the set
+  only, the desk where the video has it, no speed change); ByteDance's
+  upscaler (standard, `aigc`) takes it to 1080p at the take's frame rate.
+  Saved in the project's media/Angles folder, added to the Media Bin and shown
+  in the clip, its first frame at the clip's start, one undo step; each
+  generation a take kept on the clip (pick one as B-roll's).
+- **Cost** shown before Generate (Seedance's 4 s at $0.4304/s, about $1.72,
+  plus the upscaler's), under Settings › AI's **limit per generation**, shared
+  with B-roll; refused over it.
+- **Room photos** are the project's: added in the angle's Properties
+  ("Add photos of the room from this side for a truer set", optional), kept
+  for every angle after; the hint: the lights you record with, from the new
+  angle's side at seated eye level, the room as it is in the take, nothing on
+  a screen you'd rather not send.
+- **A refusal** (Seedance's E005 "sensitive", seen on a branded take) says so
+  plainly and offers the crop instead; never worked around.
+- **Later:** Suggest Angles (pauses worth a cut, an angle each, neighbours in
+  one multi-shot call so they match), once single angles have been tried.
+
 **What a Seedance multi-shot prompt teaches (a Lovart × Seedance 2.5 demo, the
 user's find, 2026-11-04).** One 20 s generation from one take gave eight shots
 (a tracking shot, a slow-motion close-up, a low angle, top-down, an extreme

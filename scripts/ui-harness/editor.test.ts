@@ -777,19 +777,19 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 7");
-    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 8");
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript. Music is from Epidemic Sound, online.
-    expect(await greyed()).toEqual([true, true, true, false, false, true, true]);
+    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript. Camera angles and Music are online.
+    expect(await greyed()).toEqual([true, true, true, false, true, false, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
     // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
-    expect(await greyed()).toEqual([false, false, false, false, false, true, false]);
+    expect(await greyed()).toEqual([false, false, false, false, true, false, true, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -807,7 +807,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -2006,7 +2006,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, used.length)).toEqual(used);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  const tools = ["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:music", "ai:captions"];
+  const tools = ["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:angles", "ai:motion", "ai:music", "ai:captions"];
   expect(all.at(-1)).toBe("agent:ask");
   expect(all.slice(-tools.filter((t) => !used.includes(t)).length - 1, -1)).toEqual(tools.filter((t) => !used.includes(t)));
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
@@ -4771,6 +4771,33 @@ test.skipIf(skip)("Headlines' review lists the sentences found with their keywor
   await ui.core.undo(ui.handle);
   expect(heads()).toBeUndefined();
 }, 150_000);
+
+test.skipIf(skip)("Camera Angle: the AI tile puts an Angle clip over the camera on an Angles track and shows its tab: the angle, the room photos hint, what generating costs; choosing a view is one undo step", async () => {
+  await select([]);
+  const camera = clips().find((c) => c.type === "video")!;
+  await run("playhead.set", { time: ticksToSeconds(camera.start) + 0.5 });
+  await run("panel.show", { tool: "ai" });
+  await page.until("!!document.querySelector('[data-ai=angles]')");
+  await page.evaluate("document.querySelector('[data-ai=angles]').click()");
+  const angle = () => clips().find((c) => c.type === "angle");
+  await arrived(() => !!angle());
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === angle()!.id))!;
+  expect(track.name).toBe("Angles");
+  expect(ticksToSeconds(angle()!.duration)).toBeLessThanOrEqual(3);
+  await page.until("!!document.querySelector('[data-angle-view]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-room-hint]').textContent")).toContain("Add photos of the room from this side for a truer set");
+  await page.until("!!document.querySelector('[data-angle-cost]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-cost]').textContent")).toContain("Seedance 2.5");
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.evaluate(`(() => { const s = document.querySelector('[data-angle-view]'); s.value = 'wide'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await arrived(() => (angle()!.props.angle as { view: string }).view === "wide");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  await page.screenshot(join(dir, "camera-angle.png"));
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(angle()).toBeUndefined();
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 60_000);
 
 test.skipIf(skip)("Border is a property of video and images on the Visual tab, not an effect tile; annotations don't have it", async () => {
   await run("panel.show", { tool: "visualEffects" });

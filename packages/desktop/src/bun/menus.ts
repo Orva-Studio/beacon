@@ -244,12 +244,13 @@ export function createMenus(app: MenusApp) {
     const target = [...walkClips(core.doc(h).tracks, core.registry)].find((l) => l.clip.id === clip)?.clip;
     const labelled = (target?.props.label as { color?: string | null } | undefined)?.color ?? null;
     const colors = [...LABEL_COLORS, null].map((color) => ({ ...own(color ? capitalised(color) : "Default", `label=${color ?? "none"}`), checked: labelled === color }));
-    const [open, ungroup, group, unstitch, stitch] = await Promise.all([
+    const [open, ungroup, group, unstitch, stitch, angle] = await Promise.all([
       applies(h, "group.open", { clip }),
       applies(h, "edit.ungroup"),
       applies(h, "edit.group"),
       applies(h, "edit.unstitch"),
       applies(h, "edit.stitch"),
+      applies(h, "angles.add", { camera: clip }),
     ]);
     const visual = !!target && core.registry.hasTrait(target.type, "visual");
     const grouping = [...(open ? [action("group.open")] : []), ...(ungroup ? [action("edit.ungroup")] : group ? [action("edit.group")] : []), ...(unstitch ? [action("edit.unstitch")] : stitch ? [action("edit.stitch")] : [])];
@@ -263,6 +264,7 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       action("edit.delete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
+      ...(angle ? [SEPARATOR, own("New Angle Here", "angle")] : []),
       SEPARATOR,
       action("edit.copyProperties"),
       action("edit.pasteProperties"),
@@ -441,6 +443,7 @@ export function createMenus(app: MenusApp) {
   function clipAction(h: string, op: string, clip: string) {
     const run = (command: string, args: unknown = {}) => void core.run(h, command, args).catch(fail);
     if (op.startsWith("label=")) run("edit.label", { color: op === "label=none" ? null : op.slice(6) });
+    if (op === "angle") run("angles.add", { camera: clip });
     if (op === "copyId")
       void core.session(h).then((s) => {
         const ids = copiedIds(s.selection, clip);
