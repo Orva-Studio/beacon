@@ -3046,7 +3046,7 @@ Spending limit: as Phase 11's (a Settings value), not a worry for now.
   uses the user's Replicate token, so this decides the provider.
 - Earlier research (2026-10-15) still holds: no generation first (a punch-in
   crop of the 4K source with a small ±5° depth-parallax move) costs nothing
-  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
+  and may cover close-ups; other routes are Runway Aleph 2.0 (ruled out 2026-11-03) and an image
   model turning one frame then lip-sync (sync.so); no monocular 4D method
   holds beyond 10-15° yet.
 
@@ -3094,7 +3094,9 @@ failed call made no output (both models bill per output second).
   Replicate now has `runwayml/aleph-2` (2–30 s in, <16 MB, a prompt, optional
   keyframe images, $0.336/s). It fails on Replicate-hosted files: Runway reads
   their Content-Type as `application/octet-stream` and refuses them, so it needs
-  the take at a public URL with `video/mp4`. Not run yet.
+  the take at a public URL with `video/mp4` (the spike used a 1-hour public
+  link the user uploaded; Beacon would need its own short-lived host, or the
+  user's). Run below.
 - **The free punch-in** (a 1600×900 crop of the 4K source, scaled to 720p) is a
   sharp medium close-up, the real frames in sync: **the close-up card needs no
   generation** when the source has the pixels (4K camera).
@@ -3110,10 +3112,104 @@ failed call made no output (both models bill per output second).
   a radiator invented): photos of the room from the new angle's side as
   `reference_images` should hold the set (the user's idea, 2026-11-03).
 
-Open after round 1: the user's verdict on the lip-synced profile; shorter pieces
-cut at pauses (3–4 s, where it held) stitched, and room photos as references;
-aleph-2 (how to give it the take); the wide shot (needs room the camera never
-saw). Spent so far about $7.64.
+- **Runway aleph-2, the same profile prompt on the hermes take** (no sound in;
+  about $3.00, 8.92 s billed, 4 minutes): 1920×1080 at **30 fps**, 8.9 s, the
+  length kept to the frame and the take's own audio passed through. It came out
+  a **¾ angle** again (about 45°), not a profile; the face, cap, T-shirt and mic
+  held, but the room was rebuilt (a plain wall and a light shelf; the plant and
+  the user's shelf gone). Lips by mouth motion (2 s windows): weak at zero lag
+  (−0.13 to 0.38) and the best lag wandering between −333 and +300 ms; the
+  Seedance lip-sync take scores about the same by this measure (0.16–0.43), the
+  measure is too coarse to rank them, so the user's eye decides
+  (`runway-with-original-audio.mp4`). Its pluses over Seedance: 1080p, the
+  source's frame rate and length, cheaper ($0.336/s against $0.43 at 480p).
+
+The user's verdict, 2026-11-03: Seedance with the take's sound ("much better"
+than without); aleph-2 "so much worse than the Seedance one": **Runway is
+never used** (the user, 2026-11-03), Seedance is the model. Open after round
+1: shorter
+pieces cut at pauses (3–4 s, where it held) stitched, and room photos as
+references (the user will take them); the wide shot (needs room the camera
+never saw). Spent so far about $10.64.
+
+**Spike results, round 2 (2026-11-03; the user's go-ahead, about $5.65).** The
+hermes take cut at its pauses into 5.44 s and 3.47 s pieces, each with its own
+slice of the sound, and two of the user's photos of the room (the left side:
+the slatted wall, desk, mic arm, chair, shelf and plant; a photo with a laptop
+screen on it was left out); a third run of the short piece without photos.
+- **Photos hold the set:** with them the room is the user's (the slatted wall,
+  the shelf with its things, the plant, the keyboard and bottle); without them
+  a plain invented wall. Their lighting (dull, evening) didn't carry over: the
+  prompt says the photos give the layout only, the light comes from [Video1].
+  The desk had moved since the take; "the desk sits where it is in [Video1]"
+  was enough. The Firecrawl cap on the shelf went through this time (no E005).
+- **The angle:** piece A came out a near-true profile, piece B a ¾ angle from
+  the same prompt: pieces of one take don't come back at the same angle, so a
+  seam between two pieces shows as a camera move.
+- **Lengths aren't kept on short pieces:** 5.44 s came back 5.04 s (−0.4 s)
+  and 3.47 s came back 4.04 s: **Seedance's output is at least 4 s**. Pieces
+  are cut at pauses of at least 4 s, and what comes back is fitted to the
+  piece (the last frame held or the end trimmed) against the take's sound.
+- **Lips:** mouth motion is too coarse to rank (best lags wandering
+  ±300–600 ms, as in round 1); the user's eye decides
+  (`round2-stitched-with-photos.mp4`, `round2-B-without-vs-with-photos.mp4`).
+- **For the spec:** the angle's Properties invite photos of the room ("Add
+  photos of the room from this side for a truer set", optional; the user,
+  2026-11-03), with a hint: the lights you record with, from the new angle's
+  side at seated eye level, the room as it is in the take; photos showing a
+  screen or other people's things are the user's to leave out.
+
+Spent so far about $16.29.
+
+**Decided (the user, 2026-11-03):** Seedance 2.5 is the model ("doing
+amazing"); Runway is never used. An angle is a **cutaway of at most 3 s**, cut
+at a pause, between the real camera's shots (never two generated pieces
+joined). Seedance returns at least 4 s, so each angle is generated as the 4 s
+from the cut and trimmed to its length against the take's sound (4 s billed,
+about $1.72 at 480p). Angles: a side profile, a wide, and a **close-up** on the
+face or eyes (the punch-in crop when the source has the pixels, free and in
+sync; Seedance otherwise, not yet tried).
+
+**What a Seedance multi-shot prompt teaches (a Lovart × Seedance 2.5 demo, the
+user's find, 2026-11-04).** One 20 s generation from one take gave eight shots
+(a tracking shot, a slow-motion close-up, a low angle, top-down, an extreme
+close-up, "camera inside the cup", a dolly back), each 2–3 s, all with the same
+look. The user typed a timecoded shot list; Claude expanded it into the
+prompt Seedance got. Its shape:
+- **A look header, once:** the camera, lenses and stock ("Arricam LT, Cooke
+  S4/i primes, 35mm Kodak Vision3 500T, 1.85:1, T2.8, shallow depth of field,
+  halation on highlights, fine organic grain, lifted milky blacks, low
+  contrast, no sharpening, no HDR"), then a grade written from the scene
+  ("sun-bleached lemon yellow as the hero tone, warm cream stucco… soft
+  transparent daylight shadows that never reach true black"), then the rules:
+  "Handheld with micro-drift, never locked off. Naturalistic performance, real
+  dialogue sync, no music."
+- **Then timecoded shots:** "[00:00–02.37] Shot 1: Rourke from @Video1 speaks
+  to camera behind the lemonade stand, same performance and dialogue.
+  Straight-on eye level, slow zoom in. Standard prime. Harsh midday sun.
+  Handheld micro-drift easing forward. Hard cut to Shot 2." Each shot names
+  who or what from the video, the angle, the lens, the camera's move and the
+  cut.
+What Beacon takes from it:
+1. **Several angles in one call keep one look:** shots generated together
+  share the set and grade, unlike round 2's separately generated pieces. When
+  a range gets two or more angles near each other, one call with a timecoded
+  shot list (each ≤3 s, the 4 s minimum met by the whole), cut apart on the
+  timeline. Worth a test.
+2. **The planner writes the brief**, not the user: the user picks the angle
+  (and optionally a few words); Beacon's planner (Claude through the agent, or
+  the AI provider B-roll uses) writes the look header from the take (the
+  camera's metadata, Film Look's settings, a frame) and the shot lines from
+  the transcript. Replicate's Seedance page says it works best with "detailed,
+  structured 'production brief' style prompts".
+3. **Handheld micro-drift instead of "locked camera"** reads as a real second
+  camera; offered per angle (locked or handheld), handheld by default for
+  Shorts.
+4. **Inserts, not only the face:** angles of what is in the take (hands, an
+  object, the desk from above) need no lip-sync and hide drift; a "detail"
+  angle beside profile, wide and close-up.
+5. "Same performance and dialogue" and "real dialogue sync" belong in every
+  face shot, with [Audio1] as round 1 found.
 
 #### Export sped up (the user, 2026-10-28)
 An export option for the whole video played faster, for Shorts: a speed
@@ -3206,6 +3302,66 @@ Claude Code first, Codex after.
   `default_tools_approval_mode="approve"`), in a read-only sandbox (it changes
   the project through Beacon's tools alone); a job whose id is the request's,
   its steps in the toast with Cancel, its last message as done.
+
+#### Dynamic Captions: captions that move with the words, for Shorts (the user, 2026-11-04; to plan, then build in this phase)
+Captions as Shorts editors make them now, beyond Beacon's karaoke line: the
+user's references are an OpusClip edit (a 16:9 talk) and the caption apps
+(OpusClip, Submagic, Captions, CapCut). Mainly for Shorts. The name is open
+(Dynamic Captions, Kinetic Captions as OpusClip calls them, or Headlines).
+
+**What the reference does (OpusClip, analysed 2026-11-04):**
+- **Two layers at once.** A small running line at the lower middle (2–5 words,
+  word by word, the emphasised word in an italic serif in gold: *consuming*);
+  and **headlines**: a block of 2–4 lines built word by word in the empty
+  space beside the speaker, never over the face.
+- **Words appear as they are said**, not the group at once; some show dim
+  first and turn white on their word ("i sat right beside **her**").
+- **Hierarchy in a block:** one keyword phrase large, bold and coloured
+  ("AI-generated" yellow with a glow; "looked into" cream, underlined; "Real
+  vs AI" cream, circled by a hand-drawn ellipse), the words around it small
+  and white, stacked.
+- **Decorations draw on** with the keyword (an underline, an ellipse), and the
+  block dims then fades before the next.
+- **Keywords chosen by the AI**, marked in the transcript (pink), and the
+  headlines woven with motion graphics: a gauge counting 5→95, a line chart
+  drawing on, a number counting 14%→70% with its label building, a tweet card.
+
+**What the caption apps add (research 2026-11-04, vendor claims, no
+independent studies):** word-by-word with a coloured current word is the
+common default and the one vendors report retaining best for talking
+heads; bold white with a thin dark outline; 2–5 words at a time; placed in
+the lower middle rather than the bottom edge (platform UI covers it, as
+Beacon's safe areas show); emojis by keywords (Submagic, OpusClip); a zoom
+punch-in on emphasis (Submagic's auto-zoom, which Beacon's zooms could do);
+template presets with brand colours.
+
+**What Beacon has:** word times from the transcript; captions grouped by
+words or characters, one style per track, the spoken word's colour; a caption
+placed apart (`caption.place`); safe areas; Remove Background's matte (where
+the person is); motion graphics with word-by-word text, a counter, sketch
+draw-ons, easings, and a planner picking from the words (Phase 11).
+
+**What is new (a first cut; choices to ask before building):**
+1. **Reveal:** words appear on their word (pop, fade or rise in, a dim word
+   turning white), as a caption style; the whole group at once stays.
+2. **Emphasis inside a caption:** a word or phrase with its own size, weight,
+   font, colour, glow, and a decoration drawn on (underline, ellipse, box,
+   highlighter), by hand from the canvas or the transcript.
+3. **Headlines:** a caption block in 2–4 lines with one keyword line big,
+   placed in the free space beside the person (from the matte or a face box,
+   inside the safe area), then dimmed and faded out; built as a Dynamic
+   Caption clip or as a motion-graphic group (to decide).
+4. **The planner:** picks the keywords and the moments for headlines from the
+   transcript (a few a minute, not every sentence), as B-roll and motion
+   graphics plan; the user ticks them in a review, as Pop-ins.
+5. **Styles as presets:** a few looks (a clean karaoke, a bold word-pop, the
+   two-layer headline look) with brand colours, and the user's own saved.
+6. **Later, maybe:** emojis by keywords, a zoom punch-in on emphasis, a sound
+   on a headline (Pop-ins already does whoosh and pop).
+Sources: [OpusClip caption presets](https://www.opus.pro/blog/best-caption-presets-styles-boost-retention),
+[OpusClip captions API](https://www.opus.pro/blog/add-captions-to-video-api),
+[Submagic](https://www.submagic.co/blog/reasons-to-use-submagic-for-ai-captions),
+[caption styles ranked (vendor)](https://www.clipspeed.ai/blog/11-caption-styles-ranked-viral-performance-2026.html).
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -3318,6 +3474,26 @@ HyperFrames' renders as the single graphics were.
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### Ideas from Beeble (the user's find, 2026-11-04; candidates)
+Beeble (beeble.ai: a cloud with an API at developer.beeble.ai, and a local
+Beeble Studio) sells VFX models for footage. What could serve Beacon:
+- **Reframe (SwitchFrame):** a 16:9 take extended to 9:16 (or any aspect) by
+  generating what lies outside the frame: a Short from a wide recording
+  without cropping the presenter tight. The best fit for Beacon's Shorts.
+- **Relight (SwitchLight, 3D Relight, SwitchX):** the camera's light changed
+  after the take (a key from the side, a warmer room), per frame with masks;
+  would also match a generated angle to the take, or a dull room to an evening
+  one.
+- **Upscaler (Topaz, Magnific):** Seedance's 480p/720p angles finished at the
+  take's size.
+- **SDR to HDR:** for an HDR export, later.
+- Background remover and PBR/depth passes: Beacon has its own matte; depth
+  could drive a fake parallax punch-in.
+Its video generator also runs Seedance 2.5. Credits by plan ($16–$84 a month);
+no public per-call API prices on the page. Not checked: the API's terms and
+whether the models take a short range.
+
 
 ### A Glow effect (the user, 2026-10-28; candidate)
 A Glow effect in the effects list beside Drop Shadow and Round Corners, for
