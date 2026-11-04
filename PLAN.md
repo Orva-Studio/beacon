@@ -3239,6 +3239,22 @@ the query's). The spot the user showed turned out to be the words themselves
 (0.08 s of "reel." fading, 0.05 s of "Then" starting, 10–25 dB under the voice)
 and stays.
 
+#### Fewer timeline rows, and shadows on captions (the user, 2026-11-04)
+The user's shorts project had 26 rows, most made by the agent editing it (a row
+per title box); packed so nothing changes it needs about 8–10. Clips showing at
+the same time need rows of their own (their order is what draws over what);
+clips never showing together can share one. And Drop Shadow can't go on a
+caption (effects say what they apply to), with an error naming its id.
+**Decided (the user, 2026-11-04):** (1) **agents reuse rows**: `clip.add`
+without a `track` puts the clip on the lowest row free at that time above
+everything showing then (so it draws on top), a new row only when none is; the
+agents' guidance says so; (2) a **Tidy Rows** command (and for agents): rows
+never busy at the same time packed into one where that can't change what
+draws over what, empty ones removed, one undo step; (3) **captions get a full
+shadow**: Caption Properties' Shadow gains angle and distance beside softness
+and colour, and dropping the Drop Shadow tile on a caption turns it on for
+that caption track and shows it there.
+
 #### Music and sound effects from Epidemic Sound (the user, 2026-10-28; moved from the backlog the same day)
 Music and sound effects found, placed and mixed from Beacon, as B-roll and
 Auphonic are: a feature folder with its own commands, so the agent uses it

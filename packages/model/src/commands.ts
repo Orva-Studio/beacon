@@ -1,7 +1,7 @@
 import { produce } from "immer";
 import { z } from "zod";
 import { defineCommand, type CommandDef } from "./feature";
-import { assetIds, isFree } from "./edit";
+import { assetIds, clipEnd, isFree } from "./edit";
 import type { FeatureRegistry } from "./registry";
 import { AssetSchema, changedSettings, IdSchema as Id, RationalSchema, SecondsSchema as Seconds, SettingsSchema, trackName, type Clip, type Project, type Track } from "./schema";
 import { secondsToTicks, snapSeconds, ticksToSeconds, type Ticks } from "./ticks";
@@ -28,6 +28,16 @@ export interface ClipLocation {
  * tracks on top when there is none). Linked by their `link` keys, or all
  * together when they have none.
  */
+/** The lowest track free over [start, end) above every track with a clip then; a new one on top if there is none. */
+function freeAbove(doc: Project, ctx: { newId: (prefix: string) => string }, start: Ticks, end: Ticks): Track {
+  const busy = doc.tracks.findLastIndex((t) => !isFree(t, start, end));
+  const free = doc.tracks.slice(busy + 1).find((t) => !t.locked && !t.magnetic && !t.props?.captionStyle);
+  if (free) return free;
+  const t: Track = { id: ctx.newId("track"), name: "", clips: [] };
+  doc.tracks.push(t);
+  return t;
+}
+
 function placeClips(
   doc: Project,
   ctx: { newId: (prefix: string) => string },
@@ -220,6 +230,40 @@ export const CORE_COMMANDS: CommandDef[] = [
   }),
 
   defineCommand({
+    id: "track.tidy",
+    description:
+      "Tidy Rows: a track whose clips are never on at the same time as any clip on the tracks below it, down to one like it, goes into that one, so nothing changes what draws over what or is heard; then empty tracks go. Tracks locked, hidden, muted, magnetic or with settings of their own (a Captions track) stay as they are, and rows keep to one kind (sound, footage, graphics). Returns the tracks before and after",
+    args: z.strictObject({}),
+    apply(doc, _, ctx) {
+      const before = doc.tracks.length;
+      // Rows keep to one kind: sound, footage (recordings and videos) or graphics, so a title never lands on the camera's row.
+      const kind = (t: Track) =>
+        t.clips.every((c) => ctx.registry.hasTrait(c.type, "audio") && !ctx.registry.hasTrait(c.type, "visual"))
+          ? "sound"
+          : t.clips.some((c) => ctx.registry.hasTrait(c.type, "video") || ctx.registry.hasTrait(c.type, "screen"))
+            ? "footage"
+            : "graphics";
+      const plain = (t: Track) => !t.locked && !t.hidden && !t.muted && !t.magnetic && !Object.keys(t.props ?? {}).length;
+      const meets = (a: Track, b: Track) => a.clips.some((x) => b.clips.some((y) => x.start < clipEnd(y) && y.start < clipEnd(x)));
+      for (let j = 1; j < doc.tracks.length; j++) {
+        const b = doc.tracks[j]!;
+        if (!b.clips.length || !plain(b)) continue;
+        // The lowest track it can go into: every track from there up to it is never on when it is.
+        let i = j;
+        while (i > 0 && !meets(doc.tracks[i - 1]!, b)) i--;
+        const into = doc.tracks.slice(i, j).find((a) => plain(a) && (a.clips.length === 0 || kind(a) === kind(b)));
+        if (!into) continue;
+        into.clips.push(...b.clips);
+        into.clips.sort((x, y) => x.start - y.start);
+        if (!into.name) into.name = b.name;
+        b.clips = [];
+      }
+      for (let k = doc.tracks.length - 1; k >= 0; k--) if (!doc.tracks[k]!.clips.length) doc.tracks.splice(k, 1);
+      return { before, after: doc.tracks.length };
+    },
+  }),
+
+  defineCommand({
     id: "track.move",
     description: "Move a track to another position (0 is the bottom), changing what covers what",
     args: z.strictObject({ track: Id, index: z.int().nonnegative() }),
@@ -312,9 +356,10 @@ export const CORE_COMMANDS: CommandDef[] = [
 
   defineCommand({
     id: "clip.add",
-    description: "Add a clip to a track. Times in seconds; `mediaStart` is the source position shown at `start`. Returns the clip id",
+    description:
+      "Add a clip to a track. Times in seconds; `mediaStart` is the source position shown at `start`. Without `track`, it goes on the lowest track free then above every track with something on then (so it draws over what is showing), a new track on top only when none is: prefer this to adding a track per clip. Returns the clip id",
     args: z.strictObject({
-      track: Id,
+      track: Id.optional(),
       type: z.string().min(1),
       start: Seconds,
       duration: Seconds,
@@ -329,7 +374,7 @@ export const CORE_COMMANDS: CommandDef[] = [
       const clip: Clip = { id, start: snapSeconds(start, doc.settings.fps), duration: snapSeconds(duration, doc.settings.fps), ...rest, effects: [], animations: [] };
       if (mediaStart !== undefined) clip.mediaStart = secondsToTicks(mediaStart);
       if (clip.duration <= 0) throw new Error("duration is under one frame");
-      findTrack(doc, track).clips.push(clip);
+      (track === undefined ? freeAbove(doc, ctx, clip.start, clip.start + clip.duration) : findTrack(doc, track)).clips.push(clip);
       return id;
     },
   }),

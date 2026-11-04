@@ -338,6 +338,7 @@ export function createMenus(app: MenusApp) {
       ContextMenu.showContextMenu([
         { label: "Insert Track", action: "track:insertTop:" },
         { label: "Remove All Empty Tracks", action: "track:removeEmpty:" },
+        { label: "Tidy Rows", action: "track:tidy:" },
         SEPARATOR,
         action("edit.lockTrack"),
         action("edit.muteTrack"),
@@ -360,6 +361,7 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       own("Remove Track", "remove"),
       own("Remove All Empty Tracks", "removeEmpty"),
+      own("Tidy Rows", "tidy"),
     ]);
   }
 
@@ -377,6 +379,7 @@ export function createMenus(app: MenusApp) {
     const name = "";
     if (op === "insertTop") void core.run(h, "track.add", { name }, { label: "Insert Track" }).catch(fail);
     else if (op === "removeEmpty") void core.run(h, "track.removeEmpty", {}, { label: "Remove All Empty Tracks" }).catch(fail);
+    else if (op === "tidy") void core.run(h, "track.tidy", {}, { label: "Tidy Rows" }).catch(fail);
     else if (!t) return;
     else if ((op === "insertAbove" || op === "insertBelow") && !found?.top) return;
     else if (op === "insertAbove") void core.run(h, "track.add", { name, index: index + 1 }, { label: "Insert Track" }).catch(fail);
