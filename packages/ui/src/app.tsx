@@ -27,6 +27,7 @@ import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
 import { AgentToasts, AskAgent } from "./ask-agent";
 import { LearnedToasts } from "./learned";
 import { MusicPanel, musicReviewOf, popInMarks, usePopIns } from "./music";
+import { HeadlinesPanel, headlineReviewOf } from "./headlines";
 import { goTo } from "./review";
 import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
@@ -234,6 +235,8 @@ export function App({ host }: { host: Host }) {
             project &&
             (auphonicReviewOf(session) ? (
               <AuphonicPanel project={project} session={session} host={host} init={init} />
+            ) : headlineReviewOf(session) ? (
+              <HeadlinesPanel session={session} host={host} />
             ) : musicReviewOf(session) ? (
               <MusicPanel project={project} session={session} host={host} popIns={popIns} />
             ) : reviewOf(session) ? (

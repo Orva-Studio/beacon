@@ -3268,8 +3268,10 @@ Music panel's third tab lists where motion graphics, B-roll and pictures
 come onto the picture (within 0.25 s is one), one sound per kind (the
 first found for "whoosh" and "pop", changeable), each ticked, marked on the
 timeline; Apply downloads and places them on SFX tracks in one undo step
-(`sfx.popIns`, `sfx.addMany`). Still to do: snapping to the beat (Epidemic's
-MCP server gives no beat data: our own detection).
+(`sfx.popIns`, `sfx.addMany`). Snapping to the beat: parked (the user,
+2026-11-04): talking-head edits cut on speech, not on the music's beat; worth
+it only for montages (Epidemic's MCP server gives no beat data: our own
+detection).
 
 #### Ask an agent from Beacon (the user, 2026-11-03)
 A request typed in Beacon goes to an agent the user has open, so a motion
@@ -3358,6 +3360,76 @@ draw-ons, easings, and a planner picking from the words (Phase 11).
    two-layer headline look) with brand colours, and the user's own saved.
 6. **Later, maybe:** emojis by keywords, a zoom punch-in on emphasis, a sound
    on a headline (Pop-ins already does whoosh and pop).
+**Decided (the user, 2026-11-04):** the name is Dynamic Captions. Headlines
+are **caption clips** on their own Headlines track (tied to the words, so they
+ripple and can be corrected; one style for the track), not motion-graphic
+groups. Keywords and headline moments are picked by **Settings › AI's
+planner** (as motion graphics), ticked by the user in a review as Pop-ins.
+Headlines sit on **the side the user picks** for the track (left or right of
+the speaker, inside the safe area), each one movable on the canvas; free space
+found from the matte comes later. **All five parts, in order:** reveal,
+emphasis, presets, headlines, the planner and its review.
+**How (from the code):** it stays the captions feature: new fields on the
+track's caption style (a reveal, an entrance, the colour of words not yet said,
+a fade out, a soft shadow or outline, a layout of line or headline, and how
+emphasised words look) and an emphasis mark on a caption's words; a caption
+using any of them is drawn word by word (each word its own text layer, in one
+group with the shadow pass; emphasis glow by the drop-shadow pass; underline,
+ellipse and box drawn on as sketch strokes; a highlighter as a growing box).
+Captions without them draw as before. Saved presets of the user's own wait
+for an app-wide store a feature can write (none in the contract yet).
+**Built (2026-11-04, `phase-13`):** all five parts. Caption Properties: the
+caption's words as chips (a click makes one a keyword), Make Headline, Find
+Headlines…, a Look menu (Classic, Karaoke, Word Pop, Serif Accent, Headline,
+Headline Glow), Shadow, a Words section (Show all at once or word by word,
+Coming in cut/pop/fade/rise, Not yet said, Layout line or headline, Fade out)
+and a Keywords section (colour, size, font, weight, glow, Drawn on: underline,
+circle, box, highlighter, italic). Headlines: `headline.add` (a Headlines
+track at the top, its side the track's), `headline.fromCaption`; while one
+shows, the captions' line steps aside (OpusClip's reference alternates them);
+not in the .srt. `headlines.plan` (a job): the motion graphics planner
+(Settings › AI) picks about one sentence every 12 s with a keyword of 1–3
+words from it; Apple's model scores sentences one at a time (a sentence it
+declines is left out) and the best are kept; the Headlines review (tick, side,
+look, Apply ↩ as one undo step, Cancel ⎋). MCP: `captions.style` (with
+`track`), `captions.preset`, `captions.presets`, `caption.emphasize`,
+`headline.add`, `headline.fromCaption`, `headlines.plan`, `headlines.review`,
+`headlines.apply`, `headlines.close`. Captions data v4.
+
+**Round 2: the editorial look, for 9:16 Reels (the user, 2026-11-04,
+after a second reference: an Instagram post for the Vyra app, analysed by a
+subagent).** That look is one serif (Instrument Serif, Regular) in white or
+cream with no box, outline or colour; headline words huge (blocks 47–95% of
+the width), each line stretched sideways to fill it; words cut in on their
+word with no pop or fade, lines re-fitting as each lands; headlines in the
+free space, some letters behind the speaker's head; a small quiet running line
+hidden while a headline shows; numbers counting up ("100000"), a headline
+blurring out. Beacon's looks were too heavy (Helvetica 700–900, yellow and
+green), headlines too small (one keyword line at 42% width), animations too
+busy, nothing behind the person. Reels covers the bottom 20–25% and the right
+edge with its UI.
+**Decided (the user, 2026-11-04):** **bundle Instrument Serif** (OFL) with
+Beacon, the renderer registering the fonts Beacon ships; **headlines behind the
+speaker as an option** (Behind the speaker on a headline track, through
+Remove Background's person matte, made when the option is on); **add Editorial
+looks** (Editorial Line, Editorial Headline) and tune the rest clear of Reels'
+UI with calmer animations, Classic unchanged; this round also **lines
+stretched to fill**, **numbers counting up** and **blur out**. Placement in
+the free space around the face stays later.
+**Built (2026-11-04):** Instrument Serif in `packages/engine/fonts` (OFL,
+pinned commit in its README), registered by the renderer for its process and
+staged into the app's engine folder; Editorial Line and Editorial Headline
+(the headlines' new default look, side `center` across the top); the others
+moved for Reels (bottom offsets 28–30% of the height, widths 0.72, headlines
+0.5 wide 8% in from the right) with Avenir Next for the bold ones and shorter
+entrances; style fields `stretch` (≤1.8×), `lineWords`, `countUp` (0.6 s,
+ease out, drawn against the figure's right end), `exit: blur` (Remove
+Background's blur pass, 0.15 s) and `behind` (the video clips under the track
+evaluated again and drawn through their person matte; the feature contract's
+`needs` starts the matte job). Headlines revealed word by word re-fit as each
+word lands (laid out from the words said so far). Captions data v5. Seen: a
+word landing on a centred face goes wholly behind it; placing headlines in the
+free space is what fixes that (later).
 Sources: [OpusClip caption presets](https://www.opus.pro/blog/best-caption-presets-styles-boost-retention),
 [OpusClip captions API](https://www.opus.pro/blog/add-captions-to-video-api),
 [Submagic](https://www.submagic.co/blog/reasons-to-use-submagic-for-ai-captions),

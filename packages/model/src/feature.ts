@@ -617,6 +617,11 @@ export interface Feature {
    * would leave that holds one is widened instead, back into the cut beside it.
    */
   keepWhole?: (doc: Project, registry: FeatureRegistry, data: CommandContext["data"]) => [Ticks, Ticks][];
+  /**
+   * Job analyzers media must have for what the project asks of the feature, beyond effects' `needs` (captions drawn
+   * behind the person on camera need its matte): started as those are, after each edit and before an export.
+   */
+  needs?: (doc: Project) => { asset: string; analyzer: string }[];
 }
 
 export function defineFeature(feature: Feature): Feature {

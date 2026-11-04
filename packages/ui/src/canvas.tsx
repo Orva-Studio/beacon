@@ -508,7 +508,7 @@ export function CanvasOverlay({
           setMoved({ clip: captionClip!.id, x: d.box[0]![0] + (s.anchorX === "right" ? -x : x), y: d.box[0]![1] + (s.anchorY === "bottom" ? -y : y) });
           const place = { offsetX: Math.round(offsetX), offsetY: Math.round(offsetY) };
           if (d.alone) host.run("caption.place", { clip: captionClip!.id, clips: d.others, place, onward: d.onward }, d.onward ? "Move Captions From Here" : d.others.length ? "Move Captions" : "Move Caption", d.key);
-          else host.run("captions.style", { style: place }, "Move Captions", d.key);
+          else host.run("captions.style", { style: place, track: project.tracks[captionAt!.track]!.id }, "Move Captions", d.key);
           return;
         }
         if (d.kind === "captionWidth") {
@@ -519,7 +519,7 @@ export function CanvasOverlay({
           const width = clamp(d.width + grow, CW * 0.2, CW);
           const moves = (s.anchorX === "left" && d.sx < 0) || (s.anchorX === "right" && d.sx > 0);
           const offsetX = moves ? s.offsetX - (width - d.width) : s.offsetX;
-          host.run("captions.style", { style: { maxWidth: Math.round((width / CW) * 1000) / 1000, ...(moves ? { offsetX: Math.round(offsetX) } : {}) } }, "Caption Width", d.key);
+          host.run("captions.style", { style: { maxWidth: Math.round((width / CW) * 1000) / 1000, ...(moves ? { offsetX: Math.round(offsetX) } : {}) }, track: project.tracks[captionAt!.track]!.id }, "Caption Width", d.key);
           return;
         }
         if (d.kind === "move") {

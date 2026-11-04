@@ -4693,6 +4693,68 @@ test.skipIf(skip)("Captions makes caption clips from the transcript and shows th
   await run("panel.show", { tool: null });
 }, 150_000);
 
+test.skipIf(skip)("Dynamic Captions: a look from the Look menu, a word clicked into a keyword, word-by-word reveal and a decoration from the Words and Keywords rows, each one undo step", async () => {
+  await select([]);
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const undo = async () => (await ui.core.history(ui.handle)).undo.length;
+  const steps = await undo();
+  const ids = (await run("captions.create", { maxWords: 4 })).results[0] as string[];
+  const first = ids[0]!;
+  await select([first]);
+  await run("inspector.tab", { tab: "caption" });
+  await page.until("!!document.querySelector('[data-caption-preset]')");
+  const style = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === first))!.props!.captionStyle as { reveal: string; enter: string; uppercase: boolean; emphasis: { decoration: string } };
+  const choose = (sel: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('${sel}'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  let n = await undo();
+  await choose("[data-caption-preset]", "word-pop");
+  await arrived(() => style().enter === "pop");
+  expect(style()).toMatchObject({ reveal: "word", enter: "pop", uppercase: true });
+  expect(await undo()).toBe(n + 1);
+  // A word chip makes that word a keyword, and again a plain word.
+  n = await undo();
+  await page.evaluate("document.querySelector('[data-caption-word=\"1\"]').click()");
+  const em = () => (clip(first).props.caption as { words: { em?: boolean }[] }).words.filter((w) => w.em).length;
+  await arrived(() => em() === 1);
+  expect(await undo()).toBe(n + 1);
+  await page.until("!!document.querySelector('[data-caption-word=\"1\"][data-em]')");
+  await choose("[data-caption-reveal]", "phrase");
+  await arrived(() => style().reveal === "phrase");
+  await choose("[data-caption-decoration]", "ellipse");
+  await arrived(() => style().emphasis.decoration === "ellipse");
+  expect(await undo()).toBe(n + 3);
+  // Drawn: the keyword's ring and the caption show on the canvas.
+  await run("playhead.set", { time: ticksToSeconds(clip(first).start) + 0.6 });
+  await page.screenshot(join(dir, "dynamic-captions.png"));
+  await page.evaluate("document.querySelector('[data-caption-word=\"1\"]').click()");
+  await arrived(() => em() === 0);
+  for (let k = (await undo()) - steps; k > 0; k--) await ui.core.undo(ui.handle);
+  expect(clips().filter((c) => c.type === "caption").length).toBe(0);
+  await select([]);
+}, 150_000);
+
+test.skipIf(skip)("Headlines' review lists the sentences found with their keywords; one unticked, the side changed, Apply adds the rest on a Headlines track in one undo step", async () => {
+  await select([]);
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const words = (await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as { text: string; start: number; end: number }[];
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const item = (a: number, b: number) => ({ from: words[a]!.start, to: words[b]!.end, text: words.slice(a, b + 1).map((w) => w.text).join(" "), keyword: words[a + 1]!.text });
+  await run("headlines.review", { items: [item(0, 5), item(10, 16), item(20, 26)] });
+  await page.until("document.querySelectorAll('[data-headline-item]').length === 3");
+  expect(await page.evaluate<string>("document.querySelector('[data-headlines-summary]').textContent")).toBe("3 headlines found: 3 ticked to add.");
+  await page.evaluate("document.querySelector('[data-headline-tick=\"1\"]').click()");
+  await page.until("document.querySelector('[data-headlines-summary]').textContent.includes('2 ticked')");
+  await page.evaluate(`(() => { const s = document.querySelector('[data-headlines-side]'); s.value = 'left'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await page.until("document.querySelector('[data-headlines-side]').value === 'left'");
+  await page.evaluate("document.querySelector('[data-headlines-apply]').click()");
+  const heads = () => ui.core.doc(ui.handle).tracks.find((t) => t.name === "Headlines");
+  await arrived(() => (heads()?.clips.length ?? 0) === 2);
+  expect(heads()!.props!.captionStyle).toMatchObject({ layout: "headline", anchorX: "left" });
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  await page.until("!document.querySelector('[data-headlines-review]')");
+  await ui.core.undo(ui.handle);
+  expect(heads()).toBeUndefined();
+}, 150_000);
+
 test.skipIf(skip)("Border is a property of video and images on the Visual tab, not an effect tile; annotations don't have it", async () => {
   await run("panel.show", { tool: "visualEffects" });
   await page.until("document.querySelectorAll('[data-art]').length > 0");

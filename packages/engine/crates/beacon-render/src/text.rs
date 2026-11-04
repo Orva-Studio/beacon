@@ -1,5 +1,5 @@
 //! Text for callouts, laid out and rasterized with Core Text so it uses the
-//! system's fonts.
+//! system's fonts, and the fonts Beacon ships (`packages/engine/fonts`).
 
 use core_foundation::attributed_string::CFMutableAttributedString;
 use core_foundation::base::{CFRange, TCFType};
@@ -14,6 +14,8 @@ use core_text::font_descriptor::{SymbolicTraitAccessors, TraitAccessors};
 use core_text::framesetter::CTFramesetter;
 use core_text::string_attributes::{kCTFontAttributeName, kCTForegroundColorAttributeName, kCTKernAttributeName};
 use serde::Deserialize;
+use std::path::PathBuf;
+use std::sync::Once;
 
 use crate::sources::Pixels;
 use crate::{Error, Result};
@@ -75,8 +77,37 @@ fn ct_weight(css: f64) -> f64 {
 /// What a family that isn't installed (a project made on another Mac) is drawn in: every Mac has it.
 const FALLBACK: &str = "Helvetica Neue";
 
+#[link(name = "CoreText", kind = "framework")]
+unsafe extern "C" {
+    fn CTFontManagerRegisterFontsForURL(url: core_foundation::url::CFURLRef, scope: u32, error: *mut core_foundation::error::CFErrorRef) -> bool;
+}
+const SCOPE_PROCESS: u32 = 1;
+
+/// The fonts Beacon ships: the app's engine folder's `fonts` (beside its tools), else the repo's.
+fn fonts_dir() -> PathBuf {
+    let bundled = beacon_decode::tool("fonts");
+    if bundled.is_dir() { bundled } else { PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fonts")) }
+}
+
+/// Makes Beacon's own fonts usable in this process, once, before any font is looked up or listed.
+fn register_bundled() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let Ok(entries) = std::fs::read_dir(fonts_dir()) else { return };
+        for path in entries.flatten().map(|e| e.path()) {
+            if !matches!(path.extension().and_then(|e| e.to_str()), Some("ttf" | "otf")) {
+                continue;
+            }
+            let Some(url) = core_foundation::url::CFURL::from_path(&path, false) else { continue };
+            // A font already registered (another engine in the process) fails harmlessly.
+            unsafe { CTFontManagerRegisterFontsForURL(url.as_concrete_TypeRef(), SCOPE_PROCESS, std::ptr::null_mut()) };
+        }
+    });
+}
+
 /// The family member closest to the wanted weight and slant.
 fn find_font(spec: &TextSpec, size: f64) -> Result<CTFont> {
+    register_bundled();
     let faces = |name: &str| font_collection::create_for_family(name).and_then(|c| c.get_descriptors()).filter(|d| !d.is_empty());
     let family = faces(&spec.font).or_else(|| faces(FALLBACK)).ok_or_else(|| Error::Source(format!("font \"{}\" is not installed", spec.font)))?;
     let want = ct_weight(spec.weight);
@@ -167,6 +198,7 @@ pub fn render(spec: &TextSpec) -> Result<Pixels> {
 
 /// Every font family installed, sorted, for the callout's font menu.
 pub fn families() -> Vec<String> {
+    register_bundled();
     let mut names: Vec<String> = font_collection::get_family_names().iter().map(|n| n.to_string()).filter(|n| !n.starts_with('.')).collect();
     names.sort_by_key(|n| n.to_lowercase());
     names.dedup();

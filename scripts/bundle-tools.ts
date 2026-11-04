@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Stages the app's `engine` folder (packages/engine/target/bundle, which electrobun.config.ts copies whole):
- * beacon-ffi, the worker and the recorder, and Beacon's own ffmpeg, ffprobe and whisper-cli with the FFmpeg
- * libraries they load. The libraries are found through @rpath beside whatever loads them, so the folder works
+ * beacon-ffi, the worker and the recorder, Beacon's own ffmpeg, ffprobe and whisper-cli with the FFmpeg
+ * libraries they load, and the fonts Beacon ships (`fonts/`). The libraries are found through @rpath beside whatever loads them, so the folder works
  * wherever the app is, on a Mac with no FFmpeg. Run after `bun run build`. With `--mcp`, also beacon-mcp, compiled,
  * so agents get Beacon's tools from the app alone (it finds the engine and tools beside itself).
  *
@@ -48,6 +48,9 @@ export async function bundleTools(to = STAGE): Promise<string[]> {
       await $`codesign --force --sign - ${out}`.quiet();
     }
   }
+  // The fonts Beacon ships, which the renderer registers from beside its tools.
+  mkdirSync(join(to, "fonts"), { recursive: true });
+  for (const f of readdirSync(join(ENGINE, "fonts")).filter((f) => /\.(ttf|otf|txt)$/.test(f))) copyFileSync(join(ENGINE, "fonts", f), join(to, "fonts", f));
   const staged = files.map((f) => basename(f));
   for (const f of staged) {
     const foreign = await foreignLinks(join(to, f), (l) => l.startsWith("@rpath/") && staged.includes(l.slice(7)));

@@ -42,12 +42,27 @@ test("captions v2 then v3: a vertical position and margin become anchors with of
     { id: "t2", name: "More", clips: [caption("c3", 0, "middle")] },
   ];
   const out = migrateProject(doc, registry);
-  expect(out.features.captions).toBe(3);
+  expect(out.features.captions).toBe(5);
   const [bottom, middle] = out.tracks;
   expect(bottom!.props!.captionStyle).toMatchObject({ anchorY: "bottom", offsetY: 80, anchorX: "center", offsetX: 0 });
   expect(bottom!.props!.captionStyle).not.toHaveProperty("position");
   expect(middle!.props!.captionStyle).toMatchObject({ anchorY: "middle", offsetY: 0 });
   expect(out.tracks.flatMap((t) => t.clips).every((c) => !("captionStyle" in c.props))).toBe(true);
+});
+
+test("captions v4 then v5: a caption track's style gains Dynamic Captions' fields at their defaults, so it draws as before", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.captions = 3;
+  doc.settings.height = 1920;
+  const style = { font: "Helvetica Neue", weight: 700, size: 54, color: [1, 1, 1, 1], background: [0, 0, 0, 0.75], cornerRadius: 12, anchorY: "bottom", offsetY: 80, anchorX: "center", offsetX: 0, highlight: [1, 0.84, 0.2, 1], maxWidth: 0.8, uppercase: true };
+  doc.tracks = [{ id: "t1", name: "Captions", props: { captionStyle: style }, clips: [{ id: "c1", type: "caption", start: 0, duration: 10, mediaStart: 0, props: { caption: { words: [{ text: "Hi", start: 0, end: 1 }] } }, effects: [], animations: [] }] }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.captions).toBe(5);
+  const s = out.tracks[0]!.props!.captionStyle as any;
+  expect(s).toMatchObject({ ...style, reveal: "phrase", enter: "none", exit: "none", layout: "line", upcoming: [1, 1, 1, 0], shadow: [0, 0, 0, 0], shadowBlur: Math.round(6 * (1920 / 1080)), stretch: false, lineWords: 0, countUp: false, behind: false });
+  expect(s.emphasis).toMatchObject({ decoration: "none", scale: 1, font: "" });
+  expect(registry.propGroups.get("captionStyle")!.schema.safeParse(s).success).toBe(true);
 });
 
 test("transform v2: every transform gets flat tilts, a clip inside a group's tracks too", () => {
