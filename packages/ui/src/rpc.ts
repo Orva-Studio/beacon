@@ -260,6 +260,8 @@ export interface ExportJob {
   output: string;
   state: "running" | "done" | "failed";
   progress: number;
+  /** What it is doing now: waiting for an effect's data, starting, exporting, finishing. */
+  stage?: string;
   error?: string;
 }
 

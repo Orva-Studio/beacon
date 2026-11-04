@@ -162,7 +162,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
             const job = await core.export(h, { output, overwrite: true, ...exportOptions(p.settings), ...(p.clips ? { clips: p.clips } : p.range ? { from: p.range.in, to: p.range.out } : {}) });
             const stop = core.watch(h, (e) => {
               if (e.kind !== "job" || e.job.id !== job.id) return;
-              ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: e.job.state, progress: e.job.progress, ...(e.job.error ? { error: e.job.error } : {}) } }));
+              ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: e.job.state, progress: e.job.progress, ...(e.job.stage ? { stage: e.job.stage } : {}), ...(e.job.error ? { error: e.job.error } : {}) } }));
               if (e.job.state !== "running") stop();
             });
             ws.send(JSON.stringify({ type: "exportJob", data: { id: job.id, output, state: "running", progress: 0 } }));

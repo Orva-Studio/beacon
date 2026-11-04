@@ -318,6 +318,11 @@ function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
       done={job.state === "done"}
       onDismiss={job.state === "running" ? undefined : () => replica.exportJob(undefined)}
     >
+      {job.state === "running" && job.stage && (
+        <div className="mb-1 text-label text-text-muted" data-export-stage>
+          {job.stage}
+        </div>
+      )}
       {job.state === "running" && (
         <div className="flex items-center gap-2">
           <Progress value={job.progress} className="flex-1" />

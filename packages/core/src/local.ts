@@ -948,8 +948,32 @@ export class LocalCore implements BeaconCore {
     mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
     // What effects need (a matte) is made first: the export never draws a clip without it.
     const needed = this.#analyses.effectJobs(p, true);
+    // What it waits for, as the export card says it: the effect that needs it and what it is doing ("Remove Background: finding the person").
+    const waitingFor = (key: string) => {
+      const fx = [...this.registry.effects.values()].find((e) => e.needs?.includes(key));
+      return fx ? `${fx.title}: ${(fx.preparing ?? "preparing").toLowerCase()}` : key;
+    };
     return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
-      await Promise.all(needed.map((j) => j.done));
+      if (needed.length) {
+        const info = (id: string) => {
+          try {
+            return this.#jobs.info(id);
+          } catch {
+            return undefined;
+          }
+        };
+        const what = [...new Set(needed.map((j) => waitingFor(info(j.id)?.kind ?? "")))].filter(Boolean).join(", ");
+        let left = needed.length;
+        for (const j of needed) void j.done.finally(() => left--).catch(() => {});
+        while (left > 0) {
+          const share = needed.reduce((n, j) => n + (info(j.id)?.progress ?? 1), 0) / needed.length;
+          progress(share, `Waiting for ${what} (${Math.round(share * 100)}%)`);
+          await Promise.race([Promise.allSettled(needed.map((j) => j.done)), Bun.sleep(500)]);
+        }
+        await Promise.all(needed.map((j) => j.done));
+      }
+      progress(0, "Starting: opening the media");
+      let started = false;
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {
@@ -959,7 +983,12 @@ export class LocalCore implements BeaconCore {
         cacheDir: this.cacheDir,
         data: data.get,
         speed,
-        onProgress: (f, total) => progress(f / total),
+        onProgress: (f, total) => {
+          const stage = f >= total ? "Finishing: adding the sound" : "Exporting";
+          if (!started || f >= total) progress(f / total, stage);
+          else progress(f / total);
+          started = true;
+        },
       });
       for (const f of sides) writeFileSync(f.path, f.text);
       return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)) / speed, ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };

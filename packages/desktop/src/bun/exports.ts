@@ -65,9 +65,9 @@ export function createExports(app: App) {
   // Exports report here rather than through the open project: one keeps going when another project is opened.
   // Agents' exports too: until it is done, an export started elsewhere is known by its label.
   function exportJob(job: JobInfo) {
-    const { id, state, progress, error, result, label } = job;
+    const { id, state, progress, error, result, label, stage } = job;
     const output = exports.get(id) ?? (result as { output?: string } | undefined)?.output ?? label.replace(/^Export /, "");
-    message("exportJob", { id, output, state, progress, ...(error ? { error } : {}) });
+    message("exportJob", { id, output, state, progress, ...(stage ? { stage } : {}), ...(error ? { error } : {}) });
     if (state !== "running") exports.delete(id);
   }
 
