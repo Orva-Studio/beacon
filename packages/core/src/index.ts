@@ -2,6 +2,7 @@ export * from "./api";
 export * from "./local";
 export * from "./remote";
 export { asAuthor, currentAuthor } from "./author";
+export { redactor, type DiagnosticsExtra } from "./diagnostics";
 export { findDropped, importDropped } from "./dropped";
 export { LOCK_FILE, lockOwner, ProjectLockedError, projectName, readProject, writeProject, type Owner } from "./persist";
 export { summarizeReport } from "@beacon/camtasia";

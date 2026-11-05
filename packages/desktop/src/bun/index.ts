@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, statSync, watch } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
@@ -6,6 +6,10 @@ import Electrobun, { BrowserView, BrowserWindow, Updater, Utils } from "electrob
 import type { ProjectWindow } from "./app";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
+import { crashReports, log, logTail, startLog } from "./log";
+
+const appVersion = await Updater.localInfo.version().catch(() => "unknown");
+startLog(appVersion);
 
 /**
  * What the window may ask Finder to open: an export it made (a video, sound, picture or captions file that exists).
@@ -93,7 +97,10 @@ const broadcast: Send = (type, data) => {
 };
 /** The focused window's status line, for what isn't one window's. */
 const status = (text: string) => focused?.status(text);
-const report = (err: unknown) => status(errorText(err));
+const report = (err: unknown) => {
+  log("warn", errorText(err));
+  status(errorText(err));
+};
 
 async function openedPayload(w: Win, h: string): Promise<import("@beacon/ui").Opened> {
   return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: w.current?.path === h ? w.current.bridge.rev() : 0 };
@@ -155,6 +162,7 @@ function followConfig() {
   }
 }
 followConfig();
+core.watchApp((e) => void (e.kind === "job" && e.job.state === "failed" && log("error", `job failed: ${e.job.label}: ${e.job.error ?? "no reason given"}`)));
 
 /** Resources offered this session: the dialog asks once, not on every import. */
 const offered = new Set<string>();
@@ -274,10 +282,22 @@ const projects = createProjects({
   },
 });
 
+/** Help › Save Diagnostics…: the report on the Desktop, shown in Finder, for the user to look over and send. */
+async function saveDiagnostics() {
+  const devices = await core.recorderDevices().catch(() => undefined);
+  const text = await core.diagnostics({ app: { version: appVersion }, ...(devices ? { permissions: devices.permissions } : {}), log: logTail(), crashes: crashReports() });
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", ".");
+  const file = join(homedir(), "Desktop", `Beacon diagnostics ${stamp}.txt`);
+  writeFileSync(file, text);
+  Utils.showItemInFolder(file);
+  status(`Saved ${basename(file)} on the Desktop: look it over, then attach it to your report`);
+}
+
 /** The app's own actions, from their menu items, the command palette or keys a window matched, in that window. */
 function appAction(id: string, w: Win | undefined = focused): void {
   if (id === "app.open") return void projects.openDialog().catch(report);
   if (id === "app.checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
+  if (id === "app.diagnostics") return void saveDiagnostics().catch(report);
   // With every window closed (the app stays up while the recorder's are open), one comes back for it.
   const target = w ?? openWindow();
   if (id === "app.new") return void projects.newProject(target);

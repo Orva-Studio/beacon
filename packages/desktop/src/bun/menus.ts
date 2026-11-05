@@ -231,6 +231,7 @@ export function createMenus(app: MenusApp) {
           { role: "bringAllToFront" },
         ],
       },
+      { label: "Help", submenu: [item("app.diagnostics")] },
     ]);
   }
 

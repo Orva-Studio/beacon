@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { diagnosticsReport, type DiagnosticsExtra } from "./diagnostics";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { createRegistry } from "@beacon/features";
@@ -1019,6 +1020,12 @@ export class LocalCore implements BeaconCore {
 
   async resources(): Promise<ResourceInfo[]> {
     return this.#analyses.resources();
+  }
+
+  /** A report to send when something goes wrong: this Mac, Beacon's setup and the open projects in numbers (diagnostics.ts). */
+  async diagnostics(extra: DiagnosticsExtra = {}): Promise<string> {
+    const [preferences, secrets, resources, jobs, settings] = await Promise.all([this.preferences(), this.secrets(), this.resources(), this.jobs(), this.settings()]);
+    return diagnosticsReport({ projects: [...this.#projects.values()].map((p) => ({ path: p.path, doc: p.store.doc })), settings, preferences, secrets, resources, jobs }, extra);
   }
 
   async fetchResource(id: string): Promise<Job> {

@@ -3759,6 +3759,12 @@ had left only the eval): instructions 2.8k chars, the guide a resource; 5 tools 
 out (`ActionDef.duplicates` names the command, MCP points there); per-clip `changed`; compact `timeline_clips`;
 `transcript_get` `find`; errors listing valid ids or the nearest names. Twelve tasks 130.5 → 26.5 KB received
 (docs/performance.md).
+**Also done 2026-11-05:** a small project levels off at ~810 MB (left); export 9× real time (small), 5× (304 clips);
+the timeline drew in square time of its clips (shown spans), now linear: 2,350 clips zoom 52.7 → 20.7 ms a step,
+guarded by `many-clips.test.ts`. Developer ID ready (`packages/desktop/sign.ts`, `scripts/notarize.ts`, release.yml
+steps that run once the secrets are set; a hardened ad hoc package passed check-release and launched). Help › Save
+Diagnostics… and `~/Library/Logs/Beacon/beacon.log`. Left: Keychain through the Security framework (once signed);
+by-hand checks of first run on a fresh Mac (Gatekeeper, permissions, first recording and export).
 **Done 2026-11-05:** launch 1.2-2.6 s to a drawn window, opening 8 ms; memory levels off, ~130 MB saved while playing
 (decoder keeps ½ s behind); Camtasia ~2.2 GB vs Beacon ~1.0 GB on the same project (docs/performance.md).
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -3789,6 +3795,10 @@ with each finding fixed or written down as an accepted risk in
 and a fuzzing run of the file readers finds no crash.
 
 ### Phase 15 — Camtasia export (the user, 2026-10-16; was Phase 14 until 2026-10-27)
+
+**Parked here (the user, 2026-11-05):** GPU memory, broken down then cut if it can be: a small 1080p project holds
+~285 MB on the GPU and ~275 MB of decoded frames (4 bytes a pixel; keeping the decoder's own smaller format and
+converting on the GPU could save ~150 MB). Not felt yet (flat, no leak, under Camtasia's), so after launch.
 Handing a Beacon project to someone who keeps editing in Camtasia: File ›
 Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
 media beside it), one way and best effort, as import is (§11). Not for
