@@ -65,7 +65,7 @@ export class Recording {
     // The pair's measured delay goes into the take, so its camera clip lines up on import.
     const sync = sources.camera?.id && sources.microphone?.id ? this.config.settings().cameraSync?.[syncKey(sources.camera.id, sources.microphone.id)] : undefined;
     if (!sources.offsets && sync?.cameraLateMs) sources.offsets = { camera: -sync.cameraLateMs / 1000 };
-    const dir = join(p.path, "recordings", `${opts.name ?? takeName(new Date())}.brec`);
+    const dir = join(p.path, "recordings", `${takeFile(opts.name) ?? takeName(new Date())}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, sources, opts.monitor);
     this.#recording = { h: p.path, dir };
@@ -81,7 +81,7 @@ export class Recording {
     const doc = p.store.doc;
     const { from, until, still } = narrationSpan(doc, p.session.state);
     if (p.session.state.playing) p.session.run("playback.pause", {}, doc);
-    const dir = join(p.path, "recordings", `${opts.name ?? `Narration ${takeName(new Date())}`}.brec`);
+    const dir = join(p.path, "recordings", `${takeFile(opts.name) ?? `Narration ${takeName(new Date())}`}.brec`);
     mkdirSync(dirname(dir), { recursive: true });
     await this.#recorder.start(dir, { ...rest, microphone: microphone ?? {} }, opts.monitor);
     const hear = !still && !!opts.narrate?.hear;
@@ -221,4 +221,11 @@ export class Recording {
     );
     return this.analyses.imported(p, result);
   }
+}
+
+/** A take's name as a file in the project's recordings folder: never a path out of it ("../x", "a/b"). */
+function takeFile(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
+  if (!name.trim() || /[/\\:\0]/.test(name) || name.startsWith(".")) throw new Error(`"${name}" can't name a take: no slashes, colons or leading dots`);
+  return name;
 }

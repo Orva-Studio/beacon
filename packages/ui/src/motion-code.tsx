@@ -21,19 +21,32 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
   }, [text]);
   const built = useQuery<{ page: string; width: number; height: number; length: number }>(host, "motion.page", { clip, html: shown });
   const frame = useRef<HTMLIFrameElement>(null);
-  // The page says when it's there; a load that doesn't is its script navigating away (the CSP can't forbid that), so it's taken down.
+  const page = useRef("");
+  page.current = built ? built.page.replace(/<\/body>/, `${SEEKER}</body>`) : "";
+  // The preview frame (motion-frame.html, under its own policy) says when it's there and is sent the page, which says so
+  // too; a load neither says is its script navigating away (a policy can't forbid that), so it's taken down.
   const loads = useRef(0);
   const pages = useRef(0);
   const [left, setLeft] = useState(false);
+  const [ready, setReady] = useState(false);
   const [wrap, setWrap] = useState(true);
   useEffect(() => {
     loads.current = 0;
     pages.current = 0;
     setLeft(false);
+    setReady(false);
   }, [built?.page]);
   useEffect(() => {
     const heard = (e: MessageEvent) => {
-      if (e.source === frame.current?.contentWindow && e.data === "beacon-page") pages.current++;
+      if (e.source !== frame.current?.contentWindow) return;
+      if (e.data === "beacon-frame") {
+        pages.current++;
+        frame.current.contentWindow?.postMessage({ page: page.current }, "*");
+      } else if (e.data === "beacon-page") {
+        pages.current++;
+        setReady(true);
+        seek(now.current);
+      }
     };
     addEventListener("message", heard);
     return () => removeEventListener("message", heard);
@@ -41,6 +54,8 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const seek = (t: number) => frame.current?.contentWindow?.postMessage({ t }, "*");
+  const now = useRef(0);
+  now.current = time;
   useEffect(() => seek(time), [time]);
   useEffect(() => {
     if (!playing || !built) return;
@@ -80,10 +95,11 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
             {built && !left && (
               <div style={{ width: built.width * scale, height: built.height * scale }}>
                 <iframe
+                  key={built.page}
                   ref={frame}
                   title="Preview"
                   sandbox="allow-scripts"
-                  srcDoc={built.page.replace(/<\/body>/, `${SEEKER}</body>`)}
+                  src="motion-frame.html"
                   onLoad={() => {
                     const n = ++loads.current;
                     seek(time);
@@ -92,6 +108,7 @@ export function MotionCode({ host, clip, html, onClose }: { host: Host; clip: st
                   }}
                   style={{ width: built.width, height: built.height, transform: `scale(${scale})`, transformOrigin: "0 0", border: 0, background: "transparent" }}
                   data-motion-code-preview
+                  {...(ready ? { "data-motion-code-ready": "" } : {})}
                 />
               </div>
             )}

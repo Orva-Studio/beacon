@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <title>Beacon</title>
+    <!-- Only Beacon's own script runs here (the window can run commands, export and record); a motion graphic's page
+         runs in motion-frame.html under a policy of its own. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:*; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>

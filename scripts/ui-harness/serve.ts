@@ -88,6 +88,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
       if (path === "/ws") return srv.upgrade(req) ? undefined : new Response("no", { status: 400 });
       if (path === "/view.js") return new Response(js, { headers: { "content-type": "text/javascript" } });
       if (path === "/styles.css") return new Response(Bun.file(join(root, "packages/ui/dist/styles.css")));
+      if (path === "/motion-frame.html") return new Response(Bun.file(join(root, "packages/ui/src/motion-frame.html")), { headers: { "content-type": "text/html" } });
       return new Response(html, { headers: { "content-type": "text/html" } });
     },
     websocket: {

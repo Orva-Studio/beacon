@@ -1,11 +1,18 @@
-import { appendFileSync, existsSync, mkdirSync, watch } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, statSync, watch } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
 import Electrobun, { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/main";
 import type { ProjectWindow } from "./app";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
+
+/**
+ * What the window may ask Finder to open: an export it made (a video, sound, picture or captions file that exists).
+ * Page script asking `open` for any path could start an app or a script.
+ */
+const OPENABLE = new Set([".mp4", ".mov", ".m4v", ".webm", ".gif", ".wav", ".m4a", ".mp3", ".aac", ".png", ".jpg", ".jpeg", ".srt", ".vtt"]);
+const openable = (path: string) => isAbsolute(path) && OPENABLE.has(extname(path).toLowerCase()) && existsSync(path) && statSync(path).isFile();
 
 // The engine and Beacon's own ffmpeg, ffprobe and whisper-cli ship inside the app; set before anything loads them.
 const engineDir = join(import.meta.dir, "../engine");
@@ -40,7 +47,23 @@ const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
 // In each project's lock, so another Beacon that finds one held can say by which.
 const ownerName = (await Updater.localInfo.channel()) === "dev" ? "Beacon dev" : "Beacon";
-const core = new LocalCore({ socket, name: ownerName, reveal: (path) => Utils.showItemInFolder(path) });
+const core = new LocalCore({
+  socket,
+  name: ownerName,
+  reveal: (path) => Utils.showItemInFolder(path),
+  confirmAgentRecording: async (agent, what) => {
+    const { response } = await Utils.showMessageBox({
+      type: "question",
+      title: "Record?",
+      message: `${agent} wants to record ${what}.`,
+      detail: "Beacon records only once you say so.",
+      buttons: ["Record", "Don't Record"],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    return response === 0;
+  },
+});
 /** Every action with its keys, the user's over the defaults: the menus show them. */
 let shortcuts = await core.shortcuts();
 
@@ -409,8 +432,8 @@ function openWindow(): Win {
         previewControl: ({ op, time }) => w.views.previewControl(op, time),
         renameProject: ({ name }) => reply(() => projects.renameProject(w, name)),
         showFile: ({ path, open }) => {
-          if (open) Bun.spawn(["/usr/bin/open", path]);
-          else Utils.showItemInFolder(path);
+          if (open && openable(path)) Bun.spawn(["/usr/bin/open", "--", path]);
+          else if (!open) Utils.showItemInFolder(path);
         },
         copyText: ({ text }) => Utils.clipboardWriteText(text),
         canvasMenu: () => menus.canvasMenu(),

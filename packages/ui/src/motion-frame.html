@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- A motion graphic's page runs here, under its own policy (a page made from a string would take the window's):
+         its inline script and style run, nothing loads from or sends to anywhere. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:" />
+    <script>
+      addEventListener("message", (e) => {
+        if (e.source !== parent || typeof e.data?.page !== "string") return;
+        document.open();
+        document.write(e.data.page);
+        document.close();
+      });
+      parent.postMessage("beacon-frame", "*");
+    </script>
+  </head>
+</html>

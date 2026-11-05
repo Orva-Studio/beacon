@@ -123,6 +123,11 @@ export interface LocalCoreOptions {
   controlDir?: string;
   /** The agent CLIs Beacon may start a run of, by name (`codex`); unset, those installed are found. Tests give their own. */
   agentClis?: Partial<Record<RunAgent, string>>;
+  /**
+   * Asks the user before an agent records (the screen, camera, microphone): the app shows Record / Don't. Without it,
+   * as in a windowless agent's own process, an agent can't record (the user, 2026-11-05).
+   */
+  confirmAgentRecording?: (agent: string, what: string) => Promise<boolean>;
 }
 
 const DEFAULT_CONFIG_DIR = join(homedir(), "Library/Application Support/Beacon");
@@ -169,9 +174,11 @@ export class LocalCore implements BeaconCore {
   readonly #recording: Recording;
   readonly #controlDir: string | undefined;
   readonly #agentClis: Partial<Record<RunAgent, string>> | undefined;
+  readonly #confirmAgentRecording: LocalCoreOptions["confirmAgentRecording"];
 
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
+    this.#confirmAgentRecording = opts.confirmAgentRecording;
     this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
     // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
     this.#config = new AppConfig(opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR, this.registry, opts.secrets ?? keychain, (e) => {
@@ -1117,7 +1124,16 @@ export class LocalCore implements BeaconCore {
   }
 
   async recordStart(h: ProjectHandle, opts: RecordOptions = {}): Promise<{ take: string }> {
-    return this.#recording.start(this.#get(h), opts);
+    const p = this.#get(h);
+    const agent = currentAuthor();
+    if (agent !== undefined) {
+      const ask = this.#confirmAgentRecording;
+      if (!ask) throw new Error("an agent records only with the project open in the Beacon app, which asks the user first");
+      const s = opts.narrate ? { microphone: {} } : (opts.sources ?? { screen: {}, microphone: {}, systemAudio: true });
+      const what = [s.screen && "the screen", s.camera && "the camera", s.microphone && "the microphone", s.systemAudio && "the Mac's sound"].filter(Boolean).join(", ");
+      if (!(await ask(agentName(agent), what))) throw new Error("the user didn't let the agent record");
+    }
+    return this.#recording.start(p, opts);
   }
 
   async recordSyncCheck(sources: RecorderSources, show: () => Promise<void>) {

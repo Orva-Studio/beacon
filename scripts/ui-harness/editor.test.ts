@@ -279,7 +279,8 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     expect(await page.evaluate<string>(`${code}.querySelector('.cm-line').textContent`)).toBe(m().takes[m().shown]!.html.split("\n")[0]!);
     expect(await page.evaluate<number>("document.querySelectorAll('[data-motion-code-text] .cm-lineNumbers .cm-gutterElement').length")).toBeGreaterThan(1);
     expect(await page.evaluate<number>(`${code}.querySelectorAll('span[class]').length`)).toBeGreaterThan(0);
-    await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('window.__seek')", 10_000);
+    // The page runs in the preview frame under its own policy, and says so once it's there.
+    await page.until("!!document.querySelector('[data-motion-code-preview][data-motion-code-ready]')", 10_000);
     // ⌘F finds; Esc closes the find bar, not the dialog.
     await page.evaluate(`${code}.focus()`);
     await page.key("f", "KeyF", ["meta"]);
@@ -307,7 +308,7 @@ test.skipIf(skip)("Motion Graphics, as B-roll: the tile adds a placeholder at th
     expect(await page.evaluate<boolean>("!document.querySelector('[data-motion-code-preview]')")).toBe(true);
     await replace("<div class=w data-t=0.1>Typed by hand</div>");
     await page.until("!document.querySelector('[data-motion-code-left]')", 10_000);
-    await page.until("(document.querySelector('[data-motion-code-preview]')?.srcdoc ?? '').includes('Typed by hand')", 10_000);
+    await page.until("!!document.querySelector('[data-motion-code-preview][data-motion-code-ready]')", 10_000);
     // Space in the code is the editor's, not the play bar's; ⌘S saves.
     const playing = () => page.evaluate<string>("[...document.querySelectorAll('[data-motion-code-dialog] button')].map((b) => b.title).find((t) => t.endsWith('(Space)')) ?? ''");
     const still = await playing();

@@ -49,3 +49,23 @@ test("an agent's changes over the app's socket are its own undo steps: ⌘Z skip
     await core.close(h);
   }
 });
+
+test("the app's socket answers only a client with this launch's token, and sends it nothing before", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache2"), configDir: join(dir, "config2") });
+  const path = join(dir, "token.sock");
+  const server = serveCore(core, { path });
+  const said: string[] = [];
+  const socket = await Bun.connect({ unix: path, socket: { data: (_, chunk) => void said.push(new TextDecoder().decode(chunk)) } });
+  try {
+    socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: ["wrong"] })}\n`);
+    socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "history", params: ["x"] })}\n`);
+    for (let i = 0; i < 50 && said.join("").split("\n").filter(Boolean).length < 2; i++) await Bun.sleep(20);
+    const replies = said.join("").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { id: number; error?: { message: string } });
+    expect(replies.map((r) => [r.id, r.error?.message.split(":")[0]])).toEqual([[1, "this Beacon app wants its token in hello (protocol 2)"], [2, "say hello first, with the app's token"]]);
+    // A client that reads the token connects as before.
+    (await RemoteCore.connect(path)).disconnect();
+  } finally {
+    socket.end();
+    server.stop();
+  }
+});
