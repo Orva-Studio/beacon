@@ -18,7 +18,7 @@ const params = z.strictObject({
   focusY: z.number().min(0).max(1).meta({ percent: true, when: { focus: "point" } }).describe("The point in focus, down the screen"),
   blur: z.number().min(0).max(1).meta({ percent: true }).describe("How shallow the focus is: how fast the screen and the room blur away from it"),
   glow: z.number().min(0).max(1).meta({ percent: true }).describe("The screen's bright parts blooming onto the bezel and room"),
-  pixels: z.number().min(0).max(1).meta({ percent: true }).describe("The screen's own pixels: red, green and blue stripes and the dark lines between them, showing as the camera comes close (a macro shot of a screen); never where they'd be smaller than the video's pixels"),
+  pixels: z.number().min(0).max(1).meta({ percent: true }).describe("The screen's own pixels: red, green and blue stripes and the dark lines between them, showing as the camera comes close (a macro shot of a screen); past 50% stronger and from further away, at 100% a screen door"),
   drift: z.number().min(0).max(1).meta({ percent: true }).describe("A handheld camera's slow wobble"),
   zoom: z.number().min(0.8).max(12).meta({ slider: { min: 0.8, max: 4 } }).describe("How close the camera is: the screen's width over the frame's (2 shows half of it; under 1 the whole screen, centred)"),
 });

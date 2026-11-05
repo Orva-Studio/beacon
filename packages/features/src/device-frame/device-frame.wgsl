@@ -52,14 +52,19 @@ fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
   if (s.x < 0.0 || s.y < 0.0 || s.x > param(11u) || s.y > param(12u)) {
     return c;
   }
-  let across = param(14u) * smoothstep(2.5, 6.0, scale.x);
-  let down = param(14u) * smoothstep(2.0, 5.0, scale.y);
+  // Strength 0 to 0.5 brings the grid in; past 0.5 it goes to extremes: thinner stripes with black between them,
+  // darker and wider lines between rows, showing from further away (a little moiré allowed at the very top).
+  let k = param(14u) * 2.0;
+  let extra = clamp(k - 1.0, 0.0, 1.0);
+  let across = min(k, 1.0) * smoothstep(2.5 - extra, 6.0 - 2.5 * extra, scale.x);
+  let down = min(k, 1.0) * smoothstep(2.0 - 0.8 * extra, 5.0 - 2.0 * extra, scale.y);
   let f = fract(r);
   let d = abs(fract(vec3(f.x) - vec3(1.0 / 6.0, 0.5, 5.0 / 6.0) + 0.5) - 0.5);
-  let stripe = 1.0 - smoothstep(vec3(0.09), vec3(1.0 / 6.0), d);
-  let row = smoothstep(0.0, 0.14, f.y) * (1.0 - smoothstep(0.86, 1.0, f.y));
+  let stripe = 1.0 - smoothstep(vec3(0.09 - 0.05 * extra), vec3(1.0 / 6.0 - 0.05 * extra), d);
+  let band = 0.14 + 0.12 * extra;
+  let row = smoothstep(0.0, band, f.y) * (1.0 - smoothstep(1.0 - band, 1.0, f.y));
   // Brighter where lit, so the stripes' average stays near the picture's own brightness.
-  let mask = mix(vec3(1.0), stripe * 2.2, across) * mix(1.0, row, down * 0.8);
+  let mask = mix(vec3(1.0), stripe * (2.2 + 1.3 * extra), across) * mix(1.0, row, down * (0.8 + 0.2 * extra));
   return vec4(min(c.rgb * mask, vec3(c.a)), c.a);
 }
 
