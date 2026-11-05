@@ -2,13 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { assetName, type Asset } from "@beacon/model";
 import { Icon, Modal, TextInput, type IconName } from "./controls";
 import { KIND_ICON } from "./media-bin";
-import { AI_TOOLS, allItems, inFavoriteOrder } from "./panel-items";
+import { aboutSelection } from "./ask-agent";
+import { AI_TOOLS, allItems, inUseOrder } from "./panel-items";
 import { searchByName } from "./search";
 import { NO_NESTED, timelineView } from "./timeline-draw";
 import { replica, useView } from "./store";
 
 interface PaletteHost {
   run(command: string, args?: unknown): void;
+  /** Counts a use of a panel item or AI tool, for this list's order. */
+  itemUsed(item: string): void;
 }
 
 /** Something the palette adds: what the panels' tiles do on a double-click, an AI tool's review, or a medium of the bin. */
@@ -21,7 +24,8 @@ interface Entry {
   /** A medium's picture, as the Media Bin shows it, else its kind's icon. */
   thumb?: string;
   icon?: IconName;
-  starred: boolean;
+  /** What its uses are counted as (a panel item or AI tool), when they are. */
+  item?: string;
   start: (host: PaletteHost) => void;
 }
 
@@ -32,7 +36,7 @@ const search = (entries: Entry[], query: string) => searchByName(entries, query,
 /**
  * The command palette (⌘K by default): what can be done to clips or added to the timeline, by name or what it
  * does. Annotations are added at the playhead; effects and fades go on the selected clips, as a double-click on
- * their tile does; an AI tool opens its review; the selected clip's effects can be removed. Favourites come first.
+ * their tile does; an AI tool opens its review; the selected clip's effects can be removed. What is used most, and lately, comes first, and leads among matches when typing.
  * Media from the bin, once something is typed (a big bin would bury the rest), go on the timeline at the playhead.
  */
 export function Palette({ host }: { host: PaletteHost }) {
@@ -42,7 +46,7 @@ export function Palette({ host }: { host: PaletteHost }) {
 
 function PaletteUi({ host }: { host: PaletteHost }) {
   const init = useView((v) => v.init);
-  const favorites = useView((v) => v.favorites);
+  const recent = useView((v) => v.usedItems);
   const assets = useView((v) => v.project?.assets);
   const thumbs = useView((v) => v.thumbs);
   const project = useView((v) => v.project);
@@ -51,13 +55,14 @@ function PaletteUi({ host }: { host: PaletteHost }) {
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const entries = useMemo(() => {
-    const items = allItems(init).map((it): Entry & { favorite: string } => ({ id: it.favorite, favorite: it.favorite, name: it.label, description: it.title, group: it.group, art: it.art, starred: favorites.includes(it.favorite), start: (h) => {
+    const items = allItems(init).map((it): Entry & { item: string } => ({ id: it.item, item: it.item, name: it.label, description: it.title, group: it.group, art: it.art, start: (h) => {
       const effect = it.group !== "Annotation";
       replica.focusInputs(effect);
       h.run(it.command, it.args);
-      if (effect) h.run("inspector.tab", { tab: "effects" });
+      // Others show their own tab (Clip Speed its speed): switching after would hide it.
+      if (it.command === "edit.addEffect") h.run("inspector.tab", { tab: "effects" });
     } }));
-    const tools = AI_TOOLS.map((t): Entry => ({ id: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, starred: false, start: t.start }));
+    const tools = AI_TOOLS.map((t): Entry & { item: string } => ({ id: `ai:${t.id}`, item: `ai:${t.id}`, name: t.label, description: t.title, group: "AI", art: t.art, start: t.start }));
     // The effects of the clip the properties show; two of a kind numbered.
     // In an open group, its clips: what the properties show.
     const first = session?.selection[0];
@@ -67,15 +72,17 @@ function PaletteUi({ host }: { host: PaletteHost }) {
     const removals = (clip?.effects ?? []).map((fx, i, all): Entry => {
       const same = all.filter((f) => f.type === fx.type);
       const name = `Remove ${title(fx.type)}${same.length > 1 ? ` ${same.indexOf(fx) + 1}` : ""}`;
-      return { id: `remove:${fx.id}`, name, description: "Take this effect off the selected clip", group: "Selected Clip", icon: "trash", starred: false, start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
+      return { id: `remove:${fx.id}`, name, description: "Take this effect off the selected clip", group: "Selected Clip", icon: "trash", start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
     });
-    return [...inFavoriteOrder(items, favorites), ...items.filter((e) => !e.starred), ...removals, ...tools];
-  }, [init, favorites, project, session]);
+    const ask: Entry = { id: "agent:ask", name: "Ask an Agent…", description: "Send a request to an agent you have open (Claude Code) about the selected clip, the range, or the project", group: "Agent", icon: "sparkle", start: () => replica.askAgent(aboutSelection()) };
+    const used = new Set(recent);
+    return [...inUseOrder([...items, ...tools].filter((e) => used.has(e.item)), recent), ...items.filter((e) => !used.has(e.item)), ...removals, ...tools.filter((e) => !used.has(e.item)), ask];
+  }, [init, recent, project, session]);
   const media = useMemo(
     () =>
       // As the bin: a LUT or other file a feature imported isn't media to place.
       Object.values(assets ?? {}).filter((a) => a.kind !== "file").map(
-        (a): Entry => ({ id: `media:${a.id}`, name: assetName(a), description: KIND[a.kind as keyof typeof KIND], group: "Media Bin", thumb: thumbs[`asset:${a.id}`], icon: KIND_ICON[a.kind as keyof typeof KIND_ICON], starred: false, start: (h) => h.run("edit.addMedia", { asset: a.id }) }),
+        (a): Entry => ({ id: `media:${a.id}`, name: assetName(a), description: KIND[a.kind as keyof typeof KIND], group: "Media Bin", thumb: thumbs[`asset:${a.id}`], icon: KIND_ICON[a.kind as keyof typeof KIND_ICON], start: (h) => h.run("edit.addMedia", { asset: a.id }) }),
       ),
     [assets, thumbs],
   );
@@ -91,6 +98,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
     if (!e) return;
     close();
     e.start(host);
+    if (e.item) host.itemUsed(e.item);
   };
   return (
     <Modal width={600} onClose={close} onEnter={() => choose(found[at])}>
@@ -135,7 +143,6 @@ function PaletteUi({ host }: { host: PaletteHost }) {
             <div className="min-w-0 flex-1">
               <div className={`flex items-center gap-1.5 truncate ${i === at ? "text-text-strong" : "text-text"}`}>
                 {e.name}
-                {e.starred && <Icon name="star" size={12} filled className="text-favorite" />}
               </div>
               <div className="truncate text-caption text-text-faint">{e.description}</div>
             </div>

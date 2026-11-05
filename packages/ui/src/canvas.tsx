@@ -32,7 +32,7 @@ import { safeAreaLines, safeAreaMarks, useSafeAreas } from "./safe-areas";
 import { placeholderMarks } from "./broll";
 import { isEmptyMotion } from "./motion";
 import { canvasSnapping, type Guide } from "./canvas-snap";
-import { boxGroup, contentSize, valueAt } from "./canvas-clips";
+import { boxGroup, cameraTurn, contentSize, valueAt } from "./canvas-clips";
 import { captionMarks, COLOR, cross, dotAt, handlePoints, HANDLE, line, MarksSvg, pivot, ROTATE, selectionMarks, type CanvasMark } from "./canvas-marks";
 
 
@@ -55,7 +55,7 @@ function contentToCanvas(p: Project, size: [number, number], t: Placed["t"]): Af
 }
 
 /** Visual clips showing at the playhead, top track first. */
-function placedClips(project: Project, session: Session, view: Affine, visual: (c: Clip) => boolean): Placed[] {
+function placedClips(project: Project, session: Session, view: Affine, visual: (c: Clip) => boolean, flat: (c: Clip) => boolean): Placed[] {
   const at = secondsToTicks(session.playhead);
   const out: Placed[] = [];
   const visible = (t: Track) => !t.hidden;
@@ -76,8 +76,9 @@ function placedClips(project: Project, session: Session, view: Affine, visual: (
         size: ((g) => (g ? ([e(g, "width", size[0]), e(g, "height", size[1])] as [number, number]) : size))(boxGroup(clip)),
       };
       const m = compose(view, contentToCanvas(project, size, t));
-      // A tilted clip's outline follows its perspective; drags still work in its flat placement.
-      const shown = multiply(fromAffine(view), placement(project.settings, size, { ...t, ...tilt }));
+      // A tilted clip's outline follows its perspective; drags still work in its flat placement. A clip whose tilt
+      // turns a camera instead (the Monitor) stays flat: its tilted corners would be behind the canvas's own camera.
+      const shown = multiply(fromAffine(view), placement(project.settings, size, flat(clip) ? t : { ...t, ...tilt }));
       const [l, tp, r, b] = [crop.left, crop.top, size[0] - crop.right, size[1] - crop.bottom];
       out.push({ clip, size, t, crop, stored, m, corners: [projectPoint(shown, l, tp), projectPoint(shown, r, tp), projectPoint(shown, r, b), projectPoint(shown, l, b)] });
     }
@@ -265,7 +266,8 @@ export function CanvasOverlay({
   const where = useMemo(() => new Map(project.tracks.flatMap((t, i) => t.clips.map((c) => [c.id, { clip: c, track: i }] as const))), [project.tracks]);
   const captionAt = caption ? where.get(caption.clip) : undefined;
   const captionClip = captionAt?.clip;
-  const placed = placedClips(project, session, view, (c) => clipTypes[c.type]?.includes("visual") ?? false);
+  const effects = useView((s) => s.init?.effects);
+  const placed = placedClips(project, session, view, (c) => clipTypes[c.type]?.includes("visual") ?? false, (c) => cameraTurn(c, effects) !== undefined);
   const safe = useSafeAreas(host, project, session);
   if (caption && captionClip) {
     const { x, y, width, height } = caption.box;
@@ -508,7 +510,7 @@ export function CanvasOverlay({
           setMoved({ clip: captionClip!.id, x: d.box[0]![0] + (s.anchorX === "right" ? -x : x), y: d.box[0]![1] + (s.anchorY === "bottom" ? -y : y) });
           const place = { offsetX: Math.round(offsetX), offsetY: Math.round(offsetY) };
           if (d.alone) host.run("caption.place", { clip: captionClip!.id, clips: d.others, place, onward: d.onward }, d.onward ? "Move Captions From Here" : d.others.length ? "Move Captions" : "Move Caption", d.key);
-          else host.run("captions.style", { style: place }, "Move Captions", d.key);
+          else host.run("captions.style", { style: place, track: project.tracks[captionAt!.track]!.id }, "Move Captions", d.key);
           return;
         }
         if (d.kind === "captionWidth") {
@@ -519,7 +521,7 @@ export function CanvasOverlay({
           const width = clamp(d.width + grow, CW * 0.2, CW);
           const moves = (s.anchorX === "left" && d.sx < 0) || (s.anchorX === "right" && d.sx > 0);
           const offsetX = moves ? s.offsetX - (width - d.width) : s.offsetX;
-          host.run("captions.style", { style: { maxWidth: Math.round((width / CW) * 1000) / 1000, ...(moves ? { offsetX: Math.round(offsetX) } : {}) } }, "Caption Width", d.key);
+          host.run("captions.style", { style: { maxWidth: Math.round((width / CW) * 1000) / 1000, ...(moves ? { offsetX: Math.round(offsetX) } : {}) }, track: project.tracks[captionAt!.track]!.id }, "Caption Width", d.key);
           return;
         }
         if (d.kind === "move") {

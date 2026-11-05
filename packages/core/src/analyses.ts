@@ -173,6 +173,12 @@ export class Analyses {
         }
       }
     }
+    for (const feature of registry.features.values()) {
+      for (const { asset: id, analyzer: key } of feature.needs?.(doc) ?? []) {
+        const asset = doc.assets[id];
+        if (asset && registry.jobAnalyzers.get(key)?.applies(asset) && !p.data.has(asset, key)) wanted.set(`${key}\0${asset.id}`, { key, asset });
+      }
+    }
     return [...wanted.values()].flatMap(({ key, asset }) => {
       let job: Job;
       try {

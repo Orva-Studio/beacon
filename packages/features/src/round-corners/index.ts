@@ -9,7 +9,6 @@ export const roundCorners = defineFeature({
     {
       id: "round-corners",
       title: "Corner Rounding",
-      favorite: true,
       description: "Rounded corners on the clip's content",
       traits: ["visual"],
       params: z.strictObject({

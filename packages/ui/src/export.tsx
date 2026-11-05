@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { autoBitrate, fittedSize, isAudioFormat, MAX_BITRATE } from "@beacon/model";
-import { Button, Check, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
+import { Button, Check, Icon, Modal, Progress, Select, SettingsRow as Row, SliderTrack, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
 import { replica, useView } from "./store";
@@ -32,6 +32,33 @@ const SIZES = [
   [1280, 720],
   [854, 480],
 ] as const;
+
+const SPEEDS = [0.5, 0.75, 1, 1.1, 1.2, 1.25, 1.5, 2];
+const [SLOWEST, FASTEST] = [0.25, 3];
+
+/** The whole file played slower or faster (1.2× for Shorts): the offered speeds, or any from 0.25× to 3× in 0.05 steps on the slider, and the length it comes out at. */
+function SpeedRow({ speed, length, onChange }: { speed: number; length: number; onChange: (speed: number) => void }) {
+  return (
+    <Row label="Speed">
+      <div className="w-28 shrink-0">
+        <Select value={SPEEDS.includes(speed) ? String(speed) : "custom"} onChange={(e) => e.target.value !== "custom" && onChange(Number(e.target.value))} data-export-speed>
+          {SPEEDS.map((x) => (
+            <option key={x} value={String(x)}>
+              {x === 1 ? "Normal (1×)" : `${x}×`}
+            </option>
+          ))}
+          {!SPEEDS.includes(speed) && <option value="custom">{`${speed}×`}</option>}
+        </Select>
+      </div>
+      <div className="flex min-w-24 flex-1" data-export-speed-slider>
+        <SliderTrack value={speed} min={SLOWEST} max={FASTEST} step={0.05} name="export-speed" onChange={(v) => onChange(Math.round(v * 20) / 20)} />
+      </div>
+      <span className="shrink-0 text-text-dim" data-export-length>
+        {speed === 1 ? clock(length, { tenths: true }) : `${clock(length, { tenths: true })} → ${clock(length / speed, { tenths: true })}`}
+      </span>
+    </Row>
+  );
+}
 
 /** Automatic or a custom rate on a slider, as the Data rate rows. */
 function DataRate({ value, min, max, auto, autoLabel = "Automatic", onChange }: { value: number | null; min: number; max: number; auto: number; autoLabel?: string; onChange: (v: number | null) => void }) {
@@ -149,6 +176,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
               <Check label={f.title} checked={s.files.includes(f.id)} onChange={(on) => set({ files: on ? [...s.files, f.id] : s.files.filter((x) => x !== f.id) })} data-export-file={f.id} />
             </Row>
           ))}
+        <SpeedRow speed={s.speed} length={span && selectionOnly ? span.out - span.in : sheet.duration} onChange={(speed) => set({ speed })} />
       </div>
       {advanced && (
         <div className="mt-4 flex flex-col gap-3 rounded-md bg-well/60 p-4">
@@ -238,7 +266,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
             </>
           )}
           <div>
-            <Button onClick={() => setS({ ...DEFAULT_EXPORT, format: s.format })}>Restore Defaults</Button>
+            <Button onClick={() => setS({ ...DEFAULT_EXPORT, format: s.format, files: s.files, speed: s.speed })}>Restore Defaults</Button>
           </div>
         </div>
       )}
@@ -277,6 +305,11 @@ function ExportProgress({ job, host }: { job: ExportJob; host: ExportHost }) {
       done={job.state === "done"}
       onDismiss={job.state === "running" ? undefined : () => replica.exportJob(undefined)}
     >
+      {job.state === "running" && job.stage && (
+        <div className="mb-1 text-label text-text-muted" data-export-stage>
+          {job.stage}
+        </div>
+      )}
       {job.state === "running" && (
         <div className="flex items-center gap-2">
           <Progress value={job.progress} className="flex-1" />

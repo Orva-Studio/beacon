@@ -274,22 +274,36 @@ export const actions = [
   defineAction({
     id: "edit.addMedia",
     description:
-      "Put media from the Media Bin on the timeline (Add to Timeline at Playhead, Add to End of Timeline, or a drag from the bin): at `time` (default the playhead), or after the last clip with `end`, on `track` when dropped on one, and select it",
-    args: z.strictObject({ asset: z.string().min(1), time: z.number().nonnegative().optional(), end: z.boolean().optional(), track: z.string().min(1).optional() }),
+      "Put media from the Media Bin on the timeline (Add to Timeline at Playhead, Add to End of Timeline, or a drag from the bin): at `time` (default the playhead), or after the last clip with `end`, on `track` when dropped on one, and select it. Several (`asset` a list, as the bin's selection) go one after another in that order, one undo step",
+    args: z.strictObject({
+      asset: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+      time: z.number().nonnegative().optional(),
+      end: z.boolean().optional(),
+      track: z.string().min(1).optional(),
+    }),
     resolve: ({ asset, time, end, track }, ctx) => {
       mainTimelineOnly(ctx, "add media");
-      const at = end ? ticksToSeconds(projectDuration(ctx.project)) : (time ?? ctx.session.playhead);
+      const assets = typeof asset === "string" ? [asset] : [...new Set(asset)];
+      let at = end ? ticksToSeconds(projectDuration(ctx.project)) : (time ?? ctx.session.playhead);
+      const steps = assets.map((id) => {
+        const a = ctx.project.assets[id];
+        if (!a) throw new Error(`no asset "${id}"`);
+        const specs = ctx.registry.importerFor(a.path.slice(a.path.lastIndexOf(".")))?.clips(a, ctx.project) ?? [];
+        const step = { command: "asset.place", args: { asset: id, time: at, ...(track ? { track } : {}) } };
+        at += ticksToSeconds(Math.max(0, ...specs.map((c) => c.duration)));
+        return step;
+      });
       return {
         label: "Add Media",
-        steps: [{ command: "asset.place", args: { asset, time: at, ...(track ? { track } : {}) } }],
-        after: (results) => [{ command: "selection.set", args: { clips: results[0] as string[], linked: false } }],
+        steps,
+        after: (results) => [{ command: "selection.set", args: { clips: (results as string[][]).flat(), linked: false } }],
       };
     },
   }),
   defineAction({
     id: "edit.addAnnotation",
     description:
-      "Add an annotation for `duration` seconds (default 5) at `time` (default the playhead) on the lowest free track, or on `track` when dropped on one, and select it: a `preset` from the Annotations panel (text, rectangle, spotlight, blur, pixelate), or a callout or region clip given by `type`, `props` and `effects`",
+      "Add an annotation for `duration` seconds (default 5) at `time` (default the playhead) on the lowest free track, or on `track` when dropped on one, and select it: a `preset` from the Annotations panel (text, rectangle, spotlight, blur, highlight), or a callout or region clip given by `type`, `props` and `effects`",
     args: z.union([
       z.strictObject({ preset: z.string().min(1), ...placed }),
       z.strictObject({
@@ -366,8 +380,10 @@ export const actions = [
     description: "Unlink the selected clips from the clips recorded with them, so each can be moved and cut on its own",
     args: none,
     resolve: (_, ctx) => {
-      const clips = selectedClips(ctx).filter((c) => c.linkId).map((c) => c.id);
-      if (!clips.length) throw new Error("select linked clips first");
+      const selected = selectedClips(ctx);
+      const clips = selected.filter((c) => c.linkId).map((c) => c.id);
+      // A recording's screen was taken for a link it never had (the user, 2026-11-02).
+      if (!clips.length) throw new Error(selected.length ? "nothing selected is linked: a recording's camera and sound are linked, its screen never is, so it moves and cuts on its own already" : "select linked clips first");
       return { label: "Unlink Recording", steps: [{ command: "clip.unlink", args: { clips } }] };
     },
   }),
@@ -440,8 +456,26 @@ export const actions = [
     args: z.strictObject({ type: z.string().min(1), clip: z.string().min(1).optional() }),
     resolve: ({ type, clip }, ctx) => {
       const def = ctx.registry.effect(type);
-      const clips = dropTargets(ctx, clip).filter((c) => def.traits.some((t) => ctx.registry.hasTrait(c.type, t)));
-      if (!clips.length) throw new Error(clip ? `"${type}" doesn't apply to that media` : `select media that "${type}" applies to first`);
+      const targets = dropTargets(ctx, clip);
+      const clips = targets.filter((c) => def.traits.some((t) => ctx.registry.hasTrait(c.type, t)));
+      if (!clips.length) {
+        // A clip type that has its own way of taking it (the captions' shadow) does so; else it says what the effect is for.
+        const located = targets.flatMap((c) => {
+          const track = ctx.project.tracks.find((t) => t.clips.some((x) => x.id === c.id));
+          const instead = track ? ctx.registry.clipTypes.get(c.type)?.effectInstead?.(type, c, track) : undefined;
+          return instead ? [instead] : [];
+        });
+        const first = located[0];
+        if (first)
+          return {
+            label: def.title,
+            steps: [{ command: first.command, args: first.args }],
+            after: () => [...selectDropped(ctx, clip), ...(first.tab ? [{ command: "inspector.tab", args: { tab: first.tab } }] : [])],
+            ...(first.note ? { note: first.note } : {}),
+          };
+        const kinds = [...new Set(targets.map((c) => c.type))].join(", ");
+        throw new Error(clip ? `${def.title} doesn't apply to ${kinds || "that"} clips` : `select media that ${def.title} applies to first`);
+      }
       return { label: `Add ${type}`, steps: clips.map((c) => ({ command: "effect.add", args: { clip: c.id, type } })), after: () => selectDropped(ctx, clip) };
     },
   }),

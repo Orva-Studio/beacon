@@ -22,7 +22,6 @@ export const crtMonitor = defineFeature({
     {
       id: "crt-monitor",
       title: "CRT Monitor",
-      favorite: true,
       description: "Old CRT monitor look",
       traits: ["visual"],
       params,

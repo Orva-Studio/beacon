@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { HabitInfo, MemoryChange, Sentence } from "@beacon/model";
 import { Button, Check, Select, TextInput, TrashButton } from "./controls";
+import { LearnedShortcuts } from "./learned";
 import { useView } from "./store";
 
 export interface MemoryHost {
@@ -96,7 +97,7 @@ export function MemorySettings({ host }: { host: MemoryHost }) {
       <div className="flex flex-col gap-1">
         <Check label="Learn from my reviews" checked={memory.learning} onChange={(learning) => host.memoryChange({ learning })} data-memory-learning />
         <div className="text-label text-text-faint">
-          What you cut and keep in Remove Silences, Filler Words and Retakes, kept on this Mac. A review opens your way once you have made the same choice about 5 times over 2 projects, and says why.
+          What you cut and keep in Remove Silences and Retakes, kept on this Mac. A review opens your way once you have made the same choice about 5 times over 2 projects, and says why.
         </div>
       </div>
       {memory.learning && (
@@ -149,6 +150,8 @@ export function MemorySettings({ host }: { host: MemoryHost }) {
           ))}
         </>
       )}
+      <Heading>Learned shortcuts</Heading>
+      <LearnedShortcuts host={host} shortcuts={memory.shortcuts} />
     </div>
   );
 }

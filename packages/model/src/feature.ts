@@ -15,6 +15,11 @@ export interface ClipTypeDef {
   traits: string[];
   /** Its speed can change though it has no media of its own (stitched pieces): it gets the Clip Speed tab. */
   retimes?: boolean;
+  /**
+   * How it takes an effect that doesn't apply to it as one (Drop Shadow on a caption: the captions' own shadow):
+   * the command to run instead and the inspector tab that shows it, or undefined when it can't.
+   */
+  effectInstead?: (effect: string, clip: Clip, track: Track) => { command: string; args: unknown; tab?: string; note?: string } | undefined;
 }
 
 /**
@@ -50,8 +55,6 @@ export interface EffectDef {
   /** Its name in the editor's panels. */
   title: string;
   description: string;
-  /** In a new user's Favorites panel (`effect:<id>`), in registration order. */
-  favorite?: boolean;
   traits: string[];
   /** Validates `EffectInstance.params`. */
   params: z.ZodType<Record<string, unknown>>;
@@ -80,6 +83,21 @@ export interface EffectDef {
   importFile?: { label: string; extensions: string[]; query: string; keep?: string };
   /** A button on the effect's section running `action` with `{ clip, effect }` (Film Look's Auto Tune). */
   tune?: { label: string; title: string; action: string };
+  /**
+   * How the inspector shows a choice param's options, by param then option: a name, and a picture (an image URL) that
+   * puts them in a list of pictures (the Monitor's shots as blueprints).
+   */
+  choices?: Record<string, Record<string, EffectChoice>>;
+  /**
+   * The clip's Rotation X and Y turn a camera filming it (the Monitor's), up to this many radians either way: the
+   * canvas outlines the clip's flat box, not a tilted one, and the inspector stops the rotation there.
+   */
+  turnsCamera?: number;
+}
+
+export interface EffectChoice {
+  label: string;
+  art?: string;
 }
 
 export interface EffectPreset {
@@ -451,8 +469,8 @@ export interface ExportFileDef {
   /** The Export sheet's tick box: "Captions file". */
   title: string;
   description: string;
-  /** The file's contents for timeline seconds [from, to), times counted from `from`; undefined writes none. */
-  write: (range: { from: number; to: number }, ctx: QueryContext) => string | undefined;
+  /** The file's contents for timeline seconds [from, to), times as the exported file plays them (counted from `from`, divided by `speed`); undefined writes none. */
+  write: (range: { from: number; to: number; speed: number }, ctx: QueryContext) => string | undefined;
 }
 
 export interface ActionStep {
@@ -473,6 +491,8 @@ export interface ActionPlan {
   task?: ActionTask;
   /** The user's choices this records (`Memory`), once the steps are done. */
   decisions?: DecisionInput[];
+  /** Said to the user once it is done, in the status line (Drop Shadow on a caption: it used the caption's own shadow). */
+  note?: string;
 }
 
 /**
@@ -537,7 +557,7 @@ export interface ActionDef<A = any> {
  * timeline or double-clicked, it runs `command` with `args`, as the command palette does.
  */
 export interface PanelItemDef {
-  /** What favourites call it: `annotation:text`, `audio:fade-in`. */
+  /** What its uses are counted as (⌘K's order): `annotation:text`, `audio:fade-in`. */
   id: string;
   label: string;
   /** Its tooltip. */
@@ -548,8 +568,6 @@ export interface PanelItemDef {
   traits?: string[];
   /** Seconds it lasts, dropped on a track. */
   seconds?: number;
-  /** In a new user's Favorites panel, in registration order. */
-  favorite?: boolean;
 }
 
 /** A clip `edit.addAnnotation` adds by its preset's name: an Annotations panel item's. */
@@ -616,6 +634,16 @@ export interface Feature {
    * gaps); its changes are part of the same undo step.
    */
   normalize?: (doc: Draft<Project>, ctx: CommandContext) => void;
+  /**
+   * Timeline time (ticks) a cut must not take as a sliver of a clip: the words said there. A short piece a cut
+   * would leave that holds one is widened instead, back into the cut beside it.
+   */
+  keepWhole?: (doc: Project, registry: FeatureRegistry, data: CommandContext["data"]) => [Ticks, Ticks][];
+  /**
+   * Job analyzers media must have for what the project asks of the feature, beyond effects' `needs` (captions drawn
+   * behind the person on camera need its matte): started as those are, after each edit and before an export.
+   */
+  needs?: (doc: Project) => { asset: string; analyzer: string }[];
 }
 
 export function defineFeature(feature: Feature): Feature {

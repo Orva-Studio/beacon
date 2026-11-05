@@ -32,7 +32,7 @@ const timed = (s: Said) => s.words.map((w) => `${w.start.toFixed(2)} ${w.text}`)
 const VOCABULARY = KINDS.map((k) => `- ${k}: ${KIND_GUIDE[k]}`).join("\n");
 
 /** Apple's on-device model through beacon-writer; says what to turn on (or pick instead) when it can't run. */
-async function onDevice<T>(kind: string, instructions: string, prompt: string): Promise<T> {
+export async function onDevice<T>(kind: string, instructions: string, prompt: string): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "beacon-motion-"));
   try {
     const request = join(dir, "request.json");

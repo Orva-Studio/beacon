@@ -47,6 +47,10 @@ export interface ShortcutInfo {
   /** Whether `keys` are the default ones. */
   standard: boolean;
   fixed?: string;
+  /** Learned from how often the user uses a panel item (Settings › Memory), not one of Beacon's own. */
+  learned?: boolean;
+  /** Learned and hardly used yet: the leader popup marks it "new". */
+  fresh?: boolean;
 }
 
 const NAMED: Record<string, string> = {

@@ -131,8 +131,8 @@ export class AudioOutput {
     this.rate = e.beacon_audio_rate(this.#handle);
   }
 
-  /** `args`: ffmpeg argv (inputs and filters, output appended natively), empty for silence. */
-  play(args: string[], start: number): void {
+  /** `args`: ffmpeg argv (inputs and filters, output appended natively), or several played one after another; empty for silence. */
+  play(args: string[] | string[][], start: number): void {
     const e = loadEngine();
     checkStatus(e, e.beacon_audio_play(this.#live(), cstr(JSON.stringify(args)), start));
   }

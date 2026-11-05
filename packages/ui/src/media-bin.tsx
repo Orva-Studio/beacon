@@ -22,6 +22,8 @@ const KINDS: [BinKind, string][] = [
   ["video", "Video"],
   ["audio", "Audio"],
   ["image", "Images"],
+  // The user's own recordings (screen, camera and mic, each one item), short to fit beside the others.
+  ["recording", "Takes"],
 ];
 
 /** Recordings are video too. */
@@ -248,7 +250,7 @@ export function MediaBin({
         <ImportTile list={list} host={host} empty={!all.length} />
         <PendingTiles list={list} />
         {assets.map((a) => (
-          <BinItem key={a.id} asset={a} list={list} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} host={host} />
+          <BinItem key={a.id} asset={a} list={list} thumb={thumbs[`asset:${a.id}`]} peaks={waveforms[a.id]?.[0]} selection={selection} order={assets.map((x) => x.id)} host={host} />
         ))}
         {box && (
           <div
@@ -279,7 +281,7 @@ function ImportTile({ list, host, empty }: { list: boolean; host: Host; empty: b
   );
 }
 
-function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Asset; list: boolean; thumb?: string; peaks?: number[]; selection: string[]; host: Host }) {
+function BinItem({ asset: a, list, thumb, peaks, selection, order, host }: { asset: Asset; list: boolean; thumb?: string; peaks?: number[]; selection: string[]; order: string[]; host: Host }) {
   const selected = selection.includes(a.id);
   const renaming = useView((s) => s.renamingMedia === a.id);
   const preparing = useView((s) => s.preparing[a.id]);
@@ -381,7 +383,8 @@ function BinItem({ asset: a, list, thumb, peaks, selection, host }: { asset: Ass
       onDragStart={(e) => e.preventDefault()}
       onContextMenu={(e) => {
         e.preventDefault();
-        host.binMenu(a.id);
+        // On one of several selected, the menu's Add and Delete act on all of them, in the bin's order.
+        host.binMenu(a.id, selected ? order.filter((id) => selection.includes(id)) : [a.id]);
       }}
     >
       {picture}

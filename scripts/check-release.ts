@@ -89,7 +89,8 @@ async function appEngine(): Promise<string> {
   const engine = join(app, "Contents/Resources/app/engine");
   const missing = ENGINE_FILES.filter((f) => !existsSync(join(engine, f)));
   if (missing.length) throw new Error(`the app's engine folder lacks ${missing.join(", ")}`);
-  for (const f of readdirSync(engine)) {
+  // Only files link to anything; folders beside them (the engine's fonts) aren't binaries.
+  for (const f of readdirSync(engine).filter((f) => statSync(join(engine, f)).isFile())) {
     const foreign = await foreignLinks(join(engine, f), (l) => l.startsWith("@rpath/"));
     if (foreign.length) throw new Error(`${f} loads ${foreign.join(", ")} from outside the app`);
   }

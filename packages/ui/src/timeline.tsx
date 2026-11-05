@@ -40,6 +40,7 @@ interface Props {
   menu: (clip: string) => void;
   /** A track's menu (Insert Track, Rename…, Lock…), or with null the track options under ⌄. */
   trackMenu: (track: string | null) => void;
+  sectionMenu: (section: string) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
   /** Spans marked across the tracks while something is reviewed (Remove Silences: every one red, the selected outlined). */
@@ -48,7 +49,7 @@ interface Props {
   markClick?: (mark: TimelineMark, alt: boolean, shift: boolean, meta: boolean) => void;
 }
 
-export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, dropFiles, marks, markClick }: Props) {
+export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, sectionMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
@@ -836,6 +837,11 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           if (x < HEADER) {
             const i = rowUnder(y);
             if (i !== undefined) trackMenu(tracks[i]!.id);
+            return;
+          }
+          if (y >= RULER && y < TRACKS_TOP) {
+            const s = sectionAt(x)?.section;
+            if (s) sectionMenu(s.id);
             return;
           }
           const clip = clipAt(e.clientX, e.clientY);

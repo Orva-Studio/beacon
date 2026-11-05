@@ -1,5 +1,7 @@
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
+import { ticksToSeconds } from "@beacon/model";
+import { aboutSection } from "./ask-agent";
 import { replica } from "./store";
 
 type Messages = AppRPC["webview"]["messages"];
@@ -13,8 +15,14 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   session: ({ changes }) => replica.session(changes),
   status: ({ text }) => replica.status(text),
   rename: ({ track }) => replica.rename(track),
+  sectionAction: ({ section, op }) => {
+    const s = replica.get().project?.sections.find((x) => x.id === section);
+    if (!s) return;
+    if (op === "rename") replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
+    else replica.askAgent(aboutSection(s));
+  },
   renameMedia: ({ asset }) => replica.renameMedia(asset),
-  newProjectSheet: ({ name, folder }) => replica.newProject({ name, folder }),
+  newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),
   saveAsSheet: (s) => replica.saveAs(s),
   resourceSheet: (r) => replica.resource(r),
@@ -34,7 +42,8 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   importing: (i) => replica.importing(i),
   snapshotSaved: ({ path }) => replica.snapshot(path),
   settingsSheet: (s) => replica.settings(s),
-  favorites: ({ items }) => replica.favorites(items),
+  usage: ({ items }) => replica.usedItems(items),
+  agentReply: ({ request, status, text }) => replica.agentState(request, status, text),
   shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
   memory: ({ memory }) => replica.memory(memory),
   palette: () => replica.palette(true),
@@ -44,7 +53,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   closeDialogs: () => replica.closeDialogs(),
 };
 
-/** Applies a request's reply (the favourites or shortcuts as they now are), or shows why it failed. */
+/** Applies a request's reply (the items by use, or shortcuts, as they now are), or shows why it failed. */
 export const applyReply =
   <T,>(set: (value: T) => void) =>
   async (p: Promise<unknown>) => {

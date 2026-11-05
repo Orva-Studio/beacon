@@ -1,7 +1,7 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, MemoryChange, MemoryState, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
-import type { CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
+import type { AgentAbout, AgentSession, CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export type { RecorderLive } from "@beacon/media";
@@ -28,11 +28,8 @@ export interface TaskJob {
 }
 
 /** An effect's params shown on the canvas without an edit. */
-export interface EffectPreview {
-  clip: string;
-  effect: string;
-  params: Record<string, unknown>;
-}
+/** What the canvas previews under the pointer: an effect with other params, or what a command would do (a caption look). */
+export type EffectPreview = { clip: string; effect: string; params: Record<string, unknown> } | { command: string; args: unknown };
 
 export interface Binding {
   keys: Keys;
@@ -68,10 +65,14 @@ export interface RecentProject {
 }
 
 export interface Init {
+  /** The timeline's share of the window's height, as last dragged (app-wide). */
+  timelineShare?: number;
   opened?: Opened;
   recent: RecentProject[];
   /** Where New Project puts a project: the folder last chosen for one, else ~/Movies/Beacon. */
   projectsFolder: string;
+  /** Whether New Project starts with Standalone ticked: as the last project made with it was. */
+  newStandalone?: boolean;
   /** Every action of the menus, keys and command palette with its keys, the user's changes merged over the defaults. */
   shortcuts: ShortcutInfo[];
   /** Settings › Memory: the user's sentences, proposals, learned habits and whether Beacon learns. */
@@ -91,8 +92,8 @@ export interface Init {
   socket: string;
   /** App-wide choices (the transcriber), as Settings shows them; `preferences` messages follow changes. */
   preferences: PreferenceInfo[];
-  /** The Favorites panel's items in order (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`. */
-  favorites: string[];
+  /** Panel items and AI tools by use, most first (app-wide): `annotation:<preset>`, `effect:<id>`, `audio:fade-in`, `ai:<tool>`. */
+  usedItems: string[];
   /** BEACON_KEYLOG=1: the window reports every key event it sees (`keyLog`), to debug shortcuts in the app. */
   keyLog?: boolean;
 }
@@ -113,19 +114,20 @@ export interface Shown {
 export interface RunReply {
   ok: boolean;
   error?: string;
+  /** What a done action says to the user (its plan's `note`), for the status line. */
+  note?: string;
 }
 
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */
 export type { DroppedFile };
 
-/** A tile's right-click menu: what its Add item runs (the tile's own double-click) and whether it is a favourite. */
+/** A tile's right-click menu: what its Add item runs (the tile's own double-click). */
 export interface TileMenu {
   item: string;
   /** "Add to Selected Media", or "Add at Playhead" for an annotation. */
   add: string;
   command: string;
   args: Record<string, unknown>;
-  favorite: boolean;
 }
 
 export { exportOptions } from "./export-options";
@@ -184,6 +186,8 @@ export interface ExportSettings {
   audioBitrate: number | null;
   /** Files written beside a video (`ExportFileDef` ids: "captions"); remembered with the rest. */
   files: string[];
+  /** The whole file played faster, 1 to 2 (1.2 for a Short); remembered with the rest, for every project. */
+  speed: number;
 }
 
 /** What File > Export opens the dialog with. */
@@ -196,6 +200,8 @@ export interface ExportSheet {
   /** Export Selection with clips selected (it wins over the range): only those, over their span. */
   clips?: { ids: string[]; in: number; out: number; silent?: boolean; usual?: Pick<ExportSettings, "format" | "audio"> };
   canvas: { width: number; height: number; fps: number };
+  /** The project's length in seconds, for the file's length at the chosen speed. */
+  duration: number;
   /** Files features can write beside a video, a tick box each. */
   files: { id: string; title: string }[];
 }
@@ -253,6 +259,8 @@ export interface ExportJob {
   output: string;
   state: "running" | "done" | "failed";
   progress: number;
+  /** What it is doing now: waiting for an effect's data, starting, exporting, finishing. */
+  stage?: string;
   error?: string;
 }
 
@@ -315,7 +323,7 @@ export type AppRPC = {
       clipMenu: { params: { clip: string; canvas?: boolean }; response: void };
       canvasMenu: { params: {}; response: void };
       /** The right-click menu for a Media Bin item. */
-      binMenu: { params: { asset?: string }; response: void };
+      binMenu: { params: { asset?: string; assets?: string[] }; response: void };
       /** The right-click menu for a tool panel's tile (an effect, annotation or audio effect). */
       tileMenu: { params: TileMenu; response: void };
       /** A recent project's right-click on the start screen: Open, Show in Finder, Remove from Recent Projects, Move to Trash…. */
@@ -326,6 +334,8 @@ export type AppRPC = {
       dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string; timing?: { over?: number; drop?: number; read?: number } }; response: RunReply };
       /** A track's menu, or the track options (null). */
       trackMenu: { params: { track: string | null }; response: void };
+      /** A section's right-click menu: Ask an Agent…, Rename…, Delete Section. */
+      sectionMenu: { params: { section: string }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
       /** An effect shown with other params on the canvas only, or null to show it as it is (a look under the pointer). */
@@ -344,7 +354,7 @@ export type AppRPC = {
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; clips?: string[]; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
-      /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
+      /** Record: Beacon minimises to the Dock and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
       /** The Record dialog (the Record button), as File › Record… opens it; `narration`, with only the microphone, as Tools › Voice Narration… does. */
       openRecord: { params: { mode?: RecordMode }; response: void };
@@ -386,10 +396,12 @@ export type AppRPC = {
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
-      /** Stars an item (at `index`, else at the end), un-stars it, or moves a favourite: replies with the list as it now is. */
-      favoriteAdd: { params: { item: string; index?: number }; response: RunReply & { result?: string[] } };
-      favoriteRemove: { params: { item: string }; response: RunReply & { result?: string[] } };
-      favoriteMove: { params: { item: string; index: number }; response: RunReply & { result?: string[] } };
+      /** The agent sessions Beacon's MCP server serves (Claude Code…), newest first. */
+      agents: { params: Record<string, never>; response: AgentSession[] };
+      /** Sends a request the user typed to an agent session: replies with its id, which `agentReply` messages carry. */
+      askAgent: { params: { socket: string; prompt: string; about: AgentAbout }; response: RunReply & { result?: string } };
+      /** Counts a use of a panel item or AI tool: replies with the items by use as they now are. */
+      itemUsed: { params: { item: string }; response: RunReply & { result?: string[] } };
       /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
       shortcutSet: { params: { action: string; keys: Keys[]; replace?: boolean }; response: RunReply & { result?: ShortcutInfo[] } };
       shortcutReset: { params: { action?: string }; response: RunReply & { result?: ShortcutInfo[] } };
@@ -426,6 +438,8 @@ export type AppRPC = {
       saved: { ok: boolean };
       /** Start editing a track's name (Rename… in its menu). */
       rename: { track: string };
+      /** A section menu's choice the window carries out: ask an agent about it, or rename it. */
+      sectionAction: { section: string; op: "ask" | "rename" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
       /** Something to read and dismiss (what a `.cmproj` import left out). */
@@ -433,7 +447,7 @@ export type AppRPC = {
       /** The Media Bin preview's clock. */
       previewClock: { time: number; playing: boolean };
       /** File > New Project: ask for its name. */
-      newProjectSheet: { name: string; folder: string };
+      newProjectSheet: { name: string; folder: string; standalone?: boolean };
       recent: RecentProject[];
       /** File > Save As…: ask for the copy's name, folder and whether it is standalone. */
       saveAsSheet: SaveAsSheet;
@@ -457,8 +471,10 @@ export type AppRPC = {
       /** A feature's background job (Clean with Auphonic): its stage and progress, then how it ended. */
       taskJob: TaskJob;
       importing: ImportingFiles;
-      /** The favourites changed (here or by an agent): the Favorites panel's items, in order. */
-      favorites: { items: string[] };
+      /** An agent answered a request sent from here: it has it, or it is done (with what it did). */
+      agentReply: { request: string; status: "received" | "done"; text?: string };
+      /** A panel item was used (in any window): the items by use, most first. */
+      usage: { items: string[] };
       /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */
       appSettings: AppSettings;
       /** An agent closed the open dialog (`ui_open` with none). */

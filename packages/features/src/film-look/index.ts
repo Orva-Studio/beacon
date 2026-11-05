@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, mkdtempSync, openSync, readFileSync, r
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { defineAction, defineCommand, defineFeature, defineQuery, eachRawClip, KeptLooksSchema, ticksToSeconds, walkClips, type EffectPreset, type KeptLook, type Preferences } from "@beacon/model";
+import { defineAction, defineCommand, defineFeature, defineQuery, eachRawClip, KeptLooksSchema, ticksToSeconds, walkClips, type ClipEval, type EffectPreset, type EvalContext, type KeptLook, type PassUse, type Preferences } from "@beacon/model";
 import wgsl from "./film-look.wgsl" with { type: "text" };
 import LOOKS from "./looks.json";
 import { fromHlook, KELVIN_PER_WARMTH, splitToneShifts, WARMTH_RANGE, type FilmLookParams } from "./hlook";
@@ -113,6 +113,14 @@ const LookArgs = {
   json: z.string().optional().describe("A .hlook's contents"),
 };
 
+/** Film Look's pass for `f` at this frame (its grain moves each frame). */
+export function filmLookPass(f: FilmLookParams, e: ClipEval, ctx: EvalContext): PassUse {
+  return {
+    pass: "film-look",
+    params: [f.strength, 6500 - f.warmth * KELVIN_PER_WARMTH, f.fade, f.contrast, f.saturation, f.exposure, f.grain, f.grainSize, f.halation, f.halationSize, f.vignette, Math.round(ticksToSeconds(e.time) / ctx.frameSeconds) % 9973, f.tint, ...splitToneShifts(f)],
+  };
+}
+
 /** hance's film look, small: grade, halation, grain and vignette on a clip, with hance's looks as presets and its `.hlook` files imported. */
 export const filmLook = defineFeature({
   id: "film-look",
@@ -127,11 +135,7 @@ export const filmLook = defineFeature({
       params,
       defaults: () => ({ ...DEFAULTS }),
       apply(e, p, ctx) {
-        const f = p as FilmLookParams;
-        (e.main.passes ??= []).push({
-          pass: "film-look",
-          params: [f.strength, 6500 - f.warmth * KELVIN_PER_WARMTH, f.fade, f.contrast, f.saturation, f.exposure, f.grain, f.grainSize, f.halation, f.halationSize, f.vignette, Math.round(ticksToSeconds(e.time) / ctx.frameSeconds) % 9973, f.tint, ...splitToneShifts(f)],
-        });
+        (e.main.passes ??= []).push(filmLookPass(p as FilmLookParams, e, ctx));
       },
       presets: PRESETS,
       importFile: { label: "Import .hlook…", extensions: ["hlook"], query: "filmLook.read", keep: KEPT },

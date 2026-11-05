@@ -25,7 +25,7 @@ const lag = (a: Float32Array, b: Float32Array) => {
   return best;
 };
 
-test.skipIf(!existsSync(RECORDING))("Polish (de-click, de-clip, de-ess) changes the voice but not its length or timing; one step, and only once per clip", async () => {
+test.skipIf(!existsSync(RECORDING))("Polish (de-click, de-clip, de-ess), as Clean with Auphonic adds it, changes the voice but not its length or timing", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache") });
   const h = await core.create({ path: join(dir, "p.beproj") });
   const r = await core.import(h, [RECORDING]);
@@ -35,13 +35,10 @@ test.skipIf(!existsSync(RECORDING))("Polish (de-click, de-clip, de-ess) changes 
   const before = samples(join(dir, "before.wav"));
 
   const audio = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio").map((c) => c.id);
-  await core.run(h, "selection.set", { clips: audio, linked: false });
-  const steps = (await core.history(h)).undo.length;
-  await core.run(h, "edit.polish", {});
-  expect((await core.history(h)).undo.length - steps).toBe(1);
+  // As Clean with Auphonic adds it (its own tile and command went, the user, 2026-11-05).
+  for (const clip of audio) await core.run(h, "effect.add", { clip, type: "polish" });
   const polished = () => core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => audio.includes(c.id)).map((c) => c.effects.filter((e) => e.type === "polish"));
   expect(polished().every((fx) => fx.length === 1 && fx[0]!.params.sibilance === 0.2)).toBe(true);
-  await expect(core.run(h, "edit.polish", {})).rejects.toThrow(/already polished/);
 
   await (await core.export(h, { output: join(dir, "after.wav"), ...range })).done;
   const after = samples(join(dir, "after.wav"));

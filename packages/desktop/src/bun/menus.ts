@@ -244,12 +244,13 @@ export function createMenus(app: MenusApp) {
     const target = [...walkClips(core.doc(h).tracks, core.registry)].find((l) => l.clip.id === clip)?.clip;
     const labelled = (target?.props.label as { color?: string | null } | undefined)?.color ?? null;
     const colors = [...LABEL_COLORS, null].map((color) => ({ ...own(color ? capitalised(color) : "Default", `label=${color ?? "none"}`), checked: labelled === color }));
-    const [open, ungroup, group, unstitch, stitch] = await Promise.all([
+    const [open, ungroup, group, unstitch, stitch, angle] = await Promise.all([
       applies(h, "group.open", { clip }),
       applies(h, "edit.ungroup"),
       applies(h, "edit.group"),
       applies(h, "edit.unstitch"),
       applies(h, "edit.stitch"),
+      applies(h, "angles.add", { camera: clip }),
     ]);
     const visual = !!target && core.registry.hasTrait(target.type, "visual");
     const grouping = [...(open ? [action("group.open")] : []), ...(ungroup ? [action("edit.ungroup")] : group ? [action("edit.group")] : []), ...(unstitch ? [action("edit.unstitch")] : stitch ? [action("edit.stitch")] : [])];
@@ -263,6 +264,7 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       action("edit.delete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
+      ...(angle ? [SEPARATOR, own("New Angle Here", "angle")] : []),
       SEPARATOR,
       action("edit.copyProperties"),
       action("edit.pasteProperties"),
@@ -282,13 +284,15 @@ export function createMenus(app: MenusApp) {
     ]);
   }
 
-  function binMenu({ asset }: { asset?: string }) {
+  function binMenu({ asset, assets }: { asset?: string; assets?: string[] }) {
     const current = app.current();
     if (!current) return;
     const unused = { label: "Remove Unused Media", action: "media:removeUnused:" };
     if (!asset) return void ContextMenu.showContextMenu([action("app.import"), SEPARATOR, unused]);
     const used = [...walkClips(core.doc(current.path).tracks, core.registry)].some((l) => l.clip.assetId === asset);
     const own = (label: string, op: string, enabled = true) => ({ label, action: `media:${op}:${asset}`, enabled });
+    // One of several selected: Add and Delete act on all of them.
+    const all = (label: string, op: string) => ({ label: assets ? `${label} (${assets.length})` : label, action: `media:${op}:${(assets ?? [asset]).join(",")}`, enabled: true });
     const a = core.doc(current.path).assets[asset];
     const proxyable = !!a && !!core.registry.jobAnalyzers.get("proxy")?.applies(a);
     const hasProxy = core.derived(current.path, asset, "proxy") !== undefined;
@@ -296,11 +300,11 @@ export function createMenus(app: MenusApp) {
     const missing = !!a && !existsSync(a.path);
     ContextMenu.showContextMenu([
       ...(missing ? [own("Locate Media…", "locate"), SEPARATOR] : []),
-      own("Add to Timeline at Playhead", "add"),
-      own("Add to End of Timeline", "addEnd"),
+      all("Add to Timeline at Playhead", "add"),
+      all("Add to End of Timeline", "addEnd"),
       ...(proxyable ? [{ label: "Proxy Video", submenu: [own("Create Proxy Video", "proxyCreate", !hasProxy && !making), own("Delete Proxy Video", "proxyDelete", hasProxy || making)] }] : []),
       SEPARATOR,
-      own("Delete", "delete"),
+      all("Delete", "delete"),
       unused,
       own("Rename…", "rename"),
       // Only what was imported from elsewhere: a recording's streams are clips of their own.
@@ -336,6 +340,7 @@ export function createMenus(app: MenusApp) {
       ContextMenu.showContextMenu([
         { label: "Insert Track", action: "track:insertTop:" },
         { label: "Remove All Empty Tracks", action: "track:removeEmpty:" },
+        { label: "Tidy Rows", action: "track:tidy:" },
         SEPARATOR,
         action("edit.lockTrack"),
         action("edit.muteTrack"),
@@ -358,7 +363,14 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       own("Remove Track", "remove"),
       own("Remove All Empty Tracks", "removeEmpty"),
+      own("Tidy Rows", "tidy"),
     ]);
+  }
+
+  function sectionMenu({ section }: { section: string }) {
+    if (!app.current()) return;
+    const own = (label: string, op: string) => ({ label, action: `section:${op}:${section}` });
+    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), SEPARATOR, own("Delete Section", "remove")]);
   }
 
   /** Track menu items, as track commands. */
@@ -369,6 +381,7 @@ export function createMenus(app: MenusApp) {
     const name = "";
     if (op === "insertTop") void core.run(h, "track.add", { name }, { label: "Insert Track" }).catch(fail);
     else if (op === "removeEmpty") void core.run(h, "track.removeEmpty", {}, { label: "Remove All Empty Tracks" }).catch(fail);
+    else if (op === "tidy") void core.run(h, "track.tidy", {}, { label: "Tidy Rows" }).catch(fail);
     else if (!t) return;
     else if ((op === "insertAbove" || op === "insertBelow") && !found?.top) return;
     else if (op === "insertAbove") void core.run(h, "track.add", { name, index: index + 1 }, { label: "Insert Track" }).catch(fail);
@@ -411,12 +424,13 @@ export function createMenus(app: MenusApp) {
   /** Media Bin menu items. */
   function mediaAction(h: string, op: string, asset: string) {
     if (op === "removeUnused") return void removeUnused(h).catch(fail);
+    const ids = asset.split(",");
+    if (op === "add") return void core.run(h, "edit.addMedia", { asset: ids }).catch(fail);
+    if (op === "addEnd") return void core.run(h, "edit.addMedia", { asset: ids, end: true }).catch(fail);
+    if (op === "delete") return void core.run(h, "edit.deleteMedia", { asset: ids }).catch(fail);
     const a = core.doc(h).assets[asset];
     if (!a) return;
-    if (op === "add") void core.run(h, "edit.addMedia", { asset }).catch(fail);
-    else if (op === "addEnd") void core.run(h, "edit.addMedia", { asset, end: true }).catch(fail);
-    else if (op === "delete") void core.run(h, "edit.deleteMedia", { asset }).catch(fail);
-    else if (op === "rename") message("renameMedia", { asset });
+    if (op === "rename") message("renameMedia", { asset });
     else if (op === "reveal") Utils.showItemInFolder(a.path);
     else if (op === "select") void core.run(h, "edit.selectMedia", { asset }).catch(fail);
     else if (op === "proxyCreate") void core.analyze(h, "proxy", asset).catch(fail);
@@ -429,6 +443,7 @@ export function createMenus(app: MenusApp) {
   function clipAction(h: string, op: string, clip: string) {
     const run = (command: string, args: unknown = {}) => void core.run(h, command, args).catch(fail);
     if (op.startsWith("label=")) run("edit.label", { color: op === "label=none" ? null : op.slice(6) });
+    if (op === "angle") run("angles.add", { camera: clip });
     if (op === "copyId")
       void core.session(h).then((s) => {
         const ids = copiedIds(s.selection, clip);
@@ -483,7 +498,11 @@ export function createMenus(app: MenusApp) {
     if (kind === "track") trackAction(current.path, op, id);
     else if (kind === "media") mediaAction(current.path, op, id);
     else if (kind === "clip") clipAction(current.path, op, id);
+    else if (kind === "section") {
+      if (op === "remove") void core.run(current.path, "section.remove", { section: id }, { label: "Delete Section" }).catch(fail);
+      else message("sectionAction", { section: id, op: op as "ask" | "rename" });
+    }
   });
 
-  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, tileMenu, recentMenu };
+  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, tileMenu, recentMenu };
 }

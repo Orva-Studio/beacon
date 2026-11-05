@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalCore } from "@beacon/core";
+import { LocalCore, serveControl } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
 import { assetName, EASINGS, ease, evaluate, keysLabel, mediaBounds, projectDuration, secondsToTicks, ticksToSeconds, trimBounds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
@@ -29,7 +29,7 @@ const run = (command: string, args: unknown = {}) => ui.core.run(ui.handle, comm
 const session = () => ui.core.session(ui.handle);
 const has = (selector: string) => page.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`);
 const centre = (selector: string) =>
-  page.evaluate<[number, number]>(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+  page.evaluate<[number, number]>(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); e.scrollIntoView({ block: "nearest", inline: "nearest" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
 /** Types into the focused field as a person would (React sees it). */
 const type = (text: string) => page.evaluate(`(() => { document.activeElement.select?.(); document.execCommand('insertText', false, ${JSON.stringify(text)}); })()`);
 const select = async (ids: string[]) => {
@@ -417,6 +417,17 @@ test.skipIf(skip)("Clip Speed (a Visual Effects tile, double-clicked) shows the 
   expect(others.length).toBeGreaterThan(0);
   for (const o of others) expect(o.speed).toBeUndefined();
   await run("clip.speed", { clips: [screen.id], speed: null });
+  // From the command palette too (the user found it showing nothing): its speed tab stays shown.
+  await run("inspector.tab", { tab: "transform" });
+  await page.until("!document.querySelector('[title=\"Clip Speed\"]')");
+  await page.key("k", "KeyK", ["meta"]);
+  await page.until("!!document.querySelector('[data-palette]')");
+  await type("Clip Speed");
+  await page.key("Enter", "Enter");
+  await page.until("!document.querySelector('[data-palette]')");
+  await Bun.sleep(300);
+  expect((await session()).inspector).toBe("speed");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[title=\"Clip Speed\"]') && document.body.innerText.includes('Minutes')")).toBe(true);
   await run("panel.show", { tool: "media" });
   await page.until("document.querySelectorAll('[data-asset]').length >= 2");
 });
@@ -532,6 +543,14 @@ test.skipIf(skip)("New Project asks for a name, where (Choose…) and the canvas
   expect(ui.menus).toContain("renameProject:Client Demo");
   expect(ui.menus).toContain("newProjectStandalone");
   expect(ui.menus).toContain("newProjectFolder:/Users/someone/Shared");
+});
+
+test.skipIf(skip)("New Project starts Standalone ticked when the last project was made standalone", async () => {
+  ui.send("newProjectSheet", { name: "Untitled Project", folder: "/Users/someone/Movies/Beacon", standalone: true });
+  await page.until("document.body.innerText.includes('New Project')");
+  expect(await page.evaluate<string>(`document.querySelector('[aria-label="Standalone project"]').getAttribute('aria-checked')`)).toBe("true");
+  await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click()`);
+  await page.until("!document.body.innerText.includes('New Project')");
 });
 
 test.skipIf(skip)("opened without a project, the start screen offers New Project, the last four projects with when each was opened, and Open…", async () => {
@@ -758,19 +777,19 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 6");
-    expect(await greyed()).toEqual([false, false, false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 7");
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
-    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript.
-    expect(await greyed()).toEqual([true, true, true, false, false, true]);
+    // B-roll's prompt and a motion graphic's words can be typed: they need no transcript. Camera angles and Music are online.
+    expect(await greyed()).toEqual([true, true, false, true, false, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
     // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
-    expect(await greyed()).toEqual([false, false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, true, false, true, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -788,7 +807,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -924,7 +943,7 @@ test.skipIf(skip)("dragging a linked clip draws the clips linked to it at the sa
   await run("timeline.zoom", { to: "fit" });
 });
 
-test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a list; its Import tile imports", async () => {
+test.skipIf(skip)("the Media Bin searches, filters by kind (Takes: the recordings alone), sorts and shows a list; its Import tile imports", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("!!document.querySelector('[data-media-bin]')");
   const shown = () => page.evaluate<number>("document.querySelectorAll('[data-media-bin] [data-asset]').length");
@@ -933,6 +952,13 @@ test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a li
   await page.evaluate("document.querySelector('[data-bin-kind=image]').click()");
   await Bun.sleep(200);
   expect(await shown()).toBe(Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "image").length);
+  // Takes: the user's recordings alone, each one item.
+  await page.evaluate("document.querySelector('[data-bin-kind=recording]').click()");
+  await Bun.sleep(200);
+  const recordings = Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "recording").length;
+  expect(recordings).toBeGreaterThan(0);
+  expect(await shown()).toBe(recordings);
+  expect(await page.evaluate<string>("document.querySelector('[data-bin-kind=recording]').textContent")).toBe("Takes");
   await page.evaluate("document.querySelector('[data-bin-kind=all]').click()");
   await page.click(...(await centre("[data-bin-search]")));
   await type("zzz-no-such-media");
@@ -983,7 +1009,7 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   const cameraTrack = tracks.find((t) => t.clips.some((c) => c.type === "video"))!;
   await run("track.set", { track: audioTrack.id, muted: true });
   await run("track.set", { track: cameraTrack.id, muted: true });
-  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: [] };
+  const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] };
   ui.send("exportSheet", sheet);
   await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
   await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
@@ -1062,7 +1088,7 @@ test.skipIf(skip)("⌘E with clips selected exports only those: just audio clips
 }, 90_000);
 
 test.skipIf(skip)("Export's data rate is Automatic by default, by the output's size and rate", async () => {
-  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: [] });
+  ui.send("exportSheet", { name: "Rate", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
   await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Options…').click()`);
   const rate = `document.querySelector('input[data-rate]')`;
@@ -1075,7 +1101,7 @@ test.skipIf(skip)("Export's data rate is Automatic by default, by the output's s
 });
 
 test.skipIf(skip)("Export offers the captions' .srt as a tick box, off unless ticked, and not for audio only", async () => {
-  ui.send("exportSheet", { name: "Subs", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, files: exportFileChoices(ui.core.registry) });
+  ui.send("exportSheet", { name: "Subs", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: exportFileChoices(ui.core.registry) });
   const box = `document.querySelector('[data-export-file="captions"]')`;
   await page.until(`!!${box}`);
   expect(await page.evaluate<string>(`${box}.textContent`)).toBe("Captions file (.srt)");
@@ -1090,8 +1116,31 @@ test.skipIf(skip)("Export offers the captions' .srt as a tick box, off unless ti
   await page.key("Escape", "Escape");
 });
 
+test.skipIf(skip)("Export's Speed plays the whole file slower or faster: the offered speeds or any from 0.25× to 3× in 0.05 steps on its slider, with the length it comes out at", async () => {
+  ui.send("exportSheet", { name: "Short", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1080, height: 1920, fps: 30 }, duration: 60, files: [] });
+  const speed = `document.querySelector('[data-export-speed]')`;
+  const length = () => page.evaluate<string>(`document.querySelector('[data-export-length]').textContent`);
+  await page.until(`!!${speed}`);
+  expect(await page.evaluate<string>(`[...${speed}.options].map((o) => o.textContent).join(',')`)).toBe("0.5×,0.75×,Normal (1×),1.1×,1.2×,1.25×,1.5×,2×");
+  expect(await length()).toBe("1:00.0");
+  const choose = (v: string) => page.evaluate(`(() => { const s = ${speed}; s.value = '${v}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await choose("1.2");
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:50.0'`);
+  // The slider's far right end is 3×; a little in from its left end, rounded to 0.05.
+  const track = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('[data-export-speed-slider] [data-slider-hit] > div').getBoundingClientRect(); return { x: r.left, y: r.top + r.height / 2, w: r.width }; })()`);
+  await page.click(track.x + track.w + 4, track.y);
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:20.0'`);
+  expect(await page.evaluate<string>(`${speed}.selectedOptions[0].textContent`)).toBe("3×");
+  await page.click(track.x + track.w * (0.1 / 2.75), track.y);
+  // 0.35×: a minute comes out at 2:51.4.
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 2:51.4'`);
+  expect(exportOptions({ ...DEFAULT_EXPORT, speed: 1.35 })).toMatchObject({ speed: 1.35 });
+  expect(exportOptions(DEFAULT_EXPORT)).not.toHaveProperty("speed");
+  await page.key("Escape", "Escape");
+});
+
 test.skipIf(skip)("Audio only lists just .wav, .m4a and .mp3, comes back to each side's last pick, and writes the mix with the video options hidden", async () => {
-  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, range: { in: 1, out: 3 }, files: [] });
+  ui.send("exportSheet", { name: "Voice", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, range: { in: 1, out: 3 }, files: [] });
   await page.until(`[...document.querySelectorAll('button')].some((b) => b.textContent === 'Options…')`);
   const menu = `[...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mp4' || o.value === 'mp3'))`;
   const listed = () => page.evaluate<string>(`(() => { const s = ${menu}; return s.value + ':' + [...s.options].map((o) => o.value).join(','); })()`);
@@ -1584,12 +1633,10 @@ test.skipIf(skip)("a track and a medium are renamed in place: Return keeps the n
   await ui.core.undo(ui.handle);
 });
 
-test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favorites; a double-click applies it to the selection; Favorites reorder by dropping one tile on another", async () => {
+test.skipIf(skip)("a click selects a panel's tile; a double-click applies it to the selection and counts a use (⌘K's order); there is no Favorites panel or star (Favorites went: ⌘K lists what is used)", async () => {
   const tile = (item: string) => `[data-item="${item}"]`;
-  const star = (item: string) => page.evaluate<string | null>(`document.querySelector('${tile(item)} [data-star]')?.dataset.star ?? null`);
   const outlined = (item: string) => page.evaluate<boolean>(`document.querySelector('${tile(item)}').className.includes('ring-tile-selected')`);
-  // A new user's favourites, in the features' order; the panels list what the features declare.
-  expect(await ui.core.favorites()).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "effect:round-corners", "effect:crt-monitor", "effect:drop-shadow", "effect:motion-blur"]);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[aria-label=\"Favorites\"]')")).toBe(false);
   await run("panel.show", { tool: "visualEffects" });
   await page.until(`!!document.querySelector('${tile("effect:round-corners")}')`);
   expect(await page.evaluate<string>(`document.querySelector('${tile("effect:round-corners")}').innerText`)).toContain("Corner Rounding");
@@ -1597,52 +1644,27 @@ test.skipIf(skip)("a click selects a panel's tile and its star adds it to Favori
   await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:highlight"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
-  // A favourite shows its gold star; another tile shows none until selected.
-  expect(await star("annotation:text")).toBe("on");
-  expect(await star("annotation:blur")).toBe(null);
+  // A click selects it, adding nothing; no star.
   const before = clips().length;
   await page.click(...(await centre(tile("annotation:blur"))));
-  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="off"]')`);
+  await page.until(`document.querySelector('${tile("annotation:blur")}').className.includes('ring-tile-selected')`);
   expect(await outlined("annotation:blur")).toBe(true);
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-star]').length")).toBe(0);
   expect(clips().length).toBe(before);
-  await page.click(...(await centre(`${tile("annotation:blur")} [data-star]`)));
-  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="on"]')`);
-  expect((await ui.core.favorites()).at(-1)).toBe("annotation:blur");
-  await page.screenshot(join(dir, "favorite-starred.png"));
-  await page.click(...(await centre(`${tile("annotation:blur")} [data-star]`)));
-  await page.until(`!!document.querySelector('${tile("annotation:blur")} [data-star="off"]')`);
-  expect(await ui.core.favorites()).not.toContain("annotation:blur");
 
-  // A double-click applies it to the selected clip, one undo step.
+  // A double-click applies it to the selected clip, one undo step, and counts a use: first in ⌘K's order.
   await select([screen.id]);
   await run("panel.show", { tool: "visualEffects" });
   await page.until(`!!document.querySelector('${tile("effect:drop-shadow")}')`);
   await page.dblclick(...(await centre(tile("effect:drop-shadow"))));
   await arrived(() => clip(screen.id).effects.some((e) => e.type === "drop-shadow"));
   expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(1);
+  for (let i = 0; i < 50 && !(await ui.core.recentItems()).includes("effect:drop-shadow"); i++) await Bun.sleep(20);
+  expect(await ui.core.recentItems()).toContain("effect:drop-shadow");
   await ui.core.undo(ui.handle);
   expect(clip(screen.id).effects.some((e) => e.type === "drop-shadow")).toBe(false);
-
-  // The Favorites panel in the list's order; a change from elsewhere (an agent) shows.
-  await run("panel.show", { tool: "favorites" });
-  const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-favorites] [data-item]')].map((e) => e.dataset.item)");
-  await page.until("document.querySelectorAll('[data-favorites] [data-item]').length > 2");
-  expect(await shown()).toEqual(await ui.core.favorites());
-  await ui.core.favoriteAdd("audio:fade-in", 0);
-  await page.until(`document.querySelector('[data-favorites] [data-item]').dataset.item === "audio:fade-in"`);
-  // Dropped on the third tile, the first takes its place.
-  const [first, , third] = await shown();
-  await page.drag(await centre(tile(first!)), await centre(tile(third!)));
-  await page.until(`document.querySelectorAll('[data-favorites] [data-item]')[2].dataset.item === ${JSON.stringify(first)}`);
-  expect((await ui.core.favorites())[2]).toBe(first!);
-  expect(clips().length).toBe(before);
-  await page.screenshot(join(dir, "favorites-panel.png"));
-  // Un-starred in the panel, it leaves it.
-  await page.click(...(await centre(`${tile("audio:fade-in")} [data-star]`)));
-  await page.until(`!document.querySelector('[data-favorites] ${tile("audio:fade-in")}')`);
-  expect(await ui.core.favorites()).not.toContain("audio:fade-in");
   await select([]);
 });
 
@@ -1798,6 +1820,31 @@ test.skipIf(skip)("the leader key: : shows the keys that can follow; : c r label
   await select([]);
 }, 30_000);
 
+test.skipIf(skip)(": u unlinks the selected recording (the user found it doing nothing), as ⌘L does; undone it is linked again", async () => {
+  const audio = clips().find((c) => c.type === "audio" && c.linkId)!;
+  const linked = clips().filter((c) => c.linkId === audio.linkId).map((c) => c.id);
+  await select([audio.id]);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)")).toContain("UUnlink Recording");
+  await page.key("u", "KeyU");
+  await page.until("!document.querySelector('[data-leader]')");
+  await arrived(() => !clip(audio.id).linkId);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Unlink Recording");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(clip(audio.id).linkId).toBe(audio.linkId);
+  // On the screen, never linked, it says why rather than doing nothing (the user tried it there).
+  const screenClip = clips().find((c) => c.type === "screen")!;
+  await select([screenClip.id]);
+  await page.key(":", "Semicolon", ["shift"]);
+  await page.until("!!document.querySelector('[data-leader]')");
+  await page.key("u", "KeyU");
+  await page.until("document.body.innerText.includes('its screen never is')");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+  await select([]);
+});
+
 test.skipIf(skip)("Settings › Shortcuts changes the leader key: the Leader Key row takes one key, has no None, and the sequences start with it at once (\\ p opens the palette; : starts nothing)", async () => {
   const row = '[data-shortcut="app.leader"]';
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
@@ -1928,7 +1975,8 @@ test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Ret
   await page.key(":", "Semicolon", ["shift"]);
   await page.until("!!document.querySelector('[data-leader]')");
   const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
-  for (const s of ["RRemove Retakes…", "GMotion Graphic", "BB-roll", "KCaptions", "NAdd Rectangle", "FRemove Filler Words…"]) expect(shown).toContain(s);
+  for (const s of ["RRemove Retakes…", "GMotion Graphic", "BB-roll", "KCaptions", "NAdd Rectangle"]) expect(shown).toContain(s);
+  expect(shown.some((s) => s.includes("Filler"))).toBe(false);
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-leader]')");
 
@@ -1952,19 +2000,20 @@ test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Ret
   await added("n", "KeyN", (c) => c.type === "callout");
 });
 
-test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; favourites first; its key can be changed", async () => {
+test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; what is used most and lately first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
   const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
-  const clear = () => page.evaluate("(() => { const i = document.querySelector('[data-palette-search]'); i.select(); document.execCommand('delete'); })()");
   await page.key("k", "KeyK", ["meta"]);
   await open();
-  // Favourites first, in their order; then every annotation, effect and AI tool, and nothing else.
-  const favorites = await ui.core.favorites();
+  // What has been used first, most and lately first; then every annotation, effect and AI tool, and nothing else.
+  const used = await ui.core.recentItems();
   const all = await shown();
-  expect(all.slice(0, favorites.length)).toEqual(favorites);
+  expect(all.slice(0, used.length)).toEqual(used);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  expect(all.slice(-6)).toEqual(["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:motion", "ai:captions"]);
+  const tools = ["ai:silences", "ai:retakes", "ai:broll", "ai:angles", "ai:motion", "ai:music", "ai:captions"];
+  expect(all.at(-1)).toBe("agent:ask");
+  expect(all.slice(-tools.filter((t) => !used.includes(t)).length - 1, -1)).toEqual(tools.filter((t) => !used.includes(t)));
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -1990,11 +2039,10 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await arrived(() => clip(screen.id).effects.some((e) => e.type === "drop-shadow"));
   expect(clip(screen.id).effects.some((e) => e.type === "drop-shadow")).toBe(true);
   await ui.core.undo(ui.handle);
+  // Used just now, it leads the list before anything is typed.
   await page.key("k", "KeyK", ["meta"]);
   await open();
-  await type("um");
-  await page.until("[...document.querySelectorAll('[data-entry]')].some((e) => e.dataset.entry === 'ai:fillers')");
-  await clear();
+  await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'effect:drop-shadow'");
   await type("pauses");
   await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'ai:silences'");
   await page.key("Escape", "Escape");
@@ -2030,7 +2078,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
 
 test.skipIf(skip)("Settings › Memory: what was learned per format with its evidence, each forgotten on its own; sentences added in the window; an agent's proposal accepted; learning turned off and on", async () => {
   const now = Date.now();
-  const decided = (project: string) => ({ rule: "filler:um", choice: "keep", flipped: true, format: "long", project, at: now });
+  const decided = (project: string) => ({ rule: "retake", choice: "first", flipped: true, format: "long", project, at: now });
   const decisions = join(ui.core.configDir, "decisions.json");
   writeFileSync(decisions, JSON.stringify(["a", "a", "a", "b", "b"].map(decided)));
   try {
@@ -2038,10 +2086,10 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await page.until("!!document.querySelector('[data-memory]')");
     // Opened before this test wrote the decisions, the window hears of them with the next change; any change will do.
     await ui.core.memoryChange({ learning: true });
-    await page.until(`!!document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"]')`);
-    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habit="filler:um"]').textContent`)).toContain('Remove Filler Words keeps "um"5 of your 5 choices');
+    await page.until(`!!document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="retake"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habit="retake"]').textContent`)).toContain("Remove Retakes keeps the first take of a line said again5 of your 5 choices");
     // Shorts have none of their own: every format's, said so.
-    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habits="Shorts"] [data-memory-habit="filler:um"]').textContent`)).toContain("from every kind of video");
+    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habits="Shorts"] [data-memory-habit="retake"]').textContent`)).toContain("from every kind of video");
     // A sentence typed in.
     await page.click(...(await centre("[data-memory-add] input")));
     await type("No B-roll in the intro");
@@ -2072,7 +2120,7 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await ui.core.memoryChange({ learning: true });
     await page.until("document.querySelectorAll('[data-memory-sentence]').length === 3");
     // Forget: the habit's decisions go.
-    await page.evaluate(`document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"] [data-memory-forget]').click()`);
+    await page.evaluate(`document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="retake"] [data-memory-forget]').click()`);
     await page.until("!document.querySelector('[data-memory-habit]')");
     expect((await ui.core.memory()).decisions).toBe(0);
     // Learning off hides what was learned.
@@ -2112,7 +2160,8 @@ test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it 
   await page.evaluate("document.querySelector('[data-snapshot-folder] button[title*=\"media folder again\"]').click()");
   for (let i = 0; i < 50 && (await ui.core.settings()).snapshotFolder !== undefined; i++) await Bun.sleep(20);
   expect((await ui.core.settings()).snapshotFolder).toBeUndefined();
-  expect(await page.evaluate<string>("document.querySelector('[data-snapshot-folder]').textContent")).toContain("The project's media folder");
+  // The window shows it once its settings come back from core, a round trip after core has it.
+  await page.until("(document.querySelector('[data-snapshot-folder]')?.textContent ?? '').includes(\"The project's media folder\")");
   await open(null);
   await open("settings", "shortcuts");
   await page.until("!!document.querySelector('[data-shortcuts]')");
@@ -2412,6 +2461,8 @@ test.skipIf(skip)("dragging one selected clip's edge trims every selected clip's
 test.skipIf(skip)("a clip's id sits at the foot of its properties: a click copies it, with several selected all of them, comma-separated", async () => {
   await select([screen.id]);
   await page.until(`document.querySelector('[data-clip-id]')?.textContent === ${JSON.stringify(screen.id)}`);
+  // At the foot of a panel taller than the window: scrolled to first, as a person would.
+  await page.evaluate("document.querySelector('[data-clip-id]').scrollIntoView({ block: 'center' })");
   await page.click(...(await centre("[data-clip-id]")));
   await arrived(() => ui.copied.at(-1) === screen.id);
   expect(ui.copied.at(-1)).toBe(screen.id);
@@ -2471,6 +2522,73 @@ test.skipIf(skip)("Remove Unused Media takes out every medium no clip uses, keep
   await run("edit.removeUnusedMedia");
   expect(doc().assets[b!]).toBeUndefined();
   while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+}, 30_000);
+
+test.skipIf(skip)("two media selected in the bin (click, ⇧-click): the menu of one adds both to the timeline, one after the other in the bin's order, in one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const copies = ["first", "second"].map((n) => {
+    const copy = join(dir, `${n}-${Date.now()}.mp4`);
+    copyFileSync(join(FIXTURES, "video.mp4"), copy);
+    return copy;
+  });
+  const ids = [] as string[];
+  for (const c of copies) ids.push((await ui.core.import(ui.handle, [c])).assets[0]!);
+  await run("clip.remove", { clips: clips().filter((c) => ids.includes(c.assetId!)).map((c) => c.id), linked: true });
+  try {
+    await run("panel.show", { tool: "media" });
+    for (const id of ids) await page.until(`!!document.querySelector('[data-asset="${id}"]')`);
+    await page.click(...(await centre(`[data-asset="${ids[0]}"]`)));
+    await page.click(...(await centre(`[data-asset="${ids[1]}"]`)), ["shift"]);
+    await page.until(`document.querySelectorAll('[data-asset="${ids[0]}"][data-selected], [data-asset="${ids[1]}"][data-selected]').length === 2`);
+    const menus = ui.menus.length;
+    await page.rightClick(...(await centre(`[data-asset="${ids[1]}"]`)));
+    await arrived(() => ui.menus.length > menus);
+    const [, asset, list] = ui.menus.at(-1)!.split(":");
+    expect(asset).toBe(ids[1]);
+    const order = await page.evaluate<string[]>("[...document.querySelectorAll('[data-asset]')].map((e) => e.dataset.asset)");
+    expect(list!.split(",")).toEqual(order.filter((id) => ids.includes(id)));
+
+    // Add to Timeline at Playhead, as the app's menu runs it.
+    await run("playhead.set", { time: 5 });
+    await run("edit.addMedia", { asset: list!.split(",") });
+    const placed = list!.split(",").map((id) => clips().filter((c) => c.assetId === id).sort((a, b) => a.start - b.start)[0]!);
+    expect(placed.every(Boolean)).toBe(true);
+    expect(ticksToSeconds(placed[0]!.start)).toBeCloseTo(5, 2);
+    expect(placed[1]!.start).toBe(placed[0]!.start + placed[0]!.duration);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Media");
+    expect([...(await session()).selection].sort()).toEqual(clips().filter((c) => ids.includes(c.assetId!)).map((c) => c.id).sort());
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("the divider above the timeline drags it taller or shorter (the canvas giving or taking the room, neither collapsing), remembered app-wide when let go; a double-click puts it back", async () => {
+  const box = (sel: string) => page.evaluate<{ y: number; h: number }>(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { y: r.y, h: r.height }; })()`);
+  const [timeline, canvas] = [await box("[data-timeline-card]"), await box("canvas[data-timeline]")];
+  const stage = async () => (await page.evaluate<number>("document.querySelector('[data-timeline-card]').previousElementSibling.previousElementSibling.getBoundingClientRect().height"));
+  const before = await stage();
+  const [x, y] = await centre("[data-timeline-divider]");
+  try {
+    await page.drag([x, y], [x, y - 150]);
+    await page.until(`document.querySelector('[data-timeline-card]').getBoundingClientRect().height > ${timeline.h + 140}`);
+    expect(await stage()).toBeLessThan(before - 140);
+    await arrived(() => ui.menus.some((m) => m.startsWith("setAppSettings:") && m.includes("timelineShare")));
+    const saved = (await ui.core.settings()).timelineShare!;
+    expect(saved).toBeGreaterThan(0.38);
+    // Dragged past the top: the canvas row keeps its room.
+    const [, y2] = await centre("[data-timeline-divider]");
+    await page.drag([x, y2], [x, 5]);
+    await Bun.sleep(200);
+    expect(await stage()).toBeGreaterThanOrEqual(199);
+    // A double-click puts it back.
+    await page.dblclick(...(await centre("[data-timeline-divider]")));
+    await page.until(`Math.abs(document.querySelector('[data-timeline-card]').getBoundingClientRect().height - ${timeline.h}) < 2`);
+    expect((await ui.core.settings()).timelineShare).toBe(0.38);
+    expect(canvas.h).toBeGreaterThan(0);
+  } finally {
+    await ui.core.setSettings({ timelineShare: 0.38 });
+  }
 }, 30_000);
 
 test.skipIf(skip)("a slider takes a press above or below its groove and past its ends, the value still read along the groove", async () => {
@@ -3548,6 +3666,14 @@ test.skipIf(skip)("Settings is one size with its sections down a sidebar; Projec
     await page.until(`document.querySelector('[data-settings-section]')?.dataset.settingsSection === '${section}'`);
     expect(await size()).toBe(first);
   }
+  // AI's key rows fit, their Save buttons inside the window (the user found them cut off at its edge).
+  await page.key("Escape", "Escape");
+  await page.until("!document.querySelector('[data-settings-nav]')");
+  ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", preferences: await ui.core.preferences(), secrets: await ui.core.secrets(), tab: "ai" });
+  await page.until("document.querySelectorAll('[data-api-key=unset] button').length >= 6");
+  const overflow = await page.evaluate<number>("(() => { const edge = document.querySelector('[data-settings-section]').getBoundingClientRect().right; return Math.max(...[...document.querySelectorAll('[data-api-key=unset] button')].map((b) => b.getBoundingClientRect().right - edge)); })()");
+  expect(overflow).toBeLessThanOrEqual(0);
+  expect(await size()).toBe(first);
   // The long section scrolls inside it.
   await page.evaluate("document.querySelector('[data-section=\"shortcuts\"]').click()");
   await page.until("!!document.querySelector('[data-shortcut]')");
@@ -3942,6 +4068,23 @@ test.skipIf(skip)("Remove Silences opens with the shortest pause the user cuts, 
   }
 });
 
+test.skipIf(skip)("Remove Silences' Trim quiet is on at 30 dB under the voice, says so, and goes off at 0", async () => {
+  try {
+    await select([]);
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=silences]')");
+    await page.evaluate("document.querySelector('[data-ai=silences]').click()");
+    await page.until("!!document.querySelector('[data-silences-quiet-hint]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-silences-quiet-hint]').textContent")).toBe("Sound 30 dB under your voice is cut as silence");
+    await run("silences.review", { quiet: 0 });
+    await page.until("document.querySelector('[data-silences-quiet-hint]').textContent.startsWith('Off')");
+    expect(((await session()).features.transcript as { silences: { quiet: number } }).silences.quiet).toBe(0);
+    await run("silences.review", { quiet: 30 });
+  } finally {
+    await run("silences.close").catch(() => {});
+  }
+});
+
 test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until asked: a click selects one, ⌘-click more (again to drop one), ⇧-click every one back to the last; Apply or ⌫ cuts those in one undo step and stays open; Apply All cuts every one and closes; Cancel cuts nothing", async () => {
   await select([]);
   await run("timeline.zoom", { to: "fit" });
@@ -3965,12 +4108,12 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   // The sliders are remembered app-wide: closed and opened again, the review has them; an agent's settings aren't kept.
   const prefs = async () => Object.fromEntries((await ui.core.preferences()).filter((p) => p.id.startsWith("silence")).map((p) => [p.id, p.value]));
-  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1", silenceQuiet: "30" });
   await run("silences.close");
   await run("silences.review");
   expect([(await review())?.silences?.min, (await review())?.silences?.keep]).toEqual([1.2, 1]);
   await run("silences.review", { min: 0.6, keep: 0.3 });
-  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1" });
+  expect(await prefs()).toEqual({ silenceMin: "1.2", silenceKeep: "1", silenceQuiet: "30" });
   await ui.core.setPreference("silenceMin", "0.6");
   await ui.core.setPreference("silenceKeep", "0.3");
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
@@ -4124,117 +4267,6 @@ test.skipIf(skip)("a review's Apply and Cancel by their keys, shown on the butto
   expect((await session()).range).toBeNull();
   await run("panel.show", { tool: null });
 }, 120_000);
-
-test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; one at a time, Cut This One cuts only one; Cancel cuts nothing; one review at a time", async () => {
-  // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
-  // in a cache of its own.
-  type Transcript = { streams: Record<number, { words: { text: string }[] }> };
-  const talk = await ui.core.import(ui.handle, [join(FIXTURES, "audio.m4a")]);
-  let transcript: Transcript | undefined;
-  for (const end = Date.now() + 120_000; !(transcript = ui.core.derived<Transcript>(ui.handle, talk.assets[0]!, "transcript")) && Date.now() < end; ) await Bun.sleep(250);
-  await ui.core.undo(ui.handle);
-  const cacheDir = join(dir, "fillers-cache");
-  const core = new LocalCore({ cacheDir });
-  const path = join(dir, "fillers.beproj");
-  const h = await core.create({ path });
-  const copy = join(dir, `talk-${Date.now()}.m4a`);
-  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
-  const { assets } = await core.import(h, [copy]);
-  const asset = core.doc(h).assets[assets[0]!]!;
-  await core.close(h);
-  const edited = structuredClone(transcript!);
-  for (const [i, text] of [[30, "Um,"], [90, "uh,"], [91, "uh"], [150, "Hmm."]] as const) edited.streams[0]!.words[i]!.text = text;
-  mkdirSync(join(cacheDir, "derived"), { recursive: true });
-  writeFileSync(new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify(edited));
-  const other = await serveUi(path, { cacheDir });
-  const p = await openPage(other.url);
-  try {
-    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
-    const review = async () => ((await other.core.session(other.handle)).features.transcript as { fillers?: { flipped: number[] }; silences?: object } | undefined);
-    type Found = { fillers: { start: number; end: number; text: string; cut: boolean }[]; saved: number };
-    const found = async () => (await other.core.query(other.handle, "transcript.fillers", (await review())?.fillers ?? {})) as Found;
-    await go("panel.show", { tool: "ai" });
-    await p.until("!!document.querySelector('[data-ai=fillers]')");
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-filler-review]')");
-    await p.until("/shorter\\.$/.test(document.querySelector('[data-fillers-summary]')?.textContent ?? '')", 30_000);
-    const first = await found();
-    expect(first.fillers.map((f) => f.text)).toEqual(["Um,", "uh, uh", "Hmm."]);
-    expect(await p.evaluate<string>("document.querySelector('[data-fillers-summary]').textContent")).toStartWith("3 filler words: 3 to cut, 0 kept.");
-    // The second filler, shown wide and clicked in the middle of its mark: kept now.
-    const target = first.fillers[1]!;
-    await go("timeline.view", { start: target.start - 2, end: target.end + 2 });
-    const s = await other.core.session(other.handle);
-    const box = await p.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
-    const header = headerWidth(other.core.doc(other.handle).tracks);
-    const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-    await p.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
-    for (let i = 0; i < 50 && !(await review())?.fillers?.flipped.length; i++) await Bun.sleep(50);
-    const flipped = await found();
-    expect(flipped.fillers.map((f) => f.cut)).toEqual([true, false, true]);
-    await p.until("(document.querySelector('[data-fillers-summary]')?.textContent ?? '').startsWith('3 filler words: 2 to cut, 1 kept.')");
-    const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
-    const before = length();
-    const undo = (await other.core.history(other.handle)).undo.length;
-    await p.evaluate("document.querySelector('[data-fillers-apply]').click()");
-    await p.until("!document.querySelector('[data-filler-review]')");
-    await arrived(() => length() < before);
-    expect(before - length()).toBeCloseTo(flipped.saved, 2);
-    expect((await other.core.history(other.handle)).undo.length - undo).toBe(1);
-    expect((await review())?.fillers).toBeUndefined();
-    // What was cut is gone from the transcript; the kept one is still there.
-    const left = ((await other.core.query(other.handle, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text);
-    expect([left.includes("Um,"), left.includes("Hmm."), left.filter((t) => t.startsWith("uh")).length]).toEqual([false, false, 2]);
-    await other.core.undo(other.handle);
-    expect(length()).toBeCloseTo(before, 3);
-    // One at a time: › goes to the first, ⌥-click on the last's mark goes to it, ‹ steps back; Cut This One cuts only
-    // that one, one undo step, and the review stays open on the next.
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-one-next]')");
-    const at = () => p.evaluate<string>("document.querySelector('[data-one-at]')?.textContent ?? ''");
-    await p.evaluate("document.querySelector('[data-one-next]').click()");
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 3')");
-    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Um,”");
-    expect((await other.core.session(other.handle)).playhead).toBeCloseTo(Math.max(0, first.fillers[0]!.start - 1), 1);
-    const last = first.fillers[2]!;
-    await go("timeline.view", { start: last.start - 2, end: last.end + 2 });
-    const s2 = await other.core.session(other.handle);
-    const xAt2 = (t: number) => box.x + header + ((t - s2.timeline.start) / (s2.timeline.end - s2.timeline.start)) * (box.w - header);
-    await p.click(xAt2((last.start + last.end) / 2), box.y + box.h - 20, ["alt"]);
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('3 of 3')");
-    expect((await review())?.fillers?.flipped).toEqual([]);
-    await p.evaluate("document.querySelector('[data-one-prev]').click()");
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 3')");
-    const second = first.fillers[1]!;
-    const steps = (await other.core.history(other.handle)).undo.length;
-    await p.evaluate("document.querySelector('[data-one-cut]').click()");
-    await arrived(() => length() < before);
-    expect(before - length()).toBeCloseTo(second.end - second.start, 1);
-    expect((await other.core.history(other.handle)).undo.length - steps).toBe(1);
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 2')");
-    expect(await at()).toEndWith("2 of 2");
-    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Hmm.”");
-    expect(await p.evaluate<boolean>("!!document.querySelector('[data-filler-review]')")).toBe(true);
-    await other.core.undo(other.handle);
-    expect(length()).toBeCloseTo(before, 3);
-    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
-    await p.until("!document.querySelector('[data-filler-review]')");
-    // Opened again: Remove Silences replaces it in the properties panel, and Cancel cuts nothing.
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-fillers-cancel]')");
-    await p.evaluate("document.querySelector('[data-ai=silences]').click()");
-    await p.until("!!document.querySelector('[data-silence-review]') && !document.querySelector('[data-filler-review]')");
-    expect((await review())?.fillers).toBeUndefined();
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-fillers-cancel]') && !document.querySelector('[data-silence-review]')");
-    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
-    await p.until("!document.querySelector('[data-filler-review]')");
-    expect(length()).toBeCloseTo(before, 3);
-  } finally {
-    p.close();
-    await other.close();
-  }
-}, 180_000);
 
 test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the kept one green; a click picks a line (or the list does), another keeps a take; Cut All keeps none; the takes listed with play; OpenAI's picks, or why it couldn't; Apply cuts in one undo step", async () => {
   // The talk's real audio under a transcript that restarts two lines, in a cache of its own.
@@ -4569,6 +4601,116 @@ test.skipIf(skip)("Captions makes caption clips from the transcript and shows th
   expect(captions().length).toBe(0);
   await run("panel.show", { tool: null });
 }, 150_000);
+
+test.skipIf(skip)("Dynamic Captions: a look from the Look menu (which then shows it, until a setting changes), a word clicked into a keyword, word-by-word reveal and a decoration from the Words and Keywords rows, each one undo step", async () => {
+  await select([]);
+  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
+  const undo = async () => (await ui.core.history(ui.handle)).undo.length;
+  const steps = await undo();
+  const ids = (await run("captions.create", { maxWords: 4 })).results[0] as string[];
+  const first = ids[0]!;
+  await select([first]);
+  await run("inspector.tab", { tab: "caption" });
+  await page.until("!!document.querySelector('[data-caption-preset]')");
+  // No Make Headline or Find Headlines (the user saw no use in them).
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-caption-headline], [data-caption-find-headlines]')")).toBe(false);
+  const style = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === first))!.props!.captionStyle as { reveal: string; enter: string; uppercase: boolean; emphasis: { decoration: string } };
+  const choose = (sel: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('${sel}'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  let n = await undo();
+  // The Look menu is a list of pictures, each look drawn by Beacon; hovering one previews it, adding no undo step.
+  await page.click(...(await centre("[data-caption-preset]")));
+  await page.until("document.querySelectorAll('[role=listbox] [data-option-art]').length >= 8");
+  await page.hover(...(await centre("[role=listbox] [data-option=karaoke]")));
+  await Bun.sleep(200);
+  expect(await undo()).toBe(n);
+  await page.click(...(await centre("[role=listbox] [data-option=word-pop]")));
+  await arrived(() => style().enter === "pop");
+  expect(style()).toMatchObject({ reveal: "word", enter: "pop", uppercase: true });
+  expect(await undo()).toBe(n + 1);
+  // The menu shows the look picked (it went back to "Choose a look…"), until a setting is changed from it.
+  await page.until("document.querySelector('[data-caption-preset]').dataset.value === 'word-pop'");
+  // A word chip makes that word a keyword, and again a plain word.
+  n = await undo();
+  await page.evaluate("document.querySelector('[data-caption-word=\"1\"]').click()");
+  const em = () => (clip(first).props.caption as { words: { em?: boolean }[] }).words.filter((w) => w.em).length;
+  await arrived(() => em() === 1);
+  expect(await undo()).toBe(n + 1);
+  await page.until("!!document.querySelector('[data-caption-word=\"1\"][data-em]')");
+  // Fewer settings show at first: Box and Highlight, Shadow, Words and Keywords are folded until opened.
+  for (const f of ["caption-box", "caption-shadow", "caption-words", "caption-keywords"]) expect(await page.evaluate<string>(`document.querySelector('[data-fold="${f}"]').getAttribute('aria-expanded')`)).toBe("false");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-caption-reveal]')")).toBe(false);
+  await page.click(...(await centre('[data-fold="caption-words"]')));
+  await page.until("!!document.querySelector('[data-caption-reveal]')");
+  await choose("[data-caption-reveal]", "phrase");
+  await arrived(() => style().reveal === "phrase");
+  await page.until("document.querySelector('[data-caption-preset]').dataset.value === ''");
+  await page.click(...(await centre('[data-fold="caption-keywords"]')));
+  await page.until("!!document.querySelector('[data-caption-decoration]')");
+  await choose("[data-caption-decoration]", "ellipse");
+  await arrived(() => style().emphasis.decoration === "ellipse");
+  expect(await undo()).toBe(n + 3);
+  // Drawn: the keyword's ring and the caption show on the canvas.
+  await run("playhead.set", { time: ticksToSeconds(clip(first).start) + 0.6 });
+  await page.screenshot(join(dir, "dynamic-captions.png"));
+  await page.evaluate("document.querySelector('[data-caption-word=\"1\"]').click()");
+  await arrived(() => em() === 0);
+  // Drop Shadow on a caption turns its own shadow on, and the status line says so.
+  await select([first]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('[data-item="effect:drop-shadow"]')`);
+  await page.dblclick(...(await centre('[data-item="effect:drop-shadow"]')));
+  await page.until("(document.querySelector('[data-status]')?.textContent ?? '').includes('a shadow of their own')");
+  await run("panel.show", { tool: null });
+  for (let k = (await undo()) - steps; k > 0; k--) await ui.core.undo(ui.handle);
+  expect(clips().filter((c) => c.type === "caption").length).toBe(0);
+  await select([]);
+}, 150_000);
+
+test.skipIf(skip)("Camera Angle: the AI tile puts an Angle clip over the camera on an Angles track and shows its tab: the angle as blueprints (one picked is one undo step), Handheld or Locked a toggle, room photos from Add Photos…, the price on Generate", async () => {
+  await select([]);
+  const camera = clips().find((c) => c.type === "video")!;
+  await run("playhead.set", { time: ticksToSeconds(camera.start) + 0.5 });
+  await run("panel.show", { tool: "ai" });
+  await page.until("!!document.querySelector('[data-ai=angles]')");
+  await page.evaluate("document.querySelector('[data-ai=angles]').click()");
+  const angle = () => clips().find((c) => c.type === "angle");
+  await arrived(() => !!angle());
+  const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === angle()!.id))!;
+  expect(track.name).toBe("Angles");
+  expect(ticksToSeconds(angle()!.duration)).toBeLessThanOrEqual(3);
+  await page.until("!!document.querySelector('[data-angle-view]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-room-hint]').textContent")).toContain("Optional: up to four photos of your room");
+  // The price is on Generate, no line of text above it; Handheld or Locked is a toggle.
+  await page.until("/^Generate · ~\\$\\d+\\.\\d\\d$/.test(document.querySelector('[data-angle-generate]')?.textContent ?? '')");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-angle-cost]')")).toBe(false);
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-move] [aria-checked=true]').dataset.option")).toBe("handheld");
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  // The angles are a list of blueprints; one picked is one undo step.
+  await page.click(...(await centre("[data-angle-view]")));
+  await page.until("document.querySelectorAll('[role=listbox] [data-option] img').length === 6");
+  await page.click(...(await centre("[role=listbox] [data-option=wide]")));
+  await arrived(() => (angle()!.props.angle as { view: string }).view === "wide");
+  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  await page.click(...(await centre("[data-angle-move] [data-option=locked]")));
+  await arrived(() => (angle()!.props.angle as { move: string }).move === "locked");
+  // Room photos come from Add Photos… (anywhere on the Mac), never a list of the project's images; listed once added.
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-angle-photo]').length")).toBe(0);
+  const room = join(dir, "room.png");
+  writeFileSync(room, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+  ui.chooseFile(room);
+  await page.click(...(await centre("[data-angle-photo-add]")));
+  const photos = () => (ui.core.doc(ui.handle).tracks.find((t) => t.id === track.id)!.props?.angleRoom as { photos?: string[] } | undefined)?.photos ?? [];
+  await arrived(() => photos().length === 1);
+  await page.until("document.querySelectorAll('[data-angle-photo]').length === 1");
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-photo]').textContent")).toContain("room");
+  await page.click(...(await centre("[data-angle-photo-remove]")));
+  await arrived(() => photos().length === 0);
+  await page.screenshot(join(dir, "camera-angle.png"));
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(angle()).toBeUndefined();
+  await run("panel.show", { tool: null });
+  await select([]);
+}, 60_000);
 
 test.skipIf(skip)("Border is a property of video and images on the Visual tab, not an effect tile; annotations don't have it", async () => {
   await run("panel.show", { tool: "visualEffects" });
@@ -4979,24 +5121,14 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   await run("timeline.zoom", { to: "fit" });
 }, 60_000);
 
-test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
-  const steps = (await ui.core.history(ui.handle)).undo.length;
+test.skipIf(skip)("Audio Effects has no Noise Removal or Polish (Auphonic cleans everything; it still adds Polish to what comes back), and Visual Effects never had them", async () => {
   const audio = clips().find((c) => c.type === "audio")!;
   await select([audio.id]);
-  await run("panel.show", { tool: "visualEffects" });
-  await page.until(`!!document.querySelector('[data-item="effect:film-look"]')`);
-  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-item="effect:noise-removal"]')`)).toBe(false);
-  await run("panel.show", { tool: "audioEffects", properties: true });
-  const tile = `[data-item="audio:noise-removal"]`;
-  await page.until(`!!document.querySelector('${tile}')`);
-  expect(await page.evaluate<string>(`document.querySelector('${tile}').innerText`)).toContain("Noise Removal");
-  await page.dblclick(...(await centre(tile)));
-  await arrived(() => clip(audio.id).effects.some((e) => e.type === "noise-removal"));
-  expect(clip(audio.id).effects.map((e) => e.type)).toContain("noise-removal");
-  await run("inspector.tab", { tab: "effects" });
-  await page.until("document.body.innerText.includes('Strength')");
-  await page.screenshot(join(dir, "noise-removal.png"));
-  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: "audioEffects" });
+  await page.until(`!!document.querySelector('[data-item^="audio:"]')`);
+  const items = await page.evaluate<string[]>("[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)");
+  expect(items.some((i) => /noise|polish/.test(i))).toBe(false);
+  expect(items.some((i) => /auphonic/.test(i))).toBe(true);
   await run("panel.show", { tool: null });
   await select([]);
 }, 30_000);
@@ -5019,26 +5151,6 @@ test.skipIf(skip)("Mute in a clip's audio tab takes it out of the mix in one ste
   expect((clip(audio.id).props.audio as { muted?: boolean }).muted).toBe(false);
   await select([]);
 });
-
-test.skipIf(skip)("Polish in Audio Effects, double-clicked with audio selected: the clip gets it in one step, with Remove Clicks, Repair Clipping and Sibilance; again, it says it is already polished", async () => {
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  const audio = clips().find((c) => c.type === "audio")!;
-  await select([audio.id]);
-  await run("panel.show", { tool: "audioEffects", properties: true });
-  const tile = `[data-item="audio:polish"]`;
-  await page.until(`!!document.querySelector('${tile}')`);
-  await page.dblclick(...(await centre(tile)));
-  await arrived(() => clip(audio.id).effects.some((e) => e.type === "polish"));
-  expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
-  await run("inspector.tab", { tab: "effects" });
-  await page.until("['Remove Clicks', 'Repair Clipping', 'Sibilance'].every((l) => document.body.innerText.includes(l))");
-  await page.dblclick(...(await centre(tile)));
-  await page.until("document.body.innerText.includes('already polished')");
-  expect(clip(audio.id).effects.filter((e) => e.type === "polish").length).toBe(1);
-  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
-  await run("panel.show", { tool: null });
-  await select([]);
-}, 30_000);
 
 test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the selected audio: without a key it says where to add one; with one, the user's presets (Usual-2 first), and Clean runs it as a job with a toast, the cleaned audio over the originals, which are muted", async () => {
   // Auphonic's API, standing in for the real one (which charges): it sends back what it was given.
@@ -5149,6 +5261,534 @@ test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the s
     await select([]);
   }
 }, 120_000);
+
+test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a key it says where to add one; with one, Epidemic Sound's tracks to listen to and pick, and Apply puts the pick on a Music track over the range, re-cut to fit, as a job", async () => {
+  // Epidemic Sound's MCP server standing in (downloads count against a subscription): one track, its edit cut to length.
+  const track = join(dir, "music-track.mp3");
+  const pcm = Float32Array.from({ length: 20 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 440 * i) / 48000));
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", "-ac", "2", track], { stdin: new Uint8Array(pcm.buffer) });
+  let target = 0;
+  const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
+  const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  // Epidemic Sound's preview held back until let go, so the spinner can be seen while it is on its way.
+  let release = () => {};
+  const previewHeld = new Promise<void>((r) => (release = r));
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/preview.mp3") return previewHeld.then(() => new Response(Bun.file(track)));
+      if (url.pathname === "/edit.mp3") {
+        const out = join(dir, "music-edit.mp3");
+        Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", track, "-t", String(target), out]);
+        return new Response(Bun.file(out));
+      }
+      const body = (await req.json()) as { id?: number; method: string; params?: { name: string; arguments: any } };
+      if (body.method === "initialize") return sse(body.id, { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "stand-in", version: "0" } });
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const { name, arguments: args } = body.params!;
+      const audioFile = { durationInMilliseconds: 20_000, lqmp3Url: `${url.origin}/preview.mp3`, waveformUrl: "" };
+      if (name === "SearchRecordings")
+        return answer(body.id, { recordings: { nodes: [{ recording: { id: "rec-1", title: "Bright Days", bpm: 120, coverArtUrl: "", audioFile, credits: [{ role: "MAIN_ARTIST", artist: { name: "The Band" } }], stems: [], tags: [{ displayName: "happy", dimension: { name: "mood" } }] } }], meta: { total: 1 }, pageInfo: { hasNextPage: false } } });
+      if (name === "EditRecording") {
+        target = args.input.targetDurationMs / 1000;
+        return answer(body.id, { recordingEdit: { id: "job", status: "PENDING" } });
+      }
+      if (name === "PollEditRecordingJob") return answer(body.id, { recordingEditJob: { id: "job", status: "COMPLETED", edits: [{ id: "edit" }] } });
+      if (name === "DownloadRecordingEdit") return answer(body.id, { recordingEditDownload: { assetUrl: `${url.origin}/edit.mp3` } });
+      return sse(body.id, { isError: true, content: [{ type: "text", text: `no ${name}` }] });
+    },
+  });
+  process.env.BEACON_EPIDEMIC_URL = `${fake.url.origin}/mcp`;
+  process.env.BEACON_EPIDEMIC_POLL_MS = "10";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    await run("range.set", { in: 1, out: 7 });
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=music]')");
+    await page.evaluate("document.querySelector('[data-ai=music]').click()");
+    await page.until("!!document.querySelector('[data-music-review]')");
+    // It opens on Suggest; searching by hand is the Music tab.
+    await page.until("!!document.querySelector('[data-music-suggest-start]')");
+    await page.click(...(await centre("[data-music-tab] [role=radio][title=Music]")));
+    await page.until("(document.querySelector('[data-music-error]')?.textContent ?? '').includes('Settings › AI')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-music-apply]').disabled")).toBe(true);
+    // With the key, a search lists the track: its artist, length, BPM and mood, a preview to listen to.
+    await ui.core.setSecret("epidemic-sound-api-key", "es-key");
+    await page.click(...(await centre("[data-music-term]")));
+    await type("happy");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-music-item=rec-1]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-item=rec-1]').textContent")).toContain("The Band · 0:20 · 120 BPM · happy");
+    await page.evaluate("document.querySelector('[data-music-item=rec-1] [data-music-listen]').click()");
+    await page.until(`document.querySelector('[data-music-review] audio')?.src === '${fake.url.origin}/preview.mp3'`);
+    // Loading until the sound plays: a spinner on its Listen button, gone once it comes.
+    await page.until("!!document.querySelector('[data-music-item=rec-1] [data-music-loading]')");
+    release();
+    await page.until("!document.querySelector('[data-music-loading]')", 10_000);
+    await page.evaluate("document.querySelector('[data-music-item=rec-1]').click()");
+    await page.until("document.querySelector('[data-music-item=rec-1]')?.getAttribute('aria-selected') === 'true'");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-where]').textContent")).toContain("Over the range, 0:01–0:07 (0:06): re-cut by Epidemic Sound to fit");
+    await page.screenshot(join(dir, "music-panel.png"));
+    // Apply (↩): the panel closes, the job fits and downloads it, then it is on a Music track at the bottom.
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-music-review]')");
+    // An earlier flow's finished toast can still be up: the track itself says it's done.
+    await arrived(() => ui.core.doc(ui.handle).tracks[0]!.name === "Music", 20_000);
+    const doc = ui.core.doc(ui.handle);
+    const placed = doc.tracks[0]!.clips[0]!;
+    expect([ticksToSeconds(placed.start), ticksToSeconds(placed.duration)]).toEqual([1, 6]);
+    expect(doc.assets[placed.assetId!]!.name).toBe("Bright Days");
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Music");
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_EPIDEMIC_URL;
+    delete process.env.BEACON_EPIDEMIC_POLL_MS;
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("range.clear");
+    await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
+test.skipIf(skip)("Suggest, the Music panel's first tab: lists each section's suggested track and each sound with Next and a tick, marks the sounds on the timeline, and Apply puts them on Music and SFX tracks, one undo step", async () => {
+  const wav = join(dir, "suggest.wav");
+  const pcm = Float32Array.from({ length: 2 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 660 * i) / 48000));
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", wav], { stdin: new Uint8Array(pcm.buffer) });
+  const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
+  const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/a.wav") return new Response(Bun.file(wav));
+      const body = (await req.json()) as { id?: number; method: string; params?: { name: string; arguments: any } };
+      if (body.method === "initialize") return sse(body.id, { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "stand-in", version: "0" } });
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const { name } = body.params!;
+      const audioFile = { durationInMilliseconds: 2000, lqmp3Url: `${url.origin}/a.wav`, waveformUrl: "" };
+      if (name === "SearchRecordings") return answer(body.id, { recordings: { nodes: ["Calm One", "Calm Two"].map((title, i) => ({ recording: { id: `rec-${i}`, title, audioFile, credits: [], stems: [], tags: [] } })), pageInfo: { hasNextPage: false } } });
+      if (name === "SearchSoundEffects") return answer(body.id, { soundEffects: { nodes: ["Ding", "Bell"].map((title, i) => ({ soundEffect: { id: `fx-${i}`, title, audioFile } })), pageInfo: { hasNextPage: false } } });
+      if (name === "DownloadRecording" || name === "DownloadSoundEffect") return answer(body.id, { download: { assetUrl: `${url.origin}/a.wav` } });
+      if (name === "EditRecording") return answer(body.id, { recordingEdit: { id: "job", status: "PENDING" } });
+      if (name === "PollEditRecordingJob") return answer(body.id, { recordingEditJob: { id: "job", status: "COMPLETED", edits: [{ id: "edit" }] } });
+      if (name === "DownloadRecordingEdit") return answer(body.id, { recordingEditDownload: { assetUrl: `${url.origin}/a.wav` } });
+      return sse(body.id, { isError: true, content: [{ type: "text", text: `no ${name}` }] });
+    },
+  });
+  const writer = join(dir, "suggest-writer.sh");
+  writeFileSync(writer, `#!/bin/sh\nif grep -q '"kind":"moment"' "$1"; then echo '{"score":0,"words":"","sound":"ding","why":""}'; else echo '{"kind":"tutorial","mood":"calm","term":"soft piano"}'; fi\n`, { mode: 0o755 });
+  process.env.BEACON_EPIDEMIC_URL = `${fake.url.origin}/mcp`;
+  process.env.BEACON_EPIDEMIC_POLL_MS = "10";
+  process.env.BEACON_WRITER = writer;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await ui.core.setSecret("epidemic-sound-api-key", "es-key");
+    await run("section.add", { start: 0, end: 4, name: "Intro" });
+    await run("section.add", { start: 4, end: 8, name: "Demo" });
+    const sections = (await ui.core.history(ui.handle)).undo.length;
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=music]')");
+    await page.evaluate("document.querySelector('[data-ai=music]').click()");
+    await page.until("!!document.querySelector('[data-music-suggest-start]')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-music-apply]').disabled")).toBe(true);
+    await page.click(...(await centre("[data-music-suggest-start]")));
+    await page.until("!!document.querySelector('[data-music-suggestion]')", 20_000);
+    expect(await page.evaluate<string>("document.querySelector('[data-suggest-kind]').textContent")).toBe("A tutorial");
+    // Both sections calm: one track over the two. The section change takes a sound.
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-suggest-track]').length")).toBe(1);
+    await page.until("(document.querySelector('[data-suggest-track=\"0\"]')?.textContent ?? '').includes('Calm One')");
+    await page.evaluate("document.querySelector('[data-suggest-track=\"0\"] [data-suggest-next]').click()");
+    await page.until("(document.querySelector('[data-suggest-track=\"0\"]')?.textContent ?? '').includes('Calm Two')");
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-suggest-sound]').length")).toBeGreaterThan(0);
+    await page.until("(document.querySelector('[data-music-where]')?.textContent ?? '').startsWith('1 track and')");
+    await page.screenshot(join(dir, "suggest.png"));
+    await page.evaluate("document.querySelector('[data-music-apply]').click()");
+    await page.until("!document.querySelector('[data-music-review]')");
+    await arrived(() => ui.core.doc(ui.handle).tracks.some((t) => t.name === "Music" && t.clips.length > 0), 20_000);
+    expect((await ui.core.history(ui.handle)).undo.length - sections).toBe(1);
+    const doc = ui.core.doc(ui.handle);
+    const placed = doc.tracks.find((t) => t.name === "Music")!.clips[0]!;
+    expect(doc.assets[placed.assetId!]!.name).toBe("Calm Two");
+    expect(doc.tracks.some((t) => t.name === "SFX" && t.clips.length > 0)).toBe(true);
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_EPIDEMIC_URL;
+    delete process.env.BEACON_EPIDEMIC_POLL_MS;
+    delete process.env.BEACON_WRITER;
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
+test.skipIf(skip)("Pop-ins, from Sound Effects' Sounds for my graphics… (no tab of their own): each picture coming onto the picture listed and marked, a pop picked by itself (changeable), one left out, and Apply puts the sounds on an SFX track, one undo step", async () => {
+  const wav = join(dir, "pop.wav");
+  const pcm = Float32Array.from({ length: 0.4 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 880 * i) / 48000));
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", wav], { stdin: new Uint8Array(pcm.buffer) });
+  const png = join(dir, "pop-logo.png");
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x64", "-i", "pipe:0", "-frames:v", "1", png], { stdin: new Uint8Array(64 * 64).fill(200) });
+  const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
+  const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  const terms: string[] = [];
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/pop.wav") return new Response(Bun.file(wav));
+      const body = (await req.json()) as { id?: number; method: string; params?: { name: string; arguments: any } };
+      if (body.method === "initialize") return sse(body.id, { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "stand-in", version: "0" } });
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const { name, arguments: args } = body.params!;
+      const audioFile = { durationInMilliseconds: 400, lqmp3Url: `${url.origin}/pop.wav`, waveformUrl: "" };
+      if (name === "SearchSoundEffects") {
+        terms.push(args.query?.term);
+        return answer(body.id, { soundEffects: { nodes: ["Bubble Pop", "Click Pop"].map((title, i) => ({ soundEffect: { id: `pop-${i}`, title, audioFile } })), meta: { total: 2 }, pageInfo: { hasNextPage: false } } });
+      }
+      if (name === "DownloadSoundEffect") return answer(body.id, { soundEffectDownload: { assetUrl: `${url.origin}/pop.wav` } });
+      return sse(body.id, { isError: true, content: [{ type: "text", text: `no ${name}` }] });
+    },
+  });
+  process.env.BEACON_EPIDEMIC_URL = `${fake.url.origin}/mcp`;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await ui.core.setSecret("epidemic-sound-api-key", "es-key");
+    const one = (await ui.core.import(ui.handle, [png], { at: 3 })).clips[0]!;
+    const two = (await ui.core.import(ui.handle, [png], { at: 8 })).clips[0]!;
+    const steps2 = (await ui.core.history(ui.handle)).undo.length;
+    // Not a tab of its own: Sound Effects' Sounds for my graphics… button opens it.
+    await run("music.review", { tab: "sfx" });
+    await run("panel.show", { properties: true });
+    await page.until("!!document.querySelector('[data-music-popins]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-tab]').innerText")).not.toContain("Pop-ins");
+    await page.click(...(await centre("[data-music-popins]")));
+    await page.until("!!document.querySelector('[data-popins]')");
+    await page.until(`document.querySelectorAll('[data-popin]').length === 2`);
+    // The first "pop" found is picked by itself; the Change list offers the rest.
+    await page.until("document.querySelector('[data-pop-sound=picture] [data-pop-pick]')?.textContent === 'Bubble Pop'");
+    expect(terms).toContain("pop");
+    await page.evaluate("[...document.querySelectorAll('[data-pop-sound=picture] button')].find((b) => b.textContent === 'Change').click()");
+    await page.until("!!document.querySelector('[data-pop-option=pop-1]')");
+    await page.evaluate("document.querySelector('[data-pop-option=pop-1]').click()");
+    await page.until("document.querySelector('[data-pop-sound=picture] [data-pop-pick]')?.textContent === 'Click Pop'");
+    // The one at 8 s left out.
+    await page.evaluate(`document.querySelector('[data-popin="${two}"] [role=checkbox]').click()`);
+    await page.until("(document.querySelector('[data-music-where]')?.textContent ?? '').startsWith('1 sound on SFX tracks')");
+    await page.screenshot(join(dir, "popins.png"));
+    expect(await page.evaluate<string>("document.querySelector('[data-music-apply]').textContent")).toContain("Apply");
+    await page.evaluate("document.querySelector('[data-music-apply]').click()");
+    await page.until("!document.querySelector('[data-music-review]')");
+    await arrived(() => ui.core.doc(ui.handle).tracks.some((t) => t.name === "SFX" && t.clips.length > 0), 20_000);
+    const sfx = ui.core.doc(ui.handle).tracks.find((t) => t.name === "SFX")!;
+    expect(sfx.clips.map((c) => ticksToSeconds(c.start))).toEqual([3]);
+    expect(ui.core.doc(ui.handle).assets[sfx.clips[0]!.assetId!]!.name).toBe("Click Pop");
+    expect((await ui.core.history(ui.handle)).undo.length - steps2).toBe(1);
+    expect(one).toBeDefined();
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_EPIDEMIC_URL;
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
+test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… or a section's menu, the request goes to the open Claude Code session with what it is about, and its answers show as toasts; with none, how to start one", async () => {
+  // A stand-in Claude Code session: Beacon's MCP server's control socket, as `agents()` finds them.
+  const sent: { prompt: string; meta: Record<string, string> }[] = [];
+  const session = serveControl(
+    { letGo: async () => {}, agent: () => ({ name: "claude-code", version: "2.1", project: "/somewhere/else.beproj" }), prompt: async (prompt, meta) => void sent.push({ prompt, meta }) },
+    join(ui.controlDir, "mcp-1.sock"),
+  );
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await select([screen.id]);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-ask-agent]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-ask-about]').textContent")).toMatch(/^About: Clip “recording”, 0:00–/);
+    await page.until("document.querySelector('[data-ask-session]')?.selectedOptions[0]?.textContent.startsWith('Claude Code · else.beproj')");
+    await page.screenshot(join(dir, "ask-agent.png"));
+    await page.click(...(await centre("[data-ask-prompt]")));
+    await type("Lay this out like the intro");
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+    await page.until("document.querySelector('[data-agent-state]')?.dataset.agentState === 'sent'");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.prompt).toBe("Lay this out like the intro");
+    expect(sent[0]!.meta).toMatchObject({ clip: screen.id, from: "0.00", label: expect.stringContaining("Clip “recording”") });
+    const id = sent[0]!.meta.request!;
+    // Its answers: on it, then done with what it did.
+    await ui.core.agentReply(id, "received");
+    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'received'`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').closest('[data-toast]').textContent`)).toContain("Claude Code is on it");
+    await ui.core.agentReply(id, "done", "Laid it out as the intro");
+    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'done'`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').textContent`)).toBe("Laid it out as the intro");
+
+    // A section's menu offers it; its choice opens the box about that section.
+    await run("section.add", { start: 1, end: 3, name: "Intro" });
+    const section = ui.core.doc(ui.handle).sections.find((x) => x.name === "Intro")!;
+    ui.send("sectionAction", { section: section.id, op: "ask" });
+    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').includes('Section “Intro”, 0:01–0:03')");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+
+    // A motion graphic's panel has Send to Agent….
+    await run("motion.add", {});
+    await run("panel.show", { properties: true });
+    await page.until("!!document.querySelector('[data-motion-ask]')");
+    await page.evaluate("document.querySelector('[data-motion-ask]').click()");
+    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').startsWith('About: Motion graphic')");
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+
+    // With no session, it says how to start one and offers the request to copy.
+    session.stop();
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-ask-none]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-ask-none]').textContent")).toContain("claude --dangerously-load-development-channels server:beacon");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-ask-send]').disabled")).toBe(true);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+  } finally {
+    session.stop();
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
+test.skipIf(skip)("Ask an Agent with Codex: 'New run with Codex' is offered when it is installed, and a run's steps and last message show in its toast", async () => {
+  // A stand-in Codex where the harness looks for it: it speaks codex exec's JSON events.
+  const codex = join(ui.controlDir, "codex");
+  const jsonl = join(ui.controlDir, "codex-events.jsonl");
+  const events = [
+    { type: "item.completed", item: { type: "agent_message", text: "Opening the project" } },
+    { type: "item.started", item: { type: "mcp_tool_call", server: "beacon", tool: "timeline_clips" } },
+    { type: "item.completed", item: { type: "agent_message", text: "Moved the logo to the top right" } },
+  ];
+  writeFileSync(jsonl, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(codex, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 1.0.0"; exit 0; fi\nsleep 0.5\ncat ${JSON.stringify(jsonl)}\n`);
+  Bun.spawnSync(["chmod", "755", codex]);
+  try {
+    await select([screen.id]);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("[...(document.querySelector('[data-ask-session]')?.options ?? [])].some((o) => o.value === 'run:codex')");
+    expect(await page.evaluate<string>("[...document.querySelector('[data-ask-session]').options].find((o) => o.value === 'run:codex').textContent")).toBe("New run with Codex");
+    await page.evaluate("(() => { const s = document.querySelector('[data-ask-session]'); s.value = 'run:codex'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await page.click(...(await centre("[data-ask-prompt]")));
+    await type("Move the logo to the top right");
+    await page.key("Enter", "Enter");
+    await page.until("!document.querySelector('[data-ask-agent]')");
+    // While it runs: Cancel; then what it did.
+    await page.until("!!document.querySelector('[data-agent-cancel]')");
+    await page.until("[...document.querySelectorAll('[data-agent-state=done]')].some((e) => e.textContent.includes('Moved the logo to the top right'))", 10_000);
+    expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-agent-state=done]')].some((e) => e.closest('[data-toast]').textContent.startsWith('Codex: done'))")).toBe(true);
+    // A run cancelled from its toast says so in its title. The harness only records cancelJob, so it is passed on here.
+    writeFileSync(codex, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 1.0.0"; exit 0; fi\nhead -n 1 ${JSON.stringify(jsonl)}\nsleep 30\n`);
+    await page.key("k", "KeyK", ["meta"]);
+    await page.until("!!document.querySelector('[data-palette]')");
+    await type("ask an agent");
+    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
+    await page.key("Enter", "Enter");
+    await page.until("[...(document.querySelector('[data-ask-session]')?.options ?? [])].some((o) => o.value === 'run:codex')");
+    await page.evaluate("(() => { const s = document.querySelector('[data-ask-session]'); s.value = 'run:codex'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await page.click(...(await centre("[data-ask-prompt]")));
+    await type("Something slow");
+    await page.key("Enter", "Enter");
+    await page.until("!!document.querySelector('[data-agent-cancel]')");
+    const id = await page.evaluate<string>("document.querySelector('[data-agent-cancel]').closest('[data-agent-request]').dataset.agentRequest");
+    await page.evaluate("document.querySelector('[data-agent-cancel]').click()");
+    await arrived(() => ui.menus.includes(`cancelJob:${id}`));
+    expect(ui.menus).toContain(`cancelJob:${id}`);
+    await ui.core.cancelJob(id);
+    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.closest('[data-toast]').textContent.startsWith('Codex: cancelled')`);
+  } finally {
+    rmSync(codex, { force: true });
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("learned shortcuts: an effect used 5 times over 2 days is offered a leader shortcut, added only on Add; the leader popup shows it as new, its keys apply it, and Settings › Memory lists it", async () => {
+  const CRT = "effect:crt-monitor";
+  const yesterday = Date.now() - 26 * 3600 * 1000;
+  const usage = (ui.core.readConfig("usage.json") ?? {}) as Record<string, number[]>;
+  ui.core.writeConfig("usage.json", { ...usage, [CRT]: [0, 1, 2, 3].map((i) => yesterday + i * 60_000) });
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    // The fifth use, today: offered, and nothing added until Add.
+    await select([screen.id]);
+    await run("panel.show", { tool: "visualEffects" });
+    await page.until(`!!document.querySelector('[data-item="${CRT}"]')`);
+    await page.dblclick(...(await centre(`[data-item="${CRT}"]`)));
+    await page.until(`!!document.querySelector('[data-shortcut-offer="${CRT}"]')`);
+    const text = await page.evaluate<string>(`document.querySelector('[data-shortcut-offer="${CRT}"]').textContent`);
+    expect(text).toMatch(/^You often use CRT Monitor: give it : [A-Z] [A-Z]\?/);
+    expect((await ui.core.shortcuts()).some((s) => s.learned)).toBe(false);
+    await page.screenshot(join(dir, "shortcut-offer.png"));
+    await page.evaluate(`document.querySelector('[data-shortcut-offer="${CRT}"] [data-shortcut-add]').click()`);
+    await page.until(`!document.querySelector('[data-shortcut-offer="${CRT}"]')`);
+    const learned = (await ui.core.shortcuts()).find((s) => s.id === `learned:${CRT}`)!;
+    expect(learned).toMatchObject({ name: "CRT Monitor", fresh: true });
+    const [, a, b] = keysLabel(learned.keys[0]!).split(" ") as [string, string, string];
+    expect(text).toContain(`: ${a} ${b}?`);
+    // The leader popup marks it new; its keys put it on the selected clip.
+    await ui.core.undo(ui.handle);
+    const before = clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length;
+    await page.key(":", "Semicolon", ["shift"]);
+    await page.until(`!!document.querySelector('[data-leader-next="${a}"] [data-leader-new]')`);
+    await page.key(a.toLowerCase(), `Key${a}`);
+    await page.until(`[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent.startsWith("${b}CRT Monitor"))`);
+    await page.key(b.toLowerCase(), `Key${b}`);
+    await arrived(() => clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length === before + 1);
+    // Settings › Memory lists it, with its keys.
+    await ui.core.uiOpen(ui.handle, "settings", "memory");
+    await page.until(`!!document.querySelector('[data-learned-shortcut="${CRT}"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-learned-shortcut="${CRT}"]').textContent`)).toContain(`: ${a} ${b}CRT Monitor1 use`);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-settings-nav]')");
+  } finally {
+    await ui.core.memoryChange({ shortcut: { remove: CRT } }).catch(() => {});
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("an effect folded on a clip stays folded after selecting something else and coming back", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("effect.add", { clip: screen.id, type: "crt-monitor" });
+    const fx = clip(screen.id).effects.at(-1)!.id;
+    await select([screen.id]);
+    await run("panel.show", { tool: null });
+    await run("inspector.tab", { tab: "effects" });
+    const caret = `document.querySelector('[data-effect="${fx}"] button[title="Hide the settings"]')`;
+    await page.until(`!!${caret}`);
+    await page.evaluate(`${caret}.click()`);
+    await page.until(`!!document.querySelector('[data-effect="${fx}"] button[title="Show the settings"]')`);
+    await select([]);
+    await page.until(`!document.querySelector('[data-effect="${fx}"]')`);
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until(`!!document.querySelector('[data-effect="${fx}"]')`);
+    expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect="${fx}"] button[title="Show the settings"]')`)).toBe(true);
+  } finally {
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monitor: its tile adds it; shot and corner are lists of blueprints (no Move: the clip's transform moves the camera), room, screen and focus are toggles; Focus X and Y show only for a focus point, a choice is one undo step (a blueprint hovered is none), and Zoom's slider at its end is 4 exactly", async () => {
+  const MON = "effect:device-frame";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await select([screen.id]);
+    await run("panel.show", { tool: "visualEffects" });
+    await page.until(`!!document.querySelector('[data-item="${MON}"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-item="${MON}"]').innerText`)).toContain("Monitor");
+    await page.dblclick(...(await centre(`[data-item="${MON}"]`)));
+    await arrived(() => clip(screen.id).effects.some((e) => e.type === "device-frame"));
+    await run("panel.show", { tool: null });
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("!!document.querySelector('[data-effect-param=screen]')");
+    for (const k of ["shot", "corner", "room", "screen", "focus"]) expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}]')`)).toBe(true);
+    const labels = () => page.evaluate<string>("document.querySelector('[data-effects]')?.innerText ?? document.body.innerText");
+    expect(await labels()).not.toContain("Focus X");
+    const before = (await ui.core.history(ui.handle)).undo.length;
+    // Room names its four rooms (Night, the default, first).
+    expect(await page.evaluate<string>("document.querySelector('[data-effect-param=room]').innerText.replace(/\\s+/g, ' ').trim()")).toBe("Night Day Studio None");
+    await page.click(...(await centre("[data-effect-param=screen] [data-option=glossy]")));
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.screen === "glossy");
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 1);
+    await page.until("document.querySelector('[data-effect-param=screen] [aria-checked=true]')?.dataset.option === 'glossy'");
+    await page.click(...(await centre("[data-effect-param=focus] [data-option=point]")));
+    await page.until("document.body.innerText.includes('Focus X')");
+    // The shots are a list of blueprints, each a picture under its name; hovering one previews it, picking it is one step.
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-param=move]')")).toBe(false);
+    for (const [k, n] of [["shot", 8], ["corner", 4]] as const) {
+      expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}] img[src^="data:image/svg+xml"]')`)).toBe(true);
+      await page.click(...(await centre(`[data-effect-param=${k}]`)));
+      await page.until(`document.querySelectorAll('[role=listbox] [data-option] img').length === ${n}`);
+      await page.key("Escape", "Escape");
+      await page.until("!document.querySelector('[role=listbox]')");
+    }
+    expect(await page.evaluate<string>("document.querySelector('[data-effect-param=shot]').innerText.trim()")).toBe("Head On");
+    const picked = (await ui.core.history(ui.handle)).undo.length;
+    await page.click(...(await centre("[data-effect-param=shot]")));
+    await page.until("!!document.querySelector('[role=listbox] [data-option=edge-left]')");
+    await page.hover(...(await centre("[role=listbox] [data-option=close-right]")));
+    await Bun.sleep(200);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(picked);
+    await page.click(...(await centre("[role=listbox] [data-option=edge-left]")));
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.shot === "edge-left");
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(picked + 1);
+    // Corner is for head on only; the rooms go all round, so Room stays on every shot.
+    await page.until("!document.querySelector('[data-effect-param=corner]')");
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-param=room]')")).toBe(true);
+    // Zoom's slider starts at 0.8: past its right end it is 2.5 exactly (its steps once counted from 0 put its end past
+    // the top, which the project refused, and the canvas went black).
+    const zoomSlider = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Zoom') return true; return false; }); hit.scrollIntoView({ block: 'center' }); const b = hit.getBoundingClientRect(); return { x: b.x + b.width - 2, y: b.y + b.height / 2 }; })()`;
+    const z = await page.evaluate<{ x: number; y: number }>(zoomSlider);
+    await page.click(z.x, z.y);
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.zoom === 2.5);
+    await page.screenshot(join(dir, "monitor.png"));
+  } finally {
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("a Monitor clip zoomed in and turned keeps its canvas outline flat (its rotation turns the camera, not the clip), its Rotation X and Y stop at 60°, Pixels, Reflection and Reflection Blur are sliders (the reflection's only on Glossy), and there is no Glow", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("playhead.set", { time: 1 });
+    await run("effect.add", { clip: screen.id, type: "device-frame" });
+    await run("clip.set", { clip: screen.id, props: { transform: { scaleX: 2.26, scaleY: 2.26, rotationY: (-73.5 * Math.PI) / 180 } } });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "transform" });
+    await page.until("document.querySelectorAll('svg line').length >= 4");
+    const outline = await page.evaluate<number[][]>("[...document.querySelectorAll('svg line')].slice(0, 4).map((l) => ['x1', 'y1', 'x2', 'y2'].map((k) => l[k].baseVal.value))");
+    // Top and bottom level, the sides upright: the clip's own box, no corners thrown across the canvas.
+    for (const i of [0, 2]) expect(Math.abs(outline[i]![1]! - outline[i]![3]!)).toBeLessThan(0.5);
+    for (const i of [1, 3]) expect(Math.abs(outline[i]![0]! - outline[i]![2]!)).toBeLessThan(0.5);
+    await page.until("document.querySelectorAll('[data-rotation-gizmo] + div [data-input]').length === 3");
+    await page.click(...(await centre("[data-rotation-gizmo] + div > div:nth-child(2) [data-input]")));
+    await page.until("document.activeElement?.tagName === 'INPUT'");
+    await type("-80");
+    await page.key("Enter", "Enter");
+    await arrived(() => Math.abs(((clip(screen.id).props.transform as { rotationY: number }).rotationY * 180) / Math.PI + 60) < 1e-6);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("document.body.innerText.includes('Pixels')");
+    expect(await page.evaluate<boolean>("document.body.innerText.includes('Reflection')")).toBe(false);
+    expect(await page.evaluate<boolean>("document.body.innerText.includes('Glow')")).toBe(false);
+    await page.click(...(await centre("[data-effect-param=screen] [data-option=glossy]")));
+    await page.until("document.body.innerText.includes('Reflection Blur')");
+  } finally {
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
 
 test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
@@ -5637,32 +6277,26 @@ test.skipIf(skip)("⌥⇧A animates a clip from its start to its end, wherever t
   await select([]);
 }, 30_000);
 
-test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the selection, or an annotation at the playhead) and to star or unstar it", async () => {
+test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the selection, or an annotation at the playhead), counted as a use", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
-  const starred = await ui.core.favorites();
   await select([screen.id]);
   await run("panel.show", { tool: "visualEffects" });
-  const shadow = `[data-item="effect:drop-shadow"]`;
+  const shadow = `[data-item="effect:crt-monitor"]`;
   await page.until(`!!document.querySelector('${shadow}')`);
-  const before = clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length;
+  const before = clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length;
   await page.rightClick(...(await centre(shadow)));
   await arrived(() => ui.menus.some((m) => m.startsWith("tile:")));
-  expect(ui.menus.at(-1)).toBe(`tile:Add to Selected Media|${starred.includes("effect:drop-shadow") ? "Remove from Favorites" : "Add to Favorites"}`);
+  expect(ui.menus.at(-1)).toBe("tile:Add to Selected Media");
   await ui.chooseTile("add");
-  expect(clip(screen.id).effects.filter((e) => e.type === "drop-shadow").length).toBe(before + 1);
-  await ui.chooseTile(starred.includes("effect:drop-shadow") ? "unfavorite" : "favorite");
-  expect((await ui.core.favorites()).includes("effect:drop-shadow")).toBe(!starred.includes("effect:drop-shadow"));
+  expect(clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length).toBe(before + 1);
+  expect(await ui.core.recentItems()).toContain("effect:crt-monitor");
 
   await run("panel.show", { tool: "annotations" });
   const text = `[data-item="annotation:text"]`;
   await page.until(`!!document.querySelector('${text}')`);
   await page.rightClick(...(await centre(text)));
-  await arrived(() => ui.menus.at(-1)!.startsWith("tile:Add at Playhead"));
-  expect(ui.menus.at(-1)!.startsWith("tile:Add at Playhead|")).toBe(true);
-
-  if (starred.includes("effect:drop-shadow")) await ui.core.favoriteAdd("effect:drop-shadow", starred.indexOf("effect:drop-shadow"));
-  else await ui.core.favoriteRemove("effect:drop-shadow");
-  expect(await ui.core.favorites()).toEqual(starred);
+  await arrived(() => ui.menus.at(-1) === "tile:Add at Playhead");
+  expect(ui.menus.at(-1)).toBe("tile:Add at Playhead");
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
   await run("panel.show", { tool: null });
   await select([]);

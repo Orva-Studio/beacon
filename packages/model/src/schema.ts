@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -82,7 +82,7 @@ export const AssetSchema = z.strictObject({
   fingerprint: z.string(),
   /** Shown in the Media Bin and on its clips instead of the file's name (Rename). */
   name: z.string().min(1).optional(),
-  /** Derived data by analyzer key (proxy, waveform, thumbnails, cursor, transcript). */
+  /** Derived data by analyzer key (proxy, waveform, thumbnails, cursor, transcript), and `library` for music or a sound effect from a library (not transcribed). */
   derived: z.record(z.string(), z.unknown()),
 });
 

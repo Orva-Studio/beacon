@@ -48,7 +48,6 @@ export const dropShadow = defineFeature({
     {
       id: "drop-shadow",
       title: "Drop Shadow",
-      favorite: true,
       description: "Shadow behind the clip",
       traits: ["visual"],
       params: shadowSchema,

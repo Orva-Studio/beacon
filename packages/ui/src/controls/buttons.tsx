@@ -109,11 +109,8 @@ export function RailButton({ active, ...props }: ButtonHTMLAttributes<HTMLButton
   );
 }
 
-/**
- * A tool panel's item: its picture (an `art-<id>` class from art/art.css) over its name. `star`: shown while
- * selected (white, adds it to Favorites) and on favourites (gold, removes it); clicking it calls `onStar`.
- */
-export function ItemTile({ art, children, selected, star, onStar, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { art?: string; selected?: boolean; star?: "off" | "on"; onStar?: () => void }) {
+/** A tool panel's item: its picture (an `art-<id>` class from art/art.css) over its name. */
+export function ItemTile({ art, children, selected, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { art?: string; selected?: boolean }) {
   return (
     <button
       {...props}
@@ -121,24 +118,6 @@ export function ItemTile({ art, children, selected, star, onStar, ...props }: Bu
     >
       {art && <span className={`aspect-[3/2] w-full rounded-md bg-groove bg-cover bg-center art-${art}`} data-art={art} />}
       <span className="px-0.5">{children}</span>
-      {star && (
-        <span
-          role="button"
-          aria-label={star === "on" ? "Remove from Favorites" : "Add to Favorites"}
-          title={star === "on" ? "Remove from Favorites" : "Add to Favorites"}
-          data-star={star}
-          className={`absolute top-2.5 right-2.5 flex size-6 cursor-pointer items-center justify-center rounded-full bg-clip-badge ${star === "on" ? "text-favorite" : "text-white hover:text-favorite"}`}
-          // Its own click: the tile's press would select or start a drag.
-          onPointerDown={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onStar?.();
-          }}
-        >
-          <Icon name="star" size={15} filled={star === "on"} />
-        </span>
-      )}
     </button>
   );
 }
@@ -162,6 +141,28 @@ export function Segmented<T extends string>({ value, options, onChange, ...props
           onClick={() => onChange(o.value)}
         >
           {o.icon}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A short choice of two side by side, one on (a screen's Matte or Glossy); each option carries `data-option`. */
+export function Toggle<T extends string>({ value, options, onChange, ...props }: { value: T | undefined; options: { value: T; label: string; title?: string }[]; onChange: (v: T) => void } & Omit<HTMLAttributes<HTMLDivElement>, "onChange">) {
+  return (
+    <div {...props} role="radiogroup" className="flex w-full gap-0.5 rounded-md bg-chip p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          title={o.title}
+          data-option={o.value}
+          className={`flex-1 rounded-[5px] py-1 text-center ${value === o.value ? "bg-tile-hover text-accent" : "text-text-muted hover:text-text-strong"}`}
+          onClick={() => value !== o.value && onChange(o.value)}
+        >
           {o.label}
         </button>
       ))}

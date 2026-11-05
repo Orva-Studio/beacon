@@ -60,6 +60,8 @@ export interface ExportOptions extends VideoEncoding {
   clips?: string[];
   /** Files features write beside a video from the same range, by id (`captions`: the captions as .srt); none unless named. */
   files?: string[];
+  /** The whole video played faster, 1 to 2 (1.2 for a Short): the timeline sampled faster at the same frame rate, the sound's pitch kept. The project isn't changed. */
+  speed?: number;
 }
 
 export interface ImportOptions {
@@ -212,7 +214,7 @@ export interface SchemaInfo {
   }[];
   /** `defaults`: what a clip without its own values has. */
   props: { id: string; description: string; animatable: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }[];
-  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string; keep?: string }; tune?: { label: string; title: string; action: string }; needs?: string[]; preparing?: string }[];
+  effects: { id: string; title: string; description: string; traits: string[]; schema: Record<string, unknown>; presets?: EffectPreset[]; importFile?: { label: string; extensions: string[]; query: string; keep?: string }; tune?: { label: string; title: string; action: string }; choices?: Record<string, Record<string, { label: string; art?: string }>>; needs?: string[]; preparing?: string; turnsCamera?: number }[];
   /** The Annotations and Audio Effects panels' items (Visual Effects lists `effects`). */
   panelItems: PanelItemDef[];
 }
@@ -244,8 +246,10 @@ export type CoreEvent =
   | { kind: "saved"; path: string }
   /** An analysis of new media waits for a resource that isn't downloaded: ask the user. */
   | { kind: "needs"; resource: ResourceInfo }
-  /** The favourites changed (app-wide): the Favorites panel's items, in order. */
-  | { kind: "favorites"; items: string[] }
+  /** A panel item was used (app-wide): the items by use, most first. */
+  | { kind: "usage"; items: string[] }
+  /** An agent answered a request sent from the app (`askAgent`): it has it, or it is done (with what it did). */
+  | { kind: "agent"; request: string; status: "received" | "done"; text?: string }
   /** The app's settings changed (app-wide), from Settings or an agent. */
   | { kind: "settings"; settings: AppSettings }
   /** Keyboard shortcuts changed (app-wide): every action with its keys. */
@@ -266,8 +270,8 @@ export type CoreEvent =
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
   | { kind: "session"; changes: Partial<Session>; changed: (keyof Session)[] };
 
-/** What concerns the whole app, from any project or none: favourites, settings, keys, a preference, and every job. */
-export type AppEvent = Extract<CoreEvent, { kind: "favorites" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
+/** What concerns the whole app, from any project or none: panel items' use, settings, keys, a preference, and every job. */
+export type AppEvent = Extract<CoreEvent, { kind: "usage" | "agent" | "settings" | "shortcuts" | "memory" | "preference" | "job" }>;
 
 /** Everything an agent or the app can do (PLAN §7.1). */
 export interface BeaconCore {
@@ -328,16 +332,27 @@ export interface BeaconCore {
    */
   setPreference(id: string, value: string): Promise<void>;
   /**
-   * The Favorites panel's items, in order, app-wide: `annotation:<preset>` (text, rectangle…), `effect:<id>`
-   * (drop-shadow…) or `audio:fade-in` / `audio:fade-out`. New users start with a few.
+   * Panel items by use, app-wide, most used (and most lately) first: `annotation:<preset>`, `effect:<id>`,
+   * `audio:fade-in`, `ai:<tool>`. ⌘K lists them first.
    */
-  favorites(): Promise<string[]>;
-  /** Stars an item (at `index`, else at the end); one already there stays where it is. Returns the list. */
-  favoriteAdd(item: string, index?: number): Promise<string[]>;
-  /** Un-stars an item. Returns the list. */
-  favoriteRemove(item: string): Promise<string[]>;
-  /** Moves a favourite to `index` (0 first). Returns the list. */
-  favoriteMove(item: string, index: number): Promise<string[]>;
+  recentItems(): Promise<string[]>;
+  /** Counts a use of a panel item (a tile, the palette). Returns the items by use. */
+  itemUsed(item: string): Promise<string[]>;
+  /**
+   * The agent sessions Beacon's MCP server serves now (Claude Code…), newest first: each with its control socket,
+   * the agent's name and version, and the project it has open; then the agents installed that Beacon can start a run
+   * of (`run`, socket `run:<agent>`).
+   */
+  agents(): Promise<AgentSession[]>;
+  /**
+   * Sends a request the user typed to an agent session (Claude Code takes it as a channel message, when started with
+   * Beacon as a channel), with what it is about; returns the request's id, which its replies (`agent` events) carry.
+   * To a `run:` agent it starts a run as a job (the request's id is the job's, so `cancelJob` stops it), its steps and
+   * last message told as `agent` events.
+   */
+  askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string>;
+  /** An agent's answer to a request (`app_reply`): it has it, or it is done. Raises an `agent` event. */
+  agentReply(request: string, status: "received" | "done", text?: string): Promise<void>;
   /**
    * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
    * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
@@ -411,8 +426,34 @@ export interface BeaconCore {
    * goes on a new track where it began, lined up with what was heard. One undo step.
    */
   recordStop(opts?: RecordStopOptions): Promise<RecordResult>;
-  /** A project's changes; app-wide ones (favourites, settings, keys, preferences, jobs) come through `watchApp`. */
+  /** A project's changes; app-wide ones (panel items' use, settings, keys, preferences, jobs) come through `watchApp`. */
   watch(h: ProjectHandle, fn: (e: CoreEvent) => void): () => void;
   /** App-wide changes and every job's progress, whichever project started it, or none (a download), and after it is closed. */
   watchApp(fn: (e: AppEvent) => void): () => void;
+}
+
+/** An agent session Beacon's MCP server serves. */
+export interface AgentSession {
+  /** Its control socket, to send it requests. */
+  socket: string;
+  /** "claude-code", "codex"…, as the agent names itself. */
+  name: string;
+  version: string;
+  /** The project it has open. */
+  project?: string;
+  /** When it started (ms since the epoch); 0 for a new run. */
+  started: number;
+  /** Not a session but an agent Beacon starts a run of for the request (Codex: `codex exec`), with Beacon's tools. */
+  run?: boolean;
+}
+
+/** What a request to an agent is about: the project, and the clip or section and timeline span. */
+export interface AgentAbout {
+  project?: string;
+  clip?: string;
+  section?: string;
+  from?: number;
+  to?: number;
+  /** What the user sees it as ("Motion graphic “Stat” at 0:12"). */
+  label?: string;
 }

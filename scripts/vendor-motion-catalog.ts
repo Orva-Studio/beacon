@@ -9,7 +9,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const COMMIT = "2d1b5cfbd2ffff65bdd342d78ce64a7dd36c4695";
+const COMMIT = "73e65e2c7826ba1e33382f1f09d66f4e115e3aaa";
 const BASE = `https://raw.githubusercontent.com/heygen-com/hyperframes/${COMMIT}/registry`;
 const MAX_HTML = 100_000;
 const DIRS: Record<string, string> = { "hyperframes:block": "blocks", "hyperframes:component": "components" };

@@ -14,15 +14,16 @@ export type Request = <K extends keyof Requests>(name: K, params: Requests[K]["p
  * passes only its transport and stands-ins for what has no window here (`extras`: the native views, Finder).
  */
 export function createHost(request: Request, extras: Partial<Host> = {}): Host {
-  const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
-    const r = await p.catch((e: unknown) => ({ ok: false, error: String(e) }));
+  const report = async (p: Promise<{ ok: boolean; error?: string; note?: string }>) => {
+    const r: { ok: boolean; error?: string; note?: string } = await p.catch((e: unknown) => ({ ok: false, error: String(e) }));
     if (!r.ok && r.error) replica.status(r.error);
+    else if (r.note) replica.status(r.note);
   };
 
   const commands = commandQueue(report);
 
   const shortcuts = applyReply(replica.shortcuts);
-  const favorites = applyReply(replica.favorites);
+  const used = applyReply(replica.usedItems);
   const memory = applyReply(replica.memory);
 
   return {
@@ -40,8 +41,14 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     clipMenu: (clip, from) => void request("clipMenu", { clip, ...(from ? { canvas: true } : {}) }),
     canvasMenu: () => void request("canvasMenu", {}),
     trackMenu: (track) => void request("trackMenu", { track }),
-    binMenu: (asset) => void request("binMenu", asset ? { asset } : {}),
+    sectionMenu: (section) => void request("sectionMenu", { section }),
+    binMenu: (asset, assets) => void request("binMenu", asset ? { asset, ...(assets && assets.length > 1 ? { assets } : {}) } : {}),
     tileMenu: (tile) => void request("tileMenu", tile),
+    agents: () => request("agents", {}),
+    askAgent: async (socket, prompt, about) => {
+      const r = await request("askAgent", { socket, prompt, about });
+      return r.ok ? { id: r.result! } : { error: r.error ?? "it couldn't be sent" };
+    },
     recentMenu: (path) => void request("recentMenu", { path }),
     importMedia: () => void request("importMedia", {}),
     dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at, timing: dropTiming() })),
@@ -52,9 +59,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     binFrame: (asset, time) => request("binFrame", { asset, time }),
     reveal: async (path) => ((r) => (r.ok ? undefined : r.error))(await request("reveal", { path })),
     analyze: (key, asset) => void request("analyze", { key, asset }),
-    favoriteAdd: (item, index) => void favorites(request("favoriteAdd", { item, ...(index !== undefined ? { index } : {}) })),
-    favoriteRemove: (item) => void favorites(request("favoriteRemove", { item })),
-    favoriteMove: (item, index) => void favorites(request("favoriteMove", { item, index })),
+    itemUsed: (item) => void used(request("itemUsed", { item })),
     shortcutSet: (action, keys, replace) => void shortcuts(request("shortcutSet", { action, keys, ...(replace ? { replace } : {}) })),
     shortcutReset: (action) => void shortcuts(request("shortcutReset", action ? { action } : {})),
     memoryChange: (change) => void memory(request("memoryChange", change)),

@@ -212,7 +212,7 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
           <div className="text-6xl font-semibold tabular-nums text-text-strong">{Math.max(counting, 1)}</div>
           <div className="text-center text-text-muted">
             {!narration
-              ? "Beacon hides while you record. Stop from the menu bar or ⌘⇧2."
+              ? "Beacon goes to the Dock while you record (bring it back to record Beacon itself). Stop from the menu bar or ⌘⇧2."
               : still
                 ? `Records at ${clock(span.from, { floor: true })}. Stop in the top bar or ⌘⇧2 ends it.`
                 : `The timeline plays from ${clock(span.from, { floor: true })} while you speak. Stop in the top bar or ⌘⇧2 ends it.`}

@@ -2899,6 +2899,12 @@ edit.
   Remove the Favorites panel, the stars on tiles, the `favorites_*` MCP tools
   and their preference; ⌘K lists recently and often used effects and
   annotations first before anything is typed, and leans on them when typing.
+  **Built (2026-11-02, on phase-13):** the panel, stars, tile menu's star item,
+  Show Favorites and `favorites_*` are gone; each use of a panel item or AI
+  tool (double-click, drop, tile menu, ⌘K) is counted in `usage.json` (its
+  last 20 uses; a use two weeks old counts half), and ⌘K lists used ones
+  first by that score; typed searches keep that order within each match.
+  `favorites.json` is left unread.
 - **Learned shortcuts** (the user, 2026-10-28; candidate, an extension of
   Memory, after Favorites go, as it shares their usage counts). When the user
   runs the same action often from ⌘K or with the mouse, Beacon offers it a
@@ -2934,6 +2940,20 @@ edit.
     (`~/Library/Application Support`, never uploaded); only actions with no
     key of their own, run from ⌘K, a menu or a button, count. Agent edits over
     MCP never count.
+  - **Built (2026-11-03, on phase-13; the user's choices that day: panel
+    items only, removed after 7 days of use unused, no leader-sequence
+    rule).** Uses come from `usage.json` (⌘K, tile double-clicks, drops, the
+    tile menu); an item used 5 times on 2 days or more is offered in a toast
+    (Add / Not Now; closing it is Not Now, offered again after 5 more uses)
+    and in Settings › Memory › Learned shortcuts. Keys: two letters of its
+    name where free (Drop Shadow `: D S`), never a first key Beacon's own
+    sequences start with (CRT Monitor `: O C`, not inside Color Label's `: C`),
+    keys of other actions or keys the user cleared. A learned shortcut is in
+    the shortcut list as `learned:<item>` (it follows the leader key, and
+    yields to keys the user gives one of Beacon's actions), marked "new" in
+    the leader popup until used 3 times; removed after 7 days Beacon was used
+    without it (a toast with Undo), or by the user in Memory (never offered
+    again). `learned.json` in the config folder.
 - **A motion graphic's code in Finder** (the user, 2026-10-28; only showing
   it, no watching for edits made there: "too overkill"). **Built
   2026-10-28:** a folder button beside Edit Code shows the shown take's page
@@ -2959,7 +2979,9 @@ edit.
   Choose… for a folder, remembered as a preference) to the New Project
   dialog. **Built 2026-10-28:** a Where row with Choose…, the folder chosen
   kept in `new-project.json` and offered next time (from the start screen
-  too); Camtasia copies still go to ~/Movies/Beacon.
+  too); Camtasia copies still go to ~/Movies/Beacon. Standalone is remembered
+  the same way (the user, 2026-11-02): ticked for one project, New Project
+  starts ticked for the next.
 - **Set a take's camera delay by hand** (the user, 2026-10-28). Settings ›
   Recording already takes a typed delay per camera and microphone, but only
   takes recorded after it use it. For a take already on the timeline: a
@@ -2983,6 +3005,73 @@ Research and agree the design with them first; nothing is built before.
 - **Device frame** (the user, 2026-10-17; moved here 2026-10-20): footage
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
+
+**The spec (the user's 23 reference frames and choices, 2026-11-04).** A
+monitor only for now (no phone or tablet): the screen recording filmed as if
+on a real monitor in a dim room, mostly close in. What makes the references
+real is the camera more than the bezel: the screen at an angle (20-40° of yaw,
+a little pitch), a shallow focus band across it with the rest falling off, the
+room behind as bokeh, low warm practical light (a desk lamp, blinds, plants)
+with the screen the brightest thing, glossy screens carrying a faint room
+reflection and haze, slow pushes and slides.
+- **Beacon draws it:** a 3D monitor (thin black bezel; **Matte** or
+  **Glossy** screen: glossy reflects the room faintly with a sheen, matte
+  only glows) over a room photo, the recording on its screen; focus falloff
+  computed from each pixel's depth on the screen plane, the room blurred as
+  far behind it. Local, free; any angle; zooms stay correct.
+- **Rooms:** tried and ditched (generated photos looked fake); the room is drawn.
+- **Camera: shot presets plus a slow drift** (Wide angle, Close left, Close
+  right, Low macro…), each with a slow push or slide over the clip; the focus
+  point dragged on the canvas; Beacon's zooms still work on top.
+- **Extras:** screen glow (bright text blooms a little, the screen lights the
+  bezel), the film grade and vignette (crushed blacks, warm/teal), a handheld
+  micro-drift on top of the move. No letterbox.
+- **Shaders as much as possible, as hance's (the user, 2026-11-04):** the
+  monitor, screen and room are drawn by shaders, not baked images (only the
+  room photos are pictures). From hance (Film Look already has its grade,
+  halation, grain and vignette): its bloom (`scatter-blur`) for the screen
+  glow, its `camera-shake` for the micro-drift, its `aberration` toward the
+  frame's edges; new: a depth-of-field blur by each pixel's depth on the
+  screen plane, and the glossy reflection.
+- **Built (2026-11-04), as the Monitor effect (Visual Effects):** shots, moves,
+  drift, cursor or point focus, glow, aberration, grade, matte/glossy, zooms as
+  the camera. One room (the user, 2026-11-04: the least busy is best): the
+  generated Teal studio photo, straight on, well out of focus, keeping half its
+  colour; the angled photos, the other rooms, a drawn curtain and a drawn dark
+  room were tried and dropped. Screen: Matte or Glossy (a lamp's soft
+  reflection and a sheen that move with the camera); Sunlit (daylight through
+  leaves) was tried and dropped. The screen and bezel are the recording's own
+  shape, so the bezel is a thin line. Shot: Head on (the default) or, back on
+  the user's ask, the angled shots (the top corners, the side edges, close from
+  the left or right, a low macro), always in a drawn dark room; Room (head on
+  only): the studio photo or None (the dark room); Corner (head on only): top
+  left, top right, bottom left, bottom right (the user wanted head on at the
+  bottom left; the canvas's box is the clip's own placement, which Monitor
+  only uses for zooms, so moving it was no way to frame the shot). Later: the
+  canvas showing and dragging the monitor shot itself. Zoom (1.2 to 4 on the
+  slider, up to 12 typed; 2 by default, the user found 2.6 too close), head
+  on's corner staying put. No grade of its own (the user):
+  a Film Look on the clip grades the whole shot, room and bezel too.
+- **Blueprints in the menus (the user, 2026-11-04):** Shot, Corner and Move are
+  lists of pictures, as Film Look's looks are a list: a wireframe of the whole
+  monitor, Beacon green on black, seen from the shot's angle with the part the
+  shot frames lit (a move: where it starts lit, where it ends dashed), worked
+  out from the camera the effect uses. Hovering one previews it on the canvas.
+  A choice of two (Room, Screen, Focus) is a toggle. An effect gives its
+  options' names and pictures as `choices`.
+- **One shot, head on (the user, 2026-11-04):** a whole monitor in a room didn't
+  match, then the angled close-ups didn't either ("no more angles"), so there
+  is one shot, as their terminal reference: head on, close on the screen's
+  top-left corner (a fifth across, a third down), a thin black bezel, the room
+  out of focus above and to its left. Head on the screen is all one distance
+  away, so it softens with distance from the focus instead (the cursor; what
+  the camera aims at when the cursor is out of shot). Push moves in, Slide
+  moves sideways (never turning). Only the screen glows; the bezel catches a
+  little warm light along its top; the grade's halation is low. A whole
+  monitor in its room is for later.
+- **Focus on the cursor (the user's favourite):** the focus point can follow
+  the recorded cursor, smoothed, so the part being worked on is sharp and the
+  rest of the screen and the room blur away; or it stays where it was dragged.
 
 #### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
 Not built in this phase until the spike says how: a new angle of the presenter
@@ -3024,7 +3113,7 @@ Spending limit: as Phase 11's (a Settings value), not a worry for now.
   uses the user's Replicate token, so this decides the provider.
 - Earlier research (2026-10-15) still holds: no generation first (a punch-in
   crop of the 4K source with a small ±5° depth-parallax move) costs nothing
-  and may cover close-ups; other routes are Runway Aleph 2.0 and an image
+  and may cover close-ups; other routes are Runway Aleph 2.0 (ruled out 2026-11-03) and an image
   model turning one frame then lip-sync (sync.so); no monocular 4D method
   holds beyond 10-15° yet.
 
@@ -3042,16 +3131,250 @@ paid call, a few dollars at 480p):**
    (pick a range, the angle and lens, a draft at 480p with its cost, then
    1080p; applied as a cut on a camera track, one undo step), or park it.
 
+**Spike results (2026-11-03, round 1; the user's go-ahead for each paid call).**
+Takes: 9.8 s of the ai-slop camera (4K 29.97, `recording.trec` 187.75–197.55 s,
+cut at pauses) and 8.9 s of the user's hermes outro (71.95–80.85 s), both
+scaled to 720p H.264. Spent: one Seedance generation, about $3.89; every
+failed call made no output (both models bill per output second).
+- **Replicate's Seedance 2.5 does the editing task** (no fal needed):
+  `reference_videos` (≤30 s), `duration: -1` and `aspect_ratio: "adaptive"`
+  required, `generate_audio: false`. Only **480p and 720p** (no 1080p), and with
+  a video in it costs **$0.4304/s at 480p, $0.9676/s at 720p** (the $0.10/$0.23
+  rates are without a video in). Output: 854×480 at **24 fps** (the source was
+  29.97), 9.04 s from 8.9 s (+0.14 s), in about 3 minutes.
+- **Seedance refuses some takes**: the ai-slop take (the presenter in a
+  Firecrawl cap) was "flagged as sensitive" (E005) twice; the same face in the
+  hermes take (plain cap) went through. So it isn't a block on real faces;
+  something in that take (likely the brand) trips ByteDance's moderation. Beacon
+  must say so plainly and offer the free crop instead; never work around it.
+- **Seedance's "true 90° profile" came out a ¾ angle** (about 45–60°), a
+  convincing one: face, cap, mic arm, shelf and plant held. Wardrobe drifted to a
+  hoodie, because the prompt named one (it was written for the other take): the
+  lock line must not describe the wardrobe, or must be written from the take.
+- **Lips: in sync for about the first 2 s only** (the user, by eye, 2026-11-03,
+  the picture on the take's own sound). Mouth motion, window by window (1.5 s):
+  0 s +1 frame (correlation 0.62); from 1 s on the best lag jumps between
+  −458 and +458 ms with weak correlation (0.3–0.5): the mouth is invented after
+  the start, not stretched, so retiming can't fix it. As it stands Seedance's
+  editing task can't be placed over the take's sound.
+- **Runway:** `runwayml/gen4-aleph` is retired (Runway's sunset 2026-07-30);
+  Replicate now has `runwayml/aleph-2` (2–30 s in, <16 MB, a prompt, optional
+  keyframe images, $0.336/s). It fails on Replicate-hosted files: Runway reads
+  their Content-Type as `application/octet-stream` and refuses them, so it needs
+  the take at a public URL with `video/mp4` (the spike used a 1-hour public
+  link the user uploaded; Beacon would need its own short-lived host, or the
+  user's). Run below.
+- **The free punch-in** (a 1600×900 crop of the 4K source, scaled to 720p) is a
+  sharp medium close-up, the real frames in sync: **the close-up card needs no
+  generation** when the source has the pixels (4K camera).
+- Replicate throttles an account under $5 credit to 6 predictions a minute
+  (burst 1): Beacon's calls queue rather than fail on 429.
+
+- **With the take's own sound** (`reference_audios: [wav]` as [Audio1], "his
+  lips move exactly to [Audio1]"; an `.m4a` was refused as invalid, E006, a WAV
+  taken; about $3.75): a near-true profile (75–80°), the wardrobe right once the
+  prompt named none, the face held; lips steadier (2–5 s within 125–250 ms,
+  correlation up to 0.72) but drifting towards the end (−583 ms at 6 s), and the
+  clip 8.71 s from 8.9 s. It rebuilt the room mirrored (plant left, shelf right,
+  a radiator invented): photos of the room from the new angle's side as
+  `reference_images` should hold the set (the user's idea, 2026-11-03).
+
+- **Runway aleph-2, the same profile prompt on the hermes take** (no sound in;
+  about $3.00, 8.92 s billed, 4 minutes): 1920×1080 at **30 fps**, 8.9 s, the
+  length kept to the frame and the take's own audio passed through. It came out
+  a **¾ angle** again (about 45°), not a profile; the face, cap, T-shirt and mic
+  held, but the room was rebuilt (a plain wall and a light shelf; the plant and
+  the user's shelf gone). Lips by mouth motion (2 s windows): weak at zero lag
+  (−0.13 to 0.38) and the best lag wandering between −333 and +300 ms; the
+  Seedance lip-sync take scores about the same by this measure (0.16–0.43), the
+  measure is too coarse to rank them, so the user's eye decides
+  (`runway-with-original-audio.mp4`). Its pluses over Seedance: 1080p, the
+  source's frame rate and length, cheaper ($0.336/s against $0.43 at 480p).
+
+The user's verdict, 2026-11-03: Seedance with the take's sound ("much better"
+than without); aleph-2 "so much worse than the Seedance one": **Runway is
+never used** (the user, 2026-11-03), Seedance is the model. Open after round
+1: shorter
+pieces cut at pauses (3–4 s, where it held) stitched, and room photos as
+references (the user will take them); the wide shot (needs room the camera
+never saw). Spent so far about $10.64.
+
+**Spike results, round 2 (2026-11-03; the user's go-ahead, about $5.65).** The
+hermes take cut at its pauses into 5.44 s and 3.47 s pieces, each with its own
+slice of the sound, and two of the user's photos of the room (the left side:
+the slatted wall, desk, mic arm, chair, shelf and plant; a photo with a laptop
+screen on it was left out); a third run of the short piece without photos.
+- **Photos hold the set:** with them the room is the user's (the slatted wall,
+  the shelf with its things, the plant, the keyboard and bottle); without them
+  a plain invented wall. Their lighting (dull, evening) didn't carry over: the
+  prompt says the photos give the layout only, the light comes from [Video1].
+  The desk had moved since the take; "the desk sits where it is in [Video1]"
+  was enough. The Firecrawl cap on the shelf went through this time (no E005).
+- **The angle:** piece A came out a near-true profile, piece B a ¾ angle from
+  the same prompt: pieces of one take don't come back at the same angle, so a
+  seam between two pieces shows as a camera move.
+- **Lengths aren't kept on short pieces:** 5.44 s came back 5.04 s (−0.4 s)
+  and 3.47 s came back 4.04 s: **Seedance's output is at least 4 s**. Pieces
+  are cut at pauses of at least 4 s, and what comes back is fitted to the
+  piece (the last frame held or the end trimmed) against the take's sound.
+- **Lips:** mouth motion is too coarse to rank (best lags wandering
+  ±300–600 ms, as in round 1); the user's eye decides
+  (`round2-stitched-with-photos.mp4`, `round2-B-without-vs-with-photos.mp4`).
+- **For the spec:** the angle's Properties invite photos of the room ("Add
+  photos of the room from this side for a truer set", optional; the user,
+  2026-11-03), with a hint: the lights you record with, from the new angle's
+  side at seated eye level, the room as it is in the take; photos showing a
+  screen or other people's things are the user's to leave out.
+
+Spent so far about $16.29.
+
+**Decided (the user, 2026-11-03):** Seedance 2.5 is the model ("doing
+amazing"); Runway is never used. An angle is a **cutaway of at most 3 s**, cut
+at a pause, between the real camera's shots (never two generated pieces
+joined). Seedance returns at least 4 s, so each angle is generated as the 4 s
+from the cut and trimmed to its length against the take's sound (4 s billed,
+about $1.72 at 480p). Angles: a side profile, a wide, and a **close-up** on the
+face or eyes (the punch-in crop when the source has the pixels, free and in
+sync; Seedance otherwise, not yet tried).
+
+**Resolution on Replicate (checked 2026-11-04, the user wanting to stay on
+Replicate).** Seedance 2.5 there is 480p/720p only (its version of 23 Oct).
+Seedance 2.0 there takes `1080p` and `4k` by its API schema (its page still
+says 480p/720p; 3 videos and 3 audios in, 15 s in all), not yet tried.
+**ByteDance's Video Upscaler** on Replicate (`bytedance/video-upscaler`:
+`scene: aigc` for Seedance output, `target_resolution` to 4k, `target_fps`
+interpolating, `processing_type` standard or pro) was run on round 2's 5 s
+profile (854×480, 24 fps) to 1080p at 30 fps, both tiers (about 1.5 minutes
+each; the price isn't shown to a token, the user's billing has it): the beard,
+skin, ear and the set much sharper, the face unchanged (it adds detail, it
+doesn't redraw); pro a touch smoother in the skin, standard a little crisper.
+So Seedance 2.5 at 480p or 720p, then this upscaler, gives 1080p without
+leaving Replicate; a 720p source should do better still (1.5×, not 2.25×).
+Replicate throttles an account under $5 of credit to one prediction at a time:
+Beacon's calls queue.
+**Decided (the user, 2026-11-04):** the upscaler's **standard** tier ("upscaled
+1080p standard looks good"): angles are Seedance 2.5 at 480p, upscaled to 1080p.
+
+**The spec (the user's choices, 2026-11-04).**
+- **An Angle clip, as B-roll's:** the AI panel's Camera Angle tile, or the
+  camera's right-click › New Angle Here, puts a 3 s Angle clip on an Angles
+  track above the camera (at the in/out range, else the playhead), over the
+  camera clip it is of. It is moved and trimmed like any clip (at most 3 s,
+  ripples with edits); its Properties tab picks the angle and generates it.
+- **Angles:** Side profile (left or right), Wide, Close-up, Detail (hands,
+  desk, an object), each with Locked or Handheld (micro-drift, the default);
+  a few words of the user's own are optional.
+- **Close-up crops when the pixels are there:** on a camera with at least
+  1.6× the canvas's height of pixels for the framing (a 4K camera in a 1080p
+  project), the close-up is a crop of the real frames, free and in sync; on
+  less it is generated; Generate Anyway is there.
+- **Generate (a job on the user's Replicate token):** the camera and its sound
+  under the clip, from its start, at least 4 s (Seedance's shortest), are cut
+  and uploaded with the project's room photos; Seedance 2.5 at 480p re-films
+  them with a brief Beacon writes (the look and lock lines, the angle's camera,
+  lens and move, "his lips move exactly to [Audio1]", the photos for the set
+  only, the desk where the video has it, no speed change); ByteDance's
+  upscaler (standard, `aigc`) takes it to 1080p at the take's frame rate.
+  Saved in the project's media/Angles folder, added to the Media Bin and shown
+  in the clip, its first frame at the clip's start, one undo step; each
+  generation a take kept on the clip (pick one as B-roll's).
+- **Cost** shown before Generate (Seedance's 4 s at $0.4304/s, about $1.72,
+  plus the upscaler's), under Settings › AI's **limit per generation**, shared
+  with B-roll; refused over it.
+- **Room photos** are the project's: added in the angle's Properties
+  ("Add photos of the room from this side for a truer set", optional), kept
+  for every angle after; the hint: the lights you record with, from the new
+  angle's side at seated eye level, the room as it is in the take, nothing on
+  a screen you'd rather not send.
+- **A refusal** (Seedance's E005 "sensitive", seen on a branded take) says so
+  plainly and offers the crop instead; never worked around.
+- **Later:** Suggest Angles (pauses worth a cut, an angle each, neighbours in
+  one multi-shot call so they match), once single angles have been tried.
+
+**What a Seedance multi-shot prompt teaches (a Lovart × Seedance 2.5 demo, the
+user's find, 2026-11-04).** One 20 s generation from one take gave eight shots
+(a tracking shot, a slow-motion close-up, a low angle, top-down, an extreme
+close-up, "camera inside the cup", a dolly back), each 2–3 s, all with the same
+look. The user typed a timecoded shot list; Claude expanded it into the
+prompt Seedance got. Its shape:
+- **A look header, once:** the camera, lenses and stock ("Arricam LT, Cooke
+  S4/i primes, 35mm Kodak Vision3 500T, 1.85:1, T2.8, shallow depth of field,
+  halation on highlights, fine organic grain, lifted milky blacks, low
+  contrast, no sharpening, no HDR"), then a grade written from the scene
+  ("sun-bleached lemon yellow as the hero tone, warm cream stucco… soft
+  transparent daylight shadows that never reach true black"), then the rules:
+  "Handheld with micro-drift, never locked off. Naturalistic performance, real
+  dialogue sync, no music."
+- **Then timecoded shots:** "[00:00–02.37] Shot 1: Rourke from @Video1 speaks
+  to camera behind the lemonade stand, same performance and dialogue.
+  Straight-on eye level, slow zoom in. Standard prime. Harsh midday sun.
+  Handheld micro-drift easing forward. Hard cut to Shot 2." Each shot names
+  who or what from the video, the angle, the lens, the camera's move and the
+  cut.
+What Beacon takes from it:
+1. **Several angles in one call keep one look:** shots generated together
+  share the set and grade, unlike round 2's separately generated pieces. When
+  a range gets two or more angles near each other, one call with a timecoded
+  shot list (each ≤3 s, the 4 s minimum met by the whole), cut apart on the
+  timeline. Worth a test.
+2. **The planner writes the brief**, not the user: the user picks the angle
+  (and optionally a few words); Beacon's planner (Claude through the agent, or
+  the AI provider B-roll uses) writes the look header from the take (the
+  camera's metadata, Film Look's settings, a frame) and the shot lines from
+  the transcript. Replicate's Seedance page says it works best with "detailed,
+  structured 'production brief' style prompts".
+3. **Handheld micro-drift instead of "locked camera"** reads as a real second
+  camera; offered per angle (locked or handheld), handheld by default for
+  Shorts.
+4. **Inserts, not only the face:** angles of what is in the take (hands, an
+  object, the desk from above) need no lip-sync and hide drift; a "detail"
+  angle beside profile, wide and close-up.
+5. "Same performance and dialogue" and "real dialogue sync" belong in every
+  face shot, with [Audio1] as round 1 found.
+
 #### Export sped up (the user, 2026-10-28)
 An export option for the whole video played faster, for Shorts: a speed
 between 1× and 2× (1.1, 1.2, 1.25 and 1.5 offered, any value in 0.05 steps),
 in the Export sheet and as `export_start`'s `speed`. The project is not
 changed; only the file is. Picture: the timeline sampled faster at the same
 frame rate. Sound: sped up with its pitch kept (FFmpeg's `atempo`), so a voice
-doesn't go high. The sheet shows the length the file will be. Open questions:
-whether a project remembers its export speed (a Short always at 1.2×), and
-whether captions' and motion graphics' timing needs anything (they ride the
-timeline, so they should simply speed up with it).
+doesn't go high. The sheet shows the length the file will be. The speed is
+remembered app-wide with the other export settings, not per project (the
+user, 2026-11-02). Captions and motion graphics ride the timeline, so they
+speed up with it; the captions' .srt is timed to the file. **Built
+2026-11-02** (`phase-13`): a Speed row (Normal, 1.1, 1.2, 1.25, 1.5, Custom…)
+with the length before and after, `export_start`'s `speed` (1 to 2).
+
+#### Remove Silences follows the sound (the user, 2026-11-04)
+The user saw low noise kept at a cut after Remove Silences. Measured on their
+shorts project: silences were only where the transcript's speech detector heard
+none (its threshold set once per take, between its noise floor and speech
+level), and Leave kept 0.15 s of each cut silence a side.
+**Decided (the user, 2026-11-04): cuts follow the sound.** A Trim quiet setting
+(on, 30 dB under the voice): sound that low counts as silence even inside
+detected speech, read from the waveform; Leave becomes the most kept, a guard of
+0.04 s a side. **Built (2026-11-04):** `quiet` in Remove Silences' review and
+panel (a slider, `silenceQuiet` remembered app-wide), transcript_silences,
+transcript_removeSilences and transcript_removePauses (0 when not given: pass
+the query's). The spot the user showed turned out to be the words themselves
+(0.08 s of "reel." fading, 0.05 s of "Then" starting, 10–25 dB under the voice)
+and stays.
+
+#### Fewer timeline rows, and shadows on captions (the user, 2026-11-04)
+The user's shorts project had 26 rows, most made by the agent editing it (a row
+per title box); packed so nothing changes it needs about 8–10. Clips showing at
+the same time need rows of their own (their order is what draws over what);
+clips never showing together can share one. And Drop Shadow can't go on a
+caption (effects say what they apply to), with an error naming its id.
+**Decided (the user, 2026-11-04):** (1) **agents reuse rows**: `clip.add`
+without a `track` puts the clip on the lowest row free at that time above
+everything showing then (so it draws on top), a new row only when none is; the
+agents' guidance says so; (2) a **Tidy Rows** command (and for agents): rows
+never busy at the same time packed into one where that can't change what
+draws over what, empty ones removed, one undo step; (3) **captions get a full
+shadow**: Caption Properties' Shadow gains angle and distance beside softness
+and colour, and dropping the Drop Shadow tile on a caption turns it on for
+that caption track and shows it there.
 
 #### Music and sound effects from Epidemic Sound (the user, 2026-10-28; moved from the backlog the same day)
 Music and sound effects found, placed and mixed from Beacon, as B-roll and
@@ -3074,20 +3397,304 @@ through MCP as the user does.
   There is also a soundtracking API (beta: upload a video, get it scored) and
   an official MCP server (beta).
 
-Open questions:
-1. **Access:** apply for a partnership (Orva as the partner, Connect so each
-   user signs in with their own subscription; recommended), or prototype on
-   the free tier first, or use Epidemic's MCP server directly from the agent
-   (no Beacon code, but no Beacon UI either).
-2. **Reporting exports:** the API wants each publish reported; Beacon only
-   knows about exports, not publishing. What counts as a report: every
-   export, or a "mark as published" step.
-3. **Where it lives in the UI:** a Music tile in the AI panel beside B-roll,
-   or its own panel with a browser of tracks.
-4. **Sound effects on pop-ins:** automatic, or suggested for the user to
-   accept.
+Decided (the user, 2026-11-02):
+1. **Access:** Epidemic's MCP server, called by Beacon itself with each
+   user's own key (their Epidemic Sound account › API keys; Settings › AI,
+   in the Keychain). No partnership: the MCP server works on the user's own
+   subscription, which licenses what they download (searching and previews
+   are free; downloads need a paid plan). OAuth isn't open to other apps.
+2. **Reporting exports:** none needed. Reporting is the partner API's rule;
+   through the MCP server tracks are licensed by the user's subscription.
+3. **UI:** a Music tile in the AI panel opening the Music panel (music and
+   sound effects tabs, search, previews, Apply).
+4. **Sound effects on pop-ins:** suggested as a review for the user to
+   accept, never added on their own (not built yet).
+
+**Built (2026-11-02):** the `music` feature (`packages/features/src/music`):
+search and preview; music placed over the range on a Music track, re-cut by
+Epidemic to fit (its track adaptation, up to 5 min) or cut and faded, ducked
+under speech as audio points (`music.duck` again after edits); its
+instruments alone when its singing is off; a sound effect at the playhead on
+an SFX track; library audio isn't transcribed. Pop-ins (2026-11-02): the
+Music panel's third tab lists where motion graphics, B-roll and pictures
+come onto the picture (within 0.25 s is one), one sound per kind (the
+first found for "whoosh" and "pop", changeable), each ticked, marked on the
+timeline; Apply downloads and places them on SFX tracks in one undo step
+(`sfx.popIns`, `sfx.addMany`). Snapping to the beat: parked (the user,
+2026-11-04): talking-head edits cut on speech, not on the music's beat; worth
+it only for montages (Epidemic's MCP server gives no beat data: our own
+detection).
+
+#### Ask an agent from Beacon (the user, 2026-11-03)
+A request typed in Beacon goes to an agent the user has open, so a motion
+graphic or section can be handed over without switching to its terminal.
+Claude Code first, Codex after.
+- **How (spike proved 2026-11-03):** Beacon's MCP server is also a Claude
+  Code channel (`experimental: { "claude/channel": {} }`). The app finds
+  agent sessions through the MCP servers' control sockets (`agent`: the
+  agent's name and version, its project) and sends a request (`prompt`),
+  which the server pushes into the session as `notifications/claude/channel`
+  with what it is about (`project`, `clip`, `section`, `from`, `to`, `label`,
+  `request`, `reply_to`). The agent answers with `app_reply` (received, then
+  done with one line), which reaches the app on its own socket (only a
+  Beacon app's socket in Beacon's folder) as an `agent` event.
+- **The user's choices (2026-11-03):** Send to Agent… under Make on a motion
+  graphic, Ask an Agent… on a section's right-click menu and in ⌘K (the
+  selected clip, else the range, else the project); toasts for "on it" and
+  "done"; with no session, the command to start one and Copy Prompt.
+- **Starting a session that takes requests:** during the research preview a
+  custom channel needs `claude --dangerously-load-development-channels
+  server:beacon` in the project's folder (a warning to confirm once). A
+  session without it drops requests silently: Beacon says so when one isn't
+  acknowledged within 10 s.
+- **Built (2026-11-03).**
+- **Codex (built 2026-11-03):** it can't take a request into an open session,
+  so the box offers "New run with Codex" when its CLI is installed (found in
+  the usual places, else through the login shell). Beacon runs `codex exec
+  --json` in the project's folder with Beacon's MCP server attached and its
+  tools approved for that run only (`-c mcp_servers.beacon.…`,
+  `default_tools_approval_mode="approve"`), in a read-only sandbox (it changes
+  the project through Beacon's tools alone); a job whose id is the request's,
+  its steps in the toast with Cancel, its last message as done.
+
+#### Dynamic Captions: captions that move with the words, for Shorts (the user, 2026-11-04; to plan, then build in this phase)
+Captions as Shorts editors make them now, beyond Beacon's karaoke line: the
+user's references are an OpusClip edit (a 16:9 talk) and the caption apps
+(OpusClip, Submagic, Captions, CapCut). Mainly for Shorts. The name is open
+(Dynamic Captions, Kinetic Captions as OpusClip calls them, or Headlines).
+
+**What the reference does (OpusClip, analysed 2026-11-04):**
+- **Two layers at once.** A small running line at the lower middle (2–5 words,
+  word by word, the emphasised word in an italic serif in gold: *consuming*);
+  and **headlines**: a block of 2–4 lines built word by word in the empty
+  space beside the speaker, never over the face.
+- **Words appear as they are said**, not the group at once; some show dim
+  first and turn white on their word ("i sat right beside **her**").
+- **Hierarchy in a block:** one keyword phrase large, bold and coloured
+  ("AI-generated" yellow with a glow; "looked into" cream, underlined; "Real
+  vs AI" cream, circled by a hand-drawn ellipse), the words around it small
+  and white, stacked.
+- **Decorations draw on** with the keyword (an underline, an ellipse), and the
+  block dims then fades before the next.
+- **Keywords chosen by the AI**, marked in the transcript (pink), and the
+  headlines woven with motion graphics: a gauge counting 5→95, a line chart
+  drawing on, a number counting 14%→70% with its label building, a tweet card.
+
+**What the caption apps add (research 2026-11-04, vendor claims, no
+independent studies):** word-by-word with a coloured current word is the
+common default and the one vendors report retaining best for talking
+heads; bold white with a thin dark outline; 2–5 words at a time; placed in
+the lower middle rather than the bottom edge (platform UI covers it, as
+Beacon's safe areas show); emojis by keywords (Submagic, OpusClip); a zoom
+punch-in on emphasis (Submagic's auto-zoom, which Beacon's zooms could do);
+template presets with brand colours.
+
+**What Beacon has:** word times from the transcript; captions grouped by
+words or characters, one style per track, the spoken word's colour; a caption
+placed apart (`caption.place`); safe areas; Remove Background's matte (where
+the person is); motion graphics with word-by-word text, a counter, sketch
+draw-ons, easings, and a planner picking from the words (Phase 11).
+
+**What is new (a first cut; choices to ask before building):**
+1. **Reveal:** words appear on their word (pop, fade or rise in, a dim word
+   turning white), as a caption style; the whole group at once stays.
+2. **Emphasis inside a caption:** a word or phrase with its own size, weight,
+   font, colour, glow, and a decoration drawn on (underline, ellipse, box,
+   highlighter), by hand from the canvas or the transcript.
+3. **Headlines:** a caption block in 2–4 lines with one keyword line big,
+   placed in the free space beside the person (from the matte or a face box,
+   inside the safe area), then dimmed and faded out; built as a Dynamic
+   Caption clip or as a motion-graphic group (to decide).
+4. **The planner:** picks the keywords and the moments for headlines from the
+   transcript (a few a minute, not every sentence), as B-roll and motion
+   graphics plan; the user ticks them in a review, as Pop-ins.
+5. **Styles as presets:** a few looks (a clean karaoke, a bold word-pop, the
+   two-layer headline look) with brand colours, and the user's own saved.
+6. **Later, maybe:** emojis by keywords, a zoom punch-in on emphasis, a sound
+   on a headline (Pop-ins already does whoosh and pop).
+**Decided (the user, 2026-11-04):** the name is Dynamic Captions. Headlines
+are **caption clips** on their own Headlines track (tied to the words, so they
+ripple and can be corrected; one style for the track), not motion-graphic
+groups. Keywords and headline moments are picked by **Settings › AI's
+planner** (as motion graphics), ticked by the user in a review as Pop-ins.
+Headlines sit on **the side the user picks** for the track (left or right of
+the speaker, inside the safe area), each one movable on the canvas; free space
+found from the matte comes later. **All five parts, in order:** reveal,
+emphasis, presets, headlines, the planner and its review.
+**How (from the code):** it stays the captions feature: new fields on the
+track's caption style (a reveal, an entrance, the colour of words not yet said,
+a fade out, a soft shadow or outline, a layout of line or headline, and how
+emphasised words look) and an emphasis mark on a caption's words; a caption
+using any of them is drawn word by word (each word its own text layer, in one
+group with the shadow pass; emphasis glow by the drop-shadow pass; underline,
+ellipse and box drawn on as sketch strokes; a highlighter as a growing box).
+Captions without them draw as before. Saved presets of the user's own wait
+for an app-wide store a feature can write (none in the contract yet).
+**Built (2026-11-04, `phase-13`):** all five parts. Caption Properties: the
+caption's words as chips (a click makes one a keyword), Make Headline, Find
+Headlines…, a Look menu (Classic, Karaoke, Word Pop, Serif Accent, Headline,
+Headline Glow), Shadow, a Words section (Show all at once or word by word,
+Coming in cut/pop/fade/rise, Not yet said, Layout line or headline, Fade out)
+and a Keywords section (colour, size, font, weight, glow, Drawn on: underline,
+circle, box, highlighter, italic). Headlines: `headline.add` (a Headlines
+track at the top, its side the track's), `headline.fromCaption`; while one
+shows, the captions' line steps aside (OpusClip's reference alternates them);
+not in the .srt. `headlines.plan` (a job): the motion graphics planner
+(Settings › AI) picks about one sentence every 12 s with a keyword of 1–3
+words from it; Apple's model scores sentences one at a time (a sentence it
+declines is left out) and the best are kept; the Headlines review (tick, side,
+look, Apply ↩ as one undo step, Cancel ⎋). MCP: `captions.style` (with
+`track`), `captions.preset`, `captions.presets`, `caption.emphasize`,
+`headline.add`, `headline.fromCaption`, `headlines.plan`, `headlines.review`,
+`headlines.apply`, `headlines.close`. Captions data v4.
+
+**Round 2: the editorial look, for 9:16 Reels (the user, 2026-11-04,
+after a second reference: an Instagram post for the Vyra app, analysed by a
+subagent).** That look is one serif (Instrument Serif, Regular) in white or
+cream with no box, outline or colour; headline words huge (blocks 47–95% of
+the width), each line stretched sideways to fill it; words cut in on their
+word with no pop or fade, lines re-fitting as each lands; headlines in the
+free space, some letters behind the speaker's head; a small quiet running line
+hidden while a headline shows; numbers counting up ("100000"), a headline
+blurring out. Beacon's looks were too heavy (Helvetica 700–900, yellow and
+green), headlines too small (one keyword line at 42% width), animations too
+busy, nothing behind the person. Reels covers the bottom 20–25% and the right
+edge with its UI.
+**Decided (the user, 2026-11-04):** **bundle Instrument Serif** (OFL) with
+Beacon, the renderer registering the fonts Beacon ships; **headlines behind the
+speaker as an option** (Behind the speaker on a headline track, through
+Remove Background's person matte, made when the option is on); **add Editorial
+looks** (Editorial Line, Editorial Headline) and tune the rest clear of Reels'
+UI with calmer animations, Classic unchanged; this round also **lines
+stretched to fill**, **numbers counting up** and **blur out**. Placement in
+the free space around the face stays later.
+**Built (2026-11-04):** Instrument Serif in `packages/engine/fonts` (OFL,
+pinned commit in its README), registered by the renderer for its process and
+staged into the app's engine folder; Editorial Line and Editorial Headline
+(the headlines' new default look, side `center` across the top); the others
+moved for Reels (bottom offsets 28–30% of the height, widths 0.72, headlines
+0.5 wide 8% in from the right) with Avenir Next for the bold ones and shorter
+entrances; style fields `stretch` (≤1.8×), `lineWords`, `countUp` (0.6 s,
+ease out, drawn against the figure's right end), `exit: blur` (Remove
+Background's blur pass, 0.15 s) and `behind` (the video clips under the track
+evaluated again and drawn through their person matte; the feature contract's
+`needs` starts the matte job). Headlines revealed word by word re-fit as each
+word lands (laid out from the words said so far). Captions data v5. Seen: a
+word landing on a centred face goes wholly behind it; placing headlines in the
+free space is what fixes that (later).
+Sources: [OpusClip caption presets](https://www.opus.pro/blog/best-caption-presets-styles-boost-retention),
+[OpusClip captions API](https://www.opus.pro/blog/add-captions-to-video-api),
+[Submagic](https://www.submagic.co/blog/reasons-to-use-submagic-for-ai-captions),
+[caption styles ranked (vendor)](https://www.clipspeed.ai/blog/11-caption-styles-ranked-viral-performance-2026.html).
+
+#### The user's hand checks, 2026-11-05: what follows
+Confirmed by hand: playback starts at once, Tidy Rows, the timeline divider, the
+caption shadow. In this order, on this branch:
+1. **Bugs:** Monitor's canvas goes black while Left Edge, Right Edge or From the
+   Left is hovered, and past zoom 3.13 (the live preview only: headless frames
+   draw); opacity does nothing on a Monitor clip; Caption Properties' Look menu
+   goes back to "Choose a look…" after a look is picked.
+2. **Monitor:** Move goes (Scale and Position, and their animations, already
+   move the camera; saved projects go to still). Rotation X/Y/Z steer the
+   camera (tilt around the monitor, roll), so the Transform tab means something
+   on a Monitor clip. Zoom down to about 1.0, the whole screen and bezel in shot
+   (no stand or desk: a matching room photo looked fake).
+3. **Removed:** Headlines (Find Headlines, Make Headline, the Headlines panel;
+   the headline looks stay as caption looks), Filler Words, Noise Removal,
+   Polish, Pixelate; each with a migration so saved projects open. Pop-ins
+   fold into Sound Effects (a "Sounds for my graphics" button, no tab).
+4. **Captions:** the Look menu as a list of pictures ("Aa" in each look,
+   previewed on the canvas under the pointer); fewer settings showing (Look,
+   Font, Size, Color on top; Box, Highlight, Shadow folded); Drop Shadow
+   dropped on a caption says it turned the caption's own shadow on.
+5. **Camera Angle:** the Angle menu as blueprints (a wireframe head, the
+   camera's place); room photos only from an Add Photos… button (any file),
+   listed below, never the timeline's media; the cost line evergreen ("Made on
+   your Replicate account: about $…", no model names); Settings › AI: the
+   upscale's resolution (1080p by default, 2K, 4K).
+6. **Small:** a loading spinner on Music's and Sound Effects' play buttons until
+   the sound starts; a Takes pill in the Media Bin (each recording, screen,
+   camera and mic, as one item).
+6b. **Camera Angle, later the same day (done, uncommitted at the end of the session):** Handheld or
+   Locked a toggle; the price on Generate ("Generate · ~$1.72"), the cost line gone; the Angle menu's
+   pictures a small 3D wireframe scene seen from each angle's camera (`packages/ui/src/angle-art.ts`, the
+   user: "the photos look good", keep them); Three-quarter, left and right added (the interview's second
+   camera, 35° off, the default) and High angle (from above and behind a shoulder); the side profiles went
+   (angles v2 turns them into three-quarter on the same side).
+6c. **To look into: a real 3D person for the angle pictures** (the user, 2026-11-05; the spike put off the same day, "skip this for now": candidates found, CC-BY and rigged, "Low Poly Male Base - Slender" by Mesh-Base, sketchfab.com/3d-models/9a6fd72aa31540f2a6a8e8d236778a2f, downloading needs the user's Sketchfab login or API token): a generic human model
+   from Sketchfab (https://sketchfab.com/tags/human; pick one whose licence allows it, CC0 or CC-BY with
+   credit, downloads need a Sketchfab login), rendered in Blender (the user has it; driven by Python
+   scripts, `blender -b -P`) from each angle's camera as line art (Freestyle, Beacon green on black),
+   saved as the menu's pictures in place of the drawn figure. The cameras are in `angle-art.ts` (`CAMS`).
+6d. **Monitor, next (the user, 2026-11-05, after checking b8fb6b0: "apart from that this is perfect"):**
+   - **Bug:** zoomed in with the clip turned (Scale 226%, Rotation Y −73.5°), the canvas draws the clip's
+     outline as a tilted clip's, its corners behind the canvas camera: lines shoot across the canvas. On a
+     Monitor clip the rotation turns the camera, so draw its outline flat (the clip's 2D box); and the camera
+     stops at ±60° while the field took −73.5°: limit it there, or show where it stops.
+   - **Pixels** (a slider): the screen's subpixel grid (an LCD's RGB stripes; "screen-door" when strong), not
+     CRT scan lines: drawn at the recording's own pixel size so it shows as the camera comes close, as in macro
+     shots of a screen, and fading where a pixel gets smaller than the output's so it never shimmers (moiré).
+     A shader in `device-frame.wgsl`'s screen pass.
+   - **Glossy's reflection, real** (the user's reference: a soft room mirrored over the picture): a reflection
+     plate (one generated image of the room behind the camera: dim, a window, a lamp, a hint of someone
+     filming; OpenAI on the user's key, a few cents, once, ask first) blurred well out of focus, mirrored onto
+     the glass with parallax as the camera moves, stronger at grazing angles (Fresnel); a Reflection slider; in
+     place of today's lamp spot and sheen when Glossy.
+   **Done (2026-11-05):** the outline flat on an effect that turns the camera (`EffectDef.turnsCamera`), the
+   rotation stopped at 60° (75° in all on an angled shot); Pixels drawn on the finished frame in the backdrop's
+   first pass (`device-pixels`), so any angle works at the output's resolution; the reflection plate from
+   gpt-image-2.6-sunburst (the newest on the user's OpenAI key, the least busy of four), Reflection 0.5; v6.
+6d2. **Monitor's rooms all round (the user, 2026-11-05; done):** Room back on every shot: Night and Day as 360°
+   panoramas (flux-3-image, the user's picks; the night made plainer at their ask; Topaz 4×), looked into along each
+   pixel's ray (`device-panorama`), so the camera turning shows the right part behind the monitor; Glossy mirrors the
+   same room (`device-reflection`, the ray bounced off the glass). Studio stays a head-on photo. v7.
+6d3. **Monitor's third round (the user, 2026-11-05; done):** Glow goes (Film Look's halation does it); Zoom stops at
+   2.5 (Pixels showed as moiré past it); the bezel and its rim stay sharp at any Blur, the focus blur gathering only
+   from its own part of the frame; Reflection Blur (15%) on Glossy, the first reflection back with each room blended in;
+   Studio's photo on every shot; Corner moves the whole screen when zoomed out. v8. Export's Speed goes from 0.25× to 3× on a slider.
+6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
+   Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
+   `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New
+   Folder) for `chooseFolder` in `packages/desktop/src/bun/index.ts`, or an NSOpenPanel of Beacon's own with
+   `canCreateDirectories` (bun:ffi to the Objective-C runtime). Check in the app: it comes to the front, Cancel
+   returns nothing, the folder made is picked.
+   **Tried and rolled back (the user, 2026-11-05):** osascript's `choose folder` came up about ten times slower than
+   Finder's picker (and showed no picker for New Project's Choose…): Electrobun's dialog stays. New Folder there would
+   need an NSOpenPanel of Beacon's own (bun:ffi, on AppKit's main thread): parked.
+7. **Automatic music and sound effects:** AI reads the transcript, works out the
+   video's kind and mood (per section), and proposes Epidemic Sound tracks and
+   sound effects at the right places, reviewed on the timeline then applied
+   (as the AI panel's other reviews).
+   Decided (the user, 2026-11-05): **who reads** the transcript is B-roll's
+   planner setting (Apple's on-device model or OpenAI); **music per section**,
+   neighbouring sections of the same mood sharing a track (one track for the
+   video without sections), each fitted by Epidemic to its length, a 1 s
+   crossfade between tracks on two Music rows, ducked under speech as today;
+   **sound effects** at section changes (a soft transition), at a few key
+   moments the reader flags (about one every 30 s at most, each its own
+   search), and today's Pop-ins folded in; **reviewed** in a Suggest tab, the
+   Music panel's first: each section's track and each sound listed (play,
+   swap to the next of three found, untick), marked on the timeline; Apply
+   downloads and places everything in one undo step.
+   **Built (2026-11-05):** `music.suggest` (a job; `packages/features/src/music/suggest.ts`), the Suggest tab
+   (`music.review` `choose`), Apply through `music.apply`; beacon-writer's `mood` and `moment` kinds.
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
+
+#### First: Undo Agents' Last Change, a history per author (the user, 2026-11-04; before the audit)
+The user edits by hand while an agent (Claude, Codex) edits another part of the
+same project, sharing one undo history: ⌘Z undid the agent's last change
+rather than the user's mistake. Decided (the user, 2026-11-04): each undo step
+records who made it (the user, or the agent by name, known from its
+connection); **⌘Z and ⇧⌘Z undo and redo the user's own steps**, skipping the
+agents'; **Edit › Undo Agents' Last Change** (and an agent's `project_undo`)
+undoes theirs; the History list says who made each step. A step that a later
+step of someone else's touched (the same clip, or one a ripple moved) isn't
+undone under it: Beacon says whose change is in the way ("an agent changed
+this clip since: undo the agent's change first"). Why its own item, before the
+audit: undo steps are Immer patches by position ("track 2's 5th clip"), so
+undoing an older step out of order needs patches found by id; every command's
+undo exactness rides on it (unit tests for undo exactness are the rule).
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
@@ -3198,6 +3805,37 @@ HyperFrames' renders as the single graphics were.
 ---
 
 ## 16. Backlog (ideas parked, not scheduled)
+
+### Relight the camera after the take (the user, 2026-11-04; a future feature)
+The camera's light changed after recording: a key moved to the side, warmer or
+cooler, brighter on a dull UK evening, or matched to a generated angle or a
+B-roll shot. Beeble's relighting models (SwitchLight 3, 3D Relight, SwitchX
+2: per frame, masks to protect areas) are the lead, through its API
+(developer.beeble.ai), with the user's own key as Replicate's and Epidemic's
+are. To find out first: the API's price per second, whether it takes a short
+range and a lighting setup in words or a reference picture, how long it takes,
+and whether the face and lips stay true. A spike with the user's go-ahead
+before any paid call, then a plan.
+
+### Ideas from Beeble (the user's find, 2026-11-04; candidates)
+Beeble (beeble.ai: a cloud with an API at developer.beeble.ai, and a local
+Beeble Studio) sells VFX models for footage. What could serve Beacon:
+- **Reframe (SwitchFrame):** a 16:9 take extended to 9:16 (or any aspect) by
+  generating what lies outside the frame: a Short from a wide recording
+  without cropping the presenter tight. The best fit for Beacon's Shorts.
+- **Relight (SwitchLight, 3D Relight, SwitchX):** the camera's light changed
+  after the take (a key from the side, a warmer room), per frame with masks;
+  would also match a generated angle to the take, or a dull room to an evening
+  one.
+- **Upscaler (Topaz, Magnific):** Seedance's 480p/720p angles finished at the
+  take's size.
+- **SDR to HDR:** for an HDR export, later.
+- Background remover and PBR/depth passes: Beacon has its own matte; depth
+  could drive a fake parallax punch-in.
+Its video generator also runs Seedance 2.5. Credits by plan ($16–$84 a month);
+no public per-call API prices on the page. Not checked: the API's terms and
+whether the models take a short range.
+
 
 ### A Glow effect (the user, 2026-10-28; candidate)
 A Glow effect in the effects list beside Drop Shadow and Round Corners, for

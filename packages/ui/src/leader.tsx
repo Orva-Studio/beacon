@@ -18,15 +18,16 @@ export function LeaderKeys() {
   }, [pending]);
   if (pending === undefined) return null;
   const depth = pending.split(" ").length;
-  const next = new Map<string, { keys: Keys; names: string[]; more: boolean }>();
+  const next = new Map<string, { keys: Keys; names: string[]; more: boolean; fresh: boolean }>();
   for (const s of shortcuts) {
     for (const k of s.keys) {
       const id = chordId(k);
       if (!id?.startsWith(`${pending} `)) continue;
       const step = keySteps(k)[depth]!;
       const key = chordId(step)!;
-      const entry = next.get(key) ?? { keys: step, names: [], more: false };
+      const entry = next.get(key) ?? { keys: step, names: [], more: false, fresh: false };
       entry.names.push(s.name);
+      entry.fresh ||= !!s.fresh;
       entry.more ||= keySteps(k).length > depth + 1;
       next.set(key, entry);
     }
@@ -45,12 +46,22 @@ export function LeaderKeys() {
             <kbd className="min-w-6 rounded-sm bg-chip px-1.5 text-center font-sans text-label text-text-strong">{keysLabel(n.keys)}</kbd>
             {n.more ? (
               <span className="flex items-center justify-between gap-2 text-accent" data-leader-group>
-                <span className="truncate">{n.names[0]!.split(":")[0]}</span>
+                <span className="truncate">
+                  {n.names[0]!.split(":")[0]}
+                  {n.fresh && <span className="ml-2 text-caption" data-leader-new>new</span>}
+                </span>
                 <span aria-hidden>›</span>
               </span>
             ) : (
               // In a group the header names it: "Red", not "Color Label: Red".
-              <span className="truncate text-text">{n.names.map((x) => (depth > 1 ? x.replace(/^[^:]*: /, "") : x)).join(", ")}</span>
+              <span className="flex items-center gap-2 truncate text-text">
+                <span className="truncate">{n.names.map((x) => (depth > 1 ? x.replace(/^[^:]*: /, "") : x)).join(", ")}</span>
+                {n.fresh && (
+                  <span className="shrink-0 rounded-sm bg-accent/20 px-1 text-caption text-accent" title="Learned from how often you use it (Settings › Memory)" data-leader-new>
+                    new
+                  </span>
+                )}
+              </span>
             )}
           </div>
         ))}

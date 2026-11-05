@@ -29,10 +29,10 @@ import {
   projectFormat,
   assetName,
 } from "@beacon/model";
-import { clipStream, mediaInfo, sourceOf } from "../media";
-import { rippleDeleteRanges } from "../timeline";
+import { clipStream, mediaInfo, sourceOf, type WaveformData } from "../media";
+import { rangesCut, rippleDeleteRanges } from "../timeline";
 import type { CursorData } from "../cursor";
-import { fillerRule, keptFillers, retakeTake, silenceMin, where, type Habit } from "./habits";
+import { retakeTake, silenceMin, where, type Habit } from "./habits";
 import { RETAKE_DEFAULTS, bestTake, findRetakes, isFiller, judgeTakes, retakeCuts, takeKey, takeText, type Judgment, type RetakeOptions, type Take, type Word } from "./retakes";
 
 /** `Asset.derived.transcript` / the `transcript` analyzer: one transcription per audio stream index. */
@@ -69,6 +69,13 @@ function* audioClips(project: Project, registry: FeatureRegistry, data: Data) {
   }
 }
 
+/** Where speech is heard on the timeline (timeline seconds, merged), from every audio clip's transcript. */
+export function speechSpans(project: Project, registry: FeatureRegistry, data: Data): [number, number][] {
+  const speech: [number, number][] = [];
+  for (const { t, from, to, map } of audioClips(project, registry, data)) for (const [a, b] of t.speech) if (b > from && a < to) speech.push([map(a), map(b)]);
+  return mergeSpans(speech.sort((x, y) => x[0] - y[0]));
+}
+
 /**
  * The words audible on the timeline: every audio clip on an unmuted track,
  * through its window into its source, in timeline seconds.
@@ -84,6 +91,53 @@ export function timelineWords(project: Project, registry: FeatureRegistry, data:
   return words.sort((a, b) => a.start - b.start).map((w, i) => ({ i, ...w }));
 }
 
+/** Seconds of sound kept each side of a cut that follows the sound (`quiet`): against a click, not to keep noise. */
+const QUIET_GUARD = 0.04;
+/** Quiet runs shorter than this inside the sound don't split it (the gap between two syllables). */
+const QUIET_JOIN = 0.1;
+
+const voiceLevels = new WeakMap<number[], number>();
+/** A stream's voice, as a waveform peak (0–255): its 90th percentile, counting only where there is sound. */
+function voiceOf(peaks: number[]): number {
+  let v = voiceLevels.get(peaks);
+  if (v === undefined) {
+    const heard = peaks.filter((p) => p > 0).sort((a, b) => a - b);
+    v = heard[Math.floor(heard.length * 0.9)] ?? 0;
+    voiceLevels.set(peaks, v);
+  }
+  return v;
+}
+
+/**
+ * Where each audio clip's sound is within `under` dB of its voice (timeline seconds, merged), from its waveform
+ * (peaks per 10 ms, 0–255 as the square root of the peak). A clip whose waveform isn't made yet counts as sound
+ * throughout, so nothing more is cut from it.
+ */
+function soundSpans(project: Project, registry: FeatureRegistry, data: Data, under: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (const { clip, from, to, map } of audioClips(project, registry, data)) {
+    const peaks = data<WaveformData>(clip.assetId!, "waveform")?.streams[clipStream(clip)];
+    if (!peaks?.length) {
+      out.push([map(from), map(to)]);
+      continue;
+    }
+    // A peak's waveform value is 255·√peak, so `under` dB lower is 10^(−under/40) of it.
+    const threshold = voiceOf(peaks) * 10 ** (-under / 40);
+    let run: [number, number] | undefined;
+    for (let i = Math.max(0, Math.floor(from * 100)); i < Math.min(peaks.length, Math.ceil(to * 100)); i++) {
+      if (peaks[i]! < threshold) continue;
+      const [a, b] = [i / 100, (i + 1) / 100];
+      if (run && a - run[1] < QUIET_JOIN) run[1] = b;
+      else {
+        if (run) out.push([map(run[0]), map(run[1])]);
+        run = [a, b];
+      }
+    }
+    if (run) out.push([map(run[0]), map(run[1])]);
+  }
+  return mergeSpans(out.sort((x, y) => x[0] - y[0]));
+}
+
 /**
  * Silences on the timeline: where no audio clip has detected speech. Based
  * on the audio rather than gaps between words, so speech whisper missed is
@@ -93,14 +147,20 @@ export function timelineWords(project: Project, registry: FeatureRegistry, data:
  * across the talk (its camera, from the same take or another file) is cut
  * with its silences. `after` is the index of the last word before.
  */
-export function pauses(project: Project, registry: FeatureRegistry, data: Data, words: TimelineWord[]): { start: number; end: number; after?: number }[] {
-  const speech: [number, number][] = [];
+export function pauses(project: Project, registry: FeatureRegistry, data: Data, words: TimelineWord[], under = 0): { start: number; end: number; after?: number }[] {
+  let speech: [number, number][] = [];
   const heard: [number, number][] = [];
   for (const { clip, t, from, to, map } of audioClips(project, registry, data)) {
     heard.push([ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)]);
     for (const [a, b] of t.speech) if (b > from && a < to) speech.push([map(a), map(b)]);
   }
   speech.sort((x, y) => x[0] - y[0]);
+  // `under`: speech is only where it is also heard within `under` dB of the voice, so low noise kept inside a
+  // speech region (a breath, the room after a word) is silence too.
+  if (under > 0) {
+    const sound = soundSpans(project, registry, data, under);
+    speech = mergeSpans(speech).flatMap(([a, b]) => sound.filter(([x, y]) => y > a && x < b).map(([x, y]) => [Math.max(a, x), Math.min(b, y)] as [number, number]));
+  }
   const end = ticksToSeconds(projectDuration(project));
   const quiet: [number, number][] = [];
   let at = 0;
@@ -153,50 +213,14 @@ function lines(words: TimelineWord[], gap: number): string {
   return out.join("\n");
 }
 
-/** Pieces of clips this short or shorter that a cut would leave are cut too: a flash of a frame or two between cuts. */
-const SLIVER_FRAMES = 2;
-
-/**
- * Ranges in ticks, merged and widened so no clip on an unlocked track is left
- * with only a sliver between two cuts or between a cut and its own edge, unless
- * the sliver holds one of the words `kept` (ticks): a short word is no flash.
- */
-function withoutSlivers(doc: Project, ranges: [number, number][], kept: [number, number][]): [number, number][] {
-  const sliver = SLIVER_FRAMES * ticksPerFrame(doc.settings.fps);
-  const clips = doc.tracks.filter((t) => !t.locked).flatMap((t) => t.clips);
-  const holdsWord = (a: number, b: number) => kept.some(([k0, k1]) => k1 > a && k0 < b);
-  let out: [number, number][] = ranges.map((r) => [...r]);
-  for (let changed = true; changed; ) {
-    changed = false;
-    const merged: [number, number][] = [];
-    for (const [a, b] of [...out].sort((x, y) => x[0] - y[0])) {
-      const last = merged.at(-1);
-      if (last && (a <= last[1] || (a - last[1] <= sliver && !holdsWord(last[1], a)))) last[1] = Math.max(last[1], b);
-      else merged.push([a, b]);
-    }
-    for (const r of merged) {
-      for (const c of clips) {
-        const end = c.start + c.duration;
-        if (c.start < r[0] && end > r[0] && r[0] - c.start <= sliver && !holdsWord(c.start, r[0])) [r[0], changed] = [c.start, true];
-        if (end > r[1] && c.start < r[1] && end - r[1] <= sliver && !holdsWord(r[1], end)) [r[1], changed] = [end, true];
-      }
-    }
-    out = merged;
-  }
-  return out;
-}
-
 /** The ranges `cut` removes: out to whole frames, so a cut never leaves the edge of a word it removes, nor a sliver of a clip. */
 function cutRanges(doc: Project, registry: FeatureRegistry, data: Data, ranges: { start: number; end: number }[]) {
   const { fps } = doc.settings;
-  const kept = timelineWords(doc, registry, data)
-    .filter((w) => !ranges.some((r) => (w.start + w.end) / 2 >= r.start && (w.start + w.end) / 2 < r.end))
-    .map((w) => [secondsToTicks(w.start), secondsToTicks(w.end)] as [number, number]);
-  return withoutSlivers(
-    doc,
-    ranges.map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number]).filter(([a, b]) => b > a),
-    kept,
-  ).map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+  const framed = ranges
+    .map((r) => [snapSeconds(r.start, fps, "floor"), snapSeconds(r.end, fps, "ceil")] as [number, number])
+    .filter(([a, b]) => b > a)
+    .map(([a, b]) => ({ start: ticksToSeconds(a), end: ticksToSeconds(b) }));
+  return rangesCut(doc, framed, registry, data);
 }
 
 /**
@@ -215,15 +239,20 @@ function cut(doc: Project, ctx: CommandContext, ranges: { start: number; end: nu
   return outward.map((r) => ({ start: roundSeconds(r.start), end: roundSeconds(r.end) }));
 }
 
-/** What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it before the first word, none after the last), outside `except`. */
-function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
+/**
+ * What Remove Silences cuts: each silence over `min` seconds, less `keep` seconds of it (half each side; all of it
+ * before the first word, none after the last), outside `except`. With `quiet` (dB under the voice) the cut follows
+ * the sound: low noise counts as silence and `keep` is at most a few hundredths each side, so none of it is kept.
+ */
+function pauseCuts(doc: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; quiet?: number; from?: number; to?: number; except: { start: number; end: number }[] }) {
   const words = timelineWords(doc, registry, data);
   if (!words.length) return undefined;
-  return pauses(doc, registry, data, words)
+  const side = o.quiet ? Math.min(o.keep / 2, QUIET_GUARD) : o.keep / 2;
+  return pauses(doc, registry, data, words, o.quiet)
     .filter((p) => p.end - p.start > o.min && (o.from === undefined || p.start >= o.from) && (o.to === undefined || p.end <= o.to))
     .flatMap((p) =>
       subtractSpans(
-        [p.after === undefined ? p.start : p.start + o.keep / 2, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - o.keep / 2],
+        [p.after === undefined ? p.start : p.start + side, p.end >= ticksToSeconds(projectDuration(doc)) - 1e-6 && p.after !== undefined ? p.end : p.end - side],
         o.except.map((x) => [x.start, x.end]),
       ).map(([start, end]) => ({ start, end })),
     );
@@ -295,6 +324,8 @@ function refuseUntranscribed(project: Project, registry: FeatureRegistry, data: 
 export interface SilenceReview {
   min: number;
   keep: number;
+  /** dB under the voice counted as silence too, the cut following the sound; 0 for detected speech alone. */
+  quiet: number;
   /** A time inside each silence picked on the timeline (a click, ⇧-click for more): Apply cuts those. */
   selected: number[];
   /** The habits it opened with, said in the panel ("Longer than 0.45 s: …"). */
@@ -303,10 +334,10 @@ export interface SilenceReview {
   reach?: number;
 }
 
-const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, selected: [] };
+const SILENCE_DEFAULTS: SilenceReview = { min: 0.6, keep: 0.3, quiet: 30, selected: [] };
 
 /** A review's settings as the user last left them (its sliders), else the defaults. */
-const silenceSettings = (pref: Preferences): SilenceReview => ({ min: Number(pref("silenceMin")), keep: Number(pref("silenceKeep")), selected: [] });
+const silenceSettings = (pref: Preferences): SilenceReview => ({ min: Number(pref("silenceMin")), keep: Number(pref("silenceKeep")), quiet: Number(pref("silenceQuiet")), selected: [] });
 const retakeSettings = (pref: Preferences): RetakeOptions => ({ minWords: Number(pref("retakeMinWords")), within: Number(pref("retakeWithin")) });
 
 const silenceReview = (s: Session) => (s.features.transcript as { silences?: SilenceReview } | undefined)?.silences;
@@ -339,29 +370,30 @@ function stackedSpeech(project: Project, registry: FeatureRegistry, data: Data):
  * Remove Silences with `o`: each silence over `min`, whether it is screen action and whether it is picked, the
  * ranges cutting all of them would remove and those cutting only the picked ones would, and whether two voices overlap.
  */
-function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; selected?: number[] }) {
+function silencePlan(project: Project, registry: FeatureRegistry, data: Data, o: { min: number; keep: number; quiet?: number; selected?: number[] }) {
   const waiting = untranscribed(project, registry, data);
   const stacked = stackedSpeech(project, registry, data);
   const words = timelineWords(project, registry, data);
   if (!words.length) return { waiting, stacked, words: 0, silences: [], all: [], chosen: [] };
   const picked = o.selected ?? [];
-  const silences = pauses(project, registry, data, words)
+  const silences = pauses(project, registry, data, words, o.quiet)
     .filter((p) => p.end - p.start > o.min)
     .map((p) => ({ start: p.start, end: p.end, active: screenActive(project, data, p.start, p.end), selected: picked.some((t) => t >= p.start - 1e-3 && t <= p.end + 1e-3) }));
-  const all = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except: [] }) ?? [];
-  const chosen = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, except: silences.filter((p) => !p.selected).map(({ start, end }) => ({ start, end })) }) ?? [];
+  const all = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, quiet: o.quiet ?? 0, except: [] }) ?? [];
+  const chosen = pauseCuts(project, registry, data, { min: o.min, keep: o.keep, quiet: o.quiet ?? 0, except: silences.filter((p) => !p.selected).map(({ start, end }) => ({ start, end })) }) ?? [];
   return { waiting, stacked, words: words.length, silences: silences.map((p) => ({ ...p, start: roundSeconds(p.start), end: roundSeconds(p.end) })), all, chosen };
 }
 
 const SilenceSettings = {
   min: z.number().positive().max(10).describe("Silences longer than this many seconds are found"),
   keep: z.number().nonnegative().max(2).describe("Seconds of each cut silence left in, half each side"),
+  quiet: z.number().min(0).max(60).describe("Sound this many dB under the voice counts as silence too (low noise, a breath, the room after a word), and the cut follows the sound: `keep` is then at most 0.04 s each side. 0: only where no speech was detected"),
 };
 
-type ReviewKey = "silences" | "fillers" | "retakes";
-type Reviews = { silences?: SilenceReview; fillers?: FillerReview; retakes?: RetakeReview };
+type ReviewKey = "silences" | "retakes";
+type Reviews = { silences?: SilenceReview; retakes?: RetakeReview };
 
-/** A review's flip, focus and close: the reviews differ only in what they name. Remove Retakes keeps a take rather than flipping one. */
+/** A review's focus and close (and Remove Retakes' keep): the reviews differ only in what they name. */
 function reviewSteps(key: ReviewKey, title: string, item: string): SessionCommandDef[] {
   const open = (s: Session) => {
     const r = (s.features.transcript as Reviews | undefined)?.[key];
@@ -369,32 +401,24 @@ function reviewSteps(key: ReviewKey, title: string, item: string): SessionComman
     return r;
   };
   const At = z.strictObject({ at: z.number().nonnegative() });
-  const flip: SessionCommandDef =
-    key === "retakes"
-      ? {
-          id: "retakes.keep",
-          description:
-            "In Remove Retakes' review, keep this take of its group instead of the one picked, cutting the group's others (clicking it on the timeline does): `at`, a time inside the take, e.g. its start from transcript_retakes",
-          args: At,
-          apply: (s, { at }: { at: number }) => {
-            const r = open(s) as RetakeReview;
-            r.kept.push(at);
-            if (r.cutAll) r.cutAll = r.cutAll.filter((g) => at < g.start - 1e-3 || at > g.end + 1e-3);
-          },
-        }
-      : {
-          id: `${key}.flip`,
-          description: `In ${title}' review, keep a ${item} it would cut, or cut one it would keep (clicking it on the timeline does): \`at\`, a time inside it, e.g. its start from transcript_${key}`,
-          args: At,
-          apply: (s, { at }: { at: number }) => void (open(s) as FillerReview).flipped.push(at),
-        };
+  const keep: SessionCommandDef = {
+    id: "retakes.keep",
+    description:
+      "In Remove Retakes' review, keep this take of its group instead of the one picked, cutting the group's others (clicking it on the timeline does): `at`, a time inside the take, e.g. its start from transcript_retakes",
+    args: At,
+    apply: (s, { at }: { at: number }) => {
+      const r = open(s) as RetakeReview;
+      r.kept.push(at);
+      if (r.cutAll) r.cutAll = r.cutAll.filter((g) => at < g.start - 1e-3 || at > g.end + 1e-3);
+    },
+  };
   return [
-    flip,
+    ...(key === "retakes" ? [keep] : []),
     {
       id: `${key}.focus`,
       description: `In ${title}' review, go to one ${item} to look at it on its own (the review's ‹ › buttons, or ⌥-clicking it on the timeline): \`at\`, a time inside it, e.g. its start from transcript_${key}. ${key}.apply with \`one\` then cuts only that one`,
       args: At,
-      apply: (s, { at }: { at: number }) => void ((open(s) as FillerReview | RetakeReview).current = at),
+      apply: (s, { at }: { at: number }) => void ((open(s) as { current?: number }).current = at),
     },
     {
       id: `${key}.close`,
@@ -413,7 +437,7 @@ const silenceSessionCommands: SessionCommandDef[] = [
     id: "silences.review",
     description:
       "Open Remove Silences' review (the AI panel's tile does): the timeline marks each silence and the properties panel shows these settings, until silences.apply or silences.close; nothing is cut until the user picks silences (silences.select) and cuts them, or cuts all. With settings, change them. An agent can pick silences for the user to look over",
-    args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional() }),
+    args: z.strictObject({ min: SilenceSettings.min.optional(), keep: SilenceSettings.keep.optional(), quiet: SilenceSettings.quiet.optional() }),
     apply: (s, a: Partial<SilenceReview>, { pref, project, memory }) => {
       const r = { ...(silenceReview(s) ?? learnedSilences(silenceSettings(pref), memory, project)), ...Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined)) } as SilenceReview;
       // Moved from the habit, it no longer says why.
@@ -469,97 +493,13 @@ function learnedSilences(r: SilenceReview, memory: Memory, project: Project): Si
   return { ...r, min: min.value, learned: [`Longer than ${min.value} s: you cut pauses longer than this and keep shorter ones${where(min)} (${min.agree} of ${min.of})`] };
 }
 
-/** Remove Filler Words' review (`session.features.transcript.fillers`): the fillers flipped by hand. */
-export interface FillerReview {
-  /** Times inside fillers whose cut-or-keep was flipped: an odd number in one flips it. */
-  flipped: number[];
-  /** Going through them one at a time: a time in the filler being looked at, or just before it. */
-  current?: number;
-  /** Fillers kept unless flipped, by word ("um"): the user's habit. Others are cut unless flipped. */
-  keep?: string[];
-  /** The habits it opened with, said in the panel. */
-  learned?: string[];
-}
-
-const fillerReview = (s: Session) => (s.features.transcript as { fillers?: FillerReview } | undefined)?.fillers;
-
-/**
- * The time cut for filler words `first`..`last`: them and the shorter of the pauses either side, so the pause
- * left is the longer one ("so, um, the" becomes "so, the"; a long pause stays for Remove Silences, which knows
- * screen action). `cut` rounds out to whole frames, which near a kept word would take up to a frame of it (the
- * onset of the word after, heard as clipped): there an edge goes to the frame on the filler's side instead.
- */
-function fillerCut(project: Project, words: TimelineWord[], first: TimelineWord, last: TimelineWord) {
-  const [prev, next] = [words[first.i - 1], words[last.i + 1]];
-  const pause = Math.min(prev ? first.start - prev.end : Infinity, next ? next.start - last.end : Infinity);
-  const end = last.end + (Number.isFinite(pause) ? Math.max(0, pause) : 0);
-  const { fps } = project.settings;
-  const frame = (t: number, way: "floor" | "ceil") => ticksToSeconds(snapSeconds(t, fps, way));
-  // Words a transcriber wrote overlapping the filler keep their time.
-  const [a, b] = [Math.max(first.start, prev?.end ?? 0), Math.min(end, next?.start ?? Infinity)];
-  return {
-    start: prev && frame(a, "floor") < prev.end - 1e-6 ? frame(a, "ceil") : a,
-    end: next && frame(b, "ceil") > next.start + 1e-6 ? frame(b, "floor") : b,
-  };
-}
-
-/**
- * What Remove Filler Words does: each run of filler words in the transcript ("Uh, uh, uh"), the time it cuts
- * (`fillerCut`) and whether it is cut (all are, but a flip keeps one), and the ranges removed.
- */
-function fillerPlan(project: Project, registry: FeatureRegistry, data: Data, o: FillerReview) {
-  const waiting = untranscribed(project, registry, data);
-  const words = timelineWords(project, registry, data);
-  const runs: [TimelineWord, TimelineWord][] = [];
-  for (const w of words) {
-    if (!isFiller(w.text)) continue;
-    const last = runs.at(-1);
-    if (last && last[1].i === w.i - 1) last[1] = w;
-    else runs.push([w, w]);
-  }
-  const found = runs.map(([first, last]) => {
-    const r = fillerCut(project, words, first, last);
-    const flips = o.flipped.filter((t) => t >= r.start - 1e-3 && t <= r.end).length;
-    const word = fillerRule(first.text).slice(7);
-    const kept = !!o.keep?.includes(word);
-    return { ...r, text: words.slice(first.i, last.i + 1).map((w) => w.text).join(" "), word, cut: (flips % 2 === 0) !== kept, flipped: flips % 2 === 1 };
-  });
-  return {
-    waiting,
-    words: words.length,
-    fillers: found.map((f) => ({ ...f, start: roundSeconds(f.start), end: roundSeconds(f.end) })),
-    // Unrounded: a frame time rounded to the millisecond can sit just short of its frame.
-    ranges: found.filter((f) => f.cut).map(({ start, end }) => ({ start, end })),
-    all: found.map(({ start, end }) => ({ start, end })),
-    current: currentOf(found, o.current),
-  };
-}
-
 /** Opening one review closes the others: the properties panel and the timeline's marks show one at a time. */
-function openReview(s: Session, key: ReviewKey, review: SilenceReview | FillerReview | RetakeReview) {
+function openReview(s: Session, key: ReviewKey, review: SilenceReview | RetakeReview) {
   const t = { ...(s.features.transcript as object | undefined) } as Reviews;
   delete t.silences;
-  delete t.fillers;
+  delete (t as { fillers?: unknown }).fillers;
   delete t.retakes;
   s.features.transcript = { ...t, [key]: review };
-}
-
-const fillerSessionCommands: SessionCommandDef[] = [
-  {
-    id: "fillers.review",
-    description:
-      "Open Remove Filler Words' review (the AI panel's tile does): the timeline marks each filler (\"um\", \"uh\", \"er\", \"hmm\" in the transcript) to cut or keep and the properties panel sums it up, until fillers.apply or fillers.close. The user sees it, so an agent can prepare the cuts for them to look over",
-    args: z.strictObject({}),
-    apply: (s, _: object, { project, memory }) => openReview(s, "fillers", fillerReview(s) ?? learnedFillers(memory, project)),
-  },
-  ...reviewSteps("fillers", "Remove Filler Words", "filler"),
-];
-
-/** Remove Filler Words opened with the fillers the user usually keeps in this project's format kept. */
-function learnedFillers(memory: Memory, project: Project): FillerReview {
-  const kept = [...keptFillers(memory.decisions(), projectFormat(project.settings))];
-  if (!kept.length) return { flipped: [] };
-  return { flipped: [], keep: kept.map(([w]) => w), learned: kept.map(([w, h]) => `Kept "${w}": you usually keep it${where(h)} (${h.agree} of ${h.of})`) };
 }
 
 /** A group to cut every take of: its span on the timeline, and its takes' words (transcript_retakes' `key`). */
@@ -704,18 +644,13 @@ const retakeSessionCommands: SessionCommandDef[] = [
 /** After one item is cut from an open review, its flips and its place move with the timeline. */
 const reviewShift: SessionCommandDef = {
   id: "reviews.shift",
-  description: "Move the open review's flipped (or kept) times and the one it is on to match ranges just cut (timeline seconds, read before the cut); silences.apply, fillers.apply and retakes.apply with `one` run it",
+  description: "Move the open review's flipped (or kept) times and the one it is on to match ranges just cut (timeline seconds, read before the cut); silences.apply and retakes.apply with `one` run it",
   args: z.strictObject({ ranges: z.array(z.strictObject({ start: z.number(), end: z.number() })) }),
   apply: (s, { ranges }: { ranges: { start: number; end: number }[] }) => {
     const silences = silenceReview(s);
     if (silences) {
       silences.selected = silences.selected.filter((t) => !ranges.some((x) => t >= x.start - 1e-3 && t <= x.end + 1e-3)).map((t) => afterCut(t, ranges));
       if (ranges.length) silences.reach = Math.max(...[...ranges.map((x) => x.end), ...(silences.reach === undefined ? [] : [silences.reach])].map((t) => afterCut(t, ranges)));
-    }
-    for (const r of [fillerReview(s)]) {
-      if (!r) continue;
-      r.flipped = r.flipped.map((t) => afterCut(t, ranges));
-      if (r.current !== undefined) r.current = afterCut(r.current, ranges);
     }
     const r = retakeReview(s);
     if (r) {
@@ -772,48 +707,33 @@ const silencesApply = defineAction({
     const r = silenceReview(session);
     if (!r) throw new Error("Remove Silences' review isn't open: silences.review opens it");
     const { min, keep, selected } = r;
+    const quiet = r.quiet ?? 0;
     const cut = silencePlan(project, registry, data, r).silences.filter((x) => all || x.selected);
     const decisions = cut.map((x): DecisionInput => ({ rule: "silence", choice: "cut", flipped: false, value: roundSeconds(x.end - x.start) }));
-    if (all) return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep } }], after: () => [{ command: "silences.close" }], decisions };
+    if (all) return { label: "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, quiet } }], after: () => [{ command: "silences.close" }], decisions };
     if (!selected.length) throw new Error("no silences picked: click one on the timeline (⇧-click for more), or Apply All");
-    return { label: selected.length === 1 ? "Remove Silence" : "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, at: selected } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }], decisions };
-  },
-});
-
-const fillersApply = defineAction({
-  id: "fillers.apply",
-  description:
-    "Cut what Remove Filler Words' open review marks to cut (its Apply button, ↩), one undo step, and close the review. With `one`, cut only the filler fillers.focus is on (Cut This One), cut or kept, and stay open on the next",
-  args: z.strictObject({ one: z.boolean().default(false) }),
-  resolve: ({ one }, { session, project, registry, data }) => {
-    const r = fillerReview(session);
-    if (!r) throw new Error("Remove Filler Words' review isn't open: fillers.review opens it");
-    const plan = fillerPlan(project, registry, data, r);
-    const decided = (f: (typeof plan.fillers)[number], cut = f.cut): DecisionInput => ({ rule: `filler:${f.word}`, choice: cut ? "cut" : "keep", flipped: cut !== (f.cut !== f.flipped) });
-    const args = { flipped: r.flipped, keep: r.keep ?? [] };
-    if (!one) return { label: "Remove Filler Words", steps: [{ command: "transcript.removeFillers", args }], after: () => [{ command: "fillers.close" }], decisions: plan.fillers.map((f) => decided(f)) };
-    if (r.current === undefined) throw new Error("no filler to cut: fillers.focus goes to one");
-    const single = plan.current === undefined ? undefined : plan.fillers[plan.current];
-    return { label: "Remove Filler Word", steps: [{ command: "transcript.removeFillers", args: { ...args, only: r.current } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }], decisions: single ? [decided(single, true)] : [] };
+    return { label: selected.length === 1 ? "Remove Silence" : "Remove Silences", steps: [{ command: "transcript.removeSilences", args: { min, keep, quiet, at: selected } }], after: ([cut]) => [{ command: "reviews.shift", args: { ranges: cut } }], decisions };
   },
 });
 
 /** Which review is open, if any: one at a time. */
-const openReviewKey = (s: Session): ReviewKey | undefined => (["silences", "fillers", "retakes"] as const).find((k) => (s.features.transcript as Reviews | undefined)?.[k]);
+const openReviewKey = (s: Session): ReviewKey | undefined => (["silences", "retakes"] as const).find((k) => (s.features.transcript as Reviews | undefined)?.[k]);
 
 /** Transcripts of recordings and audio (Whisper on this Mac, Apple's transcriber or OpenAI's API), and editing by transcript. */
 export const transcript = defineFeature({
   id: "transcript",
   version: 1,
+  keepWhole: (doc, registry, data) => timelineWords(doc, registry, data).map((w) => [secondsToTicks(w.start), secondsToTicks(w.end)]),
   panels: [
     { open: (s: Session) => openReviewKey(s) === "silences", cancel: "silences.close", apply: { action: "silences.apply" }, applyAll: { action: "silences.apply", args: { all: true } } },
-    ...(["fillers", "retakes"] as const).map((key) => ({ open: (s: Session) => openReviewKey(s) === key, cancel: `${key}.close`, apply: { action: `${key}.apply` } })),
+    ...(["retakes"] as const).map((key) => ({ open: (s: Session) => openReviewKey(s) === key, cancel: `${key}.close`, apply: { action: `${key}.apply` } })),
   ],
   preferences: [
     ...(
       [
         ["silenceMin", "Remove Silences: longer than", "Silences longer than this many seconds are found", SILENCE_DEFAULTS.min, { min: 0.2, max: 5 }],
         ["silenceKeep", "Remove Silences: leave", "Seconds of each cut silence left in, half each side", SILENCE_DEFAULTS.keep, { min: 0, max: 2 }],
+        ["silenceQuiet", "Remove Silences: trim quiet", "Sound this many dB under the voice counts as silence too, the cut following the sound; 0 for off", SILENCE_DEFAULTS.quiet, { min: 0, max: 60 }],
         ["retakeMinWords", "Remove Retakes: repeats", "Words in a row a take must say again to count as a retake", RETAKE_DEFAULTS.minWords, { min: 2, max: 8 }],
         ["retakeWithin", "Remove Retakes: within", "Seconds between the starts of two takes, at most", RETAKE_DEFAULTS.within, { min: 5, max: 120 }],
       ] as const
@@ -869,7 +789,8 @@ export const transcript = defineFeature({
       needs: (pref) => (transcriber(pref) === "whisper" ? "whisper-model" : undefined),
       // Local Whisper's results keep the cache entries made before there was a choice.
       variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
-      applies: (asset) => !!asset.derived.media && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
+      // Music and sound effects from a library say nothing to transcribe (a song's lyrics would become captions).
+      applies: (asset) => !!asset.derived.media && !asset.derived.library && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
       async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
@@ -947,6 +868,7 @@ export const transcript = defineFeature({
       args: z.strictObject({
         min: SilenceSettings.min.optional(),
         keep: SilenceSettings.keep.optional(),
+        quiet: SilenceSettings.quiet.optional(),
         selected: z.array(z.number()).optional().describe("Times inside the silences picked, as silences.select sets"),
         ...ReviewOwn,
       }),
@@ -955,38 +877,21 @@ export const transcript = defineFeature({
         const o = { ...learnedSilences(silenceSettings(pref), memory ?? NO_MEMORY, project), ...Object.fromEntries(Object.entries(given).filter(([, v]) => v !== undefined)) } as SilenceReview;
         const plan = silencePlan(project, registry, data, o);
         const seconds = (ranges: { start: number; end: number }[]) => roundSeconds(cutRanges(project, registry, data, ranges).reduce((n, c) => n + c.end - c.start, 0));
-        return { min: o.min, keep: o.keep, waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
+        return { min: o.min, keep: o.keep, quiet: o.quiet, waiting: plan.waiting, silences: plan.silences, saved: seconds(plan.all), selectedSaved: seconds(plan.chosen), ...(plan.stacked ? { stacked: plan.stacked } : {}) };
       },
     }),
     defineQuery({
       id: "transcript.habits",
       description:
-        "What Beacon has learned of how the user edits, from their choices in Remove Silences, Filler Words and Retakes (kept on this Mac): per format (`short`, 9:16; `long`), the shortest silence they cut, the fillers they keep and the take of a line they keep, each with how many of their decisions agree (`agree` of `of`) and `format` when learned from that format alone. The reviews open with these, and so do transcript_silences, _fillers and _retakes when not given settings. A habit needs at least 5 decisions over 2 projects, about 80% one way. `decisions`: how many are kept",
+        "What Beacon has learned of how the user edits, from their choices in Remove Silences and Retakes (kept on this Mac): per format (`short`, 9:16; `long`), the shortest silence they cut and the take of a line they keep, each with how many of their decisions agree (`agree` of `of`) and `format` when learned from that format alone. The reviews open with these, and so do transcript_silences and _retakes when not given settings. A habit needs at least 5 decisions over 2 projects, about 80% one way. `decisions`: how many are kept",
       args: z.strictObject({}),
       run(_, { memory }) {
         const ds = (memory ?? NO_MEMORY).decisions();
         const habits = (format: "short" | "long") => ({
           silenceMin: silenceMin(ds, format) ?? null,
-          keptFillers: Object.fromEntries(keptFillers(ds, format)),
           retakeTake: retakeTake(ds, format) ?? null,
         });
         return { decisions: ds.length, short: habits("short"), long: habits("long") };
-      },
-    }),
-    defineQuery({
-      id: "transcript.fillers",
-      description:
-        "What Remove Filler Words would cut: each filler (\"um\", \"uh\", \"er\", \"hmm\"; a run like \"uh, uh, uh\" is one) the transcript has, its text, the time cut (it and the shorter of the pauses either side, timeline seconds) and whether it is cut, with the seconds saved. Fillers the user usually keeps (`keep`, by word; their habit when not given, as the review opens with) are kept unless flipped. Only what the transcriber wrote down is found: Whisper on this Mac and Apple's transcriber keep most fillers. `waiting`: media heard on the timeline with no transcript yet",
-      args: z.strictObject({
-        flipped: z.array(z.number()).optional().describe("Times inside fillers to flip, as fillers.flip does"),
-        current: z.number().optional().describe("A time in the filler being looked at, as fillers.focus sets: `current` answers its index"),
-        keep: z.array(z.string()).optional().describe('Filler words kept unless flipped ("um")'),
-        learned: ReviewOwn.learned,
-      }),
-      run({ flipped, current, keep }, { project, registry, data, memory }) {
-        const plan = fillerPlan(project, registry, data, { flipped: flipped ?? [], keep: keep ?? learnedFillers(memory ?? NO_MEMORY, project).keep ?? [], ...(current === undefined ? {} : { current }) });
-        const removed = cutRanges(project, registry, data, plan.ranges);
-        return { waiting: plan.waiting, fillers: plan.fillers, cuts: removed.length, saved: roundSeconds(removed.reduce((n, c) => n + c.end - c.start, 0)), ...(plan.current === undefined ? {} : { current: plan.current }) };
       },
     }),
     defineQuery({
@@ -1044,13 +949,12 @@ export const transcript = defineFeature({
     const info = <T,>(id: string, text: string, h: Habit<T>, rules: string[]): HabitInfo => ({ id, text, agree: h.agree, of: h.of, ...(h.format ? { format: h.format } : {}), rules });
     const min = silenceMin(decisions, format);
     if (min) out.push(info("silence", `Remove Silences finds pauses longer than ${min.value} s: you cut those and keep shorter ones`, min, ["silence"]));
-    for (const [word, h] of keptFillers(decisions, format)) out.push(info(`filler:${word}`, `Remove Filler Words keeps "${word}"`, h, [`filler:${word}`]));
     const take = retakeTake(decisions, format);
     if (take) out.push(info("retake", `Remove Retakes keeps the ${take.value} take of a line said again`, take, ["retake"]));
     return out;
   },
-  sessionCommands: [...silenceSessionCommands, ...fillerSessionCommands, ...retakeSessionCommands, reviewShift],
-  actions: [retakesApply, silencesApply, fillersApply],
+  sessionCommands: [...silenceSessionCommands, ...retakeSessionCommands, reviewShift],
+  actions: [retakesApply, silencesApply],
   commands: [
     defineCommand({
       id: "transcript.removeRetakes",
@@ -1074,24 +978,10 @@ export const transcript = defineFeature({
       },
     }),
     defineCommand({
-      id: "transcript.removeFillers",
-      description:
-        "Remove Filler Words: cut every filler the transcript has (\"um\", \"uh\", \"er\", \"hmm\") with the shorter of the pauses either side (the longer is left, for Remove Silences), except those `flipped` names, and keeping the words in `keep` unless flipped, as transcript_fillers shows; one undo step. fillers.apply runs it from the open review",
-      args: z.strictObject({ flipped: z.array(z.number()).default([]), keep: z.array(z.string()).optional().describe('Filler words kept unless flipped ("um"); the user\'s habit when not given, as transcript_fillers shows'), only: Only }),
-      apply(doc, { flipped, keep, only }, ctx) {
-        const plan = fillerPlan(doc, ctx.registry, ctx.data, { flipped, keep: keep ?? learnedFillers(ctx.memory ?? NO_MEMORY, doc).keep ?? [], ...(only === undefined ? {} : { current: only }) });
-        if (!plan.words) throw new Error("no transcript on the timeline yet");
-        refuseUntranscribed(doc, ctx.registry, ctx.data);
-        if (only === undefined) return cut(doc, ctx, plan.ranges);
-        if (plan.current === undefined) throw new Error(`no filler at or after ${only} s`);
-        return cut(doc, ctx, [plan.all[plan.current]!]);
-      },
-    }),
-    defineCommand({
       id: "transcript.removeSilences",
       description:
-        "Remove Silences: cut every silence over `min` seconds down to `keep` (screen action included: check it with frames), or with `at` only the silences holding those times, as transcript_silences shows; one undo step. Refused while two voices are heard at once. silences.apply runs it from the open review",
-      args: z.strictObject({ ...SilenceSettings, at: z.array(z.number()).min(1).optional().describe("A time inside each silence to cut; without it, all of them") }),
+        "Remove Silences: cut every silence over `min` seconds down to `keep`, with `quiet` the cut following the sound (pass transcript_silences' `quiet`, the user's setting) (screen action included: check it with frames), or with `at` only the silences holding those times, as transcript_silences shows; one undo step. Refused while two voices are heard at once. silences.apply runs it from the open review",
+      args: z.strictObject({ ...SilenceSettings, quiet: SilenceSettings.quiet.default(0), at: z.array(z.number()).min(1).optional().describe("A time inside each silence to cut; without it, all of them") }),
       apply(doc, { at, ...o }, ctx) {
         const plan = silencePlan(doc, ctx.registry, ctx.data, { ...o, ...(at ? { selected: at } : {}) });
         if (plan.stacked) throw new Error(plan.stacked);
@@ -1126,12 +1016,13 @@ export const transcript = defineFeature({
       args: z.strictObject({
         min: z.number().positive().default(0.6),
         keep: z.number().nonnegative().default(0.3),
+        quiet: SilenceSettings.quiet.default(0),
         from: z.number().nonnegative().optional(),
         to: z.number().nonnegative().optional(),
         except: z.array(z.strictObject({ start: z.number(), end: z.number() })).default([]),
       }),
-      apply(doc, { min, keep, from, to, except }, ctx) {
-        const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, from, to, except });
+      apply(doc, { min, keep, quiet, from, to, except }, ctx) {
+        const ranges = pauseCuts(doc, ctx.registry, ctx.data, { min, keep, quiet, from, to, except });
         if (!ranges) throw new Error("no transcript on the timeline yet");
         refuseUntranscribed(doc, ctx.registry, ctx.data);
         return cut(doc, ctx, ranges);

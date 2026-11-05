@@ -61,7 +61,7 @@ export function Row({ label, title, children }: { label: string; title?: string;
 /** A dialog's row (Settings, Export, New Project): the label in its own column, a hint or error under the control. */
 export function SettingsRow({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-1">
+    <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
       <span className="text-right text-text-dim">{label}</span>
       <div className="flex min-w-0 items-center gap-2">{children}</div>
       {hint !== undefined && <div className="col-start-2 text-label text-text-faint">{hint}</div>}
@@ -181,7 +181,8 @@ export function SliderTrack({
   const at = (clientX: number) => {
     const r = track.current!.getBoundingClientRect();
     const v = min + clamp((clientX - r.left) / r.width, 0, 1) * (max - min);
-    return Math.round(v / step) * step;
+    // Steps counted from `min`, kept inside the range: from 0, a range starting at 1.2 put its end at 4.004, past 4.
+    return clamp(min + Math.round((v - min) / step) * step, min, max);
   };
   const send = (v: number) => {
     cancelAnimationFrame(pending.current);

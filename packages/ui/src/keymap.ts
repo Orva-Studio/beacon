@@ -60,13 +60,16 @@ export interface ActionHost {
   openDialog(): void;
   /** One of the app's own actions (`app.export`…), as its menu item runs it. */
   app(id: string): void;
+  /** Counts a use of a panel item: a learned shortcut's keys use its item. */
+  itemUsed(item: string): void;
 }
 
 /**
  * Runs an action as its key or menu item would: the app's own through the main process, an AI tool's (`ai.<tool>`)
  * as its tile, the rest as commands.
  */
-export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "args">) {
+export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "args"> & { action?: string }) {
+  if (a.action?.startsWith("learned:")) host.itemUsed(a.action.slice(8));
   if (a.command === "app.palette") replica.palette(true);
   else if (a.command === "app.projectSettings") replica.projectSettings(true);
   else if (a.command === "app.save") replica.confirmSaved();

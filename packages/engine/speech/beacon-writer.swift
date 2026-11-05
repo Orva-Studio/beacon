@@ -1,7 +1,9 @@
 // beacon-writer <request.json>: Apple's on-device language model (macOS 26's Foundation Models) writing for Beacon:
 // free, offline, no key. Reads {"instructions", "prompt", "kind"} and prints JSON on stdout: `scene` (the default), one
 // B-roll shot's {"prompt", "why"}; `idea`, a motion graphic's {"prompt", "why"}; `piece`, the one graphic it is (its
-// kind and words; Beacon times and places it). When Apple Intelligence can't run, says why on stderr and exits 2. The small model gets one shot at a
+// kind and words; Beacon times and places it); `headline`, how well a sentence works as an on-screen headline and its
+// keyword (Beacon picks the best few); `mood`, a part's music (the video's kind, a mood, a search); `moment`, a stretch's
+// moment for a sound effect, if it has one. When Apple Intelligence can't run, says why on stderr and exits 2. The small model gets one shot at a
 // time, its span already chosen by Beacon: asked for a whole plan, it echoed the words and ignored lengths.
 // Built by scripts/build-tools.ts; B-roll's Plan and motion graphics' Write and Make run it.
 import Foundation
@@ -47,6 +49,36 @@ struct Piece: Encodable {
   let items: [String]
 }
 
+@Generable
+struct Headline: Encodable {
+  @Guide(description: "How well this sentence works as a big on-screen headline in a short video, 0 to 10: high for a strong claim, a surprising fact, a number or a turn in the story; low for filler, a greeting or a half thought", .range(0...10))
+  let score: Int
+  @Guide(description: "The sentence's keyword: 1 to 3 words copied exactly, in order, from the sentence, the ones that carry its meaning. Example: for \"this is a huge concern for everyone\" it is \"huge concern\"")
+  let keyword: String
+}
+
+@Generable
+struct Mood: Encodable {
+  @Guide(description: "What kind of video this is", .anyOf(["tutorial", "explainer", "review", "story", "interview", "promo", "vlog", "talk"]))
+  let kind: String
+  @Guide(description: "The music's mood under this part", .anyOf(["calm", "hopeful", "uplifting", "playful", "curious", "focused", "dramatic", "mysterious", "energetic", "warm", "serious", "triumphant"]))
+  let mood: String
+  @Guide(description: "A music library search of 2 to 6 words: genre, instruments, energy, never the topic. Example: \"warm lo-fi beat, soft piano\"")
+  let term: String
+}
+
+@Generable
+struct Moment: Encodable {
+  @Guide(description: "How much this stretch has one moment a short sound effect would lift, 0 to 10: high for a figure revealed, a punchline, a surprise, a before and after; low for steady explaining", .range(0...10))
+  let score: Int
+  @Guide(description: "That moment's words: 2 to 6 copied exactly, in order, from the text")
+  let words: String
+  @Guide(description: "A sound effect search of 1 to 3 words that fits it, such as ding, riser, impact, cash register, record scratch, swoosh")
+  let sound: String
+  @Guide(description: "Under 10 words: why the moment takes a sound")
+  let why: String
+}
+
 func fail(_ message: String, _ code: Int32 = 1) -> Never {
   FileHandle.standardError.write(Data((message + "\n").utf8))
   exit(code)
@@ -79,6 +111,12 @@ Task {
     switch request.kind ?? "scene" {
     case "idea":
       out = try JSONEncoder().encode(try await session.respond(to: request.prompt, generating: Idea.self).content)
+    case "headline":
+      out = try JSONEncoder().encode(try await session.respond(to: request.prompt, generating: Headline.self).content)
+    case "mood":
+      out = try JSONEncoder().encode(try await session.respond(to: request.prompt, generating: Mood.self).content)
+    case "moment":
+      out = try JSONEncoder().encode(try await session.respond(to: request.prompt, generating: Moment.self).content)
     case "piece":
       out = try JSONEncoder().encode(try await session.respond(to: request.prompt, generating: Piece.self).content)
     default:

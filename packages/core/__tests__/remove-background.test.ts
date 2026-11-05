@@ -98,3 +98,26 @@ test.skipIf(!existsSync(TAKE))("an export started before the person is found wai
   expect(near(at(px, ...WALL), [0, 255, 0], 12)).toBe(true);
   await core.close(h);
 }, 180_000);
+
+test.skipIf(!existsSync(TAKE))("an export waiting for Remove Background's matte says so with its progress, then says it is starting, exporting and finishing", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-stages") });
+  const { h, camera } = await take(core, "stages");
+  await core.run(h, "effect.add", { clip: camera.id, type: "remove-background" });
+  const job = await core.export(h, { output: join(dir, "stages.mp4"), from: 0, to: 6 });
+  const stages: string[] = [];
+  for (let state = "running"; state === "running"; await Bun.sleep(20)) {
+    const info = await core.job(job.id);
+    state = info.state;
+    if (info.stage && stages.at(-1) !== info.stage) stages.push(info.stage);
+  }
+  await job.done;
+  const waiting = stages.filter((s) => s.startsWith("Waiting for Remove Background: finding the person ("));
+  expect(waiting.length).toBeGreaterThan(0);
+  const rest = stages.filter((s) => !s.startsWith("Waiting"));
+  expect(rest[0]).toBe("Starting: opening the media");
+  expect(rest).toContain("Exporting");
+  expect(rest.at(-1)).toBe("Finishing: adding the sound");
+  // Waiting comes first.
+  expect(stages.indexOf(waiting[0]!)).toBeLessThan(stages.indexOf(rest[0]!));
+  await core.close(h);
+}, 300_000);

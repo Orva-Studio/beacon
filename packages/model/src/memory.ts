@@ -96,6 +96,19 @@ export interface MemoryState {
   habits: { short: HabitInfo[]; long: HabitInfo[] };
   /** Decisions kept, all formats. */
   decisions: number;
+  /** Leader shortcuts learned from the panel items used most: those added, those offered, those gone for going unused. */
+  shortcuts: { learned: LearnedShortcut[]; offers: LearnedShortcut[]; removed: LearnedShortcut[] };
+}
+
+/** A learned shortcut, or one offered: the panel item it runs, its name and keys (with the leader as it is now). */
+export interface LearnedShortcut {
+  item: string;
+  name: string;
+  keys: import("./shortcuts").Keys;
+  /** Uses: of the item (an offer), or of the shortcut since it was added. */
+  uses: number;
+  /** When it was added, or removed. */
+  at?: number;
 }
 
 const Text = z.string().trim().min(1).max(500);
@@ -111,5 +124,10 @@ export const MemoryChangeSchema = z.union([
   z.strictObject({ learning: z.boolean() }),
   /** Forgets the decisions behind a habit (its rules, in its format when learned from that alone), or every one. */
   z.strictObject({ forget: z.union([z.literal("all"), z.strictObject({ rules: z.array(z.string()).min(1), format: FormatSchema.optional() })]) }),
+  /**
+   * A learned shortcut: an offer added or turned down, one removed by the user (never offered again), or one gone for
+   * going unused put back (the toast's Undo). By the panel item it runs.
+   */
+  z.strictObject({ shortcut: z.union([z.strictObject({ add: z.string() }), z.strictObject({ decline: z.string() }), z.strictObject({ remove: z.string() }), z.strictObject({ restore: z.string() })]) }),
 ]);
 export type MemoryChange = z.infer<typeof MemoryChangeSchema>;

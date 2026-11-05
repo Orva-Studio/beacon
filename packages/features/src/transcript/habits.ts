@@ -1,7 +1,7 @@
 import type { Decision, Format } from "@beacon/model";
 
 /**
- * The user's habits in Remove Silences, Filler Words and Retakes, read from their decisions as simple counts per rule
+ * The user's habits in Remove Silences and Retakes, read from their decisions as simple counts per rule
  * (PLAN Phase 12): a habit needs at least `MIN_DECISIONS` over `MIN_PROJECTS` projects, about `AGREE` of them one way
  * once a Beta(1, 1) prior is added (so one or two choices never tip it), recent ones counting more. Each format has its
  * own; one with too few decisions yet falls back to every format's.
@@ -50,24 +50,6 @@ function usual(ds: Decision[], now: number): { choice: string; agree: number } |
   const [choice, w] = [...by].sort((a, b) => b[1] - a[1])[0] ?? [];
   if (choice === undefined || (w! + 1) / (total + 2) < AGREE) return undefined;
   return { choice, agree: ds.filter((d) => d.choice === choice).length };
-}
-
-/** "um", "uhh", "Umm," all count as "um": a filler's rule. */
-export function fillerRule(text: string): string {
-  const t = text.toLowerCase().replace(/[^a-z]/g, "");
-  const word = /^u+h*m+$/.test(t) ? "um" : /^u+h+$/.test(t) ? "uh" : /^e+r+m+$/.test(t) ? "erm" : /^e+r+$/.test(t) ? "er" : /^h+m+$/.test(t) ? "hmm" : /^m+$/.test(t) ? "mm" : /^a+h+m+$/.test(t) ? "ahm" : t;
-  return `filler:${word}`;
-}
-
-/** Fillers the user usually keeps (Remove Filler Words cuts every filler otherwise), by their rule's word. */
-export function keptFillers(all: Decision[], format: Format, now = Date.now()): Map<string, Habit<"keep">> {
-  const out = new Map<string, Habit<"keep">>();
-  for (const rule of new Set(all.filter((d) => d.rule.startsWith("filler:")).map((d) => d.rule))) {
-    const s = scoped(all, format, (d) => d.rule === rule);
-    const u = s && usual(s.ds, now);
-    if (s && u?.choice === "keep") out.set(rule.slice(7), { value: "keep", agree: u.agree, of: s.ds.length, ...(s.format ? { format: s.format } : {}) });
-  }
-  return out;
 }
 
 /**

@@ -24,8 +24,10 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
+import { AgentToasts, AskAgent } from "./ask-agent";
+import { LearnedToasts } from "./learned";
+import { MusicPanel, musicReviewOf, popInMarks, suggestionMarks, usePopIns } from "./music";
 import { goTo } from "./review";
-import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
 import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
 import { ProjectSettingsUi } from "./project-settings";
@@ -50,9 +52,15 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** The canvas's menu where no clip is under the pointer: Project Settings…, Paste, Zoom to Fit. */
   canvasMenu(): void;
   trackMenu(track: string | null): void;
+  sectionMenu(section: string): void;
   /** A Media Bin item's menu; without one, the bin's own (its empty space). */
-  binMenu(asset?: string): void;
+  /** `assets`: the selected media it acts on, when it is one of several selected. */
+  binMenu(asset?: string, assets?: string[]): void;
   tileMenu(tile: TileMenu): void;
+  /** The agent sessions Beacon's MCP server serves, newest first. */
+  agents(): Promise<import("@beacon/core").AgentSession[]>;
+  /** Sends a request the user typed to an agent session: its id, or why it couldn't be sent. */
+  askAgent(socket: string, prompt: string, about: import("@beacon/core").AgentAbout): Promise<{ id: string } | { error: string }>;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
@@ -70,10 +78,8 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   importFile(path: string): Promise<RunReply & { result?: string }>;
   /** Starts a media item's background analysis (`transcript`…) unless it is running; its result arrives as derived data. */
   analyze(key: string, asset: string): void;
-  /** Stars an item for the Favorites panel (at `index`, else at the end), un-stars it, or moves a favourite to `index`. */
-  favoriteAdd(item: string, index?: number): void;
-  favoriteRemove(item: string): void;
-  favoriteMove(item: string, index: number): void;
+  /** Counts a use of a panel item or AI tool (a tile, the palette): ⌘K lists what is used most first. */
+  itemUsed(item: string): void;
 }
 
 /** Points around the canvas preview, where handles on its edges can still be grabbed. */
@@ -94,8 +100,8 @@ export function App({ host }: { host: Host }) {
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
-  const fillers = useFillers(host, session, project);
   const retakes = useRetakes(host, session, project);
+  const popIns = usePopIns(host, session, project);
   useCaptionsPending(host);
   const status = useView((s) => s.status);
   const saved = useView((s) => s.saved);
@@ -183,10 +189,9 @@ export function App({ host }: { host: Host }) {
       e.preventDefault();
       // A held ⌫ deletes once: its repeats would go on to what is selected next (the clip, once an effect's ⌫ took the effect).
       if (e.repeat && (b.command === "edit.delete" || b.command === "edit.rippleDelete")) return;
-      // Silences selected on the timeline: ⌫ cuts them; a filler picked there: ⌫ cuts it, as Cut This One does.
-      const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] }; fillers?: { current?: number } } | undefined;
+      // Silences selected on the timeline: ⌫ cuts them.
+      const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] } } | undefined;
       if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");
-      if (b.command === "edit.delete" && reviews?.fillers?.current !== undefined) return host.run("fillers.apply", { one: true });
       runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
@@ -208,6 +213,9 @@ export function App({ host }: { host: Host }) {
     };
   }, [keymap, host]);
 
+  const [dragged, setTimelineShare] = useState<number>();
+  const timelineShare = dragged ?? init?.timelineShare ?? TIMELINE_SHARE;
+
   return (
     <EyedropperContext.Provider value={EYEDROPPER}>
       <div className="flex h-screen flex-col gap-gutter bg-app px-gutter pb-gutter text-body text-text select-none">
@@ -223,19 +231,19 @@ export function App({ host }: { host: Host }) {
             project &&
             (auphonicReviewOf(session) ? (
               <AuphonicPanel project={project} session={session} host={host} init={init} />
-
+            ) : musicReviewOf(session) ? (
+              <MusicPanel project={project} session={session} host={host} popIns={popIns} />
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
-            ) : fillerReviewOf(session) ? (
-              <FillerReviewPanel project={project} session={session} host={host} found={fillers} />
             ) : retakeReviewOf(session) ? (
               <RetakeReviewPanel project={project} session={session} host={host} found={retakes} />
             ) : (
               <Properties project={project} session={session} host={host} init={init} />
             ))}
         </div>
+        {project && session && <TimelineDivider share={timelineShare} set={setTimelineShare} host={host} />}
         {project && session ? (
-          <div className="panel-card flex h-[38%] min-h-[180px] flex-col overflow-hidden">
+          <div className="panel-card flex min-h-[180px] flex-col overflow-hidden" style={{ height: `${timelineShare * 100}%` }} data-timeline-card>
             <Toolbar session={session} host={host} />
             <Timeline
               project={project}
@@ -247,13 +255,16 @@ export function App({ host }: { host: Host }) {
               run={host.run}
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
+              sectionMenu={host.sectionMenu}
               dropFiles={host.dropFiles}
               marks={
-                retakes
+                session && musicReviewOf(session)?.tab === "suggest" && musicReviewOf(session)!.suggestion
+                  ? suggestionMarks(musicReviewOf(session)!.suggestion!)
+                  : popIns && session && musicReviewOf(session)
+                  ? popInMarks(popIns, musicReviewOf(session)!)
+                  : retakes
                   ? retakeMarks(retakes)
-                  : silences
-                    ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
-                    : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
+                  : silences?.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
               }
               markClick={(m, alt, shift, meta) =>
                 retakes
@@ -261,12 +272,8 @@ export function App({ host }: { host: Host }) {
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
-                  : silences
-                    ? // A click selects a silence to cut, ⇧-click those back to the last one selected, ⌘-click one more (or one fewer).
-                      host.run("silences.select", { at: (m.start + m.end) / 2, add: meta, through: shift && !meta })
-                    : alt
-                      ? goTo(host, "fillers", m)
-                      : host.run("fillers.flip", { at: m.start })
+                  : // A click selects a silence to cut, ⇧-click those back to the last one selected, ⌘-click one more (or one fewer).
+                    host.run("silences.select", { at: (m.start + m.end) / 2, add: meta, through: shift && !meta })
               }
             />
           </div>
@@ -286,6 +293,8 @@ export function App({ host }: { host: Host }) {
         <Toasts>
           <ExportToast host={host} />
           <TaskToasts host={host} />
+          <AgentToasts host={host} />
+          <LearnedToasts host={host} />
           <SnapshotSaved host={host} />
           <ImportProgress project={project} />
         </Toasts>
@@ -298,6 +307,7 @@ export function App({ host }: { host: Host }) {
         <MediaPreviewUi host={host} />
         <NoticeUi />
         <Palette host={host} />
+        <AskAgent host={host} />
         <LeaderKeys />
         {/* The dragged panel item; a mask so it shows over the native canvas too. */}
         {dragging && (
@@ -552,5 +562,44 @@ function Transport({ project, session, host }: { project: Project; session: Sess
         {session.playing && session.rate !== 1 && <span className="ml-2 font-mono text-xs text-accent">{session.rate < 0 ? "◀ " : ""}{Math.abs(session.rate)}x</span>}
       </span>
     </div>
+  );
+}
+
+const TIMELINE_SHARE = 0.38;
+
+/**
+ * The gap between the canvas and the timeline, dragged up or down to give one more room (the canvas row keeps
+ * 200 px, the timeline 180); remembered app-wide when let go. A double-click puts it back.
+ */
+function TimelineDivider({ share, set, host }: { share: number; set: (share: number) => void; host: Pick<Host, "setAppSettings"> }) {
+  const shareAt = (column: HTMLElement, y: number) => {
+    const r = column.getBoundingClientRect();
+    return Math.min(0.9, (r.bottom - 200 - 80) / r.height, Math.max(0.1, 180 / r.height, (r.bottom - y) / r.height));
+  };
+  return (
+    <div
+      className="relative z-10 -my-gutter h-gutter shrink-0 cursor-row-resize rounded-full hover:bg-white/10 active:bg-white/20"
+      data-timeline-divider={share.toFixed(3)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const handle = e.currentTarget;
+        const column = handle.parentElement!;
+        handle.setPointerCapture(e.pointerId);
+        let last = share;
+        const move = (m: PointerEvent) => set((last = shareAt(column, m.clientY)));
+        const up = () => {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          if (last !== share) host.setAppSettings({ timelineShare: Math.round(last * 1000) / 1000 });
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+      }}
+      onDoubleClick={() => {
+        set(TIMELINE_SHARE);
+        host.setAppSettings({ timelineShare: TIMELINE_SHARE });
+      }}
+    />
   );
 }

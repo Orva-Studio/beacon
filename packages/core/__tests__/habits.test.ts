@@ -53,66 +53,6 @@ const review = async (core: LocalCore, h: Awaited<ReturnType<LocalCore["create"]
 /** A review's state, as its panel queries with it. */
 const asked = async (core: LocalCore, h: Awaited<ReturnType<LocalCore["create"]>>, key: string) => (await review(core, h, key)) ?? {};
 
-const FILLERS = "So | um | the first thing is the settings. | Uh | then we pair it. | Um | that's all.";
-
-test.skipIf(!existsSync(AUDIO))("Remove Filler Words learns a filler the user keeps, only once they have kept it over two projects, and for each format on its own", async () => {
-  const { core, project } = user("fillers");
-  type Fillers = { fillers: { text: string; cut: boolean; start: number }[] };
-  // Keeps every "um" (flipped) and cuts the "uh".
-  const keepUms = async (h: Awaited<ReturnType<typeof project>>) => {
-    await core.run(h, "fillers.review", {});
-    for (const f of ((await core.query(h, "transcript.fillers", {})) as Fillers).fillers.filter((f) => /um/i.test(f.text) && f.cut)) await core.run(h, "fillers.flip", { at: f.start });
-    await core.run(h, "fillers.apply", {});
-  };
-  // Two "um"s a project: three decisions in one project are not enough, and neither is one project.
-  const first = await project(FILLERS);
-  await keepUms(first);
-  await keepUms(await project(FILLERS));
-  const a = await project(FILLERS);
-  // Only one project so far had them: four decisions, one project.
-  expect(((await core.query(a, "transcript.habits", {})) as { long: { keptFillers: object } }).long.keptFillers).toEqual({});
-  await keepUms(a);
-  // Five "um"s kept over three projects (two in each, the second project's too): learned.
-  const next = await project(FILLERS);
-  await core.run(next, "fillers.review", {});
-  expect(await review(core, next, "fillers")).toMatchObject({ keep: ["um"], learned: [expect.stringContaining('Kept "um": you usually keep it in long videos (6 of 6)')] });
-  const found = (await core.query(next, "transcript.fillers", (await asked(core, next, "fillers")))) as Fillers;
-  expect(found.fillers.map((f) => [f.text, f.cut])).toEqual([["um", false], ["Uh", true], ["Um", false]]);
-  // Apply keeps them: only the "uh" goes.
-  await core.run(next, "fillers.apply", {});
-  expect(((await core.query(next, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text)).toContain("Um");
-  // An agent's transcript_removeFillers, not given `keep`, keeps them too, as transcript_fillers shows.
-  const agent = await project(FILLERS);
-  await core.run(agent, "transcript.removeFillers", {});
-  expect(((await core.query(agent, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text).filter((w) => /^(um|uh)$/i.test(w))).toEqual(["um", "Um"]);
-  // A Short has none of its own yet, so it starts from every format's...
-  const short = await project(FILLERS, true);
-  await core.run(short, "fillers.review", {});
-  expect((await review(core, short, "fillers"))?.learned?.[0]).toBe('Kept "um": you usually keep it (8 of 8)');
-  // ...until Shorts have their own: "um" cut in two of them.
-  await core.run(short, "fillers.flip", { at: ((await core.query(short, "transcript.fillers", (await asked(core, short, "fillers")))) as Fillers).fillers[0]!.start });
-  await core.run(short, "fillers.flip", { at: ((await core.query(short, "transcript.fillers", (await asked(core, short, "fillers")))) as Fillers).fillers[2]!.start });
-  await core.run(short, "fillers.apply", {});
-  const cutUms = async (h: Awaited<ReturnType<typeof project>>) => {
-    await core.run(h, "fillers.review", {});
-    for (const f of ((await core.query(h, "transcript.fillers", (await asked(core, h, "fillers")))) as Fillers).fillers.filter((f) => /um/i.test(f.text) && !f.cut)) await core.run(h, "fillers.flip", { at: f.start });
-    await core.run(h, "fillers.apply", {});
-  };
-  await cutUms(await project(FILLERS, true));
-  await cutUms(await project(FILLERS, true));
-  const shortNext = await project(FILLERS, true);
-  await core.run(shortNext, "fillers.review", {});
-  expect((await review(core, shortNext, "fillers"))?.keep).toBeUndefined();
-  // Long videos keep theirs.
-  const longNext = await project(FILLERS);
-  await core.run(longNext, "fillers.review", {});
-  expect((await review(core, longNext, "fillers"))?.keep).toEqual(["um"]);
-  // Each decision says what it was about, and whether the user changed it.
-  const saved = (await Bun.file(join(dir, "fillers-config", "decisions.json")).json()) as Decision[];
-  expect(saved[0]).toMatchObject({ rule: "filler:um", choice: "keep", flipped: true, format: "long" });
-  expect(saved.filter((d) => d.rule === "filler:uh").every((d) => d.choice === "cut" && !d.flipped)).toBe(true);
-});
-
 // Short pauses ("|", 0.8 s of silence) between sentences, long ones ("||", 1.6 s) between parts.
 const PAUSES = "This is the first part. | It has two sentences. || This is the second part. | It has two too. || And the end. | Done now.";
 

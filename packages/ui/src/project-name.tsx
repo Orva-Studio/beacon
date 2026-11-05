@@ -47,11 +47,11 @@ function WhereRow({ folder, host, onChange }: { folder: string; host: ProjectHos
 }
 
 /** File > New Project (⌘N): its name and canvas (Project Settings), in the window as the Export dialog. */
-function NewProjectDialog({ sheet, host }: { sheet: { name: string; folder: string }; host: ProjectHost }) {
+function NewProjectDialog({ sheet, host }: { sheet: { name: string; folder: string; standalone: boolean }; host: ProjectHost }) {
   const [name, setName] = useState(sheet.name);
   const [folder, setFolder] = useState(sheet.folder);
   const [canvas, setCanvas] = useState(DEFAULT_CANVAS);
-  const [standalone, setStandalone] = useState(false);
+  const [standalone, setStandalone] = useState(sheet.standalone);
   const [error, setError] = useState<string>();
   const close = () => replica.newProject(undefined);
   const create = async () => {

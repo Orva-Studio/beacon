@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
+import { fileFingerprint, jobSignal, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
 import {
   changedSettings,
   createProject,
@@ -40,6 +40,7 @@ import {
   type SettingsTab,
   type SettingsPatch,
   withEffectParams,
+  withPatches,
   type ActionContext,
   type ActionPlan,
   type ActionTask,
@@ -52,6 +53,8 @@ import {
 } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
+  AgentAbout,
+  AgentSession,
   AssetPreview,
   CommandInfo,
   AppEvent,
@@ -87,9 +90,11 @@ import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject, type OwnerInfo } from "./persist";
-import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
+import { probeAsset, shortId, type CoreParts, type OpenProject, type Preview } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
+import { askControl, controlSockets } from "./socket";
+import { findAgentCli, RUN_AGENTS, runCodex, type RunAgent } from "./agent-run";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
 /** An action's document steps in one transaction, each given the results of those before it when it asks. */
@@ -114,6 +119,10 @@ export interface LocalCoreOptions {
   configDir?: string;
   /** Where secrets (API keys) are kept: the login Keychain. */
   secrets?: Secrets;
+  /** Where agent sessions' control sockets are (`agents`); tests keep the user's out. */
+  controlDir?: string;
+  /** The agent CLIs Beacon may start a run of, by name (`codex`); unset, those installed are found. Tests give their own. */
+  agentClis?: Partial<Record<RunAgent, string>>;
 }
 
 const DEFAULT_CONFIG_DIR = join(homedir(), "Library/Application Support/Beacon");
@@ -152,12 +161,14 @@ export class LocalCore implements BeaconCore {
   #shared: SharedSession = { clipboard: null, properties: null };
   #imports = 0;
 
-  /** Preferences, favourites, settings and keys, and the secrets. */
+  /** Preferences, panel items' use, settings and keys, and the secrets. */
   readonly #config: AppConfig;
   readonly #pref: (id: string) => string;
   readonly #parts: CoreParts;
   readonly #analyses: Analyses;
   readonly #recording: Recording;
+  readonly #controlDir: string | undefined;
+  readonly #agentClis: Partial<Record<RunAgent, string>> | undefined;
 
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
@@ -167,6 +178,8 @@ export class LocalCore implements BeaconCore {
       for (const l of this.#appListeners) l(e);
     });
     this.#pref = this.#config.pref;
+    this.#controlDir = opts.controlDir;
+    this.#agentClis = opts.agentClis;
     this.#owner = { ...(opts.name ? { name: opts.name } : {}), ...(opts.socket ? { socket: opts.socket } : {}), ...(opts.control ? { control: opts.control } : {}) };
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
@@ -474,7 +487,7 @@ export class LocalCore implements BeaconCore {
       if (plan.task) lines.push(`then in the background: ${plan.task.label}`);
       return { label, patches: r?.patches ?? [], inverse: r?.inverse ?? [], results: r?.results ?? [], diff: [...lines, ...(r?.diff ?? [])], dryRun: true };
     }
-    const result = this.#applyPlan(p, plan, label);
+    const result = { ...this.#applyPlan(p, plan, label), ...(plan.note ? { note: plan.note } : {}) };
     if (!plan.task) return result;
     const job = this.#startTask(p, plan.task);
     return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };
@@ -604,8 +617,10 @@ export class LocalCore implements BeaconCore {
     const view = p.view;
     if (!view || p.ticking) return;
     if (changed.includes("playing") && session.playing) p.preview = undefined;
-    if (changed.includes("playing") && !session.playing) view.pause();
-    else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
+    if (changed.includes("playing") && !session.playing) {
+      const at = view.stop();
+      if (at !== undefined && at > session.playhead) p.session.run("playhead.set", { time: at }, p.store.doc);
+    } else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
     else if (changed.includes("playhead")) view.show(session.playhead);
   }
 
@@ -708,7 +723,7 @@ export class LocalCore implements BeaconCore {
     if (p.previewDoc?.doc === doc) return p.previewDoc.shown;
     let shown = doc;
     try {
-      shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
+      shown = this.#previewed(p, p.preview);
     } catch {
       // Its clip or effect is gone: nothing left to preview.
       p.preview = undefined;
@@ -717,13 +732,19 @@ export class LocalCore implements BeaconCore {
     return shown;
   }
 
+  #previewed(p: OpenProject, preview: Preview): Project {
+    if ("command" in preview) return withPatches(p.store.doc, p.store.run(preview.command, preview.args, { dryRun: true }).patches);
+    return withEffectParams(p.store.doc, this.registry, preview.clip, preview.effect, preview.params);
+  }
+
   /**
-   * Shows an effect with these params on the canvas without editing it (a look under the pointer); null shows it as
-   * it is again. The document, undo history, saves, agents and exports never see it; playing ends it.
+   * Shows an effect with these params, or what a command would do, on the canvas without editing anything (a look
+   * under the pointer); null shows it as it is again. The document, undo history, saves, agents and exports never see
+   * it; playing ends it.
    */
-  async previewEffect(h: ProjectHandle, preview: { clip: string; effect: string; params: Record<string, unknown> } | null): Promise<void> {
+  async previewEffect(h: ProjectHandle, preview: Preview | null): Promise<void> {
     const p = this.#get(h);
-    if (preview) withEffectParams(p.store.doc, this.registry, preview.clip, preview.effect, preview.params);
+    if (preview) this.#previewed(p, preview);
     if (!preview && !p.preview) return;
     p.preview = preview ?? undefined;
     p.previewDoc = undefined;
@@ -917,11 +938,13 @@ export class LocalCore implements BeaconCore {
     this.#checkOutput(h, output, { overwrite: opts.overwrite });
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/")) checkEncoding(videoFormat(output), opts);
+    const speed = opts.speed ?? 1;
+    if (!(speed >= 0.25 && speed <= 3)) throw new Error(`an export plays at 0.25× to 3×, not ${opts.speed}×`);
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
     // Beside a video, files features write from the same range (captions as .srt) when asked for, named after it.
-    const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)) };
+    const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)), speed };
     const sides = opts.output.endsWith("/")
       ? []
       : [...this.registry.exportFiles.values()].filter((f) => opts.files?.includes(f.id)).flatMap((f) => {
@@ -932,8 +955,32 @@ export class LocalCore implements BeaconCore {
     mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
     // What effects need (a matte) is made first: the export never draws a clip without it.
     const needed = this.#analyses.effectJobs(p, true);
+    // What it waits for, as the export card says it: the effect that needs it and what it is doing ("Remove Background: finding the person").
+    const waitingFor = (key: string) => {
+      const fx = [...this.registry.effects.values()].find((e) => e.needs?.includes(key));
+      return fx ? `${fx.title}: ${(fx.preparing ?? "preparing").toLowerCase()}` : key;
+    };
     return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
-      await Promise.all(needed.map((j) => j.done));
+      if (needed.length) {
+        const info = (id: string) => {
+          try {
+            return this.#jobs.info(id);
+          } catch {
+            return undefined;
+          }
+        };
+        const what = [...new Set(needed.map((j) => waitingFor(info(j.id)?.kind ?? "")))].filter(Boolean).join(", ");
+        let left = needed.length;
+        for (const j of needed) void j.done.finally(() => left--).catch(() => {});
+        while (left > 0) {
+          const share = needed.reduce((n, j) => n + (info(j.id)?.progress ?? 1), 0) / needed.length;
+          progress(share, `Waiting for ${what} (${Math.round(share * 100)}%)`);
+          await Promise.race([Promise.allSettled(needed.map((j) => j.done)), Bun.sleep(500)]);
+        }
+        await Promise.all(needed.map((j) => j.done));
+      }
+      progress(0, "Starting: opening the media");
+      let started = false;
       const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
       const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
       const { frames } = await renderProject(project, this.registry, {
@@ -942,10 +989,16 @@ export class LocalCore implements BeaconCore {
         to,
         cacheDir: this.cacheDir,
         data: data.get,
-        onProgress: (f, total) => progress(f / total),
+        speed,
+        onProgress: (f, total) => {
+          const stage = f >= total ? "Finishing: adding the sound" : "Exporting";
+          if (!started || f >= total) progress(f / total, stage);
+          else progress(f / total);
+          started = true;
+        },
       });
       for (const f of sides) writeFileSync(f.path, f.text);
-      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)), ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };
+      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)) / speed, ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };
     });
   }
 
@@ -1136,12 +1189,12 @@ export class LocalCore implements BeaconCore {
     for (const pref of await this.#config.setSecret(id, value)) await this.setPreference(pref, this.registry.preferences.get(pref)!.default);
   }
 
-  /** Where the app-wide files (preferences, favourites, settings, keys) are kept. */
+  /** Where the app-wide files (preferences, panel items' use, settings, keys) are kept. */
   get configDir(): string {
     return this.#config.dir;
   }
 
-  /** A JSON file of the app's own (favourites, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
+  /** A JSON file of the app's own (panel items' use, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
   readConfig(name: string): unknown {
     return this.#config.read(name);
   }
@@ -1151,20 +1204,72 @@ export class LocalCore implements BeaconCore {
     this.#config.write(name, value);
   }
 
-  async favorites(): Promise<string[]> {
-    return this.#config.favorites();
+  async recentItems(): Promise<string[]> {
+    return this.#config.recentItems();
   }
 
-  async favoriteAdd(item: string, index?: number): Promise<string[]> {
-    return this.#config.favoriteAdd(item, index);
+  async itemUsed(item: string): Promise<string[]> {
+    return this.#config.itemUsed(item);
   }
 
-  async favoriteRemove(item: string): Promise<string[]> {
-    return this.#config.favoriteRemove(item);
+  async agents(): Promise<AgentSession[]> {
+    const mine = this.#owner.control;
+    const found = await Promise.all(
+      controlSockets(this.#controlDir).filter((s) => s !== mine).map(async (socket): Promise<AgentSession | undefined> => {
+        try {
+          const info = (await askControl(socket, "agent", [], 1000)) as { name: string; version: string; project?: string };
+          return { socket, name: info.name, version: info.version, ...(info.project ? { project: info.project } : {}), started: statSync(socket).mtimeMs };
+        } catch {
+          // An MCP server from before Beacon asked this, or one that is gone.
+          return undefined;
+        }
+      }),
+    );
+    const sessions = found.filter((a): a is AgentSession => !!a).sort((a, b) => b.started - a.started);
+    const runs = await Promise.all(RUN_AGENTS.map(async (name) => ({ name, cli: await this.#agentCli(name) })));
+    return [...sessions, ...runs.flatMap(({ name, cli }) => (cli ? [{ socket: `run:${name}`, name, version: cli.version, started: 0, run: true }] : []))];
   }
 
-  async favoriteMove(item: string, index: number): Promise<string[]> {
-    return this.#config.favoriteMove(item, index);
+  #agentCli(name: RunAgent) {
+    if (this.#agentClis) return this.#agentClis[name] ? findAgentCli(name, this.#agentClis[name]) : Promise.resolve(null);
+    return findAgentCli(name);
+  }
+
+  async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
+    if (socket.startsWith("run:")) return this.#runAgent(socket.slice(4) as RunAgent, prompt, about);
+    if (!controlSockets(this.#controlDir).includes(socket)) throw new Error("that agent session has ended");
+    const request = shortId("ask");
+    const meta: Record<string, string> = { request, ...(this.#owner.socket ? { reply_to: this.#owner.socket } : {}) };
+    for (const [k, v] of Object.entries(about)) if (v !== undefined) meta[k] = typeof v === "number" ? v.toFixed(2) : v;
+    await askControl(socket, "prompt", [prompt, meta]);
+    return request;
+  }
+
+  /** A run of an agent's CLI on the request, as a job whose id is the request's: its steps and last message as `agent` events. */
+  async #runAgent(name: RunAgent, prompt: string, about: AgentAbout): Promise<string> {
+    if (!RUN_AGENTS.includes(name)) throw new Error(`Beacon can't start a run of ${name}`);
+    const cli = await this.#agentCli(name);
+    if (!cli) throw new Error(`${name} isn't installed`);
+    const tell = (status: "received" | "done", text?: string) => void this.agentReply(job.id, status, text);
+    const job = this.#jobs.start("agent", `Codex: ${prompt.slice(0, 60)}`, async (progress) => {
+      const last = await runCodex(cli.path, prompt, about, (s) => {
+        const text = s.tool ? `Using ${s.tool.replace(/_/g, " ")}` : s.message;
+        progress(0, text);
+        tell("received", text);
+      }).catch((e: Error) => {
+        tell("done", jobSignal()?.aborted || e.message === "cancelled" ? "Cancelled" : e.message);
+        throw e;
+      });
+      tell("done", last || "Done");
+      return { message: last };
+    });
+    // Told once the id is known: it is the request's.
+    queueMicrotask(() => tell("received"));
+    return job.id;
+  }
+
+  async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {
+    for (const l of this.#appListeners) l({ kind: "agent", request, status, ...(text ? { text } : {}) });
   }
 
   async settings(): Promise<AppSettings> {

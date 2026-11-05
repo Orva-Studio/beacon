@@ -58,10 +58,6 @@ they accept it in Settings › Memory; never treat a proposal as theirs.
 The sentences are `memory.md` in Beacon's config folder (`file`), which the
 user may edit by hand; never write it yourself.
 
-The Favorites panel is the user's, app-wide: `favorites_list` reads it
-(`annotation:<preset>`, `effect:<id>`, `audio:fade-in` / `audio:fade-out`);
-`favorites_add`, `favorites_remove` and `favorites_move` change it, only when
-the user asks.
 The app's settings are the user's, app-wide: `settings_get` reads them (the
 export colour space `export_start` uses, which media get proxies, where
 `frame_capture` saves); `settings_set` changes them, only when the user asks.
@@ -95,6 +91,13 @@ played, and is transcribed. `recorder_status`'s `last` says what a narration
 that ended by itself imported; `recorder_stop` with `discard` throws a take away.
 
 ## Editing
+- Rows (tracks): don't add a track per clip. `clip_add` without `track` puts
+  the clip on the lowest row free then above everything showing then (so it
+  draws over it), making a row only when none is free. Give clips their own
+  rows only when they show at the same time and one must draw over another.
+  `track_tidy` packs rows never busy together, nothing changing on screen.
+- Remove Silences' `quiet` (dB under the voice, the user's setting in
+  `transcript_silences`) goes with `min` and `keep` to `transcript_removeSilences`.
 - `timeline_rippleDelete` removes time ranges from every track at once and
   closes the gaps; all ranges in one call are read against the timeline as it
   was before the call. Prefer one call with every cut over many calls.

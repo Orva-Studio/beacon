@@ -14,5 +14,6 @@ export function exportOptions(s: ExportSettings) {
     ...(s.size ? { size: s.size } : {}),
     ...(!gif ? { audio: s.audio, ...(s.audioBitrate !== null ? { audioBitrate: s.audioBitrate } : {}) } : {}),
     ...(s.files.length && !isAudioFormat(s.format) ? { files: s.files } : {}),
+    ...(s.speed !== 1 ? { speed: s.speed } : {}),
   };
 }

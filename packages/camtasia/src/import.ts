@@ -293,6 +293,10 @@ function importMedia(media: CamtasiaObject, { registry, mappers, bySrc, sources,
     const e = map(fx, ctx);
     if (!e) continue;
     const enabled = !fx.bypassed && Number(ctx.value(fx, "enabled") ?? 1) !== 0;
+    if (clip.effects.some((x) => x.type === e.type)) {
+      report.push(`${where}: a second "${name}" effect; only the last is kept`);
+      clip.effects = clip.effects.filter((x) => x.type !== e.type);
+    }
     clip.effects.push({ id: `${clip.id}-fx${i}`, type: e.type, enabled, params: { ...registry.effects.get(e.type)?.defaults(), ...e.params } });
   }
 

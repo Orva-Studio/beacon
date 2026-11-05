@@ -24,3 +24,12 @@ export function valueAt(clip: Clip, playhead: number, group: string, field: stri
   const t = Math.min(Math.max(secondsToTicks(playhead), clip.start), clip.start + clip.duration);
   return Number(animatedValue((clip.props[group] as Record<string, unknown> | undefined)?.[field] ?? fallback, `${group}.${field}`, clip.animations, mediaTimeAt(clip, t)));
 }
+
+/** How far the clip's Rotation X and Y may turn the camera an enabled effect films it with (the Monitor's); undefined: the clip itself tilts. */
+export function cameraTurn(clip: Clip, effects: { id: string; turnsCamera?: number }[] | undefined): number | undefined {
+  for (const fx of clip.effects) {
+    const limit = fx.enabled ? effects?.find((d) => d.id === fx.type)?.turnsCamera : undefined;
+    if (limit) return limit;
+  }
+  return undefined;
+}

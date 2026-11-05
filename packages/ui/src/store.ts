@@ -54,8 +54,8 @@ export interface ViewState {
   proxies: Record<string, boolean>;
   /** Media whose file was moved or deleted. */
   missing: string[];
-  /** The Favorites panel's items, in order (`Init.favorites`). */
-  favorites: string[];
+  /** Panel items and AI tools by use, most first (`Init.usedItems`): ⌘K's order. */
+  usedItems: string[];
   /** App-wide choices (the transcriber), `Init.preferences`. */
   preferences: import("./transcripts-settings").PreferenceInfo[];
   /** When ⌘S last asked for a save (`app.save`): the title bar says the project is saved already. */
@@ -66,6 +66,10 @@ export interface ViewState {
   memory?: import("@beacon/model").MemoryState;
   /** The command palette, while open. */
   palette?: boolean;
+  /** "Ask an agent", while open: what the request is about. */
+  askAgent?: import("@beacon/core").AgentAbout;
+  /** Requests sent to agents from here, as their toasts show them. */
+  agentRequests: AgentRequest[];
   /** Project Settings, while open. */
   projectSettings?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
@@ -97,7 +101,7 @@ export interface ViewState {
   /** Where the preview is playing. */
   previewClock: { time: number; playing: boolean };
   /** The New Project dialog, while open, with the name it offers. */
-  newProject?: { name: string; folder: string };
+  newProject?: { name: string; folder: string; standalone: boolean };
   saveAs?: import("./project-name").SaveAsSheet;
   /** The dialog asking to download a resource (the speech model), and its download. */
   resource?: import("./resource").ResourceInfo;
@@ -113,9 +117,25 @@ export interface ViewState {
 }
 
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
-export type BinKind = "all" | "video" | "audio" | "image";
+export type BinKind = "all" | "video" | "audio" | "image" | "recording";
 
-let state: ViewState = { status: "", favorites: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+const earlyReplies = new Map<string, { state: AgentRequest["state"]; text?: string }>();
+
+/** A request sent to an agent from the app: sent, acknowledged, done, or never acknowledged. */
+export interface AgentRequest {
+  id: string;
+  /** "Claude Code". */
+  agent: string;
+  prompt: string;
+  /** The prompt with its context, to paste elsewhere when the session never answers. */
+  copy: string;
+  state: "sent" | "received" | "done" | "silent";
+  text?: string;
+  /** A run Beacon started (Codex): it can be cancelled; its id is its job's. */
+  run?: boolean;
+}
+
+let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -129,7 +149,7 @@ function set(next: Partial<ViewState>) {
 export const replica = {
   get: () => state,
   init(init: Init) {
-    set({ init, favorites: init.favorites, shortcuts: init.shortcuts, memory: init.memory, preferences: init.preferences });
+    set({ init, usedItems: init.usedItems, shortcuts: init.shortcuts, memory: init.memory, preferences: init.preferences });
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
@@ -190,8 +210,8 @@ export const replica = {
   nameSection(naming: ViewState["namingSection"]) {
     set({ namingSection: naming });
   },
-  favorites(favorites: string[]) {
-    set({ favorites });
+  usedItems(usedItems: string[]) {
+    set({ usedItems });
   },
   preferences(preferences: ViewState["preferences"]) {
     set({ preferences });
@@ -212,6 +232,23 @@ export const replica = {
   palette(palette: boolean) {
     // A focus asked for before (an effect added, then undone at once) mustn't take the caret from the palette.
     set({ palette: palette && !!state.opened, ...(palette ? { focusInputs: undefined } : {}) });
+  },
+  askAgent(about: import("@beacon/core").AgentAbout | undefined) {
+    set({ askAgent: about && state.opened ? about : undefined });
+  },
+  agentSent(request: AgentRequest) {
+    // A run's answers can come before its id did.
+    const early = earlyReplies.get(request.id);
+    earlyReplies.delete(request.id);
+    set({ agentRequests: [...state.agentRequests, early ? { ...request, state: early.state, ...(early.text ? { text: early.text } : {}) } : request] });
+  },
+  /** An agent's answer; a request it never acknowledged goes `silent` (the session doesn't take channels). */
+  agentState(id: string, state2: AgentRequest["state"], text?: string) {
+    if (state2 !== "silent" && !state.agentRequests.some((r) => r.id === id)) return void earlyReplies.set(id, { state: state2, ...(text ? { text } : {}) });
+    set({ agentRequests: state.agentRequests.map((r) => (r.id === id && !(state2 === "silent" && r.state !== "sent") ? { ...r, state: state2, ...(text ? { text } : {}) } : r)) });
+  },
+  dismissAgent(id: string) {
+    set({ agentRequests: state.agentRequests.filter((r) => r.id !== id) });
   },
   projectSettings(open: boolean) {
     set({ projectSettings: open && !!state.opened });

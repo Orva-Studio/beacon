@@ -2,7 +2,7 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Project, Session } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem } from "./drop";
-import { AI_TOOLS, allItems, annotations, audioEffects, inFavoriteOrder, visualEffects, type Item } from "./panel-items";
+import { AI_TOOLS, annotations, audioEffects, visualEffects, type Item } from "./panel-items";
 import type { Init, RecordSheet } from "./rpc";
 import { Button, Check, DeviceSelect, Icon, ItemTile, LevelMeter, RailButton, type IconName } from "./controls";
 import { HEADPHONES, useCountdown, useNarrationSpan, useRecordLevels } from "./record";
@@ -14,7 +14,6 @@ import { useQuery } from "./query";
 
 /** The tool panels, in order, with an icon each. */
 export const TOOLS: { id: string; label: string; icon: IconName }[] = [
-  { id: "favorites", label: "Favorites", icon: "star" },
   { id: "media", label: "Media", icon: "film-strip" },
   { id: "annotations", label: "Annotations", icon: "chat-centered-text" },
   { id: "visualEffects", label: "Visual Effects", icon: "magic-wand" },
@@ -60,7 +59,6 @@ export const ToolPanel = memo(function ToolPanel({
   if (tool === "narration") return <NarrationPanel host={host} />;
   const effects = visualEffects(init);
   const items: Record<string, Item[]> = { annotations: annotations(init), visualEffects: effects, audioEffects: audioEffects(init) };
-  if (tool === "favorites") return <ItemsPanel key={tool} title={label} items={allItems(init)} host={host} ordered />;
   if (items[tool]) return <ItemsPanel key={tool} title={label} items={items[tool]} host={host} />;
   return (
     <Panel title={label}>
@@ -69,58 +67,40 @@ export const ToolPanel = memo(function ToolPanel({
   );
 });
 
-/** The favourite under a point in the Favorites panel (a tile dragged over another is moved to its place). */
-const favoriteAt = (x: number, y: number) => (document.elementFromPoint(x, y)?.closest("[data-favorites] [data-item]") as HTMLElement | null)?.dataset.item;
-
 /**
- * Annotations, effects or favourites, as Camtasia's panels have them: dragged onto media (on the timeline or the
- * canvas); a click selects one, showing a star that adds it to Favorites; a double-click applies it to the selected
- * clips. `ordered`: the Favorites panel, holding the favourites in their order, which a drop on another tile changes.
+ * Annotations or effects, as Camtasia's panels have them: dragged onto media (on the timeline or the canvas); a
+ * click selects one; a double-click applies it to the selected clips. Each use is counted for ⌘K's order.
  */
-function ItemsPanel({ title, items, host, ordered }: { title: string; items: Item[]; host: Host; ordered?: boolean }) {
-  const favorites = useView((v) => v.favorites);
+function ItemsPanel({ title, items, host }: { title: string; items: Item[]; host: Host }) {
   const [selected, setSelected] = useState<string>();
-  const over = useView((v) => (ordered && v.dragging ? favoriteAt(v.dragging.x, v.dragging.y) : undefined));
-  const shown = ordered ? inFavoriteOrder(items, favorites) : items;
-  const hint = ordered ? "Drag onto media, or onto another tile to reorder; double-click to apply to the selection" : "Drag onto media, or double-click to apply to the selection";
+  const use = (it: Item, command: string, args: unknown) => {
+    host.run(command, args);
+    host.itemUsed(it.item);
+  };
   return (
     <Panel title={title}>
-      <div className="mb-3 text-center text-label text-text-faint">{hint}</div>
-      <div className="grid grid-cols-2 gap-2" {...(ordered ? { "data-favorites": "" } : {})}>
-        {shown.map((it) => {
-          const favorite = favorites.includes(it.favorite);
-          return (
-            <ItemTile
-              key={it.favorite}
-              art={it.art}
-              title={`${it.title}. Drag it onto media, or double-click to apply it to the selection`}
-              data-item={it.favorite}
-              selected={selected === it.favorite || over === it.favorite}
-              star={favorite ? "on" : selected === it.favorite ? "off" : undefined}
-              onStar={() => (favorite ? host.favoriteRemove(it.favorite) : host.favoriteAdd(it.favorite))}
-              onPointerDown={(e) =>
-                pressItem(e, it, (command, args) => host.run(command, args), {
-                  click: () => setSelected(it.favorite),
-                  ...(ordered ? { missed: (x, y) => moveFavorite(host, favorites, it.favorite, favoriteAt(x, y)) } : {}),
-                })
-              }
-              onDoubleClick={() => host.run(it.command, it.args)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                host.tileMenu({ item: it.favorite, add: it.command === "edit.addAnnotation" ? "Add at Playhead" : "Add to Selected Media", command: it.command, args: it.args, favorite });
-              }}
-            >
-              {it.label}
-            </ItemTile>
-          );
-        })}
+      <div className="mb-3 text-center text-label text-text-faint">Drag onto media, or double-click to apply to the selection</div>
+      <div className="grid grid-cols-2 gap-2">
+        {items.map((it) => (
+          <ItemTile
+            key={it.item}
+            art={it.art}
+            title={`${it.title}. Drag it onto media, or double-click to apply it to the selection`}
+            data-item={it.item}
+            selected={selected === it.item}
+            onPointerDown={(e) => pressItem(e, it, (command, args) => use(it, command, args), { click: () => setSelected(it.item) })}
+            onDoubleClick={() => use(it, it.command, it.args)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              host.tileMenu({ item: it.item, add: it.command === "edit.addAnnotation" ? "Add at Playhead" : "Add to Selected Media", command: it.command, args: it.args });
+            }}
+          >
+            {it.label}
+          </ItemTile>
+        ))}
       </div>
     </Panel>
   );
-}
-
-function moveFavorite(host: Host, favorites: string[], item: string, onto: string | undefined) {
-  if (onto && onto !== item) host.favoriteMove(item, favorites.indexOf(onto));
 }
 
 /**
@@ -233,7 +213,7 @@ function AiPanel({ host }: { host: Host }) {
             art={t.art}
             title={t.online && !online ? "Needs the internet: you're offline" : offline && t.transcript !== false ? `Needs a transcript ${offline} can't make offline` : t.title}
             disabled={(!!offline && t.transcript !== false) || (!!t.online && !online)}
-            onClick={() => t.start(host)}
+            onClick={() => (t.start(host), host.itemUsed(`ai:${t.id}`))}
             data-ai={t.id}
           >
             {t.label}

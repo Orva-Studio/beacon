@@ -15,6 +15,7 @@ import {
   clone,
   cutToWindow,
   freshEffect,
+  oneOfEach,
   drawNested,
   nestedAudio,
 } from "@beacon/model";
@@ -185,7 +186,7 @@ export const stitching = defineFeature({
           const c = cutToWindow(seg, a, b, ctx.registry);
           if (!c) continue;
           for (const g of LOOK) if (s.props[g]) c.props[g] = clone(s.props[g]);
-          c.effects = [...seg.effects, ...s.effects.map((fx) => freshEffect(fx, ctx.newId))];
+          c.effects = oneOfEach([...seg.effects, ...s.effects.map((fx) => freshEffect(fx, ctx.newId))]);
           // Every piece keeps every block, in its own source time, as split pieces do.
           c.animations = [...seg.animations, ...s.animations.map((x) => ({ ...clone(x), end: toSource(seg, x.end) }))].sort((x, y) => x.end - y.end);
           c.start = s.start + (c.start - a);

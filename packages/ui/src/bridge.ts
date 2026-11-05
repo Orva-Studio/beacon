@@ -35,15 +35,16 @@ export interface AppBridgeHooks {
   job?(job: JobInfo): void;
 }
 
-/** App-wide changes told to one window, with or without a project open: favourites, preferences, keys, settings. */
+/** App-wide changes told to one window, with or without a project open: panel items' use, preferences, keys, settings. */
 export function appBridge(core: Pick<LocalCore, "watchApp" | "preferences">, send: Send, hooks: AppBridgeHooks = {}): () => void {
   return core.watchApp((e) => {
-    if (e.kind === "favorites" || e.kind === "preference") {
-      void appWideMessage(core, e).then((m) => m && (m.type === "favorites" ? send("favorites", m.data) : send("preferences", m.data)));
+    if (e.kind === "usage" || e.kind === "preference") {
+      void appWideMessage(core, e).then((m) => m && (m.type === "usage" ? send("usage", m.data) : send("preferences", m.data)));
     } else if (e.kind === "shortcuts") {
       if (hooks.shortcuts) hooks.shortcuts(e.shortcuts);
       else send("shortcuts", { shortcuts: e.shortcuts });
     } else if (e.kind === "memory") send("memory", { memory: e.memory });
+    else if (e.kind === "agent") send("agentReply", { request: e.request, status: e.status, ...(e.text ? { text: e.text } : {}) });
     else if (e.kind === "settings") {
       if (hooks.settings) hooks.settings(e.settings);
       else send("appSettings", e.settings);
@@ -145,24 +146,25 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
 
 type Requests = AppRPC["bun"]["requests"];
 type Handlers = { [K in keyof Requests]: (params: Requests[K]["params"]) => Promise<Requests[K]["response"]> };
-/** A choice from a tile's right-click menu: added to the selection (or at the playhead), or starred or unstarred. */
-export async function tileChoice(core: Pick<LocalCore, "run" | "favoriteAdd" | "favoriteRemove">, h: string, tile: TileMenu, choice: string): Promise<void> {
-  if (choice === "add") await core.run(h, tile.command, tile.args);
-  else if (choice === "favorite") await core.favoriteAdd(tile.item);
-  else if (choice === "unfavorite") await core.favoriteRemove(tile.item);
+/** A choice from a tile's right-click menu: added to the selection (or at the playhead), a use counted for ⌘K. */
+export async function tileChoice(core: Pick<LocalCore, "run" | "itemUsed">, h: string, tile: TileMenu, choice: string): Promise<void> {
+  if (choice !== "add") return;
+  await core.run(h, tile.command, tile.args);
+  await core.itemUsed(tile.item);
 }
 
 /** The items of a tile's right-click menu, as [label, choice]. */
-export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"], tile.favorite ? ["Remove from Favorites", "unfavorite"] : ["Add to Favorites", "favorite"]];
+export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"]];
 
-type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
-type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "favoriteAdd" | "favoriteRemove" | "favoriteMove" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
+type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "itemUsed" | "agents" | "askAgent" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
+type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "itemUsed" | "agents" | "askAgent" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
 
 const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const done = async (fn: () => Promise<unknown>) => {
   try {
-    await fn();
-    return { ok: true };
+    const r = await fn();
+    const note = (r as { note?: unknown } | undefined)?.note;
+    return { ok: true, ...(typeof note === "string" ? { note } : {}) };
   } catch (e) {
     return failed(e);
   }
@@ -189,7 +191,7 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
   // Edits with no project open (⌘Z on the start screen) do nothing, quietly.
   const edit = (fn: (h: string) => Promise<unknown>) => done(async () => {
     const h = project();
-    if (h) await fn(h);
+    if (h) return await fn(h);
   });
   return {
     run: ({ command, args, label, coalesce }) => edit((h) => core.run(h, command, args ?? {}, { ...(label ? { label } : {}), ...(coalesce ? { coalesce } : {}) })),
@@ -202,9 +204,9 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
     deleteAllProxies: async () => (await core.forgetAll("proxy"), core.analysisSize("proxy")),
     setPreference: ({ id, value }) => answer(async () => (await core.setPreference(id, value), core.preferences())),
     setSecret: ({ id, value }) => answer(async () => (await core.setSecret(id, value), core.preferences())),
-    favoriteAdd: ({ item, index }) => answer(() => core.favoriteAdd(item, index)),
-    favoriteRemove: ({ item }) => answer(() => core.favoriteRemove(item)),
-    favoriteMove: ({ item, index }) => answer(() => core.favoriteMove(item, index)),
+    itemUsed: ({ item }) => answer(() => core.itemUsed(item)),
+    agents: () => core.agents(),
+    askAgent: ({ socket, prompt, about }) => answer(() => core.askAgent(socket, prompt, about)),
     analyze: async ({ key, asset }) => {
       const h = project();
       if (h) await core.analyze(h, key, asset).catch((e: Error) => status(e.message));

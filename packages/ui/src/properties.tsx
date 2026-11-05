@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
 import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, KeptLooksSchema, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
-import { boxGroup, contentSize, valueAt } from "./canvas-clips";
+import { boxGroup, cameraTurn, contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, Fold, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, Toggle, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
 import { copiedIds } from "./clip-ids";
 import { BrollTab } from "./broll";
+import { AngleTab } from "./angles";
 import { MotionTab } from "./motion";
 
 /**
@@ -19,6 +20,15 @@ import { MotionTab } from "./motion";
  * controls, showing values at the playhead. Edits apply to every selected
  * clip at the playhead (`clip.set` with `at`); a slider drag is one undo step.
  */
+/** Equal as JSON values are, whatever order their keys were written in. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+  const kb = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
 export function Properties({ project: full, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   // With a group open, its clips are the ones being edited, shown at main-timeline times.
   const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);
@@ -139,7 +149,7 @@ function ClipProperties({
       </div>
       {selected.length > 1 && <div className="border-b border-divider bg-panel py-2 text-center text-label text-text-faint">Editing {selected.length} clips</div>}
       {session.animation?.clip === clip.id && <AnimationSection clip={clip} id={session.animation.id} host={host} />}
-      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} />}
+      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} turn={cameraTurn(clip, init?.effects)} />}
       {tab?.id === "transform" && clip.type === "video" && project.assets[clip.assetId ?? ""]?.kind === "recording" && <CameraDelay key={clip.id} clip={clip} host={host} />}
       {tab?.id === "speed" && (
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
@@ -149,6 +159,7 @@ function ClipProperties({
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} selected={selected} project={project} host={host} />}
       {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
+      {tab?.id === "angle" && <AngleTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "motion" && <MotionTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
       {tab?.id === "audio" && (
         <Section>
@@ -223,7 +234,7 @@ function CameraDelay({ clip, host }: { clip: Clip; host: Host }) {
   );
 }
 
-function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean }) {
+function Visual({ clip, project, value, edit, picture, turn }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean; turn?: number }) {
   const stored = contentSize(project, clip);
   const box = boxGroup(clip);
   const size: [number, number] | undefined = stored && box ? [value(box, "width", stored[0]), value(box, "height", stored[1])] : stored;
@@ -247,7 +258,11 @@ function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: 
           <span className="text-label font-medium text-text-muted">Rotation</span>
           <RotationGizmo
             value={{ x: (value("transform", "rotationX") * 180) / Math.PI, y: (value("transform", "rotationY") * 180) / Math.PI, z: degrees }}
-            onChange={(axis, deg, key) => edit("transform", { [axis === "z" ? "rotation" : axis === "x" ? "rotationX" : "rotationY"]: (deg * Math.PI) / 180 }, "Rotation", key)}
+            onChange={(axis, deg, key) => {
+              // The camera an effect turns stops at its limit: past it the field would say more than the picture shows.
+              const rad = turn && axis !== "z" ? clamp((deg * Math.PI) / 180, -turn, turn) : (deg * Math.PI) / 180;
+              edit("transform", { [axis === "z" ? "rotation" : axis === "x" ? "rotationX" : "rotationY"]: rad }, "Rotation", key);
+            }}
           />
         </div>
       </Section>
@@ -456,16 +471,22 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
   const installed = useQuery<string[]>(host, "callout.fonts");
   const [draft, setDraft] = useState<string>();
   // One style for all the captions on a track, kept on the track.
-  const style = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id))?.props?.captionStyle as CaptionStyle | undefined;
-  if (!style) return null;
-  const words = wordsInWindow(clip, (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []);
+  const track = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
+  const style = track?.props?.captionStyle as CaptionStyle | undefined;
+  const presets = useQuery<{ id: string; title: string; description: string; headline: boolean; style: CaptionStyle }[]>(host, "captions.presets");
+  // The look the track's style is, until anything is changed from it.
+  const look = presets?.find((p) => sameValue(p.style, style))?.id ?? "";
+  if (!style || !track) return null;
+  const words = wordsInWindow(clip, (clip.props.caption as { words?: { text: string; start: number; end: number; em?: boolean }[] } | undefined)?.words ?? []);
   const text = words.map((w) => w.text).join(" ");
   // Typed into a draft and set on leaving the field or Return: the words are re-timed from the whole text.
   const commit = () => {
     if (draft !== undefined && draft.trim() && draft !== text) host.run("caption.setText", { clip: clip.id, text: draft }, "Edit Caption");
     setDraft(undefined);
   };
-  const set = (fields: Partial<CaptionStyle>, label: string, key?: string) => host.run("captions.style", { style: fields }, label, key);
+  const set = (fields: Partial<Omit<CaptionStyle, "emphasis">> & { emphasis?: Partial<CaptionStyle["emphasis"]> }, label: string, key?: string) => host.run("captions.style", { style: fields, track: track.id }, label, key);
+  const em = style.emphasis;
+  const setEm = (fields: Partial<CaptionStyle["emphasis"]>, label: string, key?: string) => set({ emphasis: fields }, label, key);
   const own = clip.props.captionPlace as Partial<CaptionStyle> | undefined;
   const place = { ...style, ...own };
   const others = selected.filter((c) => c.type === "caption" && c.id !== clip.id).map((c) => c.id);
@@ -488,20 +509,148 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
             if (e.key === "Escape") setDraft(undefined);
           }}
         />
+        <div className="mt-2 mb-1 text-caption text-text-faint">Click a word to make it a keyword</div>
+        <div className="flex flex-wrap gap-1" data-caption-words>
+          {words.map((w, i) => (
+            <button
+              key={`${w.start}-${i}`}
+              data-caption-word={i}
+              data-em={w.em ? "" : undefined}
+              title={w.em ? "A keyword: click to make it a plain word" : "Make it a keyword, drawn in the emphasis look"}
+              className={`rounded px-1.5 py-0.5 text-label ${w.em ? "bg-accent font-semibold text-black" : "bg-chip text-text-dim hover:text-text-strong"}`}
+              onClick={() => host.run("caption.emphasize", { clip: clip.id, words: [i], on: !w.em }, w.em ? "Plain Word" : "Keyword")}
+            >
+              {w.text}
+            </button>
+          ))}
+        </div>
       </Section>
       <Section>
-        <div className="mb-3 text-label text-text-faint">Every caption</div>
+        <Row label="Look">
+          <ListSelect
+            value={look}
+            title={presets?.find((p) => p.id === look)?.description}
+            options={[...(look ? [] : [{ id: "", label: "Choose a look…" }]), ...(presets ?? []).map((p) => ({ id: p.id, label: p.title, title: p.description, artClass: `art-caption-${p.id}` }))]}
+            onPreview={(id) => host.previewEffect(id ? { command: "captions.preset", args: { preset: id, track: track.id } } : null)}
+            onChange={(id) => {
+              if (id && id !== look) host.run("captions.preset", { preset: id, track: track.id }, "Caption Look");
+              host.previewEffect(null);
+            }}
+            data-caption-preset
+          />
+        </Row>
+        <div className="mb-3 text-label text-text-faint">{style.layout === "headline" ? "Every headline" : "Every caption"}</div>
         <FontRows font={style.font} weight={style.weight} installed={installed} set={set} label="Caption Font" />
         <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
         <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
-        <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
-        <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
-        <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
-        <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
         <div className="mt-3 ml-[92px]">
           <Check label="All capitals" checked={style.uppercase} onChange={(uppercase) => set({ uppercase }, "Caption Capitals")} />
         </div>
       </Section>
+      <Fold id="caption-box" title="Box and Highlight" hint={[style.background[3] > 0 && "Box", style.highlight[3] > 0 && "Highlight"].filter(Boolean).join(", ")}>
+          <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
+          <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
+          <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
+          <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
+      </Fold>
+      <Fold id="caption-shadow" title="Shadow" hint={style.shadow[3] > 0 ? "On" : ""}>
+          <ColorRow label="Shadow" color={style.shadow} onChange={(shadow, key) => set({ shadow }, "Caption Shadow", key)} />
+          {style.shadow[3] > 0 && (
+            <>
+              <Slider unit="" label="Softness" value={style.shadowBlur} max={60} onChange={(v, key) => set({ shadowBlur: Math.max(0, v) }, "Caption Shadow", key)} />
+              <Slider unit="" label="Distance" value={style.shadowDistance} max={100} onChange={(v, key) => set({ shadowDistance: Math.min(200, Math.max(0, v)) }, "Caption Shadow", key)} data-caption-shadow-distance />
+              <Slider unit="°" label="Angle" value={Math.round((((style.shadowAngle * 180) / Math.PI) % 360) + 360) % 360} max={359} onChange={(v, key) => set({ shadowAngle: (v * Math.PI) / 180 }, "Caption Shadow", key)} data-caption-shadow-angle />
+            </>
+          )}
+      </Fold>
+      <Fold id="caption-words" title="Words" hint={style.reveal === "word" ? "Word by word" : "All at once"}>
+        <Row label="Show">
+          <Select data-caption-reveal value={style.reveal} onChange={(e) => set({ reveal: e.target.value as CaptionStyle["reveal"] }, "Caption Reveal")}>
+            <option value="phrase">All at once</option>
+            <option value="word">Word by word</option>
+          </Select>
+        </Row>
+        <Row label="Coming in">
+          <Select data-caption-enter value={style.enter} onChange={(e) => set({ enter: e.target.value as CaptionStyle["enter"] }, "Caption Entrance")}>
+            <option value="none">Cut</option>
+            <option value="pop">Pop</option>
+            <option value="fade">Fade</option>
+            <option value="rise">Rise</option>
+          </Select>
+        </Row>
+        {style.reveal === "phrase" && <ColorRow label="Not yet said" color={style.upcoming} onChange={(upcoming, key) => set({ upcoming }, "Caption Upcoming", key)} />}
+        {style.reveal === "phrase" && <div className="ml-[92px] mb-3 text-caption text-text-faint">Words to come, until they are said; transparent for the caption's colour</div>}
+        <Row label="Layout">
+          <Select data-caption-layout value={style.layout} onChange={(e) => set({ layout: e.target.value as CaptionStyle["layout"] }, "Caption Layout")}>
+            <option value="line">Line</option>
+            <option value="headline">Headline: keywords big on their own lines</option>
+          </Select>
+        </Row>
+        <Row label="Going out">
+          <Select data-caption-exit value={style.exit} onChange={(e) => set({ exit: e.target.value as CaptionStyle["exit"] }, "Caption Exit")}>
+            <option value="none">Cut</option>
+            <option value="fade">Fade</option>
+            <option value="blur">Blur</option>
+          </Select>
+        </Row>
+        <Row label="Per line">
+          <Select data-caption-line-words value={style.lineWords} onChange={(e) => set({ lineWords: Number(e.target.value) }, "Words per Line")}>
+            <option value={0}>As many as fit</option>
+            {[1, 2, 3, 4].map((n) => (
+              <option key={n} value={n}>
+                {n === 1 ? "1 word" : `${n} words`}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <div className="mt-3 ml-[92px] flex flex-col gap-2">
+          <Check label="Stretch lines to fill the width" checked={style.stretch} onChange={(stretch) => set({ stretch }, "Stretch Caption Lines")} data-caption-stretch />
+          <Check label="Count numbers up" checked={style.countUp} onChange={(countUp) => set({ countUp }, "Count Numbers Up")} data-caption-count />
+          <Check label="Behind the speaker" title="Drawn behind the person on camera under it, through their matte (found the first time, about a minute per minute of video)" checked={style.behind} onChange={(behind) => set({ behind }, "Captions Behind the Speaker")} data-caption-behind />
+        </div>
+      </Fold>
+      <Fold id="caption-keywords" title="Keywords">
+        <ColorRow label="Color" color={em.color} onChange={(color, key) => setEm({ color }, "Keyword Color", key)} />
+        <Slider unit="%" label="Size" value={Math.round(em.scale * 100)} min={50} max={400} onChange={(v, key) => setEm({ scale: Math.min(4, Math.max(0.5, v / 100)) }, "Keyword Size", key)} />
+        <Row label="Font">
+          <Select data-caption-em-font value={em.font} onChange={(e) => setEm({ font: e.target.value }, "Keyword Font")}>
+            <option value="">The caption's</option>
+            {[...new Set([...(em.font ? [em.font] : []), ...FONTS])].map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+            {installed && (
+              <optgroup label="All fonts">
+                {installed.filter((f) => f !== em.font && !FONTS.includes(f)).map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </optgroup>
+            )}
+          </Select>
+        </Row>
+        <Row label="Weight">
+          <Select value={em.weight} onChange={(e) => setEm({ weight: Number(e.target.value) }, "Keyword Weight")}>
+            {(WEIGHTS.some(([w]) => w === em.weight) ? WEIGHTS : [...WEIGHTS, [em.weight, String(em.weight)] as [number, string]]).map(([w, name]) => (
+              <option key={w} value={w}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <ColorRow label="Glow" color={em.glow} onChange={(glow, key) => setEm({ glow }, "Keyword Glow", key)} />
+        <Row label="Drawn on">
+          <Select data-caption-decoration value={em.decoration} onChange={(e) => setEm({ decoration: e.target.value as CaptionStyle["emphasis"]["decoration"] }, "Keyword Decoration")}>
+            <option value="none">Nothing</option>
+            <option value="underline">Underline</option>
+            <option value="ellipse">Circle</option>
+            <option value="box">Box</option>
+            <option value="highlighter">Highlighter</option>
+          </Select>
+        </Row>
+        {em.decoration !== "none" && <ColorRow label="Its color" color={em.decorationColor} onChange={(decorationColor, key) => setEm({ decorationColor }, "Keyword Decoration", key)} />}
+        <div className="mt-3 ml-[92px]">
+          <Check label="Italic" checked={em.italic} onChange={(italic) => setEm({ italic }, "Keyword Italic")} />
+        </div>
+      </Fold>
       <Section>
         {own && (
           <div className="mb-3 flex items-center justify-between gap-2 rounded-md bg-groove px-3 py-2 text-label text-text" data-caption-own>
@@ -533,10 +682,10 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
   );
 }
 
-/** Blur, Pixelate and Spotlight show only the intensity. */
+/** Blur and Spotlight show only the intensity. */
 function RegionProps({ clip, value, edit }: { clip: Clip; value: (g: string, f: string, d?: number) => number; edit: Edit }) {
   const kind = (clip.props.region as { kind?: string } | undefined)?.kind;
-  // Spotlight darkens 0-100%; blur is a radius and pixelate a block size, shown as 0-100; a highlight's is its opacity.
+  // Spotlight darkens 0-100%; blur is a radius, shown as 0-100; a highlight's is its opacity.
   const scale = kind === "blur" ? 10 : 100;
   const region = clip.props.region as { invert?: boolean; color?: RGBA } | undefined;
   return (
@@ -641,6 +790,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     {naming !== undefined && <SaveLookDialog name={naming} taken={kept.map((l) => l.name)} onDone={saveLook} />}
     <FoldSection
       title={name}
+      foldKey={`${clip.id}/${effect.id}`}
       selected={selected}
       selectHint="Select the effect (⇧ or ⌘ for several): ⌘C copies it, Delete removes it"
       onSelect={(e) => host.run("effect.select", { effects: [{ clip: clip.id, id: effect.id }], add: e.shiftKey || e.metaKey })}
@@ -736,12 +886,35 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               );
             }
             if (f.enum) {
+              const names = def?.choices?.[k];
+              const options = f.enum.map((o) => ({ id: String(o), label: names?.[String(o)]?.label ?? String(o).replace(/^./, (c) => c.toUpperCase()), art: names?.[String(o)]?.art }));
+              if (options.some((o) => o.art))
+                return (
+                  <Row key={k} label={label}>
+                    <ListSelect
+                      value={String(v)}
+                      options={options}
+                      onPreview={(id) => host.previewEffect(id === null ? null : { clip: clip.id, effect: effect.id, params: { ...effect.params, [k]: id } })}
+                      onChange={(id) => {
+                        if (id !== String(v)) set({ [k]: id });
+                        host.previewEffect(null);
+                      }}
+                      data-effect-param={k}
+                    />
+                  </Row>
+                );
+              if (options.length === 2)
+                return (
+                  <Row key={k} label={label}>
+                    <Toggle value={String(v)} options={options.map((o) => ({ value: o.id, label: o.label }))} onChange={(id) => set({ [k]: id })} data-effect-param={k} />
+                  </Row>
+                );
               return (
                 <Row key={k} label={label}>
                   <Select value={String(v)} onChange={(e) => set({ [k]: e.target.value })} data-effect-param={k}>
-                    {f.enum.map((o) => (
-                      <option key={String(o)} value={String(o)}>
-                        {String(o).replace(/^./, (c) => c.toUpperCase())}
+                    {options.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
                       </option>
                     ))}
                   </Select>
