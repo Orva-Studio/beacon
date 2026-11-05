@@ -441,3 +441,16 @@ Measured before changing anything (`docs/review-2026-10-17.md` §2), on a copy o
 | Preview from the originals on the same project, 1280×720 (`perf.ts --no-proxies`), decode buffers reused (P19) | jump p50 95 ms, settle 4.2, scrub forward 3.5 / backward 6.9 | jump 91-98, settle 3.7 (both runs), forward 3.5-3.6 / backward 6.5-7.2: within a run's noise, but no 33 MB allocation per CPU-decoded frame |
 | Stills drawn again when they come back (P20): only images were cached; a cursor shape costs 9 ms (27 worst) | 13 cursor loads in a `perf.ts` run | 8 (one per shape), 5 served from the cache |
 
+
+## Launch, memory and Camtasia (2026-11-05, Phase 14)
+
+`scripts/launch-bench.ts` on the benchmark project (578 s, 304 clips, 22 video streams): imported in 0.33 s, opened
+again in 8 ms; the built app launched cold until its window has drawn the project in 1.2-2.6 s.
+
+Memory (the app and every process it starts; the window's WebKit processes aren't counted): ~710-930 MB once open,
+levelling off as it plays and jumps, no leak over five minutes. `vmmap` put ~790 MB of it in 68 large blocks of about
+12 MB, decoded frames: each decoding thread kept up to 256 MB of frames behind its position as it played on, though a
+step back reaches only half a second. Trimmed to that half second: 1.15-1.17 GB → 1.0-1.04 GB after two minutes;
+scrubbing backward 4.1 → 5.3 ms a frame p50 (190 fps), the rest unchanged.
+
+Camtasia with the same project (a clone of it): 2.16 GB once open, ~2.2 GB playing.
