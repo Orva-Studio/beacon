@@ -310,7 +310,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       clips: z.array(z.string()).min(1).optional().describe("Only these clips, the rest left out; `from`/`to` default to their span"),
       overwrite: z.boolean().default(false).describe("Replace an existing file"),
       files: z.array(z.string()).optional().describe('Files written beside a video from the same range, by id: "captions" (an .srt of the captions, when the timeline has any). None unless asked for, as in the app\'s Export sheet'),
-      speed: z.number().min(1).max(2).optional().describe("The whole video played faster, as the Export sheet's Speed (1.2 for a Short): the timeline sampled faster at the same frame rate, the sound's pitch kept, captions and .srt with it. The project isn't changed; the result's `seconds` is the file's length"),
+      speed: z.number().min(0.25).max(3).optional().describe("The whole video played slower or faster, as the Export sheet's Speed (1.2 for a Short): the timeline sampled faster or slower at the same frame rate, the sound's pitch kept, captions and .srt with it. The project isn't changed; the result's `seconds` is the file's length"),
     }),
     async run({ output, ...rest }) {
       const job = await core.export(project(), { output: expandHome(output), ...rest });

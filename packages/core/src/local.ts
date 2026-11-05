@@ -939,7 +939,7 @@ export class LocalCore implements BeaconCore {
     // Refused before the job starts, not after a render.
     if (!opts.output.endsWith("/")) checkEncoding(videoFormat(output), opts);
     const speed = opts.speed ?? 1;
-    if (!(speed >= 1 && speed <= 2)) throw new Error(`an export plays at 1× to 2×, not ${opts.speed}×`);
+    if (!(speed >= 0.25 && speed <= 3)) throw new Error(`an export plays at 0.25× to 3×, not ${opts.speed}×`);
     const colorSpace = this.#config.settings().exportColorSpace;
     // Edits made while it renders must not reach the export, its derived data included.
     const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);

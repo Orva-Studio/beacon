@@ -16,7 +16,7 @@ function streams(path: string) {
   return (JSON.parse(r.stdout.toString()) as { streams: Record<string, string>[] }).streams;
 }
 
-test.skipIf(![AUDIO, VIDEO].every(existsSync))("an export sped up to 1.25× is the timeline sampled faster at the same rate, its sound and .srt with it; the project isn't changed", async () => {
+test.skipIf(![AUDIO, VIDEO].every(existsSync))("an export sped up to 1.25× is the timeline sampled faster at the same rate, its sound and .srt with it (slowed to 0.5×, slower); the project isn't changed", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache"), configDir: join(dir, "config") });
   const h = await core.create({ path: join(dir, "p.beproj") });
   copyFileSync(AUDIO, join(dir, "talk.m4a"));
@@ -43,6 +43,11 @@ test.skipIf(![AUDIO, VIDEO].every(existsSync))("an export sped up to 1.25× is t
 
   await (await core.export(h, { output: join(dir, "fast.wav"), from: 0, to: 3, speed: 1.5 })).done;
   expect(Number(streams(join(dir, "fast.wav"))[0]!.duration)).toBeCloseTo(2, 2);
-  await expect(core.export(h, { output: join(dir, "x.mp4"), speed: 3 })).rejects.toThrow("1× to 2×");
+  // Slowed down: a second of the timeline in two of the file, its frames and sound stretched.
+  await (await core.export(h, { output: join(dir, "slow.mp4"), from: 0, to: 1, speed: 0.5 })).done;
+  const [slowVideo, slowAudio] = ["video", "audio"].map((k) => streams(join(dir, "slow.mp4")).find((s) => s.codec_type === k)!);
+  expect(Number(slowVideo!.nb_read_frames)).toBe(60);
+  expect(Number(slowAudio!.duration)).toBeCloseTo(2, 1);
+  await expect(core.export(h, { output: join(dir, "x.mp4"), speed: 3.5 })).rejects.toThrow("0.25× to 3×");
   await core.close(h);
 }, 120_000);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { autoBitrate, fittedSize, isAudioFormat, MAX_BITRATE } from "@beacon/model";
-import { Button, Check, Icon, Modal, Progress, Select, SettingsRow as Row, TextInput, Toast } from "./controls";
+import { Button, Check, Icon, Modal, Progress, Select, SettingsRow as Row, SliderTrack, TextInput, Toast } from "./controls";
 import { DEFAULT_EXPORT } from "./export-defaults";
 import type { ExportJob, ExportSettings, ExportSheet } from "./rpc";
 import { replica, useView } from "./store";
@@ -33,40 +33,27 @@ const SIZES = [
   [854, 480],
 ] as const;
 
-const SPEEDS = [1, 1.1, 1.2, 1.25, 1.5];
+const SPEEDS = [0.5, 0.75, 1, 1.1, 1.2, 1.25, 1.5, 2];
+const [SLOWEST, FASTEST] = [0.25, 3];
 
-/** The whole file played faster (for Shorts): the offered speeds or any from 1× to 2× in 0.05 steps, and the length it comes out at. */
+/** The whole file played slower or faster (1.2× for Shorts): the offered speeds, or any from 0.25× to 3× in 0.05 steps on the slider, and the length it comes out at. */
 function SpeedRow({ speed, length, onChange }: { speed: number; length: number; onChange: (speed: number) => void }) {
-  const [custom, setCustom] = useState(!SPEEDS.includes(speed));
   return (
     <Row label="Speed">
-      <div className="w-36">
-        <Select
-          value={custom ? "custom" : String(speed)}
-          onChange={(e) => (e.target.value === "custom" ? setCustom(true) : (setCustom(false), onChange(Number(e.target.value))))}
-          data-export-speed
-        >
+      <div className="w-28 shrink-0">
+        <Select value={SPEEDS.includes(speed) ? String(speed) : "custom"} onChange={(e) => e.target.value !== "custom" && onChange(Number(e.target.value))} data-export-speed>
           {SPEEDS.map((x) => (
             <option key={x} value={String(x)}>
               {x === 1 ? "Normal (1×)" : `${x}×`}
             </option>
           ))}
-          <option value="custom">Custom…</option>
+          {!SPEEDS.includes(speed) && <option value="custom">{`${speed}×`}</option>}
         </Select>
       </div>
-      {custom && (
-        <TextInput
-          type="number"
-          className="w-20 text-right"
-          min={1}
-          max={2}
-          step={0.05}
-          value={speed}
-          onChange={(e) => onChange(Math.min(2, Math.max(1, Math.round((Number(e.target.value) || 1) * 20) / 20)))}
-          data-export-speed-custom
-        />
-      )}
-      <span className="text-text-dim" data-export-length>
+      <div className="flex min-w-24 flex-1" data-export-speed-slider>
+        <SliderTrack value={speed} min={SLOWEST} max={FASTEST} step={0.05} name="export-speed" onChange={(v) => onChange(Math.round(v * 20) / 20)} />
+      </div>
+      <span className="shrink-0 text-text-dim" data-export-length>
         {speed === 1 ? clock(length, { tenths: true }) : `${clock(length, { tenths: true })} → ${clock(length / speed, { tenths: true })}`}
       </span>
     </Row>
