@@ -147,3 +147,25 @@ export function Segmented<T extends string>({ value, options, onChange, ...props
     </div>
   );
 }
+
+/** A short choice of two side by side, one on (a screen's Matte or Glossy); each option carries `data-option`. */
+export function Toggle<T extends string>({ value, options, onChange, ...props }: { value: T | undefined; options: { value: T; label: string; title?: string }[]; onChange: (v: T) => void } & Omit<HTMLAttributes<HTMLDivElement>, "onChange">) {
+  return (
+    <div {...props} role="radiogroup" className="flex w-full gap-0.5 rounded-md bg-chip p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          title={o.title}
+          data-option={o.value}
+          className={`flex-1 rounded-[5px] py-1 text-center ${value === o.value ? "bg-tile-hover text-accent" : "text-text-muted hover:text-text-strong"}`}
+          onClick={() => value !== o.value && onChange(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}

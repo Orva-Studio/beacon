@@ -8,6 +8,7 @@ import { labels } from "./labels";
 import { regions } from "./regions";
 import { crtMonitor } from "./crt-monitor";
 import { dropShadow } from "./drop-shadow";
+import { deviceFrame } from "./device-frame";
 import { media } from "./media";
 import { motionBlur } from "./motion-blur";
 import { roundCorners } from "./round-corners";
@@ -36,6 +37,7 @@ export * from "./transform";
 export * from "./drop-shadow";
 export * from "./timeline";
 export * from "./zoom";
+export * from "./device-frame";
 export * from "./transcript";
 export * from "./noise";
 export * from "./volume";
@@ -57,7 +59,7 @@ export * from "./motion";
  * content space, `transform` maps them to the canvas, then effects.
  * Editing-only features come last.
  */
-export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, removeBackground, transform, lut, filmLook, roundCorners, border, crtMonitor, dropShadow, motionBlur, timeline, volume, noise, polish, auphonic, music, zoom, transcript, broll, angles, motion, toggles, labels, safeAreas];
+export const FEATURES: Feature[] = [media, callouts, captions, regions, groups, stitching, cursor, removeBackground, transform, lut, filmLook, roundCorners, border, crtMonitor, dropShadow, motionBlur, deviceFrame, timeline, volume, noise, polish, auphonic, music, zoom, transcript, broll, angles, motion, toggles, labels, safeAreas];
 
 export function createRegistry(): FeatureRegistry {
   return new FeatureRegistry(FEATURES);

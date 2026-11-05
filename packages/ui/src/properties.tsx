@@ -6,7 +6,7 @@ import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, Toggle, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -780,6 +780,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     {naming !== undefined && <SaveLookDialog name={naming} taken={kept.map((l) => l.name)} onDone={saveLook} />}
     <FoldSection
       title={name}
+      foldKey={`${clip.id}/${effect.id}`}
       selected={selected}
       selectHint="Select the effect (⇧ or ⌘ for several): ⌘C copies it, Delete removes it"
       onSelect={(e) => host.run("effect.select", { effects: [{ clip: clip.id, id: effect.id }], add: e.shiftKey || e.metaKey })}
@@ -875,12 +876,35 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
               );
             }
             if (f.enum) {
+              const names = def?.choices?.[k];
+              const options = f.enum.map((o) => ({ id: String(o), label: names?.[String(o)]?.label ?? String(o).replace(/^./, (c) => c.toUpperCase()), art: names?.[String(o)]?.art }));
+              if (options.some((o) => o.art))
+                return (
+                  <Row key={k} label={label}>
+                    <ListSelect
+                      value={String(v)}
+                      options={options}
+                      onPreview={(id) => host.previewEffect(id === null ? null : { clip: clip.id, effect: effect.id, params: { ...effect.params, [k]: id } })}
+                      onChange={(id) => {
+                        if (id !== String(v)) set({ [k]: id });
+                        host.previewEffect(null);
+                      }}
+                      data-effect-param={k}
+                    />
+                  </Row>
+                );
+              if (options.length === 2)
+                return (
+                  <Row key={k} label={label}>
+                    <Toggle value={String(v)} options={options.map((o) => ({ value: o.id, label: o.label }))} onChange={(id) => set({ [k]: id })} data-effect-param={k} />
+                  </Row>
+                );
               return (
                 <Row key={k} label={label}>
                   <Select value={String(v)} onChange={(e) => set({ [k]: e.target.value })} data-effect-param={k}>
-                    {f.enum.map((o) => (
-                      <option key={String(o)} value={String(o)}>
-                        {String(o).replace(/^./, (c) => c.toUpperCase())}
+                    {options.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
                       </option>
                     ))}
                   </Select>

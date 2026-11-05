@@ -3006,6 +3006,73 @@ Research and agree the design with them first; nothing is built before.
   superimposed on a device (a phone, a laptop, a monitor), fitted into its
   screen.
 
+**The spec (the user's 23 reference frames and choices, 2026-11-04).** A
+monitor only for now (no phone or tablet): the screen recording filmed as if
+on a real monitor in a dim room, mostly close in. What makes the references
+real is the camera more than the bezel: the screen at an angle (20-40° of yaw,
+a little pitch), a shallow focus band across it with the rest falling off, the
+room behind as bokeh, low warm practical light (a desk lamp, blinds, plants)
+with the screen the brightest thing, glossy screens carrying a faint room
+reflection and haze, slow pushes and slides.
+- **Beacon draws it:** a 3D monitor (thin black bezel; **Matte** or
+  **Glossy** screen: glossy reflects the room faintly with a sheen, matte
+  only glows) over a room photo, the recording on its screen; focus falloff
+  computed from each pixel's depth on the screen plane, the room blurred as
+  far behind it. Local, free; any angle; zooms stay correct.
+- **Rooms:** tried and ditched (generated photos looked fake); the room is drawn.
+- **Camera: shot presets plus a slow drift** (Wide angle, Close left, Close
+  right, Low macro…), each with a slow push or slide over the clip; the focus
+  point dragged on the canvas; Beacon's zooms still work on top.
+- **Extras:** screen glow (bright text blooms a little, the screen lights the
+  bezel), the film grade and vignette (crushed blacks, warm/teal), a handheld
+  micro-drift on top of the move. No letterbox.
+- **Shaders as much as possible, as hance's (the user, 2026-11-04):** the
+  monitor, screen and room are drawn by shaders, not baked images (only the
+  room photos are pictures). From hance (Film Look already has its grade,
+  halation, grain and vignette): its bloom (`scatter-blur`) for the screen
+  glow, its `camera-shake` for the micro-drift, its `aberration` toward the
+  frame's edges; new: a depth-of-field blur by each pixel's depth on the
+  screen plane, and the glossy reflection.
+- **Built (2026-11-04), as the Monitor effect (Visual Effects):** shots, moves,
+  drift, cursor or point focus, glow, aberration, grade, matte/glossy, zooms as
+  the camera. One room (the user, 2026-11-04: the least busy is best): the
+  generated Teal studio photo, straight on, well out of focus, keeping half its
+  colour; the angled photos, the other rooms, a drawn curtain and a drawn dark
+  room were tried and dropped. Screen: Matte or Glossy (a lamp's soft
+  reflection and a sheen that move with the camera); Sunlit (daylight through
+  leaves) was tried and dropped. The screen and bezel are the recording's own
+  shape, so the bezel is a thin line. Shot: Head on (the default) or, back on
+  the user's ask, the angled shots (the top corners, the side edges, close from
+  the left or right, a low macro), always in a drawn dark room; Room (head on
+  only): the studio photo or None (the dark room); Corner (head on only): top
+  left, top right, bottom left, bottom right (the user wanted head on at the
+  bottom left; the canvas's box is the clip's own placement, which Monitor
+  only uses for zooms, so moving it was no way to frame the shot). Later: the
+  canvas showing and dragging the monitor shot itself. Zoom (1.2 to 4 on the
+  slider, up to 12 typed; 2 by default, the user found 2.6 too close), head
+  on's corner staying put. No grade of its own (the user):
+  a Film Look on the clip grades the whole shot, room and bezel too.
+- **Blueprints in the menus (the user, 2026-11-04):** Shot, Corner and Move are
+  lists of pictures, as Film Look's looks are a list: a wireframe of the whole
+  monitor, Beacon green on black, seen from the shot's angle with the part the
+  shot frames lit (a move: where it starts lit, where it ends dashed), worked
+  out from the camera the effect uses. Hovering one previews it on the canvas.
+  A choice of two (Room, Screen, Focus) is a toggle. An effect gives its
+  options' names and pictures as `choices`.
+- **One shot, head on (the user, 2026-11-04):** a whole monitor in a room didn't
+  match, then the angled close-ups didn't either ("no more angles"), so there
+  is one shot, as their terminal reference: head on, close on the screen's
+  top-left corner (a fifth across, a third down), a thin black bezel, the room
+  out of focus above and to its left. Head on the screen is all one distance
+  away, so it softens with distance from the focus instead (the cursor; what
+  the camera aims at when the cursor is out of shot). Push moves in, Slide
+  moves sideways (never turning). Only the screen glows; the bezel catches a
+  little warm light along its top; the grade's halation is low. A whole
+  monitor in its room is for later.
+- **Focus on the cursor (the user's favourite):** the focus point can follow
+  the recorded cursor, smoothed, so the part being worked on is sharp and the
+  rest of the screen and the room blur away; or it stays where it was dragged.
+
 #### AI camera angles: a spike, then a plan (the user, 2026-10-22; was in the backlog since 2026-10-15)
 Not built in this phase until the spike says how: a new angle of the presenter
 (a close-up, a side profile, a wide) from one take, made with AI and placed as

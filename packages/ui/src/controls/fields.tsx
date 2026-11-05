@@ -181,7 +181,8 @@ export function SliderTrack({
   const at = (clientX: number) => {
     const r = track.current!.getBoundingClientRect();
     const v = min + clamp((clientX - r.left) / r.width, 0, 1) * (max - min);
-    return Math.round(v / step) * step;
+    // Steps counted from `min`, kept inside the range: from 0, a range starting at 1.2 put its end at 4.004, past 4.
+    return clamp(min + Math.round((v - min) / step) * step, min, max);
   };
   const send = (v: number) => {
     cancelAnimationFrame(pending.current);

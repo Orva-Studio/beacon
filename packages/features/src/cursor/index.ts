@@ -7,6 +7,7 @@ import {
   RgbaSchema,
   rotate,
   scale,
+  secondsToTicks,
   shutterTimes,
   ticksToSeconds,
   translate,
@@ -157,6 +158,24 @@ function spriteTransform(d: CursorData, state: CursorState, size: number, stream
     translate((state.pos[0] - ox) * ratio, (state.pos[1] - oy) * ratio),
     compose(extra, compose(scale(k), translate(-img.hotX, -img.hotY))),
   );
+}
+
+/** The cursor's hotspot in the clip's content pixels at timeline `time`, smoothed over `sigma` more seconds (Device Frame's focus). */
+export function cursorContentPoint(e: ClipEval, ctx: EvalContext, time: Ticks, sigma = 0): [number, number] | undefined {
+  if (!e.clip.assetId || !e.props.cursor) return undefined;
+  const d = ctx.data<CursorData>(e.clip.assetId, "cursor");
+  if (!d || !d.t.length) return undefined;
+  const streamWidth = streamOf(ctx.project.assets[e.clip.assetId]!, "video", e.props.media?.stream ?? 0).width!;
+  const [ratio, ox, oy] = pointsToContent(d, streamWidth);
+  let [x, y, w] = [0, 0, 0];
+  const n = sigma > 0 ? 8 : 0;
+  for (let k = -n; k <= n; k++) {
+    const dt = n ? (k / n) * 2 * sigma : 0;
+    const wk = n ? Math.exp(-(dt * dt) / (2 * sigma * sigma)) : 1;
+    const { pos } = cursorAt(e, d, time + secondsToTicks(dt));
+    [x, y, w] = [x + pos[0] * wk, y + pos[1] * wk, w + wk];
+  }
+  return [(x / w - ox) * ratio, (y / w - oy) * ratio];
 }
 
 function effect(clip: Clip, type: string) {

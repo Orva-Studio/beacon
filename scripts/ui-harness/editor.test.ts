@@ -29,7 +29,7 @@ const run = (command: string, args: unknown = {}) => ui.core.run(ui.handle, comm
 const session = () => ui.core.session(ui.handle);
 const has = (selector: string) => page.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`);
 const centre = (selector: string) =>
-  page.evaluate<[number, number]>(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+  page.evaluate<[number, number]>(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); e.scrollIntoView({ block: "nearest", inline: "nearest" }); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
 /** Types into the focused field as a person would (React sees it). */
 const type = (text: string) => page.evaluate(`(() => { document.activeElement.select?.(); document.execCommand('insertText', false, ${JSON.stringify(text)}); })()`);
 const select = async (ids: string[]) => {
@@ -5698,6 +5698,89 @@ test.skipIf(skip)("learned shortcuts: an effect used 5 times over 2 days is offe
     await page.until("!document.querySelector('[data-settings-nav]')");
   } finally {
     await ui.core.memoryChange({ shortcut: { remove: CRT } }).catch(() => {});
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("an effect folded on a clip stays folded after selecting something else and coming back", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("effect.add", { clip: screen.id, type: "crt-monitor" });
+    const fx = clip(screen.id).effects.at(-1)!.id;
+    await select([screen.id]);
+    await run("panel.show", { tool: null });
+    await run("inspector.tab", { tab: "effects" });
+    const caret = `document.querySelector('[data-effect="${fx}"] button[title="Hide the settings"]')`;
+    await page.until(`!!${caret}`);
+    await page.evaluate(`${caret}.click()`);
+    await page.until(`!!document.querySelector('[data-effect="${fx}"] button[title="Show the settings"]')`);
+    await select([]);
+    await page.until(`!document.querySelector('[data-effect="${fx}"]')`);
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until(`!!document.querySelector('[data-effect="${fx}"]')`);
+    expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect="${fx}"] button[title="Show the settings"]')`)).toBe(true);
+  } finally {
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
+test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monitor: its tile adds it; shot, corner and move are lists of blueprints, room, screen and focus are toggles; Focus X and Y show only for a focus point, a choice is one undo step (a blueprint hovered is none), and Zoom's slider at its end is 4 exactly", async () => {
+  const MON = "effect:device-frame";
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await select([screen.id]);
+    await run("panel.show", { tool: "visualEffects" });
+    await page.until(`!!document.querySelector('[data-item="${MON}"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-item="${MON}"]').innerText`)).toContain("Monitor");
+    await page.dblclick(...(await centre(`[data-item="${MON}"]`)));
+    await arrived(() => clip(screen.id).effects.some((e) => e.type === "device-frame"));
+    await run("panel.show", { tool: null });
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("!!document.querySelector('[data-effect-param=screen]')");
+    for (const k of ["shot", "corner", "room", "move", "screen", "focus"]) expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}]')`)).toBe(true);
+    const labels = () => page.evaluate<string>("document.querySelector('[data-effects]')?.innerText ?? document.body.innerText");
+    expect(await labels()).not.toContain("Focus X");
+    const before = (await ui.core.history(ui.handle)).undo.length;
+    // Two choices are a toggle, named as the effect names them.
+    expect(await page.evaluate<string>("document.querySelector('[data-effect-param=room]').innerText.replace(/\\s+/g, ' ')")).toBe("Studio None");
+    await page.click(...(await centre("[data-effect-param=screen] [data-option=glossy]")));
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.screen === "glossy");
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 1);
+    await page.until("document.querySelector('[data-effect-param=screen] [aria-checked=true]')?.dataset.option === 'glossy'");
+    await page.click(...(await centre("[data-effect-param=focus] [data-option=point]")));
+    await page.until("document.body.innerText.includes('Focus X')");
+    // The shots are a list of blueprints, each a picture under its name; hovering one previews it, picking it is one step.
+    for (const [k, n] of [["shot", 8], ["corner", 4], ["move", 3]] as const) {
+      expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}] img[src^="data:image/svg+xml"]')`)).toBe(true);
+      await page.click(...(await centre(`[data-effect-param=${k}]`)));
+      await page.until(`document.querySelectorAll('[role=listbox] [data-option] img').length === ${n}`);
+      await page.key("Escape", "Escape");
+      await page.until("!document.querySelector('[role=listbox]')");
+    }
+    expect(await page.evaluate<string>("document.querySelector('[data-effect-param=shot]').innerText.trim()")).toBe("Head On");
+    const picked = (await ui.core.history(ui.handle)).undo.length;
+    await page.click(...(await centre("[data-effect-param=shot]")));
+    await page.until("!!document.querySelector('[role=listbox] [data-option=edge-left]')");
+    await page.hover(...(await centre("[role=listbox] [data-option=close-right]")));
+    await Bun.sleep(200);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(picked);
+    await page.click(...(await centre("[role=listbox] [data-option=edge-left]")));
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.shot === "edge-left");
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(picked + 1);
+    // Corner and room are for head on only.
+    await page.until("!document.querySelector('[data-effect-param=corner]') && !document.querySelector('[data-effect-param=room]')");
+    // Zoom's slider starts at 1.2: past its right end it is 4 exactly (its steps once counted from 0 made it 4.004,
+    // which the project refused, and the canvas went black).
+    const zoomSlider = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Zoom') return true; return false; }); hit.scrollIntoView({ block: 'center' }); const b = hit.getBoundingClientRect(); return { x: b.x + b.width - 2, y: b.y + b.height / 2 }; })()`;
+    const z = await page.evaluate<{ x: number; y: number }>(zoomSlider);
+    await page.click(z.x, z.y);
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.zoom === 4);
+    await page.screenshot(join(dir, "monitor.png"));
+  } finally {
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("panel.show", { tool: null });
     await select([]);

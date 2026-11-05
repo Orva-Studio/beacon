@@ -2,6 +2,9 @@ import { useState, type ReactNode } from "react";
 import { Check } from "./fields";
 import { Icon, type IconName } from "./icons";
 
+/** Sections folded this session, by `foldKey`: selecting another clip unmounts them, and they came back open. */
+const folded = new Set<string>();
+
 /**
  * A section that folds, as effects and Clip Speed: a dark header with a chevron, the title
  * (clicking it calls `onSelect`, e.g. to select an effect for ⌘C), an icon button (`action`, Save Look), a trash button (`remove`), "•••" with `menu`'s items, an optional on/off tick.
@@ -16,6 +19,7 @@ export function FoldSection({
   menu,
   enabled,
   onEnable,
+  foldKey,
   children,
 }: {
   title: string;
@@ -29,9 +33,15 @@ export function FoldSection({
   menu?: { label: string; run: () => void }[];
   enabled?: boolean;
   onEnable?: (on: boolean) => void;
+  /** Remembers whether it is folded for the session (an effect's clip and id). */
+  foldKey?: string;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpenState] = useState(() => !foldKey || !folded.has(foldKey));
+  const setOpen = (on: boolean) => {
+    if (foldKey) on ? folded.delete(foldKey) : folded.add(foldKey);
+    setOpenState(on);
+  };
   const [showMenu, setShowMenu] = useState(false);
   return (
     <div className="border-b border-divider">

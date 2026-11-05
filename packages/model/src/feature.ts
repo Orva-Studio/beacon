@@ -83,6 +83,16 @@ export interface EffectDef {
   importFile?: { label: string; extensions: string[]; query: string; keep?: string };
   /** A button on the effect's section running `action` with `{ clip, effect }` (Film Look's Auto Tune). */
   tune?: { label: string; title: string; action: string };
+  /**
+   * How the inspector shows a choice param's options, by param then option: a name, and a picture (an image URL) that
+   * puts them in a list of pictures (the Monitor's shots as blueprints).
+   */
+  choices?: Record<string, Record<string, EffectChoice>>;
+}
+
+export interface EffectChoice {
+  label: string;
+  art?: string;
 }
 
 export interface EffectPreset {

@@ -7,6 +7,8 @@ export interface ListOption {
   title?: string;
   /** A heading drawn over the first option of each run with it ("Your looks"). */
   group?: string;
+  /** A picture over the option's name (a shot's blueprint): the list then shows them large, the button small. */
+  art?: string;
 }
 
 /**
@@ -31,6 +33,7 @@ export function ListSelect({
   const onPreviewNow = useRef(onPreview);
   onPreviewNow.current = onPreview;
   const shown = options.find((o) => o.id === value);
+  const pictures = options.some((o) => o.art);
 
   const preview = (id: string | null) => {
     if (id === null && !previewing.current) return;
@@ -87,6 +90,7 @@ export function ListSelect({
           setOpen(true);
         }}
       >
+        {shown?.art && <img src={shown.art} alt="" className="h-[27px] w-12 shrink-0 rounded-sm" draggable={false} />}
         <span className="min-w-0 flex-1 truncate">{shown?.label ?? ""}</span>
         <Icon name="caret-down" size={12} className="shrink-0 text-text-muted" />
       </button>
@@ -95,7 +99,7 @@ export function ListSelect({
           ref={list}
           role="listbox"
           tabIndex={-1}
-          className="absolute top-full left-0 z-50 mt-1 w-max min-w-full max-w-64 max-h-72 overflow-y-auto rounded-md border border-field-edge bg-tile py-1 shadow-lg outline-none"
+          className={`absolute top-full left-0 z-50 mt-1 w-max min-w-full overflow-y-auto ${pictures ? "max-h-[420px] max-w-72" : "max-h-72 max-w-64"} rounded-md border border-field-edge bg-tile py-1 shadow-lg outline-none`}
           onMouseLeave={() => {
             setActive(options.findIndex((o) => o.id === value));
             preview(null);
@@ -129,12 +133,13 @@ export function ListSelect({
               data-index={i}
               aria-selected={o.id === value}
               title={o.title}
-              className={`cursor-default truncate px-2 py-1 ${i === active ? "bg-accent-wash text-text-strong" : o.id === value ? "text-text-strong" : "text-text"}`}
+              className={`cursor-default truncate px-2 py-1 ${o.art ? "flex items-center gap-2.5" : ""} ${i === active ? "bg-accent-wash text-text-strong" : o.id === value ? "text-text-strong" : "text-text"}`}
               onMouseEnter={() => {
                 if (i !== active || !previewing.current) show(i, false);
               }}
               onClick={() => choose(o.id)}
             >
+              {o.art && <img src={o.art} alt="" className="h-[54px] w-24 shrink-0 rounded-sm" draggable={false} />}
               {o.label}
             </div>,
           ])}

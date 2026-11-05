@@ -222,3 +222,55 @@ test("motion v4: a background set on the clip becomes the first thing in each ta
   expect(none!.takes.map((t) => t.html)).toEqual(["<b>Hi</b>", "<b>Yo</b>"]);
   for (const m of [card, none]) expect(m).not.toHaveProperty("backdrop");
 });
+
+test("device-frame v2: Monitor's grade becomes a Film Look on the clip at its strength, the settings it no longer has go and zoom comes in, so a project the dev app saved opens", () => {
+  const registry = createRegistry();
+  const clip = (id: string, effects: object[]) => ({ id, type: "screen", start: Number(id.slice(1)) * 10, duration: 10, props: {}, effects, animations: [] });
+  const doc = createProject(registry) as any;
+  doc.features["device-frame"] = 1;
+  const look = { strength: 1, exposure: 0, warmth: 0, tint: 0, fade: 0, contrast: 1, saturation: 1, grain: 0, grainSize: 0, halation: 0, halationSize: 4, vignette: 0, splitTone: 0, shadowHue: 30, highlightHue: 210, highlightStrength: 0.5 };
+  const v1 = { move: "still", screen: "sunlit", room: "teal-studio", shot: "wide", focus: "cursor", focusX: 0.48, focusY: 0.38, blur: 0.56, glow: 0.21, drift: 0.45 };
+  doc.tracks = [
+    {
+      id: "t1",
+      name: "Screen",
+      clips: [
+        clip("c1", [{ id: "fx-5b4f9bed", type: "device-frame", enabled: true, params: { ...v1, grade: 0.57 } }]),
+        clip("c2", [{ id: "fx-00000001", type: "film-look", enabled: true, params: look }, { id: "fx-00000002", type: "device-frame", enabled: true, params: { ...v1, grade: 1 } }]),
+        clip("c3", [{ id: "fx-00000003", type: "device-frame", enabled: true, params: { ...v1, grade: 0 } }]),
+      ],
+    },
+  ];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features["device-frame"]).toBe(4);
+  const [graded, ownLook, ungraded] = out.tracks[0].clips;
+  expect(graded.effects.map((e: any) => [e.id, e.type])).toEqual([["fx-d3c71365", "film-look"], ["fx-5b4f9bed", "device-frame"]]);
+  expect(graded.effects[0].params).toMatchObject({ strength: 0.57, warmth: 0.4, vignette: 0.3 });
+  expect(graded.effects[1].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", move: "still", screen: "matte", focus: "cursor", focusX: 0.48, focusY: 0.38, blur: 0.56, glow: 0.21, drift: 0.45, zoom: 2 });
+  // A clip with a Film Look of its own keeps it as it was; no grade adds none.
+  expect(ownLook.effects.map((e: any) => e.type)).toEqual(["film-look", "device-frame"]);
+  expect(ownLook.effects[0].params).toEqual(look);
+  expect(ungraded.effects.map((e: any) => e.type)).toEqual(["device-frame"]);
+});
+
+test("device-frame v3: a Monitor saved at v2 gets the Shot and Room menus as v2 drew it (head on, the studio photo), its settings kept", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features["device-frame"] = 2;
+  const v2 = { move: "still", screen: "glossy", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.56, glow: 0.21, drift: 0.45, zoom: 3.49 };
+  doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v2 }], animations: [] }] }];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features["device-frame"]).toBe(4);
+  expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", ...v2 });
+});
+
+test("device-frame v4: a head-on Monitor saved at v3 is close on the top-left corner, as v3 always was", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features["device-frame"] = 3;
+  const v3 = { shot: "head-on", room: "none", move: "push", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, drift: 0.5, zoom: 2 };
+  doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v3 }], animations: [] }] }];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features["device-frame"]).toBe(4);
+  expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", ...v3 });
+});
