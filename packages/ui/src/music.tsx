@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import type { MusicPage, MusicReview, MusicTrack, PopIn, SoundEffect, SuggestOption, Suggestion } from "@beacon/features";
-import { POP_TERMS, type PopKind } from "@beacon/features/src/music/pops";
+import { POP_TERMS, type PopKind } from "@beacon/features/ui";
 import { Button, Check, Icon, Segmented, Slider, TextInput } from "./controls";
 import { useShortcutTip } from "./keymap";
 import { useQuery } from "./query";

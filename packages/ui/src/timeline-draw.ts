@@ -11,13 +11,13 @@ import {
   secondsToTicks,
   ticksToSeconds,
   TRACK_HEIGHT,
-  wordsInWindow,
   type Animation,
   type Clip,
   type Project,
   type Session,
   type Track,
 } from "@beacon/model";
+import { clipLabel as featureLabel } from "@beacon/features/ui";
 import type { PanelItem } from "./drop";
 import { drawIcon, type IconName } from "./controls";
 import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, BAND, TRACKS_TOP, volumeY } from "./timeline-layout";
@@ -189,17 +189,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
   const inner = innerTracks(clip, nested)?.[0]?.clips[0];
   const asset = project.assets[clip.assetId ?? inner?.assetId ?? ""];
   if (asset) return assetName(asset);
-  // Annotations say what they are: a text callout its text, the rest their shape or kind.
-  const callout = clip.props.callout as { shape?: string; text?: { text?: string } } | undefined;
-  if (callout?.shape === "text") return callout.text?.text?.split("\n")[0]?.trim() || "Text";
-  if (callout?.shape) return callout.shape === "rectangle" ? "Shape" : callout.shape[0]!.toUpperCase() + callout.shape.slice(1);
-  const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
-  if (caption) return wordsInWindow(clip, caption).map((w) => w.text).join(" ") || "Caption";
-  // B-roll without footage yet: what it will show.
-  if (clip.type === "broll") return ((b) => (b?.source === "manual" ? b.manual : b?.prompt))(clip.props.broll as { prompt?: string; manual?: string; source?: string } | undefined)?.trim() || "B-roll";
-  const region = (clip.props.region as { kind?: string } | undefined)?.kind;
-  if (region) return region[0]!.toUpperCase() + region.slice(1);
-  return clip.type;
+  return featureLabel(clip) ?? clip.type;
 }
 
 /**

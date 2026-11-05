@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { ApplicationMenu, ContextMenu, Utils } from "electrobun/main";
-import { agentName, chordOf, keyOfCode, keysLabel, LABEL_COLORS, locateTrack, menuKey, MODIFIERS, walkClips, type HistorySteps, type Keys, type ShortcutInfo } from "@beacon/core";
+import { agentName, chordOf, keyOfCode, keysLabel, locateTrack, menuKey, MODIFIERS, walkClips, type HistorySteps, type Keys, type ShortcutInfo } from "@beacon/core";
+import { LABEL_COLORS } from "@beacon/features";
 import { copiedIds, tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
 import { errorText, type App } from "./app";
 
