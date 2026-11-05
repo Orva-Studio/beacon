@@ -318,13 +318,17 @@ export async function askOwner(socket: string, method: "show" | "letGo", path: s
   const answer = new Promise<string | undefined>((resolve) => (done = resolve));
   const timer = setTimeout(() => done("it didn't answer"), ms);
   const reader = new LineReader((line) => {
-    const msg = decode(line) as { error?: { message: string } };
+    const msg = decode(line) as { id?: number; error?: { message: string } };
+    // An app's hello (its token, id 0) answers first; only a refused one is the answer.
+    if (msg.id === 0 && !msg.error) return;
     done(msg.error?.message);
   });
   try {
     conn = await Bun.connect({ unix: socket, socket: { data: (_, chunk) => reader.push(chunk), close: () => done("it closed the connection"), error: () => done("it couldn't be reached") } }).catch(() => {
       throw new Error("it couldn't be reached");
     });
+    // `show` goes to an app's socket, which wants its token first; `letGo` to an agent's control socket, which doesn't.
+    if (method === "show") conn.write(`${encode({ jsonrpc: "2.0", id: 0, method: "hello", params: [socketToken(socket) ?? null] })}\n`);
     conn.write(`${encode({ jsonrpc: "2.0", id: 1, method, params: [path] })}\n`);
     const error = await answer;
     if (error) throw new Error(error);
