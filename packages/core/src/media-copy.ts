@@ -1,6 +1,6 @@
 import { constants, existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { copyFile, mkdir, readdir, readlink, stat, symlink, utimes } from "node:fs/promises";
-import { basename, extname, join, sep } from "node:path";
+import { basename, dirname, extname, join, sep } from "node:path";
 
 const MEDIA_FOLDER = "media";
 
@@ -65,4 +65,19 @@ export async function copyFollowingLinks(from: string, to: string, filter: (src:
     await copyFile(src, to, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
   }
   await utimes(to, st.atimeMs / 1000, st.mtimeMs / 1000);
+}
+
+/** A path with every link on the way followed, as far as it exists; the rest as written. */
+export function realPath(path: string): string {
+  let head = path;
+  const rest: string[] = [];
+  while (!existsSync(head) && dirname(head) !== head) {
+    rest.unshift(basename(head));
+    head = dirname(head);
+  }
+  try {
+    return join(realpathSync(head), ...rest);
+  } catch {
+    return path;
+  }
 }

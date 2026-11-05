@@ -1,7 +1,7 @@
 import { measureLoudness, probeMedia } from "@beacon/media";
 import { randomId, type Asset, type Decision, type FeatureRegistry, type Memory, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
 import type { DerivedData, FrameRenderer, LiveView } from "@beacon/render";
-import type { CoreEvent, Job, ProjectHandle } from "./api";
+import type { CoreEvent, Image, Job, ProjectHandle } from "./api";
 
 export interface OpenProject {
   path: string;
@@ -55,3 +55,9 @@ export async function probeAsset(file: string): Promise<Asset["derived"]> {
  * command would do (a caption track's look), run on a copy.
  */
 export type Preview = { clip: string; effect: string; params: Record<string, unknown> } | { command: string; args: unknown };
+
+/** Width and height from the PNG header. */
+export function pngImage(png: Uint8Array): Image {
+  const v = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  return { png, width: v.getUint32(16), height: v.getUint32(20) };
+}

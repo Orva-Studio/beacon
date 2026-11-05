@@ -1,22 +1,16 @@
-import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
-import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
-import { fileFingerprint, jobSignal, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
+import { fileFingerprint, pastePng, probeMedia, type RecorderPreviewEvent, type RecorderSources } from "@beacon/media";
 import {
   changedSettings,
   createProject,
   describeSession,
-  formatIssues,
-  type ActionDef,
   type SharedSession,
-  editScope,
-  nestedOf,
   projectDuration,
   ProjectStore,
   roundSeconds,
-  secondsToTicks,
   SessionStore,
   snapSeconds,
   ticksPerFrame,
@@ -24,14 +18,11 @@ import {
   type CommandResult,
   type Asset,
   type FeatureRegistry,
-  type MediaImporterDef,
   type Project,
   type Session,
   type SessionChange,
   placeCanvas,
   rationalToNumber,
-  onlyClips,
-  scopedProject,
   assetName,
   type Keys,
   type ShortcutInfo,
@@ -41,16 +32,16 @@ import {
   type SettingsPatch,
   withEffectParams,
   withPatches,
-  type ActionContext,
-  type ActionPlan,
-  type ActionTask,
-  type ActionStep,
   type Memory,
   MemoryChangeSchema,
   type MemoryChange,
   type MemoryState,
-  projectFormat, agentName, anyAgent, authorIs } from "@beacon/model";
-import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
+  projectFormat,
+  agentName,
+  anyAgent,
+  authorIs,
+} from "@beacon/model";
+import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, type ViewTarget } from "@beacon/render";
 import type {
   AgentAbout,
   AgentSession,
@@ -85,23 +76,19 @@ import type {
 } from "./api";
 import { Analyses } from "./analyses";
 import { AppConfig } from "./config";
+import { Exporter } from "./exporter";
+import { Importer } from "./importer";
 import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
-import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
+import { copyFollowingLinks, isInside, realPath } from "./media-copy";
 import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject, type OwnerInfo } from "./persist";
-import { probeAsset, shortId, type CoreParts, type OpenProject, type Preview } from "./project";
+import { pngImage, probeAsset, shortId, type CoreParts, type OpenProject, type Preview } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
-import { askControl, controlSockets } from "./socket";
 import { currentAuthor } from "./author";
-import { findAgentCli, RUN_AGENTS, runCodex, type RunAgent } from "./agent-run";
+import { AgentRuns, type RunAgent } from "./agent-run";
+import { Tasks } from "./tasks";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
-
-/** An action's document steps in one transaction, each given the results of those before it when it asks. */
-function runSteps(tx: { run: (command: string, args: unknown) => unknown }, steps: ActionStep[]) {
-  const results: unknown[] = [];
-  for (const s of steps) results.push(tx.run(s.command, typeof s.args === "function" ? (s.args as (r: unknown[]) => unknown)(results) : (s.args ?? {})));
-}
 
 export interface LocalCoreOptions {
   registry?: FeatureRegistry;
@@ -148,9 +135,6 @@ const PLAYBACK = new Set(["playback.play", "playback.toggle", "playback.shuttle"
 
 const MAX_SHEET = 100;
 
-/** The encoding options of an export call, without its other fields. */
-const encoding = ({ output: _, overwrite: _o, from: _f, to: _t, ...rest }: ExportOptions) => rest;
-
 /** In-process core: owns the documents, runs the engine, reads and writes `.beproj` folders (PLAN §7.1). */
 export class LocalCore implements BeaconCore {
   readonly registry: FeatureRegistry;
@@ -164,7 +148,6 @@ export class LocalCore implements BeaconCore {
   });
   /** The last copies in any project, so they paste into the next one opened. */
   #shared: SharedSession = { clipboard: null, properties: null };
-  #imports = 0;
 
   /** Preferences, panel items' use, settings and keys, and the secrets. */
   readonly #config: AppConfig;
@@ -172,8 +155,10 @@ export class LocalCore implements BeaconCore {
   readonly #parts: CoreParts;
   readonly #analyses: Analyses;
   readonly #recording: Recording;
-  readonly #controlDir: string | undefined;
-  readonly #agentClis: Partial<Record<RunAgent, string>> | undefined;
+  readonly #exporter: Exporter;
+  readonly #importer: Importer;
+  readonly #tasks: Tasks;
+  readonly #agentRuns: AgentRuns;
   readonly #confirmAgentRecording: LocalCoreOptions["confirmAgentRecording"];
 
   constructor(opts: LocalCoreOptions = {}) {
@@ -185,8 +170,6 @@ export class LocalCore implements BeaconCore {
       for (const l of this.#appListeners) l(e);
     });
     this.#pref = this.#config.pref;
-    this.#controlDir = opts.controlDir;
-    this.#agentClis = opts.agentClis;
     this.#owner = { ...(opts.name ? { name: opts.name } : {}), ...(opts.socket ? { socket: opts.socket } : {}), ...(opts.control ? { control: opts.control } : {}) };
     this.#reveal = opts.reveal ?? ((path) => void Bun.spawn(["/usr/bin/open", "-R", path]));
     this.#parts = {
@@ -201,6 +184,17 @@ export class LocalCore implements BeaconCore {
         this.#jobs.start(kind, label, fn, { ...(p ? { project: p.path, report: (e) => this.#emit(p, e) } : {}), ...(subject ? { subject } : {}), ...(asset ? { asset } : {}) }),
     };
     this.#analyses = new Analyses(this.#parts, this.#jobs, this.#config, (fn) => this.watchApp(fn));
+    this.#exporter = new Exporter(this.#parts, this.#jobs, this.#config, this.#analyses);
+    this.#importer = new Importer(this.#parts, this.#config, this.#analyses);
+    this.#tasks = new Tasks(this.#parts, this.#config);
+    this.#agentRuns = new AgentRuns({
+      parts: this.#parts,
+      control: opts.control,
+      socket: opts.socket,
+      controlDir: opts.controlDir,
+      agentClis: opts.agentClis,
+      reply: (request, status, text) => void this.agentReply(request, status, text),
+    });
     this.#recording = new Recording(this.#parts, this.#config, this.#analyses, (h, files, o) => this.import(h, files, o));
   }
 
@@ -282,9 +276,7 @@ export class LocalCore implements BeaconCore {
     if (extname(dir) !== ".beproj") throw new Error("project folders end in .beproj");
     let doc: Project;
     if (opts.cmproj) {
-      const { project, report } = await importCmproj(resolve(opts.cmproj), this.registry);
-      for (const line of report) console.error(`import: ${line}`);
-      this.#importReports.set(dir, report);
+      const project = await this.#importer.cmproj(dir, opts.cmproj);
       doc = { ...project, settings: changedSettings(project.settings, opts.settings ?? {}) };
     } else {
       const created = createProject(this.registry);
@@ -295,7 +287,7 @@ export class LocalCore implements BeaconCore {
     try {
       if (opts.standalone) {
         doc = { ...doc, settings: { ...doc.settings, standalone: true } };
-        const moved = await this.#copyIn(dir, Object.values(doc.assets));
+        const moved = await this.#importer.copyIn(dir, Object.values(doc.assets));
         doc = { ...doc, assets: { ...doc.assets, ...Object.fromEntries(moved.map((a) => [a.id, a])) } };
       }
       writeProject(dir, doc);
@@ -307,29 +299,10 @@ export class LocalCore implements BeaconCore {
     return this.#attach(dir, doc);
   }
 
-  readonly #importReports = new Map<string, string[]>();
-
-  /**
-   * Copies media from outside the project folder into its `media` folder: the assets as they will be, each with
-   * its copy's path and the results (transcripts) its original had. Missing files are left as they are.
-   */
-  async #copyIn(dir: string, assets: Asset[]): Promise<Asset[]> {
-    const outside = assets.filter((a) => !isInside(dir, a.path) && existsSync(a.path));
-    if (!outside.length) return [];
-    const copies = await copyIntoProject(dir, outside.map((a) => a.path));
-    const data = new DerivedData(this.registry, this.cacheDir, () => ({ assets: {} }) as unknown as Project, this.#pref);
-    return outside.map((a) => {
-      const path = copies.get(a.path)!;
-      const copy = { ...a, path, fingerprint: fileFingerprint(path) };
-      data.carry(a, copy);
-      return copy;
-    });
-  }
-
   /** Standalone on: what is outside the project is copied in, and the project points at the copies, as one undo step. */
   async #makeStandalone(p: OpenProject, args: unknown, opts: RunOptions): Promise<CommandResult> {
     const assets = Object.values(p.store.doc.assets);
-    const moved = await this.#copyIn(p.path, assets);
+    const moved = await this.#importer.copyIn(p.path, assets);
     const missing = assets.filter((a) => !isInside(p.path, a.path) && !existsSync(a.path));
     const r = this.#saved(p, p.store.transaction(opts.label ?? "Make Project Standalone", (tx) => {
       tx.run("project.settings.set", args);
@@ -340,7 +313,7 @@ export class LocalCore implements BeaconCore {
 
   /** What a project made from a Camtasia project (`create` with `cmproj`) left out or changed, line by line. */
   importReport(h: ProjectHandle): string[] {
-    return this.#importReports.get(resolve(h)) ?? [];
+    return this.#importer.report(h);
   }
 
   async save(h: ProjectHandle): Promise<void> {
@@ -370,7 +343,7 @@ export class LocalCore implements BeaconCore {
       p.data.carry(a, copy);
       return copy;
     });
-    const outside = standalone ? await this.#copyIn(to, assets.filter((a) => !isInside(p.path, a.path))) : [];
+    const outside = standalone ? await this.#importer.copyIn(to, assets.filter((a) => !isInside(p.path, a.path))) : [];
     const { standalone: _, ...settings } = doc.settings;
     writeProject(to, {
       ...doc,
@@ -461,7 +434,7 @@ export class LocalCore implements BeaconCore {
       return this.#makeStandalone(p, args, opts);
     }
     const action = this.registry.actions.get(command);
-    if (action) return this.#runAction(p, action, args, opts);
+    if (action) return this.#tasks.runAction(p, action, args, opts);
     if (opts.coalesce && !opts.dryRun) {
       const r = p.store.run(command, args, opts);
       this.#saveSoon(p);
@@ -484,107 +457,6 @@ export class LocalCore implements BeaconCore {
         this.#emit(p, { kind: "error", message: `could not save ${p.path}: ${e instanceof Error ? e.message : e}` });
       }
     }, 300);
-  }
-
-  /** An editor action: its editor steps, then its document steps as one undo step, then editor steps that follow from them; a task it starts runs as a job. */
-  #runAction(p: OpenProject, action: ActionDef, args: unknown, opts: RunOptions): CommandResult {
-    const parsed = action.args.safeParse(args ?? {});
-    if (!parsed.success) throw new Error(`${action.id}: ${formatIssues(parsed.error)}`);
-    const plan = action.resolve(parsed.data, this.#actionContext(p));
-    const label = opts.label ?? plan.label;
-    if (opts.dryRun) {
-      const r = plan.steps?.length ? p.store.transaction(label, (tx) => runSteps(tx, plan.steps!), { dryRun: true }) : undefined;
-      const lines = [...(plan.before ?? []), ...(plan.steps ?? [])].map((s) => `${s.command} ${typeof s.args === "function" ? "(from the steps before it)" : JSON.stringify(s.args ?? {})}`);
-      if (plan.task) lines.push(`then in the background: ${plan.task.label}`);
-      return { label, patches: r?.patches ?? [], inverse: r?.inverse ?? [], results: r?.results ?? [], diff: [...lines, ...(r?.diff ?? [])], dryRun: true };
-    }
-    const result = { ...this.#applyPlan(p, plan, label), ...(plan.note ? { note: plan.note } : {}) };
-    if (!plan.task) return result;
-    const job = this.#startTask(p, plan.task);
-    return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };
-  }
-
-  #actionContext(p: OpenProject): ActionContext {
-    const scope = editScope(p.store.doc, p.session.state.group, nestedOf(this.registry));
-    return { project: p.store.doc, session: p.session.state, registry: this.registry, scope: { tracks: scopedProject(p.store.doc, scope).tracks, group: scope.group }, data: p.data.get, pref: p.data.pref, memory: p.memory };
-  }
-
-  #applyPlan(p: OpenProject, plan: ActionPlan, label: string): CommandResult {
-    const before = p.session.state;
-    let result: CommandResult;
-    try {
-      for (const s of plan.before ?? []) p.session.run(s.command, s.args, p.store.doc);
-      result = plan.steps?.length
-        ? this.#saved(p, p.store.transaction(label, (tx) => runSteps(tx, plan.steps!)))
-        : { label, patches: [], inverse: [], results: [], diff: [], dryRun: false };
-    } catch (e) {
-      // A Cut that couldn't delete must not have replaced the clipboard either.
-      if (p.session.state !== before) p.session.restore(before);
-      throw e;
-    }
-    // The document change is committed: what fails after it (keeping the decisions, an editor step) is reported, not thrown, or a retry would apply the change twice.
-    const failed: string[] = [];
-    if (plan.decisions?.length) {
-      const step = result.patches.length ? crypto.randomUUID().slice(0, 8) : undefined;
-      try {
-        p.memory.record(step ? plan.decisions.map((d) => ({ ...d, step })) : plan.decisions);
-        if (step) p.decided.set(result.patches, { step });
-      } catch (e) {
-        failed.push(`(your choices weren't kept for Settings › Memory: ${e instanceof Error ? e.message : String(e)})`);
-      }
-    }
-    try {
-      for (const s of plan.after?.(result.results) ?? []) p.session.run(s.command, s.args, p.store.doc);
-    } catch (e) {
-      failed.push(`(editor step after the change failed: ${e instanceof Error ? e.message : String(e)})`);
-    }
-    return failed.length ? { ...result, diff: [...result.diff, ...failed] } : result;
-  }
-
-  /** An action's background work; its edit is planned on the document as it is when the work is done. */
-  #startTask(p: OpenProject, task: ActionTask): Job {
-    const job = this.#parts.startJob(p, "task", task.label, async (progress) => {
-      const mediaDir = join(p.path, "media");
-      mkdirSync(mediaDir, { recursive: true });
-      const finish = await task.run({
-        progress,
-        secret: (id) => this.#config.secrets.get(id),
-        pref: p.data.pref,
-        mediaDir,
-        bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, scratch(path, mediaDir)),
-        asset: async (path, kind) => ({ kind, path, fingerprint: fileFingerprint(path), derived: await probeAsset(path) }),
-        frame: async (time, path, width = 0) => {
-          scratch(path, mediaDir);
-          const doc = p.store.doc;
-          writeFileSync(path, pngImage(p.frames.frame(doc, snapSeconds(time, doc.settings.fps), p.data.get, width)).png);
-        },
-      });
-      if (this.#projects.get(p.path) !== p) throw new Error("the project was closed");
-      const plan = finish(this.#actionContext(p));
-      const r = this.#applyPlan(p, plan, plan.label);
-      // The task it starts is this job's to finish: one waiting on this job waits for it, and hears if it fails.
-      if (plan.task) await this.#startTask(p, plan.task).done;
-      return { label: plan.label, results: r.results };
-    });
-    if (task.failed) {
-      job.done.catch((e: unknown) => {
-        if (this.#projects.get(p.path) !== p) return;
-        const message = e instanceof Error ? e.message : String(e);
-        const error = message === `${task.label}: cancelled` ? "cancelled" : message;
-        try {
-          for (const s of task.failed!(error)) p.session.run(s.command, s.args, p.store.doc);
-        } catch (err) {
-          console.error(err);
-        }
-      });
-    }
-    return job;
-  }
-
-  /** These clips' audio alone, as the timeline plays it over the range, written in the path's format (.wav, .m4a, .mp3). */
-  async #bounceAudio(p: OpenProject, clips: string[], range: { from: number; to: number }, path: string) {
-    mkdirSync(dirname(path), { recursive: true });
-    await renderProject(onlyClips(p.store.doc, clips, nestedOf(this.registry)).project, this.registry, { output: { kind: "video", path }, from: secondsToTicks(range.from), to: secondsToTicks(range.to), cacheDir: this.cacheDir, data: p.data.get });
   }
 
   async transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts: { dryRun?: boolean } = {}): Promise<CommandResult> {
@@ -914,7 +786,7 @@ export class LocalCore implements BeaconCore {
     let path = join(dir, `Snapshot ${stamp}.png`);
     for (let n = 2; existsSync(path); n++) path = join(dir, `Snapshot ${stamp} ${n}.png`);
     // The project's own media folder is where snapshots go by default; anywhere else is checked as any write is.
-    if (opts.folder !== undefined) this.#checkOutput(h, path);
+    if (opts.folder !== undefined) this.#exporter.checkOutput(p, path);
     writeFileSync(path, img.png);
     const asset = { kind: "image", path, fingerprint: fileFingerprint(path), derived: { media: await probeMedia(path) } };
     const r = this.#saved(p, p.store.run<string>("asset.add", asset, { label: "Snapshot" }));
@@ -934,168 +806,16 @@ export class LocalCore implements BeaconCore {
   }
 
   async checkOutput(h: ProjectHandle, path: string, opts: { overwrite?: boolean } = {}): Promise<void> {
-    this.#checkOutput(h, path, opts);
-  }
-
-  #checkOutput(h: ProjectHandle, path: string, opts: { overwrite?: boolean } = {}): void {
-    const out = resolve(path);
-    // Where it really lands: a link on the way (a folder linked into a project, a file linked to media) is followed.
-    const real = realPath(out);
-    const doc = this.#get(h).store.doc;
-    if (Object.values(doc.assets).some((a) => resolve(a.path) === out || realPath(resolve(a.path)) === real)) throw new Error(`${out} is media used by the project; write somewhere else`);
-    const bundle = [...out.split(sep), ...real.split(sep)].find((part) => /\.(cmproj|beproj)$/i.test(part));
-    if (bundle) throw new Error(`${out} is inside ${bundle}; write outside project folders`);
-    if (opts.overwrite || !existsSync(out)) return;
-    if (statSync(out).isDirectory() ? readdirSync(out).length > 0 : true) throw new Error(`${out} already exists; pass overwrite to replace it`);
+    this.#exporter.checkOutput(this.#get(h), path, opts);
   }
 
   async export(h: ProjectHandle, opts: ExportOptions): Promise<Job> {
-    const p = this.#get(h);
-    const only = opts.clips && onlyClips(p.store.doc, opts.clips, nestedOf(this.registry));
-    const missing = only && opts.clips!.find((id) => !only.found.some((c) => c.id === id));
-    if (missing) throw new Error(`no clip "${missing}" on the timeline`);
-    const project = only ? only.project : p.store.doc;
-    if (only) opts = { from: only.from, to: only.to, ...opts };
-    const output = resolve(opts.output);
-    this.#checkOutput(h, output, { overwrite: opts.overwrite });
-    // Refused before the job starts, not after a render.
-    if (!opts.output.endsWith("/")) checkEncoding(videoFormat(output), opts);
-    const speed = opts.speed ?? 1;
-    if (!(speed >= 0.25 && speed <= 3)) throw new Error(`an export plays at 0.25× to 3×, not ${opts.speed}×`);
-    const colorSpace = this.#config.settings().exportColorSpace;
-    // Edits made while it renders must not reach the export, its derived data included.
-    const data = new DerivedData(this.registry, this.cacheDir, () => project, this.#pref);
-    // Beside a video, files features write from the same range (captions as .srt) when asked for, named after it.
-    const range = { from: opts.from ?? 0, to: opts.to ?? ticksToSeconds(projectDuration(project)), speed };
-    const sides = opts.output.endsWith("/")
-      ? []
-      : [...this.registry.exportFiles.values()].filter((f) => opts.files?.includes(f.id)).flatMap((f) => {
-          const text = f.write(range, { project, registry: this.registry, data: data.get, pref: data.pref });
-          return text === undefined ? [] : [{ path: join(dirname(output), basename(output, extname(output)) + f.extension), text }];
-        });
-    for (const f of sides) this.#checkOutput(h, f.path, { overwrite: opts.overwrite });
-    mkdirSync(opts.output.endsWith("/") ? output : dirname(output), { recursive: true });
-    // What effects need (a matte) is made first: the export never draws a clip without it.
-    const needed = this.#analyses.effectJobs(p, true);
-    // What it waits for, as the export card says it: the effect that needs it and what it is doing ("Remove Background: finding the person").
-    const waitingFor = (key: string) => {
-      const fx = [...this.registry.effects.values()].find((e) => e.needs?.includes(key));
-      return fx ? `${fx.title}: ${(fx.preparing ?? "preparing").toLowerCase()}` : key;
-    };
-    return this.#parts.startJob(p, "export", `Export ${basename(output)}`, async (progress) => {
-      if (needed.length) {
-        const info = (id: string) => {
-          try {
-            return this.#jobs.info(id);
-          } catch {
-            return undefined;
-          }
-        };
-        const what = [...new Set(needed.map((j) => waitingFor(info(j.id)?.kind ?? "")))].filter(Boolean).join(", ");
-        let left = needed.length;
-        for (const j of needed) void j.done.finally(() => left--).catch(() => {});
-        while (left > 0) {
-          const share = needed.reduce((n, j) => n + (info(j.id)?.progress ?? 1), 0) / needed.length;
-          progress(share, `Waiting for ${what} (${Math.round(share * 100)}%)`);
-          await Promise.race([Promise.allSettled(needed.map((j) => j.done)), Bun.sleep(500)]);
-        }
-        await Promise.all(needed.map((j) => j.done));
-      }
-      progress(0, "Starting: opening the media");
-      let started = false;
-      const from = opts.from === undefined ? undefined : secondsToTicks(opts.from);
-      const to = opts.to === undefined ? undefined : secondsToTicks(opts.to);
-      const { frames } = await renderProject(project, this.registry, {
-        output: opts.output.endsWith("/") ? { kind: "png", dir: output } : { kind: "video", ...encoding({ ...opts, colorSpace: opts.colorSpace ?? colorSpace }), path: output },
-        from,
-        to,
-        cacheDir: this.cacheDir,
-        data: data.get,
-        speed,
-        onProgress: (f, total) => {
-          const stage = f >= total ? "Finishing: adding the sound" : "Exporting";
-          if (!started || f >= total) progress(f / total, stage);
-          else progress(f / total);
-          started = true;
-        },
-      });
-      for (const f of sides) writeFileSync(f.path, f.text);
-      return { output, frames, seconds: ticksToSeconds((to ?? projectDuration(project)) - (from ?? 0)) / speed, ...(sides.length ? { files: sides.map((f) => f.path) } : {}) };
-    });
+    return this.#exporter.export(this.#get(h), opts);
   }
 
   /** All or nothing: every file is probed first, then they are added in one undo step. */
   async import(h: ProjectHandle, files: string[], opts: ImportOptions = {}): Promise<ImportResult> {
-    const p = this.#get(h);
-    const id = `import-${++this.#imports}`;
-    const paths = files.map((f) => resolve(f));
-    this.#emit(p, { kind: "importing", id, files: paths, state: "reading" });
-    try {
-      const result = await this.#import(p, paths, opts);
-      this.#emit(p, { kind: "importing", id, files: paths, state: "done", assets: result.assets });
-      return result;
-    } catch (e) {
-      this.#emit(p, { kind: "importing", id, files: paths, state: "failed", error: e instanceof Error ? e.message : String(e) });
-      throw e;
-    }
-  }
-
-  async #import(p: OpenProject, files: string[], opts: ImportOptions): Promise<ImportResult> {
-    const result: ImportResult = { assets: [], clips: [], jobs: [] };
-    const todo = files.map((file) => {
-      const importer = this.registry.importerFor(extname(file));
-      if (!importer) throw new Error(`no feature imports ${extname(file) || "files without an extension"} (${file})`);
-      return { file, importer };
-    });
-    // A few at a time: each decodes its audio once for its loudness.
-    const probed: { file: string; importer: MediaImporterDef; asset: Omit<Asset, "id"> }[] = new Array(todo.length);
-    let next = 0;
-    const worker = async () => {
-      for (let i = next++; i < todo.length; i = next++) {
-        const { file, importer } = todo[i]!;
-        try {
-          probed[i] = { file, importer, asset: { kind: importer.kind, path: file, fingerprint: fileFingerprint(file), derived: await (importer.probe ?? probeAsset)(file) } };
-        } catch (e) {
-          // The import fails: the others stop rather than decode the rest for nothing.
-          next = todo.length;
-          throw e;
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
-    let at = opts.at === undefined ? projectDuration(p.store.doc) : secondsToTicks(opts.at);
-    const cursorScale = this.#config.settings().cursorScale ?? 1;
-    const label = probed.length === 1 ? `Import ${basename(probed[0]!.file)}` : `Import ${probed.length} files`;
-    const copied = probed.flatMap(({ asset, importer }, i) => (p.store.doc.settings.standalone || importer.copyIn ? [{ id: String(i), ...asset }] : []));
-    const copies = copied.length ? await this.#copyIn(p.path, copied) : [];
-    for (const { id, path, fingerprint } of copies) Object.assign(probed[Number(id)]!.asset, { path, fingerprint });
-    try {
-      this.#saved(
-        p,
-        p.store.transaction(label, (tx) => {
-          for (const { importer, asset } of probed) {
-            const id = tx.run<string>("asset.add", asset);
-            result.assets.push(id);
-            if (opts.place === false) continue;
-            const placed = tx.run<string[]>("asset.place", { asset: id, time: ticksToSeconds(at), ...(opts.track ? { track: opts.track } : {}) });
-            result.clips.push(...placed);
-            // A recording's cursor starts at the size Settings › Recording gives (100% unset).
-            if (cursorScale !== 1 && importer.kind === "recording") {
-              // asset.place returns the clips in the importer's order.
-              const specs = importer.clips({ id, ...asset }, p.store.doc);
-              const cursors = placed.filter((_, i) => specs[i] && this.registry.group(specs[i]!.type, "cursor"));
-              if (cursors.length) tx.run("clip.set", { clips: cursors, props: { cursor: { scale: cursorScale } } });
-            }
-            at += Math.max(0, ...importer.clips({ id, ...asset }, p.store.doc).map((s) => s.duration));
-          }
-        }),
-        false,
-      );
-    } catch (e) {
-      for (const c of copies) rmSync(c.path, { recursive: true, force: true });
-      throw e;
-    }
-    return this.#analyses.imported(p, result);
+    return this.#importer.import(this.#get(h), files, opts);
   }
 
   async analyze(h: ProjectHandle, key: string, assetId: string): Promise<Job> {
@@ -1253,59 +973,11 @@ export class LocalCore implements BeaconCore {
   }
 
   async agents(): Promise<AgentSession[]> {
-    const mine = this.#owner.control;
-    const found = await Promise.all(
-      controlSockets(this.#controlDir).filter((s) => s !== mine).map(async (socket): Promise<AgentSession | undefined> => {
-        try {
-          const info = (await askControl(socket, "agent", [], 1000)) as { name: string; version: string; project?: string };
-          return { socket, name: info.name, version: info.version, ...(info.project ? { project: info.project } : {}), started: statSync(socket).mtimeMs };
-        } catch {
-          // An MCP server from before Beacon asked this, or one that is gone.
-          return undefined;
-        }
-      }),
-    );
-    const sessions = found.filter((a): a is AgentSession => !!a).sort((a, b) => b.started - a.started);
-    const runs = await Promise.all(RUN_AGENTS.map(async (name) => ({ name, cli: await this.#agentCli(name) })));
-    return [...sessions, ...runs.flatMap(({ name, cli }) => (cli ? [{ socket: `run:${name}`, name, version: cli.version, started: 0, run: true }] : []))];
-  }
-
-  #agentCli(name: RunAgent) {
-    if (this.#agentClis) return this.#agentClis[name] ? findAgentCli(name, this.#agentClis[name]) : Promise.resolve(null);
-    return findAgentCli(name);
+    return this.#agentRuns.agents();
   }
 
   async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
-    if (socket.startsWith("run:")) return this.#runAgent(socket.slice(4) as RunAgent, prompt, about);
-    if (!controlSockets(this.#controlDir).includes(socket)) throw new Error("that agent session has ended");
-    const request = shortId("ask");
-    const meta: Record<string, string> = { request, ...(this.#owner.socket ? { reply_to: this.#owner.socket } : {}) };
-    for (const [k, v] of Object.entries(about)) if (v !== undefined) meta[k] = typeof v === "number" ? v.toFixed(2) : v;
-    await askControl(socket, "prompt", [prompt, meta]);
-    return request;
-  }
-
-  /** A run of an agent's CLI on the request, as a job whose id is the request's: its steps and last message as `agent` events. */
-  async #runAgent(name: RunAgent, prompt: string, about: AgentAbout): Promise<string> {
-    if (!RUN_AGENTS.includes(name)) throw new Error(`Beacon can't start a run of ${name}`);
-    const cli = await this.#agentCli(name);
-    if (!cli) throw new Error(`${name} isn't installed`);
-    const tell = (status: "received" | "done", text?: string) => void this.agentReply(job.id, status, text);
-    const job = this.#jobs.start("agent", `Codex: ${prompt.slice(0, 60)}`, async (progress) => {
-      const last = await runCodex(cli.path, prompt, about, (s) => {
-        const text = s.tool ? `Using ${s.tool.replace(/_/g, " ")}` : s.message;
-        progress(0, text);
-        tell("received", text);
-      }).catch((e: Error) => {
-        tell("done", jobSignal()?.aborted || e.message === "cancelled" ? "Cancelled" : e.message);
-        throw e;
-      });
-      tell("done", last || "Done");
-      return { message: last };
-    });
-    // Told once the id is known: it is the request's.
-    queueMicrotask(() => tell("received"));
-    return job.id;
+    return this.#agentRuns.ask(socket, prompt, about);
   }
 
   async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {
@@ -1395,33 +1067,4 @@ export class LocalCore implements BeaconCore {
     p.listeners.add(fn);
     return () => p.listeners.delete(fn);
   }
-}
-
-/** Width and height from the PNG header. */
-function pngImage(png: Uint8Array): Image {
-  const v = new DataView(png.buffer, png.byteOffset, png.byteLength);
-  return { png, width: v.getUint32(16), height: v.getUint32(20) };
-}
-
-/** A path with every link on the way followed, as far as it exists; the rest as written. */
-function realPath(path: string): string {
-  let head = path;
-  const rest: string[] = [];
-  while (!existsSync(head) && dirname(head) !== head) {
-    rest.unshift(basename(head));
-    head = dirname(head);
-  }
-  try {
-    return join(realpathSync(head), ...rest);
-  } catch {
-    return path;
-  }
-}
-
-/** A task's file goes in the project's media folder or a temporary one, nowhere else; returned as given. */
-function scratch(path: string, mediaDir: string): string {
-  const real = realPath(resolve(path));
-  const roots = [mediaDir, tmpdir()].map((r) => realPath(resolve(r)) + sep);
-  if (!roots.some((r) => real.startsWith(r))) throw new Error(`a task can't write ${path}: only in the project's media folder or a temporary one`);
-  return path;
 }
