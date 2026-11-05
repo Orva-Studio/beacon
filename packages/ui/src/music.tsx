@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
-import type { MusicPage, MusicReview, MusicTrack, PopIn, SoundEffect } from "@beacon/features";
+import type { MusicPage, MusicReview, MusicTrack, PopIn, SoundEffect, SuggestOption, Suggestion } from "@beacon/features";
 import { POP_TERMS, type PopKind } from "@beacon/features/src/music/pops";
 import { Button, Check, Icon, Segmented, Slider, TextInput } from "./controls";
 import { useShortcutTip } from "./keymap";
@@ -25,6 +25,11 @@ export function popInMarks(found: PopIn[], review: MusicReview): TimelineMark[] 
     const on = !!sound && !review.pops.off.includes(p.clip);
     return { start: p.time, end: p.time + Math.max(0.2, (sound?.ms ?? 300) / 1000), tone: on ? "take" : "keep" };
   });
+}
+
+/** Suggest's sounds on the timeline: green where one goes in, grey where it is unticked. */
+export function suggestionMarks(s: Suggestion): TimelineMark[] {
+  return s.sounds.map((x) => ({ start: x.time, end: x.time + Math.max(0.2, (x.options[x.chosen]?.ms ?? 300) / 1000), tone: x.off ? "keep" : "take" }));
 }
 
 type Item = (MusicTrack | SoundEffect) & { artist?: string; bpm?: number; moods?: string[]; vocals?: boolean };
@@ -74,7 +79,7 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
   };
   // Asked again when the tab changes, and when Settings closes (the key may just have been added there).
   useEffect(() => {
-    if (!settingsOpen && review.tab !== "popins") void search();
+    if (!settingsOpen && review.tab !== "popins" && review.tab !== "suggest") void search();
   }, [review.tab, settingsOpen]);
   useEffect(() => () => audio.current?.pause(), []);
 
@@ -98,23 +103,27 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
   };
   const tip = useShortcutTip();
   const music = review.tab === "music";
+  const title = review.tab === "suggest" ? "Music and Sounds" : music ? "Music" : "Sound Effects";
 
   return (
     <div className="panel-card flex w-[320px] shrink-0 flex-col overflow-hidden p-4 text-body" data-music-review>
       <audio ref={audio} onEnded={() => setPlaying(undefined)} onPlaying={() => setLoading(undefined)} onError={() => (setPlaying(undefined), setLoading(undefined))} />
       <div className="mb-3 flex flex-col items-start gap-2">
-        <span className="text-title font-semibold text-text-strong">{music ? "Music" : "Sound Effects"}</span>
+        <span className="text-title font-semibold text-text-strong">{title}</span>
         <Segmented
           value={review.tab === "popins" ? "sfx" : review.tab}
           onChange={(tab) => set({ tab })}
           options={[
+            { value: "suggest", label: "Suggest", icon: <Icon name="sparkle" size={16} /> },
             { value: "music", label: "Music", icon: <Icon name="music-note" size={16} /> },
             { value: "sfx", label: "Sound Effects", icon: <Icon name="waveform" size={16} /> },
           ]}
           data-music-tab
         />
       </div>
-      {review.tab === "popins" ? (
+      {review.tab === "suggest" ? (
+        <Suggest review={review} host={host} listen={listen} playing={playing} loading={loading} />
+      ) : review.tab === "popins" ? (
         <>
           <Button look="quiet" title="Back to searching sound effects" onClick={() => set({ tab: "sfx" })} data-music-popins-back>
             ‹ Search sound effects
@@ -212,7 +221,11 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
           )}
         </>
       )}
-      {review.tab === "popins" ? (
+      {review.tab === "suggest" ? (
+        <div className="mb-3 rounded-md bg-groove px-3 py-2 text-text" data-music-where>
+          {suggestSummary(review)}
+        </div>
+      ) : review.tab === "popins" ? (
         <div className="mb-3 rounded-md bg-groove px-3 py-2 text-text" data-music-where>
           {popSummary(review, popIns)}
         </div>
@@ -230,10 +243,106 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={() => host.run("music.close")}>Cancel{tip("reviews.cancel")}</Button>
-        <Button look="primary" disabled={review.tab === "popins" ? !popCount(review, popIns) : !review.pick} onClick={() => host.run("music.apply")} data-music-apply>
+        <Button look="primary" disabled={review.tab === "suggest" ? !suggestCount(review).any : review.tab === "popins" ? !popCount(review, popIns) : !review.pick} onClick={() => host.run("music.apply")} data-music-apply>
           Apply{tip("reviews.apply")}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** What Apply would add from Suggest: tracks and sounds ticked with something found. */
+function suggestCount(review: MusicReview) {
+  const s = review.suggestion;
+  const tracks = s?.tracks.filter((t) => !t.off && t.options[t.chosen]).length ?? 0;
+  const sounds = s?.sounds.filter((t) => !t.off && t.options[t.chosen]).length ?? 0;
+  return { tracks, sounds, any: tracks + sounds > 0 };
+}
+
+function suggestSummary(review: MusicReview) {
+  if (!review.suggestion) return <span className="text-text-muted">Nothing downloads until Apply, on your Epidemic Sound subscription.</span>;
+  const { tracks, sounds } = suggestCount(review);
+  const n = (k: number, one: string, many: string) => (k === 1 ? `1 ${one}` : `${k} ${many}`);
+  return <span>{n(tracks, "track", "tracks")} and {n(sounds, "sound", "sounds")}, ducked under speech, one undo step. Downloads use your Epidemic Sound subscription.</span>;
+}
+
+const KIND_OF: Record<string, string> = { section: "Section", moment: "Moment", motion: "Graphic", picture: "Picture" };
+
+/**
+ * Suggest: the talk read for the video's kind and each part's mood, music for each part and a sound for each section
+ * change, key moment and pop-in. Each row ticks on or off, plays its pick, and swaps to the next of the three found;
+ * a click on its time moves the playhead there.
+ */
+function Suggest({ review, host, listen, playing, loading }: { review: MusicReview; host: Host; listen: (item: { id: string; preview: string }) => void; playing: string | undefined; loading: string | undefined }) {
+  const s = review.suggestion;
+  const choose = (c: { track?: number; sound?: number; option?: number; off?: boolean }) => host.run("music.review", { choose: c });
+  if (!s)
+    return (
+      <div className="mb-3 flex min-h-0 flex-1 flex-col items-start gap-3" data-music-suggest>
+        <span className="text-text-muted">Reads the talk for the kind of video and each section's mood, then finds music for each part and sounds for section changes, key moments and graphics coming on.</span>
+        <Button look="primary" disabled={review.suggesting} onClick={() => host.run("music.suggest")} data-music-suggest-start>
+          {review.suggesting ? "Reading the talk…" : "Suggest"}
+        </Button>
+      </div>
+    );
+  const row = (
+    key: string,
+    on: boolean,
+    toggle: (on: boolean) => void,
+    time: number,
+    label: string,
+    detail: string,
+    options: SuggestOption[],
+    chosen: number,
+    next: () => void,
+    data: Record<string, string>,
+  ) => {
+    const pick = options[chosen];
+    return (
+      <div key={key} className="mb-1 rounded-md px-2 py-1.5 hover:bg-chip" {...data}>
+        <div className="flex items-center gap-2">
+          <Check checked={on} onChange={toggle} title={on ? "Leave it out" : "Put it in"} />
+          <button className="min-w-0 flex-1 truncate text-left" title="Go to it" onClick={() => host.run("playhead.set", { time })}>
+            <span className="mr-2 text-text-faint">{clock(time)}</span>
+            <span className={on ? "text-text-strong" : "text-text-faint"}>{label}</span>
+          </button>
+        </div>
+        <div className="mt-1 flex items-center gap-2 pl-7">
+          {pick && (
+            <button className="shrink-0 rounded-full bg-control p-1 text-text-strong hover:bg-tile-hover" title={playing === pick.id ? "Stop" : "Listen"} onClick={() => listen(pick)} data-suggest-listen>
+              <PlayIcon on={playing === pick.id} loading={loading === pick.id} size={12} />
+            </button>
+          )}
+          <span className="min-w-0 flex-1 truncate text-caption text-text-muted" title={detail}>
+            {pick ? pick.title : "Nothing found"} <span className="text-text-faint">· {detail}</span>
+          </span>
+          {options.length > 1 && (
+            <Button look="quiet" title={`Another of the ${options.length} found`} onClick={next} data-suggest-next>
+              Next
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div className="-mx-1 mb-3 min-h-0 flex-1 overflow-y-auto px-1" data-music-suggestion>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-label text-text-muted" data-suggest-kind>
+          {s.kind ? `A ${s.kind}` : "Suggested"}
+        </span>
+        <Button look="quiet" disabled={review.suggesting} onClick={() => host.run("music.suggest")} title="Read the talk again and search again">
+          {review.suggesting ? "Reading…" : "Again"}
+        </Button>
+      </div>
+      <div className="mb-1 text-label font-medium text-text-muted">Music</div>
+      {s.tracks.map((t, i) =>
+        row(`t${i}`, !t.off, (on) => choose({ track: i, off: !on }), t.from, t.name, `${t.mood}: ${t.term}`, t.options, t.chosen, () => choose({ track: i, option: (t.chosen + 1) % t.options.length }), { "data-suggest-track": String(i) }),
+      )}
+      {!!s.sounds.length && <div className="mt-3 mb-1 text-label font-medium text-text-muted">Sounds</div>}
+      {s.sounds.map((x, i) =>
+        row(`s${i}`, !x.off, (on) => choose({ sound: i, off: !on }), x.time, `${KIND_OF[x.kind] ?? x.kind}: ${x.why}`, x.term, x.options, x.chosen, () => choose({ sound: i, option: (x.chosen + 1) % x.options.length }), { "data-suggest-sound": String(i) }),
+      )}
     </div>
   );
 }

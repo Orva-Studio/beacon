@@ -251,3 +251,60 @@ test("Pop-ins: a sound on each picture coming onto the picture, those left out s
   expect(sfx().map((t) => t.clips.map((c) => ticksToSeconds(c.start)))).toEqual([[2, 6], [2.3]]);
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(AUDIO))("Suggest reads the talk (the on-device writer standing in) for each section's music and its key moments, searches Epidemic Sound for each, and Apply puts the chosen tracks over their sections, crossfaded, and the ticked sounds on SFX tracks, one undo step", async () => {
+  const secrets = new Map([["epidemic-sound-api-key", "es-key"]]);
+  const core = new LocalCore({ cacheDir: join(dir, "sg-cache"), configDir: join(dir, "sg-config"), secrets: { get: async (id) => secrets.get(id), set: async () => {} } });
+  const h = await core.create({ path: join(dir, "suggest.beproj") });
+  copyFileSync(AUDIO, join(dir, "talk2.m4a"));
+  const r = await core.import(h, [join(dir, "talk2.m4a")], { at: 0 });
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  const talk = core.doc(h).assets[r.assets[0]!]!;
+  const said = (from: number, text: string) => text.split(" ").map((w, i) => ({ text: w, start: from + i * 0.4, end: from + i * 0.4 + 0.3 }));
+  const words = [...said(1, "today we will cut thirty five minutes down to 7 in Beacon"), ...said(25, "now let us open the project and look at the timeline together")];
+  mkdirSync(join(core.cacheDir, "derived"), { recursive: true });
+  writeFileSync(new DerivedData(core.registry, core.cacheDir, () => ({}) as never).cacheFile(talk, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify({ streams: { 0: { model: "test", language: "en", words, speech: [[1, 6], [25, 30]] } } }));
+  await core.run(h, "section.add", { start: 0, end: 20, name: "Intro" });
+  await core.run(h, "section.add", { start: 20, end: 318, name: "Demo" });
+  const writer = join(dir, "writer.sh");
+  writeFileSync(
+    writer,
+    `#!/bin/sh\nif grep -q '"kind":"moment"' "$1"; then if grep -q 'down to 7' "$1"; then echo '{"score":9,"words":"down to 7","sound":"ding","why":"the result"}'; else echo '{"score":2,"words":"the timeline","sound":"pop","why":"nothing"}'; fi\nelif grep -q 'Intro' "$1"; then echo '{"kind":"tutorial","mood":"calm","term":"soft piano"}'\nelse echo '{"kind":"tutorial","mood":"energetic","term":"upbeat drums"}'; fi\n`,
+    { mode: 0o755 },
+  );
+  process.env.BEACON_WRITER = writer;
+  try {
+    const before = calls.length;
+    await waitJob(core, ((await core.run(h, "music.suggest", {})).results.at(-1) as { job: string }).job);
+    // Searching only: nothing downloaded.
+    expect(calls.slice(before).every((c) => c.tool.startsWith("Search"))).toBe(true);
+    expect(calls.slice(before).filter((c) => c.tool === "SearchRecordings").map((c) => c.args.query.term)).toEqual(["calm soft piano", "energetic upbeat drums"]);
+    const review = (await core.session(h)).features.music as any;
+    expect(review.tab).toBe("suggest");
+    expect(review.suggesting).toBe(false);
+    const s = review.suggestion;
+    expect(s.kind).toBe("tutorial");
+    expect(s.tracks.map((t: any) => [t.name, t.from, t.mood, t.options[0].id])).toEqual([["Intro", 0, "calm", "rec-1"], ["Demo", 20, "energetic", "rec-1"]]);
+    // The section change, and the moment on its last word ("7" said at 4.6 s).
+    expect(s.sounds.map((x: any) => [x.kind, x.time, x.term])).toEqual([["moment", 4.6, "ding"], ["section", 20, "soft whoosh transition"]]);
+
+    // The section's whoosh left out.
+    await core.run(h, "music.review", { choose: { sound: 1, off: true } });
+    const steps = (await core.history(h)).undo.length;
+    await waitJob(core, ((await core.run(h, "music.apply", {})).results.at(-1) as { job: string }).job);
+    expect((await core.history(h)).undo.length - steps).toBe(1);
+    expect((await core.history(h)).undo.at(-1)).toBe("Add Suggested Music and Sounds");
+    const doc = core.doc(h);
+    const music = doc.tracks.filter((t) => t.name === "Music");
+    // Intro's track runs a second into Demo's, on the other Music row, to cross fade.
+    expect(music.length).toBe(2);
+    const spans = music.flatMap((t) => t.clips.map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)])).sort((a, b) => a[0]! - b[0]!);
+    expect(spans[0]).toEqual([0, 21]);
+    expect(spans[1]![0]).toBe(20);
+    expect(doc.tracks.filter((t) => t.name === "SFX").flatMap((t) => t.clips.map((c) => ticksToSeconds(c.start)))).toEqual([4.6]);
+    expect((await core.session(h)).features.music).toBeUndefined();
+  } finally {
+    delete process.env.BEACON_WRITER;
+    await core.close(h);
+  }
+}, 60_000);

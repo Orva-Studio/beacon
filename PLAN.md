@@ -3640,16 +3640,35 @@ caption shadow. In this order, on this branch:
      filming; OpenAI on the user's key, a few cents, once, ask first) blurred well out of focus, mirrored onto
      the glass with parallax as the camera moves, stronger at grazing angles (Fresnel); a Reflection slider; in
      place of today's lamp spot and sheen when Glossy.
+   **Done (2026-11-05):** the outline flat on an effect that turns the camera (`EffectDef.turnsCamera`), the
+   rotation stopped at 60° (75° in all on an angled shot); Pixels drawn on the finished frame in the backdrop's
+   first pass (`device-pixels`), so any angle works at the output's resolution; the reflection plate from
+   gpt-image-2.6-sunburst (the newest on the user's OpenAI key, the least busy of four), Reflection 0.5; v6.
 6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
    Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
    `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New
    Folder) for `chooseFolder` in `packages/desktop/src/bun/index.ts`, or an NSOpenPanel of Beacon's own with
    `canCreateDirectories` (bun:ffi to the Objective-C runtime). Check in the app: it comes to the front, Cancel
    returns nothing, the folder made is picked.
+   **Done (2026-11-05):** osascript's `choose folder` (`packages/desktop/src/bun/choose-folder.ts`) for every
+   Choose… folder picker; an NSOpenPanel through bun:ffi would have to run on AppKit's main thread, not bun's.
 7. **Automatic music and sound effects:** AI reads the transcript, works out the
    video's kind and mood (per section), and proposes Epidemic Sound tracks and
    sound effects at the right places, reviewed on the timeline then applied
    (as the AI panel's other reviews).
+   Decided (the user, 2026-11-05): **who reads** the transcript is B-roll's
+   planner setting (Apple's on-device model or OpenAI); **music per section**,
+   neighbouring sections of the same mood sharing a track (one track for the
+   video without sections), each fitted by Epidemic to its length, a 1 s
+   crossfade between tracks on two Music rows, ducked under speech as today;
+   **sound effects** at section changes (a soft transition), at a few key
+   moments the reader flags (about one every 30 s at most, each its own
+   search), and today's Pop-ins folded in; **reviewed** in a Suggest tab, the
+   Music panel's first: each section's track and each sound listed (play,
+   swap to the next of three found, untick), marked on the timeline; Apply
+   downloads and places everything in one undo step.
+   **Built (2026-11-05):** `music.suggest` (a job; `packages/features/src/music/suggest.ts`), the Suggest tab
+   (`music.review` `choose`), Apply through `music.apply`; beacon-writer's `mood` and `moment` kinds.
 
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 

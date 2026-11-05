@@ -1,5 +1,4 @@
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { z } from "zod";
 import {
   clipEnd,
@@ -8,7 +7,6 @@ import {
   defineQuery,
   assetName,
   mediaWindow,
-  mergeSpans,
   projectDuration,
   selectedClips,
   ticksToSeconds,
@@ -26,37 +24,17 @@ import { mediaInfo } from "../media";
 import { speechSpans } from "../transcript";
 import { POP_TERMS, type PopKind } from "./pops";
 import { download, downloadEdit, KEY, searchEffects, searchMusic, type Effect, type Page, type Track } from "./epidemic";
+import { applySuggestion, suggest, type Suggestion } from "./suggest";
+import { duckPoints, EDIT_MAX, freePath, keyOf, libraryOf, MUSIC_DEFAULTS, type LibraryInfo, type MusicPick } from "./shared";
+
+export { duckPoints, libraryOf, MUSIC_DEFAULTS, type LibraryInfo, type MusicPick };
 
 export { POP_TERMS, type PopKind };
+export type { SoundKind, SuggestedSound, SuggestedTrack, Suggestion, SuggestOption } from "./suggest";
 export type { Effect as SoundEffect, Page as MusicPage, Track as MusicTrack } from "./epidemic";
 
-/** Epidemic Sound's edits are at most this long. */
-const EDIT_MAX = 300;
-/** Pauses in speech shorter than this keep the music down, so it doesn't pump between words. */
-const GAP = 0.8;
-/** Seconds the music takes to dip under speech, and to come back. */
-const RAMP = 0.3;
-/** A track cut to fit fades out over its last second. */
-const FADE = 1;
-export const MUSIC_DEFAULTS = { level: 0.5, under: 0.18 };
 
-/** `Asset.derived.library`: music or a sound effect from a library, which isn't transcribed. */
-export interface LibraryInfo {
-  source: "epidemic";
-  kind: "music" | "sfx";
-  id: string;
-  title: string;
-  /** What was downloaded: the full mix, its instruments alone, or an edit that many seconds long. */
-  version: string;
-}
 
-/** The music panel's choice, kept in the session so Apply (↩) and agents add what it shows. */
-export interface MusicPick {
-  id: string;
-  title: string;
-  ms: number;
-  vocals?: boolean;
-}
 
 /** Where something pops onto the picture: its start (timeline seconds), its clip, and the sound it takes. */
 export interface PopIn {
@@ -66,10 +44,16 @@ export interface PopIn {
   kind: PopKind;
 }
 
-/** The Music panel is open (the AI panel's Music tile): searching Epidemic Sound for music or a sound effect to place, or sounds for the pop-ins. */
+/**
+ * The Music panel is open (the AI panel's Music tile): music and sounds suggested from the talk, searching Epidemic
+ * Sound for music or a sound effect to place, or sounds for the pop-ins.
+ */
 export interface MusicReview {
   open: true;
-  tab: "music" | "sfx" | "popins";
+  tab: "suggest" | "music" | "sfx" | "popins";
+  /** Suggest's findings, once music.suggest is done; `suggesting` while it works. */
+  suggestion?: Suggestion;
+  suggesting?: boolean;
   term: string;
   pick?: MusicPick;
   /** Over a range: Epidemic re-cuts the track to its length (`edit`), or it is cut there and faded out (`cut`). */
@@ -89,6 +73,14 @@ export const musicReview = (s: Session) => s.features.music as MusicReview | und
 
 const Gain = z.number().min(0).max(1);
 const Pick = z.strictObject({ id: z.string().min(1), title: z.string(), ms: z.number().nonnegative(), vocals: z.boolean().optional() });
+const Option = z.strictObject({ id: z.string().min(1), title: z.string(), ms: z.number().nonnegative(), preview: z.string(), vocals: z.boolean().optional() });
+const Choice = { term: z.string(), options: z.array(Option), chosen: z.int().nonnegative(), off: z.boolean() };
+const SuggestionSchema = z.strictObject({
+  kind: z.string(),
+  tracks: z.array(z.strictObject({ from: z.number().nonnegative(), to: z.number().nonnegative(), name: z.string(), mood: z.string(), ...Choice })),
+  sounds: z.array(z.strictObject({ time: z.number().nonnegative(), kind: z.enum(["section", "moment", "motion", "picture"]), why: z.string(), ...Choice })),
+});
+const blank = (): MusicReview => ({ open: true, tab: "suggest", term: "", fit: "edit", vocals: true, duck: true, ...MUSIC_DEFAULTS, pops: { sounds: {}, off: [] } });
 
 const sessionCommands: SessionCommandDef[] = [
   {
@@ -96,7 +88,10 @@ const sessionCommands: SessionCommandDef[] = [
     description:
       "Open the Music panel in place of the properties panel (the AI panel's Music tile does), or change it: the `tab` (music, sfx, or popins: a sound on each motion graphic, B-roll and picture coming onto the picture, from sfx.popIns), the search `term` shown, the track or sound effect picked (`pick`, from music.search or sfx.search), how music fits the in/out range (`fit`), whether a track's singing is kept (`vocals`), and ducking under speech (`duck`, at `level` where no one speaks and `under` beneath speech); for pop-ins, the sound of a kind (`popSound`, from sfx.search) and a pop-in left out or put back (`popOff`). The user adds it (Apply, ↩: music.apply), which downloads it on their Epidemic Sound account",
     args: z.strictObject({
-      tab: z.enum(["music", "sfx", "popins"]).optional(),
+      tab: z.enum(["suggest", "music", "sfx", "popins"]).optional(),
+      suggestion: SuggestionSchema.optional(),
+      suggesting: z.boolean().optional(),
+      choose: z.strictObject({ track: z.int().nonnegative().optional(), sound: z.int().nonnegative().optional(), option: z.int().nonnegative().optional(), off: z.boolean().optional() }).optional(),
       term: z.string().optional(),
       pick: Pick.nullable().optional(),
       fit: z.enum(["edit", "cut"]).optional(),
@@ -107,8 +102,11 @@ const sessionCommands: SessionCommandDef[] = [
       popSound: z.strictObject({ kind: z.enum(["motion", "picture"]), pick: Pick }).optional(),
       popOff: z.strictObject({ clip: z.string().min(1), off: z.boolean() }).optional(),
     }),
-    apply: (s, { pick, popSound, popOff, ...settings }: Partial<Omit<MusicReview, "open" | "pick" | "pops">> & { pick?: MusicPick | null; popSound?: { kind: PopKind; pick: MusicPick }; popOff?: { clip: string; off: boolean } }) => {
-      const was: MusicReview = musicReview(s) ?? { open: true, tab: "music", term: "", fit: "edit", vocals: true, duck: true, ...MUSIC_DEFAULTS, pops: { sounds: {}, off: [] } };
+    apply: (
+      s,
+      { pick, popSound, popOff, choose, ...settings }: Partial<Omit<MusicReview, "open" | "pick" | "pops">> & { pick?: MusicPick | null; popSound?: { kind: PopKind; pick: MusicPick }; popOff?: { clip: string; off: boolean }; choose?: { track?: number; sound?: number; option?: number; off?: boolean } },
+    ) => {
+      const was: MusicReview = musicReview(s) ?? { ...blank(), ...(pick ? { tab: "music" as const } : {}) };
       const given = Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined));
       const next: MusicReview = { ...was, ...given, pops: { sounds: { ...was.pops.sounds }, off: [...was.pops.off] } };
       if (popSound) next.pops.sounds[popSound.kind] = popSound.pick;
@@ -116,7 +114,25 @@ const sessionCommands: SessionCommandDef[] = [
       // A pick belongs to its tab: a sound effect isn't a track.
       if (pick === null || (settings.tab && settings.tab !== was.tab)) delete next.pick;
       if (pick) next.pick = pick;
+      if (choose && next.suggestion) {
+        const list = choose.track !== undefined ? next.suggestion.tracks : next.suggestion.sounds;
+        const i = choose.track ?? choose.sound;
+        const item = i === undefined ? undefined : list[i];
+        if (!item) throw new Error("no such suggestion: name a `track` or `sound` by its place in the list");
+        if (choose.option !== undefined && !item.options[choose.option]) throw new Error(`it has ${item.options.length} options`);
+        const changed = { ...item, ...(choose.option !== undefined ? { chosen: choose.option } : {}), ...(choose.off !== undefined ? { off: choose.off } : {}) };
+        next.suggestion = choose.track !== undefined ? { ...next.suggestion, tracks: next.suggestion.tracks.map((t, k) => (k === i ? (changed as typeof t) : t)) } : { ...next.suggestion, sounds: next.suggestion.sounds.map((t, k) => (k === i ? (changed as typeof t) : t)) };
+      }
       s.features.music = next;
+    },
+  },
+  {
+    id: "music.suggestFailed",
+    description: "Suggest stopped (failed or cancelled): the open Music panel stops waiting for it",
+    args: z.strictObject({}),
+    apply: (s) => {
+      const r = musicReview(s);
+      if (r?.suggesting) s.features.music = { ...r, suggesting: false };
     },
   },
   {
@@ -127,43 +143,13 @@ const sessionCommands: SessionCommandDef[] = [
   },
 ];
 
-const keyOf = async (secret: ((id: string) => Promise<string | undefined>) | undefined) => {
-  const key = await secret?.(KEY);
-  if (!key) throw new Error("no Epidemic Sound key: add one in Settings › AI (your Epidemic Sound account › API keys)");
-  return key;
-};
 
-export const libraryOf = (a: Asset | undefined) => a?.derived.library as LibraryInfo | undefined;
 
 /** The track named `name` with nothing over [from, to), or none. */
 function freeTrack(project: Project, name: string, from: number, to: number): string | undefined {
   return project.tracks.find((t) => t.name === name && !t.locked && t.clips.every((c) => ticksToSeconds(clipEnd(c)) <= from + 1e-6 || ticksToSeconds(c.start) >= to - 1e-6))?.id;
 }
 
-/**
- * Music's audio points over [from, end] timeline seconds: `level`, dipping to `under` beneath speech (pauses shorter
- * than GAP kept down), with a fade to silence over the last FADE seconds when `fade`.
- */
-export function duckPoints(from: number, end: number, speech: [number, number][], o: { level: number; under: number; duck: boolean; fade: boolean }): { time: number; value: number }[] {
-  const spans = o.duck ? mergeSpans(speech.filter(([a, b]) => b > from && a < end), GAP) : [];
-  const points: { time: number; value: number }[] = [{ time: from, value: spans[0] && spans[0][0] - RAMP <= from ? o.under : o.level }];
-  for (const [a, b] of spans) {
-    if (a - RAMP > from) points.push({ time: a - RAMP, value: o.level });
-    if (a > from) points.push({ time: a, value: o.under });
-    if (b < end) points.push({ time: b, value: o.under });
-    if (b + RAMP < end) points.push({ time: b + RAMP, value: o.level });
-  }
-  if (o.fade && end - from > FADE) {
-    const at = end - FADE;
-    const kept = points.filter((p) => p.time < at - 1e-6);
-    const before = points.filter((p) => p.time <= at).at(-1)!;
-    const after = points.find((p) => p.time > at);
-    // The volume where the fade starts, on the line between the points either side.
-    const value = after ? before.value + ((after.value - before.value) * (at - before.time)) / (after.time - before.time) : before.value;
-    return [...kept, { time: at, value }, { time: end, value: 0 }];
-  }
-  return points;
-}
 
 /** Whether a clip stops before its media does (cut to fit), so it fades out. */
 function cutShort(c: Clip, project: Project): boolean {
@@ -171,19 +157,6 @@ function cutShort(c: Clip, project: Project): boolean {
   return !!a && ticksToSeconds(mediaWindow(c)[1]) < mediaInfo(a).duration - 0.1;
 }
 
-/** A file in `dir` named for `title`, taken by creating it, so two downloads at once never pick the same one. */
-function freePath(dir: string, title: string, ext: string): string {
-  const base = title.replace(/[/\\:*?"<>|]/g, "-").trim() || "Epidemic Sound";
-  for (let n = 1; ; n++) {
-    const path = join(dir, `${base} (Epidemic Sound)${n > 1 ? ` ${n}` : ""}${ext}`);
-    try {
-      writeFileSync(path, "", { flag: "wx" });
-      return path;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-    }
-  }
-}
 
 const AddArgs = z.strictObject({
   id: z.string().min(1).describe("The track's or sound effect's id, from music.search or sfx.search"),
@@ -370,6 +343,29 @@ const sfxAddMany = defineAction({
   },
 });
 
+const musicSuggest = defineAction({
+  id: "music.suggest",
+  description:
+    "Suggest music and sound effects from the transcript (the Music panel's Suggest tab): B-roll's planner (Apple's on-device model, or OpenAI) reads the talk for the video's kind and each section's mood; each part gets three Epidemic Sound tracks (neighbouring sections of one mood share one), and each section change, key moment (about one every 30 s at most) and pop-in three sounds. Runs as a job; when done the Music panel's Suggest tab lists them (music.review `choose` swaps or unticks one) and music.apply adds them. Searching is free; nothing downloads until Apply",
+  args: z.strictObject({}),
+  resolve: (_, ctx) => {
+    const pops = popIns(ctx.project, ctx.registry).map((p) => ({ time: p.time, kind: p.kind }));
+    const data = ctx.data;
+    return {
+      label: "Suggest Music and Sounds",
+      before: [{ command: "music.review", args: { tab: "suggest", suggesting: true } }],
+      task: {
+        label: "Suggest music and sounds",
+        run: async (env) => {
+          const suggestion = await suggest(ctx.project, ctx.registry, data, env, pops);
+          return () => ({ label: "Suggest Music and Sounds", after: () => [{ command: "music.review", args: { tab: "suggest", suggestion, suggesting: false } }] });
+        },
+        failed: () => [{ command: "music.suggestFailed" }],
+      },
+    };
+  },
+});
+
 const musicApply = defineAction({
   id: "music.apply",
   description: "Add what the open Music panel has picked, as it is set (its Apply button, ↩), and close the panel. Only when the user asks: it downloads on their Epidemic Sound account",
@@ -377,6 +373,11 @@ const musicApply = defineAction({
   resolve: (_, ctx) => {
     const r = musicReview(ctx.session);
     if (!r) throw new Error("the Music panel isn't open: music.review opens it");
+    if (r.tab === "suggest") {
+      if (!r.suggestion) throw new Error(r.suggesting ? "Suggest is still reading the talk" : "nothing suggested yet: music.suggest first");
+      const plan = applySuggestion(r.suggestion, ctx);
+      return { ...plan, before: [...(plan.before ?? []), { command: "music.close" }] };
+    }
     if (r.tab === "popins") {
       const sounds = popIns(ctx.project, ctx.registry).flatMap((p) => {
         const sound = r.pops.sounds[p.kind];
@@ -453,5 +454,5 @@ export const music = defineFeature({
       run: async (args, ctx): Promise<Page<Effect>> => searchEffects(await keyOf(ctx.secret), args),
     }),
   ],
-  actions: [musicAdd, musicApply, musicDuck, sfxAddMany],
+  actions: [musicAdd, musicApply, musicDuck, musicSuggest, sfxAddMany],
 });

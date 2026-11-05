@@ -26,7 +26,7 @@ import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
 import { AgentToasts, AskAgent } from "./ask-agent";
 import { LearnedToasts } from "./learned";
-import { MusicPanel, musicReviewOf, popInMarks, usePopIns } from "./music";
+import { MusicPanel, musicReviewOf, popInMarks, suggestionMarks, usePopIns } from "./music";
 import { goTo } from "./review";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
 import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
@@ -258,7 +258,9 @@ export function App({ host }: { host: Host }) {
               sectionMenu={host.sectionMenu}
               dropFiles={host.dropFiles}
               marks={
-                popIns && session && musicReviewOf(session)
+                session && musicReviewOf(session)?.tab === "suggest" && musicReviewOf(session)!.suggestion
+                  ? suggestionMarks(musicReviewOf(session)!.suggestion!)
+                  : popIns && session && musicReviewOf(session)
                   ? popInMarks(popIns, musicReviewOf(session)!)
                   : retakes
                   ? retakeMarks(retakes)

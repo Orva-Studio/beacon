@@ -5310,6 +5310,9 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
     await page.until("!!document.querySelector('[data-ai=music]')");
     await page.evaluate("document.querySelector('[data-ai=music]').click()");
     await page.until("!!document.querySelector('[data-music-review]')");
+    // It opens on Suggest; searching by hand is the Music tab.
+    await page.until("!!document.querySelector('[data-music-suggest-start]')");
+    await page.click(...(await centre("[data-music-tab] [role=radio][title=Music]")));
     await page.until("(document.querySelector('[data-music-error]')?.textContent ?? '').includes('Settings › AI')");
     expect(await page.evaluate<boolean>("document.querySelector('[data-music-apply]').disabled")).toBe(true);
     // With the key, a search lists the track: its artist, length, BPM and mood, a preview to listen to.
@@ -5346,6 +5349,79 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
     await ui.core.setSecret("epidemic-sound-api-key", null);
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("range.clear");
+    await run("music.close").catch(() => {});
+    await run("panel.show", { tool: null });
+    await select([]);
+  }
+}, 60_000);
+
+test.skipIf(skip)("Suggest, the Music panel's first tab: lists each section's suggested track and each sound with Next and a tick, marks the sounds on the timeline, and Apply puts them on Music and SFX tracks, one undo step", async () => {
+  const wav = join(dir, "suggest.wav");
+  const pcm = Float32Array.from({ length: 2 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 660 * i) / 48000));
+  Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", wav], { stdin: new Uint8Array(pcm.buffer) });
+  const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
+  const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  const fake = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/a.wav") return new Response(Bun.file(wav));
+      const body = (await req.json()) as { id?: number; method: string; params?: { name: string; arguments: any } };
+      if (body.method === "initialize") return sse(body.id, { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "stand-in", version: "0" } });
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const { name } = body.params!;
+      const audioFile = { durationInMilliseconds: 2000, lqmp3Url: `${url.origin}/a.wav`, waveformUrl: "" };
+      if (name === "SearchRecordings") return answer(body.id, { recordings: { nodes: ["Calm One", "Calm Two"].map((title, i) => ({ recording: { id: `rec-${i}`, title, audioFile, credits: [], stems: [], tags: [] } })), pageInfo: { hasNextPage: false } } });
+      if (name === "SearchSoundEffects") return answer(body.id, { soundEffects: { nodes: ["Ding", "Bell"].map((title, i) => ({ soundEffect: { id: `fx-${i}`, title, audioFile } })), pageInfo: { hasNextPage: false } } });
+      if (name === "DownloadRecording" || name === "DownloadSoundEffect") return answer(body.id, { download: { assetUrl: `${url.origin}/a.wav` } });
+      if (name === "EditRecording") return answer(body.id, { recordingEdit: { id: "job", status: "PENDING" } });
+      if (name === "PollEditRecordingJob") return answer(body.id, { recordingEditJob: { id: "job", status: "COMPLETED", edits: [{ id: "edit" }] } });
+      if (name === "DownloadRecordingEdit") return answer(body.id, { recordingEditDownload: { assetUrl: `${url.origin}/a.wav` } });
+      return sse(body.id, { isError: true, content: [{ type: "text", text: `no ${name}` }] });
+    },
+  });
+  const writer = join(dir, "suggest-writer.sh");
+  writeFileSync(writer, `#!/bin/sh\nif grep -q '"kind":"moment"' "$1"; then echo '{"score":0,"words":"","sound":"ding","why":""}'; else echo '{"kind":"tutorial","mood":"calm","term":"soft piano"}'; fi\n`, { mode: 0o755 });
+  process.env.BEACON_EPIDEMIC_URL = `${fake.url.origin}/mcp`;
+  process.env.BEACON_EPIDEMIC_POLL_MS = "10";
+  process.env.BEACON_WRITER = writer;
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await ui.core.setSecret("epidemic-sound-api-key", "es-key");
+    await run("section.add", { start: 0, end: 4, name: "Intro" });
+    await run("section.add", { start: 4, end: 8, name: "Demo" });
+    const sections = (await ui.core.history(ui.handle)).undo.length;
+    await run("panel.show", { tool: "ai" });
+    await page.until("!!document.querySelector('[data-ai=music]')");
+    await page.evaluate("document.querySelector('[data-ai=music]').click()");
+    await page.until("!!document.querySelector('[data-music-suggest-start]')");
+    expect(await page.evaluate<boolean>("document.querySelector('[data-music-apply]').disabled")).toBe(true);
+    await page.click(...(await centre("[data-music-suggest-start]")));
+    await page.until("!!document.querySelector('[data-music-suggestion]')", 20_000);
+    expect(await page.evaluate<string>("document.querySelector('[data-suggest-kind]').textContent")).toBe("A tutorial");
+    // Both sections calm: one track over the two. The section change takes a sound.
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-suggest-track]').length")).toBe(1);
+    await page.until("(document.querySelector('[data-suggest-track=\"0\"]')?.textContent ?? '').includes('Calm One')");
+    await page.evaluate("document.querySelector('[data-suggest-track=\"0\"] [data-suggest-next]').click()");
+    await page.until("(document.querySelector('[data-suggest-track=\"0\"]')?.textContent ?? '').includes('Calm Two')");
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-suggest-sound]').length")).toBeGreaterThan(0);
+    await page.until("(document.querySelector('[data-music-where]')?.textContent ?? '').startsWith('1 track and')");
+    await page.screenshot(join(dir, "suggest.png"));
+    await page.evaluate("document.querySelector('[data-music-apply]').click()");
+    await page.until("!document.querySelector('[data-music-review]')");
+    await arrived(() => ui.core.doc(ui.handle).tracks.some((t) => t.name === "Music" && t.clips.length > 0), 20_000);
+    expect((await ui.core.history(ui.handle)).undo.length - sections).toBe(1);
+    const doc = ui.core.doc(ui.handle);
+    const placed = doc.tracks.find((t) => t.name === "Music")!.clips[0]!;
+    expect(doc.assets[placed.assetId!]!.name).toBe("Calm Two");
+    expect(doc.tracks.some((t) => t.name === "SFX" && t.clips.length > 0)).toBe(true);
+  } finally {
+    fake.stop(true);
+    delete process.env.BEACON_EPIDEMIC_URL;
+    delete process.env.BEACON_EPIDEMIC_POLL_MS;
+    delete process.env.BEACON_WRITER;
+    await ui.core.setSecret("epidemic-sound-api-key", null);
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await run("music.close").catch(() => {});
     await run("panel.show", { tool: null });
     await select([]);
