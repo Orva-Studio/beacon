@@ -3626,6 +3626,26 @@ caption shadow. In this order, on this branch:
    credit, downloads need a Sketchfab login), rendered in Blender (the user has it; driven by Python
    scripts, `blender -b -P`) from each angle's camera as line art (Freestyle, Beacon green on black),
    saved as the menu's pictures in place of the drawn figure. The cameras are in `angle-art.ts` (`CAMS`).
+6d. **Monitor, next (the user, 2026-11-05, after checking b8fb6b0: "apart from that this is perfect"):**
+   - **Bug:** zoomed in with the clip turned (Scale 226%, Rotation Y −73.5°), the canvas draws the clip's
+     outline as a tilted clip's, its corners behind the canvas camera: lines shoot across the canvas. On a
+     Monitor clip the rotation turns the camera, so draw its outline flat (the clip's 2D box); and the camera
+     stops at ±60° while the field took −73.5°: limit it there, or show where it stops.
+   - **Pixels** (a slider): the screen's subpixel grid (an LCD's RGB stripes; "screen-door" when strong), not
+     CRT scan lines: drawn at the recording's own pixel size so it shows as the camera comes close, as in macro
+     shots of a screen, and fading where a pixel gets smaller than the output's so it never shimmers (moiré).
+     A shader in `device-frame.wgsl`'s screen pass.
+   - **Glossy's reflection, real** (the user's reference: a soft room mirrored over the picture): a reflection
+     plate (one generated image of the room behind the camera: dim, a window, a lamp, a hint of someone
+     filming; OpenAI on the user's key, a few cents, once, ask first) blurred well out of focus, mirrored onto
+     the glass with parallax as the camera moves, stronger at grazing angles (Fresnel); a Reflection slider; in
+     place of today's lamp spot and sheen when Glossy.
+6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
+   Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
+   `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New
+   Folder) for `chooseFolder` in `packages/desktop/src/bun/index.ts`, or an NSOpenPanel of Beacon's own with
+   `canCreateDirectories` (bun:ffi to the Objective-C runtime). Check in the app: it comes to the front, Cancel
+   returns nothing, the folder made is picked.
 7. **Automatic music and sound effects:** AI reads the transcript, works out the
    video's kind and mood (per section), and proposes Epidemic Sound tracks and
    sound effects at the right places, reviewed on the timeline then applied
