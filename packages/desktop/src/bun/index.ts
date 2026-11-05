@@ -203,6 +203,7 @@ const projects = createProjects({
       changed: () => {
         void w.media.sendThumbs();
         void w.media.sendMissing();
+        if (w === focused) menus.historyChanged();
       },
       session: (changes) => {
         if (changes.canvas) w.views.place(changes.canvas);

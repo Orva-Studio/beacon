@@ -156,8 +156,8 @@ export async function tileChoice(core: Pick<LocalCore, "run" | "itemUsed">, h: s
 /** The items of a tile's right-click menu, as [label, choice]. */
 export const tileMenuItems = (tile: TileMenu): [string, string][] => [[tile.add, "add"]];
 
-type Shared = "run" | "query" | "undo" | "redo" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "itemUsed" | "agents" | "askAgent" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
-type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "itemUsed" | "agents" | "askAgent" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
+type Shared = "run" | "query" | "undo" | "redo" | "undoAgents" | "cancelExport" | "cancelJob" | "proxySpace" | "deleteAllProxies" | "setPreference" | "setSecret" | "itemUsed" | "agents" | "askAgent" | "analyze" | "binFrame" | "frameImage" | "previewEffect" | "reveal";
+type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "undoAgents" | "cancelJob" | "analysisSize" | "forgetAll" | "setPreference" | "setSecret" | "preferences" | "itemUsed" | "agents" | "askAgent" | "analyze" | "assetThumbnail" | "frame" | "session" | "previewEffect" | "reveal">;
 
 const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const done = async (fn: () => Promise<unknown>) => {
@@ -198,6 +198,7 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
     query: ({ name, args }) => answer(() => core.query(open(), name, args ?? {})),
     undo: () => edit((h) => core.undo(h)),
     redo: () => edit((h) => core.redo(h)),
+    undoAgents: () => edit((h) => core.undoAgents(h)),
     cancelExport: ({ id }) => done(() => core.cancelJob(id)),
     cancelJob: ({ id }) => done(() => core.cancelJob(id)),
     proxySpace: () => core.analysisSize("proxy"),

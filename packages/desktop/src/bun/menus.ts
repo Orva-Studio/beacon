@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { ApplicationMenu, ContextMenu, Utils } from "electrobun/main";
-import { chordOf, keyOfCode, keysLabel, LABEL_COLORS, locateTrack, menuKey, MODIFIERS, walkClips, type Keys, type ShortcutInfo } from "@beacon/core";
+import { agentName, chordOf, keyOfCode, keysLabel, LABEL_COLORS, locateTrack, menuKey, MODIFIERS, walkClips, type HistorySteps, type Keys, type ShortcutInfo } from "@beacon/core";
 import { copiedIds, tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
 import { errorText, type App } from "./app";
 
@@ -41,6 +41,18 @@ function accelerator(keys: Keys): string | undefined {
 
 const capitalised = (s: string) => s[0]!.toUpperCase() + s.slice(1);
 
+/** The Edit menu's Undo, Redo and agents' undo, naming the step and who (the user, 2026-11-05): "Undo Split", "Undo Claude Code's Change: Split". */
+function undoLabels(steps: HistorySteps | undefined): [string, string, string] {
+  const mine = steps?.undo.findLast((s) => s.author === undefined);
+  const again = steps?.redo.find((s) => s.author === undefined);
+  const theirs = steps?.undo.findLast((s) => s.author !== undefined);
+  return [
+    mine ? `Undo ${mine.label}` : "Undo",
+    again ? `Redo ${again.label}` : "Redo",
+    theirs ? `Undo ${agentName(theirs.author!)}'s Change: ${theirs.label}` : "Undo Agents' Last Change",
+  ];
+}
+
 /** The application menu and the context menus (clip, canvas, Media Bin, track), and what their items do. */
 export function createMenus(app: MenusApp) {
   const { core, message, status } = app;
@@ -73,20 +85,34 @@ export function createMenus(app: MenusApp) {
     const s = app.shortcuts().find((x) => x.id === id);
     if (id === "project.undo") core.undo(h).catch(fail);
     else if (id === "project.redo") core.redo(h).catch(fail);
+    else if (id === "project.undoAgents") core.undoAgents(h).catch(fail);
     else if (s) core.run(h, s.command, s.args ?? {}).catch(fail);
   }
 
-  /** The menu bar, for the focused project: the safe areas it shows are read from its session first. */
+  let shown = "";
+  /** The menu bar, for the focused project: the safe areas it shows and its undo steps are read first. */
   function setMenu() {
     const current = app.current();
-    if (!current) return buildMenu(undefined);
-    core.session(current.path).then(
-      (s) => buildMenu((s.features["safe-areas"] as { layout?: string } | undefined)?.layout),
-      () => buildMenu(undefined),
+    if (!current) return buildMenu(undefined, undefined);
+    Promise.all([core.session(current.path), core.history(current.path)]).then(
+      ([s, history]) => buildMenu((s.features["safe-areas"] as { layout?: string } | undefined)?.layout, history.steps),
+      () => buildMenu(undefined, undefined),
     );
   }
 
-  function buildMenu(safeArea: string | undefined) {
+  /** After an edit, undo or redo: the Edit menu's names follow the steps, rebuilt only when they change. */
+  function historyChanged() {
+    const current = app.current();
+    if (!current) return;
+    core.history(current.path).then((history) => {
+      if (undoLabels(history.steps).join("|") !== shown) setMenu();
+    }, () => {});
+  }
+
+  function buildMenu(safeArea: string | undefined, steps: HistorySteps | undefined) {
+    const [undoLabel, redoLabel, agentsLabel] = undoLabels(steps);
+    shown = [undoLabel, redoLabel, agentsLabel].join("|");
+    const agentStep = steps?.undo.findLast((s) => s.author !== undefined);
     const open = !!app.current();
     const recent = app.recent();
     ApplicationMenu.setApplicationMenu([
@@ -131,8 +157,9 @@ export function createMenus(app: MenusApp) {
       {
         label: "Edit",
         submenu: [
-          item("project.undo"),
-          item("project.redo"),
+          item("project.undo", { label: undoLabel }),
+          item("project.redo", { label: redoLabel }),
+          item("project.undoAgents", { label: agentsLabel, enabled: !!agentStep }),
           SEPARATOR,
           // Cut, copy and paste stay roles: they reach the webview as clipboard events, which run the edit actions there and keep text fields working.
           { role: "cut" },
@@ -504,5 +531,5 @@ export function createMenus(app: MenusApp) {
     }
   });
 
-  return { setMenu, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, tileMenu, recentMenu };
+  return { setMenu, historyChanged, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, tileMenu, recentMenu };
 }

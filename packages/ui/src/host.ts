@@ -35,6 +35,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     },
     undo: () => commands.send(() => request("undo", {})),
     redo: () => commands.send(() => request("redo", {})),
+    undoAgents: () => commands.send(() => request("undoAgents", {})),
     openDialog: () => commands.send(() => request("openDialog", {})),
     openRecent: (path) => void commands.ordered(() => request("openRecent", { path })),
     canvasView: (id, rect, scale, surround) => void request("canvasView", { id, ...rect, scale, surround }),

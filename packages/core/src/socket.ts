@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { asAuthor } from "./author";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Socket } from "bun";
@@ -52,7 +53,7 @@ export const PROTOCOL_VERSION = 1;
  * `RemoteCore` is built from this list, so a method added to `BeaconCore` needs only its name here.
  */
 export const FORWARDED = [
-  "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "redo", "history", "query", "frame", "captureFrame", "sheet",
+  "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "undoAgents", "redo", "history", "query", "frame", "captureFrame", "sheet",
   "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences", "secrets",
   "setPreference", "recentItems", "itemUsed", "agents", "askAgent", "agentReply", "shortcuts", "shortcutSet", "shortcutReset", "memory", "memoryChange", "settings",
   "setSettings", "uiOpen", "summary", "checkOutput", "recorderDevices", "recorderAccess", "recordStart", "recordStatus", "recordStop",
@@ -123,7 +124,10 @@ export function serveCore(
 
   const send = (s: Socket<Client>, msg: unknown) => s.data.writer.send(msg);
 
-  const handle = async (s: Socket<Client>, req: { id?: number | string; method: string; params?: unknown[] }) => {
+  // An agent's request names it (`author`), so its changes are its own undo steps.
+  const handle = (s: Socket<Client>, req: { id?: number | string; method: string; params?: unknown[]; author?: unknown }) =>
+    asAuthor(typeof req.author === "string" ? req.author : undefined, () => answer(s, req));
+  const answer = async (s: Socket<Client>, req: { id?: number | string; method: string; params?: unknown[] }) => {
     // JSON turns omitted optional arguments into null.
     const params = (Array.isArray(req.params) ? req.params : []).map((p) => (p === null ? undefined : p));
     try {

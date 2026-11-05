@@ -5,6 +5,7 @@ export * from "./registry";
 export * from "./migrations";
 export * from "./project";
 export * from "./store";
+export * from "./agents";
 export * from "./scene";
 export * from "./evaluate";
 export * from "./commands";

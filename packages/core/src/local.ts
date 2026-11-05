@@ -49,8 +49,7 @@ import {
   MemoryChangeSchema,
   type MemoryChange,
   type MemoryState,
-  projectFormat,
-} from "@beacon/model";
+  projectFormat, agentName, anyAgent, authorIs } from "@beacon/model";
 import { checkEncoding, DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, renderProject, videoFormat, type ViewTarget } from "@beacon/render";
 import type {
   AgentAbout,
@@ -94,6 +93,7 @@ import { probeAsset, shortId, type CoreParts, type OpenProject, type Preview } f
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { askControl, controlSockets } from "./socket";
+import { currentAuthor } from "./author";
 import { findAgentCli, RUN_AGENTS, runCodex, type RunAgent } from "./agent-run";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
@@ -212,7 +212,7 @@ export class LocalCore implements BeaconCore {
       record: (ds) => this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() }))),
     };
     // Commands only read the decisions: what they cut is recorded by the plan that runs them.
-    const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get, memory: { ...memory, record: () => {} } });
+    const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get, memory: { ...memory, record: () => {} }, author: currentAuthor, authorName: (a) => (a === undefined ? "you" : agentName(a)) });
     lock(path, this.#owner);
     store.subscribe((e) => void (current = e.doc));
     const p: OpenProject = {
@@ -823,17 +823,24 @@ export class LocalCore implements BeaconCore {
     this.#get(h).session.fitPercent = percent;
   }
 
+  /** Undoes the caller's own last step: the user's (skipping the agents'), or an agent's own. */
   async undo(h: ProjectHandle) {
     const p = this.#get(h);
-    const entry = this.#saved(p, p.store.undo());
+    const entry = this.#saved(p, p.store.undo(authorIs(currentAuthor())));
     const d = entry && p.decided.get(entry.patches);
     if (d) d.undone = this.#config.dropDecisions(d.step);
     return entry?.label;
   }
 
+  /** Edit › Undo Agents' Last Change: the newest step of any agent's. */
+  async undoAgents(h: ProjectHandle) {
+    const p = this.#get(h);
+    return this.#saved(p, p.store.undo(anyAgent))?.label;
+  }
+
   async redo(h: ProjectHandle) {
     const p = this.#get(h);
-    const entry = this.#saved(p, p.store.redo());
+    const entry = this.#saved(p, p.store.redo(authorIs(currentAuthor())));
     const d = entry && p.decided.get(entry.patches);
     if (d?.undone) this.#config.recordDecisions(d.undone);
     return entry?.label;
@@ -861,7 +868,8 @@ export class LocalCore implements BeaconCore {
   }
 
   async history(h: ProjectHandle) {
-    return this.#get(h).store.history;
+    const store = this.#get(h).store;
+    return { ...store.history, steps: store.steps };
   }
 
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {

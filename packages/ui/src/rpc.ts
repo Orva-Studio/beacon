@@ -316,6 +316,8 @@ export type AppRPC = {
       query: { params: { name: string; args?: unknown }; response: { ok: boolean; result?: unknown; error?: string } };
       undo: { params: {}; response: RunReply };
       redo: { params: {}; response: RunReply };
+      /** Edit › Undo Agents' Last Change. */
+      undoAgents: { params: {}; response: RunReply };
       openDialog: { params: {}; response: RunReply };
       openRecent: { params: { path: string }; response: void };
       /** Shows the right-click menu for a clip (a native menu). */
