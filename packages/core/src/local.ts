@@ -1180,6 +1180,15 @@ export class LocalCore implements BeaconCore {
     if ((await this.#config.setPreference(id, value)) && !def.range && !def.schema) this.#analyses.preferenceChanged();
   }
 
+  /** The preferences again, after another process or a hand edit may have written them (the app watches the file): a change is told and followed as `setPreference`'s are. */
+  reloadPreferences(): void {
+    const decides = (id: string) => {
+      const def = this.registry.preferences.get(id)!;
+      return !def.range && !def.schema;
+    };
+    if (this.#config.reloadPreferences().some(decides)) this.#analyses.preferenceChanged();
+  }
+
   async secrets(): Promise<SecretInfo[]> {
     return Promise.all([...this.registry.secrets.values()].map(async (s) => ({ id: s.id, title: s.title, set: (await this.#config.secrets.get(s.id)) !== undefined })));
   }
