@@ -3648,6 +3648,10 @@ caption shadow. In this order, on this branch:
    panoramas (flux-3-image, the user's picks; the night made plainer at their ask; Topaz 4×), looked into along each
    pixel's ray (`device-panorama`), so the camera turning shows the right part behind the monitor; Glossy mirrors the
    same room (`device-reflection`, the ray bounced off the glass). Studio stays a head-on photo. v7.
+6d3. **Monitor's third round (the user, 2026-11-05; done):** Glow goes (Film Look's halation does it); Zoom stops at
+   2.5 (Pixels showed as moiré past it); the bezel and its rim stay sharp at any Blur, the focus blur gathering only
+   from its own part of the frame; Reflection Blur (15%) on Glossy, the first reflection back with each room blended in;
+   Studio's photo on every shot; Corner moves the whole screen when zoomed out. v8. Export's Speed goes from 0.25× to 3× on a slider.
 6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
    Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
    `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New

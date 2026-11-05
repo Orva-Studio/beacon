@@ -1116,26 +1116,24 @@ test.skipIf(skip)("Export offers the captions' .srt as a tick box, off unless ti
   await page.key("Escape", "Escape");
 });
 
-test.skipIf(skip)("Export's Speed plays the whole file faster: the offered speeds or a custom one in 0.05 steps, with the length it comes out at", async () => {
+test.skipIf(skip)("Export's Speed plays the whole file slower or faster: the offered speeds or any from 0.25× to 3× in 0.05 steps on its slider, with the length it comes out at", async () => {
   ui.send("exportSheet", { name: "Short", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1080, height: 1920, fps: 30 }, duration: 60, files: [] });
   const speed = `document.querySelector('[data-export-speed]')`;
   const length = () => page.evaluate<string>(`document.querySelector('[data-export-length]').textContent`);
   await page.until(`!!${speed}`);
-  expect(await page.evaluate<string>(`[...${speed}.options].map((o) => o.textContent).join(',')`)).toBe("Normal (1×),1.1×,1.2×,1.25×,1.5×,Custom…");
+  expect(await page.evaluate<string>(`[...${speed}.options].map((o) => o.textContent).join(',')`)).toBe("0.5×,0.75×,Normal (1×),1.1×,1.2×,1.25×,1.5×,2×");
   expect(await length()).toBe("1:00.0");
   const choose = (v: string) => page.evaluate(`(() => { const s = ${speed}; s.value = '${v}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await choose("1.2");
   await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:50.0'`);
-  await choose("custom");
-  const custom = `document.querySelector('[data-export-speed-custom]')`;
-  await page.until(`!!${custom}`);
-  await page.evaluate(`(() => {
-    const i = ${custom};
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '1.37');
-    i.dispatchEvent(new Event('input', { bubbles: true }));
-  })()`);
-  // Rounded to 0.05: 1.35×, so a minute comes out at 44.4 s.
-  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:44.4'`);
+  // The slider's far right end is 3×; a little in from its left end, rounded to 0.05.
+  const track = await page.evaluate<{ x: number; y: number; w: number }>(`(() => { const r = document.querySelector('[data-export-speed-slider] [data-slider-hit] > div').getBoundingClientRect(); return { x: r.left, y: r.top + r.height / 2, w: r.width }; })()`);
+  await page.click(track.x + track.w + 4, track.y);
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 0:20.0'`);
+  expect(await page.evaluate<string>(`${speed}.selectedOptions[0].textContent`)).toBe("3×");
+  await page.click(track.x + track.w * (0.1 / 2.75), track.y);
+  // 0.35×: a minute comes out at 2:51.4.
+  await page.until(`document.querySelector('[data-export-length]').textContent === '1:00.0 → 2:51.4'`);
   expect(exportOptions({ ...DEFAULT_EXPORT, speed: 1.35 })).toMatchObject({ speed: 1.35 });
   expect(exportOptions(DEFAULT_EXPORT)).not.toHaveProperty("speed");
   await page.key("Escape", "Escape");
@@ -5747,12 +5745,12 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
     // Corner is for head on only; the rooms go all round, so Room stays on every shot.
     await page.until("!document.querySelector('[data-effect-param=corner]')");
     expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-param=room]')")).toBe(true);
-    // Zoom's slider starts at 0.8: past its right end it is 4 exactly (its steps once counted from 0 made it 4.004,
-    // which the project refused, and the canvas went black).
+    // Zoom's slider starts at 0.8: past its right end it is 2.5 exactly (its steps once counted from 0 put its end past
+    // the top, which the project refused, and the canvas went black).
     const zoomSlider = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Zoom') return true; return false; }); hit.scrollIntoView({ block: 'center' }); const b = hit.getBoundingClientRect(); return { x: b.x + b.width - 2, y: b.y + b.height / 2 }; })()`;
     const z = await page.evaluate<{ x: number; y: number }>(zoomSlider);
     await page.click(z.x, z.y);
-    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.zoom === 4);
+    await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.zoom === 2.5);
     await page.screenshot(join(dir, "monitor.png"));
   } finally {
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
@@ -5761,7 +5759,7 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
   }
 }, 30_000);
 
-test.skipIf(skip)("a Monitor clip zoomed in and turned keeps its canvas outline flat (its rotation turns the camera, not the clip), its Rotation X and Y stop at 60°, and Pixels and Reflection are sliders (Reflection only on Glossy)", async () => {
+test.skipIf(skip)("a Monitor clip zoomed in and turned keeps its canvas outline flat (its rotation turns the camera, not the clip), its Rotation X and Y stop at 60°, Pixels, Reflection and Reflection Blur are sliders (the reflection's only on Glossy), and there is no Glow", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   try {
     await run("playhead.set", { time: 1 });
@@ -5783,8 +5781,9 @@ test.skipIf(skip)("a Monitor clip zoomed in and turned keeps its canvas outline 
     await run("inspector.tab", { tab: "effects" });
     await page.until("document.body.innerText.includes('Pixels')");
     expect(await page.evaluate<boolean>("document.body.innerText.includes('Reflection')")).toBe(false);
+    expect(await page.evaluate<boolean>("document.body.innerText.includes('Glow')")).toBe(false);
     await page.click(...(await centre("[data-effect-param=screen] [data-option=glossy]")));
-    await page.until("document.body.innerText.includes('Reflection')");
+    await page.until("document.body.innerText.includes('Reflection Blur')");
   } finally {
     for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
     await select([]);
