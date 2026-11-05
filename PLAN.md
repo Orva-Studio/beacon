@@ -3743,6 +3743,14 @@ the public key in the app, checked before applying), app signing and notarizatio
 takes a per-launch token.
 Order: (1) dead code and quick debt; (2) security's highs and mediums, CI audit; (3) the splits; (4) the registry
 move; (5) `docs/security.md`, uploads listed, and the fuzzing gate. Each a commit, the suite green between.
+**Changed (the user, 2026-11-05):** a Developer ID next week and people using Beacon soon, so Phase 14 aims at what
+they will feel. The full registry move is dropped (behind the scenes only, and risky before a launch); instead the
+**smaller fix**: shared code stops naming features (B-roll's timeline label, core re-exporting `LABEL_COLORS`, deep
+imports into feature internals). Then, in order: **performance as people meet it** (launch, opening a big project,
+memory over a long session, export, a timeline of hundreds of clips: measured, the worst fixed, guarded);
+**ready for the Developer ID** (signing with the hardened runtime and notarization in CI, waiting only on the
+certificate; then the keys in the Keychain through the Security framework); **first run** on a fresh Mac
+(permissions, first recording, first export) smoothed; **diagnostics** a user can send.
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
