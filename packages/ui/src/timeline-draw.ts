@@ -235,8 +235,19 @@ export function drawTimeline(t: TimelineDrawing) {
     const width = Math.max(1, w - HEADER);
     const pps = width / (end - start);
     const x = (t: number) => HEADER + (t - start) * pps;
-    const shown = (t: Track, clip: Clip) =>
-      shownSpan(ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration), t.clips.filter((c) => c !== clip).map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const), 1 / pps);
+    // Each track's spans worked out once a draw, from each clip's neighbours in time: asking every other clip of the
+    // track for each one made a zoom of two thousand clips take 50 ms.
+    const spans = new Map<string, [number, number]>();
+    const shown = (t: Track, clip: Clip): [number, number] => {
+      const hit = spans.get(clip.id);
+      if (hit) return hit;
+      const sorted = [...t.clips].sort((p, q) => p.start - q.start).map((c) => [c.id, ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const);
+      sorted.forEach(([id, a, b], k) => {
+        const near = [sorted[k - 1], sorted[k + 1]].flatMap((n) => (n ? [[n[1], n[2]] as const] : []));
+        spans.set(id, shownSpan(a, b, near, 1 / pps));
+      });
+      return spans.get(clip.id)!;
+    };
 
     // Everything but the playhead is drawn into a cached layer, redrawn only when what it shows changes:
     // a playback tick then costs a copy and the playhead.

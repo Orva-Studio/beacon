@@ -475,3 +475,31 @@ many clips added, removed or shifted alike are one line, and a result's ids stop
 (one minute of clips 60.7 → 11.6 KB); replies are unindented JSON; a wrong clip or track id lists the ones there, and a
 mistyped tool or command the nearest names, so the retry needs no read (3 → 2 calls). `transcript_get` takes `find`.
 `project_describe` lists 40 clips a track and says where the rest are.
+
+## As people meet it: a small project, export, hundreds of clips (2026-11-05, Phase 14)
+
+**A typical small project** (one 3.6 min 1080p recording: screen, camera, audio; `bun scripts/launch-bench.ts
+recording.trec --play 180`): drawn 2.5 s after launch, 640 MB once open, levelling off at ~810 MB after three minutes
+of playing and jumping, no growth after. Nearly all of it is the main process: ~275 MB of decoded frames (half a second
+behind each of the two video sources, 8 MB a frame) and ~285 MB the GPU holds for the renderer; the rest of the
+resident size is shared system code. Left as it is.
+
+**Export** (`bun scripts/perf.ts <project> --export a-b`): the small project, 217 s, in 24 s (9.0× real time); two
+minutes of the 304-clip benchmark project in 24 s (5.0×). Nothing to fix.
+
+**Hundreds of clips** (`bun scripts/timeline-bench.ts`; the UI harness, a development React build in headless
+Chromium, so slower than the app):
+
+| | 304 clips | 2,350 clips, before | 2,350 clips, after |
+|---|---:|---:|---:|
+| Core move / split / undo, p50 | 0.7 / 3.1 / 0.9 ms | 4.0 / 14.1 / 4.6 ms | same |
+| UI open until the timeline draws | 431 ms | 518 ms | 406 ms |
+| Zoom, main thread a step | 7.7 ms | 52.7 ms | 20.7 ms |
+| Scroll, a step | 4.5 ms | 22.9 ms | 8.8 ms |
+| Drag, a move | 3.6 ms | 22.1 ms | 8.8 ms |
+
+The worst was the timeline drawing: each clip's shown span (short clips grown to a visible width without crossing
+their neighbours) looked at every other clip of its track, twice a draw, so a draw grew with the square of the clips.
+Now each track's spans come from each clip's two neighbours, once a draw. What is left of a zoom step is mostly
+copying the cached layer, which headless Chromium does in software. Guarded by `scripts/ui-harness/many-clips.test.ts`
+(2,000 clips: zoom and scroll under 30 ms of script a step; 51.8 and 35.9 ms without the fix).

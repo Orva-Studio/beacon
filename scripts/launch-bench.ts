@@ -4,7 +4,9 @@
  * with it until its window has drawn the canvas; then the app's memory (every process it started) as it plays and
  * jumps for a while. Run `bun run --cwd packages/desktop build` first; the shared cache keeps proxies between runs.
  *
- *   bun scripts/launch-bench.ts <project.cmproj> [--play seconds]
+ * A recording (.trec, .brec) or a video instead of a project makes a new project of just it: a typical small one.
+ *
+ *   bun scripts/launch-bench.ts <project.cmproj | recording> [--play seconds]
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,8 +16,9 @@ import { LocalCore, RemoteCore } from "@beacon/core";
 
 const { values, positionals } = parseArgs({ args: Bun.argv.slice(2), allowPositionals: true, options: { play: { type: "string", default: "60" } } });
 const source = positionals[0];
-if (!source) throw new Error("usage: bun scripts/launch-bench.ts <project.cmproj> [--play seconds]");
-const APP = join(import.meta.dir, "../packages/desktop/build/dev-macos-arm64/Beacon-dev.app/Contents/MacOS/launcher");
+if (!source) throw new Error("usage: bun scripts/launch-bench.ts <project.cmproj | recording> [--play seconds]");
+// BEACON_APP: another build's launcher (a packaged release unpacked, to try it under the hardened runtime).
+const APP = process.env.BEACON_APP ?? join(import.meta.dir, "../packages/desktop/build/dev-macos-arm64/Beacon-dev.app/Contents/MacOS/launcher");
 if (!existsSync(APP)) throw new Error("build the app first: bun run --cwd packages/desktop build");
 const dir = mkdtempSync(join(tmpdir(), "beacon-launch-"));
 const ms = (t: number) => `${Math.round(performance.now() - t)} ms`;
@@ -24,7 +27,14 @@ const ms = (t: number) => `${Math.round(performance.now() - t)} ms`;
 const core = new LocalCore();
 const project = join(dir, `${basename(source, extname(source))}.beproj`);
 let t = performance.now();
-await core.close(await core.create({ path: project, cmproj: source }));
+if (extname(source) === ".cmproj") await core.close(await core.create({ path: project, cmproj: source }));
+else {
+  const h = await core.create({ path: project });
+  const r = await core.import(h, [source]);
+  // Transcripts are kept by media, so a fixture's are usually there already; a new one would only add to the app's work.
+  for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
+  await core.close(h);
+}
 console.log(`import ${basename(source)}: ${ms(t)}`);
 t = performance.now();
 await core.close(await core.open(project));
@@ -61,6 +71,8 @@ try {
   }
   console.log(`launch the app until its socket is up: ${Math.round(toSocket)} ms; until the window has drawn the project: ${ms(t)}`);
   console.log(`memory once open: ${appMemory(app.pid)} MB`);
+  const described = String(await remote.query(h, "project.describe", {}));
+  const duration = Math.max(1, Number(/duration ([\d.]+)s/.exec(described)?.[1] ?? 501) - 1);
 
   // A session's worth of use: play, and jump about now and then.
   const play = Number(values.play);
@@ -75,7 +87,7 @@ try {
       console.log(`  ${Math.round((performance.now() - end) / 1000 + play)} s: ${appMemory(app.pid)} MB`);
       next += 30_000;
     }
-    if (Math.random() < 0.3) await remote.run(h, "playhead.set", { time: Math.random() * 500 });
+    if (Math.random() < 0.3) await remote.run(h, "playhead.set", { time: Math.random() * duration });
   }
   await remote.run(h, "playback.pause", {});
   console.log(`memory after ${play} s of playing and jumping: ${appMemory(app.pid)} MB (peak ${peak} MB)`);

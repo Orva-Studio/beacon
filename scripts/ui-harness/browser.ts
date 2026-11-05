@@ -59,6 +59,8 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
     send("Input.dispatchMouseEvent", { type, x, y, button, buttons: type === "mouseReleased" ? 0 : button === "left" ? 1 : 2, clickCount, modifiers: bits(mods) });
 
   return {
+    /** A DevTools protocol call, for what the helpers below don't cover (profiling). */
+    send,
     evaluate,
     /** Waits until `expression` is truthy. */
     async until(expression: string, timeout = 5000) {
