@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
 import { createRegistry } from "@beacon/features";
@@ -359,7 +359,11 @@ export class LocalCore implements BeaconCore {
     const standalone = opts.standalone ?? !!doc.settings.standalone;
     // Its own folders come whole (takes, snapshots, and anything else kept there), but not its lock or a save in
     // progress; links are followed, so the copy doesn't depend on what they pointed at.
-    await copyFollowingLinks(p.path, to, (src) => dirname(src) !== p.path || !/^(lock|\.project\.json\..*\.tmp)$/.test(basename(src)));
+    // Links inside a project are followed only to media it uses or to its own files: a crafted project linking to
+    // ~/.ssh mustn't have that copied into the new one.
+    const own = realPath(p.path) + sep;
+    const media = new Set(Object.values(p.store.doc.assets).map((a) => realPath(resolve(p.path, a.path))));
+    await copyFollowingLinks(p.path, to, (src) => dirname(src) !== p.path || !/^(lock|\.project\.json\..*\.tmp)$/.test(basename(src)), (target) => target.startsWith(own) || media.has(target));
     const assets = Object.values(doc.assets);
     const inside = assets.filter((a) => isInside(p.path, a.path)).map((a) => {
       const copy = { ...a, path: to + a.path.slice(p.path.length) };
@@ -547,9 +551,10 @@ export class LocalCore implements BeaconCore {
         secret: (id) => this.#config.secrets.get(id),
         pref: p.data.pref,
         mediaDir,
-        bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, path),
+        bounceAudio: (clips, range, path) => this.#bounceAudio(p, clips, range, scratch(path, mediaDir)),
         asset: async (path, kind) => ({ kind, path, fingerprint: fileFingerprint(path), derived: await probeAsset(path) }),
         frame: async (time, path, width = 0) => {
+          scratch(path, mediaDir);
           const doc = p.store.doc;
           writeFileSync(path, pngImage(p.frames.frame(doc, snapSeconds(time, doc.settings.fps), p.data.get, width)).png);
         },
@@ -934,9 +939,11 @@ export class LocalCore implements BeaconCore {
 
   #checkOutput(h: ProjectHandle, path: string, opts: { overwrite?: boolean } = {}): void {
     const out = resolve(path);
+    // Where it really lands: a link on the way (a folder linked into a project, a file linked to media) is followed.
+    const real = realPath(out);
     const doc = this.#get(h).store.doc;
-    if (Object.values(doc.assets).some((a) => resolve(a.path) === out)) throw new Error(`${out} is media used by the project; write somewhere else`);
-    const bundle = out.split(sep).find((part) => /\.(cmproj|beproj)$/i.test(part));
+    if (Object.values(doc.assets).some((a) => resolve(a.path) === out || realPath(resolve(a.path)) === real)) throw new Error(`${out} is media used by the project; write somewhere else`);
+    const bundle = [...out.split(sep), ...real.split(sep)].find((part) => /\.(cmproj|beproj)$/i.test(part));
     if (bundle) throw new Error(`${out} is inside ${bundle}; write outside project folders`);
     if (opts.overwrite || !existsSync(out)) return;
     if (statSync(out).isDirectory() ? readdirSync(out).length > 0 : true) throw new Error(`${out} already exists; pass overwrite to replace it`);
@@ -1385,4 +1392,27 @@ export class LocalCore implements BeaconCore {
 function pngImage(png: Uint8Array): Image {
   const v = new DataView(png.buffer, png.byteOffset, png.byteLength);
   return { png, width: v.getUint32(16), height: v.getUint32(20) };
+}
+
+/** A path with every link on the way followed, as far as it exists; the rest as written. */
+function realPath(path: string): string {
+  let head = path;
+  const rest: string[] = [];
+  while (!existsSync(head) && dirname(head) !== head) {
+    rest.unshift(basename(head));
+    head = dirname(head);
+  }
+  try {
+    return join(realpathSync(head), ...rest);
+  } catch {
+    return path;
+  }
+}
+
+/** A task's file goes in the project's media folder or a temporary one, nowhere else; returned as given. */
+function scratch(path: string, mediaDir: string): string {
+  const real = realPath(resolve(path));
+  const roots = [mediaDir, tmpdir()].map((r) => realPath(resolve(r)) + sep);
+  if (!roots.some((r) => real.startsWith(r))) throw new Error(`a task can't write ${path}: only in the project's media folder or a temporary one`);
+  return path;
 }

@@ -38,25 +38,29 @@ export async function copyIntoProject(dir: string, files: string[]): Promise<Map
 /**
  * Copies a file or folder (for which `filter` says yes) with its times kept exactly, as a clone on APFS, and links
  * replaced by what they point at, nested ones too: a copy holding a link would still need the original. A broken
- * link stays a link. (`cp` keeps links unless dereferencing, and rounds times down to the millisecond, which changes
+ * link stays a link, as does one `follow` says no to. (`cp` keeps links unless dereferencing, and rounds times down to the millisecond, which changes
  * a fingerprint.)
  */
-export async function copyFollowingLinks(from: string, to: string, filter: (src: string) => boolean = () => true): Promise<void> {
+export async function copyFollowingLinks(from: string, to: string, filter: (src: string) => boolean = () => true, follow: (target: string) => boolean = () => true): Promise<void> {
   if (!filter(from)) return;
   if (existsSync(to)) throw new Error(`${to} already exists`);
   let src = from;
   if (lstatSync(from).isSymbolicLink()) {
+    let target: string | undefined;
     try {
-      src = realpathSync(from);
-    } catch {
+      target = realpathSync(from);
+    } catch {}
+    // A link it may not follow (`follow`), or a broken one, is copied as a link.
+    if (!target || !follow(target)) {
       await symlink(await readlink(from), to);
       return;
     }
+    src = target;
   }
   const st = await stat(src);
   if (st.isDirectory()) {
     await mkdir(to);
-    for (const f of await readdir(src)) await copyFollowingLinks(join(from, f), join(to, f), filter);
+    for (const f of await readdir(src)) await copyFollowingLinks(join(from, f), join(to, f), filter, follow);
   } else {
     await copyFile(src, to, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
   }
