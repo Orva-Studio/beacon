@@ -42,6 +42,7 @@ test.skipIf(!existsSync(TAKE))("Monitor puts the recording on a monitor filmed h
   const screen = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "screen")!;
   const flat = await pixels((await core.frame(h, 1, { width: WIDTH })).png, "flat");
 
+  const lift = (px: Uint8Array) => px.reduce((a, v) => a + v, 0) / px.length;
   const steps = (await core.history(h)).undo.length;
   const fx = (await core.run(h, "effect.add", { clip: screen.id, type: "device-frame", params: { drift: 0, focus: "point", focusX: 0.09, focusY: 0.1 } })).results[0] as string;
   expect((await core.history(h)).undo.length).toBe(steps + 1);
@@ -59,8 +60,20 @@ test.skipIf(!existsSync(TAKE))("Monitor puts the recording on a monitor filmed h
   expect(Buffer.from(turned).equals(Buffer.from(far))).toBe(false);
   await core.undo(h);
 
+  // Pixels: close in, the screen's subpixel stripes add fine detail; at the default zoom they are too small to draw.
+  const at = async (params: Record<string, unknown>, name: string) => {
+    await core.run(h, "effect.set", { clip: screen.id, effect: fx, params });
+    return pixels((await core.frame(h, 1, { width: WIDTH })).png, name);
+  };
+  const close = { zoom: 12, blur: 0, focusX: 0.06, focusY: 0.08 };
+  expect(detail(await at({ ...close, pixels: 1 }, "stripes"), 0.2, 0.8)).toBeGreaterThan(detail(await at({ ...close, pixels: 0 }, "plain"), 0.2, 0.8) * 1.3);
+  expect(Buffer.from(await at({ zoom: 2, blur: 0.6, focusX: 0.9, focusY: 0.9, pixels: 1 }, "far-stripes")).equals(Buffer.from(far))).toBe(true);
+  // Glossy glass mirrors the room behind the camera: light added on the screen.
+  const glass = await at({ pixels: 0.5, screen: "glossy", reflection: 1 }, "glossy");
+  expect(lift(glass)).toBeGreaterThan(lift(await at({ reflection: 0 }, "no-reflection")) + 1);
+  for (let i = 0; i < 5; i++) await core.undo(h);
+
   // The clip's Opacity fades the whole shot, room and bezel too (they hid the screen fading).
-  const lift = (px: Uint8Array) => px.reduce((a, v) => a + v, 0) / px.length;
   await core.run(h, "clip.set", { clip: screen.id, props: { transform: { opacity: 0.5 } } });
   const faded = await pixels((await core.frame(h, 1, { width: WIDTH })).png, "faded");
   expect(lift(faded)).toBeLessThan(lift(far) * 0.65);

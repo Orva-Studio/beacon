@@ -5683,6 +5683,36 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
   }
 }, 30_000);
 
+test.skipIf(skip)("a Monitor clip zoomed in and turned keeps its canvas outline flat (its rotation turns the camera, not the clip), its Rotation X and Y stop at 60°, and Pixels and Reflection are sliders (Reflection only on Glossy)", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    await run("playhead.set", { time: 1 });
+    await run("effect.add", { clip: screen.id, type: "device-frame" });
+    await run("clip.set", { clip: screen.id, props: { transform: { scaleX: 2.26, scaleY: 2.26, rotationY: (-73.5 * Math.PI) / 180 } } });
+    await select([screen.id]);
+    await run("inspector.tab", { tab: "transform" });
+    await page.until("document.querySelectorAll('svg line').length >= 4");
+    const outline = await page.evaluate<number[][]>("[...document.querySelectorAll('svg line')].slice(0, 4).map((l) => ['x1', 'y1', 'x2', 'y2'].map((k) => l[k].baseVal.value))");
+    // Top and bottom level, the sides upright: the clip's own box, no corners thrown across the canvas.
+    for (const i of [0, 2]) expect(Math.abs(outline[i]![1]! - outline[i]![3]!)).toBeLessThan(0.5);
+    for (const i of [1, 3]) expect(Math.abs(outline[i]![0]! - outline[i]![2]!)).toBeLessThan(0.5);
+    await page.until("document.querySelectorAll('[data-rotation-gizmo] + div [data-input]').length === 3");
+    await page.click(...(await centre("[data-rotation-gizmo] + div > div:nth-child(2) [data-input]")));
+    await page.until("document.activeElement?.tagName === 'INPUT'");
+    await type("-80");
+    await page.key("Enter", "Enter");
+    await arrived(() => Math.abs(((clip(screen.id).props.transform as { rotationY: number }).rotationY * 180) / Math.PI + 60) < 1e-6);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("document.body.innerText.includes('Pixels')");
+    expect(await page.evaluate<boolean>("document.body.innerText.includes('Reflection')")).toBe(false);
+    await page.click(...(await centre("[data-effect-param=screen] [data-option=glossy]")));
+    await page.until("document.body.innerText.includes('Reflection')");
+  } finally {
+    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose prompt is written on this Mac at once: sized on the canvas, no Style menu (the look is typed in the prompt), Prompt: Manual starting from the words said, and its footage made from them through Replicate's stand-in, one undo step", async () => {
   // Replicate standing in (it charges), and Apple's on-device model (beacon-writer) writing one scene per call.
   const footage = (w: number, h: number) => {

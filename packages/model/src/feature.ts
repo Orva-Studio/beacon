@@ -88,6 +88,11 @@ export interface EffectDef {
    * puts them in a list of pictures (the Monitor's shots as blueprints).
    */
   choices?: Record<string, Record<string, EffectChoice>>;
+  /**
+   * The clip's Rotation X and Y turn a camera filming it (the Monitor's), up to this many radians either way: the
+   * canvas outlines the clip's flat box, not a tilted one, and the inspector stops the rotation there.
+   */
+  turnsCamera?: number;
 }
 
 export interface EffectChoice {

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineFeature, eachRawClip, IDENTITY, multiply, placement, project, split, ticksToSeconds, type BackdropLayer, type ClipEval, type EvalContext, type Matrix3, type TransformValues, type VisualLayer } from "@beacon/model";
 import { cursorContentPoint } from "../cursor";
 import { depthAt, homography, invert, view, wobble, type Camera } from "./camera";
-import { ROOM_SIZE, roomPath } from "./rooms";
+import { REFLECTION_SIZE, reflectionPath, ROOM_SIZE, roomPath } from "./rooms";
 import { CORNERS, deg, shotCamera, SHOTS } from "./shots";
 import { SHOT_CHOICES } from "./blueprint";
 import wgsl from "./device-frame.wgsl" with { type: "text" };
@@ -11,18 +11,20 @@ const params = z.strictObject({
   shot: z.enum(SHOTS).describe("Where the camera is: head on at the screen's top-left corner, or at an angle (a top corner, a side edge, across from the left or right, a low macro), in a dark room"),
   corner: z.enum(Object.keys(CORNERS) as [keyof typeof CORNERS, ...(keyof typeof CORNERS)[]]).meta({ when: { shot: "head-on" } }).describe("Which corner of the screen a head-on shot is close on"),
   room: z.enum(["teal-studio", "none"]).meta({ when: { shot: "head-on" } }).describe("Behind the monitor when head on: the studio photo, out of focus, or none (a dark room)"),
-  screen: z.enum(["matte", "glossy"]).describe("Matte only glows; glossy catches a lamp's soft reflection and a sheen that move with the camera"),
+  screen: z.enum(["matte", "glossy"]).describe("Matte only glows; glossy glass mirrors the room behind the camera, out of focus, moving as the camera moves"),
+  reflection: z.number().min(0).max(1).meta({ percent: true, when: { screen: "glossy" } }).describe("How strongly glossy glass mirrors the room behind the camera; stronger as the camera turns to the screen"),
   focus: z.enum(["cursor", "point"]).describe("What is sharp: the recorded cursor as it moves (smoothed), or a point of the screen"),
   focusX: z.number().min(0).max(1).meta({ percent: true, when: { focus: "point" } }).describe("The point in focus, across the screen"),
   focusY: z.number().min(0).max(1).meta({ percent: true, when: { focus: "point" } }).describe("The point in focus, down the screen"),
   blur: z.number().min(0).max(1).meta({ percent: true }).describe("How shallow the focus is: how fast the screen and the room blur away from it"),
   glow: z.number().min(0).max(1).meta({ percent: true }).describe("The screen's bright parts blooming onto the bezel and room"),
+  pixels: z.number().min(0).max(1).meta({ percent: true }).describe("The screen's own pixels: red, green and blue stripes and the dark lines between them, showing as the camera comes close (a macro shot of a screen); never where they'd be smaller than the video's pixels"),
   drift: z.number().min(0).max(1).meta({ percent: true }).describe("A handheld camera's slow wobble"),
   zoom: z.number().min(0.8).max(12).meta({ slider: { min: 0.8, max: 4 } }).describe("How close the camera is: the screen's width over the frame's (2 shows half of it; under 1 the whole screen, centred)"),
 });
 export type DeviceFrameParams = z.infer<typeof params>;
 
-const DEFAULTS: DeviceFrameParams = { shot: "head-on", corner: "top-left", room: "teal-studio", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, drift: 0.5, zoom: 2 };
+const DEFAULTS: DeviceFrameParams = { shot: "head-on", corner: "top-left", room: "teal-studio", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, pixels: 0.5, reflection: 0.5, drift: 0.5, zoom: 2 };
 
 const DARK_ROOM: [number, number, number, number] = [0.045, 0.034, 0.028, 1];
 const BEZEL_COLOR: [number, number, number, number] = [0.006, 0.006, 0.007, 1];
@@ -36,6 +38,9 @@ function seedOf(id: string): number {
   return (Math.abs(h) % 1000) / 1000;
 }
 
+/** How far the clip's Rotation X and Y turn the camera either way; the inspector stops there too. */
+const TURN = deg(60);
+
 const translate3 = (x: number, y: number): Matrix3 => [1, 0, x, 0, 1, y, 0, 0, 1];
 
 /**
@@ -45,14 +50,42 @@ const translate3 = (x: number, y: number): Matrix3 => [1, 0, x, 0, 1, y, 0, 0, 1
  */
 function cameraAt(p: DeviceFrameParams, e: ClipEval, t: TransformValues, W: number, H: number, rect: [number, number, number, number], aimAt: [number, number]): Camera {
   let { yaw, pitch, size, target } = shotCamera(p, W, H, rect, aimAt);
-  const limit = deg(60);
-  yaw = Math.max(-limit, Math.min(limit, yaw - (t.rotationY ?? 0)));
-  pitch = Math.max(-limit, Math.min(limit, pitch + (t.rotationX ?? 0)));
+  const turn = (r: number | undefined) => Math.max(-TURN, Math.min(TURN, r ?? 0));
+  // An angled shot turned further still stops short of edge on, where the screen would be a line.
+  const most = deg(75);
+  yaw = Math.max(-most, Math.min(most, yaw - turn(t.rotationY)));
+  pitch = Math.max(-most, Math.min(most, pitch + turn(t.rotationX)));
   const [a, b, c] = wobble(ticksToSeconds(e.time), seedOf(e.clip.id));
   yaw += deg(0.6) * a * p.drift;
   pitch += deg(0.4) * b * p.drift;
   target = [target[0] + 0.004 * W * c * p.drift, target[1]];
   return { yaw, pitch, size, target };
+}
+
+/**
+ * Glossy glass mirroring the room behind the camera: the plate on the screen's plane, a third larger than the screen,
+ * shifted as the camera moves (the room it mirrors is far behind the glass, so it slides across the screen rather than
+ * staying on it), stronger at a grazing angle (Fresnel). Its pass keeps it to the screen and adds it as light.
+ */
+function reflectionLayer(p: DeviceFrameParams, cam: Camera, rect: [number, number, number, number], W: number, frameOf: Matrix3, ctx: EvalContext): VisualLayer {
+  const [pw, ph] = REFLECTION_SIZE;
+  const sc = Math.max((rect[2] * 1.35) / pw, (rect[3] * 1.35) / ph);
+  const centre = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
+  const dx = (cam.target[0] - centre[0]!) * 0.6 + Math.sin(cam.yaw) * rect[2] * 0.5;
+  const dy = (cam.target[1] - centre[1]!) * 0.6 - Math.sin(cam.pitch) * rect[3] * 0.5;
+  const [ox, oy] = [centre[0]! + dx - (sc * pw) / 2, centre[1]! + dy - (sc * ph) / 2];
+  const placed = split(multiply(frameOf, [sc, 0, ox, 0, sc, oy, 0, 0, 1]));
+  const cos = Math.cos(cam.yaw) * Math.cos(cam.pitch);
+  const strength = p.reflection * (0.3 + 0.7 * (1 - cos) ** 1.5) * 2.4;
+  const inPlate = [(rect[0] - ox) / sc, (rect[1] - oy) / sc, rect[2] / sc, rect[3] / sc];
+  return {
+    kind: "visual",
+    content: { type: "source", source: ctx.source({ kind: "image", path: reflectionPath() }) },
+    size: [pw, ph],
+    transform: placed.transform,
+    ...(placed.perspective ? { perspective: placed.perspective } : {}),
+    passes: [{ pass: "device-reflection", params: [...inPlate, strength, (0.004 * W) / sc] }],
+  };
 }
 
 function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: EvalContext) {
@@ -94,11 +127,9 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     delete layer.motion;
     delete layer.motionPerspective;
   }
-  // The sheen sits where the room's light would glance off the screen for this camera, so it slides as the camera moves.
-  const sheenAt = 0.35 - Math.sin(cam.yaw) * 0.9 - (cam.target[0] / W - 0.5) * 0.4;
   // A Film Look on the clip grades the whole shot (room, bezel and screen), not just the recording under the glass.
   const grades = (e.main.passes ?? []).filter((x) => x.pass === "film-look");
-  e.main.passes = [...(e.main.passes ?? []).filter((x) => x.pass !== "film-look"), { pass: "device-screen", params: [p.screen === "glossy" ? 1 : 0, w, h, sheenAt] }];
+  e.main.passes = [...(e.main.passes ?? []).filter((x) => x.pass !== "film-look"), { pass: "device-screen", params: [p.screen === "glossy" ? 1 : 0, w, h] }];
 
   // Thin, as the reference's: about 2% of the frame at this shot's size.
   const bezel = [0.007 * W, 0.007 * W, 0.007 * W, 0.01 * W] as const;
@@ -131,6 +162,7 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     size: [W, H],
     transform: IDENTITY,
     passes: [
+      ...(p.pixels > 0 ? [{ pass: "device-pixels", params: [...back, rect[0], rect[1], rect[2], rect[3], 1 / fit, p.pixels] }] : []),
       {
         pass: "device-frame",
         params: [...back, M[6], M[7], M[8], focusDepth, p.blur * 0.05 * W * Math.min(1, (cam.size / 2) ** 0.7), roomDepth, ...bezel, rect[2], rect[3], 0.014 * W, p.glow * 0.6, 0.62, 0.012 * W, 0.0012 * W, ...focusPoint, headOn ? 0.09 * W : 1e9, rect[0], rect[1]],
@@ -139,6 +171,7 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     ],
   };
   e.layers.unshift(...under);
+  if (p.screen === "glossy" && p.reflection > 0) e.layers.push(reflectionLayer(p, cam, rect, W, frameOf, ctx));
   e.layers.push(frame);
   const fade = Math.max(0, Math.min(1, (t as TransformValues & { opacity?: number }).opacity ?? 1));
   if (fade < 1) {
@@ -212,15 +245,26 @@ function dropMove(doc: unknown): unknown {
   return doc;
 }
 
+/** v6: Pixels, the screen's subpixel grid, and Glossy's Reflection (the user, 2026-11-05), at their defaults. */
+function addPixels(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    for (const fx of Array.isArray(o.effects) ? (o.effects as { type: string; params: Record<string, unknown> }[]) : []) {
+      if (fx.type === "device-frame") fx.params = { pixels: 0.5, reflection: 0.5, ...fx.params };
+    }
+  });
+  return doc;
+}
+
 /** A screen recording filmed on a monitor in a dim room: head on, steered by the clip's transform, shallow focus (on the cursor) and glow; a Film Look on the clip grades it all. */
 export const deviceFrame = defineFeature({
   id: "device-frame",
-  version: 5,
+  version: 6,
   migrations: [
     { version: 2, migrate: settleSettings },
     { version: 3, migrate: addShotAndRoom },
     { version: 4, migrate: addCorner },
     { version: 5, migrate: dropMove },
+    { version: 6, migrate: addPixels },
   ],
   effects: [
     {
@@ -231,6 +275,7 @@ export const deviceFrame = defineFeature({
       params,
       defaults: () => ({ ...DEFAULTS }),
       choices: { ...SHOT_CHOICES, room: { "teal-studio": { label: "Studio" }, none: { label: "None" } } },
+      turnsCamera: TURN,
       apply(e, p, ctx) {
         draw(e, p as DeviceFrameParams, ctx);
       },
@@ -239,6 +284,8 @@ export const deviceFrame = defineFeature({
   passes: [
     { id: "device-frame", wgsl, steps: ["fs_glow_h", "fs_glow_v", "fs_glow_add", "fs_dof_h", "fs_dof_v"] },
     { id: "device-screen", wgsl, steps: ["fs_screen"] },
+    { id: "device-pixels", wgsl, steps: ["fs_pixels"] },
+    { id: "device-reflection", wgsl, steps: ["fs_reflection"] },
     { id: "device-rim", wgsl, steps: ["fs_rim"] },
     { id: "device-room", wgsl, steps: ["fs_room"] },
   ],

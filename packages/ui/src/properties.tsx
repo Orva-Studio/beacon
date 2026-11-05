@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Clip, EffectInstance, Project, Session } from "@beacon/model";
 import { assetName, clipSpeed, EASINGS, formatColor, inspectorTabs, KeptLooksSchema, rationalToNumber, ticksToSeconds, wordsInWindow } from "@beacon/model";
 import type { Host } from "./app";
-import { boxGroup, contentSize, valueAt } from "./canvas-clips";
+import { boxGroup, cameraTurn, contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
@@ -149,7 +149,7 @@ function ClipProperties({
       </div>
       {selected.length > 1 && <div className="border-b border-divider bg-panel py-2 text-center text-label text-text-faint">Editing {selected.length} clips</div>}
       {session.animation?.clip === clip.id && <AnimationSection clip={clip} id={session.animation.id} host={host} />}
-      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} />}
+      {tab?.id === "transform" && <Visual clip={clip} project={project} value={value} edit={edit} picture={traits.includes("picture")} turn={cameraTurn(clip, init?.effects)} />}
       {tab?.id === "transform" && clip.type === "video" && project.assets[clip.assetId ?? ""]?.kind === "recording" && <CameraDelay key={clip.id} clip={clip} host={host} />}
       {tab?.id === "speed" && (
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
@@ -234,7 +234,7 @@ function CameraDelay({ clip, host }: { clip: Clip; host: Host }) {
   );
 }
 
-function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean }) {
+function Visual({ clip, project, value, edit, picture, turn }: { clip: Clip; project: Project; value: (g: string, f: string, d?: number) => number; edit: Edit; picture: boolean; turn?: number }) {
   const stored = contentSize(project, clip);
   const box = boxGroup(clip);
   const size: [number, number] | undefined = stored && box ? [value(box, "width", stored[0]), value(box, "height", stored[1])] : stored;
@@ -258,7 +258,11 @@ function Visual({ clip, project, value, edit, picture }: { clip: Clip; project: 
           <span className="text-label font-medium text-text-muted">Rotation</span>
           <RotationGizmo
             value={{ x: (value("transform", "rotationX") * 180) / Math.PI, y: (value("transform", "rotationY") * 180) / Math.PI, z: degrees }}
-            onChange={(axis, deg, key) => edit("transform", { [axis === "z" ? "rotation" : axis === "x" ? "rotationX" : "rotationY"]: (deg * Math.PI) / 180 }, "Rotation", key)}
+            onChange={(axis, deg, key) => {
+              // The camera an effect turns stops at its limit: past it the field would say more than the picture shows.
+              const rad = turn && axis !== "z" ? clamp((deg * Math.PI) / 180, -turn, turn) : (deg * Math.PI) / 180;
+              edit("transform", { [axis === "z" ? "rotation" : axis === "x" ? "rotationX" : "rotationY"]: rad }, "Rotation", key);
+            }}
           />
         </div>
       </Section>

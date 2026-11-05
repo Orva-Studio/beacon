@@ -35,6 +35,34 @@ fn df_sigma(uv: vec2<f32>) -> f32 {
   return min(coc, param(21u)) * frame.layer.z;
 }
 
+// device-pixels params: 0-8 frame pixel → screen point (as device-frame's), 9-10 the screen's top-left corner, 11-12
+// its width and height (canvas px), 13 recording pixels per canvas pixel, 14 strength.
+// An LCD's subpixels at the recording's own pixel size: red, green and blue stripes in each pixel, a dark line between
+// rows. Drawn on the finished frame, so at any angle and zoom it is at the output's resolution; each part fades out
+// before it gets smaller than a few output pixels, so it never shimmers (moiré). The focus blur comes after.
+@fragment
+fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
+  let c = textureSampleLevel(src, samp, v.uv, 0.0);
+  let o = vec2(param(9u), param(10u));
+  let r = (df_screen_point(v.uv) - o) * param(13u);
+  // Output pixels per recording pixel, across and down, from how far a pixel step moves in the recording.
+  let span = vec2(length(vec2(dpdx(r.x), dpdy(r.x))), length(vec2(dpdx(r.y), dpdy(r.y))));
+  let scale = 1.0 / max(span, vec2(1e-4));
+  let s = df_screen_point(v.uv) - o;
+  if (s.x < 0.0 || s.y < 0.0 || s.x > param(11u) || s.y > param(12u)) {
+    return c;
+  }
+  let across = param(14u) * smoothstep(2.5, 6.0, scale.x);
+  let down = param(14u) * smoothstep(2.0, 5.0, scale.y);
+  let f = fract(r);
+  let d = abs(fract(vec3(f.x) - vec3(1.0 / 6.0, 0.5, 5.0 / 6.0) + 0.5) - 0.5);
+  let stripe = 1.0 - smoothstep(vec3(0.09), vec3(1.0 / 6.0), d);
+  let row = smoothstep(0.0, 0.14, f.y) * (1.0 - smoothstep(0.86, 1.0, f.y));
+  // Brighter where lit, so the stripes' average stays near the picture's own brightness.
+  let mask = mix(vec3(1.0), stripe * 2.2, across) * mix(1.0, row, down * 0.8);
+  return vec4(min(c.rgb * mask, vec3(c.a)), c.a);
+}
+
 // Only the screen glows: the room's lamps and bokeh blooming as well made the room look hazy (the user, 2026-11-04).
 fn df_bright(c: vec4<f32>, uv: vec2<f32>) -> vec4<f32> {
   let s = df_screen_point(uv);
@@ -131,28 +159,38 @@ fn fs_dof_v(v: VOut) -> @location(0) vec4<f32> {
   return vec4(r, g.g, b, g.a);
 }
 
-// device-screen params: the surface (0 matte, 1 glossy), the screen's width and height (layer px), where the sheen's
-// band crosses (moves with the camera).
-// Glossy: a soft diagonal sheen from the room's light and a touch more contrast; matte: a faint haze that lifts the
-// blacks, as an anti-glare coating does.
+// device-screen params: the surface (0 matte, 1 glossy), the screen's width and height (layer px).
+// Glossy: a touch more contrast (its reflection is a layer of its own, device-reflection); matte: a faint haze that
+// lifts the blacks, as an anti-glare coating does.
 @fragment
 fn fs_screen(v: VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(src, samp, v.uv, 0.0);
   let p = to_layer(v.uv) / vec2(param(1u), param(2u));
   let glossy = param(0u);
-  let band = exp(-pow((p.x * 0.8 + p.y * 0.6 - param(3u)) / 0.22, 2.0));
-  let sheen = vec3(1.0, 0.93, 0.85) * (0.02 + 0.09 * band) * glossy;
   let haze = vec3(0.035, 0.032, 0.03) * (1.0 - glossy);
   var rgb = c.rgb;
   rgb = mix(rgb, (rgb - 0.5 * c.a) * 1.05 + 0.5 * c.a, glossy);
-  let spot = vec2(0.72 - (param(3u) - 0.35) * 0.5, 0.22);
-  let r = (p - spot) * vec2(1.0, 1.8);
-  let lamp = vec3(1.0, 0.78, 0.52) * 0.09 * exp(-dot(r, r) / 0.02) * glossy;
   // The panel's backlight bleeding a little along its edges, so a dark picture still meets the black bezel at a line.
   let edge = min(min(p.x, 1.0 - p.x) * param(1u), min(p.y, 1.0 - p.y) * param(2u));
   let bleed = vec3(0.05, 0.06, 0.08) * exp(-max(edge, 0.0) / (0.002 * param(1u)));
-  rgb = rgb + (sheen + haze + lamp + bleed) * (vec3(c.a) - rgb);
+  rgb = rgb + (haze + bleed) * (vec3(c.a) - rgb);
   return vec4(clamp(rgb, vec3(0.0), vec3(c.a)), c.a);
+}
+
+// device-reflection params: the screen in the plate's pixels (left, top, width, height), strength, the screen's corner
+// radius (plate px). The room behind the camera, kept to the screen and added as light (alpha 0 adds under
+// premultiplied blending), as glass reflects.
+@fragment
+fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
+  let c = textureSampleLevel(src, samp, v.uv, 0.0);
+  let p = to_layer(v.uv) - vec2(param(0u), param(1u));
+  let half_size = vec2(param(2u), param(3u)) * 0.5;
+  let r = param(5u);
+  let q = abs(p - half_size) - half_size + r;
+  let d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
+  let aa = max(fwidth(d), 1e-3);
+  let inside = 1.0 - smoothstep(-aa, aa, d);
+  return vec4(c.rgb * param(4u) * inside, 0.0);
 }
 
 // device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,
