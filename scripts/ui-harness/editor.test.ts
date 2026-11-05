@@ -2162,7 +2162,8 @@ test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it 
   await page.evaluate("document.querySelector('[data-snapshot-folder] button[title*=\"media folder again\"]').click()");
   for (let i = 0; i < 50 && (await ui.core.settings()).snapshotFolder !== undefined; i++) await Bun.sleep(20);
   expect((await ui.core.settings()).snapshotFolder).toBeUndefined();
-  expect(await page.evaluate<string>("document.querySelector('[data-snapshot-folder]').textContent")).toContain("The project's media folder");
+  // The window shows it once its settings come back from core, a round trip after core has it.
+  await page.until("(document.querySelector('[data-snapshot-folder]')?.textContent ?? '').includes(\"The project's media folder\")");
   await open(null);
   await open("settings", "shortcuts");
   await page.until("!!document.querySelector('[data-shortcuts]')");
@@ -5716,8 +5717,8 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
     const labels = () => page.evaluate<string>("document.querySelector('[data-effects]')?.innerText ?? document.body.innerText");
     expect(await labels()).not.toContain("Focus X");
     const before = (await ui.core.history(ui.handle)).undo.length;
-    // Two choices are a toggle, named as the effect names them.
-    expect(await page.evaluate<string>("document.querySelector('[data-effect-param=room]').innerText.replace(/\\s+/g, ' ')")).toBe("Studio None");
+    // Room names its four rooms (Night, the default, first).
+    expect(await page.evaluate<string>("document.querySelector('[data-effect-param=room]').innerText.replace(/\\s+/g, ' ').trim()")).toBe("Night Day Studio None");
     await page.click(...(await centre("[data-effect-param=screen] [data-option=glossy]")));
     await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.screen === "glossy");
     expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 1);
@@ -5743,8 +5744,9 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
     await page.click(...(await centre("[role=listbox] [data-option=edge-left]")));
     await arrived(() => clip(screen.id).effects.find((e) => e.type === "device-frame")!.params.shot === "edge-left");
     expect((await ui.core.history(ui.handle)).undo.length).toBe(picked + 1);
-    // Corner and room are for head on only.
-    await page.until("!document.querySelector('[data-effect-param=corner]') && !document.querySelector('[data-effect-param=room]')");
+    // Corner is for head on only; the rooms go all round, so Room stays on every shot.
+    await page.until("!document.querySelector('[data-effect-param=corner]')");
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-param=room]')")).toBe(true);
     // Zoom's slider starts at 0.8: past its right end it is 4 exactly (its steps once counted from 0 made it 4.004,
     // which the project refused, and the canvas went black).
     const zoomSlider = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Zoom') return true; return false; }); hit.scrollIntoView({ block: 'center' }); const b = hit.getBoundingClientRect(); return { x: b.x + b.width - 2, y: b.y + b.height / 2 }; })()`;
