@@ -3754,7 +3754,11 @@ certificate; then the keys in the Keychain through the Security framework); **fi
 **MCP made lean (the user, 2026-11-05):** server instructions under 4 KB (Claude Code cuts at 4,096; Beacon's were
 12.9k), the rest in resources; 4-5 core tools always loaded; duplicate `edit_*` tools out of MCP; `transaction`
 first, compact results; filtered `timeline_clips`/`transcript_get`; errors naming valid choices; `scripts/mcp-eval.ts`
-before/after (baseline 263 tools, ~44k tokens of definitions). Branch `mcp-lean`, in progress at hand-off.
+before/after (baseline 263 tools, ~44k tokens of definitions). **Done 2026-11-05** on `phase-14` (the `mcp-lean` agent
+had left only the eval): instructions 2.8k chars, the guide a resource; 5 tools always loaded; 25 duplicate editor keys
+out (`ActionDef.duplicates` names the command, MCP points there); per-clip `changed`; compact `timeline_clips`;
+`transcript_get` `find`; errors listing valid ids or the nearest names. Twelve tasks 130.5 → 26.5 KB received
+(docs/performance.md).
 **Done 2026-11-05:** launch 1.2-2.6 s to a drawn window, opening 8 ms; memory levels off, ~130 MB saved while playing
 (decoder keeps ½ s behind); Camtasia ~2.2 GB vs Beacon ~1.0 GB on the same project (docs/performance.md).
 A review of what an attacker could reach, before Beacon is shared more widely,

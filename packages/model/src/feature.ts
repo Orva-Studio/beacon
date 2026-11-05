@@ -550,6 +550,8 @@ export interface ActionDef<A = any> {
   description: string;
   args: z.ZodType<A>;
   resolve: (args: A, ctx: ActionContext) => ActionPlan;
+  /** The command it runs on the selection, when that is all it does: agents call that command instead, and MCP leaves the action out. */
+  duplicates?: string;
 }
 
 /**

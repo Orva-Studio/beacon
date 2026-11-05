@@ -149,12 +149,14 @@ export const actions = [
   ...panelActions,
   defineAction({
     id: "edit.delete",
+    duplicates: "clip.remove",
     description: "Delete the selected clips, leaving gaps; with nothing selected, the in/out range from every unlocked track (⌫)",
     args: none,
     resolve: (_, ctx) => remove(ctx, { ripple: false, copy: false, label: "Delete" }),
   }),
   defineAction({
     id: "edit.rippleDelete",
+    duplicates: "clip.remove",
     description:
       "Delete the selected clips (or the in/out range) and close the gap: later clips on their tracks move left together; copies them too (⌘⌫)",
     args: none,
@@ -162,18 +164,21 @@ export const actions = [
   }),
   defineAction({
     id: "edit.cut",
+    duplicates: "clip.remove",
     description: "Copy the selected clips (or the in/out range) and delete them, leaving a gap (⌘X)",
     args: none,
     resolve: (_, ctx) => remove(ctx, { ripple: false, copy: true, label: "Cut" }),
   }),
   defineAction({
     id: "edit.rippleCut",
+    duplicates: "clip.remove",
     description: "Copy the selected clips (or the in/out range), delete them and close the gap (⇧⌘X)",
     args: none,
     resolve: (_, ctx) => remove(ctx, { ripple: true, copy: true, label: "Ripple Cut" }),
   }),
   defineAction({
     id: "edit.copy",
+    duplicates: "clipboard.copy",
     description: "Copy the selected effects, else the selected clips, or with nothing selected what the in/out range covers (⌘C)",
     args: none,
     resolve: (_, ctx) => ({ label: "Copy", before: [{ command: ctx.session.effects.length ? "effects.copy" : ctx.session.animation ? "animation.copy" : "clipboard.copy" }] }),
@@ -236,6 +241,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.split",
+    duplicates: "clip.split",
     description: "Split the selected clips at the playhead, or every clip under it when nothing is selected (⌘T)",
     args: none,
     resolve: (_, ctx) => {
@@ -249,6 +255,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.splitAll",
+    duplicates: "clip.split",
     description: "Split every clip on unlocked tracks at the playhead (⇧⌘T)",
     args: none,
     resolve: (_, ctx) =>
@@ -258,6 +265,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.trimToPlayhead",
+    duplicates: "clip.trim",
     description: "Trim the start or end of the selected clips under the playhead (or every clip under it, if none is selected) to the playhead (Edit > Playhead > Trim Start/End to Playhead)",
     args: z.strictObject({ edge: z.enum(["start", "end"]) }),
     resolve: ({ edge }, ctx) => {
@@ -367,6 +375,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.selectMedia",
+    duplicates: "asset.clips",
     description: "Select the clips that use a Media Bin item (Select on Timeline)",
     args: z.strictObject({ asset: z.string().min(1) }),
     resolve: ({ asset }, ctx) => {
@@ -377,6 +386,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.unlink",
+    duplicates: "clip.unlink",
     description: "Unlink the selected clips from the clips recorded with them, so each can be moved and cut on its own",
     args: none,
     resolve: (_, ctx) => {
@@ -389,6 +399,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.clipSpeed",
+    duplicates: "clip.speed",
     description:
       "Show the selected clips' speed in the properties panel to change it (Visual Effects' Clip Speed); with `clip`, as dropping it on that clip. Set the speed itself with `clip.speed`",
     args: z.strictObject({ clip: z.string().min(1).optional() }),
@@ -399,18 +410,21 @@ export const actions = [
   }),
   defineAction({
     id: "edit.deleteAudio",
+    duplicates: "clip.remove",
     description: "Delete the audio of the selected clips and the clips recorded with them, keeping their picture, without unlinking first; one undo step (: A)",
     args: none,
     resolve: (_, ctx) => removePart(ctx, "audio"),
   }),
   defineAction({
     id: "edit.deleteVideo",
+    duplicates: "clip.remove",
     description: "Delete the picture (screen or camera) of the selected clips and the clips recorded with them, keeping their audio, without unlinking first; one undo step (: V)",
     args: none,
     resolve: (_, ctx) => removePart(ctx, "video"),
   }),
   defineAction({
     id: "edit.lockTrack",
+    duplicates: "track.set",
     description:
       "Lock the tracks of the selected clips (else the track whose header was clicked last), or unlock them when all are locked; a locked track's clips can't be picked or edited (⌥⇧L)",
     args: none,
@@ -418,12 +432,14 @@ export const actions = [
   }),
   defineAction({
     id: "edit.muteTrack",
+    duplicates: "track.set",
     description: "Mute the tracks of the selected clips (else the track whose header was clicked last), or unmute them when all are muted (⌥⇧M)",
     args: none,
     resolve: (_, ctx) => toggleTracks(ctx, "muted", ["Mute", "Unmute"]),
   }),
   defineAction({
     id: "edit.addMarker",
+    duplicates: "marker.add",
     description: "Add a timeline marker at the playhead (⇧M)",
     args: none,
     resolve: (_, ctx) => {
@@ -433,12 +449,14 @@ export const actions = [
   }),
   defineAction({
     id: "edit.copyProperties",
+    duplicates: "properties.copy",
     description: "Copy the selected clip's properties and effects (⇧⌘C)",
     args: none,
     resolve: () => ({ label: "Copy Properties", before: [{ command: "properties.copy" }] }),
   }),
   defineAction({
     id: "edit.pasteProperties",
+    duplicates: "clip.pasteProperties",
     description: "Apply the copied properties and effects to the selected clips (⇧⌘V)",
     args: none,
     resolve: (_, ctx) => {
@@ -481,6 +499,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.nudge",
+    duplicates: "clip.set",
     description: "Move the selected visual clips on the canvas by canvas pixels, at the playhead (arrow keys: 1 pixel, with Shift 10); `y` is up",
     args: z.strictObject({ x: z.number().default(0), y: z.number().default(0) }),
     resolve: ({ x, y }, ctx) => {
@@ -497,6 +516,7 @@ export const actions = [
   }),
   defineAction({
     id: "edit.scale",
+    duplicates: "clip.set",
     description:
       "Scale the selected visual clips at the playhead: to fit the canvas or fill it, centred (Scale to Fit ⌥⌘F, Scale to Fill ⇧F), or to a percent of their size in place (Pan and Scale to 25/50/100/200%, ⌃⌘1-4)",
     args: z.strictObject({ to: z.union([z.enum(["fit", "fill"]), z.number().positive()]) }),

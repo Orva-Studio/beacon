@@ -454,3 +454,24 @@ step back reaches only half a second. Trimmed to that half second: 1.15-1.17 GB 
 scrubbing backward 4.1 → 5.3 ms a frame p50 (190 fps), the rest unchanged.
 
 Camtasia with the same project (a clone of it): 2.16 GB once open, ~2.2 GB playing.
+
+## MCP made lean (2026-11-05, Phase 14)
+
+`bun scripts/mcp-eval.ts` drives the MCP server over stdio as an agent would, on a project made from
+`$BEACON_FIXTURES/small.cmproj` (its transcripts made first, not timed), through twelve everyday tasks.
+
+| | Before | After |
+|---|---:|---:|
+| Tools | 263 | 238 (25 editor keys that only ran one command on the selection left out) |
+| `tools/list` | 175,077 bytes (~44k tokens) | 166,108 bytes; with tool search, 3,591 bytes of 5 always-loaded tools (`project_open`, `project_describe`, `timeline_clips`, `transcript_get`, `transaction`) and the rest by name |
+| Server instructions | 12,924 chars (Claude Code keeps 4,096) | 2,801 chars; the full guide is `beacon://docs/guide` |
+| Twelve tasks: calls | 22 | 21 |
+| Twelve tasks: bytes received | 130,498 | 26,493 (−80%) |
+
+Where it came from: a command's `changed` names each clip once (added, removed, or the fields that changed, in
+seconds) instead of every patch, so a split no longer lists every later clip as changed (split and delete 25.0 → 1.4 KB);
+many clips added, removed or shifted alike are one line, and a result's ids stop at 20 (captions 9.3 → 0.6 KB);
+`timeline_clips` is compact unless `detail`, filtered by `type` or `clips` too, capped at `limit` with `more`
+(one minute of clips 60.7 → 11.6 KB); replies are unindented JSON; a wrong clip or track id lists the ones there, and a
+mistyped tool or command the nearest names, so the retry needs no read (3 → 2 calls). `transcript_get` takes `find`.
+`project_describe` lists 40 clips a track and says where the rest are.

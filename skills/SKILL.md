@@ -153,11 +153,14 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   `timeline_insertSpace` opens a gap on every track.
 - `edit_*` tools do what the editing keys do, on the editor's
   selection, in/out range and playhead (`selection_set`, `range_set`,
-  `playhead_set` first): `edit_rippleDelete`, `edit_cut`, `edit_copy`,
-  `edit_paste`, `edit_split`, `edit_duplicate`, ... Ripple-deleting clips on
-  several tracks moves the later clips on each of those tracks left by the
-  same amount, so they stay in sync.
-- `transaction` runs several commands as one undo step, all or nothing.
+  `playhead_set` first): `edit_paste`, `edit_duplicate`, `edit_fade`,
+  `edit_addAnimation`, ... Keys that only run one command on the selection
+  (split, delete, copy, add marker, lock track…) aren't tools: call that
+  command with the clip ids (`clip_split`, `clip_remove`, `marker_add`).
+  Ripple-deleting clips on several tracks (`clip_remove` with `ripple`)
+  moves the later clips on each of those tracks left by the same amount.
+- `transaction` runs several commands as one undo step, all or nothing:
+  prefer one transaction to many single calls.
 - Every command tool takes `dryRun: true` to see the change without applying
   it, and `project_undo` / `project_redo` step through history.
 

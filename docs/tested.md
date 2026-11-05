@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Phase 14: launch readiness (`phase-14`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| MCP made lean: instructions 2.8k chars (under Claude Code's 4,096) with the full guide at `beacon://docs/guide`; 5 core tools always loaded (`_meta` `anthropic/alwaysLoad`); 25 editor keys that only ran one command on the selection out of MCP (calling one names the command); `changed` per clip, runs of alike clips one line, ids capped at 20; `timeline_clips` compact unless `detail`, with `type`/`clips`/`limit`; `transcript_get` `find`; a wrong clip/track id lists the ones there, a mistyped tool or command the nearest. Twelve tasks: 130.5 → 26.5 KB received (`docs/performance.md`) | 2026-11-05 | this commit | `packages/mcp/__tests__/lean.test.ts`, the agent test (`find`), store diff tests, `scripts/mcp-eval.ts`. Not tried from Claude Code itself yet |
+
 ## Phase 13: device frames, sped-up export, Epidemic Sound (`phase-13`)
 
 ### Checked by hand
@@ -349,7 +357,7 @@ feature lands and when it is checked.
 | Polish, an Audio Effects tile (`audio:polish`, `edit.polish`): de-click, de-clip and de-ess (tuneup's `adeclick,adeclip,deesser=i=0.2`, now in Beacon's FFmpeg) drawn live like Noise Removal, each stage on or off and Sibilance 0-100%; one step; a clip already polished is refused | 2026-10-21 | this commit | Core test on a real recording (sound changed, same length, in step to the sample, every stage off = the original exactly) and UI flow (tile, controls, refused twice) |
 | The clip menu in the user's order: Add Color Label first; Cut, Copy, Delete, Unlink, Copy/Paste Properties; Ripple Cut, Ripple Delete, Add Animation Across Clip and Group/Stitch under More; Hide Properties, Select in Media Bin, Add Clip Speed and Split at Playhead gone (Split and the Ripples stay in Edit and on their keys). Clip Speed is a Visual Effects tile (`visual:clip-speed`, `edit.clipSpeed`): dropped on media or double-clicked, it opens the clip's Speed tab, no undo step; the tab shows while the inspector is on it (session) rather than per clip in the window | 2026-10-21 | this commit | UI flow (the tile opens the Speed tab, no step; editing the duration sets the selected clip's speed); every tile has its picture. The menu itself only by hand |
 | Film Look's Look menu previews a look on the canvas while the pointer (or ↑↓) is on it, with no edit, save or undo step; leaving the list, Esc, or playing shows the clip as it is; a click (or ↩) applies it in one step. The menu is Beacon's own list (`controls/list-select.tsx`) in place of the native one. 4K original, 1080p view: about 7 ms from hover to frame | 2026-10-21 | this commit | Core test (the view's pixels with a look previewed equal it applied, back exactly after; document, history and an export made meanwhile untouched; playing ends it) and UI flow (hover, off the list, ↓ and Esc, click; offscreen view's pixels) |
-| Lock Track (⌥⇧L) and Mute Track (⌥⇧M): the selected clips' tracks, else the track whose header was clicked last (its header lit while nothing is selected); all on if any is off, else all off, one undo step named as the header's buttons are; in Edit and the ⌄ track menu, the palette, Settings › Shortcuts and MCP (`edit_lockTrack`, `edit_muteTrack`, `track_focus`) | 2026-10-21 | this commit | UI flow (keys lock and unlock, mute and unmute the selected clip's track, one step each; the locked track's clip can't be picked; a header click then the keys unlock it) |
+| Lock Track (⌥⇧L) and Mute Track (⌥⇧M): the selected clips' tracks, else the track whose header was clicked last (its header lit while nothing is selected); all on if any is off, else all off, one undo step named as the header's buttons are; in Edit and the ⌄ track menu, the palette and Settings › Shortcuts; agents use `track_set` and `track_focus` | 2026-10-21 | this commit | UI flow (keys lock and unlock, mute and unmute the selected clip's track, one step each; the locked track's clip can't be picked; a header click then the keys unlock it) |
 | Choosing a look in Film Look's Look menu no longer shows a note of what it can't reproduce ("Not in Film Look, from…"), and takes away one left by an imported `.hlook` (whose note still shows) | 2026-10-22 | this commit | UI flow (no note after CineStill 800T; an import's note gone once a look is chosen; fails without the change) |
 
 ### Not checked yet
