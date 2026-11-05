@@ -503,3 +503,28 @@ their neighbours) looked at every other clip of its track, twice a draw, so a dr
 Now each track's spans come from each clip's two neighbours, once a draw. What is left of a zoom step is mostly
 copying the cached layer, which headless Chromium does in software. Guarded by `scripts/ui-harness/many-clips.test.ts`
 (2,000 clips: zoom and scroll under 30 ms of script a step; 51.8 and 35.9 ms without the fix).
+
+## The fans on a new recording: local Whisper (2026-11-05, Phase 14)
+
+The fans ran after recording a long take, not on projects already transcribed. `scripts/energy-bench.ts` (the app on a
+recording, `--fresh`: an empty cache, as a new take has, through `BEACON_CACHE_DIR`; `--transcriber`: a copy of the
+settings with another) on a 7.4-minute take (6720×3780 screen, 4K camera): playing 18% CPU, scrubbing 11%, idle ~0,
+in no state enough to explain them. With Whisper through OpenAI the fans stayed quiet; with Whisper on this Mac they
+ran while it transcribed, 64 s at full GPU.
+
+Whisper's encoder works on a 30 s window whatever the file's length, and Beacon heard each short speech chunk (split
+at pauses so takes aren't merged) in a window of its own: 3 minutes of speech took 5.3 s as one file, but a 7.4-minute
+take took 70 s as chunks. Now chunks are packed into ~28 s files, one second of silence apart, each word put back where
+it was said; neighbouring chunks never share a file (packed side by side, whisper merged a retake), and a chunk where a
+word stretched over a dropped one is heard again on its own.
+
+| | Before | After |
+|---|---:|---:|
+| 7.4-minute take, in the app | 64 s | 26 s |
+| The same, `transcribe()` | 69.9 s | 24.0 s |
+| repeats fixture (83 s of speech) | 11.7 s, 29 files | 7.0 s, 7 files |
+| Words starting within a frame of before | | 93-95% |
+| Retake groups | | the same, but one stutter heard as one word and another found |
+
+`--audio-ctx` (the encoder cut to the chunk's length) was tried and dropped: Whisper looped and made up words, and it
+saved little (59.7 s). Guarded by `packages/core/__tests__/transcript-packed.test.ts`.

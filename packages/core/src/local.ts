@@ -165,7 +165,7 @@ export class LocalCore implements BeaconCore {
   constructor(opts: LocalCoreOptions = {}) {
     this.registry = opts.registry ?? createRegistry();
     this.#confirmAgentRecording = opts.confirmAgentRecording;
-    this.cacheDir = opts.cacheDir ?? DEFAULT_CACHE_DIR;
+    this.cacheDir = opts.cacheDir ?? process.env.BEACON_CACHE_DIR ?? DEFAULT_CACHE_DIR;
     // BEACON_CONFIG_DIR: tests keep the user's preferences, settings and keys out of their runs (bunfig's preload).
     this.#config = new AppConfig(opts.configDir ?? process.env.BEACON_CONFIG_DIR ?? DEFAULT_CONFIG_DIR, this.registry, opts.secrets ?? keychain, (e) => {
       for (const l of this.#appListeners) l(e);
