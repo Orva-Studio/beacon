@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import tealStudio from "./rooms/teal-studio.jpg" with { type: "file" };
 import night from "./rooms/night.jpg" with { type: "file" };
-import nightReflection from "./rooms/night-reflection.jpg" with { type: "file" };
 import day from "./rooms/day.jpg" with { type: "file" };
-import dayReflection from "./rooms/day-reflection.jpg" with { type: "file" };
+import reflection from "./rooms/reflection.jpg" with { type: "file" };
+import nightReflection from "./rooms/reflection-night.jpg" with { type: "file" };
+import dayReflection from "./rooms/reflection-day.jpg" with { type: "file" };
+import studioReflection from "./rooms/reflection-studio.jpg" with { type: "file" };
 
 /**
  * The room behind the monitor, 1536×1024: made with gpt-image-2.5-flare, the least busy of the four tried, the user's
@@ -17,12 +19,10 @@ export const ROOM_SIZE: [number, number] = [1536, 1024];
  * Rooms all round the monitor, as 360° panoramas (equirectangular, 4096×2048): flux-3-image, upscaled 4× by Topaz,
  * the user's picks (2026-11-05). The camera looks into them by its direction, so turning it shows the right part of
  * the room behind the monitor. `centre`: the share across the panorama that sits straight behind the monitor.
- * `reflection`: the same room, 512×256, turned half round (what is behind the camera in its middle) and blurred;
- * `mirror`, how much of it the glass gives back at Reflection 100% (a daylit room is far brighter than the night's).
  */
 export const PANORAMAS = {
-  night: { image: night, reflection: nightReflection, centre: 0.53, mirror: 2.4 },
-  day: { image: day, reflection: dayReflection, centre: 0.67, mirror: 0.35 },
+  night: { image: night, centre: 0.53 },
+  day: { image: day, centre: 0.67 },
 } as const;
 export type Panorama = keyof typeof PANORAMAS;
 
@@ -55,4 +55,17 @@ function onDisk(src: string): string {
 
 export const roomPath = () => onDisk(tealStudio);
 export const panoramaPath = (room: Panorama) => onDisk(PANORAMAS[room].image);
-export const reflectionPath = (room: Panorama) => onDisk(PANORAMAS[room].reflection);
+/**
+ * What glossy glass mirrors, 512×342, blurred: the room behind the camera with someone standing in it
+ * (gpt-image-2.6-sunburst, the user preferred it to the rooms' own reflections, 2026-11-05), each room blended in
+ * (Night's window, Day's shelves, the studio's teal) so they differ a little; no room has it as it is. `mirror`: how
+ * much of it the glass gives back at Reflection 100% (the day's is brighter).
+ */
+export const REFLECTION_SIZE: [number, number] = [512, 342];
+const REFLECTIONS = {
+  night: { image: nightReflection, mirror: 2.4 },
+  day: { image: dayReflection, mirror: 1.5 },
+  "teal-studio": { image: studioReflection, mirror: 2.4 },
+  none: { image: reflection, mirror: 2.4 },
+} as const;
+export const reflectionOf = (room: keyof typeof REFLECTIONS) => ({ path: onDisk(REFLECTIONS[room].image), mirror: REFLECTIONS[room].mirror });

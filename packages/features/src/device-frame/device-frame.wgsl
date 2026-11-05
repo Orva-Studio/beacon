@@ -7,9 +7,10 @@
 //  15-18 the bezel's edges around the screen: left, top, right, bottom
 //  19    the screen's width, 20 its height; 29-30 its top-left corner (the recording's place on the canvas)
 //  21    the largest blur (sigma)
-//  22    glow strength, 23 glow threshold (0–1), 24 glow size (sigma)
+//  22-24 unused
 //  25    chromatic aberration at the frame's corners
 //  26-27 the focus point on the screen, 28 how far from it the screen stays sharp (screen px)
+//  31    the rim's width round the bezel
 
 fn df_screen_point(uv: vec2<f32>) -> vec2<f32> {
   let p = to_layer(uv);
@@ -17,14 +18,31 @@ fn df_screen_point(uv: vec2<f32>) -> vec2<f32> {
   return vec2(param(0u) * p.x + param(1u) * p.y + param(2u), param(3u) * p.x + param(4u) * p.y + param(5u)) / w;
 }
 
-// The blur (sigma, target px) where the frame shows `uv`: on the monitor by its depth there, else the room's.
+// What the frame shows at `uv`: 2 the screen, 1 the bezel and its rim, 0 the room.
+fn df_region(uv: vec2<f32>) -> i32 {
+  let s = df_screen_point(uv) - vec2(param(29u), param(30u));
+  let size = vec2(param(19u), param(20u));
+  if (all(s >= vec2(0.0)) && all(s <= size)) {
+    return 2;
+  }
+  let rim = param(31u);
+  if (s.x > -param(15u) - rim && s.y > -param(16u) - rim && s.x < size.x + param(17u) + rim && s.y < size.y + param(18u) + rim) {
+    return 1;
+  }
+  return 0;
+}
+
+// The blur (sigma, target px) where the frame shows `uv`: on the screen by its depth there, the room by its own; the
+// bezel stays sharp, so its edge is the same thin line at any Blur (the user, 2026-11-05).
 fn df_sigma(uv: vec2<f32>) -> f32 {
+  let region = df_region(uv);
+  if (region == 1) {
+    return 0.0;
+  }
   let s = df_screen_point(uv);
-  let o = vec2(param(29u), param(30u));
-  let inside = s.x > o.x - param(15u) && s.y > o.y - param(16u) && s.x < o.x + param(19u) + param(17u) && s.y < o.y + param(20u) + param(18u);
   var z = param(14u);
   var falloff = 0.0;
-  if (inside) {
+  if (region == 2) {
     z = param(9u) * s.x + param(10u) * s.y + param(11u);
     // Head on, the screen is all one distance away, so optics alone would keep it all sharp: the screen softens with
     // distance from the focus (the cursor) instead, the look the user asked for.
@@ -68,66 +86,6 @@ fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
   return vec4(min(c.rgb * mask, vec3(c.a)), c.a);
 }
 
-// Only the screen glows: the room's lamps and bokeh blooming as well made the room look hazy (the user, 2026-11-04).
-fn df_bright(c: vec4<f32>, uv: vec2<f32>) -> vec4<f32> {
-  let s = df_screen_point(uv);
-  let o = vec2(param(29u), param(30u));
-  if (s.x < o.x || s.y < o.y || s.x > o.x + param(19u) || s.y > o.y + param(20u)) {
-    return vec4(0.0);
-  }
-  let l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-  let k = smoothstep(param(23u), min(param(23u) + 0.25, 1.0), l);
-  return vec4(c.rgb * k, c.a * k);
-}
-
-// A Gaussian over the bright parts only, as hance's bloom spreads them.
-@fragment
-fn fs_glow_h(v: VOut) -> @location(0) vec4<f32> {
-  let sigma = param(24u) * frame.layer.z;
-  if (sigma < 0.01) {
-    return vec4(0.0);
-  }
-  let px = vec2(1.0, 0.0) / target_size() * max(1.0, sigma / 8.0);
-  let n = 24;
-  let step_sigma = sigma / max(1.0, sigma / 8.0);
-  var acc = vec4(0.0);
-  var wsum = 0.0;
-  for (var k = -n; k <= n; k++) {
-    let w = exp(-f32(k * k) / (2.0 * step_sigma * step_sigma));
-    acc += df_bright(textureSampleLevel(orig, samp, v.uv + px * f32(k), 0.0), v.uv + px * f32(k)) * w;
-    wsum += w;
-  }
-  return acc / wsum;
-}
-
-@fragment
-fn fs_glow_v(v: VOut) -> @location(0) vec4<f32> {
-  let sigma = param(24u) * frame.layer.z;
-  if (sigma < 0.01) {
-    return vec4(0.0);
-  }
-  let scale = max(1.0, sigma / 8.0);
-  let px = vec2(0.0, 1.0) / target_size() * scale;
-  let n = 24;
-  let step_sigma = sigma / scale;
-  var acc = vec4(0.0);
-  var wsum = 0.0;
-  for (var k = -n; k <= n; k++) {
-    let w = exp(-f32(k * k) / (2.0 * step_sigma * step_sigma));
-    acc += textureSampleLevel(src, samp, v.uv + px * f32(k), 0.0) * w;
-    wsum += w;
-  }
-  return acc / wsum;
-}
-
-// Screen blend of the glow over the picture: light adds, nothing goes past white.
-@fragment
-fn fs_glow_add(v: VOut) -> @location(0) vec4<f32> {
-  let base = textureSampleLevel(orig, samp, v.uv, 0.0);
-  let glow = textureSampleLevel(src, samp, v.uv, 0.0).rgb * param(22u);
-  return vec4(base.rgb + glow * (vec3(base.a) - base.rgb), base.a);
-}
-
 fn df_blur(uv: vec2<f32>, dir: vec2<f32>, sigma: f32) -> vec4<f32> {
   if (sigma < 0.3) {
     return textureSampleLevel(src, samp, uv, 0.0);
@@ -137,14 +95,18 @@ fn df_blur(uv: vec2<f32>, dir: vec2<f32>, sigma: f32) -> vec4<f32> {
   let px = dir / target_size() * spread;
   let n = i32(min(ceil(sigma * 3.0 / spread), 25.0));
   let s = sigma / spread;
+  // Only what is in the same part of the frame: the dark bezel would otherwise spread over the room and the
+  // picture's edge as the blur grows, a halo round the monitor.
+  let region = df_region(uv);
   var acc = vec4(0.0);
   var wsum = 0.0;
   for (var k = -n; k <= n; k++) {
-    let w = exp(-f32(k * k) / (2.0 * s * s));
-    acc += textureSampleLevel(src, samp, uv + px * f32(k), 0.0) * w;
+    let at = uv + px * f32(k);
+    let w = exp(-f32(k * k) / (2.0 * s * s)) * select(0.0, 1.0, df_region(at) == region);
+    acc += textureSampleLevel(src, samp, at, 0.0) * w;
     wsum += w;
   }
-  return acc / wsum;
+  return acc / max(wsum, 1e-6);
 }
 
 @fragment
@@ -200,40 +162,51 @@ fn dp_uv(w: vec3<f32>, centre: f32) -> vec2<f32> {
   return vec2(fract(centre + lon / 6.2831853), 0.5 + lat / 3.1415927);
 }
 
-// device-panorama params: 0-10 the camera (dp_ray), 11 the share across the panorama behind the monitor, 12 lift,
-// 13 how much colour it keeps. The layer is the whole panorama stretched over the frame: each pixel looks into it
-// along its own ray, so the room turns as the camera does.
+// device-panorama params: 0-10 the camera (dp_ray), 11 the share across the picture behind the monitor, 12 lift,
+// 13 how much colour it keeps, 14 the picture (0 a 360° panorama, 1 a flat photo), 15-16 a photo's spread across and
+// down (radians). The layer is the whole picture stretched over the frame: each pixel looks into it along its own ray,
+// so the room turns as the camera does; a photo is mirrored past its edges, far out of focus.
 @fragment
 fn fs_panorama(v: VOut) -> @location(0) vec4<f32> {
-  let c = textureSampleLevel(src, samp, dp_uv(dp_ray(v.uv, 0u), param(11u)), 0.0);
+  let w = dp_ray(v.uv, 0u);
+  var at = dp_uv(w, param(11u));
+  if (param(14u) > 0.5) {
+    let lon = atan2(w.x, w.z);
+    let lat = asin(clamp(w.y, -1.0, 1.0));
+    let u = vec2(0.5 + lon / param(15u), 0.5 + lat / param(16u));
+    at = 1.0 - abs(fract(u * 0.5) * 2.0 - 1.0);
+  }
+  let c = textureSampleLevel(src, samp, at, 0.0);
   let lifted = min(c.rgb * param(12u), vec3(1.0));
   let grey = vec3(dot(lifted, vec3(0.2126, 0.7152, 0.0722)));
   return vec4(mix(grey, lifted, param(13u)), 1.0);
 }
 
-// device-reflection params: 0-8 frame pixel → screen point (as device-frame's), 9-12 the screen (left, top, width,
-// height, canvas px), 13 its corner radius, 14-24 the camera (dp_ray), 25 the share across the (half-turned) blurred
-// panorama behind the monitor, 26 strength, 27 the canvas's width. Each pixel of the glass shows the room along its
-// ray reflected off it, stronger at a grazing angle (Fresnel); added as light (alpha 0 adds under premultiplied
-// blending), only on the screen.
+// device-reflection params: the screen in the plate's pixels (left, top, width, height), strength, the screen's corner
+// radius (plate px), the blur's radius (plate px). The room behind the camera, kept to the screen and added as light
+// (alpha 0 adds under premultiplied blending), as glass reflects.
 @fragment
 fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
-  let px = v.uv * vec2(param(27u), param(27u) / param(24u));
-  let h = vec3(px, 1.0);
-  let sw = param(6u) * h.x + param(7u) * h.y + param(8u);
-  let s = vec2(param(0u) * h.x + param(1u) * h.y + param(2u), param(3u) * h.x + param(4u) * h.y + param(5u)) / sw;
-  let p = s - vec2(param(9u), param(10u));
-  let half_size = vec2(param(11u), param(12u)) * 0.5;
-  let r = param(13u);
+  let p = to_layer(v.uv) - vec2(param(0u), param(1u));
+  let half_size = vec2(param(2u), param(3u)) * 0.5;
+  let r = param(5u);
   let q = abs(p - half_size) - half_size + r;
   let d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
   let aa = max(fwidth(d), 1e-3);
   let inside = 1.0 - smoothstep(-aa, aa, d);
-  let w = dp_ray(v.uv, 14u);
-  let bounced = vec3(w.x, w.y, -w.z);
-  let fresnel = 0.3 + 0.7 * pow(1.0 - abs(w.z), 1.5);
-  let c = textureSampleLevel(src, samp, dp_uv(bounced, param(25u)), 0.0);
-  return vec4(c.rgb * param(26u) * fresnel * inside, 0.0);
+  // Blurred by a disc of taps (a golden-angle spiral).
+  let radius = param(6u) * frame.layer.z / target_size();
+  var c = textureSampleLevel(src, samp, v.uv, 0.0);
+  if (param(6u) > 0.0) {
+    c = vec4(0.0);
+    for (var i = 0; i < 24; i++) {
+      let k = sqrt((f32(i) + 0.5) / 24.0);
+      let a = f32(i) * 2.3999632;
+      c += textureSampleLevel(src, samp, v.uv + vec2(cos(a), sin(a)) * radius * k, 0.0);
+    }
+    c /= 24.0;
+  }
+  return vec4(c.rgb * param(4u) * inside, 0.0);
 }
 
 // device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,

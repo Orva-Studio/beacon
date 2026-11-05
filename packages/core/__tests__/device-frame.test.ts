@@ -65,13 +65,17 @@ test.skipIf(!existsSync(TAKE))("Monitor puts the recording on a monitor filmed h
     await core.run(h, "effect.set", { clip: screen.id, effect: fx, params });
     return pixels((await core.frame(h, 1, { width: WIDTH })).png, name);
   };
-  const close = { zoom: 12, blur: 0, focusX: 0.06, focusY: 0.08 };
+  // Zoom stops at 2.5, so the clip's own Scale punches the camera in the rest of the way.
+  const scale = (screen.props.transform as { scaleX: number }).scaleX * 5;
+  await core.run(h, "clip.set", { clip: screen.id, props: { transform: { scaleX: scale, scaleY: scale } } });
+  const close = { zoom: 2.5, blur: 0, focusX: 0.06, focusY: 0.08 };
   expect(detail(await at({ ...close, pixels: 1 }, "stripes"), 0.2, 0.8)).toBeGreaterThan(detail(await at({ ...close, pixels: 0 }, "plain"), 0.2, 0.8) * 1.3);
+  for (let i = 0; i < 3; i++) await core.undo(h);
   expect(Buffer.from(await at({ zoom: 2, blur: 0.6, focusX: 0.9, focusY: 0.9, pixels: 1 }, "far-stripes")).equals(Buffer.from(far))).toBe(true);
   // Glossy glass mirrors the room behind the camera: light added on the screen.
   const glass = await at({ pixels: 0.5, screen: "glossy", reflection: 1 }, "glossy");
   expect(lift(glass)).toBeGreaterThan(lift(await at({ reflection: 0 }, "no-reflection")) + 1);
-  for (let i = 0; i < 5; i++) await core.undo(h);
+  for (let i = 0; i < 3; i++) await core.undo(h);
 
   // The clip's Opacity fades the whole shot, room and bezel too (they hid the screen fading).
   await core.run(h, "clip.set", { clip: screen.id, props: { transform: { opacity: 0.5 } } });
