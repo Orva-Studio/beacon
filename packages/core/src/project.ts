@@ -15,7 +15,7 @@ export interface OpenProject {
   frames: FrameRenderer;
   view?: LiveView;
   /** An effect shown with other params on the canvas only (a look under the pointer), and the document laid over last. */
-  preview?: { clip: string; effect: string; params: Record<string, unknown> };
+  preview?: Preview;
   previewDoc?: { doc: Project; shown: Project };
   /** Set while playback itself moves the playhead, so it isn't taken as a seek. */
   ticking: boolean;
@@ -49,3 +49,9 @@ export async function probeAsset(file: string): Promise<Asset["derived"]> {
   const loudness = await measureLoudness(file, media);
   return { media, ...(Object.keys(loudness).length ? { loudness } : {}) };
 }
+
+/**
+ * What the canvas previews over the document (a look under the pointer): an effect with other params, or what a
+ * command would do (a caption track's look), run on a copy.
+ */
+export type Preview = { clip: string; effect: string; params: Record<string, unknown> } | { command: string; args: unknown };

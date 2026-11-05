@@ -19,7 +19,7 @@ export interface ClipTypeDef {
    * How it takes an effect that doesn't apply to it as one (Drop Shadow on a caption: the captions' own shadow):
    * the command to run instead and the inspector tab that shows it, or undefined when it can't.
    */
-  effectInstead?: (effect: string, clip: Clip, track: Track) => { command: string; args: unknown; tab?: string } | undefined;
+  effectInstead?: (effect: string, clip: Clip, track: Track) => { command: string; args: unknown; tab?: string; note?: string } | undefined;
 }
 
 /**
@@ -486,6 +486,8 @@ export interface ActionPlan {
   task?: ActionTask;
   /** The user's choices this records (`Memory`), once the steps are done. */
   decisions?: DecisionInput[];
+  /** Said to the user once it is done, in the status line (Drop Shadow on a caption: it used the caption's own shadow). */
+  note?: string;
 }
 
 /**

@@ -162,8 +162,9 @@ type RequestCore = Pick<LocalCore, "run" | "query" | "undo" | "redo" | "cancelJo
 const failed = (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 const done = async (fn: () => Promise<unknown>) => {
   try {
-    await fn();
-    return { ok: true };
+    const r = await fn();
+    const note = (r as { note?: unknown } | undefined)?.note;
+    return { ok: true, ...(typeof note === "string" ? { note } : {}) };
   } catch (e) {
     return failed(e);
   }
@@ -190,7 +191,7 @@ export function coreRequests(core: RequestCore, project: () => string | undefine
   // Edits with no project open (⌘Z on the start screen) do nothing, quietly.
   const edit = (fn: (h: string) => Promise<unknown>) => done(async () => {
     const h = project();
-    if (h) await fn(h);
+    if (h) return await fn(h);
   });
   return {
     run: ({ command, args, label, coalesce }) => edit((h) => core.run(h, command, args ?? {}, { ...(label ? { label } : {}), ...(coalesce ? { coalesce } : {}) })),

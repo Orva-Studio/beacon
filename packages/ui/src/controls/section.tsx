@@ -94,3 +94,29 @@ export function TrashButton({ label, onClick }: { label: string; onClick: () => 
     </button>
   );
 }
+
+/** Folds opened this session, by `id`: they start closed, so a panel shows its few main settings first. */
+const opened = new Set<string>();
+
+/**
+ * Settings tucked under a title until wanted (Caption Properties' Shadow, Keywords): a row with a chevron, closed
+ * at first, open again on coming back once opened this session. `hint`: what is set inside, said beside the title.
+ */
+export function Fold({ id, title, hint, children }: { id: string; title: string; hint?: string; children: ReactNode }) {
+  const [open, setOpenState] = useState(() => opened.has(id));
+  const setOpen = (on: boolean) => {
+    if (on) opened.add(id);
+    else opened.delete(id);
+    setOpenState(on);
+  };
+  return (
+    <div className="border-b border-divider px-4 py-2.5">
+      <button type="button" className="flex w-full items-center gap-1.5 text-left text-label font-medium text-text-muted hover:text-text-strong" aria-expanded={open} onClick={() => setOpen(!open)} data-fold={id}>
+        <Icon name={open ? "caret-down" : "caret-right"} size={12} />
+        <span className="flex-1">{title}</span>
+        {hint && !open && <span className="truncate text-caption font-normal text-text-faint">{hint}</span>}
+      </button>
+      {open && <div className="pt-3">{children}</div>}
+    </div>
+  );
+}

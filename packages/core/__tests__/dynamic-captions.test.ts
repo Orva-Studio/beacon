@@ -64,7 +64,9 @@ test.skipIf(!existsSync(AUDIO))("Dynamic Captions: with word-by-word reveal a wo
   expect(wide.box.width).toBeLessThanOrEqual(1920 * 0.9 + 60);
 
   // Drop Shadow dropped on a caption turns on its track's shadow (angle and distance included) and shows it.
-  await core.run(h, "edit.addEffect", { type: "drop-shadow", clip: id });
+  const dropped = await core.run(h, "edit.addEffect", { type: "drop-shadow", clip: id });
+  // It says so: the caption's own shadow, not a Drop Shadow effect.
+  expect(dropped.note).toBe("Captions have a shadow of their own: turned it on (Caption Properties › Shadow)");
   expect(core.doc(h).tracks.find((t) => t.id === track)!.props!.captionStyle).toMatchObject({ shadow: [0, 0, 0, 0.6], shadowAngle: 5.49779, shadowDistance: 8 });
   expect(core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.id === id)!.effects).toEqual([]);
   expect((await core.session(h)).inspector).toBe("caption");
@@ -80,7 +82,7 @@ test.skipIf(!existsSync(AUDIO))("Dynamic Captions: with word-by-word reveal a wo
   await core.close(h);
 }, 60_000);
 
-test.skipIf(!existsSync(AUDIO))("headlines: a Headlines track at the top, the keyword big, the captions' line stepping aside while one shows; the review's ticked ones added in one undo step", async () => {
+test.skipIf(!existsSync(AUDIO))("a Headlines track saved in a project (Find Headlines went) still draws over the captions' line, which steps aside while one shows and is back with it hidden; headlines stay out of the .srt", async () => {
   const core = new LocalCore({ cacheDir: join(dir, "cache2"), configDir: join(dir, "config2") });
   const h = await core.create({ path: join(dir, "h.beproj") });
   copyFileSync(AUDIO, join(dir, "talk2.m4a"));
@@ -97,35 +99,18 @@ test.skipIf(!existsSync(AUDIO))("headlines: a Headlines track at the top, the ke
   const before = await lineOnly(1.1);
   expect(before).toBeGreaterThan(0);
 
-  const id = (await core.run(h, "headline.add", { from: 0, to: 2, keyword: "huge concern", side: "left" })).results[0] as string;
-  const top = tracks().at(-1)!;
-  expect(top.name).toBe("Headlines");
-  expect(top.props!.captionStyle).toMatchObject({ layout: "headline", anchorX: "left" });
-  const shown = (top.clips.find((c) => c.id === id)!.props.caption as { words: { text: string; em?: boolean }[] }).words;
-  expect(shown.filter((w) => w.em).map((w) => w.text)).toEqual(["huge", "concern."]);
+  // A Headlines track as Find Headlines made them: a caption in a headline look, its keyword big.
+  const top = (await core.run(h, "track.add", { name: "Headlines" })).results[0] as string;
+  const headline = { words: said.slice(0, 5).map((text, i) => ({ ...words[i]!, ...(i >= 3 ? { em: true } : {}) })).map(({ p: _, ...w }) => w) };
+  await core.run(h, "clip.add", { track: top, type: "caption", start: 0, duration: 2, mediaStart: 0, props: { caption: headline } });
+  await core.run(h, "captions.preset", { preset: "editorial-headline", track: top });
+  expect(tracks().at(-1)!.props!.captionStyle).toMatchObject({ layout: "headline" });
   // The captions' line steps aside for it, and is back with the headline's track hidden.
   expect(await lineOnly(1.1)).not.toBe(before);
-  await core.run(h, "track.set", { track: top.id, hidden: true });
+  await core.run(h, "track.set", { track: top, hidden: true });
   expect(await lineOnly(1.1)).toBe(before);
-  await core.run(h, "track.set", { track: top.id, hidden: false });
+  await core.run(h, "track.set", { track: top, hidden: false });
   // Not in the .srt: headlines repeat the line's words.
   expect((await core.query(h, "captions.srt")) as string).not.toContain("huge concern. My");
-
-  // The review: two found, one left out, Apply adds the other as one undo step and closes it.
-  const steps = (await core.history(h)).undo.length;
-  await core.run(h, "headlines.review", { items: [{ from: 0.2, to: 1.7, text: "This is a huge concern.", keyword: "huge concern" }, { from: 1.8, to: 5.7, text: "My grandma scrolls on Facebook for five hours a day.", keyword: "five hours" }] });
-  await core.run(h, "headlines.review", { off: { index: 0, off: true } });
-  await core.run(h, "headlines.apply", {});
-  expect((await core.history(h)).undo.length).toBe(steps + 1);
-  expect(await core.query(h, "headlines.review")).toBeNull();
-  const heads = tracks().find((t) => t.name === "Headlines")!.clips;
-  expect(heads).toHaveLength(2);
-  expect((heads[1]!.props.caption as { words: { text: string; em?: boolean }[] }).words.filter((w) => w.em).map((w) => w.text)).toEqual(["five", "hours"]);
-  // A headline made from a caption of the line takes its keywords.
-  const line = tracks().find((t) => t.name === "Captions")!.clips[0]!;
-  await core.run(h, "caption.emphasize", { clip: line.id, text: "is" });
-  await core.run(h, "headline.fromCaption", { clip: line.id });
-  const made = tracks().find((t) => t.name === "Headlines")!.clips[0]!;
-  expect((made.props.caption as { words: { text: string; em?: boolean }[] }).words.filter((w) => w.em).map((w) => w.text)).toEqual(["is"]);
   await core.close(h);
 }, 60_000);

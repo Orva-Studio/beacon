@@ -303,7 +303,7 @@ export const actions = [
   defineAction({
     id: "edit.addAnnotation",
     description:
-      "Add an annotation for `duration` seconds (default 5) at `time` (default the playhead) on the lowest free track, or on `track` when dropped on one, and select it: a `preset` from the Annotations panel (text, rectangle, spotlight, blur, pixelate), or a callout or region clip given by `type`, `props` and `effects`",
+      "Add an annotation for `duration` seconds (default 5) at `time` (default the playhead) on the lowest free track, or on `track` when dropped on one, and select it: a `preset` from the Annotations panel (text, rectangle, spotlight, blur, highlight), or a callout or region clip given by `type`, `props` and `effects`",
     args: z.union([
       z.strictObject({ preset: z.string().min(1), ...placed }),
       z.strictObject({
@@ -466,7 +466,13 @@ export const actions = [
           return instead ? [instead] : [];
         });
         const first = located[0];
-        if (first) return { label: def.title, steps: [{ command: first.command, args: first.args }], after: () => [...selectDropped(ctx, clip), ...(first.tab ? [{ command: "inspector.tab", args: { tab: first.tab } }] : [])] };
+        if (first)
+          return {
+            label: def.title,
+            steps: [{ command: first.command, args: first.args }],
+            after: () => [...selectDropped(ctx, clip), ...(first.tab ? [{ command: "inspector.tab", args: { tab: first.tab } }] : [])],
+            ...(first.note ? { note: first.note } : {}),
+          };
         const kinds = [...new Set(targets.map((c) => c.type))].join(", ");
         throw new Error(clip ? `${def.title} doesn't apply to ${kinds || "that"} clips` : `select media that ${def.title} applies to first`);
       }

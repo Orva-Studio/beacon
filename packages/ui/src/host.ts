@@ -14,9 +14,10 @@ export type Request = <K extends keyof Requests>(name: K, params: Requests[K]["p
  * passes only its transport and stands-ins for what has no window here (`extras`: the native views, Finder).
  */
 export function createHost(request: Request, extras: Partial<Host> = {}): Host {
-  const report = async (p: Promise<{ ok: boolean; error?: string }>) => {
-    const r = await p.catch((e: unknown) => ({ ok: false, error: String(e) }));
+  const report = async (p: Promise<{ ok: boolean; error?: string; note?: string }>) => {
+    const r: { ok: boolean; error?: string; note?: string } = await p.catch((e: unknown) => ({ ok: false, error: String(e) }));
     if (!r.ok && r.error) replica.status(r.error);
+    else if (r.note) replica.status(r.note);
   };
 
   const commands = commandQueue(report);

@@ -67,24 +67,24 @@ test("Memory keeps the user's sentences and agents' proposals until accepted, li
   m = await core.memoryChange({ remove: m.sentences.find((s) => s.text.startsWith("Hook"))!.id });
   expect(m.sentences.map((s) => s.text)).toEqual(["Zoom in on code"]);
 
-  // Habits from decisions: kept "um" in long videos over two projects, cut pauses over 1 s in Shorts.
+  // Habits from decisions: kept the first take in long videos over two projects, cut pauses over 1 s in Shorts.
   writeFileSync(join(configDir, "decisions.json"), JSON.stringify([
-    ...["a", "b"].flatMap((p) => [decided(p, "filler:um", "keep", "long"), decided(p, "filler:um", "keep", "long"), decided(p, "filler:um", "keep", "long")]),
+    ...["a", "b"].flatMap((p) => [decided(p, "retake", "first", "long"), decided(p, "retake", "first", "long"), decided(p, "retake", "first", "long")]),
     ...["c", "d"].flatMap((p) => [decided(p, "silence", "keep", "short", 0.6), decided(p, "silence", "cut", "short", 1.4), decided(p, "silence", "cut", "short", 1.8)]),
   ]));
   m = await core.memory();
   expect(m.decisions).toBe(12);
-  // A format with too few of its own learns from every format's: long videos have the Shorts' pauses, and Shorts the fillers.
+  // A format with too few of its own learns from every format's: long videos have the Shorts' pauses, and Shorts the takes.
   expect(m.habits.long.map((h) => [h.id, h.text, h.agree, h.of, h.format])).toEqual([
     ["silence", "Remove Silences finds pauses longer than 1 s: you cut those and keep shorter ones", 6, 6, undefined],
-    ["filler:um", 'Remove Filler Words keeps "um"', 6, 6, "long"],
+    ["retake", "Remove Retakes keeps the first take of a line said again", 6, 6, "long"],
   ]);
-  expect(m.habits.short.map((h) => [h.id, h.format])).toEqual([["silence", "short"], ["filler:um", undefined]]);
-  // Forgetting the Shorts' pauses leaves the fillers.
+  expect(m.habits.short.map((h) => [h.id, h.format])).toEqual([["silence", "short"], ["retake", undefined]]);
+  // Forgetting the Shorts' pauses leaves the takes.
   m = await core.memoryChange({ forget: { rules: ["silence"], format: "short" } });
   expect(m.decisions).toBe(6);
-  expect(m.habits.short.map((h) => h.id)).toEqual(["filler:um"]);
-  expect(m.habits.long.map((h) => h.id)).toEqual(["filler:um"]);
+  expect(m.habits.short.map((h) => h.id)).toEqual(["retake"]);
+  expect(m.habits.long.map((h) => h.id)).toEqual(["retake"]);
   m = await core.memoryChange({ forget: "all" });
   expect(m.decisions).toBe(0);
   expect(m.habits).toEqual({ short: [], long: [] });

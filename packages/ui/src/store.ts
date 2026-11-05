@@ -117,7 +117,7 @@ export interface ViewState {
 }
 
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
-export type BinKind = "all" | "video" | "audio" | "image";
+export type BinKind = "all" | "video" | "audio" | "image" | "recording";
 
 const earlyReplies = new Map<string, { state: AgentRequest["state"]; text?: string }>();
 

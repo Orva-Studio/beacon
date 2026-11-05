@@ -1,6 +1,8 @@
 import { assetName, type Clip, type Project, type Session } from "@beacon/model";
 import type { AngleProps, AngleState, AngleTakeInfo } from "@beacon/features";
-import { Button, Check, Row, Section, Select, TextArea } from "./controls";
+import { useState } from "react";
+import { Button, Icon, ListSelect, Row, Section, Select, TextArea, Toggle } from "./controls";
+import { ANGLE_ART } from "./angle-art";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
 import { useDraft } from "./draft";
@@ -16,8 +18,9 @@ interface Estimate {
 }
 
 const VIEWS: { id: AngleProps["view"]; title: string }[] = [
-  { id: "profile-left", title: "Side profile, left" },
-  { id: "profile-right", title: "Side profile, right" },
+  { id: "three-quarter-left", title: "Three-quarter, left" },
+  { id: "three-quarter-right", title: "Three-quarter, right" },
+  { id: "high", title: "High angle" },
   { id: "wide", title: "Wide" },
   { id: "closeup", title: "Close-up" },
   { id: "detail", title: "Detail (hands, desk)" },
@@ -41,8 +44,16 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
   const set = (fields: Partial<AngleProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { angle: fields } }, label);
   const track = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
   const photos = (track?.props?.angleRoom as { photos?: string[] } | undefined)?.photos ?? [];
-  const images = Object.values(project.assets).filter((x) => x.kind === "image");
-  const togglePhoto = (id: string, on: boolean) => track && host.run("angles.room", { track: track.id, photos: on ? [...photos, id].slice(0, 4) : photos.filter((p) => p !== id) }, "Room Photos");
+  const setPhotos = (next: string[]) => track && host.run("angles.room", { track: track.id, photos: next }, "Room Photos");
+  const [photoError, setPhotoError] = useState<string>();
+  // Photos chosen from anywhere on the Mac (never picked from the project's media), up to four.
+  const addPhoto = async () => {
+    const path = await host.chooseFile(["jpg", "jpeg", "png", "heic", "webp"]);
+    if (!path) return;
+    const r = await host.importFile(path);
+    setPhotoError(r.ok ? undefined : (r.error ?? `${path.split("/").pop()} couldn't be read`));
+    if (r.ok && r.result && !photos.includes(r.result)) setPhotos([...photos, r.result].slice(0, 4));
+  };
   const takes = a.takes.map((t) => t.assetId).filter((id) => project.assets[id]);
   const info = (id: string) => project.assets[id]?.derived.angle as AngleTakeInfo | undefined;
   const over = !!estimate && estimate.limit > 0 && estimate.cost > estimate.limit;
@@ -52,36 +63,48 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
     <>
       <Section>
         <Row label="Angle">
-          <Select data-angle-view value={a.view} onChange={(e) => set({ view: e.target.value as AngleProps["view"] }, "Camera Angle")}>
-            {VIEWS.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.title}
-              </option>
-            ))}
-          </Select>
+          <ListSelect
+            value={a.view}
+            options={VIEWS.map((v) => ({ id: v.id, label: v.title, art: ANGLE_ART[v.id] }))}
+            onChange={(id) => id !== a.view && set({ view: id as AngleProps["view"] }, "Camera Angle")}
+            data-angle-view
+          />
         </Row>
         <Row label="Camera">
-          <Select data-angle-move value={a.move} onChange={(e) => set({ move: e.target.value as AngleProps["move"] }, "Angle Camera")}>
-            <option value="handheld">Handheld (a little drift)</option>
-            <option value="locked">Locked off</option>
-          </Select>
+          <Toggle
+            value={a.move}
+            options={[
+              { value: "handheld", label: "Handheld", title: "A little drift, as a camera held by hand" },
+              { value: "locked", label: "Locked", title: "Locked off on a tripod: no movement" },
+            ]}
+            onChange={(move) => set({ move }, "Angle Camera")}
+            data-angle-move
+          />
         </Row>
         <TextArea className="mt-2 h-14 w-full" placeholder="Anything else, in a few words (optional)" value={note} onChange={(e) => setNote(e.target.value)} onBlur={saveNote} data-angle-note />
       </Section>
       <Section>
         <div className="mb-1 text-label text-text-faint">Room photos</div>
         <div className="mb-2 text-caption text-text-faint" data-angle-room-hint>
-          Add photos of the room from this side for a truer set (optional): taken with the lights you record with, from the new angle's side at seated eye level, the room as it is in the take. Import them into the Media Bin, then tick them here.
+          Optional: up to four photos of your room from this angle's side, in the light you record with.
         </div>
-        {images.length ? (
-          <div className="flex flex-col gap-1" data-angle-photos>
-            {images.map((img) => (
-              <Check key={img.id} label={assetName(img)} checked={photos.includes(img.id)} onChange={(on) => togglePhoto(img.id, on)} data-angle-photo={img.id} />
+        {photos.length > 0 && (
+          <ul className="mb-2 flex flex-col gap-1" data-angle-photos>
+            {photos.map((id) => (
+              <li key={id} className="flex items-center gap-2 text-label text-text" data-angle-photo={id}>
+                <span className="text-text-faint">•</span>
+                <span className="min-w-0 flex-1 truncate">{project.assets[id] ? assetName(project.assets[id]!) : "A photo no longer in the project"}</span>
+                <Button look="quiet" title="Don't use this photo" onClick={() => setPhotos(photos.filter((p) => p !== id))} data-angle-photo-remove={id}>
+                  <Icon name="x" size={12} />
+                </Button>
+              </li>
             ))}
-          </div>
-        ) : (
-          <div className="text-caption text-text-faint">No images in the Media Bin yet.</div>
+          </ul>
         )}
+        <Button disabled={photos.length >= 4} title={photos.length >= 4 ? "Four photos at most" : "Choose a photo of your room"} onClick={() => void addPhoto()} data-angle-photo-add>
+          Add Photos…
+        </Button>
+        {photoError && <div className="mt-2 text-caption text-danger">{photoError}</div>}
       </Section>
       <Section>
         {!estimate?.camera ? (
@@ -89,12 +112,12 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
             An angle sits over one camera clip, all of it: move or trim it onto the camera.
           </div>
         ) : (
-          <div className="mb-2 text-label text-text-muted" data-angle-cost>
-            {crop
-              ? "Your camera has the pixels for this close-up: it can be a crop of your own frames, free and in sync."
-              : `Sends ${estimate.seconds} s of your camera and sound to Seedance 2.5, then ByteDance's upscaler to 1080p, on your Replicate account: about ${dollars(estimate.cost)} plus the upscaler.`}
-            {over && <span className="text-danger"> Over your {dollars(estimate.limit)} limit per generation (Settings › AI).</span>}
-          </div>
+          (crop || over) && (
+            <div className="mb-2 text-label text-text-muted" data-angle-cost>
+              {crop && "Your camera has the pixels for this close-up: it can be a crop of your own frames, free and in sync."}
+              {over && <span className="text-danger">About {dollars(estimate.cost)}: over your {dollars(estimate.limit)} limit per generation (Settings › AI).</span>}
+            </div>
+          )
         )}
         {error && (
           <div className="mb-2 rounded-md bg-groove px-3 py-2 text-label text-danger" data-angle-error>
@@ -119,8 +142,14 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
               Make Close-up (free)
             </Button>
           )}
-          <Button look={crop ? "quiet" : "primary"} disabled={!ready} title={online ? undefined : "Generating needs the internet"} onClick={() => host.run("angle.generate", { clip: clip.id })} data-angle-generate>
-            {making ? "Generating…" : crop ? "Generate Anyway" : takes.length ? "Generate Again" : "Generate"}
+          <Button
+            look={crop ? "quiet" : "primary"}
+            disabled={!ready}
+            title={online ? "Made on your Replicate account; upscaling is charged there too" : "Generating needs the internet"}
+            onClick={() => host.run("angle.generate", { clip: clip.id })}
+            data-angle-generate
+          >
+            {making ? "Generating…" : `${crop ? "Generate Anyway" : takes.length ? "Generate Again" : "Generate"}${estimate?.camera ? ` · ~${dollars(estimate.cost)}` : ""}`}
           </Button>
         </div>
       </Section>

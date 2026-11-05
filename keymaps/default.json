@@ -1187,19 +1187,6 @@
         "modifiers": [],
         "then": [
           {
-            "key": "f",
-            "modifiers": []
-          }
-        ]
-      },
-      "command": "fillers.review"
-    },
-    {
-      "keys": {
-        "key": ":",
-        "modifiers": [],
-        "then": [
-          {
             "key": "r",
             "modifiers": []
           }

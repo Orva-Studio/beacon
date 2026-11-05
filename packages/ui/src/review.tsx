@@ -14,7 +14,7 @@ export function useTranscribing(): number | undefined {
 }
 
 /**
- * A transcript query (`transcript.silences`, `.fillers`, `.retakes`) asked while `active`: again after each edit, and
+ * A transcript query (`transcript.silences`, `.retakes`) asked while `active`: again after each edit, and
  * each second while media is still being transcribed, whose missing transcripts (an import whose app quit first) are
  * started; likewise media whose takes OpenAI is to judge (`judging`), asked for once each while the review is open.
  */
@@ -58,7 +58,7 @@ export function useTranscriptsReady<T extends { waiting: string[]; judging?: str
 export const useReviewed = <T extends { waiting: string[]; judging?: string[] }>(host: Host, query: string, review: object | undefined, project: Project | undefined) =>
   useTranscriptsReady<T>(host, query, review ?? {}, !!review, project);
 
-type Review = "silences" | "fillers" | "retakes";
+type Review = "silences" | "retakes";
 type Item = { start: number; end: number; cut: boolean };
 
 /** What a review opened with from the user's habits, so a surprise can be traced and changed. */
@@ -73,14 +73,14 @@ export function Learned({ notes }: { notes: string[] | undefined }) {
   );
 }
 
-/** Goes to one silence, filler or group of takes, with the playhead a second before it to play across it. */
+/** Goes to one silence or group of takes, with the playhead a second before it to play across it. */
 export function goTo(host: Host, review: Review, item: { start: number }) {
   host.run(`${review}.focus`, { at: item.start });
   host.run("playhead.set", { time: Math.max(0, item.start - 1) });
 }
 
 /**
- * Going through a review's silences or fillers one at a time: ‹ › step between them (a click on a silence on the timeline, ⌥-click on a filler,
+ * Going through a review's silences or takes one at a time: ‹ › step between them (a click on a silence on the timeline, ⌥-click on a filler,
  * goes to it), Skip moves on, Cut This One cuts only it (one undo step) and moves on.
  */
 function OneByOne<T extends Item>({ review, items, current, host, describe, detail }: { review: Review; items: T[]; current: number | undefined; host: Host; describe: (item: T) => string; detail?: (item: T) => ReactNode }) {

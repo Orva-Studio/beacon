@@ -6,7 +6,7 @@ import { boxGroup, contentSize, valueAt } from "./canvas-clips";
 import type { Init } from "./rpc";
 import type { CaptionStyle } from "@beacon/features";
 import { NO_NESTED, timelineView } from "./timeline-draw";
-import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, Toggle, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
+import { Button, Check, clamp, isTyping, ColorRow, ColorSwatch, Fold, FoldSection, fromHex, ListSelect, NumberBox, Row, Section, Select, Slider, Stepper, Tab, TextArea, TextInput, Toggle, TrashButton, Icon, Modal, type IconName, type RGBA, RotationGizmo } from "./controls";
 import { replica, useView } from "./store";
 import { useQuery } from "./query";
 import { propsOf } from "./props";
@@ -20,6 +20,15 @@ import { MotionTab } from "./motion";
  * controls, showing values at the playhead. Edits apply to every selected
  * clip at the playhead (`clip.set` with `at`); a slider drag is one undo step.
  */
+/** Equal as JSON values are, whatever order their keys were written in. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+  const kb = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
 export function Properties({ project: full, session, host, init }: { project: Project; session: Session; host: Host; init?: Init }) {
   // With a group open, its clips are the ones being edited, shown at main-timeline times.
   const { project } = timelineView(full, session, init?.nested ?? NO_NESTED);
@@ -460,7 +469,9 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
   // One style for all the captions on a track, kept on the track.
   const track = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
   const style = track?.props?.captionStyle as CaptionStyle | undefined;
-  const presets = useQuery<{ id: string; title: string; description: string; headline: boolean }[]>(host, "captions.presets");
+  const presets = useQuery<{ id: string; title: string; description: string; headline: boolean; style: CaptionStyle }[]>(host, "captions.presets");
+  // The look the track's style is, until anything is changed from it.
+  const look = presets?.find((p) => sameValue(p.style, style))?.id ?? "";
   if (!style || !track) return null;
   const words = wordsInWindow(clip, (clip.props.caption as { words?: { text: string; start: number; end: number; em?: boolean }[] } | undefined)?.words ?? []);
   const text = words.map((w) => w.text).join(" ");
@@ -494,16 +505,6 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
             if (e.key === "Escape") setDraft(undefined);
           }}
         />
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {style.layout !== "headline" && (
-            <Button look="quiet" title="A headline beside the speaker from what this caption says, its keywords big" onClick={() => host.run("headline.fromCaption", { clip: clip.id })} data-caption-headline>
-              Make Headline
-            </Button>
-          )}
-          <Button look="quiet" title="The planner in Settings › AI picks a few sentences worth a headline, and their keywords, over the in/out range or the whole video" onClick={() => host.run("headlines.plan", {})} data-caption-find-headlines>
-            Find Headlines…
-          </Button>
-        </div>
         <div className="mt-2 mb-1 text-caption text-text-faint">Click a word to make it a keyword</div>
         <div className="flex flex-wrap gap-1" data-caption-words>
           {words.map((w, i) => (
@@ -522,37 +523,43 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
       </Section>
       <Section>
         <Row label="Look">
-          <Select data-caption-preset value="" onChange={(e) => e.target.value && host.run("captions.preset", { preset: e.target.value, track: track.id }, "Caption Look")}>
-            <option value="">Choose a look…</option>
-            {(presets ?? []).map((p) => (
-              <option key={p.id} value={p.id} title={p.description}>
-                {p.title}
-              </option>
-            ))}
-          </Select>
+          <ListSelect
+            value={look}
+            title={presets?.find((p) => p.id === look)?.description}
+            options={[...(look ? [] : [{ id: "", label: "Choose a look…" }]), ...(presets ?? []).map((p) => ({ id: p.id, label: p.title, title: p.description, artClass: `art-caption-${p.id}` }))]}
+            onPreview={(id) => host.previewEffect(id ? { command: "captions.preset", args: { preset: id, track: track.id } } : null)}
+            onChange={(id) => {
+              if (id && id !== look) host.run("captions.preset", { preset: id, track: track.id }, "Caption Look");
+              host.previewEffect(null);
+            }}
+            data-caption-preset
+          />
         </Row>
         <div className="mb-3 text-label text-text-faint">{style.layout === "headline" ? "Every headline" : "Every caption"}</div>
         <FontRows font={style.font} weight={style.weight} installed={installed} set={set} label="Caption Font" />
         <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
         <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
-        <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
-        <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
-        <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
-        <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
-        <ColorRow label="Shadow" color={style.shadow} onChange={(shadow, key) => set({ shadow }, "Caption Shadow", key)} />
-        {style.shadow[3] > 0 && (
-          <>
-            <Slider unit="" label="Softness" value={style.shadowBlur} max={60} onChange={(v, key) => set({ shadowBlur: Math.max(0, v) }, "Caption Shadow", key)} />
-            <Slider unit="" label="Distance" value={style.shadowDistance} max={100} onChange={(v, key) => set({ shadowDistance: Math.min(200, Math.max(0, v)) }, "Caption Shadow", key)} data-caption-shadow-distance />
-            <Slider unit="°" label="Angle" value={Math.round((((style.shadowAngle * 180) / Math.PI) % 360) + 360) % 360} max={359} onChange={(v, key) => set({ shadowAngle: (v * Math.PI) / 180 }, "Caption Shadow", key)} data-caption-shadow-angle />
-          </>
-        )}
         <div className="mt-3 ml-[92px]">
           <Check label="All capitals" checked={style.uppercase} onChange={(uppercase) => set({ uppercase }, "Caption Capitals")} />
         </div>
       </Section>
-      <Section>
-        <div className="mb-3 text-label text-text-faint">Words</div>
+      <Fold id="caption-box" title="Box and Highlight" hint={[style.background[3] > 0 && "Box", style.highlight[3] > 0 && "Highlight"].filter(Boolean).join(", ")}>
+          <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
+          <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
+          <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
+          <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
+      </Fold>
+      <Fold id="caption-shadow" title="Shadow" hint={style.shadow[3] > 0 ? "On" : ""}>
+          <ColorRow label="Shadow" color={style.shadow} onChange={(shadow, key) => set({ shadow }, "Caption Shadow", key)} />
+          {style.shadow[3] > 0 && (
+            <>
+              <Slider unit="" label="Softness" value={style.shadowBlur} max={60} onChange={(v, key) => set({ shadowBlur: Math.max(0, v) }, "Caption Shadow", key)} />
+              <Slider unit="" label="Distance" value={style.shadowDistance} max={100} onChange={(v, key) => set({ shadowDistance: Math.min(200, Math.max(0, v)) }, "Caption Shadow", key)} data-caption-shadow-distance />
+              <Slider unit="°" label="Angle" value={Math.round((((style.shadowAngle * 180) / Math.PI) % 360) + 360) % 360} max={359} onChange={(v, key) => set({ shadowAngle: (v * Math.PI) / 180 }, "Caption Shadow", key)} data-caption-shadow-angle />
+            </>
+          )}
+      </Fold>
+      <Fold id="caption-words" title="Words" hint={style.reveal === "word" ? "Word by word" : "All at once"}>
         <Row label="Show">
           <Select data-caption-reveal value={style.reveal} onChange={(e) => set({ reveal: e.target.value as CaptionStyle["reveal"] }, "Caption Reveal")}>
             <option value="phrase">All at once</option>
@@ -597,9 +604,8 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
           <Check label="Count numbers up" checked={style.countUp} onChange={(countUp) => set({ countUp }, "Count Numbers Up")} data-caption-count />
           <Check label="Behind the speaker" title="Drawn behind the person on camera under it, through their matte (found the first time, about a minute per minute of video)" checked={style.behind} onChange={(behind) => set({ behind }, "Captions Behind the Speaker")} data-caption-behind />
         </div>
-      </Section>
-      <Section>
-        <div className="mb-3 text-label text-text-faint">Keywords</div>
+      </Fold>
+      <Fold id="caption-keywords" title="Keywords">
         <ColorRow label="Color" color={em.color} onChange={(color, key) => setEm({ color }, "Keyword Color", key)} />
         <Slider unit="%" label="Size" value={Math.round(em.scale * 100)} min={50} max={400} onChange={(v, key) => setEm({ scale: Math.min(4, Math.max(0.5, v / 100)) }, "Keyword Size", key)} />
         <Row label="Font">
@@ -640,7 +646,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
         <div className="mt-3 ml-[92px]">
           <Check label="Italic" checked={em.italic} onChange={(italic) => setEm({ italic }, "Keyword Italic")} />
         </div>
-      </Section>
+      </Fold>
       <Section>
         {own && (
           <div className="mb-3 flex items-center justify-between gap-2 rounded-md bg-groove px-3 py-2 text-label text-text" data-caption-own>
@@ -672,10 +678,10 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
   );
 }
 
-/** Blur, Pixelate and Spotlight show only the intensity. */
+/** Blur and Spotlight show only the intensity. */
 function RegionProps({ clip, value, edit }: { clip: Clip; value: (g: string, f: string, d?: number) => number; edit: Edit }) {
   const kind = (clip.props.region as { kind?: string } | undefined)?.kind;
-  // Spotlight darkens 0-100%; blur is a radius and pixelate a block size, shown as 0-100; a highlight's is its opacity.
+  // Spotlight darkens 0-100%; blur is a radius, shown as 0-100; a highlight's is its opacity.
   const scale = kind === "blur" ? 10 : 100;
   const region = clip.props.region as { invert?: boolean; color?: RGBA } | undefined;
   return (

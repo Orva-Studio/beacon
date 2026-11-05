@@ -3587,6 +3587,50 @@ Sources: [OpusClip caption presets](https://www.opus.pro/blog/best-caption-prese
 [Submagic](https://www.submagic.co/blog/reasons-to-use-submagic-for-ai-captions),
 [caption styles ranked (vendor)](https://www.clipspeed.ai/blog/11-caption-styles-ranked-viral-performance-2026.html).
 
+#### The user's hand checks, 2026-11-05: what follows
+Confirmed by hand: playback starts at once, Tidy Rows, the timeline divider, the
+caption shadow. In this order, on this branch:
+1. **Bugs:** Monitor's canvas goes black while Left Edge, Right Edge or From the
+   Left is hovered, and past zoom 3.13 (the live preview only: headless frames
+   draw); opacity does nothing on a Monitor clip; Caption Properties' Look menu
+   goes back to "Choose a look…" after a look is picked.
+2. **Monitor:** Move goes (Scale and Position, and their animations, already
+   move the camera; saved projects go to still). Rotation X/Y/Z steer the
+   camera (tilt around the monitor, roll), so the Transform tab means something
+   on a Monitor clip. Zoom down to about 1.0, the whole screen and bezel in shot
+   (no stand or desk: a matching room photo looked fake).
+3. **Removed:** Headlines (Find Headlines, Make Headline, the Headlines panel;
+   the headline looks stay as caption looks), Filler Words, Noise Removal,
+   Polish, Pixelate; each with a migration so saved projects open. Pop-ins
+   fold into Sound Effects (a "Sounds for my graphics" button, no tab).
+4. **Captions:** the Look menu as a list of pictures ("Aa" in each look,
+   previewed on the canvas under the pointer); fewer settings showing (Look,
+   Font, Size, Color on top; Box, Highlight, Shadow folded); Drop Shadow
+   dropped on a caption says it turned the caption's own shadow on.
+5. **Camera Angle:** the Angle menu as blueprints (a wireframe head, the
+   camera's place); room photos only from an Add Photos… button (any file),
+   listed below, never the timeline's media; the cost line evergreen ("Made on
+   your Replicate account: about $…", no model names); Settings › AI: the
+   upscale's resolution (1080p by default, 2K, 4K).
+6. **Small:** a loading spinner on Music's and Sound Effects' play buttons until
+   the sound starts; a Takes pill in the Media Bin (each recording, screen,
+   camera and mic, as one item).
+6b. **Camera Angle, later the same day (done, uncommitted at the end of the session):** Handheld or
+   Locked a toggle; the price on Generate ("Generate · ~$1.72"), the cost line gone; the Angle menu's
+   pictures a small 3D wireframe scene seen from each angle's camera (`packages/ui/src/angle-art.ts`, the
+   user: "the photos look good", keep them); Three-quarter, left and right added (the interview's second
+   camera, 35° off, the default) and High angle (from above and behind a shoulder); the side profiles went
+   (angles v2 turns them into three-quarter on the same side).
+6c. **To look into: a real 3D person for the angle pictures** (the user, 2026-11-05; the spike put off the same day, "skip this for now": candidates found, CC-BY and rigged, "Low Poly Male Base - Slender" by Mesh-Base, sketchfab.com/3d-models/9a6fd72aa31540f2a6a8e8d236778a2f, downloading needs the user's Sketchfab login or API token): a generic human model
+   from Sketchfab (https://sketchfab.com/tags/human; pick one whose licence allows it, CC0 or CC-BY with
+   credit, downloads need a Sketchfab login), rendered in Blender (the user has it; driven by Python
+   scripts, `blender -b -P`) from each angle's camera as line art (Freestyle, Beacon green on black),
+   saved as the menu's pictures in place of the drawn figure. The cameras are in `angle-art.ts` (`CAMS`).
+7. **Automatic music and sound effects:** AI reads the transcript, works out the
+   video's kind and mood (per section), and proposes Epidemic Sound tracks and
+   sound effects at the right places, reviewed on the timeline then applied
+   (as the AI panel's other reviews).
+
 ### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
 
 #### First: Undo Agents' Last Change, a history per author (the user, 2026-11-04; before the audit)

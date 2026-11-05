@@ -32,13 +32,17 @@ export type Shot = (typeof SHOTS)[number];
  * height); `aimAt`: the focus an angled shot turns toward.
  */
 export function shotCamera(p: { shot: Shot; corner: Corner; zoom: number }, W: number, H: number, rect: [number, number, number, number], aimAt: [number, number]): Camera {
+  // Zoomed out (under 1.6), the shot eases toward the screen's centre, so by 0.8 the whole screen is in it.
+  const b = Math.max(0, Math.min(1, (p.zoom - 0.8) / 0.8));
+  const centre: [number, number] = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
+  const eased = ([x, y]: [number, number]): [number, number] => [centre[0] + (x - centre[0]) * b, centre[1] + (y - centre[1]) * b];
   if (p.shot !== "head-on") {
     const a = ANGLES[p.shot];
     const [ax, ay] = [rect[0] + a.anchor[0] * rect[2], rect[1] + a.anchor[1] * rect[3]];
-    return { yaw: a.yaw, pitch: a.pitch, size: (a.size * p.zoom) / 2, target: [ax + (aimAt[0] - ax) * a.aim, ay + (aimAt[1] - ay) * a.aim] };
+    return { yaw: a.yaw, pitch: a.pitch, size: (a.size * p.zoom) / 2, target: eased([ax + (aimAt[0] - ax) * a.aim, ay + (aimAt[1] - ay) * a.aim]) };
   }
   // Aimed so the screen's corner lands where CORNERS puts it in the frame: the centre is that far from it, over the zoom.
   const [fx, fy] = CORNERS[p.corner];
   const [sx, sy] = [fx < 0.5 ? rect[0] : rect[0] + rect[2], fy < 0.5 ? rect[1] : rect[1] + rect[3]];
-  return { yaw: 0, pitch: 0, size: p.zoom, target: [sx + ((0.5 - fx) * W) / p.zoom, sy + ((0.5 - fy) * H) / p.zoom] };
+  return { yaw: 0, pitch: 0, size: p.zoom, target: eased([sx + ((0.5 - fx) * W) / p.zoom, sy + ((0.5 - fy) * H) / p.zoom]) };
 }

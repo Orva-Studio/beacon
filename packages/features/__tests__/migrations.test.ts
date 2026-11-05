@@ -169,8 +169,22 @@ test("regions v2: a blur, pixelate or spotlight region gets a highlight's colour
   doc.features.regions = 1;
   doc.tracks = [{ id: "t1", name: "", clips: [{ id: "c1", type: "region", start: 0, duration: 10, props: { region: { kind: "blur", width: 400, height: 200, cornerRadius: 6, intensity: 1, invert: false } }, effects: [], animations: [] }] }];
   const out = migrateProject(doc, registry);
-  expect(out.features.regions).toBe(2);
+  expect(out.features.regions).toBe(3);
   expect((out.tracks[0]!.clips[0]!.props.region as { color: number[] }).color).toEqual([1, 0.93, 0.25, 1]);
+});
+
+test("regions v3: a pixelate region, Pixelate gone, becomes a blur about as strong; a blur stays as it was", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.regions = 2;
+  const region = (kind: string, intensity: number) => ({ kind, width: 400, height: 200, cornerRadius: 6, intensity, invert: false, color: [1, 0.93, 0.25, 1] });
+  doc.tracks = [{ id: "t1", name: "", clips: [["c1", "pixelate", 0.33], ["c2", "blur", 2]].map(([id, kind, i], n) => ({ id, type: "region", start: n * 10, duration: 10, props: { region: region(kind as string, i as number) }, effects: [], animations: [] })) }];
+  const out = migrateProject(doc, registry);
+  expect(out.features.regions).toBe(3);
+  const [pixelated, blurred] = out.tracks[0]!.clips.map((c) => c.props.region as { kind: string; intensity: number });
+  expect(pixelated!.kind).toBe("blur");
+  expect(pixelated!.intensity).toBeCloseTo(1.2375, 4);
+  expect(blurred).toMatchObject({ kind: "blur", intensity: 2 });
 });
 
 test("motion v2 to v4: a motion graphics clip made before Looks, then from callouts, becomes an HTML one: its takes' pieces templates, its group a box to draw again, no background setting; inside a group too", () => {
@@ -242,11 +256,11 @@ test("device-frame v2: Monitor's grade becomes a Film Look on the clip at its st
     },
   ];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(4);
+  expect(out.features["device-frame"]).toBe(5);
   const [graded, ownLook, ungraded] = out.tracks[0].clips;
   expect(graded.effects.map((e: any) => [e.id, e.type])).toEqual([["fx-d3c71365", "film-look"], ["fx-5b4f9bed", "device-frame"]]);
   expect(graded.effects[0].params).toMatchObject({ strength: 0.57, warmth: 0.4, vignette: 0.3 });
-  expect(graded.effects[1].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", move: "still", screen: "matte", focus: "cursor", focusX: 0.48, focusY: 0.38, blur: 0.56, glow: 0.21, drift: 0.45, zoom: 2 });
+  expect(graded.effects[1].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", screen: "matte", focus: "cursor", focusX: 0.48, focusY: 0.38, blur: 0.56, glow: 0.21, drift: 0.45, zoom: 2 });
   // A clip with a Film Look of its own keeps it as it was; no grade adds none.
   expect(ownLook.effects.map((e: any) => e.type)).toEqual(["film-look", "device-frame"]);
   expect(ownLook.effects[0].params).toEqual(look);
@@ -260,8 +274,9 @@ test("device-frame v3: a Monitor saved at v2 gets the Shot and Room menus as v2 
   const v2 = { move: "still", screen: "glossy", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.56, glow: 0.21, drift: 0.45, zoom: 3.49 };
   doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v2 }], animations: [] }] }];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(4);
-  expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", ...v2 });
+  expect(out.features["device-frame"]).toBe(5);
+  const { move: _, ...kept } = v2;
+  expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", ...kept });
 });
 
 test("device-frame v4: a head-on Monitor saved at v3 is close on the top-left corner, as v3 always was", () => {
@@ -271,6 +286,43 @@ test("device-frame v4: a head-on Monitor saved at v3 is close on the top-left co
   const v3 = { shot: "head-on", room: "none", move: "push", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, drift: 0.5, zoom: 2 };
   doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v3 }], animations: [] }] }];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(4);
-  expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", ...v3 });
+  expect(out.features["device-frame"]).toBe(5);
+  const { move: _, ...kept } = v3;
+  expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", ...kept });
+});
+
+test("device-frame v5: Move goes from a Monitor saved at v4 (the clip's Scale and Position move the camera), its other settings kept", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features["device-frame"] = 4;
+  const v4 = { shot: "edge-right", corner: "bottom-right", room: "teal-studio", move: "slide", screen: "glossy", focus: "cursor", focusX: 0.29, focusY: 0.3, blur: 0.6, glow: 0.21, drift: 0.45, zoom: 1.242 };
+  doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v4 }], animations: [] }] }];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features["device-frame"]).toBe(5);
+  const { move: _, ...kept } = v4;
+  expect(out.tracks[0].clips[0].effects[0].params).toEqual(kept);
+});
+
+test("noise v2: Noise Removal, taken out, comes off the clips of a project saved with it; the clips' other effects stay", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.noise = 1;
+  const nr = { id: "fx-1", type: "noise-removal", enabled: true, params: { strength: 12, learnFrom: 0, learnTo: 0 } };
+  const polish = { id: "fx-2", type: "polish", enabled: true, params: { removeClicks: true, repairClipping: true, sibilance: 0.2 } };
+  doc.tracks = [{ id: "t1", name: "Audio", clips: [{ id: "c1", type: "audio", start: 0, duration: 10, props: {}, effects: [nr, polish], animations: [] }] }];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features.noise).toBe(2);
+  expect(out.tracks[0].clips[0].effects.map((e: any) => e.type)).toEqual(["polish"]);
+});
+
+test("angles v2: an Angle clip set to a side profile, the profiles gone, becomes the three-quarter view on that side, its takes kept", () => {
+  const registry = createRegistry();
+  const doc = createProject(registry) as any;
+  doc.features.angles = 1;
+  const angle = (id: string, view: string, n: number) => ({ id, type: "angle", start: n * 10, duration: 3, props: { angle: { view, move: "handheld", note: "", takes: [{ assetId: "a1" }], crop: false } }, effects: [], animations: [] });
+  doc.tracks = [{ id: "t1", name: "Angles", clips: [angle("c1", "profile-left", 0), angle("c2", "profile-right", 1), angle("c3", "wide", 2)] }];
+  const out = migrateProject(doc, registry) as any;
+  expect(out.features.angles).toBe(2);
+  expect(out.tracks[0].clips.map((c: any) => c.props.angle.view)).toEqual(["three-quarter-left", "three-quarter-right", "wide"]);
+  expect(out.tracks[0].clips[0].props.angle.takes).toEqual([{ assetId: "a1" }]);
 });

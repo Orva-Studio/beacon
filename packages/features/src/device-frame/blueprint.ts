@@ -41,8 +41,7 @@ function framed(cam: Camera): [number, number][] {
 }
 
 /**
- * The monitor seen from `cam`'s angle, whole, with what `shots` frame drawn on it: the first lit, the rest dashed
- * (where a move ends).
+ * The monitor seen from `cam`'s angle, whole, with what `shots` frame drawn on it: the first lit, the rest dashed.
  */
 function blueprint(cam: Camera, shots: Camera[]): string {
   const whole: Camera = { ...cam, size: 0.56, target: [W / 2, H * 0.58] };
@@ -66,10 +65,6 @@ function blueprint(cam: Camera, shots: Camera[]): string {
 export const dataUri = (svg: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 
 const shot = (shot: Shot, corner: Corner = "top-left") => shotCamera({ shot, corner, zoom: 2 }, W, H, [0, 0, W, H], [W / 2, H / 2]);
-/** As the effect moves the camera: Push closes in a tenth by the clip's end, Slide crosses a twentieth of the frame. */
-const pushed = (c: Camera): Camera => ({ ...c, size: c.size * 1.1 });
-const slid = (c: Camera, u: number): Camera => ({ ...c, target: [c.target[0] + 0.05 * W * (u - 0.5), c.target[1]] });
-
 const SHOT_LABELS: Record<Shot, string> = {
   "head-on": "Head On",
   "corner-top-left": "Top-Left Corner",
@@ -82,15 +77,9 @@ const SHOT_LABELS: Record<Shot, string> = {
 };
 const CORNER_LABELS: Record<Corner, string> = { "top-left": "Top Left", "top-right": "Top Right", "bottom-left": "Bottom Left", "bottom-right": "Bottom Right" };
 const head = shot("head-on");
-const MOVES = {
-  push: { label: "Push In", shots: [head, pushed(head)] },
-  slide: { label: "Slide", shots: [slid(head, 0), slid(head, 1)] },
-  still: { label: "Still", shots: [head] },
-};
 
-/** The Monitor's `choices`: each shot, head-on corner and move by name, with its blueprint. */
+/** The Monitor's `choices`: each shot and head-on corner by name, with its blueprint. */
 export const SHOT_CHOICES = {
   shot: Object.fromEntries(SHOTS.map((s) => [s, { label: SHOT_LABELS[s], art: dataUri(blueprint(shot(s), [shot(s)])) }])),
   corner: Object.fromEntries((Object.keys(CORNERS) as Corner[]).map((c) => [c, { label: CORNER_LABELS[c], art: dataUri(blueprint(head, [shot("head-on", c)])) }])),
-  move: Object.fromEntries(Object.entries(MOVES).map(([id, m]) => [id, { label: m.label, art: dataUri(blueprint(head, m.shots)) }])),
 };

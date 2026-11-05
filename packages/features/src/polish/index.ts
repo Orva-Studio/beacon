@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineAction, defineFeature, dropTargets, selectDropped, selectedClips } from "@beacon/model";
+import { defineFeature } from "@beacon/model";
 
 const TYPE = "polish";
 /** tuneup's de-esser intensity. */
@@ -9,7 +9,8 @@ const RATE = 48000;
 
 /**
  * Polish, as the user's tuneup finishes a voice after Auphonic: clicks and mouth noise taken out, clipped peaks
- * rebuilt and harsh "s" sounds softened (ffmpeg's adeclick, adeclip and deesser), drawn live like Noise Removal.
+ * rebuilt and harsh "s" sounds softened (ffmpeg's adeclick, adeclip and deesser). Only Clean with Auphonic adds it
+ * now (the user, 2026-11-05: its own tile and command went).
  */
 export const polish = defineFeature({
   id: "polish",
@@ -33,29 +34,5 @@ export const polish = defineFeature({
         return { filter: [`aresample=${RATE}`, ...stages, "asetpts=N/SR/TB"].join(",") };
       },
     },
-  ],
-  panelItems: [
-    {
-      id: "audio:polish",
-      label: "Polish",
-      title: "Finish a voice: clicks and mouth noise out, clipped peaks repaired, harsh \"s\" sounds softened",
-      command: "edit.polish",
-      args: {},
-      traits: ["audio"],
-    },
-  ],
-  actions: [
-    defineAction({
-      id: "edit.polish",
-      description: "Polish the selected clips' audio (de-click, de-clip, de-ess); with `clip`, as dropping it on that clip. Already polished clips keep theirs",
-      args: z.strictObject({ clip: z.string().min(1).optional() }),
-      resolve: ({ clip }, ctx) => {
-        const clips = (clip ? dropTargets(ctx, clip) : selectedClips(ctx)).filter((c) => ctx.registry.hasTrait(c.type, "audio"));
-        if (!clips.length) throw new Error(clip ? "Polish applies to media with audio" : "select audio first");
-        const steps = clips.filter((c) => !c.effects.some((e) => e.type === TYPE)).map((c) => ({ command: "effect.add", args: { clip: c.id, type: TYPE } }));
-        if (!steps.length) throw new Error("the selected audio is already polished");
-        return { label: "Polish", steps, after: () => selectDropped(ctx, clip) };
-      },
-    }),
   ],
 });

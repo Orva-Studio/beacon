@@ -7,8 +7,10 @@ export interface ListOption {
   title?: string;
   /** A heading drawn over the first option of each run with it ("Your looks"). */
   group?: string;
-  /** A picture over the option's name (a shot's blueprint): the list then shows them large, the button small. */
+  /** A picture beside the option's name (a shot's blueprint): the list then shows them large, the button small. */
   art?: string;
+  /** The same as a class from art/art.css (`art-caption-classic`), for pictures inlined there. */
+  artClass?: string;
 }
 
 /**
@@ -33,7 +35,7 @@ export function ListSelect({
   const onPreviewNow = useRef(onPreview);
   onPreviewNow.current = onPreview;
   const shown = options.find((o) => o.id === value);
-  const pictures = options.some((o) => o.art);
+  const pictures = options.some((o) => o.art || o.artClass);
 
   const preview = (id: string | null) => {
     if (id === null && !previewing.current) return;
@@ -91,6 +93,7 @@ export function ListSelect({
         }}
       >
         {shown?.art && <img src={shown.art} alt="" className="h-[27px] w-12 shrink-0 rounded-sm" draggable={false} />}
+        {shown?.artClass && <span className={`h-8 w-12 shrink-0 rounded-sm bg-cover bg-center ${shown.artClass}`} />}
         <span className="min-w-0 flex-1 truncate">{shown?.label ?? ""}</span>
         <Icon name="caret-down" size={12} className="shrink-0 text-text-muted" />
       </button>
@@ -133,13 +136,14 @@ export function ListSelect({
               data-index={i}
               aria-selected={o.id === value}
               title={o.title}
-              className={`cursor-default truncate px-2 py-1 ${o.art ? "flex items-center gap-2.5" : ""} ${i === active ? "bg-accent-wash text-text-strong" : o.id === value ? "text-text-strong" : "text-text"}`}
+              className={`cursor-default truncate px-2 py-1 ${o.art || o.artClass ? "flex items-center gap-2.5" : ""} ${i === active ? "bg-accent-wash text-text-strong" : o.id === value ? "text-text-strong" : "text-text"}`}
               onMouseEnter={() => {
                 if (i !== active || !previewing.current) show(i, false);
               }}
               onClick={() => choose(o.id)}
             >
               {o.art && <img src={o.art} alt="" className="h-[54px] w-24 shrink-0 rounded-sm" draggable={false} />}
+              {o.artClass && <span className={`h-16 w-24 shrink-0 rounded-sm bg-cover bg-center ${o.artClass}`} data-option-art />}
               {o.label}
             </div>,
           ])}

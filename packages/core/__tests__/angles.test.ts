@@ -92,7 +92,7 @@ test.skipIf(!existsSync(TAKE) || !existsSync(IMAGE))("a camera angle: added over
   copyFileSync(IMAGE, join(dir, "room.png"));
   const img = await core.import(h, [join(dir, "room.png")]);
   await core.run(h, "angles.room", { track: angles.id, photos: [img.assets[0]] });
-  await core.run(h, "clip.set", { clip: angle.id, props: { angle: { view: "profile-right", note: "keep the plant in" } } });
+  await core.run(h, "clip.set", { clip: angle.id, props: { angle: { view: "three-quarter-right", note: "keep the plant in" } } });
 
   // Over the limit per generation (shared with B-roll), nothing is sent.
   await core.setPreference("brollLimit", "1");
@@ -114,7 +114,7 @@ test.skipIf(!existsSync(TAKE) || !existsSync(IMAGE))("a camera angle: added over
   expect((seedance!.input.reference_audios as string[]).length).toBe(1);
   expect((seedance!.input.reference_images as string[]).length).toBe(1);
   const prompt = String(seedance!.input.prompt);
-  for (const said of ["from their right side", "lips move exactly to [Audio1]", "[Image1] is a photo of this same room", "Also: keep the plant in", "Handheld"]) expect(prompt).toContain(said);
+  for (const said of ["35 degrees to the speaker's right", "lips move exactly to [Audio1]", "[Image1] is a photo of this same room", "Also: keep the plant in", "Handheld"]) expect(prompt).toContain(said);
   expect(upscale!.model).toBe("bytedance/video-upscaler");
   expect(upscale!.input).toMatchObject({ scene: "aigc", target_resolution: "1080p", processing_type: "standard", video: expect.stringContaining("854x480.mp4") });
 
@@ -124,12 +124,21 @@ test.skipIf(!existsSync(TAKE) || !existsSync(IMAGE))("a camera angle: added over
   expect(made.mediaStart).toBe(0);
   const asset = core.doc(h).assets[made.assetId!]!;
   expect(asset.path).toContain("/media/Angles/");
-  expect(asset.derived.angle).toMatchObject({ view: "profile-right", cost: 1.72, seconds: 4 });
-  expect(readdirSync(join(dir, "gen.beproj", "media", "Angles")).sort()).toEqual(["Side profile, right.json", "Side profile, right.mp4"]);
+  expect(asset.derived.angle).toMatchObject({ view: "three-quarter-right", cost: 1.72, seconds: 4 });
+  expect(readdirSync(join(dir, "gen.beproj", "media", "Angles")).sort()).toEqual(["Three-quarter, right.json", "Three-quarter, right.mp4"]);
   // Shown where the camera is: 1920 wide footage at the camera's scale for its width.
   const camWidth = (core.doc(h).assets[camera.assetId!]!.derived.media as { streams: { kind: string; width?: number }[] }).streams.filter((x) => x.kind === "video")[(camera.props.media as { stream?: number } | undefined)?.stream ?? 0]!.width!;
   expect((made.props.transform as { scaleX: number }).scaleX).toBeCloseTo(((camera.props.transform as { scaleX: number }).scaleX * camWidth) / 1920, 4);
   expect((await core.history(h)).undo.length).toBe(steps + 1);
+
+  // Settings › AI's Upscaled to: 4K asks the upscaler for 4k. The interview's second camera, three-quarter on.
+  await core.setPreference("angleResolution", "4k");
+  await core.run(h, "clip.set", { clip: angle.id, props: { angle: { view: "three-quarter-left" } } });
+  const again = ((await core.run(h, "angle.generate", { clip: angle.id })).results[0] as { job: string }).job;
+  for (let s = "running"; s === "running"; await Bun.sleep(50)) s = (await core.job(again)).state;
+  expect(predictions.at(-1)!.input).toMatchObject({ target_resolution: "4k" });
+  expect(String(predictions.at(-2)!.input.prompt)).toContain("a second interview camera 35 degrees to the speaker's left");
+  await core.setPreference("angleResolution", "1080p");
   await core.close(h);
 }, 120_000);
 

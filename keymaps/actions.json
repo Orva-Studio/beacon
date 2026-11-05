@@ -997,11 +997,6 @@
       "command": "silences.review"
     },
     {
-      "id": "fillers.review",
-      "name": "Remove Filler Words…",
-      "command": "fillers.review"
-    },
-    {
       "id": "ai.retakes",
       "name": "Remove Retakes…",
       "description": "Find lines said more than once and keep the best take, as the AI panel's tile does"

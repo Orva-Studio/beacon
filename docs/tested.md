@@ -7,10 +7,25 @@ feature lands and when it is checked.
 
 ## Phase 13: device frames, sped-up export, Epidemic Sound (`phase-13`)
 
+### Checked by hand
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Space from the start of adfinder: the sound and playhead start at once; Pause then Space carries on | 2026-11-05 | 8cbedaf | the user, in the app |
+| Tidy Rows on the shorts project: fewer rows, everything the same | 2026-11-05 | 8cbedaf | the user, in the app |
+| The divider above the timeline: a bigger timeline and a smaller canvas, kept | 2026-11-05 | 8cbedaf | the user, in the app |
+| Drop Shadow dropped on a caption: Caption Properties opens with the shadow on, Distance and Angle right ("looks really good") | 2026-11-05 | 8cbedaf | the user, in the app |
+
 ### Checked headless only
 
 | What | Date | Commit | How |
 |---|---|---|---|
+| Monitor's black canvas: a tilted layer's texture rounded up to 8193 px, past the GPU's 8192 (adfinder's clip at zoom 3 and up, and some angled shots hovered); capped, every shot at zoom 1.2 to 12 renders on a copy of adfinder | 2026-11-05 | this branch | Rust test `flat_size_stays_within_the_gpu_limit`; renders of the copy |
+| Monitor: the clip's Opacity fades the whole shot (room, bezel, screen) as one; Rotation X/Y/Z turn and roll the camera; Scale and Position move it; Move gone (v5 drops it); Zoom down to 0.8, the whole screen centred | 2026-11-05 | this branch | `device-frame.test.ts`, migrations v5, renders |
+| Removed: Noise Removal (v2 takes it off clips), Polish's tile and command (Auphonic still adds it), Filler Words (review, tile, `: F`), Pixelate (v3 makes it a blur as strong), Headlines (Find, Make, the panel; a saved Headlines track still draws); Pop-ins under Sound Effects' Sounds for my graphics… | 2026-11-05 | this branch | migrations tests, `dynamic-captions.test.ts`, UI flows |
+| Caption Properties: the Look menu shows the look picked until a setting changes; a list of pictures drawn by Beacon (`scripts/caption-art.ts`), hovered to preview (a command previewed on a copy); Box and Highlight, Shadow, Words and Keywords folded; Drop Shadow on a caption says it used the caption's shadow in the status line | 2026-11-05 | this branch | UI flow `Dynamic Captions…`, `dynamic-captions.test.ts` |
+| Camera Angle: the Angle menu as blueprints, room photos from Add Photos… only, the cost said evergreen; Settings › AI's Upscaled to (1080p, 2K, 4K) reaches the upscaler | 2026-11-05 | this branch | UI flow `Camera Angle…`, `angles.test.ts` |
+| Music: a spinner on Listen until the preview plays; the Media Bin's Takes pill (recordings alone) | 2026-11-05 | this branch | UI flows (Music, Media Bin) |
 | An effect folded on a clip stays folded when another clip (or nothing) is selected and the clip is selected again (the user found it open again): remembered by clip and effect for the session | 2026-11-04 | this branch | UI flow (`an effect folded on a clip stays folded…`) |
 | A slider whose range starts above 0 (Monitor's Zoom, 1.2 to 4) gives its end value exactly: its steps were counted from 0, so its right end was 4.004, past the property's limit, and the project refused it (the user's canvas went black) | 2026-11-04 | this branch | UI flow (`Monitor (Visual Effects)…`: clicked past Zoom's right end, 4 exactly) |
 | Monitor's menus: Shot, Corner and Move are lists of blueprints (the whole monitor at the shot's angle in Beacon green, the part in shot lit; a move's end dashed), hovering one previews it and picking it is one undo step; Room, Screen and Focus are toggles; any effect's two-option choice is a toggle | 2026-11-05 | this branch | UI flow (`Monitor (Visual Effects)…`), screenshots of the list and panel |
@@ -44,15 +59,18 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Monitor in the app after today's fixes: hover every shot in the Shot menu and push Zoom up to 12 on adfinder: does the canvas stay drawn? Set the clip's Opacity to 50%: does the whole shot (room and bezel too) fade? Turn Rotation Y and X, roll Z, move Position, animate Scale: does the camera follow as you'd expect? Zoom 0.8: is the whole screen in the room?
+- Caption Properties' Look menu: hover the looks (the canvas should preview each), pick one (the menu should then name it), change a setting (it goes back to Choose a look…). Are the folded Box and Highlight, Shadow, Words and Keywords better, or is something you use often now hidden?
+- Camera Angle's tab: the Angle pictures, Add Photos… (a photo from anywhere, listed with ×), the shorter cost line; Settings › AI › Camera Angles › Upscaled to (2K or 4K on a real generation, about $2).
+- Music and Sound Effects: press Listen on a track: a spinner until it plays? Sound Effects › Sounds for my graphics… opens what Pop-ins was.
+- The Media Bin's Takes pill: your recordings alone.
 - A sped-up export in the app: a Short at 1.2×; does the voice sound natural (pitch kept), do captions and motion graphics stay with it, and is 1.2× ticked again next time?
-- Space from the start of the adfinder project: the sound and playhead start at once. Pause then Space: it carries on without going back (the paused frame is a few frames later than before, where the sound stopped).
 - ⌘K in daily use: do the effects you use float to the top, and does it feel right without Favorites?
 - Shift-drag a clip's end edge to the right into a gap: it closes the gap, then pushes on.
 - Ask an Agent in the app: start Claude Code with `claude --dangerously-load-development-channels server:beacon` in the beacon folder, open a project in Beacon, right-click a section (Ask an Agent…) and a motion graphic (Send to Agent…): does Claude get it with the right clip or section, work on it, and do the "on it" and "done" toasts show? Also the section menu's Rename and Delete.
 - Ask an Agent with Codex in the app: "New run with Codex" on a motion graphic; do its steps show, and does the edit land live in the open project?
 - Retakes / silences on a real take in the app: are there any slivers left, and did a cut take a short word you wanted (pieces under 0.5 s now go)? Open the project that had Corner Rounding twice: does it show once?
 - Media Bin: select two videos (click, ⇧-click), right-click one: does the menu say Add to Timeline at Playhead (2), and do both land one after the other?
-- The divider above the timeline in the app: drag it up for a bigger timeline, quit and reopen: is the size kept? Double-click it: back to the usual split.
 - Learned shortcuts in daily use: when one is offered, are the keys sensible, and does the toast come at a good moment? Uses counted since Favorites go (2026-11-02) already count, so the first offers can come soon.
 - Pop-ins in the app on a Short with motion graphics and screenshots: do the whoosh and pop picked first fit, and is the timing right (sounds start as the graphic appears)?
 - Music in the app: add your Epidemic Sound key in Settings › AI, open the AI panel's Music tile, search, listen, pick a track with an in/out range set, Apply. Does it fit the range, duck under your voice at a level you'd keep, and sound right at the cut? Try Sound Effects at the playhead too.
@@ -61,8 +79,6 @@ feature lands and when it is checked.
 - The editorial look on a real Reel of yours: Editorial Line and Editorial Headline from the Look menu (and Find Headlines…, which now uses Editorial Headline across the top). Is Instrument Serif the right serif, are the headlines big enough, does a stretched line look good or too wide, do numbers count up well, and does Behind the speaker look right on your framing (a word landing on your face goes behind it entirely)?
 - Remove Silences with Trim quiet (30 dB) on a real take: do the cuts sound clean, with no word endings or soft starts clipped, and is 30 the right level for your mic (try 25 and 35)?
 - Export a video with Remove Background on a camera whose person isn't found yet: does the card say it is waiting, with the progress moving, then Exporting?
-- Tidy Rows on your shorts project in the app (right-click a track header › Tidy Rows): fewer rows, everything looking and sounding the same, ⌘Z bringing them back? And does the next agent edit reuse rows rather than adding one per element?
-- Drag Drop Shadow onto a caption: does Caption Properties open with the shadow on, and do Distance and Angle look right?
 - Monitor's Shot menu: open it and move over the blueprints: does each picture match the shot the canvas previews, and do the Room, Screen and Focus toggles read better than menus?
 - Monitor on one of your screen recordings: Visual Effects › Monitor on the screen clip, play it, and try Screen: Glossy. Does the focus follow your cursor smoothly, are the push and drift slow enough, and does the preview keep up while playing? Does focus on the cursor follow your work smoothly, is the blur's falloff like your references, is the push or slide slow enough, and is the grade too dark? Then a zoom on it: does it punch the camera in well?
 - Camera angles in the app (it spends about $2 per angle on your Replicate account): put the playhead on your camera at a pause, AI panel › Camera Angle (or right-click the camera › New Angle Here), pick Side profile and Generate. Does it look like you from the side, are your lips in sync with your sound, and does the cut in and out of it feel natural? On a 4K camera, try Close-up: is the crop sharp enough?

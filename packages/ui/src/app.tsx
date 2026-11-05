@@ -27,9 +27,7 @@ import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
 import { AgentToasts, AskAgent } from "./ask-agent";
 import { LearnedToasts } from "./learned";
 import { MusicPanel, musicReviewOf, popInMarks, usePopIns } from "./music";
-import { HeadlinesPanel, headlineReviewOf } from "./headlines";
 import { goTo } from "./review";
-import { FillerReviewPanel, fillerReviewOf, useFillers } from "./remove-fillers";
 import { RetakeReviewPanel, retakeMarks, retakeReviewOf, useRetakes } from "./remove-retakes";
 import { SafeAreaPicker, useSafeAreas } from "./safe-areas";
 import { ProjectSettingsUi } from "./project-settings";
@@ -102,7 +100,6 @@ export function App({ host }: { host: Host }) {
   const project = useView((s) => s.project);
   const session = useView((s) => s.session);
   const silences = useSilences(host, session, project);
-  const fillers = useFillers(host, session, project);
   const retakes = useRetakes(host, session, project);
   const popIns = usePopIns(host, session, project);
   useCaptionsPending(host);
@@ -192,10 +189,9 @@ export function App({ host }: { host: Host }) {
       e.preventDefault();
       // A held ⌫ deletes once: its repeats would go on to what is selected next (the clip, once an effect's ⌫ took the effect).
       if (e.repeat && (b.command === "edit.delete" || b.command === "edit.rippleDelete")) return;
-      // Silences selected on the timeline: ⌫ cuts them; a filler picked there: ⌫ cuts it, as Cut This One does.
-      const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] }; fillers?: { current?: number } } | undefined;
+      // Silences selected on the timeline: ⌫ cuts them.
+      const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] } } | undefined;
       if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");
-      if (b.command === "edit.delete" && reviews?.fillers?.current !== undefined) return host.run("fillers.apply", { one: true });
       runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
@@ -235,14 +231,10 @@ export function App({ host }: { host: Host }) {
             project &&
             (auphonicReviewOf(session) ? (
               <AuphonicPanel project={project} session={session} host={host} init={init} />
-            ) : headlineReviewOf(session) ? (
-              <HeadlinesPanel session={session} host={host} />
             ) : musicReviewOf(session) ? (
               <MusicPanel project={project} session={session} host={host} popIns={popIns} />
             ) : reviewOf(session) ? (
               <SilenceReviewPanel project={project} session={session} host={host} found={silences} />
-            ) : fillerReviewOf(session) ? (
-              <FillerReviewPanel project={project} session={session} host={host} found={fillers} />
             ) : retakeReviewOf(session) ? (
               <RetakeReviewPanel project={project} session={session} host={host} found={retakes} />
             ) : (
@@ -270,9 +262,7 @@ export function App({ host }: { host: Host }) {
                   ? popInMarks(popIns, musicReviewOf(session)!)
                   : retakes
                   ? retakeMarks(retakes)
-                  : silences
-                    ? silences.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
-                    : fillers?.fillers.map((s, i) => ({ start: s.start, end: s.end, tone: s.cut ? "cut" : "keep", current: i === fillers.current }))
+                  : silences?.silences.map((s) => ({ start: s.start, end: s.end, tone: "cut", current: s.selected }))
               }
               markClick={(m, alt, shift, meta) =>
                 retakes
@@ -280,12 +270,8 @@ export function App({ host }: { host: Host }) {
                     alt || !m.current
                     ? goTo(host, "retakes", m)
                     : host.run("retakes.keep", { at: (m.start + m.end) / 2 })
-                  : silences
-                    ? // A click selects a silence to cut, ⇧-click those back to the last one selected, ⌘-click one more (or one fewer).
-                      host.run("silences.select", { at: (m.start + m.end) / 2, add: meta, through: shift && !meta })
-                    : alt
-                      ? goTo(host, "fillers", m)
-                      : host.run("fillers.flip", { at: m.start })
+                  : // A click selects a silence to cut, ⇧-click those back to the last one selected, ⌘-click one more (or one fewer).
+                    host.run("silences.select", { at: (m.start + m.end) / 2, add: meta, through: shift && !meta })
               }
             />
           </div>

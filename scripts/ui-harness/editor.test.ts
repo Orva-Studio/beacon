@@ -777,19 +777,19 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setSecret("openai-api-key", "sk-test");
     await ui.core.setPreference("transcriber", "openai");
     await run("panel.show", { tool: "ai" });
-    await page.until("document.querySelectorAll('[data-ai]').length === 8");
-    expect(await greyed()).toEqual([false, false, false, false, false, false, false, false]);
+    await page.until("document.querySelectorAll('[data-ai]').length === 7");
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
     await offline(true);
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // B-roll's prompt and a motion graphic's words can be typed: they need no transcript. Camera angles and Music are online.
-    expect(await greyed()).toEqual([true, true, true, false, true, false, true, true]);
+    expect(await greyed()).toEqual([true, true, false, true, false, true, true]);
     expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
     await page.until("!document.querySelector('[data-ai-offline]')");
     // So do adding B-roll and Apple's planner: only making its footage (and OpenAI's planner) needs the internet.
-    expect(await greyed()).toEqual([false, false, false, false, true, false, true, false]);
+    expect(await greyed()).toEqual([false, false, false, true, false, true, false]);
     await ui.core.setPreference("transcriber", "openai");
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // Settings says so, and offers the others; the speech model can't be downloaded.
@@ -807,7 +807,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await ui.core.setPreference("transcriber", "openai");
     await offline(false);
     await page.until("!document.querySelector('[data-ai-offline]')");
-    expect(await greyed()).toEqual([false, false, false, false, false, false, false, false]);
+    expect(await greyed()).toEqual([false, false, false, false, false, false, false]);
   } finally {
     await offline(false);
     await ui.core.setSecret("openai-api-key", null);
@@ -943,7 +943,7 @@ test.skipIf(skip)("dragging a linked clip draws the clips linked to it at the sa
   await run("timeline.zoom", { to: "fit" });
 });
 
-test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a list; its Import tile imports", async () => {
+test.skipIf(skip)("the Media Bin searches, filters by kind (Takes: the recordings alone), sorts and shows a list; its Import tile imports", async () => {
   await run("panel.show", { tool: "media" });
   await page.until("!!document.querySelector('[data-media-bin]')");
   const shown = () => page.evaluate<number>("document.querySelectorAll('[data-media-bin] [data-asset]').length");
@@ -952,6 +952,13 @@ test.skipIf(skip)("the Media Bin searches, filters by kind, sorts and shows a li
   await page.evaluate("document.querySelector('[data-bin-kind=image]').click()");
   await Bun.sleep(200);
   expect(await shown()).toBe(Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "image").length);
+  // Takes: the user's recordings alone, each one item.
+  await page.evaluate("document.querySelector('[data-bin-kind=recording]').click()");
+  await Bun.sleep(200);
+  const recordings = Object.values(ui.core.doc(ui.handle).assets).filter((a) => a.kind === "recording").length;
+  expect(recordings).toBeGreaterThan(0);
+  expect(await shown()).toBe(recordings);
+  expect(await page.evaluate<string>("document.querySelector('[data-bin-kind=recording]').textContent")).toBe("Takes");
   await page.evaluate("document.querySelector('[data-bin-kind=all]').click()");
   await page.click(...(await centre("[data-bin-search]")));
   await type("zzz-no-such-media");
@@ -1639,7 +1646,7 @@ test.skipIf(skip)("a click selects a panel's tile; a double-click applies it to 
   await page.until(`!!document.querySelector('${tile("audio:fade-out")}')`);
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:pixelate", "annotation:highlight"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:highlight"]);
   expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
   // A click selects it, adding nothing; no star.
   const before = clips().length;
@@ -1970,7 +1977,8 @@ test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Ret
   await page.key(":", "Semicolon", ["shift"]);
   await page.until("!!document.querySelector('[data-leader]')");
   const shown = await page.evaluate<string[]>("[...document.querySelectorAll('[data-leader-next]')].map((e) => e.textContent)");
-  for (const s of ["RRemove Retakes…", "GMotion Graphic", "BB-roll", "KCaptions", "NAdd Rectangle", "FRemove Filler Words…"]) expect(shown).toContain(s);
+  for (const s of ["RRemove Retakes…", "GMotion Graphic", "BB-roll", "KCaptions", "NAdd Rectangle"]) expect(shown).toContain(s);
+  expect(shown.some((s) => s.includes("Filler"))).toBe(false);
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-leader]')");
 
@@ -1997,7 +2005,6 @@ test.skipIf(skip)("the leader key's AI tools and Rectangle: : r opens Remove Ret
 test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do by name or description: annotations at the playhead, effects on the selected clips, AI tools' reviews; what is used most and lately first; its key can be changed", async () => {
   const open = () => page.until("!!document.querySelector('[data-palette]')");
   const shown = () => page.evaluate<string[]>("[...document.querySelectorAll('[data-entry]')].map((e) => e.dataset.entry)");
-  const clear = () => page.evaluate("(() => { const i = document.querySelector('[data-palette-search]'); i.select(); document.execCommand('delete'); })()");
   await page.key("k", "KeyK", ["meta"]);
   await open();
   // What has been used first, most and lately first; then every annotation, effect and AI tool, and nothing else.
@@ -2006,7 +2013,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all.slice(0, used.length)).toEqual(used);
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
-  const tools = ["ai:silences", "ai:fillers", "ai:retakes", "ai:broll", "ai:angles", "ai:motion", "ai:music", "ai:captions"];
+  const tools = ["ai:silences", "ai:retakes", "ai:broll", "ai:angles", "ai:motion", "ai:music", "ai:captions"];
   expect(all.at(-1)).toBe("agent:ask");
   expect(all.slice(-tools.filter((t) => !used.includes(t)).length - 1, -1)).toEqual(tools.filter((t) => !used.includes(t)));
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
@@ -2038,9 +2045,6 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   await page.key("k", "KeyK", ["meta"]);
   await open();
   await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'effect:drop-shadow'");
-  await type("um");
-  await page.until("[...document.querySelectorAll('[data-entry]')].some((e) => e.dataset.entry === 'ai:fillers')");
-  await clear();
   await type("pauses");
   await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'ai:silences'");
   await page.key("Escape", "Escape");
@@ -2076,7 +2080,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
 
 test.skipIf(skip)("Settings › Memory: what was learned per format with its evidence, each forgotten on its own; sentences added in the window; an agent's proposal accepted; learning turned off and on", async () => {
   const now = Date.now();
-  const decided = (project: string) => ({ rule: "filler:um", choice: "keep", flipped: true, format: "long", project, at: now });
+  const decided = (project: string) => ({ rule: "retake", choice: "first", flipped: true, format: "long", project, at: now });
   const decisions = join(ui.core.configDir, "decisions.json");
   writeFileSync(decisions, JSON.stringify(["a", "a", "a", "b", "b"].map(decided)));
   try {
@@ -2084,10 +2088,10 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await page.until("!!document.querySelector('[data-memory]')");
     // Opened before this test wrote the decisions, the window hears of them with the next change; any change will do.
     await ui.core.memoryChange({ learning: true });
-    await page.until(`!!document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"]')`);
-    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habit="filler:um"]').textContent`)).toContain('Remove Filler Words keeps "um"5 of your 5 choices');
+    await page.until(`!!document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="retake"]')`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habit="retake"]').textContent`)).toContain("Remove Retakes keeps the first take of a line said again5 of your 5 choices");
     // Shorts have none of their own: every format's, said so.
-    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habits="Shorts"] [data-memory-habit="filler:um"]').textContent`)).toContain("from every kind of video");
+    expect(await page.evaluate<string>(`document.querySelector('[data-memory-habits="Shorts"] [data-memory-habit="retake"]').textContent`)).toContain("from every kind of video");
     // A sentence typed in.
     await page.click(...(await centre("[data-memory-add] input")));
     await type("No B-roll in the intro");
@@ -2118,7 +2122,7 @@ test.skipIf(skip)("Settings › Memory: what was learned per format with its evi
     await ui.core.memoryChange({ learning: true });
     await page.until("document.querySelectorAll('[data-memory-sentence]').length === 3");
     // Forget: the habit's decisions go.
-    await page.evaluate(`document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="filler:um"] [data-memory-forget]').click()`);
+    await page.evaluate(`document.querySelector('[data-memory-habits="Long videos"] [data-memory-habit="retake"] [data-memory-forget]').click()`);
     await page.until("!document.querySelector('[data-memory-habit]')");
     expect((await ui.core.memory()).decisions).toBe(0);
     // Learning off hides what was learned.
@@ -4265,117 +4269,6 @@ test.skipIf(skip)("a review's Apply and Cancel by their keys, shown on the butto
   await run("panel.show", { tool: null });
 }, 120_000);
 
-test.skipIf(skip)("Remove Filler Words reviews on the timeline: each filler marked, a click keeps one, Apply cuts the rest in one undo step; one at a time, Cut This One cuts only one; Cancel cuts nothing; one review at a time", async () => {
-  // The fixtures' transcripts have no fillers: a copy of the talk with its real transcript, a few words made fillers,
-  // in a cache of its own.
-  type Transcript = { streams: Record<number, { words: { text: string }[] }> };
-  const talk = await ui.core.import(ui.handle, [join(FIXTURES, "audio.m4a")]);
-  let transcript: Transcript | undefined;
-  for (const end = Date.now() + 120_000; !(transcript = ui.core.derived<Transcript>(ui.handle, talk.assets[0]!, "transcript")) && Date.now() < end; ) await Bun.sleep(250);
-  await ui.core.undo(ui.handle);
-  const cacheDir = join(dir, "fillers-cache");
-  const core = new LocalCore({ cacheDir });
-  const path = join(dir, "fillers.beproj");
-  const h = await core.create({ path });
-  const copy = join(dir, `talk-${Date.now()}.m4a`);
-  copyFileSync(join(FIXTURES, "audio.m4a"), copy);
-  const { assets } = await core.import(h, [copy]);
-  const asset = core.doc(h).assets[assets[0]!]!;
-  await core.close(h);
-  const edited = structuredClone(transcript!);
-  for (const [i, text] of [[30, "Um,"], [90, "uh,"], [91, "uh"], [150, "Hmm."]] as const) edited.streams[0]!.words[i]!.text = text;
-  mkdirSync(join(cacheDir, "derived"), { recursive: true });
-  writeFileSync(new DerivedData(core.registry, cacheDir, () => ({}) as never).cacheFile(asset, core.registry.jobAnalyzers.get("transcript")!), JSON.stringify(edited));
-  const other = await serveUi(path, { cacheDir });
-  const p = await openPage(other.url);
-  try {
-    const go = (command: string, args: unknown = {}) => other.core.run(other.handle, command, args);
-    const review = async () => ((await other.core.session(other.handle)).features.transcript as { fillers?: { flipped: number[] }; silences?: object } | undefined);
-    type Found = { fillers: { start: number; end: number; text: string; cut: boolean }[]; saved: number };
-    const found = async () => (await other.core.query(other.handle, "transcript.fillers", (await review())?.fillers ?? {})) as Found;
-    await go("panel.show", { tool: "ai" });
-    await p.until("!!document.querySelector('[data-ai=fillers]')");
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-filler-review]')");
-    await p.until("/shorter\\.$/.test(document.querySelector('[data-fillers-summary]')?.textContent ?? '')", 30_000);
-    const first = await found();
-    expect(first.fillers.map((f) => f.text)).toEqual(["Um,", "uh, uh", "Hmm."]);
-    expect(await p.evaluate<string>("document.querySelector('[data-fillers-summary]').textContent")).toStartWith("3 filler words: 3 to cut, 0 kept.");
-    // The second filler, shown wide and clicked in the middle of its mark: kept now.
-    const target = first.fillers[1]!;
-    await go("timeline.view", { start: target.start - 2, end: target.end + 2 });
-    const s = await other.core.session(other.handle);
-    const box = await p.evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('canvas[data-timeline]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
-    const header = headerWidth(other.core.doc(other.handle).tracks);
-    const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-    await p.click(xAt((target.start + target.end) / 2), box.y + box.h - 20);
-    for (let i = 0; i < 50 && !(await review())?.fillers?.flipped.length; i++) await Bun.sleep(50);
-    const flipped = await found();
-    expect(flipped.fillers.map((f) => f.cut)).toEqual([true, false, true]);
-    await p.until("(document.querySelector('[data-fillers-summary]')?.textContent ?? '').startsWith('3 filler words: 2 to cut, 1 kept.')");
-    const length = () => ticksToSeconds(projectDuration(other.core.doc(other.handle)));
-    const before = length();
-    const undo = (await other.core.history(other.handle)).undo.length;
-    await p.evaluate("document.querySelector('[data-fillers-apply]').click()");
-    await p.until("!document.querySelector('[data-filler-review]')");
-    await arrived(() => length() < before);
-    expect(before - length()).toBeCloseTo(flipped.saved, 2);
-    expect((await other.core.history(other.handle)).undo.length - undo).toBe(1);
-    expect((await review())?.fillers).toBeUndefined();
-    // What was cut is gone from the transcript; the kept one is still there.
-    const left = ((await other.core.query(other.handle, "transcript.get", { format: "words" })) as { text: string }[]).map((w) => w.text);
-    expect([left.includes("Um,"), left.includes("Hmm."), left.filter((t) => t.startsWith("uh")).length]).toEqual([false, false, 2]);
-    await other.core.undo(other.handle);
-    expect(length()).toBeCloseTo(before, 3);
-    // One at a time: › goes to the first, ⌥-click on the last's mark goes to it, ‹ steps back; Cut This One cuts only
-    // that one, one undo step, and the review stays open on the next.
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-one-next]')");
-    const at = () => p.evaluate<string>("document.querySelector('[data-one-at]')?.textContent ?? ''");
-    await p.evaluate("document.querySelector('[data-one-next]').click()");
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('1 of 3')");
-    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Um,”");
-    expect((await other.core.session(other.handle)).playhead).toBeCloseTo(Math.max(0, first.fillers[0]!.start - 1), 1);
-    const last = first.fillers[2]!;
-    await go("timeline.view", { start: last.start - 2, end: last.end + 2 });
-    const s2 = await other.core.session(other.handle);
-    const xAt2 = (t: number) => box.x + header + ((t - s2.timeline.start) / (s2.timeline.end - s2.timeline.start)) * (box.w - header);
-    await p.click(xAt2((last.start + last.end) / 2), box.y + box.h - 20, ["alt"]);
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('3 of 3')");
-    expect((await review())?.fillers?.flipped).toEqual([]);
-    await p.evaluate("document.querySelector('[data-one-prev]').click()");
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 3')");
-    const second = first.fillers[1]!;
-    const steps = (await other.core.history(other.handle)).undo.length;
-    await p.evaluate("document.querySelector('[data-one-cut]').click()");
-    await arrived(() => length() < before);
-    expect(before - length()).toBeCloseTo(second.end - second.start, 1);
-    expect((await other.core.history(other.handle)).undo.length - steps).toBe(1);
-    await p.until("(document.querySelector('[data-one-at]')?.textContent ?? '').endsWith('2 of 2')");
-    expect(await at()).toEndWith("2 of 2");
-    expect(await p.evaluate<string>("document.querySelector('[data-one-item]').textContent")).toContain("“Hmm.”");
-    expect(await p.evaluate<boolean>("!!document.querySelector('[data-filler-review]')")).toBe(true);
-    await other.core.undo(other.handle);
-    expect(length()).toBeCloseTo(before, 3);
-    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
-    await p.until("!document.querySelector('[data-filler-review]')");
-    // Opened again: Remove Silences replaces it in the properties panel, and Cancel cuts nothing.
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-fillers-cancel]')");
-    await p.evaluate("document.querySelector('[data-ai=silences]').click()");
-    await p.until("!!document.querySelector('[data-silence-review]') && !document.querySelector('[data-filler-review]')");
-    expect((await review())?.fillers).toBeUndefined();
-    await p.evaluate("document.querySelector('[data-ai=fillers]').click()");
-    await p.until("!!document.querySelector('[data-fillers-cancel]') && !document.querySelector('[data-silence-review]')");
-    await p.evaluate("document.querySelector('[data-fillers-cancel]').click()");
-    await p.until("!document.querySelector('[data-filler-review]')");
-    expect(length()).toBeCloseTo(before, 3);
-  } finally {
-    p.close();
-    await other.close();
-  }
-}, 180_000);
-
 test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the kept one green; a click picks a line (or the list does), another keeps a take; Cut All keeps none; the takes listed with play; OpenAI's picks, or why it couldn't; Apply cuts in one undo step", async () => {
   // The talk's real audio under a transcript that restarts two lines, in a cache of its own.
   const cacheDir = join(dir, "retakes-cache");
@@ -4710,7 +4603,7 @@ test.skipIf(skip)("Captions makes caption clips from the transcript and shows th
   await run("panel.show", { tool: null });
 }, 150_000);
 
-test.skipIf(skip)("Dynamic Captions: a look from the Look menu, a word clicked into a keyword, word-by-word reveal and a decoration from the Words and Keywords rows, each one undo step", async () => {
+test.skipIf(skip)("Dynamic Captions: a look from the Look menu (which then shows it, until a setting changes), a word clicked into a keyword, word-by-word reveal and a decoration from the Words and Keywords rows, each one undo step", async () => {
   await select([]);
   for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
   const undo = async () => (await ui.core.history(ui.handle)).undo.length;
@@ -4720,13 +4613,23 @@ test.skipIf(skip)("Dynamic Captions: a look from the Look menu, a word clicked i
   await select([first]);
   await run("inspector.tab", { tab: "caption" });
   await page.until("!!document.querySelector('[data-caption-preset]')");
+  // No Make Headline or Find Headlines (the user saw no use in them).
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-caption-headline], [data-caption-find-headlines]')")).toBe(false);
   const style = () => ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === first))!.props!.captionStyle as { reveal: string; enter: string; uppercase: boolean; emphasis: { decoration: string } };
   const choose = (sel: string, value: string) => page.evaluate(`(() => { const s = document.querySelector('${sel}'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   let n = await undo();
-  await choose("[data-caption-preset]", "word-pop");
+  // The Look menu is a list of pictures, each look drawn by Beacon; hovering one previews it, adding no undo step.
+  await page.click(...(await centre("[data-caption-preset]")));
+  await page.until("document.querySelectorAll('[role=listbox] [data-option-art]').length >= 8");
+  await page.hover(...(await centre("[role=listbox] [data-option=karaoke]")));
+  await Bun.sleep(200);
+  expect(await undo()).toBe(n);
+  await page.click(...(await centre("[role=listbox] [data-option=word-pop]")));
   await arrived(() => style().enter === "pop");
   expect(style()).toMatchObject({ reveal: "word", enter: "pop", uppercase: true });
   expect(await undo()).toBe(n + 1);
+  // The menu shows the look picked (it went back to "Choose a look…"), until a setting is changed from it.
+  await page.until("document.querySelector('[data-caption-preset]').dataset.value === 'word-pop'");
   // A word chip makes that word a keyword, and again a plain word.
   n = await undo();
   await page.evaluate("document.querySelector('[data-caption-word=\"1\"]').click()");
@@ -4734,8 +4637,16 @@ test.skipIf(skip)("Dynamic Captions: a look from the Look menu, a word clicked i
   await arrived(() => em() === 1);
   expect(await undo()).toBe(n + 1);
   await page.until("!!document.querySelector('[data-caption-word=\"1\"][data-em]')");
+  // Fewer settings show at first: Box and Highlight, Shadow, Words and Keywords are folded until opened.
+  for (const f of ["caption-box", "caption-shadow", "caption-words", "caption-keywords"]) expect(await page.evaluate<string>(`document.querySelector('[data-fold="${f}"]').getAttribute('aria-expanded')`)).toBe("false");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-caption-reveal]')")).toBe(false);
+  await page.click(...(await centre('[data-fold="caption-words"]')));
+  await page.until("!!document.querySelector('[data-caption-reveal]')");
   await choose("[data-caption-reveal]", "phrase");
   await arrived(() => style().reveal === "phrase");
+  await page.until("document.querySelector('[data-caption-preset]').dataset.value === ''");
+  await page.click(...(await centre('[data-fold="caption-keywords"]')));
+  await page.until("!!document.querySelector('[data-caption-decoration]')");
   await choose("[data-caption-decoration]", "ellipse");
   await arrived(() => style().emphasis.decoration === "ellipse");
   expect(await undo()).toBe(n + 3);
@@ -4744,35 +4655,19 @@ test.skipIf(skip)("Dynamic Captions: a look from the Look menu, a word clicked i
   await page.screenshot(join(dir, "dynamic-captions.png"));
   await page.evaluate("document.querySelector('[data-caption-word=\"1\"]').click()");
   await arrived(() => em() === 0);
+  // Drop Shadow on a caption turns its own shadow on, and the status line says so.
+  await select([first]);
+  await run("panel.show", { tool: "visualEffects" });
+  await page.until(`!!document.querySelector('[data-item="effect:drop-shadow"]')`);
+  await page.dblclick(...(await centre('[data-item="effect:drop-shadow"]')));
+  await page.until("(document.querySelector('[data-status]')?.textContent ?? '').includes('a shadow of their own')");
+  await run("panel.show", { tool: null });
   for (let k = (await undo()) - steps; k > 0; k--) await ui.core.undo(ui.handle);
   expect(clips().filter((c) => c.type === "caption").length).toBe(0);
   await select([]);
 }, 150_000);
 
-test.skipIf(skip)("Headlines' review lists the sentences found with their keywords; one unticked, the side changed, Apply adds the rest on a Headlines track in one undo step", async () => {
-  await select([]);
-  for (const end = Date.now() + 120_000; !((await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as unknown[]).length && Date.now() < end; ) await Bun.sleep(500);
-  const words = (await ui.core.query(ui.handle, "transcript.get", { format: "words" })) as { text: string; start: number; end: number }[];
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  const item = (a: number, b: number) => ({ from: words[a]!.start, to: words[b]!.end, text: words.slice(a, b + 1).map((w) => w.text).join(" "), keyword: words[a + 1]!.text });
-  await run("headlines.review", { items: [item(0, 5), item(10, 16), item(20, 26)] });
-  await page.until("document.querySelectorAll('[data-headline-item]').length === 3");
-  expect(await page.evaluate<string>("document.querySelector('[data-headlines-summary]').textContent")).toBe("3 headlines found: 3 ticked to add.");
-  await page.evaluate("document.querySelector('[data-headline-tick=\"1\"]').click()");
-  await page.until("document.querySelector('[data-headlines-summary]').textContent.includes('2 ticked')");
-  await page.evaluate(`(() => { const s = document.querySelector('[data-headlines-side]'); s.value = 'left'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-  await page.until("document.querySelector('[data-headlines-side]').value === 'left'");
-  await page.evaluate("document.querySelector('[data-headlines-apply]').click()");
-  const heads = () => ui.core.doc(ui.handle).tracks.find((t) => t.name === "Headlines");
-  await arrived(() => (heads()?.clips.length ?? 0) === 2);
-  expect(heads()!.props!.captionStyle).toMatchObject({ layout: "headline", anchorX: "left" });
-  expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
-  await page.until("!document.querySelector('[data-headlines-review]')");
-  await ui.core.undo(ui.handle);
-  expect(heads()).toBeUndefined();
-}, 150_000);
-
-test.skipIf(skip)("Camera Angle: the AI tile puts an Angle clip over the camera on an Angles track and shows its tab: the angle, the room photos hint, what generating costs; choosing a view is one undo step", async () => {
+test.skipIf(skip)("Camera Angle: the AI tile puts an Angle clip over the camera on an Angles track and shows its tab: the angle as blueprints (one picked is one undo step), Handheld or Locked a toggle, room photos from Add Photos…, the price on Generate", async () => {
   await select([]);
   const camera = clips().find((c) => c.type === "video")!;
   await run("playhead.set", { time: ticksToSeconds(camera.start) + 0.5 });
@@ -4785,13 +4680,32 @@ test.skipIf(skip)("Camera Angle: the AI tile puts an Angle clip over the camera 
   expect(track.name).toBe("Angles");
   expect(ticksToSeconds(angle()!.duration)).toBeLessThanOrEqual(3);
   await page.until("!!document.querySelector('[data-angle-view]')");
-  expect(await page.evaluate<string>("document.querySelector('[data-angle-room-hint]').textContent")).toContain("Add photos of the room from this side for a truer set");
-  await page.until("!!document.querySelector('[data-angle-cost]')");
-  expect(await page.evaluate<string>("document.querySelector('[data-angle-cost]').textContent")).toContain("Seedance 2.5");
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-room-hint]').textContent")).toContain("Optional: up to four photos of your room");
+  // The price is on Generate, no line of text above it; Handheld or Locked is a toggle.
+  await page.until("/^Generate · ~\\$\\d+\\.\\d\\d$/.test(document.querySelector('[data-angle-generate]')?.textContent ?? '')");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-angle-cost]')")).toBe(false);
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-move] [aria-checked=true]').dataset.option")).toBe("handheld");
   const steps = (await ui.core.history(ui.handle)).undo.length;
-  await page.evaluate(`(() => { const s = document.querySelector('[data-angle-view]'); s.value = 'wide'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  // The angles are a list of blueprints; one picked is one undo step.
+  await page.click(...(await centre("[data-angle-view]")));
+  await page.until("document.querySelectorAll('[role=listbox] [data-option] img').length === 6");
+  await page.click(...(await centre("[role=listbox] [data-option=wide]")));
   await arrived(() => (angle()!.props.angle as { view: string }).view === "wide");
   expect((await ui.core.history(ui.handle)).undo.length).toBe(steps + 1);
+  await page.click(...(await centre("[data-angle-move] [data-option=locked]")));
+  await arrived(() => (angle()!.props.angle as { move: string }).move === "locked");
+  // Room photos come from Add Photos… (anywhere on the Mac), never a list of the project's images; listed once added.
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-angle-photo]').length")).toBe(0);
+  const room = join(dir, "room.png");
+  writeFileSync(room, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+  ui.chooseFile(room);
+  await page.click(...(await centre("[data-angle-photo-add]")));
+  const photos = () => (ui.core.doc(ui.handle).tracks.find((t) => t.id === track.id)!.props?.angleRoom as { photos?: string[] } | undefined)?.photos ?? [];
+  await arrived(() => photos().length === 1);
+  await page.until("document.querySelectorAll('[data-angle-photo]').length === 1");
+  expect(await page.evaluate<string>("document.querySelector('[data-angle-photo]').textContent")).toContain("room");
+  await page.click(...(await centre("[data-angle-photo-remove]")));
+  await arrived(() => photos().length === 0);
   await page.screenshot(join(dir, "camera-angle.png"));
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps + 1; n > 0; n--) await ui.core.undo(ui.handle);
   expect(angle()).toBeUndefined();
@@ -5208,24 +5122,14 @@ test.skipIf(skip)("Shift-drag opens and closes time both ways, on the playhead a
   await run("timeline.zoom", { to: "fit" });
 }, 60_000);
 
-test.skipIf(skip)("Noise Removal only in Audio Effects, double-clicked with audio selected: the clip gets the effect, and its fx tab a Strength slider", async () => {
-  const steps = (await ui.core.history(ui.handle)).undo.length;
+test.skipIf(skip)("Audio Effects has no Noise Removal or Polish (Auphonic cleans everything; it still adds Polish to what comes back), and Visual Effects never had them", async () => {
   const audio = clips().find((c) => c.type === "audio")!;
   await select([audio.id]);
-  await run("panel.show", { tool: "visualEffects" });
-  await page.until(`!!document.querySelector('[data-item="effect:film-look"]')`);
-  expect(await page.evaluate<boolean>(`!!document.querySelector('[data-item="effect:noise-removal"]')`)).toBe(false);
-  await run("panel.show", { tool: "audioEffects", properties: true });
-  const tile = `[data-item="audio:noise-removal"]`;
-  await page.until(`!!document.querySelector('${tile}')`);
-  expect(await page.evaluate<string>(`document.querySelector('${tile}').innerText`)).toContain("Noise Removal");
-  await page.dblclick(...(await centre(tile)));
-  await arrived(() => clip(audio.id).effects.some((e) => e.type === "noise-removal"));
-  expect(clip(audio.id).effects.map((e) => e.type)).toContain("noise-removal");
-  await run("inspector.tab", { tab: "effects" });
-  await page.until("document.body.innerText.includes('Strength')");
-  await page.screenshot(join(dir, "noise-removal.png"));
-  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("panel.show", { tool: "audioEffects" });
+  await page.until(`!!document.querySelector('[data-item^="audio:"]')`);
+  const items = await page.evaluate<string[]>("[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)");
+  expect(items.some((i) => /noise|polish/.test(i))).toBe(false);
+  expect(items.some((i) => /auphonic/.test(i))).toBe(true);
   await run("panel.show", { tool: null });
   await select([]);
 }, 30_000);
@@ -5248,26 +5152,6 @@ test.skipIf(skip)("Mute in a clip's audio tab takes it out of the mix in one ste
   expect((clip(audio.id).props.audio as { muted?: boolean }).muted).toBe(false);
   await select([]);
 });
-
-test.skipIf(skip)("Polish in Audio Effects, double-clicked with audio selected: the clip gets it in one step, with Remove Clicks, Repair Clipping and Sibilance; again, it says it is already polished", async () => {
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  const audio = clips().find((c) => c.type === "audio")!;
-  await select([audio.id]);
-  await run("panel.show", { tool: "audioEffects", properties: true });
-  const tile = `[data-item="audio:polish"]`;
-  await page.until(`!!document.querySelector('${tile}')`);
-  await page.dblclick(...(await centre(tile)));
-  await arrived(() => clip(audio.id).effects.some((e) => e.type === "polish"));
-  expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
-  await run("inspector.tab", { tab: "effects" });
-  await page.until("['Remove Clicks', 'Repair Clipping', 'Sibilance'].every((l) => document.body.innerText.includes(l))");
-  await page.dblclick(...(await centre(tile)));
-  await page.until("document.body.innerText.includes('already polished')");
-  expect(clip(audio.id).effects.filter((e) => e.type === "polish").length).toBe(1);
-  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
-  await run("panel.show", { tool: null });
-  await select([]);
-}, 30_000);
 
 test.skipIf(skip)("Auphonic in Audio Effects opens Clean with Auphonic for the selected audio: without a key it says where to add one; with one, the user's presets (Usual-2 first), and Clean runs it as a job with a toast, the cleaned audio over the originals, which are muted", async () => {
   // Auphonic's API, standing in for the real one (which charges): it sends back what it was given.
@@ -5387,11 +5271,14 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
   let target = 0;
   const sse = (id: unknown, result: unknown) => new Response(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s" } });
   const answer = (id: unknown, data: unknown) => sse(id, { content: [{ type: "text", text: JSON.stringify({ data }) }] });
+  // Epidemic Sound's preview held back until let go, so the spinner can be seen while it is on its way.
+  let release = () => {};
+  const previewHeld = new Promise<void>((r) => (release = r));
   const fake = Bun.serve({
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
-      if (url.pathname === "/preview.mp3") return new Response(Bun.file(track));
+      if (url.pathname === "/preview.mp3") return previewHeld.then(() => new Response(Bun.file(track)));
       if (url.pathname === "/edit.mp3") {
         const out = join(dir, "music-edit.mp3");
         Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-i", track, "-t", String(target), out]);
@@ -5434,6 +5321,10 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
     expect(await page.evaluate<string>("document.querySelector('[data-music-item=rec-1]').textContent")).toContain("The Band · 0:20 · 120 BPM · happy");
     await page.evaluate("document.querySelector('[data-music-item=rec-1] [data-music-listen]').click()");
     await page.until(`document.querySelector('[data-music-review] audio')?.src === '${fake.url.origin}/preview.mp3'`);
+    // Loading until the sound plays: a spinner on its Listen button, gone once it comes.
+    await page.until("!!document.querySelector('[data-music-item=rec-1] [data-music-loading]')");
+    release();
+    await page.until("!document.querySelector('[data-music-loading]')", 10_000);
     await page.evaluate("document.querySelector('[data-music-item=rec-1]').click()");
     await page.until("document.querySelector('[data-music-item=rec-1]')?.getAttribute('aria-selected') === 'true'");
     expect(await page.evaluate<string>("document.querySelector('[data-music-where]').textContent")).toContain("Over the range, 0:01–0:07 (0:06): re-cut by Epidemic Sound to fit");
@@ -5461,7 +5352,7 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
   }
 }, 60_000);
 
-test.skipIf(skip)("Pop-ins in the Music panel: each picture coming onto the picture listed and marked, a pop picked by itself (changeable), one left out, and Apply puts the sounds on an SFX track, one undo step", async () => {
+test.skipIf(skip)("Pop-ins, from Sound Effects' Sounds for my graphics… (no tab of their own): each picture coming onto the picture listed and marked, a pop picked by itself (changeable), one left out, and Apply puts the sounds on an SFX track, one undo step", async () => {
   const wav = join(dir, "pop.wav");
   const pcm = Float32Array.from({ length: 0.4 * 48000 }, (_, i) => 0.3 * Math.sin((2 * Math.PI * 880 * i) / 48000));
   Bun.spawnSync([tool("ffmpeg"), "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "1", "-i", "pipe:0", wav], { stdin: new Uint8Array(pcm.buffer) });
@@ -5495,8 +5386,12 @@ test.skipIf(skip)("Pop-ins in the Music panel: each picture coming onto the pict
     const one = (await ui.core.import(ui.handle, [png], { at: 3 })).clips[0]!;
     const two = (await ui.core.import(ui.handle, [png], { at: 8 })).clips[0]!;
     const steps2 = (await ui.core.history(ui.handle)).undo.length;
-    await run("music.review", { tab: "popins" });
+    // Not a tab of its own: Sound Effects' Sounds for my graphics… button opens it.
+    await run("music.review", { tab: "sfx" });
     await run("panel.show", { properties: true });
+    await page.until("!!document.querySelector('[data-music-popins]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-tab]').innerText")).not.toContain("Pop-ins");
+    await page.click(...(await centre("[data-music-popins]")));
     await page.until("!!document.querySelector('[data-popins]')");
     await page.until(`document.querySelectorAll('[data-popin]').length === 2`);
     // The first "pop" found is picked by itself; the Change list offers the rest.
@@ -5728,7 +5623,7 @@ test.skipIf(skip)("an effect folded on a clip stays folded after selecting somet
   }
 }, 30_000);
 
-test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monitor: its tile adds it; shot, corner and move are lists of blueprints, room, screen and focus are toggles; Focus X and Y show only for a focus point, a choice is one undo step (a blueprint hovered is none), and Zoom's slider at its end is 4 exactly", async () => {
+test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monitor: its tile adds it; shot and corner are lists of blueprints (no Move: the clip's transform moves the camera), room, screen and focus are toggles; Focus X and Y show only for a focus point, a choice is one undo step (a blueprint hovered is none), and Zoom's slider at its end is 4 exactly", async () => {
   const MON = "effect:device-frame";
   const steps = (await ui.core.history(ui.handle)).undo.length;
   try {
@@ -5741,7 +5636,7 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
     await run("panel.show", { tool: null });
     await run("inspector.tab", { tab: "effects" });
     await page.until("!!document.querySelector('[data-effect-param=screen]')");
-    for (const k of ["shot", "corner", "room", "move", "screen", "focus"]) expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}]')`)).toBe(true);
+    for (const k of ["shot", "corner", "room", "screen", "focus"]) expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}]')`)).toBe(true);
     const labels = () => page.evaluate<string>("document.querySelector('[data-effects]')?.innerText ?? document.body.innerText");
     expect(await labels()).not.toContain("Focus X");
     const before = (await ui.core.history(ui.handle)).undo.length;
@@ -5754,7 +5649,8 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
     await page.click(...(await centre("[data-effect-param=focus] [data-option=point]")));
     await page.until("document.body.innerText.includes('Focus X')");
     // The shots are a list of blueprints, each a picture under its name; hovering one previews it, picking it is one step.
-    for (const [k, n] of [["shot", 8], ["corner", 4], ["move", 3]] as const) {
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-effect-param=move]')")).toBe(false);
+    for (const [k, n] of [["shot", 8], ["corner", 4]] as const) {
       expect(await page.evaluate<boolean>(`!!document.querySelector('[data-effect-param=${k}] img[src^="data:image/svg+xml"]')`)).toBe(true);
       await page.click(...(await centre(`[data-effect-param=${k}]`)));
       await page.until(`document.querySelectorAll('[role=listbox] [data-option] img').length === ${n}`);
@@ -5773,7 +5669,7 @@ test.skipIf(skip)("Monitor (Visual Effects) puts the screen recording on a monit
     expect((await ui.core.history(ui.handle)).undo.length).toBe(picked + 1);
     // Corner and room are for head on only.
     await page.until("!document.querySelector('[data-effect-param=corner]') && !document.querySelector('[data-effect-param=room]')");
-    // Zoom's slider starts at 1.2: past its right end it is 4 exactly (its steps once counted from 0 made it 4.004,
+    // Zoom's slider starts at 0.8: past its right end it is 4 exactly (its steps once counted from 0 made it 4.004,
     // which the project refused, and the canvas went black).
     const zoomSlider = `(() => { const hit = [...document.querySelectorAll('[data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Zoom') return true; return false; }); hit.scrollIntoView({ block: 'center' }); const b = hit.getBoundingClientRect(); return { x: b.x + b.width - 2, y: b.y + b.height / 2 }; })()`;
     const z = await page.evaluate<{ x: number; y: number }>(zoomSlider);

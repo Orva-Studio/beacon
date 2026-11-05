@@ -22,6 +22,8 @@ const KINDS: [BinKind, string][] = [
   ["video", "Video"],
   ["audio", "Audio"],
   ["image", "Images"],
+  // The user's own recordings (screen, camera and mic, each one item), short to fit beside the others.
+  ["recording", "Takes"],
 ];
 
 /** Recordings are video too. */

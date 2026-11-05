@@ -7,6 +7,9 @@ enablePatches();
 
 export type { Patch };
 
+/** A document with a command's patches applied (its dry run's), as a copy: the original is untouched. */
+export const withPatches = (doc: Project, patches: Patch[]): Project => applyPatches(doc, patches);
+
 export class CommandError extends Error {
   constructor(readonly command: string, message: string) {
     super(`${command}: ${message}`);
@@ -23,6 +26,8 @@ export interface CommandResult {
   /** One readable line per patch, for agents and logs. */
   diff: string[];
   dryRun: boolean;
+  /** An action's word to the user, done (its plan's `note`). */
+  note?: string;
 }
 
 export interface HistoryEntry {

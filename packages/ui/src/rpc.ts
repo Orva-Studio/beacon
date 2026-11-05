@@ -28,11 +28,8 @@ export interface TaskJob {
 }
 
 /** An effect's params shown on the canvas without an edit. */
-export interface EffectPreview {
-  clip: string;
-  effect: string;
-  params: Record<string, unknown>;
-}
+/** What the canvas previews under the pointer: an effect with other params, or what a command would do (a caption look). */
+export type EffectPreview = { clip: string; effect: string; params: Record<string, unknown> } | { command: string; args: unknown };
 
 export interface Binding {
   keys: Keys;
@@ -117,6 +114,8 @@ export interface Shown {
 export interface RunReply {
   ok: boolean;
   error?: string;
+  /** What a done action says to the user (its plan's `note`), for the status line. */
+  note?: string;
 }
 
 /** A file dropped from Finder, as the webview sees it: no path, unless WebKit gives its URL. */

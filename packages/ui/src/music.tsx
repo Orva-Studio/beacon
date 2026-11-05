@@ -56,6 +56,8 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
   const [found, setFound] = useState<{ items: Item[]; total?: number; next?: string } | { error: string }>();
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState<string>();
+  // Pressed but not sounding yet (Epidemic Sound's preview on its way): a spinner until it plays.
+  const [loading, setLoading] = useState<string>();
   const audio = useRef<HTMLAudioElement>(null);
   const settingsOpen = useView((v) => !!v.settings);
 
@@ -81,10 +83,12 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
     if (playing === item.id) {
       el.pause();
       setPlaying(undefined);
+      setLoading(undefined);
       return;
     }
     el.src = item.preview;
-    void el.play().catch(() => setPlaying(undefined));
+    setLoading(item.id);
+    void el.play().catch(() => (setPlaying(undefined), setLoading(undefined)));
     setPlaying(item.id);
   };
   const pick = (item: Item) => {
@@ -97,24 +101,35 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
 
   return (
     <div className="panel-card flex w-[320px] shrink-0 flex-col overflow-hidden p-4 text-body" data-music-review>
-      <audio ref={audio} onEnded={() => setPlaying(undefined)} />
+      <audio ref={audio} onEnded={() => setPlaying(undefined)} onPlaying={() => setLoading(undefined)} onError={() => (setPlaying(undefined), setLoading(undefined))} />
       <div className="mb-3 flex flex-col items-start gap-2">
-        <span className="text-title font-semibold text-text-strong">{music ? "Music" : review.tab === "sfx" ? "Sound Effects" : "Pop-ins"}</span>
+        <span className="text-title font-semibold text-text-strong">{music ? "Music" : "Sound Effects"}</span>
         <Segmented
-          value={review.tab}
+          value={review.tab === "popins" ? "sfx" : review.tab}
           onChange={(tab) => set({ tab })}
           options={[
             { value: "music", label: "Music", icon: <Icon name="music-note" size={16} /> },
             { value: "sfx", label: "Sound Effects", icon: <Icon name="waveform" size={16} /> },
-            { value: "popins", label: "Pop-ins", icon: <Icon name="sparkle" size={16} /> },
           ]}
           data-music-tab
         />
       </div>
       {review.tab === "popins" ? (
-        <PopIns review={review} found={popIns} host={host} set={set} listen={listen} playing={playing} />
+        <>
+          <Button look="quiet" title="Back to searching sound effects" onClick={() => set({ tab: "sfx" })} data-music-popins-back>
+            ‹ Search sound effects
+          </Button>
+          <PopIns review={review} found={popIns} host={host} set={set} listen={listen} playing={playing} loading={loading} />
+        </>
       ) : (
         <>
+          {!music && (
+            <div className="mb-3">
+              <Button title="A whoosh or pop as each motion graphic, B-roll clip, screenshot and logo comes on, all at once" onClick={() => set({ tab: "popins" })} data-music-popins>
+                Sounds for my graphics…
+              </Button>
+            </div>
+          )}
           <form
             className="mb-3 flex gap-2"
             onSubmit={(e) => {
@@ -159,7 +174,7 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
                       }}
                       data-music-listen
                     >
-                      <Icon name={playing === item.id ? "pause" : "play"} size={14} filled />
+                      <PlayIcon on={playing === item.id} loading={loading === item.id} size={14} />
                     </button>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-text-strong" title={item.title}>
@@ -249,6 +264,7 @@ function PopIns({
   set,
   listen,
   playing,
+  loading,
 }: {
   review: MusicReview;
   found: PopIn[] | undefined;
@@ -256,12 +272,13 @@ function PopIns({
   set: (s: { popSound?: { kind: PopKind; pick: { id: string; title: string; ms: number } }; popOff?: { clip: string; off: boolean } }) => void;
   listen: (item: { id: string; preview: string }) => void;
   playing: string | undefined;
+  loading: string | undefined;
 }) {
   const kinds = (["motion", "picture"] as const).filter((k) => found?.some((p) => p.kind === k));
   return (
     <div className="-mx-1 mb-3 min-h-0 flex-1 overflow-y-auto px-1" data-popins>
       {kinds.map((kind) => (
-        <PopSound key={kind} kind={kind} pick={review.pops.sounds[kind]} host={host} choose={(pick) => set({ popSound: { kind, pick } })} listen={listen} playing={playing} />
+        <PopSound key={kind} kind={kind} pick={review.pops.sounds[kind]} host={host} choose={(pick) => set({ popSound: { kind, pick } })} listen={listen} playing={playing} loading={loading} />
       ))}
       {found?.map((p) => {
         const off = review.pops.off.includes(p.clip);
@@ -288,6 +305,7 @@ function PopSound({
   choose,
   listen,
   playing,
+  loading,
 }: {
   kind: PopKind;
   pick: { id: string; title: string; ms: number } | undefined;
@@ -295,6 +313,7 @@ function PopSound({
   choose: (pick: { id: string; title: string; ms: number }) => void;
   listen: (item: { id: string; preview: string }) => void;
   playing: string | undefined;
+  loading: string | undefined;
 }) {
   const [term, setTerm] = useState(POP_TERMS[kind]);
   const [found, setFound] = useState<SoundEffect[] | { error: string }>();
@@ -325,7 +344,7 @@ function PopSound({
         <div className="flex items-center gap-2">
           {shown && (
             <button className="shrink-0 rounded-full bg-control p-1.5 text-text-strong hover:bg-tile-hover" title={playing === shown.id ? "Stop" : "Listen"} onClick={() => listen(shown)}>
-              <Icon name={playing === shown.id ? "pause" : "play"} size={12} filled />
+              <PlayIcon on={playing === shown.id} loading={loading === shown.id} size={12} />
             </button>
           )}
           <span className="min-w-0 flex-1 truncate text-text-strong" data-pop-pick>
@@ -368,7 +387,7 @@ function PopSound({
                     listen(f);
                   }}
                 >
-                  <Icon name={playing === f.id ? "pause" : "play"} size={12} filled />
+                  <PlayIcon on={playing === f.id} loading={loading === f.id} size={12} />
                 </button>
                 <span className="min-w-0 flex-1 truncate">{f.title}</span>
                 <span className="shrink-0 text-caption text-text-faint">{length(f.ms)}</span>
@@ -378,4 +397,10 @@ function PopSound({
       )}
     </div>
   );
+}
+
+/** Listen's icon: play, pause while it sounds, a spinner while its sound is still on its way. */
+function PlayIcon({ on, loading, size }: { on: boolean; loading: boolean; size: number }) {
+  if (loading) return <span className="block animate-spin rounded-full border-2 border-text-strong border-t-transparent" style={{ width: size, height: size }} data-music-loading />;
+  return <Icon name={on ? "pause" : "play"} size={size} filled />;
 }

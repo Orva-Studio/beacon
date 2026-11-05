@@ -97,7 +97,7 @@ export function MemorySettings({ host }: { host: MemoryHost }) {
       <div className="flex flex-col gap-1">
         <Check label="Learn from my reviews" checked={memory.learning} onChange={(learning) => host.memoryChange({ learning })} data-memory-learning />
         <div className="text-label text-text-faint">
-          What you cut and keep in Remove Silences, Filler Words and Retakes, kept on this Mac. A review opens your way once you have made the same choice about 5 times over 2 projects, and says why.
+          What you cut and keep in Remove Silences and Retakes, kept on this Mac. A review opens your way once you have made the same choice about 5 times over 2 projects, and says why.
         </div>
       </div>
       {memory.learning && (

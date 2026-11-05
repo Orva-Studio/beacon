@@ -29,12 +29,7 @@ import { textLayout, type TextLine } from "@beacon/media";
 import { timelineWords, type TimelineWord } from "../transcript";
 import { dynamicDefaults, dynamicFields, dynamicGeometry, emphasisSchema, evaluateDynamic, isDynamic, WordSchema, type CaptionWord } from "./dynamic";
 import { PRESETS } from "./presets";
-import { planHeadlines, type HeadlineIdea } from "./headlines";
 
-/** Who picks headlines: the planner motion graphics use (Settings › AI). */
-const PLANNER = "motionPlanner";
-const WHO: Record<string, string> = { openai: "OpenAI", claude: "Claude", apple: "Apple's on-device model" };
-const HEADLINES = "Headlines";
 
 /** What a caption says: its words, timed in its own media seconds (`mediaStart` onwards), so trims and cuts keep them in step. */
 const captionSchema = z.strictObject({ words: z.array(WordSchema) });
@@ -372,60 +367,6 @@ export function srt(project: Project, from = 0, to = Infinity, speed = 1): strin
     .join("\n");
 }
 
-/** Headlines' review (headlines.plan): the sentences picked, each ticked or left out, the side and look they take. */
-export interface HeadlineReview {
-  planning: boolean;
-  items: HeadlineIdea[];
-  side: "left" | "center" | "right";
-  preset: "editorial-headline" | "headline" | "headline-glow";
-  error?: string;
-}
-export const headlineReview = (s: Session) => (s.features.captions as { headlines?: HeadlineReview } | undefined)?.headlines;
-
-const Idea = z.strictObject({ from: z.number(), to: z.number(), text: z.string(), keyword: z.string(), off: z.boolean().optional() });
-
-const sessionCommands: SessionCommandDef[] = [
-  {
-    id: "headlines.review",
-    description:
-      "Open the Headlines review in place of the properties panel, or change it: the `items` it shows (from headlines.plan: each sentence's span in timeline seconds, its text and keyword), one left out or put back (`off`: its index and whether it is off), its `keyword` changed (`keyword`: index and words from its sentence), the `side` they sit on (left, center across the top, right), and their `preset` look (editorial-headline, headline or headline-glow). The user adds the ticked ones (Apply, ↩: headlines.apply)",
-    args: z.strictObject({
-      items: z.array(Idea).optional(),
-      planning: z.boolean().optional(),
-      error: z.string().nullable().optional(),
-      off: z.strictObject({ index: z.int().nonnegative(), off: z.boolean() }).optional(),
-      keyword: z.strictObject({ index: z.int().nonnegative(), keyword: z.string() }).optional(),
-      side: z.enum(["left", "center", "right"]).optional(),
-      preset: z.enum(["editorial-headline", "headline", "headline-glow"]).optional(),
-    }),
-    apply: (s, a: { items?: HeadlineIdea[]; planning?: boolean; error?: string | null; off?: { index: number; off: boolean }; keyword?: { index: number; keyword: string }; side?: "left" | "center" | "right"; preset?: "editorial-headline" | "headline" | "headline-glow" }) => {
-      const was = headlineReview(s) ?? { planning: false, items: [], side: "center", preset: "editorial-headline" };
-      const next: HeadlineReview = { ...was, items: (a.items ?? was.items).map((i) => ({ ...i })) };
-      if (a.planning !== undefined) next.planning = a.planning;
-      if (a.side) next.side = a.side;
-      if (a.preset) next.preset = a.preset;
-      if (a.error === null) delete next.error;
-      else if (a.error) next.error = a.error;
-      const item = (i: number) => next.items[i] ?? fail(`there is no headline ${i}: the review has ${next.items.length}`);
-      if (a.off) {
-        if (a.off.off) item(a.off.index).off = true;
-        else delete item(a.off.index).off;
-      }
-      if (a.keyword) item(a.keyword.index).keyword = a.keyword.keyword;
-      s.features.captions = { ...(s.features.captions as object | undefined), headlines: next };
-    },
-  },
-  {
-    id: "headlines.close",
-    description: "Close the Headlines review without adding anything",
-    args: z.strictObject({}),
-    apply: (s) => {
-      const c = s.features.captions as { headlines?: HeadlineReview } | undefined;
-      if (c) delete c.headlines;
-    },
-  },
-];
-
 const fail = (message: string): never => {
   throw new Error(message);
 };
@@ -449,8 +390,6 @@ export const captions = defineFeature({
     }
     return out;
   },
-  sessionCommands,
-  panels: [{ open: (s) => !!headlineReview(s), cancel: "headlines.close", apply: { action: "headlines.apply" } }],
   migrations: [
     { version: 2, migrate: anchors },
     { version: 3, migrate: styleOnTrack },
@@ -465,7 +404,9 @@ export const captions = defineFeature({
       traits: ["caption"],
       // Captions draw their track's shadow, not an effect per caption: Drop Shadow dropped on one turns that on.
       effectInstead: (effect, _clip, track) =>
-        effect === "drop-shadow" ? { command: "captions.style", args: { track: track.id, style: { shadow: [0, 0, 0, 0.6], shadowBlur: 12, shadowAngle: 5.49779, shadowDistance: 8 } }, tab: "caption" } : undefined,
+        effect === "drop-shadow"
+          ? { command: "captions.style", args: { track: track.id, style: { shadow: [0, 0, 0, 0.6], shadowBlur: 12, shadowAngle: 5.49779, shadowDistance: 8 } }, tab: "caption", note: "Captions have a shadow of their own: turned it on (Caption Properties › Shadow)" }
+          : undefined,
     },
   ],
   props: [
@@ -636,65 +577,6 @@ export const captions = defineFeature({
       },
     }),
     defineCommand({
-      id: "headline.add",
-      description:
-        "A headline from what is said in [from, to) (timeline seconds): a caption on the Headlines track (made at the top the first time, in the headline look), its words built word by word beside the speaker, `keyword` (1 to 3 words of it in a row) drawn big. The captions' line steps aside while it shows. `side`: left or right of the speaker, or centred across the top (the Headlines track's side); `preset`: editorial-headline (the default), headline or headline-glow, for a new track. Headlines it overlaps are replaced. Returns its clip id",
-      args: z
-        .strictObject({
-          from: z.number().nonnegative(),
-          to: z.number().positive(),
-          keyword: z.string().optional(),
-          side: z.enum(["left", "center", "right"]).optional(),
-          preset: z.enum(["editorial-headline", "headline", "headline-glow"]).optional(),
-        })
-        .refine((a) => a.from < a.to, { message: "`from` comes before `to`" }),
-      apply(doc, { from, to, keyword, side, preset }, ctx) {
-        const { fps } = doc.settings;
-        const [a, b] = [snapSeconds(from, fps), snapSeconds(to, fps)];
-        const words = timelineWords(doc, ctx.registry, ctx.data).filter((w) => secondsToTicks(w.start) >= a && secondsToTicks(w.start) < b);
-        if (!words.length) throw new Error("nothing is said in that span: a headline is made from the words said");
-        let ti = doc.tracks.findIndex((t) => isHeadlineTrack(t) && t.clips.every(isCaption));
-        if (ti < 0) {
-          const look = PRESETS.find((p) => p.id === (preset ?? "editorial-headline"))!;
-          doc.tracks.push({ id: ctx.newId("track"), name: HEADLINES, clips: [], props: { captionStyle: withStyle(defaultStyle(doc.settings.height), look.style(doc.settings)) } });
-          ti = doc.tracks.length - 1;
-        }
-        const track = doc.tracks[ti]!;
-        if (side) {
-          const style = trackStyle(original(doc)?.tracks[ti] ?? track, doc.settings.height);
-          if (style.anchorX !== side) track.props = { ...track.props, captionStyle: { ...style, anchorX: side } };
-        }
-        const marked = new Set<number>();
-        if (keyword) {
-          const want = keyword.split(/\s+/).map(norm).filter(Boolean);
-          const i = words.findIndex((_, k) => want.every((w, j) => words[k + j] && norm(words[k + j]!.text) === w));
-          if (i < 0) throw new Error(`"${keyword}" isn't said there: ${words.map((w) => w.text).join(" ")}`);
-          for (let j = 0; j < want.length; j++) marked.add(i + j);
-        }
-        const start = snapSeconds(words[0]!.start, fps, "floor");
-        const later = track.clips.filter((c) => c.start >= start + ticksPerFrame(fps)).map((c) => c.start);
-        let stop = Math.max(start + ticksPerFrame(fps), snapSeconds(words.at(-1)!.end + HOLD, fps, "floor"));
-        // Headlines it overlaps go; one before it stops where it starts.
-        track.clips = track.clips.filter((c) => !(c.start >= start && c.start < stop));
-        for (const c of track.clips) if (c.start < start && c.start + c.duration > start) c.duration = start - c.start;
-        const next = Math.min(...later.filter((t) => t >= stop), Infinity);
-        if (next < stop) stop = next;
-        const id = ctx.newId("clip");
-        track.clips.push({
-          id,
-          type: "caption",
-          start,
-          duration: stop - start,
-          mediaStart: start,
-          props: { caption: { words: words.map((w, i) => ({ text: w.text, start: w.start, end: w.end, ...(marked.has(i) ? { em: true } : {}) })) } },
-          effects: [],
-          animations: [],
-        });
-        track.clips.sort((x, y) => x.start - y.start);
-        return id;
-      },
-    }),
-    defineCommand({
       id: "caption.setText",
       description: "Correct what a caption says: its words become `text`'s. Words kept keep their times; new or changed ones share the time of the words they replace (or the gap they go in), by length",
       args: z.strictObject({ clip: z.string(), text: z.string() }),
@@ -734,80 +616,8 @@ export const captions = defineFeature({
         };
       },
     }),
-    defineAction({
-      id: "headlines.plan",
-      description:
-        "Find headlines for Dynamic Captions: the planner chosen in Settings › AI (motionPlanner: OpenAI, Claude or Apple's on-device model) picks a few sentences (about one every 12 s) and each one's keyword, over the in/out range or the whole timeline; they open in the Headlines review for the user to tick and Apply. Runs as a job",
-      args: z.strictObject({}),
-      resolve: (_, ctx) => {
-        const range = ctx.session.range;
-        const all = timelineWords(ctx.project, ctx.registry, ctx.data);
-        const words = range ? all.filter((w) => w.start >= range.in && w.start < range.out) : all;
-        if (!words.length) throw new Error(all.length ? "nothing is said in the in/out range" : "no transcript on the timeline yet: headlines are found in it");
-        const planner = String(ctx.pref(PLANNER));
-        const was = headlineReview(ctx.session);
-        return {
-          label: "Find Headlines",
-          before: [{ command: "headlines.review", args: { items: [], planning: true, error: null, ...(was ? {} : { side: "center" }) } }],
-          task: {
-            label: "Find Headlines",
-            run: async (env) => {
-              env.progress(0.05, `${WHO[planner] ?? planner} is picking headlines`);
-              const key = async () =>
-                planner === "claude"
-                  ? ((await env.secret("anthropic-api-key")) ?? fail("no Anthropic API key: add one in Settings › AI, or choose another planner there"))
-                  : ((await env.secret("openai-api-key")) ?? fail("no OpenAI API key: add one in Settings › AI, or choose another planner there"));
-              const items = await planHeadlines(words, planner, key, (p) => env.progress(0.05 + p * 0.9, `${WHO[planner] ?? planner} is picking headlines`));
-              env.progress(1, `${items.length} headlines found`);
-              return () => ({ label: "Find Headlines", steps: [], after: () => [{ command: "headlines.review", args: { items, planning: false } }] });
-            },
-            failed: (error) => [{ command: "headlines.review", args: { planning: false, ...(error === "cancelled" ? {} : { error }) } }],
-          },
-        };
-      },
-    }),
-    defineAction({
-      id: "headlines.apply",
-      description: "Add the Headlines review's ticked headlines (headline.add each, on the side and in the look it shows), one undo step, and close it",
-      args: z.strictObject({}),
-      resolve: (_, ctx) => {
-        const review = headlineReview(ctx.session) ?? fail("the Headlines review isn't open: headlines.plan opens it");
-        const on = review.items.filter((i) => !i.off);
-        if (!on.length) throw new Error("no headlines ticked");
-        return {
-          label: on.length === 1 ? "Add Headline" : "Add Headlines",
-          steps: on.map((i) => ({ command: "headline.add", args: { from: i.from, to: i.to + 0.01, keyword: i.keyword, side: review.side, preset: review.preset } })),
-          after: () => [{ command: "headlines.close", args: {} }],
-        };
-      },
-    }),
-    defineAction({
-      id: "headline.fromCaption",
-      description: "Make a headline from a caption of the captions' line (`clip`, else the selected one): what it says, its keywords drawn big",
-      args: z.strictObject({ clip: z.string().optional() }),
-      resolve: ({ clip: id }, ctx) => {
-        const want = id ?? ctx.session.selection[0] ?? fail("select a caption");
-        const clip = ctx.project.tracks.flatMap((t) => t.clips).find((c) => c.id === want);
-        if (!clip || !isCaption(clip)) throw new Error(`clip "${want}" is not a caption`);
-        const words = shownWords(clip);
-        if (!words.length) throw new Error("the caption shows no words");
-        // A headline's keyword is one run of words: the first.
-        const first = words.findIndex((w) => w.em);
-        let end = first;
-        while (end >= 0 && end < words.length && end < first + 3 && words[end]!.em) end++;
-        const em = first < 0 ? "" : words.slice(first, end).map((w) => w.text).join(" ");
-        const from = ticksToSeconds(clip.start);
-        return { label: "Make Headline", steps: [{ command: "headline.add", args: { from, to: from + ticksToSeconds(clip.duration), ...(em ? { keyword: em } : {}) } }] };
-      },
-    }),
   ],
   queries: [
-    defineQuery({
-      id: "headlines.review",
-      description: "The Headlines review if it is open (headlines.plan): planning, its items (span, text, keyword, off), side and look",
-      args: z.strictObject({}),
-      run: (_, ctx) => (ctx.session ? (headlineReview(ctx.session) ?? null) : null),
-    }),
     defineQuery({
       id: "captions.layout",
       description: "Where a caption sits on the canvas (canvas pixels, y down): its box, its text and the text's lines with their caret positions from `origin`, and `own` when it is placed on its own (caption.place). The caption `clip`, or the one showing at timeline second `time`; null if none. For moving and typing captions on the canvas",
@@ -824,9 +634,9 @@ export const captions = defineFeature({
     }),
     defineQuery({
       id: "captions.presets",
-      description: "The looks a caption track can take in one step (captions.preset): id, title, what it looks like, and whether it is for headlines",
+      description: "The looks a caption track can take in one step (captions.preset): id, title, what it looks like, whether it is for headlines, and the style it gives a track of this project",
       args: z.strictObject({}),
-      run: () => PRESETS.map((p) => ({ id: p.id, title: p.title, description: p.description, headline: !!p.headline })),
+      run: (_, { project }) => PRESETS.map((p) => ({ id: p.id, title: p.title, description: p.description, headline: !!p.headline, style: withStyle(defaultStyle(project.settings.height), p.style(project.settings)) })),
     }),
     defineQuery({
       id: "captions.srt",

@@ -40,6 +40,7 @@ import {
   type SettingsTab,
   type SettingsPatch,
   withEffectParams,
+  withPatches,
   type ActionContext,
   type ActionPlan,
   type ActionTask,
@@ -89,7 +90,7 @@ import { Jobs } from "./jobs";
 import { keychain, type Secrets } from "./keychain";
 import { copyFollowingLinks, copyIntoProject, isInside } from "./media-copy";
 import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeProject, type OwnerInfo } from "./persist";
-import { probeAsset, shortId, type CoreParts, type OpenProject } from "./project";
+import { probeAsset, shortId, type CoreParts, type OpenProject, type Preview } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { askControl, controlSockets } from "./socket";
@@ -486,7 +487,7 @@ export class LocalCore implements BeaconCore {
       if (plan.task) lines.push(`then in the background: ${plan.task.label}`);
       return { label, patches: r?.patches ?? [], inverse: r?.inverse ?? [], results: r?.results ?? [], diff: [...lines, ...(r?.diff ?? [])], dryRun: true };
     }
-    const result = this.#applyPlan(p, plan, label);
+    const result = { ...this.#applyPlan(p, plan, label), ...(plan.note ? { note: plan.note } : {}) };
     if (!plan.task) return result;
     const job = this.#startTask(p, plan.task);
     return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };
@@ -722,7 +723,7 @@ export class LocalCore implements BeaconCore {
     if (p.previewDoc?.doc === doc) return p.previewDoc.shown;
     let shown = doc;
     try {
-      shown = withEffectParams(doc, this.registry, p.preview.clip, p.preview.effect, p.preview.params);
+      shown = this.#previewed(p, p.preview);
     } catch {
       // Its clip or effect is gone: nothing left to preview.
       p.preview = undefined;
@@ -731,13 +732,19 @@ export class LocalCore implements BeaconCore {
     return shown;
   }
 
+  #previewed(p: OpenProject, preview: Preview): Project {
+    if ("command" in preview) return withPatches(p.store.doc, p.store.run(preview.command, preview.args, { dryRun: true }).patches);
+    return withEffectParams(p.store.doc, this.registry, preview.clip, preview.effect, preview.params);
+  }
+
   /**
-   * Shows an effect with these params on the canvas without editing it (a look under the pointer); null shows it as
-   * it is again. The document, undo history, saves, agents and exports never see it; playing ends it.
+   * Shows an effect with these params, or what a command would do, on the canvas without editing anything (a look
+   * under the pointer); null shows it as it is again. The document, undo history, saves, agents and exports never see
+   * it; playing ends it.
    */
-  async previewEffect(h: ProjectHandle, preview: { clip: string; effect: string; params: Record<string, unknown> } | null): Promise<void> {
+  async previewEffect(h: ProjectHandle, preview: Preview | null): Promise<void> {
     const p = this.#get(h);
-    if (preview) withEffectParams(p.store.doc, this.registry, preview.clip, preview.effect, preview.params);
+    if (preview) this.#previewed(p, preview);
     if (!preview && !p.preview) return;
     p.preview = preview ?? undefined;
     p.previewDoc = undefined;

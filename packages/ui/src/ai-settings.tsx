@@ -97,6 +97,8 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
           <NumberBox value={limit} digits={2} step={1} min={0} max={1000} width={70} onCommit={(v) => void set("brollLimit", String(Math.round(v * 100) / 100))} />
         </div>
       </Row>
+      <div className="mt-2 text-label font-medium text-text-muted">Camera Angles</div>
+      {pick("angleResolution", "Upscaled to")}
       {error && <div className="text-danger">{error}</div>}
     </div>
   );

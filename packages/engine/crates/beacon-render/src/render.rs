@@ -186,7 +186,11 @@ impl Renderer {
         let sink = gpu_error.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
             if let Ok(mut slot) = sink.lock() {
-                slot.get_or_insert_with(|| e.to_string());
+                // Display is only "Validation Error"; the description says which texture or pass and why.
+                slot.get_or_insert_with(|| match &e {
+                    wgpu::Error::Validation { description, .. } => description.clone(),
+                    e => e.to_string(),
+                });
             }
         }));
 
@@ -699,6 +703,18 @@ impl Renderer {
         Ok(())
     }
 
+    /// The flat texture a tilted layer's passes run on: its scale (the layer's own, at most what fits the GPU's
+    /// 8192-pixel limit), padding, and size. The scale aims at 8192 exactly, and rounding the size up could make it
+    /// 8193 (Monitor close on a large recording: the canvas went black).
+    fn flat_size(local: [f32; 2], pad_local: f32, scale: f32) -> (f32, f32, u32, u32) {
+        const MAX: u32 = 8192;
+        let longest = local[0].max(local[1]);
+        let s = scale.min(MAX as f32 / (longest + 2.0 * pad_local)).max(1e-3);
+        let pad = pad_local * s;
+        let side = |n: f32| ((n * s + 2.0 * pad).ceil() as u32).clamp(1, MAX);
+        (s, pad, side(local[0]), side(local[1]))
+    }
+
     /// A tilted layer with passes: the passes run on the flat layer (with room around it for what they
     /// draw outside, like a shadow), which is then drawn in perspective. Passes map canvas pixels to the
     /// layer through its 2D transform, which a tilt doesn't follow.
@@ -722,9 +738,7 @@ impl Renderer {
         let pad_local = (longest * 0.15).min(0.5 / tilt.max(1e-6));
         // At the layer's own scale: passes take sizes in target pixels, so any other scale would change
         // how big a shadow or blur comes out.
-        let s = scale_of(m).min(8192.0 / (longest + 2.0 * pad_local)).max(1e-3);
-        let pad = pad_local * s;
-        let (fw, fh) = (((local[0] * s + 2.0 * pad).ceil() as u32).max(1), ((local[1] * s + 2.0 * pad).ceil() as u32).max(1));
+        let (s, pad, fw, fh) = Self::flat_size(local, pad_local, scale_of(m));
         let flat = self.take(fw, fh);
         clear(enc, &flat, wgpu::Color::TRANSPARENT);
         {
@@ -1081,4 +1095,22 @@ fn run_fullscreen(enc: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, load
     rp.set_pipeline(pipe);
     rp.set_bind_group(0, Some(bg), &[]);
     rp.draw(0..3, 0..1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Renderer;
+
+    /// The tilted layer's flat texture never exceeds the GPU's limit, whatever the rounding.
+    #[test]
+    fn flat_size_stays_within_the_gpu_limit() {
+        for w in (1000..4000).step_by(7) {
+            let local = [w as f32 + 0.37, w as f32 * 0.65];
+            let longest = local[0].max(local[1]);
+            for scale in [1.0, 2.5, 3.15, 6.0, 40.0] {
+                let (_, _, fw, fh) = Renderer::flat_size(local, longest * 0.15, scale);
+                assert!(fw <= 8192 && fh <= 8192, "{fw}×{fh} for {local:?} at {scale}");
+            }
+        }
+    }
 }

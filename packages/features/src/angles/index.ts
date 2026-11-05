@@ -4,6 +4,7 @@ import { extname, join } from "node:path";
 import { z } from "zod";
 import { jobSignal, runTool, tool } from "@beacon/media";
 import {
+  eachRawClip,
   clipEnd,
   clipSpeed,
   defineAction,
@@ -30,6 +31,13 @@ import { brief, VIEWS, type View } from "./brief";
 const TOKEN = "replicate-api-token";
 /** Settings › AI's limit per generation, shared with B-roll (the user, 2026-11-04). */
 const LIMIT = "brollLimit";
+/** What the upscaler makes of Seedance's 480p (Settings › AI): 1080p by default, 2K or 4K for more. */
+const RESOLUTION = "angleResolution";
+const RESOLUTIONS = [
+  { id: "1080p", title: "1080p", description: "Full HD: the default" },
+  { id: "2k", title: "2K", description: "1440p: sharper, a larger file" },
+  { id: "4k", title: "4K", description: "2160p: the upscaler's most, the largest file" },
+];
 const SEEDANCE = { slug: "bytedance/seedance-2.5", title: "Seedance 2.5" };
 const UPSCALER = { slug: "bytedance/video-upscaler", title: "ByteDance's upscaler" };
 /** Seedance 2.5 at 480p with a video in, per second it makes (Replicate, 2026-11-03). */
@@ -55,7 +63,7 @@ const angleGroup = z.strictObject({
   crop: z.boolean(),
 });
 export type AngleProps = z.infer<typeof angleGroup>;
-const DEFAULTS: AngleProps = { view: "profile-left", move: "handheld", note: "", takes: [], crop: false };
+const DEFAULTS: AngleProps = { view: "three-quarter-left", move: "handheld", note: "", takes: [], crop: false };
 
 /** The room photos an Angles track's angles are made with (`track.props.angleRoom`): image assets. */
 const roomGroup = z.strictObject({ photos: z.array(z.string()) });
@@ -317,6 +325,7 @@ const angleGenerate = defineAction({
     const sound = soundOf(ctx.project, camera) ?? fail("the camera has no sound linked to it: an angle keeps the lips to the take's own sound");
     const { seconds, cost: price } = cost(clip);
     const limit = Number(ctx.pref(LIMIT)) || 0;
+    const resolution = RESOLUTIONS.some((r) => r.id === ctx.pref(RESOLUTION)) ? String(ctx.pref(RESOLUTION)) : "1080p";
     if (limit > 0 && price > limit) throw new Error(`about $${price.toFixed(2)} for Seedance alone, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
     const track = ctx.project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
     const photos = ((track?.props?.angleRoom as { photos?: string[] } | undefined)?.photos ?? []).flatMap((p) => {
@@ -357,7 +366,7 @@ const angleGenerate = defineAction({
               throw e;
             }
             tell(0.7, "upscaling");
-            const upscaled = await predict(token, UPSCALER, { video: made, scene: "aigc", target_resolution: "1080p", target_fps: fps, processing_type: "standard" }, (st) => tell(st === "making" ? 0.8 : 0.72, st === "making" ? "upscaling" : st));
+            const upscaled = await predict(token, UPSCALER, { video: made, scene: "aigc", target_resolution: resolution, target_fps: fps, processing_type: "standard" }, (st) => tell(st === "making" ? 0.8 : 0.72, st === "making" ? "upscaling" : st));
             tell(0.92, "downloading");
             const dir = join(env.mediaDir, TRACK);
             mkdirSync(dir, { recursive: true });
@@ -397,9 +406,23 @@ const angleGenerate = defineAction({
 });
 
 /** Camera angles: a generated cutaway of the presenter from another angle (or a close-up crop), placed over the camera as a cut, the take's own sound kept. */
+/**
+ * v2: the side profiles went (the user, 2026-11-05: three-quarter shots are what they use); an Angle clip set to one
+ * becomes the three-quarter view on that side, its takes kept.
+ */
+function profilesToThreeQuarter(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const a = o.props?.angle as { view?: string } | undefined;
+    if (a?.view === "profile-left") a.view = "three-quarter-left";
+    if (a?.view === "profile-right") a.view = "three-quarter-right";
+  });
+  return doc;
+}
+
 export const angles = defineFeature({
   id: "angles",
-  version: 1,
+  version: 2,
+  migrations: [{ version: 2, migrate: profilesToThreeQuarter }],
   clipTypes: [{ id: "angle", description: "A camera angle: a cutaway of the camera under it from another angle, generated (nothing in an export until it is) or a close-up crop", traits: ["visual", "picture", "media", "video", "angle"] }],
   props: [
     { id: "angle", description: "The angle an Angle clip is (view, handheld or locked, a note) and the takes made for it", traits: ["angle"], tab: { title: "Camera Angle", icon: "video-camera", order: 3 }, schema: angleGroup, defaults: () => ({ ...DEFAULTS }) },
@@ -408,6 +431,7 @@ export const angles = defineFeature({
   commands,
   sessionCommands,
   actions: [angleAdd, angleGenerate],
+  preferences: [{ id: RESOLUTION, title: "Camera angles: upscaled to", description: "The resolution a generated angle is upscaled to; higher is sharper and takes longer", options: RESOLUTIONS, default: "1080p" }],
   queries: [
     defineQuery({
       id: "angle.estimate",

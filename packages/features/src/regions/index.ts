@@ -3,7 +3,7 @@ import { defineFeature, eachRawClip, IDENTITY, RgbaSchema, type BackdropLayer, t
 import wgsl from "./regions.wgsl" with { type: "text" };
 
 const regionSchema = z.strictObject({
-  kind: z.enum(["blur", "pixelate", "spotlight", "highlight"]),
+  kind: z.enum(["blur", "spotlight", "highlight"]),
   /** Box size in content pixels; the transform scales it. */
   width: z.number().positive(),
   height: z.number().positive(),
@@ -18,7 +18,8 @@ const regionSchema = z.strictObject({
 /** Camtasia's highlighter yellow; a highlight's opacity starts at half, as Camtasia's does. */
 const YELLOW: RGBA = [1, 0.93, 0.25, 1];
 
-const KINDS: Record<string, "blur" | "pixelate" | "spotlight"> = { TypeWinBlur: "blur", TypeWinPixelate: "pixelate", TypeWinSpotlight: "spotlight" };
+/** Camtasia's pixelate comes in as a blur (Beacon's Pixelate went, the user, 2026-11-05): what it hid stays hidden. */
+const KINDS: Record<string, "blur" | "spotlight"> = { TypeWinBlur: "blur", TypeWinPixelate: "blur", TypeWinSpotlight: "spotlight" };
 
 function num(v: unknown, fallback: number): number {
   const x = v !== null && typeof v === "object" ? (v as { defaultValue?: unknown }).defaultValue : v;
@@ -42,7 +43,22 @@ function regionColor(doc: unknown): unknown {
 }
 
 /**
- * Blur, pixelate and spotlight regions: boxes that change what is already
+ * v3: Pixelate went (the user, 2026-11-05: never used); a pixelated box becomes a blur about as strong (its blocks
+ * were `intensity` × 60 px, a blur's radius is `intensity` × 8, half a block blurs about as much), so what it hid
+ * stays hidden.
+ */
+function pixelateToBlur(doc: unknown): unknown {
+  eachRawClip(doc, (o) => {
+    const r = o.props?.region as Record<string, unknown> | undefined;
+    if (r?.kind !== "pixelate") return;
+    r.kind = "blur";
+    r.intensity = Math.max(1, (typeof r.intensity === "number" ? r.intensity : 0.33) * 3.75);
+  });
+  return doc;
+}
+
+/**
+ * Blur, spotlight and highlight regions: boxes that change what is already
  * composited under them. Intensity → strength mappings are guesses.
  */
 export const regions = defineFeature({
@@ -50,18 +66,19 @@ export const regions = defineFeature({
   panelItems: [
     { id: "annotation:spotlight", label: "Spotlight", title: "Darken everything outside the box", command: "edit.addAnnotation", args: { preset: "spotlight" }, seconds: 5 },
     { id: "annotation:blur", label: "Blur", title: "Blur what is inside the box", command: "edit.addAnnotation", args: { preset: "blur" }, seconds: 5 },
-    { id: "annotation:pixelate", label: "Pixelate", title: "Pixelate what is inside the box", command: "edit.addAnnotation", args: { preset: "pixelate" }, seconds: 5 },
     { id: "annotation:highlight", label: "Highlight", title: "A highlighter's colour over what is inside the box, the text under it still readable", command: "edit.addAnnotation", args: { preset: "highlight" }, seconds: 5 },
   ],
   annotations: {
     spotlight: preset("spotlight", 0.5, "Add Spotlight"),
     blur: preset("blur", 2, "Add Blur"),
-    pixelate: preset("pixelate", 0.33, "Add Pixelate"),
     highlight: preset("highlight", 0.5, "Add Highlight"),
   },
-  version: 2,
-  migrations: [{ version: 2, migrate: regionColor }],
-  clipTypes: [{ id: "region", description: "A blur, pixelate, spotlight or highlight region", traits: ["visual", "region"] }],
+  version: 3,
+  migrations: [
+    { version: 2, migrate: regionColor },
+    { version: 3, migrate: pixelateToBlur },
+  ],
+  clipTypes: [{ id: "region", description: "A blur, spotlight or highlight region", traits: ["visual", "region"] }],
   props: [
     {
       id: "region",
@@ -75,7 +92,6 @@ export const regions = defineFeature({
   ],
   passes: [
     { id: "region-blur", wgsl, steps: ["fs_blur_h", "fs_blur_v"] },
-    { id: "region-pixelate", wgsl, steps: ["fs_pixelate"] },
     { id: "region-darken", wgsl, steps: ["fs_darken"] },
     { id: "region-highlight", wgsl, steps: ["fs_highlight"] },
   ],
@@ -102,11 +118,9 @@ export const regions = defineFeature({
       const passes =
         r.kind === "blur"
           ? [{ pass: "region-blur", params: [r.intensity * 8] }]
-          : r.kind === "pixelate"
-            ? [{ pass: "region-pixelate", params: [Math.max(2, r.intensity * 60)] }]
-            : r.kind === "highlight"
-              ? [{ pass: "region-highlight", params: [r.color[0], r.color[1], r.color[2], Math.min(1, r.intensity) * r.color[3]] }]
-              : [{ pass: "region-darken", params: [Math.min(1, r.intensity)] }];
+          : r.kind === "highlight"
+            ? [{ pass: "region-highlight", params: [r.color[0], r.color[1], r.color[2], Math.min(1, r.intensity) * r.color[3]] }]
+            : [{ pass: "region-darken", params: [Math.min(1, r.intensity)] }];
       const layer: BackdropLayer = {
         kind: "backdrop",
         size: [r.width, r.height],
