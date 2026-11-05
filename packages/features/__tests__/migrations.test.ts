@@ -256,7 +256,7 @@ test("device-frame v2: Monitor's grade becomes a Film Look on the clip at its st
     },
   ];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(6);
+  expect(out.features["device-frame"]).toBe(7);
   const [graded, ownLook, ungraded] = out.tracks[0].clips;
   expect(graded.effects.map((e: any) => [e.id, e.type])).toEqual([["fx-d3c71365", "film-look"], ["fx-5b4f9bed", "device-frame"]]);
   expect(graded.effects[0].params).toMatchObject({ strength: 0.57, warmth: 0.4, vignette: 0.3 });
@@ -274,7 +274,7 @@ test("device-frame v3: a Monitor saved at v2 gets the Shot and Room menus as v2 
   const v2 = { move: "still", screen: "glossy", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.56, glow: 0.21, drift: 0.45, zoom: 3.49 };
   doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v2 }], animations: [] }] }];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(6);
+  expect(out.features["device-frame"]).toBe(7);
   const { move: _, ...kept } = v2;
   expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", shot: "head-on", room: "teal-studio", pixels: 0.5, reflection: 0.5, ...kept });
 });
@@ -286,7 +286,7 @@ test("device-frame v4: a head-on Monitor saved at v3 is close on the top-left co
   const v3 = { shot: "head-on", room: "none", move: "push", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, drift: 0.5, zoom: 2 };
   doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v3 }], animations: [] }] }];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(6);
+  expect(out.features["device-frame"]).toBe(7);
   const { move: _, ...kept } = v3;
   expect(out.tracks[0].clips[0].effects[0].params).toEqual({ corner: "top-left", pixels: 0.5, reflection: 0.5, ...kept });
 });
@@ -298,7 +298,7 @@ test("device-frame v5: Move goes from a Monitor saved at v4 (the clip's Scale an
   const v4 = { shot: "edge-right", corner: "bottom-right", room: "teal-studio", move: "slide", screen: "glossy", focus: "cursor", focusX: 0.29, focusY: 0.3, blur: 0.6, glow: 0.21, drift: 0.45, zoom: 1.242 };
   doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v4 }], animations: [] }] }];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(6);
+  expect(out.features["device-frame"]).toBe(7);
   const { move: _, ...kept } = v4;
   expect(out.tracks[0].clips[0].effects[0].params).toEqual({ pixels: 0.5, reflection: 0.5, ...kept });
 });
@@ -310,7 +310,7 @@ test("device-frame v6: a Monitor saved at v5 gets Pixels and Reflection at their
   const v5 = { shot: "head-on", corner: "top-right", room: "none", screen: "glossy", focus: "point", focusX: 0.2, focusY: 0.7, blur: 0.4, glow: 0.3, drift: 0, zoom: 6 };
   doc.tracks = [{ id: "t1", name: "Screen", clips: [{ id: "c1", type: "screen", start: 0, duration: 10, props: {}, effects: [{ id: "fx-1", type: "device-frame", enabled: true, params: v5 }], animations: [] }] }];
   const out = migrateProject(doc, registry) as any;
-  expect(out.features["device-frame"]).toBe(6);
+  expect(out.features["device-frame"]).toBe(7);
   expect(out.tracks[0].clips[0].effects[0].params).toEqual({ ...v5, pixels: 0.5, reflection: 0.5 });
 });
 

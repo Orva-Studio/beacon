@@ -182,20 +182,58 @@ fn fs_screen(v: VOut) -> @location(0) vec4<f32> {
   return vec4(clamp(rgb, vec3(0.0), vec3(c.a)), c.a);
 }
 
-// device-reflection params: the screen in the plate's pixels (left, top, width, height), strength, the screen's corner
-// radius (plate px). The room behind the camera, kept to the screen and added as light (alpha 0 adds under
-// premultiplied blending), as glass reflects.
+// A pixel's ray from the camera into the room, from the camera's axes at params `a` to `a + 8` (columns of its
+// rotation) and its focal length and frame shape (over the frame's height) at `a + 9` and `a + 10`.
+fn dp_ray(uv: vec2<f32>, a: u32) -> vec3<f32> {
+  let c = vec3((uv.x - 0.5) * param(a + 10u), uv.y - 0.5, param(a + 9u));
+  let x = vec3(param(a), param(a + 1u), param(a + 2u));
+  let y = vec3(param(a + 3u), param(a + 4u), param(a + 5u));
+  let z = vec3(param(a + 6u), param(a + 7u), param(a + 8u));
+  return normalize(vec3(dot(x, c), dot(y, c), dot(z, c)));
+}
+
+// Where a direction in the room is in an equirectangular panorama whose `centre` (a share across) is behind the
+// monitor (+z), y down.
+fn dp_uv(w: vec3<f32>, centre: f32) -> vec2<f32> {
+  let lon = atan2(w.x, w.z);
+  let lat = asin(clamp(w.y, -1.0, 1.0));
+  return vec2(fract(centre + lon / 6.2831853), 0.5 + lat / 3.1415927);
+}
+
+// device-panorama params: 0-10 the camera (dp_ray), 11 the share across the panorama behind the monitor, 12 lift,
+// 13 how much colour it keeps. The layer is the whole panorama stretched over the frame: each pixel looks into it
+// along its own ray, so the room turns as the camera does.
+@fragment
+fn fs_panorama(v: VOut) -> @location(0) vec4<f32> {
+  let c = textureSampleLevel(src, samp, dp_uv(dp_ray(v.uv, 0u), param(11u)), 0.0);
+  let lifted = min(c.rgb * param(12u), vec3(1.0));
+  let grey = vec3(dot(lifted, vec3(0.2126, 0.7152, 0.0722)));
+  return vec4(mix(grey, lifted, param(13u)), 1.0);
+}
+
+// device-reflection params: 0-8 frame pixel → screen point (as device-frame's), 9-12 the screen (left, top, width,
+// height, canvas px), 13 its corner radius, 14-24 the camera (dp_ray), 25 the share across the (half-turned) blurred
+// panorama behind the monitor, 26 strength, 27 the canvas's width. Each pixel of the glass shows the room along its
+// ray reflected off it, stronger at a grazing angle (Fresnel); added as light (alpha 0 adds under premultiplied
+// blending), only on the screen.
 @fragment
 fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
-  let c = textureSampleLevel(src, samp, v.uv, 0.0);
-  let p = to_layer(v.uv) - vec2(param(0u), param(1u));
-  let half_size = vec2(param(2u), param(3u)) * 0.5;
-  let r = param(5u);
+  let px = v.uv * vec2(param(27u), param(27u) / param(24u));
+  let h = vec3(px, 1.0);
+  let sw = param(6u) * h.x + param(7u) * h.y + param(8u);
+  let s = vec2(param(0u) * h.x + param(1u) * h.y + param(2u), param(3u) * h.x + param(4u) * h.y + param(5u)) / sw;
+  let p = s - vec2(param(9u), param(10u));
+  let half_size = vec2(param(11u), param(12u)) * 0.5;
+  let r = param(13u);
   let q = abs(p - half_size) - half_size + r;
   let d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
   let aa = max(fwidth(d), 1e-3);
   let inside = 1.0 - smoothstep(-aa, aa, d);
-  return vec4(c.rgb * param(4u) * inside, 0.0);
+  let w = dp_ray(v.uv, 14u);
+  let bounced = vec3(w.x, w.y, -w.z);
+  let fresnel = 0.3 + 0.7 * pow(1.0 - abs(w.z), 1.5);
+  let c = textureSampleLevel(src, samp, dp_uv(bounced, param(25u)), 0.0);
+  return vec4(c.rgb * param(26u) * fresnel * inside, 0.0);
 }
 
 // device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,

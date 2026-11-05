@@ -2,7 +2,10 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import tealStudio from "./rooms/teal-studio.jpg" with { type: "file" };
-import reflection from "./rooms/reflection.jpg" with { type: "file" };
+import night from "./rooms/night.jpg" with { type: "file" };
+import nightReflection from "./rooms/night-reflection.jpg" with { type: "file" };
+import day from "./rooms/day.jpg" with { type: "file" };
+import dayReflection from "./rooms/day-reflection.jpg" with { type: "file" };
 
 /**
  * The room behind the monitor, 1536×1024: made with gpt-image-2.5-flare, the least busy of the four tried, the user's
@@ -11,10 +14,17 @@ import reflection from "./rooms/reflection.jpg" with { type: "file" };
 export const ROOM_SIZE: [number, number] = [1536, 1024];
 
 /**
- * The room behind the camera, as Glossy's glass mirrors it: gpt-image-2.6-sunburst (2026-11-05, the least busy of
- * four), a dim room with a window, a lamp and someone filming; mirrored, scaled to 512 wide and blurred once, offline.
+ * Rooms all round the monitor, as 360° panoramas (equirectangular, 4096×2048): flux-3-image, upscaled 4× by Topaz,
+ * the user's picks (2026-11-05). The camera looks into them by its direction, so turning it shows the right part of
+ * the room behind the monitor. `centre`: the share across the panorama that sits straight behind the monitor.
+ * `reflection`: the same room, 512×256, turned half round (what is behind the camera in its middle) and blurred;
+ * `mirror`, how much of it the glass gives back at Reflection 100% (a daylit room is far brighter than the night's).
  */
-export const REFLECTION_SIZE: [number, number] = [512, 342];
+export const PANORAMAS = {
+  night: { image: night, reflection: nightReflection, centre: 0.53, mirror: 2.4 },
+  day: { image: day, reflection: dayReflection, centre: 0.67, mirror: 0.35 },
+} as const;
+export type Panorama = keyof typeof PANORAMAS;
 
 const ready = new Map<string, string>();
 
@@ -44,4 +54,5 @@ function onDisk(src: string): string {
 }
 
 export const roomPath = () => onDisk(tealStudio);
-export const reflectionPath = () => onDisk(reflection);
+export const panoramaPath = (room: Panorama) => onDisk(PANORAMAS[room].image);
+export const reflectionPath = (room: Panorama) => onDisk(PANORAMAS[room].reflection);

@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { defineFeature, eachRawClip, IDENTITY, multiply, placement, project, split, ticksToSeconds, type BackdropLayer, type ClipEval, type EvalContext, type Matrix3, type TransformValues, type VisualLayer } from "@beacon/model";
 import { cursorContentPoint } from "../cursor";
-import { depthAt, homography, invert, view, wobble, type Camera } from "./camera";
-import { REFLECTION_SIZE, reflectionPath, ROOM_SIZE, roomPath } from "./rooms";
+import { depthAt, focalLength, homography, invert, view, wobble, type Camera } from "./camera";
+import { PANORAMAS, panoramaPath, reflectionPath, ROOM_SIZE, roomPath, type Panorama } from "./rooms";
 import { CORNERS, deg, shotCamera, SHOTS } from "./shots";
 import { SHOT_CHOICES } from "./blueprint";
 import wgsl from "./device-frame.wgsl" with { type: "text" };
@@ -10,7 +10,7 @@ import wgsl from "./device-frame.wgsl" with { type: "text" };
 const params = z.strictObject({
   shot: z.enum(SHOTS).describe("Where the camera is: head on at the screen's top-left corner, or at an angle (a top corner, a side edge, across from the left or right, a low macro), in a dark room"),
   corner: z.enum(Object.keys(CORNERS) as [keyof typeof CORNERS, ...(keyof typeof CORNERS)[]]).meta({ when: { shot: "head-on" } }).describe("Which corner of the screen a head-on shot is close on"),
-  room: z.enum(["teal-studio", "none"]).meta({ when: { shot: "head-on" } }).describe("Behind the monitor when head on: the studio photo, out of focus, or none (a dark room)"),
+  room: z.enum(["night", "day", "teal-studio", "none"]).describe("The room round the monitor, out of focus: at night or by day (all round it, so turning the camera shows the right part, on any shot), the studio photo (head on only), or none (a dark room). Glossy glass mirrors it"),
   screen: z.enum(["matte", "glossy"]).describe("Matte only glows; glossy glass mirrors the room behind the camera, out of focus, moving as the camera moves"),
   reflection: z.number().min(0).max(1).meta({ percent: true, when: { screen: "glossy" } }).describe("How strongly glossy glass mirrors the room behind the camera; stronger as the camera turns to the screen"),
   focus: z.enum(["cursor", "point"]).describe("What is sharp: the recorded cursor as it moves (smoothed), or a point of the screen"),
@@ -24,7 +24,7 @@ const params = z.strictObject({
 });
 export type DeviceFrameParams = z.infer<typeof params>;
 
-const DEFAULTS: DeviceFrameParams = { shot: "head-on", corner: "top-left", room: "teal-studio", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, pixels: 0.5, reflection: 0.5, drift: 0.5, zoom: 2 };
+const DEFAULTS: DeviceFrameParams = { shot: "head-on", corner: "top-left", room: "night", screen: "matte", focus: "cursor", focusX: 0.5, focusY: 0.5, blur: 0.6, glow: 0.5, pixels: 0.5, reflection: 0.5, drift: 0.5, zoom: 2 };
 
 const DARK_ROOM: [number, number, number, number] = [0.045, 0.034, 0.028, 1];
 const BEZEL_COLOR: [number, number, number, number] = [0.006, 0.006, 0.007, 1];
@@ -62,29 +62,41 @@ function cameraAt(p: DeviceFrameParams, e: ClipEval, t: TransformValues, W: numb
   return { yaw, pitch, size, target };
 }
 
+/** Where the camera's frame x, y and z axes point in the room (the screen's plane is z = 0, behind it +z): its rotation's columns. */
+function axes(cam: Camera): number[] {
+  const [cy, sy, cp, sp] = [Math.cos(cam.yaw), Math.sin(cam.yaw), Math.cos(cam.pitch), Math.sin(cam.pitch)];
+  return [cy, sp * sy, -cp * sy, 0, cp, sp, sy, -cy * sp, cy * cp];
+}
+
 /**
- * Glossy glass mirroring the room behind the camera: the plate on the screen's plane, a third larger than the screen,
- * shifted as the camera moves (the room it mirrors is far behind the glass, so it slides across the screen rather than
- * staying on it), stronger at a grazing angle (Fresnel). Its pass keeps it to the screen and adds it as light.
+ * A panorama room: the whole picture stretched over the frame, its pass looking into it along each pixel's ray from
+ * the camera, so the part behind the monitor is the part the camera faces.
  */
-function reflectionLayer(p: DeviceFrameParams, cam: Camera, rect: [number, number, number, number], W: number, frameOf: Matrix3, ctx: EvalContext): VisualLayer {
-  const [pw, ph] = REFLECTION_SIZE;
-  const sc = Math.max((rect[2] * 1.35) / pw, (rect[3] * 1.35) / ph);
-  const centre = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
-  const dx = (cam.target[0] - centre[0]!) * 0.6 + Math.sin(cam.yaw) * rect[2] * 0.5;
-  const dy = (cam.target[1] - centre[1]!) * 0.6 - Math.sin(cam.pitch) * rect[3] * 0.5;
-  const [ox, oy] = [centre[0]! + dx - (sc * pw) / 2, centre[1]! + dy - (sc * ph) / 2];
-  const placed = split(multiply(frameOf, [sc, 0, ox, 0, sc, oy, 0, 0, 1]));
-  const cos = Math.cos(cam.yaw) * Math.cos(cam.pitch);
-  const strength = p.reflection * (0.3 + 0.7 * (1 - cos) ** 1.5) * 2.4;
-  const inPlate = [(rect[0] - ox) / sc, (rect[1] - oy) / sc, rect[2] / sc, rect[3] / sc];
+function panoramaLayer(room: Panorama, cam: Camera, zoom: number, W: number, H: number, ctx: EvalContext): VisualLayer {
   return {
     kind: "visual",
-    content: { type: "source", source: ctx.source({ kind: "image", path: reflectionPath() }) },
-    size: [pw, ph],
-    transform: placed.transform,
-    ...(placed.perspective ? { perspective: placed.perspective } : {}),
-    passes: [{ pass: "device-reflection", params: [...inPlate, strength, (0.004 * W) / sc] }],
+    content: { type: "source", source: ctx.source({ kind: "image", path: panoramaPath(room) }) },
+    size: [4096, 2048],
+    transform: [W / 4096, 0, 0, H / 2048, 0, 0],
+    passes: [{ pass: "device-panorama", params: [...axes(cam), (focalLength(H) * zoom) / H, W / H, PANORAMAS[room].centre, room === "night" ? 1.15 : 0.9, 0.8] }],
+  };
+}
+
+/**
+ * Glossy glass mirroring the room (the studio photo and no room mirror the night): each pixel of the screen shows the
+ * blurred panorama along its ray reflected off the glass, so what is behind the camera, moving as the camera moves,
+ * stronger at a grazing angle (Fresnel). Added as light, kept to the screen.
+ */
+function reflectionLayer(p: DeviceFrameParams, cam: Camera, zoom: number, rect: [number, number, number, number], W: number, H: number, back: Matrix3, ctx: EvalContext): VisualLayer {
+  const room: Panorama = p.room === "day" ? "day" : "night";
+  // The reflection's picture is turned half round, so what is behind the camera is in its middle.
+  const centre = (PANORAMAS[room].centre + 0.5) % 1;
+  return {
+    kind: "visual",
+    content: { type: "source", source: ctx.source({ kind: "image", path: reflectionPath(room) }) },
+    size: [512, 256],
+    transform: [W / 512, 0, 0, H / 256, 0, 0],
+    passes: [{ pass: "device-reflection", params: [...back, ...rect, 0.004 * W, ...axes(cam), (focalLength(H) * zoom) / H, W / H, centre, p.reflection * PANORAMAS[room].mirror, W] }],
   };
 }
 
@@ -148,14 +160,17 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
   const cx = W / 2 - (cam.target[0] - W / 2) * 0.03;
   const cy = H / 2 - (cam.target[1] - H / 2) * 0.03;
   const photo = headOn && p.room === "teal-studio";
-  const room: VisualLayer = photo
+  const panorama = p.room === "night" || p.room === "day" ? p.room : undefined;
+  const room: VisualLayer = panorama
+    ? panoramaLayer(panorama, cam, k, W, H, ctx)
+    : photo
     ? { kind: "visual", content: { type: "source", source: ctx.source({ kind: "image", path: roomPath() }) }, size: [iw, ih], transform: [sc, 0, 0, sc, cx - (sc * iw) / 2, cy - (sc * ih) / 2], passes: [{ pass: "device-room", params: [1, 1.25, 0.5] }] }
     : { kind: "visual", content: { type: "solid", color: DARK_ROOM }, size: [W, H], transform: IDENTITY, passes: [{ pass: "device-room", params: [0, Math.sin(cam.yaw)] }] };
   const under = [room, lit(solid(RIM_COLOR, bezel[0] + rim, bezel[1] + rim, bezel[2] + rim, bezel[3] + rim, 0.004 * W), 0.5, 0.02 * W), lit(solid(BEZEL_COLOR, ...bezel, 0.004 * W), 0.18, 0.05 * W)];
 
   const focusDepth = depthAt(M, ...focusPoint);
   // Far enough that a photo's detail melts into soft shapes (the user: the less busy the background the better).
-  const roomDepth = depthAt(M, W / 2, H / 2) + (photo ? 1.4 : 0.6) * W;
+  const roomDepth = depthAt(M, W / 2, H / 2) + (photo || panorama ? 1.4 : 0.6) * W;
   const back = invert(frameOf);
   const frame: BackdropLayer = {
     kind: "backdrop",
@@ -171,7 +186,7 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     ],
   };
   e.layers.unshift(...under);
-  if (p.screen === "glossy" && p.reflection > 0) e.layers.push(reflectionLayer(p, cam, rect, W, frameOf, ctx));
+  if (p.screen === "glossy" && p.reflection > 0) e.layers.push(reflectionLayer(p, cam, k, rect, W, H, back, ctx));
   e.layers.push(frame);
   const fade = Math.max(0, Math.min(1, (t as TransformValues & { opacity?: number }).opacity ?? 1));
   if (fade < 1) {
@@ -255,16 +270,23 @@ function addPixels(doc: unknown): unknown {
   return doc;
 }
 
+/**
+ * v7: Room's Night and Day, rooms all round the monitor on any shot (the user, 2026-11-05). Nothing saved changes (the
+ * studio photo stays head on only); the version marks projects that may name them.
+ */
+const roomsAllRound = (doc: unknown) => doc;
+
 /** A screen recording filmed on a monitor in a dim room: head on, steered by the clip's transform, shallow focus (on the cursor) and glow; a Film Look on the clip grades it all. */
 export const deviceFrame = defineFeature({
   id: "device-frame",
-  version: 6,
+  version: 7,
   migrations: [
     { version: 2, migrate: settleSettings },
     { version: 3, migrate: addShotAndRoom },
     { version: 4, migrate: addCorner },
     { version: 5, migrate: dropMove },
     { version: 6, migrate: addPixels },
+    { version: 7, migrate: roomsAllRound },
   ],
   effects: [
     {
@@ -274,7 +296,7 @@ export const deviceFrame = defineFeature({
       traits: ["visual"],
       params,
       defaults: () => ({ ...DEFAULTS }),
-      choices: { ...SHOT_CHOICES, room: { "teal-studio": { label: "Studio" }, none: { label: "None" } } },
+      choices: { ...SHOT_CHOICES, room: { night: { label: "Night" }, day: { label: "Day" }, "teal-studio": { label: "Studio" }, none: { label: "None" } } },
       turnsCamera: TURN,
       apply(e, p, ctx) {
         draw(e, p as DeviceFrameParams, ctx);
@@ -288,5 +310,6 @@ export const deviceFrame = defineFeature({
     { id: "device-reflection", wgsl, steps: ["fs_reflection"] },
     { id: "device-rim", wgsl, steps: ["fs_rim"] },
     { id: "device-room", wgsl, steps: ["fs_room"] },
+    { id: "device-panorama", wgsl, steps: ["fs_panorama"] },
   ],
 });

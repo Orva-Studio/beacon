@@ -3644,6 +3644,10 @@ caption shadow. In this order, on this branch:
    rotation stopped at 60° (75° in all on an angled shot); Pixels drawn on the finished frame in the backdrop's
    first pass (`device-pixels`), so any angle works at the output's resolution; the reflection plate from
    gpt-image-2.6-sunburst (the newest on the user's OpenAI key, the least busy of four), Reflection 0.5; v6.
+6d2. **Monitor's rooms all round (the user, 2026-11-05; done):** Room back on every shot: Night and Day as 360°
+   panoramas (flux-3-image, the user's picks; the night made plainer at their ask; Topaz 4×), looked into along each
+   pixel's ray (`device-panorama`), so the camera turning shows the right part behind the monitor; Glossy mirrors the
+   same room (`device-reflection`, the ray bounced off the glass). Studio stays a head-on photo. v7.
 6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
    Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
    `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New
