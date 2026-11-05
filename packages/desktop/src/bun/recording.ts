@@ -19,7 +19,7 @@ export interface RecordingApp {
 
 /**
  * Recording: the Record dialog's devices and Check Sync, voice narration over the playing timeline, and a take
- * with its panel and menu-bar item, while Beacon hides.
+ * with its panel and menu-bar item, while Beacon minimises to the Dock.
  */
 export function createRecording({ core, message, status, project, window, setSettings }: RecordingApp) {
   /** The Record dialog's last sources, offered next time. */
@@ -270,7 +270,7 @@ export function createRecording({ core, message, status, project, window, setSet
     return panel;
   }
 
-  /** Record: Beacon hides while the take records; a menu-bar item shows the time and stops it, as ⌘⇧2 does. */
+  /** Record: Beacon minimises to the Dock while the take records; a menu-bar item shows the time and stops it, as ⌘⇧2 does. */
   async function startRecording({ sources }: { sources: RecordSources }) {
     if (!project()) throw new Error("Open a project first");
     if (recording) throw new Error("Already recording");

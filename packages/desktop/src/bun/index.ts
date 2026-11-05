@@ -498,13 +498,17 @@ const recorder = createRecording({
   message: (type, data) => (recording ?? focused)?.message(type, data),
   status: (text) => (recording ?? focused)?.status(text),
   project: () => (recording ?? focused)?.current?.path,
-  // Every window leaves the screen while a take records, so none is in it.
+  // Every window goes to the Dock while a take records, so none is in it unless brought back (to record Beacon
+  // itself: hidden, the user had no way to).
   window: {
     hide: () => {
-      for (const w of windows) w.win.hide();
+      for (const w of windows) w.win.minimize();
     },
     show: () => {
-      for (const w of windows) w.win.show();
+      for (const w of windows) {
+        w.win.unminimize();
+        w.win.show();
+      }
     },
     activate: () => (recording ?? focused)?.win.activate(),
   },

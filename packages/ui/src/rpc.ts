@@ -354,7 +354,7 @@ export type AppRPC = {
       /** Export to `folder`/`name`.`format`; refused when it exists unless `overwrite`. */
       startExport: { params: { name: string; folder: string; settings: ExportSettings; range?: { in: number; out: number }; clips?: string[]; overwrite?: boolean }; response: RunReply };
       cancelExport: { params: { id: string }; response: RunReply };
-      /** Record: Beacon hides and records a take into the project; its menu-bar item stops it. */
+      /** Record: Beacon minimises to the Dock and records a take into the project; its menu-bar item stops it. */
       startRecording: { params: { sources: RecordSources }; response: RunReply };
       /** The Record dialog (the Record button), as File › Record… opens it; `narration`, with only the microphone, as Tools › Voice Narration… does. */
       openRecord: { params: { mode?: RecordMode }; response: void };

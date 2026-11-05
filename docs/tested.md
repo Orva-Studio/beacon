@@ -62,6 +62,7 @@ feature lands and when it is checked.
 
 ### Not checked yet
 
+- Recording Beacon with Beacon: start a take; Beacon should go to the Dock (not vanish). Click it in the Dock to bring it back: is it in the take? After Stop, does the window come back up?
 - Monitor's Night and Day rooms in the app: do they look right behind the monitor head on, and as you turn Rotation Y or pick an angled shot? Is Glossy's reflection of each room the right strength?
 - Monitor's next round in the app: zoom in and turn the clip (Scale 226%, Rotation Y as far as it goes): does the outline stay on the clip, and does Y stop at −60°? Pixels close in (Zoom 8–12): do the stripes look like a macro shot of a screen, and do they ever shimmer as the camera moves? Glossy: does the reflection read as the room behind the camera, and is 50% the right strength?
 - Suggest on a real project with sections (a key in Settings › AI): are the moods and tracks right for each part, are the key moments worth a sound, and is the crossfade between tracks smooth? Try it with the B-roll planner on OpenAI too.
