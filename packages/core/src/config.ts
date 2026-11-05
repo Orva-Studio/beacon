@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 import {
   AppSettingsSchema,
   DEFAULT_APP_SETTINGS,
@@ -29,6 +29,7 @@ import {
   LEADER_ACTION,
 } from "@beacon/model";
 import type { AppEvent, PreferenceInfo } from "./api";
+import { JsonStore, readJson, writeAtomic } from "./json-store";
 import type { Secrets } from "./keychain";
 import { clearedKeys, dayOf, emptyLearned, firstKeys, learnedInfo, offers, sweep, type ItemAction, type LearnedFile } from "./learned";
 import { defaultKeys, KeymapFileSchema, savedLeader, setShortcut, shortcutList, swapLeader, type KeymapOverrides } from "./shortcuts";
@@ -55,7 +56,8 @@ const DECISIONS_KEPT = 5000;
 const inRange = (v: string, r: { min: number; max: number }) => v.trim() !== "" && Number(v) >= r.min && Number(v) <= r.max;
 
 export class AppConfig {
-  #prefs: Record<string, string>;
+  readonly #prefs: JsonStore<Record<string, string>, Record<string, unknown>>;
+  readonly #settings: JsonStore<AppSettings, Partial<AppSettings>>;
   /** Commands' descriptions by id, for the shortcuts list; the registry doesn't change, so read once. */
   #descriptions?: Map<string, string>;
 
@@ -65,35 +67,38 @@ export class AppConfig {
     readonly secrets: Secrets,
     readonly emit: (e: AppEvent) => void,
   ) {
-    const prefs = this.read("preferences.json");
-    this.#prefs = prefs && typeof prefs === "object" ? (prefs as Record<string, string>) : {};
-    // What the file holds now: `reloadSettings` tells what differs from it.
-    this.#told = this.settings();
+    // Values are checked one by one when read (`pref`), so one gone stale doesn't lose the others.
+    this.#prefs = new JsonStore(join(dir, "preferences.json"), z.record(z.string(), z.unknown()), (saved) => (saved ?? {}) as Record<string, string>);
+    this.#settings = new JsonStore(join(dir, "settings.json"), AppSettingsSchema.partial(), (saved) => (saved ? { ...DEFAULT_APP_SETTINGS, ...saved } : DEFAULT_APP_SETTINGS));
   }
 
   /** A preference's value: the user's choice, or its default when unset or no longer an option. */
-  readonly pref = (id: string): string => {
+  readonly pref = (id: string): string => this.#prefOf(this.#prefs.value, id);
+
+  #prefOf(prefs: Record<string, string>, id: string): string {
     const def = this.registry.preferences.get(id);
     if (!def) throw new Error(`no preference "${id}"`);
-    const v = this.#prefs[id];
+    const v = prefs[id];
     return v !== undefined && (def.range ? inRange(v, def.range) : def.schema ? fits(def.schema, v) : def.options.some((o) => o.id === v)) ? v : def.default;
-  };
+  }
+
+  /** Reads the preferences again after another process (or a hand edit) may have written them, telling each that changed; returns their ids. */
+  reloadPreferences(): string[] {
+    const before = this.#prefs.value;
+    if (!this.#prefs.reload()) return [];
+    const changed = [...this.registry.preferences.keys()].filter((id) => this.#prefOf(before, id) !== this.pref(id));
+    for (const id of changed) this.emit({ kind: "preference", id, value: this.pref(id) });
+    return changed;
+  }
 
   /** A JSON file of the app's own (panel items' use, settings, keys, the desktop's recent projects); undefined when missing or unreadable. */
   read(name: string): unknown {
-    try {
-      return JSON.parse(readFileSync(join(this.dir, name), "utf8"));
-    } catch {
-      return undefined;
-    }
+    return readJson(join(this.dir, name));
   }
 
   /** Writes one atomically, so a crash never leaves it half written. */
   write(name: string, value: unknown) {
-    mkdirSync(this.dir, { recursive: true });
-    const file = join(this.dir, name);
-    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 2));
-    renameSync(`${file}.tmp`, file);
+    writeAtomic(join(this.dir, name), JSON.stringify(value, null, 2));
   }
 
   async preferences(): Promise<PreferenceInfo[]> {
@@ -141,8 +146,7 @@ export class AppConfig {
       }
     }
     if (this.pref(id) === value) return false;
-    this.#prefs = { ...this.#prefs, [id]: value };
-    this.write("preferences.json", this.#prefs);
+    this.#prefs.write({ ...this.#prefs.value, [id]: value });
     this.emit({ kind: "preference", id, value });
     return true;
   }
@@ -389,32 +393,23 @@ export class AppConfig {
       this.write("decisions.json", kept);
     }
     // Rewritten only when its sentences change (or it isn't there yet), so a hand edit's layout stays until then.
-    if (JSON.stringify(sentences) !== before || !existsSync(this.#memoryMd)) {
-      mkdirSync(this.dir, { recursive: true });
-      writeFileSync(`${this.#memoryMd}.tmp`, memoryMarkdown(sentences));
-      renameSync(`${this.#memoryMd}.tmp`, this.#memoryMd);
-    }
+    if (JSON.stringify(sentences) !== before || !existsSync(this.#memoryMd)) writeAtomic(this.#memoryMd, memoryMarkdown(sentences));
     if (!("forget" in change)) this.write("memory.json", { learning: file.learning, proposals: file.proposals });
     const memory = this.memory();
     this.emit({ kind: "memory", memory });
     return memory;
   }
 
-  /** The settings last told (written here, or found changed by `reloadSettings`). */
-  #told: AppSettings;
-
+  /** Read afresh each time: another process (an agent's core) may have written them since. */
   settings(): AppSettings {
-    const saved = AppSettingsSchema.partial().safeParse(this.read("settings.json"));
-    return saved.success ? { ...DEFAULT_APP_SETTINGS, ...saved.data } : DEFAULT_APP_SETTINGS;
+    return this.#settings.load();
   }
 
   /** Reads the settings again after another process (an agent's core) may have written them, telling a change. */
   reloadSettings(): AppSettings {
-    const next = this.settings();
-    const changed = !Bun.deepEquals(next, this.#told);
-    this.#told = next;
-    if (changed) this.emit({ kind: "settings", settings: next });
-    return next;
+    const changed = this.#settings.reload();
+    if (changed) this.emit({ kind: "settings", settings: this.#settings.value });
+    return this.#settings.value;
   }
 
   setSettings(patch: SettingsPatch): AppSettings {
@@ -422,8 +417,7 @@ export class AppConfig {
     if (typeof patch.snapshotFolder === "string" && !existsSync(patch.snapshotFolder)) throw new Error(`${patch.snapshotFolder} doesn't exist`);
     const next = AppSettingsSchema.safeParse(withPatch(this.settings(), patch));
     if (!next.success) throw new Error(`settings: ${formatIssues(next.error)}`);
-    this.write("settings.json", next.data);
-    this.#told = next.data;
+    this.#settings.write(next.data);
     this.emit({ kind: "settings", settings: next.data });
     return next.data;
   }

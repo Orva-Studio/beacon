@@ -119,7 +119,7 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
 
 /**
  * An agent's MCP server, with the project not open here, runs its own core and writes the same app-wide files:
- * follow them, so the menus, keys, panel items' use and settings here don't stay stale (and aren't saved back over it).
+ * follow them, so the menus, keys, panel items' use, preferences and settings here don't stay stale (and aren't saved back over it).
  */
 function followConfig() {
   // This process's own changes reach the windows as core's events: the files they write aren't told again.
@@ -133,6 +133,7 @@ function followConfig() {
     });
   const reload: Record<string, () => void> = {
     "settings.json": () => void core.reloadSettings(),
+    "preferences.json": () => core.reloadPreferences(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "usage.json": () => void core.recentItems().then((items) => broadcast("usage", { items })),
     // An agent's proposal, or its project's decisions, or memory.md edited by hand: Settings › Memory shows them.
