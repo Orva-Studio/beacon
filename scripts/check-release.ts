@@ -16,6 +16,7 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 import { ENGINE_FILES } from "./bundle-tools";
 import { foreignLinks } from "./macho";
+import { entitlementsOf, HARDENED, IDENTITY, machOs } from "../packages/desktop/sign";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -31,7 +32,17 @@ const step = (what: string) => console.log(`✓ ${what}`);
 
 async function checkApp(app: string, what: string) {
   await $`codesign --verify --deep --strict ${app}`.quiet();
-  step(`${what} is signed`);
+  if (!HARDENED) return step(`${what} is signed`);
+  // Notarization refuses any code without the hardened runtime, and a helper missing its entitlements fails at run time.
+  for (const file of [app, ...machOs(app)]) {
+    const info = (await $`codesign -d --verbose=2 ${file}`.quiet()).stderr.toString();
+    if (!/flags=0x[0-9a-f]*\(.*runtime/.test(info)) throw new Error(`${file} isn't signed with the hardened runtime`);
+    if (IDENTITY !== "-" && /TeamIdentifier=not set/.test(info)) throw new Error(`${file} is signed ad hoc, not with ${IDENTITY}`);
+    const main = file === app ? join(app, "Contents/MacOS", (await $`plutil -extract CFBundleExecutable raw ${join(app, "Contents/Info.plist")}`.quiet().text()).trim()) : file;
+    const has = (await $`codesign -d --entitlements - --xml ${file}`.nothrow().quiet()).stdout.toString();
+    for (const key of entitlementsOf(main)) if (!has.includes(key)) throw new Error(`${file} lacks ${key}`);
+  }
+  step(`${what} is signed with the hardened runtime${IDENTITY === "-" ? " (ad hoc)" : ` by ${IDENTITY}`}, each helper with its entitlements`);
 }
 
 /**

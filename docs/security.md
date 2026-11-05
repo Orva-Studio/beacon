@@ -21,8 +21,8 @@ What an attacker could reach, what Beacon does about it, and the risks accepted 
 ## Accepted for now
 
 - **The app isn't signed or notarized by Apple** (no Developer ID yet): macOS warns on first open and asks for screen,
-  camera and microphone permission again after each update. Updates are signed by Beacon itself (above). With a
-  Developer ID: sign with the hardened runtime, notarize in CI.
+  camera and microphone permission again after each update. Updates are signed by Beacon itself (above). The release
+  is ready for one: see "Developer ID" below.
 - **Keychain items** are written with `/usr/bin/security`, which puts that tool on each item's access list: any
   process running as the user can read the API keys with it, without a prompt. Signed, Beacon can store them through
   the Security framework with an access list naming only itself.
@@ -37,6 +37,38 @@ What an attacker could reach, what Beacon does about it, and the risks accepted 
   every demuxer FFmpeg is built with.
 - **Camtasia projects** may name media anywhere on disk, as Camtasia's own do: importing one reads and probes those
   files.
+
+## Developer ID
+
+Signing and notarizing wait only on the certificate. `packages/desktop/sign.ts` signs each app inside out (libraries,
+then helpers, then the bundle; no `--deep`): ad hoc, as now, or, when `BEACON_SIGN_IDENTITY` names a Developer ID,
+with it, a secure timestamp and the hardened runtime, each binary with only the entitlements it needs:
+
+| Binary | Entitlements |
+|---|---|
+| `bun` (the main process) | JIT (`allow-jit`, `allow-unsigned-executable-memory`), camera, microphone |
+| `beacon-mcp` | JIT |
+| `launcher`, `beacon-recorder` | camera, microphone |
+| everything else | none |
+
+`BEACON_HARDENED=1` turns the hardened runtime on for an ad hoc build (adding `disable-library-validation`, as ad hoc
+code has no Team ID), to try the app under it without the certificate. `scripts/check-release.ts` checks every binary
+has the runtime and its entitlements whenever either is set.
+
+The release workflow imports the certificate into a keychain of the run's own, signs with it, then
+`scripts/notarize.ts` signs the DMG, submits it to Apple (`notarytool`, waiting), staples the ticket and checks it with
+Gatekeeper. Without the secrets every step falls back to ad hoc, as today. To turn it on, add these repository secrets:
+
+| Secret | What |
+|---|---|
+| `BEACON_DEVELOPER_ID_P12` | The "Developer ID Application" certificate with its private key, exported from Keychain Access as a .p12, base64 (`base64 -i id.p12 \| pbcopy`) |
+| `BEACON_DEVELOPER_ID_PASSWORD` | The .p12's password |
+| `APPLE_API_KEY` | An App Store Connect API key (Users and Access › Integrations › App Store Connect API, role Developer): the .p8's text, or it base64 |
+| `APPLE_API_KEY_ID` | That key's ID |
+| `APPLE_API_ISSUER` | The issuer ID shown above the keys |
+
+The first signed release changes the app's designated requirement (from its ad hoc hash to the Team ID), so macOS asks
+for screen, camera and microphone once more; from then on updates keep the permissions.
 
 ## What leaves this Mac
 
