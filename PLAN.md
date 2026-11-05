@@ -3650,8 +3650,9 @@ caption shadow. In this order, on this branch:
    Folder) for `chooseFolder` in `packages/desktop/src/bun/index.ts`, or an NSOpenPanel of Beacon's own with
    `canCreateDirectories` (bun:ffi to the Objective-C runtime). Check in the app: it comes to the front, Cancel
    returns nothing, the folder made is picked.
-   **Done (2026-11-05):** osascript's `choose folder` (`packages/desktop/src/bun/choose-folder.ts`) for every
-   Choose… folder picker; an NSOpenPanel through bun:ffi would have to run on AppKit's main thread, not bun's.
+   **Tried and rolled back (the user, 2026-11-05):** osascript's `choose folder` came up about ten times slower than
+   Finder's picker (and showed no picker for New Project's Choose…): Electrobun's dialog stays. New Folder there would
+   need an NSOpenPanel of Beacon's own (bun:ffi, on AppKit's main thread): parked.
 7. **Automatic music and sound effects:** AI reads the transcript, works out the
    video's kind and mood (per section), and proposes Epidemic Sound tracks and
    sound effects at the right places, reviewed on the timeline then applied

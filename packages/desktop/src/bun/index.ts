@@ -4,7 +4,6 @@ import { basename, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
 import Electrobun, { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/main";
 import type { ProjectWindow } from "./app";
-import { chooseFolder } from "./choose-folder";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
 
@@ -367,11 +366,7 @@ function openWindow(): Win {
         },
         openDialog: () => reply(projects.openDialog),
         openRecent: ({ path }) => projects.openRecent(path),
-        chooseFolder: async ({ start }) => {
-          const folder = await chooseFolder(start);
-          w.activate();
-          return folder;
-        },
+        chooseFolder: async ({ start }) => (await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start }))[0] || null,
         importFile: ({ path }) => replyWith(async () => (await projects.importFile(w, path))!),
         chooseFile: async ({ extensions }) => (await Utils.openFileDialog({ canChooseFiles: true, canChooseDirectory: false, allowsMultipleSelection: false, startingFolder: "~/", allowedFileTypes: extensions.join(",") }))[0] || null,
         startExport: (params) => reply(() => w.exports.startExport(params)),
