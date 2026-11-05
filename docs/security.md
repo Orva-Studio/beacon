@@ -53,3 +53,14 @@ Only when the user uses the feature, with their own key (Settings › AI and Set
 | Epidemic Sound | Searches (words, moods) | Music and sound effects |
 | Firecrawl | A web address | A motion graphic that uses a web page |
 | GitHub | Nothing but the request | Check for Updates |
+
+## Fuzzing
+
+Run before a release that touches a reader; each must refuse damaged input with an error, never crash or hang.
+
+- `.trec` (Rust, the `moov`, `TSCR` and `TSCM` readers on a real recording's boxes, damaged in memory):
+  `cd packages/engine && BEACON_FUZZ_TREC=<file.trec> cargo test -p beacon-media --release -- --ignored fuzz`.
+  2026-11-05: 5.1 million damaged boxes in a minute, no panic, the slowest 17 ms.
+- `project.json`, a take's `recording.json` and `cursor.jsonl` (TypeScript, read, migrated and validated as opening
+  does): `bun scripts/fuzz-readers.ts [seconds]`. 2026-11-05: 35,100 damaged projects and 177,090 damaged takes in
+  30 s each, every one read or refused with an error, the slowest 32 ms.

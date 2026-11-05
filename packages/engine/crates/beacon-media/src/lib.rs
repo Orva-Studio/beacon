@@ -5,6 +5,8 @@
 mod bytes;
 mod mp4;
 mod tscm;
+#[cfg(test)]
+mod fuzz;
 
 use std::fs::File;
 use std::path::Path;
