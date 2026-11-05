@@ -3711,6 +3711,38 @@ MCP server sets round each tool call and the socket round each request that name
 No new features: improving what is there (the user, 2026-11-05). After thirteen phases of features, go back
 over the code: clear technical debt, remove code for features that are gone or unused (and features nobody
 uses), simplify, and measure and improve performance; then the security audit below.
+
+**Survey (2026-11-05, branch `phase-14` from `phase-13.5`):**
+- *Dead code:* very little. Two unused effect pictures (`highlight-green`/`-magenta` in `ui/src/art`), three
+  tick helpers only tests use (`frameToTicks`, `ticksToFrame`, `sampleToTicks`), an unused type (`motion/blocks.ts`
+  `Area`), ~125 exports only their own file uses (drop `export`). No unused feature, file, asset, WGSL or Rust fn;
+  every RPC request and MCP tool is live. `retired.ts` stays (old projects open).
+- *Debt, quick:* UI deep-imports into features (`music.tsx`, `ai-settings.tsx`); core re-exports `LABEL_COLORS`
+  from features; timeline-draw names B-roll; `clamp` four times; ffmpeg spawned by hand in auphonic, broll, angles
+  (not `ffmpegArgs`); two `onDisk`s; a drop-timing `console.log` (`desktop/projects.ts:314`); Epidemic's GraphQL
+  untyped; `#runAgent` starts jobs its own way.
+- *Debt, large:* about 12 feature UIs live in `packages/ui` and `properties.tsx`/`canvas.tsx`/`bridge.ts` branch on
+  feature ids (principle: core never names a feature); `Timeline` is one ~870-line component (a ~750-line effect);
+  `LocalCore` does project, import, export, tasks and agents (split out Exporter, Importer, Tasks, AgentRuns as
+  Analyses was); `SESSION_COMMANDS` is one 500-line array; two settings stores (`preferences.json`, `settings.json`).
+- *Performance:* the 2026-10-13 numbers hold (jump p50 19.8 ms, settle 98.8 / 142.8 ms, scrub 266 / 244 fps, play
+  0 skipped; edits 3-3.5 ms p50).
+- *Security, high:* the app is unsigned and updates aren't signature-checked; no CSP in the window; `showFile` runs
+  `open` on any path the page sends; the socket has no token (any process as the user can record, export, read);
+  `recorder_start` over MCP records with no confirmation in the app. *Medium:* a recording's `name` can write
+  outside the project (`../`); `#checkOutput` doesn't realpath (symlinks); task `frame()` and `saveAs`'s copy follow
+  links; `.tscproj` read without limits, its paths anywhere; Keychain items readable by `security` from any local
+  process; motion pages can fetch anywhere (no CSP in the iframe); CI doesn't run `bun run audit`; uploads (frames
+  and transcript text, not only audio) and the `BEACON_*_URL` overrides undocumented.
+Decided (the user, 2026-11-05): **the full registry move**: features register their inspector tabs, panels,
+reviews, clip labels and placeholders, and their UI moves into their folders, so `packages/ui` names no feature;
+**split the big files** (Timeline into hooks, LocalCore into Exporter/Importer/Tasks/AgentRuns, SESSION_COMMANDS
+by area, one settings store); **no Developer ID yet**: Beacon signs each update itself (ed25519 over the manifest,
+the public key in the app, checked before applying), app signing and notarization accepted-for-now in
+`docs/security.md`; **an agent's recording asks in the app** (Record / Don't, refused unanswered), and the socket
+takes a per-launch token.
+Order: (1) dead code and quick debt; (2) security's highs and mediums, CI audit; (3) the splits; (4) the registry
+move; (5) `docs/security.md`, uploads listed, and the fuzzing gate. Each a commit, the suite green between.
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:

@@ -2,7 +2,6 @@ import { z } from "zod";
 
 /** Where in the box a piece goes. */
 export const AREAS = ["full", "top", "middle", "bottom", "left", "right"] as const;
-export type Area = (typeof AREAS)[number];
 
 export const KINDS = ["title", "lowerThird", "number", "list", "text"] as const;
 export type Kind = (typeof KINDS)[number];
