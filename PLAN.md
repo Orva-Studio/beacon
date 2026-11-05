@@ -3751,6 +3751,12 @@ memory over a long session, export, a timeline of hundreds of clips: measured, t
 **ready for the Developer ID** (signing with the hardened runtime and notarization in CI, waiting only on the
 certificate; then the keys in the Keychain through the Security framework); **first run** on a fresh Mac
 (permissions, first recording, first export) smoothed; **diagnostics** a user can send.
+**MCP made lean (the user, 2026-11-05):** server instructions under 4 KB (Claude Code cuts at 4,096; Beacon's were
+12.9k), the rest in resources; 4-5 core tools always loaded; duplicate `edit_*` tools out of MCP; `transaction`
+first, compact results; filtered `timeline_clips`/`transcript_get`; errors naming valid choices; `scripts/mcp-eval.ts`
+before/after (baseline 263 tools, ~44k tokens of definitions). Branch `mcp-lean`, in progress at hand-off.
+**Done 2026-11-05:** launch 1.2-2.6 s to a drawn window, opening 8 ms; memory levels off, ~130 MB saved while playing
+(decoder keeps ½ s behind); Camtasia ~2.2 GB vs Beacon ~1.0 GB on the same project (docs/performance.md).
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
