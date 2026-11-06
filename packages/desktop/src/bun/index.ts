@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, statSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
@@ -282,15 +282,28 @@ const projects = createProjects({
   },
 });
 
-/** Help › Save Diagnostics…: the report on the Desktop, shown in Finder, for the user to look over and send. */
+/** Where the last diagnostics report went: the folder Save Diagnostics… opens on next time (the Desktop at first). */
+const diagnosticsFolderFile = () => join(core.configDir, "diagnostics-folder");
+
+/** Help › Save Diagnostics…: the report saved in a folder the user picks, shown in Finder, for them to look over and send. */
 async function saveDiagnostics() {
+  let start = join(homedir(), "Desktop");
+  try {
+    const last = readFileSync(diagnosticsFolderFile(), "utf8").trim();
+    if (last && existsSync(last)) start = last;
+  } catch {
+    // None yet: the Desktop.
+  }
+  const [folder] = await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start });
+  if (!folder) return;
   const devices = await core.recorderDevices().catch(() => undefined);
   const text = await core.diagnostics({ app: { version: appVersion }, ...(devices ? { permissions: devices.permissions } : {}), log: logTail(), crashes: crashReports() });
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", ".");
-  const file = join(homedir(), "Desktop", `Beacon diagnostics ${stamp}.txt`);
+  const file = join(folder, `Beacon diagnostics ${stamp}.txt`);
   writeFileSync(file, text);
+  writeFileSync(diagnosticsFolderFile(), folder);
   Utils.showItemInFolder(file);
-  status(`Saved ${basename(file)} on the Desktop: look it over, then attach it to your report`);
+  status(`Saved ${basename(file)}: look it over, then attach it to your report`);
 }
 
 /** The app's own actions, from their menu items, the command palette or keys a window matched, in that window. */
