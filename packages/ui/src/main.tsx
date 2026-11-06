@@ -63,7 +63,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 replica.subscribe(() => {
   clearTimeout(timer);
   timer = setTimeout(() => {
-    const { project, session, opened } = replica.get();
+    const { project, session, opened, waveforms, thumbs } = replica.get();
     if (!project || !session) return;
     view.rpc!.send.shown({
       project: opened?.name,
@@ -75,6 +75,8 @@ replica.subscribe(() => {
       timeline: session.timeline,
       tool: session.panels.tool,
       properties: session.panels.properties ? session.inspector : null,
+      waveforms: Object.keys(waveforms).length,
+      thumbs: Object.values(thumbs).filter(Boolean).length,
     });
   }, 30);
 });

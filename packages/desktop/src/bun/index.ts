@@ -407,12 +407,7 @@ function openWindow(): Win {
         ...coreRequests(core, () => w.current?.path, (text) => w.status(text)),
         resync: async () => (w.current ? openedPayload(w, w.current.path) : undefined),
         init: async () => {
-          // The webview may load after the project opened: send its pictures again once it asks.
-          setTimeout(() => {
-            w.current?.bridge.sendWaveforms(true);
-            w.media.resendThumbs();
-          }, 50);
-          return {
+          const payload = {
             ...(await initPayload(core)),
             opened: w.current ? await openedPayload(w, w.current.path) : undefined,
             recent: projects.recentProjects(),
@@ -421,6 +416,12 @@ function openWindow(): Win {
             keyLog: !!keyLog,
             socket,
           };
+          // The webview may load after the project opened: its pictures again, once the reply they would follow is made.
+          setTimeout(() => {
+            w.current?.bridge.sendWaveforms(true);
+            w.media.resendThumbs();
+          }, 50);
+          return payload;
         },
         openDialog: () => reply(projects.openDialog),
         openRecent: ({ path }) => projects.openRecent(path),
@@ -608,7 +609,7 @@ core.setSnapshotter(async (h) => {
     s &&
     `${s.project}: ${s.tracks} tracks, ${s.clips} clips, ${s.markers} markers; playhead ${s.playhead.toFixed(2)} s; ` +
       `selected ${s.selection.length ? s.selection.join(", ") : "nothing"}; timeline ${s.timeline.start.toFixed(2)}–${s.timeline.end.toFixed(2)} s; ` +
-      `tool panel ${s.tool ?? "closed"}; properties ${s.properties ?? "closed"}`;
+      `tool panel ${s.tool ?? "closed"}; properties ${s.properties ?? "closed"}; ${s.waveforms} waveforms, ${s.thumbs} thumbnails`;
   return { png, canvas, scale, shown: text };
 });
 
