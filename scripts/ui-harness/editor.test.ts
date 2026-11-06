@@ -6392,3 +6392,24 @@ test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part
   expect(ui.core.doc(ui.handle).sections).toEqual([]);
   await run("timeline.snapping", { on: true });
 }, 30_000);
+
+test.skipIf(skip)("every right-hand panel is as wide as Properties, so opening Music or a review never moves the canvas", async () => {
+  await run("panel.show", { properties: true });
+  // The canvas's card grows to fill its row; the panel on the right of that row is Properties or what replaces it.
+  const widths = () => page.evaluate<{ panel: number; canvas: number }>(`(() => {
+    const canvas = document.querySelector('.panel-card.flex-1');
+    return { panel: Math.round(canvas.parentElement.lastElementChild.getBoundingClientRect().width), canvas: Math.round(canvas.getBoundingClientRect().width) };
+  })()`);
+  await page.until("document.querySelector('.panel-card.flex-1')?.parentElement.lastElementChild !== document.querySelector('.panel-card.flex-1')");
+  const properties = await widths();
+  expect(properties.panel).toBe(320);
+  await run("music.review", { tab: "music" });
+  await page.until("!!document.querySelector('[data-music-review]')");
+  expect(await widths()).toEqual(properties);
+  await run("music.close");
+  await run("silences.review", {});
+  await page.until("!!document.querySelector('[data-silence-review]')");
+  expect(await widths()).toEqual(properties);
+  await run("silences.close");
+  await page.until("!document.querySelector('[data-silence-review]')");
+});

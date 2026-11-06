@@ -6,6 +6,7 @@ import { useQuery } from "./query";
 import { replica, useView } from "./store";
 import type { Host } from "./app";
 import { clock } from "./time";
+import { SIDE_PANEL } from "./side-panel";
 
 /** The mean progress of the transcripts being made, 0-1. */
 export function useTranscribing(): number | undefined {
@@ -179,7 +180,7 @@ export function ReviewPanel<T extends Item>(props: {
         ? none
         : `${tally ? tally(items) : `${items.length} ${noun}: ${cut} to cut, ${kept} kept.`} ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
   return (
-    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" {...{ [`data-${one}-review`]: true }}>
+    <div className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-y-auto p-4 text-body`} {...{ [`data-${one}-review`]: true }}>
       <div className="mb-4 text-title font-semibold text-text-strong">{title}</div>
       {children}
       <div className="mb-2 rounded-md bg-groove px-3 py-2 text-text" {...{ [`data-${review}-summary`]: true }}>
