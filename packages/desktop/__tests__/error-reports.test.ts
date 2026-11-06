@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { redactor } from "@beacon/core";
@@ -49,19 +49,17 @@ test("the envelope goes to Better Stack's ingest with the DSN's key", () => {
   expect(event.event_id).toMatch(/^[0-9a-f]{32}$/);
 });
 
-test("reports: none while off (asked at each one), the same error once a run, at most 20 a run, and one that can't be sent is dropped", async () => {
+test("reports: none while off (asked at each one), the same error once a run, at most 20 a run; each written before it is sent, so one not sent (offline, or the process died) goes on the next run", async () => {
   let on = false;
   const posts: string[] = [];
   let fail = false;
-  const reporter = createReporter({
-    enabled: () => on,
-    context: () => ctx,
-    send: async (_url, init) => {
-      if (fail) throw new Error("offline");
-      posts.push(String(init.body));
-      return { ok: true, status: 200 };
-    },
-  });
+  const pending = mkdtempSync(join(tmpdir(), "beacon-pending-"));
+  const send = async (_url: string, init: RequestInit) => {
+    if (fail) throw new Error("offline");
+    posts.push(String(init.body));
+    return { ok: true, status: 200 };
+  };
+  const reporter = createReporter({ enabled: () => on, context: () => ctx, pending, send });
   const err = (n: number): ErrorInput => ({ origin: "main", mechanism: "onerror", type: "Error", message: `boom ${n}` });
   expect(await reporter.report(err(0))).toBeUndefined();
   expect(posts).toHaveLength(0);
@@ -69,11 +67,18 @@ test("reports: none while off (asked at each one), the same error once a run, at
   expect(await reporter.report(err(0))).toMatch(/^[0-9a-f]{32}$/);
   await reporter.report(err(0));
   expect(posts).toHaveLength(1);
+  expect(readdirSync(pending)).toEqual([]);
   fail = true;
   expect(await reporter.report(err(1))).toBeUndefined();
+  expect(readdirSync(pending)).toHaveLength(1);
+  // The next run sends it.
   fail = false;
+  const next = createReporter({ enabled: () => true, context: () => ctx, pending, send });
+  expect(await next.sendPending()).toBe(1);
+  expect(posts.at(-1)).toContain("boom 1");
+  expect(readdirSync(pending)).toEqual([]);
   for (let n = 2; n < 40; n++) await reporter.report(err(n));
-  expect(posts).toHaveLength(19);
+  expect(posts).toHaveLength(2 + 18);
 });
 
 test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once with only the process and how it crashed; another app's bun is not", async () => {
@@ -84,7 +89,7 @@ test("crash reports: the first run only notes those there; later, each new one o
     writeFileSync(join(dir, name), `${JSON.stringify({ app_name: proc })}\n${JSON.stringify({ procName: proc, procPath: `${inside}/Contents/MacOS/${proc}`, exception: { type: "EXC_CRASH", signal: "SIGABRT" }, threads: [{ frames: [{ symbol: `${home}/secret` }] }] })}`);
   ips("bun-2026-11-06-1.ips", "bun");
   const sent: ErrorInput[] = [];
-  const reporter = { report: async (e: ErrorInput) => (sent.push(e), "id") };
+  const reporter = { report: async (e: ErrorInput) => (sent.push(e), "id"), sendPending: async () => 0 };
   const write = (f: string, t: string) => writeFileSync(f, t);
   expect(await reportNewCrashes(reporter, ["bun-2026-11-06-1.ips"], seen, dir, bundle, write)).toBe(0);
   ips("beacon-worker-2026-11-06-2.ips", "beacon-worker");

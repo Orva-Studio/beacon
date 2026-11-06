@@ -29,7 +29,8 @@ export function startLog(version: string) {
       was(...args);
     };
   }
-  process.on("uncaughtException", (e) => log("error", "uncaught:", e));
+  // Ahead of Electrobun's handler, which exits the app at once.
+  process.prependListener("uncaughtException", (e) => log("error", "uncaught:", e));
   process.on("unhandledRejection", (e) => log("error", "unhandled rejection:", e));
   log("info", `Beacon ${version} started`);
 }

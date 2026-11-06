@@ -1,7 +1,7 @@
 // Error reports to Better Stack (in Sentry's envelope format, which it takes), Beacon's own small sender rather than an SDK: what leaves the Mac is only what is
 // built here, every string through the diagnostics redactor, with no hostname, user, breadcrumbs or IP inference.
 // Release builds only (`available`), unless turned off in Settings › General or on the first-run notice.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const DSN = "https://YyLqHJLBqEL5LRYHHkU4f484@s2826331.us-west-2a.betterstackdata.com/2826331";
@@ -92,37 +92,73 @@ export function envelope(event: Record<string, unknown>, dsn = DSN): { url: stri
 }
 
 export interface Reporter {
-  /** Sends a report, unless reports are off, this one was sent already this run, or the run's share is used. */
+  /**
+   * Reports an error, unless reports are off, it was reported already this run, or the run's share is used: written
+   * to `pending` at once (the process may be about to die), then sent. Resolves to the event id once sent.
+   */
   report(input: ErrorInput): Promise<string | undefined>;
+  /** Sends what an earlier run wrote and couldn't send (it died first, or was offline). */
+  sendPending(): Promise<number>;
 }
 
+/** Pending reports kept at most: older ones are dropped. */
+const MAX_PENDING = 20;
+
 /**
- * `enabled` is asked at each report, so Settings' switch takes effect at once. `send` is fetch, or a test's. A
- * report that can't be sent is dropped and only logged: never reported again, which could loop.
+ * `enabled` is asked at each report, and synchronously, so Settings' switch takes effect at once and nothing waits
+ * before the report is on disk. `send` is fetch, or a test's. A report that can't be sent stays pending for the next
+ * run; it is never reported as an error itself, which could loop.
  */
 export function createReporter(opts: {
-  enabled(): boolean | Promise<boolean>;
+  enabled(): boolean;
   context(): ReportContext;
+  /** A folder for reports not sent yet. */
+  pending: string;
   send?: (url: string, init: RequestInit) => Promise<{ ok: boolean; status: number }>;
   log?: (text: string) => void;
 }): Reporter {
   const sent = new Set<string>();
   const send = opts.send ?? ((url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(10_000) }));
+  /** Sends one written report; removes it once the ingest has it, or when it refuses it (4xx: sending again won't help). */
+  const deliver = async (file: string): Promise<boolean> => {
+    try {
+      const { url, headers, body } = JSON.parse(readFileSync(file, "utf8")) as ReturnType<typeof envelope>;
+      const r = await send(url, { method: "POST", headers, body });
+      if (r.ok || (r.status >= 400 && r.status < 500)) rmSync(file, { force: true });
+      if (!r.ok) opts.log?.(`error report not sent: HTTP ${r.status}`);
+      return r.ok;
+    } catch (e) {
+      opts.log?.(`error report not sent: ${e instanceof Error ? e.message : e}`);
+      return false;
+    }
+  };
   return {
     async report(input) {
-      if (!(await opts.enabled())) return;
+      if (!opts.enabled()) return;
       const key = `${input.origin}|${input.type}|${input.message}|${input.stack?.split("\n").slice(0, 3).join("|") ?? ""}`;
       if (sent.has(key) || sent.size >= MAX_PER_RUN) return;
       sent.add(key);
       const event = errorEvent(input, opts.context());
-      const { url, headers, body } = envelope(event);
+      const file = join(opts.pending, `${event.event_id as string}.json`);
       try {
-        const r = await send(url, { method: "POST", headers, body });
-        if (!r.ok) opts.log?.(`error report not sent: HTTP ${r.status}`);
-        return r.ok ? (event.event_id as string) : undefined;
+        mkdirSync(opts.pending, { recursive: true });
+        writeFileSync(file, JSON.stringify(envelope(event)));
       } catch (e) {
-        opts.log?.(`error report not sent: ${e instanceof Error ? e.message : e}`);
+        opts.log?.(`error report not written: ${e instanceof Error ? e.message : e}`);
+        return;
       }
+      return (await deliver(file)) ? (event.event_id as string) : undefined;
+    },
+    async sendPending() {
+      if (!opts.enabled() || !existsSync(opts.pending)) return 0;
+      const files = readdirSync(opts.pending)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => join(opts.pending, f))
+        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+      for (const old of files.slice(MAX_PENDING)) rmSync(old, { force: true });
+      let n = 0;
+      for (const f of files.slice(0, MAX_PENDING)) if (await deliver(f)) n++;
+      return n;
     },
   };
 }

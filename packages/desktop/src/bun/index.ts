@@ -76,15 +76,20 @@ let shortcuts = await core.shortcuts();
 // Error reports: release builds only; BEACON_ERROR_REPORTS=1 sends from a dev build too (to try them), 0 never.
 const reportsAvailable = process.env.BEACON_ERROR_REPORTS === "1" || (channel !== "dev" && process.env.BEACON_ERROR_REPORTS !== "0");
 const macos = Bun.spawnSync(["sw_vers", "-productVersion"]).stdout.toString().trim() || "unknown";
+/** Settings' switch, kept here so a report never waits on it (the process may be dying). */
+let reportsOn = (await core.settings()).errorReports !== false;
 const reporter = createReporter({
-  enabled: async () => reportsAvailable && (await core.settings()).errorReports !== false,
+  enabled: () => reportsAvailable && reportsOn,
+  pending: join(core.configDir, "error-reports"),
   context: () => ({ version: appVersion, channel, macos, arch: process.arch, redact: (text) => core.redact(text) }),
   log: (text) => log("warn", text),
 });
 const reportError = (e: unknown, mechanism: "onerror" | "onunhandledrejection") =>
   void reporter.report({ origin: "main", mechanism, type: e instanceof Error ? e.name : typeof e, message: e instanceof Error ? e.message : String(e), ...(e instanceof Error && e.stack ? { stack: e.stack } : {}) });
-process.on("uncaughtException", (e) => reportError(e, "onerror"));
+// Ahead of Electrobun's own handler, which exits at once: the report is written before that (and sent on the next launch).
+process.prependListener("uncaughtException", (e) => reportError(e, "onerror"));
 process.on("unhandledRejection", (e) => reportError(e, "onunhandledrejection"));
+void reporter.sendPending();
 if (reportsAvailable && bundle) {
   const crashDir = join(homedir(), "Library/Logs/DiagnosticReports");
   void reportNewCrashes(reporter, crashReports().names, join(core.configDir, "reported-crashes.json"), crashDir, bundle, (file, text) => {
@@ -571,6 +576,7 @@ openWindow();
 appBridge(core, broadcast, {
   shortcuts: (list) => void shortcutsChanged(list),
   settings: (s) => {
+    reportsOn = s.errorReports !== false;
     for (const w of windows) if (w !== changedBy) w.message("appSettings", s);
   },
   job: (job) => {
