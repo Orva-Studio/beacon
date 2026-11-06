@@ -407,12 +407,7 @@ function openWindow(): Win {
         ...coreRequests(core, () => w.current?.path, (text) => w.status(text)),
         resync: async () => (w.current ? openedPayload(w, w.current.path) : undefined),
         init: async () => {
-          // The webview may load after the project opened: send its pictures again once it asks.
-          setTimeout(() => {
-            w.current?.bridge.sendWaveforms(true);
-            w.media.resendThumbs();
-          }, 50);
-          return {
+          const payload = {
             ...(await initPayload(core)),
             opened: w.current ? await openedPayload(w, w.current.path) : undefined,
             recent: projects.recentProjects(),
@@ -421,6 +416,12 @@ function openWindow(): Win {
             keyLog: !!keyLog,
             socket,
           };
+          // The webview may load after the project opened: its pictures again, once the reply they would follow is made.
+          setTimeout(() => {
+            w.current?.bridge.sendWaveforms(true);
+            w.media.resendThumbs();
+          }, 50);
+          return payload;
         },
         openDialog: () => reply(projects.openDialog),
         openRecent: ({ path }) => projects.openRecent(path),
