@@ -37,22 +37,38 @@ const run = (cmd: string[]) => {
   }
 };
 
-/**
- * A path in a user's folders or on a disk, its parts allowed spaces, ending where a message goes on (`: `, `, `, ` (`,
- * a quote or bracket) or the line does: the folders and file names in it can name clients, whichever project they
- * were from (the log keeps earlier sessions'), so all that is kept is its last extension.
- */
-const PATH = /(?:~|\/(?:Users|Volumes)\/[^/\n:]+)(?:\/(?:(?!: |, | \(|["'`)\]])[^/\n])+)+/g;
+const PATH_START = /(?:~|\/(?:Users|Volumes))\//g;
 const EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
-/** Replaces the home folder, each name in `names`, then every path, so the report says what kind of file, not whose. */
+/**
+ * Each path in a user's folders or on a disk replaced by `<path>` and its last extension: the folders and file names
+ * in it can name clients, whichever project they were from (the log keeps earlier sessions'). Names hold spaces,
+ * commas, brackets and apostrophes, so a quoted path ends at its closing quote and any other only where an error's
+ * reason starts (`: `, which Finder keeps out of names) or the line does: some of a message may go, never a name.
+ */
+function redactPaths(text: string): string {
+  let out = "";
+  let from = 0;
+  for (const m of text.matchAll(PATH_START)) {
+    if (m.index < from) continue;
+    const quote = /["'`]/.test(text[m.index - 1] ?? "") ? text[m.index - 1]! : undefined;
+    const ends = [text.indexOf("\n", m.index), quote ? text.indexOf(quote, m.index) : text.indexOf(": ", m.index)].filter((i) => i >= 0);
+    const end = ends.length ? Math.min(...ends) : text.length;
+    const path = text.slice(m.index, end);
+    out += `${text.slice(from, m.index)}<path>${EXTENSION.exec(path.slice(path.lastIndexOf("/") + 1))?.[0] ?? ""}`;
+    from = end;
+  }
+  return out + text.slice(from);
+}
+
+/** Replaces the home folder, each name in `names`, then every path (`redactPaths`), so the report says what kind of file, not whose. */
 export function redactor(names: Map<string, string>): (text: string) => string {
   const home = homedir();
   const ordered = [...names].filter(([n]) => n.length > 2).sort((a, b) => b[0].length - a[0].length);
   return (text) => {
     let out = text.split(home).join("~");
     for (const [name, as] of ordered) out = out.split(name).join(as);
-    return out.replace(PATH, (path) => `<path>${EXTENSION.exec(path.slice(path.lastIndexOf("/") + 1))?.[0] ?? ""}`);
+    return redactPaths(out);
   };
 }
 

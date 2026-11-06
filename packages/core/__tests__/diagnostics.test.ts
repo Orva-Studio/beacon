@@ -20,7 +20,7 @@ test.skipIf(!existsSync(VIDEO))("the diagnostics report holds the setup and proj
     const r = await core.import(h, [media], { at: 0 });
     for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
 
-    const report = await core.diagnostics({ app: { version: "9.9.9" }, permissions: { screen: "granted", camera: "not asked" }, log: `2026-11-05 error could not read ${media}: denied\n2026-11-05 warn saving ${h}\n2026-11-04 error no such file ${join(homedir(), "Movies/Old Client Pitch.beproj/media/Old Client Pitch.mov")}\n2026-11-05 error transcript of Acme Client Interview.mp4 failed\n2026-11-03 error opening ${join(homedir(), "Movies/Acme.com Confidential Interview.mov")}: denied\n2026-11-03 error mkdir ${join(homedir(), "Library/Application Support/Beacon")}: EACCES: permission denied`, crashes: { names: ["bun-2026-11-05.ips"] } });
+    const report = await core.diagnostics({ app: { version: "9.9.9" }, permissions: { screen: "granted", camera: "not asked" }, log: `2026-11-05 error could not read ${media}: denied\n2026-11-05 warn saving ${h}\n2026-11-04 error no such file ${join(homedir(), "Movies/Old Client Pitch.beproj/media/Old Client Pitch.mov")}\n2026-11-05 error transcript of Acme Client Interview.mp4 failed\n2026-11-03 error opening ${join(homedir(), "Movies/Acme.com Confidential Interview.mov")}: denied\n2026-11-03 error mkdir ${join(homedir(), "Library/Application Support/Beacon")}: EACCES: permission denied\n2026-11-02 error ${join(homedir(), "Movies/O'Brien Secret Interview.mov")}: denied\n2026-11-02 error reading "${join(homedir(), "Movies/Archive (Hidden Co), take 2/Interview.mov")}" twice`, crashes: { names: ["bun-2026-11-05.ips"] } });
     expect(report).toContain("Beacon 9.9.9");
     expect(report).toMatch(/^macOS \d+/m);
     expect(report).toContain("camera: not asked");
@@ -33,8 +33,10 @@ test.skipIf(!existsSync(VIDEO))("the diagnostics report holds the setup and proj
     expect(report).toContain("transcript of <media 1.1>.mp4 failed");
     expect(report).toContain("opening <path>.mov: denied");
     expect(report).toContain("mkdir <path>: EACCES: permission denied");
+    expect(report).toContain("error <path>.mov: denied");
+    expect(report).toContain('reading "<path>.mov" twice');
     expect(report).toMatch(/ffmpeg version/);
-    for (const leak of ["sk-secret-value-123", homedir(), "Acme Client", "Old Client", "Confidential"]) expect(report).not.toContain(leak);
+    for (const leak of ["sk-secret-value-123", homedir(), "Acme Client", "Old Client", "Confidential", "Brien", "Secret", "Hidden Co", "take 2"]) expect(report).not.toContain(leak);
   } finally {
     core.closeAll();
   }
