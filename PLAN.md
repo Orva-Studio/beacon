@@ -3825,6 +3825,15 @@ CONTRIBUTING, `docs/` and `skills/` are cut to how Beacon works now; PLAN's fini
 each (what they delivered, PR, version) and `docs/tested.md` keeps only what is still to check. History stays in
 git and the merged PRs.
 
+**Planned here (the user, 2026-11-06): a camera that dies mid-take is marked, for the user and for agents.** The
+recorder's monitor already sees a camera go black or freeze while its frames keep coming (the Record panel's chip
+turns amber) but a take keeps none of it, so an agent editing it used the dead camera. Record each black or frozen
+stretch in the take (`recording.json`: from, to, black or frozen); on import, draw it on the camera clip (a red
+hatched band) and badge the Media Bin item; `timeline_clips` and `project_describe` list it per clip ("camera black
+3:12–4:40"), and the agent guide says never to show the camera there (the screen instead, the audio kept). For takes
+recorded before, and footage from elsewhere, an analysis finds the same after the fact (FFmpeg's `blackdetect` and
+`freezedetect`, added to Beacon's FFmpeg).
+
 **Parked here (the user, 2026-11-06): resizable side panels.** Every right panel shares one width (320 px since
 Phase 14, so switching Properties, Music and the reviews no longer moves the canvas); next, drag its left edge to
 widen it (about 280-480 px, double-click resets), remembered app-wide like the timeline divider and shared by every
