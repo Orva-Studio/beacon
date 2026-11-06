@@ -205,7 +205,7 @@ const commands = [
 const s = (t: Ticks) => roundSeconds(ticksToSeconds(t));
 
 
-function clipSummary(project: Project, registry: FeatureRegistry, clip: Clip) {
+function clipSummary(project: Project, registry: FeatureRegistry, clip: Clip, detail: boolean) {
   const asset = clip.assetId ? project.assets[clip.assetId] : undefined;
   return {
     id: clip.id,
@@ -217,11 +217,21 @@ function clipSummary(project: Project, registry: FeatureRegistry, clip: Clip) {
     ...(asset ? { asset: asset.id, file: asset.path.split("/").pop() } : {}),
     ...((size) => (size ? { size } : {}))(visualSize(project, registry, clip)),
     ...(clip.linkId ? { linkId: clip.linkId } : {}),
-    props: clip.props,
-    effects: clip.effects.map((e) => ({ id: e.id, type: e.type, enabled: e.enabled, params: e.params })),
-    animations: clip.animations.map((a) => ({ id: a.id, mediaEnd: s(a.end), duration: s(a.duration), easing: a.easing, to: a.to })),
+    ...(detail
+      ? {
+          props: clip.props,
+          effects: clip.effects.map((e) => ({ id: e.id, type: e.type, enabled: e.enabled, params: e.params })),
+          animations: clip.animations.map((a) => ({ id: a.id, mediaEnd: s(a.end), duration: s(a.duration), easing: a.easing, to: a.to })),
+        }
+      : {
+          ...(clip.effects.length ? { effects: clip.effects.map((e) => e.type) } : {}),
+          ...(clip.animations.length ? { animations: clip.animations.length } : {}),
+        }),
   };
 }
+
+/** Clips listed per track: a long timeline's summary stays readable, the rest a timeline_clips away. */
+const DESCRIBE_CLIPS = 40;
 
 function describe(project: Project): string {
   const { width, height, fps, background } = project.settings;
@@ -233,7 +243,8 @@ function describe(project: Project): string {
   for (const [i, t] of project.tracks.entries()) {
     const flags = [t.hidden && "hidden", t.muted && "muted", t.locked && "locked"].filter(Boolean).join(", ");
     lines.push(`  ${t.id} "${trackName(t, i)}"${flags ? ` [${flags}]` : ""}: ${t.clips.length} clips`);
-    for (const c of [...t.clips].sort((a, b) => a.start - b.start)) {
+    const sorted = [...t.clips].sort((a, b) => a.start - b.start);
+    for (const c of sorted.slice(0, DESCRIBE_CLIPS)) {
       const extra = [
         c.linkId && `link ${c.linkId}`,
         c.speed && `speed ${rationalToNumber(c.speed).toFixed(3)}`,
@@ -242,6 +253,8 @@ function describe(project: Project): string {
       ].filter(Boolean);
       lines.push(`    ${c.id} ${c.type} ${s(c.start)}-${s(c.start + c.duration)}s from ${s(c.mediaStart ?? 0)}s${extra.length ? `; ${extra.join("; ")}` : ""}`);
     }
+    const rest = sorted.slice(DESCRIBE_CLIPS);
+    if (rest.length) lines.push(`    … ${rest.length} more, ${s(rest[0]!.start)}-${s(Math.max(...rest.map((c) => c.start + c.duration)))}s: timeline_clips with from/to or track "${t.id}"`);
   }
   if (project.markers.length) lines.push(`markers: ${project.markers.map((m) => `${s(m.time)}s "${m.name}"`).join(", ")}`);
   if (project.sections.length) lines.push(`sections: ${project.sections.map((x) => `${x.id} "${x.name}" ${s(x.start)}-${s(x.end)}s`).join(", ")}`);
@@ -263,7 +276,7 @@ function pointer(doc: unknown, path: string): unknown {
 const queries = [
   defineQuery({
     id: "project.describe",
-    description: "Plain-text summary of the project: settings, assets, every track and clip with times in seconds",
+    description: "Plain-text summary of the project: settings, assets, tracks and their clips (the first 40 on each) with times in seconds, markers and sections",
     args: z.strictObject({}),
     run: (_, { project }) => describe(project),
     resource: { uri: "beacon://project/summary", name: "Project summary", mimeType: "text/plain" },
@@ -277,21 +290,38 @@ const queries = [
   }),
   defineQuery({
     id: "timeline.clips",
-    description: "Clips with timeline times in seconds, optionally only those overlapping [from, to)",
-    args: z.strictObject({ from: Seconds.optional(), to: Seconds.optional(), track: Id.optional() }),
+    description:
+      "Clips with timeline times in seconds, bottom track first, filtered by time ([from, to) overlap), `track`, `type` or `clips` ids. Compact unless `detail` (props, effects, animations): read the detail of the few clips you will change. Tracks with none of the clips asked for are left out; past `limit` clips, `more` says how many weren't listed",
+    args: z.strictObject({
+      from: Seconds.optional(),
+      to: Seconds.optional(),
+      track: Id.optional(),
+      type: z.string().min(1).optional().describe("Only clips of this type (video, audio, screen, camera, callout…)"),
+      clips: z.array(Id).min(1).optional(),
+      detail: z.boolean().default(false).describe("Each clip's props, effects and animations too"),
+      limit: z.int().positive().default(100),
+    }),
     resource: { uri: "beacon://project/timeline", name: "Timeline clips", mimeType: "application/json" },
-    run: ({ from, to, track }, { project, registry }) =>
-      project.tracks
-        .map((t, i) => [t, trackName(t, i)] as const)
-        .filter(([t]) => !track || t.id === track)
-        .map(([t, name]) => ({
-          track: t.id,
-          name,
-          clips: t.clips
-            .filter((c) => (to === undefined || ticksToSeconds(c.start) < to) && (from === undefined || ticksToSeconds(c.start + c.duration) > from))
-            .sort((a, b) => a.start - b.start)
-            .map((c) => clipSummary(project, registry, c)),
-        })),
+    run: ({ from, to, track, type, clips, detail, limit }, { project, registry }) => {
+      const only = clips && new Set(clips);
+      let left = limit;
+      let more = 0;
+      const tracks = project.tracks.flatMap((t, i) => {
+        if (track && t.id !== track) return [];
+        const picked = t.clips
+          .filter((c) => (to === undefined || ticksToSeconds(c.start) < to) && (from === undefined || ticksToSeconds(c.start + c.duration) > from))
+          .filter((c) => (!type || c.type === type) && (!only || only.has(c.id)))
+          .sort((a, b) => a.start - b.start);
+        const shown = picked.slice(0, Math.max(0, left));
+        left -= shown.length;
+        more += picked.length - shown.length;
+        // Every track when nothing narrows the list, so empty rows still show.
+        const narrowed = from !== undefined || to !== undefined || type || only;
+        if (!shown.length && (narrowed || picked.length)) return [];
+        return [{ track: t.id, name: trackName(t, i), clips: shown.map((c) => clipSummary(project, registry, c, detail)) }];
+      });
+      return more ? { tracks, more: `${more} more clips: narrow with from/to, track or type, or raise limit` } : { tracks };
+    },
   }),
 ];
 

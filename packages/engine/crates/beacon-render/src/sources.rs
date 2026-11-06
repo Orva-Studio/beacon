@@ -199,7 +199,7 @@ struct Worker {
 /// Decoded frames a decoding thread keeps behind its position, so a step
 /// back is served without seeking (each seek decodes from a keyframe).
 const KEEP_BYTES: usize = 256 << 20;
-/// Seconds before a start that are kept (a drag back moves a few frames a step).
+/// Seconds kept behind a start, and behind the newest frame as it plays on (a drag back moves a few frames a step).
 const KEEP_BEFORE: f64 = 0.5;
 
 impl Worker {
@@ -293,7 +293,9 @@ impl Worker {
                                 if let Some(k) = d.keep() {
                                     kept_bytes += k.bytes;
                                     kept.push_back((pts, k));
-                                    while kept_bytes > KEEP_BYTES && kept.len() > 1 {
+                                    // Only what a step back reaches: playing on, each source filled its whole
+                                    // budget with frames far behind (hundreds of MB a source).
+                                    while kept.len() > 1 && (kept_bytes > KEEP_BYTES || kept.front().is_some_and(|(p, _)| *p < pts - KEEP_BEFORE)) {
                                         kept_bytes -= kept.pop_front().unwrap().1.bytes;
                                     }
                                 }

@@ -62,8 +62,10 @@ export class Jobs {
         fn((f, stage) => {
           if (entry.processes.cancelled) return;
           entry.info.progress = Math.min(1, Math.max(0, f));
-          const staged = stage !== undefined && stage !== entry.info.stage;
-          if (staged) entry.info.stage = stage;
+          // "" ends a stage (a job that waited its turn now running).
+          const staged = stage !== undefined && stage !== (entry.info.stage ?? "");
+          if (staged && stage) entry.info.stage = stage;
+          else if (staged) delete entry.info.stage;
           if (staged || Math.floor(entry.info.progress * 100) > shown) {
             shown = Math.floor(entry.info.progress * 100);
             report();

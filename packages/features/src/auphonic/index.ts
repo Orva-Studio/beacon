@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { z } from "zod";
-import { jobSignal, runTool, runWorker, saveBody, tool, until, watchdog } from "@beacon/media";
+import { ffmpegArgs, ffmpegInput, jobSignal, runTool, runWorker, saveBody, tool, until, watchdog } from "@beacon/media";
 import { clipEnd, defineAction, heardAudio, defineFeature, defineQuery, selectedClips, ticksToSeconds, type ActionContext, type ActionStep, type Clip, type Project, type Session, type SessionCommandDef } from "@beacon/model";
 
 const KEY = "auphonic-api-key";
@@ -124,10 +124,10 @@ function audioClips(ctx: ActionContext, ids?: string[]): Clip[] {
 }
 
 /** Mono f32 at 8 kHz, what beacon-worker's `align` compares: enough to line two takes of the same audio up. */
-const samples = (path: string, raw: string) => runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", path, "-ac", "1", "-ar", "8000", "-f", "f32le", raw]);
+const samples = (path: string, raw: string) => runTool([...ffmpegArgs(), "-y", ...ffmpegInput(path), "-ac", "1", "-ar", "8000", "-f", "f32le", raw]);
 
 async function format(path: string): Promise<{ rate: number; channels: number }> {
-  const out = String(await runTool([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", path])).trim();
+  const out = String(await runTool([tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", "-protocol_whitelist", "file", path])).trim();
   const [rate, channels] = out.split(",").map(Number) as [number, number];
   return { rate, channels };
 }
@@ -157,13 +157,13 @@ async function lineUp(sent: string, back: string, seconds: number, tmp: string, 
   if (spread > 0.02) await refuse(`Auphonic's audio drifts ${Math.round(spread * 1000)} ms from start to end`);
   const { rate, channels } = await format(sent);
   const [raw, lined] = [join(tmp, "back.pcm"), join(tmp, "lined.pcm")];
-  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", back, "-ac", String(channels), "-ar", String(rate), "-f", "s16le", raw]);
+  await runTool([...ffmpegArgs(), "-y", ...ffmpegInput(back), "-ac", String(channels), "-ar", String(rate), "-f", "s16le", raw]);
   await runWorker(["shift", raw, lined, String(channels), String(Math.round(sure[0]! * rate)), String(Math.round(seconds * rate))]);
-  await runTool([tool("ffmpeg"), "-v", "error", "-y", "-f", "s16le", "-ar", String(rate), "-ac", String(channels), "-i", lined, "-c:a", "aac", "-b:a", "256k", out]);
+  await runTool([...ffmpegArgs(), "-y", "-f", "s16le", "-ar", String(rate), "-ac", String(channels), ...ffmpegInput(lined), "-c:a", "aac", "-b:a", "256k", out]);
 }
 
 async function duration(path: string): Promise<number> {
-  const out = await runTool([tool("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path]);
+  const out = await runTool([tool("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", "-protocol_whitelist", "file", path]);
   return Number(String(out).trim());
 }
 

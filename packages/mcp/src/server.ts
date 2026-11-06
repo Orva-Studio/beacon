@@ -37,19 +37,44 @@ function image(img: Image, caption: string): Content {
 }
 
 const MAX_DIFF = 40;
+const MAX_IDS = 20;
+
+/** A command making many clips (captions, a split of every track) needn't list every id: timeline_clips does. */
+function capIds(v: unknown): unknown {
+  if (!Array.isArray(v) || v.length <= MAX_IDS || !v.every((x) => typeof x === "string")) return v;
+  return [...v.slice(0, MAX_IDS), `... ${v.length - MAX_IDS} more: timeline_clips lists them`];
+}
 
 function commandReply(r: CommandResult): string {
   const diff = r.diff.length > MAX_DIFF ? [...r.diff.slice(0, MAX_DIFF), `... ${r.diff.length - MAX_DIFF} more changes`] : r.diff;
-  const result = r.results.length === 1 ? r.results[0] : r.results;
-  return JSON.stringify(
-    {
-      ...(result === undefined ? {} : { result }),
-      [r.dryRun ? "wouldChange" : "changed"]: diff.length ? diff : "nothing",
-      ...(r.dryRun ? { dryRun: true } : { undo: r.label }),
-    },
-    null,
-    1,
-  );
+  const result = capIds(r.results.length === 1 ? r.results[0] : r.results);
+  return JSON.stringify({
+    ...(result === undefined ? {} : { result }),
+    [r.dryRun ? "wouldChange" : "changed"]: diff.length ? diff : "nothing",
+    ...(r.dryRun ? { dryRun: true } : { undo: r.label }),
+  });
+}
+
+/** Loaded with the server instead of found through tool search: what nearly every task starts with. */
+const CORE_TOOLS = new Set(["project_open", "project_describe", "timeline_clips", "transcript_get", "transaction"]);
+
+/** The few names closest to a mistyped one, for an error that offers them. */
+function nearest(name: string, names: Iterable<string>, n = 3): string[] {
+  const distance = (a: string, b: string) => {
+    let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j]! + 1, next[j - 1]! + 1, row[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+      row = next;
+    }
+    return row[b.length]!;
+  };
+  const lower = name.toLowerCase();
+  return [...names]
+    .map((x) => ({ x, d: distance(lower, x.toLowerCase()) - (x.toLowerCase().includes(lower) || lower.includes(x.toLowerCase()) ? 3 : 0) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, n)
+    .map((c) => c.x);
 }
 
 const Seconds = z.number().nonnegative();
@@ -104,7 +129,9 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     overwrite: z.boolean().default(false).describe("Replace an existing file at `save`"),
   };
 
-  const commands = local.commands();
+  const commands = local.commands().filter((c) => !c.duplicates);
+  /** Editor keys that only run a command on the selection: the agent is pointed at that command. */
+  const duplicates = new Map(local.commands().flatMap((c) => (c.duplicates ? [[toolName(c.id), toolName(c.duplicates)] as const] : [])));
   const commandIds = new Set(commands.map((c) => c.id));
   const commandOfTool = new Map(commands.map((c) => [toolName(c.id), c.id]));
   const tools = new Map<string, ToolDef>();
@@ -224,7 +251,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("recorder_start", {
     description:
-      "Start recording a take (a .brec folder in the project's recordings): the screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it. " +
+      "Start recording a take (a .brec folder in the project's recordings). Only with the project open in the Beacon app, which asks the user first (Record / Don't Record): refused if they don't. The screen without its cursor (Beacon draws its own), the system audio, a camera and a microphone, each optional. Default: the main display, the default microphone and the system audio. Returns once every source is delivering; recorder_stop ends it and imports it. " +
       "`narrate`: voice narration, with only a `microphone`: the app plays the timeline from the playhead (or through the in/out range) while it records, silently unless `hear`; it ends at recorder_stop, the end of the range or a pause (with nothing after the playhead, nothing plays and it records there until recorder_stop), and goes on a new Narration track where it began, lined up with what played, transcribed like an import (recorder_status's `last` says what an ending by itself imported). Needs the project open in the app",
     schema: z.strictObject({
       screen: z.strictObject({ display: z.int().optional().describe("A display id; omitted: the main display"), fps: z.int().min(1).max(60).optional() }).optional(),
@@ -251,7 +278,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("transaction", {
     description:
-      "Run several commands as one undo step, all or nothing: `commands` is a list of {command, args} with command ids as in commands (dotted, e.g. \"zoom.to\") or tool names. Results come back in order",
+      "Run several commands as one undo step, all or nothing: prefer it to a call per command. `commands` is a list of {command, args}, by tool name (\"clip_set\") or command id (\"clip.set\"). Results come back in order, with what changed per clip. Editor commands (selection, playhead, view) run on their own, outside",
     schema: z.strictObject({
       label: z.string(),
       commands: z.array(z.strictObject({ command: z.string(), args: z.record(z.string(), z.unknown()).default({}) })).min(1),
@@ -480,6 +507,29 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   // A Claude Code channel too: the user's requests from the Beacon app arrive in the session (`prompt`).
   const server = new Server({ name: "beacon", version }, { capabilities: { tools: {}, resources: {}, prompts: {}, experimental: { "claude/channel": {} } }, instructions: `${INSTRUCTIONS}\n\n${CHANNEL}` });
 
+  const meta = (name: string) => (CORE_TOOLS.has(name) ? { _meta: { "anthropic/alwaysLoad": true } } : {});
+
+  /** What an error is missing to be acted on: the ids, tracks or names that would have worked. */
+  const hint = async (message: string): Promise<string> => {
+    try {
+      if (/no clip "/.test(message) && current) {
+        const r = (await core.query(current, "timeline.clips", { limit: 20 })) as { tracks: { track: string; clips: { id: string; type: string; start: number; end: number }[] }[]; more?: string };
+        const list = r.tracks.flatMap((t) => t.clips.map((c) => `${c.id} ${c.type} ${c.start}-${c.end}s (${t.track})`));
+        return list.length ? `\nclips on the timeline: ${list.join(", ")}${r.more ? `; ${r.more}` : ""}` : "\nthe timeline has no clips";
+      }
+      if (/no track "/.test(message) && current) {
+        // The summary lists every track, empty or not; timeline_clips's `limit` would stop at the first clips.
+        const described = String(await core.query(current, "project.describe", {}));
+        return `\ntracks: ${[...described.matchAll(/^ {2}(\S+) ("[^"]*")/gm)].map((m) => `${m[1]} ${m[2]}`).join(", ")}`;
+      }
+      const command = /unknown command "([^"]+)"/.exec(message)?.[1];
+      if (command) return `\nnearest: ${nearest(toolName(command), [...commandSchemas.keys()].filter((n) => commandIds.has(commandSchemas.get(n)!.id))).join(", ")}`;
+    } catch {
+      // A hint is extra: the error stands without it.
+    }
+    return "";
+  };
+
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [...tools].map(([name, def]): Tool => {
       const info = commandSchemas.get(name);
@@ -487,9 +537,9 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
         const isCommand = commandIds.has(info.id);
         const schema = info.args as Tool["inputSchema"];
         const inputSchema = isCommand ? { ...schema, properties: { ...(schema.properties ?? {}), ...jsonProps(RunFlags) } } : schema;
-        return { name, description: `${info.description}${isCommand ? ` (command ${info.id})` : ""}`, inputSchema: { ...inputSchema, type: "object" } };
+        return { name, description: `${info.description}${isCommand ? ` (command ${info.id})` : ""}`, inputSchema: { ...inputSchema, type: "object" }, ...meta(name) };
       }
-      return { name, description: def.description, inputSchema: inputJson(def.schema) };
+      return { name, description: def.description, inputSchema: inputJson(def.schema), ...meta(name) };
     }),
   }));
 
@@ -505,17 +555,27 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const def = tools.get(req.params.name);
-    if (!def) return { isError: true, content: text(`unknown tool ${req.params.name}`) };
+    if (!def) {
+      const instead = duplicates.get(req.params.name);
+      return {
+        isError: true,
+        content: text(
+          instead
+            ? `${req.params.name} is an editor key that runs ${instead} on the selection: call ${instead} with the clip ids instead`
+            : `unknown tool ${req.params.name}; nearest: ${nearest(req.params.name, tools.keys()).join(", ")}`,
+        ),
+      };
+    }
     try {
       const args = def.schema instanceof z.ZodUnknown ? (req.params.arguments ?? {}) : def.schema.parse(req.params.arguments ?? {});
       const joined = handedOver && !["project_open", "project_create"].includes(req.params.name) ? await joinApp() : undefined;
       // Each change it makes is its own undo step, apart from the user's (⌘Z skips it; Edit › Undo Agents' Last Change takes it).
       const out = await asAuthor(server.getClientVersion()?.name ?? "agent", () => def.run(args));
-      const content = Array.isArray(out) && out.every((c) => c && typeof c === "object" && "type" in c) ? (out as Content) : text(typeof out === "string" ? out : JSON.stringify(out, null, 1));
+      const content = Array.isArray(out) && out.every((c) => c && typeof c === "object" && "type" in c) ? (out as Content) : text(typeof out === "string" ? out : JSON.stringify(out ?? null));
       return { content: joined ? [...text(joined), ...content] : content };
     } catch (e) {
       const message = e instanceof z.ZodError ? formatIssues(e) : e instanceof Error ? e.message : String(e);
-      return { isError: true, content: text(message) };
+      return { isError: true, content: text(message + (await hint(message))) };
     }
   });
 

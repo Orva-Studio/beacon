@@ -14,6 +14,7 @@ import { copiedIds } from "./clip-ids";
 import { BrollTab } from "./broll";
 import { AngleTab } from "./angles";
 import { MotionTab } from "./motion";
+import { SIDE_PANEL } from "./side-panel";
 
 /**
  * The properties panel: icon tabs, the clip's name, then the tab's
@@ -53,7 +54,7 @@ export function Properties({ project: full, session, host, init }: { project: Pr
   return (
     <div
       ref={panel}
-      className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto text-body"
+      className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-y-auto text-body`}
       // Tab and ⇧Tab go through the inputs in order (value boxes, menus, colour wells); Esc gives the keys back to the timeline.
       onKeyDown={(e) => {
         if (e.key === "Escape" && panel.current?.contains(document.activeElement)) {

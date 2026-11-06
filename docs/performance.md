@@ -441,3 +441,90 @@ Measured before changing anything (`docs/review-2026-10-17.md` §2), on a copy o
 | Preview from the originals on the same project, 1280×720 (`perf.ts --no-proxies`), decode buffers reused (P19) | jump p50 95 ms, settle 4.2, scrub forward 3.5 / backward 6.9 | jump 91-98, settle 3.7 (both runs), forward 3.5-3.6 / backward 6.5-7.2: within a run's noise, but no 33 MB allocation per CPU-decoded frame |
 | Stills drawn again when they come back (P20): only images were cached; a cursor shape costs 9 ms (27 worst) | 13 cursor loads in a `perf.ts` run | 8 (one per shape), 5 served from the cache |
 
+
+## Launch, memory and Camtasia (2026-11-05, Phase 14)
+
+`scripts/launch-bench.ts` on the benchmark project (578 s, 304 clips, 22 video streams): imported in 0.33 s, opened
+again in 8 ms; the built app launched cold until its window has drawn the project in 1.2-2.6 s.
+
+Memory (the app and every process it starts; the window's WebKit processes aren't counted): ~710-930 MB once open,
+levelling off as it plays and jumps, no leak over five minutes. `vmmap` put ~790 MB of it in 68 large blocks of about
+12 MB, decoded frames: each decoding thread kept up to 256 MB of frames behind its position as it played on, though a
+step back reaches only half a second. Trimmed to that half second: 1.15-1.17 GB → 1.0-1.04 GB after two minutes;
+scrubbing backward 4.1 → 5.3 ms a frame p50 (190 fps), the rest unchanged.
+
+Camtasia with the same project (a clone of it): 2.16 GB once open, ~2.2 GB playing.
+
+## MCP made lean (2026-11-05, Phase 14)
+
+`bun scripts/mcp-eval.ts` drives the MCP server over stdio as an agent would, on a project made from
+`$BEACON_FIXTURES/small.cmproj` (its transcripts made first, not timed), through twelve everyday tasks.
+
+| | Before | After |
+|---|---:|---:|
+| Tools | 263 | 238 (25 editor keys that only ran one command on the selection left out) |
+| `tools/list` | 175,077 bytes (~44k tokens) | 166,108 bytes; with tool search, 3,591 bytes of 5 always-loaded tools (`project_open`, `project_describe`, `timeline_clips`, `transcript_get`, `transaction`) and the rest by name |
+| Server instructions | 12,924 chars (Claude Code keeps 4,096) | 2,801 chars; the full guide is `beacon://docs/guide` |
+| Twelve tasks: calls | 22 | 21 |
+| Twelve tasks: bytes received | 130,498 | 26,493 (−80%) |
+
+Where it came from: a command's `changed` names each clip once (added, removed, or the fields that changed, in
+seconds) instead of every patch, so a split no longer lists every later clip as changed (split and delete 25.0 → 1.4 KB);
+many clips added, removed or shifted alike are one line, and a result's ids stop at 20 (captions 9.3 → 0.6 KB);
+`timeline_clips` is compact unless `detail`, filtered by `type` or `clips` too, capped at `limit` with `more`
+(one minute of clips 60.7 → 11.6 KB); replies are unindented JSON; a wrong clip or track id lists the ones there, and a
+mistyped tool or command the nearest names, so the retry needs no read (3 → 2 calls). `transcript_get` takes `find`.
+`project_describe` lists 40 clips a track and says where the rest are.
+
+## As people meet it: a small project, export, hundreds of clips (2026-11-05, Phase 14)
+
+**A typical small project** (one 3.6 min 1080p recording: screen, camera, audio; `bun scripts/launch-bench.ts
+recording.trec --play 180`): drawn 2.5 s after launch, 640 MB once open, levelling off at ~810 MB after three minutes
+of playing and jumping, no growth after. Nearly all of it is the main process: ~275 MB of decoded frames (half a second
+behind each of the two video sources, 8 MB a frame) and ~285 MB the GPU holds for the renderer; the rest of the
+resident size is shared system code. Left as it is.
+
+**Export** (`bun scripts/perf.ts <project> --export a-b`): the small project, 217 s, in 24 s (9.0× real time); two
+minutes of the 304-clip benchmark project in 24 s (5.0×). Nothing to fix.
+
+**Hundreds of clips** (`bun scripts/timeline-bench.ts`; the UI harness, a development React build in headless
+Chromium, so slower than the app):
+
+| | 304 clips | 2,350 clips, before | 2,350 clips, after |
+|---|---:|---:|---:|
+| Core move / split / undo, p50 | 0.7 / 3.1 / 0.9 ms | 4.0 / 14.1 / 4.6 ms | same |
+| UI open until the timeline draws | 431 ms | 518 ms | 406 ms |
+| Zoom, main thread a step | 7.7 ms | 52.7 ms | 20.7 ms |
+| Scroll, a step | 4.5 ms | 22.9 ms | 8.8 ms |
+| Drag, a move | 3.6 ms | 22.1 ms | 8.8 ms |
+
+The worst was the timeline drawing: each clip's shown span (short clips grown to a visible width without crossing
+their neighbours) looked at every other clip of its track, twice a draw, so a draw grew with the square of the clips.
+Now each track's spans come from each clip's two neighbours, once a draw. What is left of a zoom step is mostly
+copying the cached layer, which headless Chromium does in software. Guarded by `scripts/ui-harness/many-clips.test.ts`
+(2,000 clips: zoom and scroll under 30 ms of script a step; 51.8 and 35.9 ms without the fix).
+
+## The fans on a new recording: local Whisper (2026-11-05, Phase 14)
+
+The fans ran after recording a long take, not on projects already transcribed. `scripts/energy-bench.ts` (the app on a
+recording, `--fresh`: an empty cache, as a new take has, through `BEACON_CACHE_DIR`; `--transcriber`: a copy of the
+settings with another) on a 7.4-minute take (6720×3780 screen, 4K camera): playing 18% CPU, scrubbing 11%, idle ~0,
+in no state enough to explain them. With Whisper through OpenAI the fans stayed quiet; with Whisper on this Mac they
+ran while it transcribed, 64 s at full GPU.
+
+Whisper's encoder works on a 30 s window whatever the file's length, and Beacon heard each short speech chunk (split
+at pauses so takes aren't merged) in a window of its own: 3 minutes of speech took 5.3 s as one file, but a 7.4-minute
+take took 70 s as chunks. Now chunks are packed into ~28 s files, one second of silence apart, each word put back where
+it was said; neighbouring chunks never share a file (packed side by side, whisper merged a retake), and a chunk where a
+word stretched over a dropped one is heard again on its own.
+
+| | Before | After |
+|---|---:|---:|
+| 7.4-minute take, in the app | 64 s | 26 s |
+| The same, `transcribe()` | 69.9 s | 24.0 s |
+| repeats fixture (83 s of speech) | 11.7 s, 29 files | 7.0 s, 7 files |
+| Words starting within a frame of before | | 93-95% |
+| Retake groups | | the same, but one stutter heard as one word and another found |
+
+`--audio-ctx` (the encoder cut to the chunk's length) was tried and dropped: Whisper looped and made up words, and it
+saved little (59.7 s). Guarded by `packages/core/__tests__/transcript-packed.test.ts`.

@@ -1,8 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { jobSignal, spawn, toolsDir, until } from "@beacon/media";
-import type { AgentAbout } from "./api";
+import type { AgentAbout, AgentSession } from "./api";
+import { shortId, type CoreParts } from "./project";
+import { askControl, controlSockets } from "./socket";
 
 /** Agents Beacon can start a run of, by their CLI's name: each given a request with Beacon's tools attached. */
 export const RUN_AGENTS = ["codex"] as const;
@@ -123,4 +125,78 @@ export async function runCodex(cli: string, prompt: string, about: AgentAbout, s
   const code = await proc.exited;
   if (code !== 0 || failed) throw new Error(`Codex ${failed ? `stopped: ${failed}` : `exited with ${code}: ${err.trim().split("\n").slice(-2).join(" | ")}`}`);
   return last;
+}
+
+/** What agent sessions and runs are given of core: who it is, where sessions' sockets are, and how to tell a reply. */
+export interface AgentRunsContext {
+  readonly parts: CoreParts;
+  /** This process's own control socket, left out of the sessions found. */
+  readonly control?: string;
+  /** The automation socket a session replies to. */
+  readonly socket?: string;
+  readonly controlDir?: string;
+  readonly agentClis?: Partial<Record<RunAgent, string>>;
+  reply(request: string, status: "received" | "done", text?: string): void;
+}
+
+/** Agent sessions connected to Beacon (asked through their control sockets), and runs of agent CLIs Beacon starts itself. */
+export class AgentRuns {
+  constructor(readonly ctx: AgentRunsContext) {}
+
+  async agents(): Promise<AgentSession[]> {
+    const mine = this.ctx.control;
+    const found = await Promise.all(
+      controlSockets(this.ctx.controlDir).filter((s) => s !== mine).map(async (socket): Promise<AgentSession | undefined> => {
+        try {
+          const info = (await askControl(socket, "agent", [], 1000)) as { name: string; version: string; project?: string };
+          return { socket, name: info.name, version: info.version, ...(info.project ? { project: info.project } : {}), started: statSync(socket).mtimeMs };
+        } catch {
+          // An MCP server from before Beacon asked this, or one that is gone.
+          return undefined;
+        }
+      }),
+    );
+    const sessions = found.filter((a): a is AgentSession => !!a).sort((a, b) => b.started - a.started);
+    const runs = await Promise.all(RUN_AGENTS.map(async (name) => ({ name, cli: await this.#agentCli(name) })));
+    return [...sessions, ...runs.flatMap(({ name, cli }) => (cli ? [{ socket: `run:${name}`, name, version: cli.version, started: 0, run: true }] : []))];
+  }
+
+  #agentCli(name: RunAgent) {
+    const given = this.ctx.agentClis;
+    if (given) return given[name] ? findAgentCli(name, given[name]) : Promise.resolve(null);
+    return findAgentCli(name);
+  }
+
+  async ask(socket: string, prompt: string, about: AgentAbout): Promise<string> {
+    if (socket.startsWith("run:")) return this.#runAgent(socket.slice(4) as RunAgent, prompt, about);
+    if (!controlSockets(this.ctx.controlDir).includes(socket)) throw new Error("that agent session has ended");
+    const request = shortId("ask");
+    const meta: Record<string, string> = { request, ...(this.ctx.socket ? { reply_to: this.ctx.socket } : {}) };
+    for (const [k, v] of Object.entries(about)) if (v !== undefined) meta[k] = typeof v === "number" ? v.toFixed(2) : v;
+    await askControl(socket, "prompt", [prompt, meta]);
+    return request;
+  }
+
+  /** A run of an agent's CLI on the request, as a job whose id is the request's: its steps and last message as `agent` events. */
+  async #runAgent(name: RunAgent, prompt: string, about: AgentAbout): Promise<string> {
+    if (!RUN_AGENTS.includes(name)) throw new Error(`Beacon can't start a run of ${name}`);
+    const cli = await this.#agentCli(name);
+    if (!cli) throw new Error(`${name} isn't installed`);
+    const tell = (status: "received" | "done", text?: string) => this.ctx.reply(job.id, status, text);
+    const job = this.ctx.parts.startJob(undefined, "agent", `Codex: ${prompt.slice(0, 60)}`, async (progress) => {
+      const last = await runCodex(cli.path, prompt, about, (s) => {
+        const text = s.tool ? `Using ${s.tool.replace(/_/g, " ")}` : s.message;
+        progress(0, text);
+        tell("received", text);
+      }).catch((e: Error) => {
+        tell("done", jobSignal()?.aborted || e.message === "cancelled" ? "Cancelled" : e.message);
+        throw e;
+      });
+      tell("done", last || "Done");
+      return { message: last };
+    });
+    // Told once the id is known: it is the request's.
+    queueMicrotask(() => tell("received"));
+    return job.id;
+  }
 }

@@ -191,6 +191,8 @@ export interface CommandInfo {
   /** JSON Schema of the args. */
   args: Record<string, unknown>;
   feature: string;
+  /** An editor action that only runs this command on the selection (an agent calls the command). */
+  duplicates?: string;
 }
 
 export interface QueryInfo extends CommandInfo {

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { PreferenceInfo, SecretInfo } from "@beacon/core";
 import { Button, NumberBox, Select, SettingsRow as Row, TextArea, TextInput } from "./controls";
-import { styleFromFile, type CustomStyle } from "@beacon/features/src/text-file";
+import { styleFromFile, type CustomStyle } from "@beacon/features/ui";
 import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */

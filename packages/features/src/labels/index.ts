@@ -23,6 +23,7 @@ export const labels = defineFeature({
   actions: [
     defineAction({
       id: "edit.label",
+      duplicates: "clip.set",
       description: `Give the selected clips a colour label (Add Color Label): ${LABEL_COLORS.join(", ")}, or null to remove it`,
       args: z.strictObject({ color: z.enum(LABEL_COLORS).nullable() }),
       resolve: ({ color }, ctx) => {

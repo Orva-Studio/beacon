@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { z } from "zod";
-import { jobSignal, runTool, tool } from "@beacon/media";
+import { ffmpegArgs, ffmpegInput, jobSignal, runTool } from "@beacon/media";
 import {
   eachRawClip,
   clipEnd,
@@ -352,8 +352,8 @@ const angleGenerate = defineAction({
             tell(0.02, "cutting");
             const take = join(tmp, "take.mp4");
             const said = join(tmp, "said.wav");
-            await runTool([tool("ffmpeg"), "-v", "error", "-y", "-ss", vFrom.toFixed(3), "-t", String(seconds), "-i", video.path, "-map", `0:v:${video.stream}`, "-vf", "scale=-2:720", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-an", take]);
-            await runTool([tool("ffmpeg"), "-v", "error", "-y", "-ss", aFrom.toFixed(3), "-t", String(seconds), "-i", audio.path, "-map", `0:a:${audio.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
+            await runTool([...ffmpegArgs(), "-y", "-ss", vFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(video.path), "-map", `0:v:${video.stream}`, "-vf", "scale=-2:720", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-an", take]);
+            await runTool([...ffmpegArgs(), "-y", "-ss", aFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(audio.path), "-map", `0:a:${audio.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
             tell(0.08, "uploading");
             const [v, s, ...images] = await Promise.all([upload(token, take, "video/mp4"), upload(token, said, "audio/wav"), ...photos.map((p) => upload(token, p.path, MIME[extname(p.path).toLowerCase()] ?? "image/jpeg"))]);
             const stage = (base: number, span: number) => (st: MakeStage) => tell(base + (st === "making" ? span / 2 : 0), st);
@@ -373,7 +373,7 @@ const angleGenerate = defineAction({
             const out = freeName(dir, VIEWS[a.view].title);
             await download(upscaled, join(tmp, "made.mp4"));
             // Silent: the take's own sound plays under it.
-            await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", join(tmp, "made.mp4"), "-map", "0:v:0", "-c", "copy", "-an", out]);
+            await runTool([...ffmpegArgs(), "-y", ...ffmpegInput(join(tmp, "made.mp4")), "-map", "0:v:0", "-c", "copy", "-an", out]);
             const info: AngleTakeInfo = { view: a.view, prompt, cost: Math.round(seconds * PRICE * 100) / 100, seconds };
             writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, models: [SEEDANCE.slug, UPSCALER.slug], made: new Date().toISOString() }, null, 2));
             const asset = await env.asset(out, "video");

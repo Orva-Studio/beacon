@@ -35,6 +35,10 @@ test.skipIf(!existsSync(RECORDING))(
 
       const words: { i: number; text: string; start: number; end: number }[] = await json("transcript_get", { format: "words" });
       expect(words.length).toBeGreaterThan(100);
+      const phrase = `${words[20]!.text} ${words[21]!.text}`;
+      const found: typeof words = await json("transcript_get", { format: "words", find: phrase });
+      expect(found.some((w) => w.i === 20)).toBe(true);
+      expect((await call("transcript_get", { find: phrase }))[0]!.text).toContain(words[20]!.text);
       const before = (await call("project_describe"))[0]!.text!;
       const lengthBefore = words.at(-1)!.start;
 

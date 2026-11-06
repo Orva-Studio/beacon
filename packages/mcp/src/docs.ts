@@ -1,4 +1,5 @@
-import SKILL from "../../../skills/SKILL.md" with { type: "text" };
+import GUIDE from "../../../skills/SKILL.md" with { type: "text" };
+import ENTRY from "../../../skills/instructions.md" with { type: "text" };
 import HOUSE_STYLE from "../../../skills/references/house-style.md" with { type: "text" };
 import EXPORT from "../../../skills/workflows/export.md" with { type: "text" };
 import REVIEW from "../../../skills/workflows/review.md" with { type: "text" };
@@ -18,10 +19,10 @@ function workflow(md: string): Workflow {
   return { description: meta.description, args: meta.args ?? {}, body: md.slice(m[0].length).trim() };
 }
 
-/** The server's `instructions`: the entry doc, version-matched by being built in. */
-export const INSTRUCTIONS: string = SKILL;
+/** The server's `instructions`: the entry doc, version-matched by being built in; the full guide is a resource. */
+export const INSTRUCTIONS: string = ENTRY;
 
-export const DOCS: Record<string, string> = { "house-style": HOUSE_STYLE };
+export const DOCS: Record<string, string> = { guide: GUIDE, "house-style": HOUSE_STYLE };
 
 export const WORKFLOWS: Record<string, Workflow> = {
   "rough-cut": workflow(ROUGH_CUT),

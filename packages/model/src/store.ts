@@ -1,7 +1,8 @@
 import { applyPatches, current, enablePatches, freeze, isDraft, produceWithPatches, type Objectish, type Patch } from "immer";
 import type { CommandContext, Memory } from "./feature";
 import type { FeatureRegistry } from "./registry";
-import { formatIssues, type Project } from "./schema";
+import { formatIssues, type Clip, type Project } from "./schema";
+import { ticksToSeconds } from "./ticks";
 
 enablePatches();
 
@@ -151,7 +152,7 @@ export class ProjectStore {
     });
     if (patches.length) this.registry.validateChanged(next, patches);
     const dryRun = opts.dryRun ?? false;
-    const result: CommandResult = { label, patches, inverse, results, diff: describePatches(this.#doc, patches), dryRun };
+    const result: CommandResult = { label, patches, inverse, results, diff: describePatches(this.#doc, next, patches), dryRun };
     if (dryRun || !patches.length) return result;
 
     const author = opts.author ?? this.#author();
@@ -471,15 +472,93 @@ function brief(value: unknown): string {
   return s.length > 80 ? `${s.slice(0, 77)}...` : s;
 }
 
-/** Each patch read against the document as it stands just before that patch. */
-function describePatches(before: Project, patches: Patch[]): string[] {
+/**
+ * Each patch read against the document as it stands just before that patch, except clips: one line per clip
+ * added, removed or changed (its fields, in seconds), as an insert shifts every later clip's index.
+ */
+function describePatches(before: Project, after: Project, patches: Patch[]): string[] {
   let doc = before;
-  return patches.map((p) => {
+  let clips = false;
+  const lines: string[] = [];
+  for (const p of patches) {
+    if (p.path[0] === "tracks" && (p.path.length <= 2 || p.path[2] === "clips")) {
+      clips = true;
+      continue;
+    }
     const path = p.path.join("/");
     const was = valueAt(doc, p.path);
     doc = applyPatches(doc, [p]);
-    if (p.op === "add") return `add ${path}: ${brief(p.value)}`;
-    if (p.op === "remove") return `remove ${path} (was ${brief(was)})`;
-    return `set ${path}: ${brief(was)} -> ${brief(p.value)}`;
-  });
+    if (p.op === "add") lines.push(`add ${path}: ${brief(p.value)}`);
+    else if (p.op === "remove") lines.push(`remove ${path} (was ${brief(was)})`);
+    else lines.push(`set ${path}: ${brief(was)} -> ${brief(p.value)}`);
+  }
+  return clips ? [...describeClips(before, after), ...lines] : lines;
+}
+
+const secs = (t: number) => Math.round(ticksToSeconds(t) * 1000) / 1000;
+const span = (c: Clip) => `${c.type} ${secs(c.start)}-${secs(c.start + c.duration)}s`;
+const TIMES = new Set(["start", "duration", "mediaStart"]);
+
+/** Past this many clips of one kind on one track, added, removed or shifted alike, they make one line. */
+const GROUP = 6;
+
+/** Unchanged clips keep their object through Immer, so identity tells which changed. */
+function describeClips(before: Project, after: Project): string[] {
+  const index = (doc: Project) => new Map(doc.tracks.flatMap((t) => t.clips.map((c) => [c.id, { clip: c, track: t.id }] as const)));
+  const was = index(before);
+  const now = index(after);
+  const lines: string[] = [];
+  const runs = new Map<string, { line: (n: number, from: number, to: number) => string; lines: string[]; from: number; to: number }>();
+  const run = (key: string, line: (n: number, from: number, to: number) => string, one: string, c: Clip) => {
+    const r = runs.get(key) ?? { line, lines: [], from: Infinity, to: -Infinity };
+    r.lines.push(one);
+    r.from = Math.min(r.from, secs(c.start));
+    r.to = Math.max(r.to, secs(c.start + c.duration));
+    runs.set(key, r);
+  };
+  for (const t of before.tracks) if (!after.tracks.some((x) => x.id === t.id)) lines.push(`remove track ${t.id}`);
+  for (const t of after.tracks) if (!before.tracks.some((x) => x.id === t.id)) lines.push(`add track ${t.id}`);
+  for (const [id, { clip, track }] of was) {
+    if (!now.has(id)) run(`remove ${clip.type} ${track}`, (n, a, b) => `remove ${n} ${clip.type} clips on ${track}, ${a}-${b}s`, `remove clip ${id} (was ${span(clip)} on ${track})`, clip);
+  }
+  for (const [id, { clip, track }] of now) {
+    const old = was.get(id);
+    if (!old) {
+      run(`add ${clip.type} ${track}`, (n, a, b) => `add ${n} ${clip.type} clips on ${track}, ${a}-${b}s`, `add clip ${id}: ${span(clip)} on ${track}`, clip);
+      continue;
+    }
+    if (old.clip === clip && old.track === track) continue;
+    const fields: string[] = old.track === track ? [] : [`track ${old.track} -> ${track}`];
+    for (const k of new Set([...Object.keys(old.clip), ...Object.keys(clip)]) as Set<keyof Clip>) {
+      const a = old.clip[k];
+      const b = clip[k];
+      if (a === b || JSON.stringify(a) === JSON.stringify(b)) continue;
+      if (TIMES.has(k)) fields.push(`${k} ${a === undefined ? "none" : secs(a as number)} -> ${b === undefined ? "none" : secs(b as number)}`);
+      else if (k === "props") {
+        const pa = a as Clip["props"];
+        const pb = b as Clip["props"];
+        for (const g of new Set([...Object.keys(pa), ...Object.keys(pb)])) {
+          const ga = pa[g] as Record<string, unknown> | undefined;
+          const gb = pb[g] as Record<string, unknown> | undefined;
+          if (ga === gb || JSON.stringify(ga) === JSON.stringify(gb)) continue;
+          if (!ga || !gb) fields.push(`props.${g} ${brief(ga)} -> ${brief(gb)}`);
+          else for (const f of new Set([...Object.keys(ga), ...Object.keys(gb)])) if (JSON.stringify(ga[f]) !== JSON.stringify(gb[f])) fields.push(`props.${g}.${f} ${brief(ga[f])} -> ${brief(gb[f])}`);
+        }
+      } else if (Array.isArray(a) && Array.isArray(b) && a.length !== b.length) fields.push(`${k} ${a.length} -> ${b.length}`);
+      else fields.push(`${k} ${brief(a)} -> ${brief(b)}`);
+    }
+    if (!fields.length) continue;
+    const one = `set clip ${id}: ${fields.join(", ")}`;
+    const shift = old.track === track && fields.length === 1 && fields[0]!.startsWith("start ") ? secs(clip.start) - secs(old.clip.start) : undefined;
+    if (shift === undefined) lines.push(one);
+    else {
+      const by = Math.round(shift * 1000) / 1000;
+      run(`shift ${track} ${by}`, (n, a, b) => `move ${n} clips on ${track} by ${by}s (now ${a}-${b}s)`, one, clip);
+    }
+  }
+  for (const r of runs.values()) {
+    if (r.lines.length > GROUP) lines.push(r.line(r.lines.length, r.from, r.to));
+    else lines.push(...r.lines);
+  }
+  return lines;
 }

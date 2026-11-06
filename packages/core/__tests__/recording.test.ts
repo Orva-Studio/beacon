@@ -3,7 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, write
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTool, tool, type MediaInfo } from "@beacon/media";
-import { LocalCore } from "../src";
+import { asAuthor, LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
 const TAKE = join(FIXTURES, "take.brec");
@@ -27,6 +27,16 @@ test.skipIf(!existsSync(TAKE))("a take whose microphone stopped saving at once s
 
   const core = new LocalCore({ cacheDir: join(dir, "cache") });
   const h = await core.create({ path: join(dir, "r.beproj") });
+  // A take's name stays a file in the project's recordings folder: an agent can't write elsewhere with it.
+  await expect(core.recordStart(h, { name: "../../outside" })).rejects.toThrow("can't name a take");
+  // An agent records only once the user says so in the app; with no app to ask, never.
+  await expect(asAuthor("claude-code", () => core.recordStart(h))).rejects.toThrow("asks the user first");
+  const asked: string[] = [];
+  const app = new LocalCore({ cacheDir: join(dir, "cache"), confirmAgentRecording: async (agent, what) => (asked.push(`${agent}: ${what}`), false) });
+  const h2 = await app.create({ path: join(dir, "asked.beproj") });
+  await expect(asAuthor("claude-code", () => app.recordStart(h2))).rejects.toThrow("didn't let the agent record");
+  expect(asked).toEqual(["Claude Code: the screen, the microphone, the Mac's sound"]);
+  await app.close(h2);
   await core.recordStart(h);
   const r = await core.recordStop();
   for (const j of r.jobs) await core.cancelJob(j).catch(() => {});

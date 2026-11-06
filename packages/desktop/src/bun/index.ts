@@ -1,11 +1,22 @@
-import { appendFileSync, existsSync, mkdirSync, watch } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import type { Pointer } from "bun:ffi";
 import Electrobun, { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/main";
 import type { ProjectWindow } from "./app";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
+import { crashReports, log, logTail, startLog } from "./log";
+
+const appVersion = await Updater.localInfo.version().catch(() => "unknown");
+startLog(appVersion);
+
+/**
+ * What the window may ask Finder to open: an export it made (a video, sound, picture or captions file that exists).
+ * Page script asking `open` for any path could start an app or a script.
+ */
+const OPENABLE = new Set([".mp4", ".mov", ".m4v", ".webm", ".gif", ".wav", ".m4a", ".mp3", ".aac", ".png", ".jpg", ".jpeg", ".srt", ".vtt"]);
+const openable = (path: string) => isAbsolute(path) && OPENABLE.has(extname(path).toLowerCase()) && existsSync(path) && statSync(path).isFile();
 
 // The engine and Beacon's own ffmpeg, ffprobe and whisper-cli ship inside the app; set before anything loads them.
 const engineDir = join(import.meta.dir, "../engine");
@@ -40,7 +51,23 @@ const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
 // In each project's lock, so another Beacon that finds one held can say by which.
 const ownerName = (await Updater.localInfo.channel()) === "dev" ? "Beacon dev" : "Beacon";
-const core = new LocalCore({ socket, name: ownerName, reveal: (path) => Utils.showItemInFolder(path) });
+const core = new LocalCore({
+  socket,
+  name: ownerName,
+  reveal: (path) => Utils.showItemInFolder(path),
+  confirmAgentRecording: async (agent, what) => {
+    const { response } = await Utils.showMessageBox({
+      type: "question",
+      title: "Record?",
+      message: `${agent} wants to record ${what}.`,
+      detail: "Beacon records only once you say so.",
+      buttons: ["Record", "Don't Record"],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    return response === 0;
+  },
+});
 /** Every action with its keys, the user's over the defaults: the menus show them. */
 let shortcuts = await core.shortcuts();
 
@@ -70,7 +97,10 @@ const broadcast: Send = (type, data) => {
 };
 /** The focused window's status line, for what isn't one window's. */
 const status = (text: string) => focused?.status(text);
-const report = (err: unknown) => status(errorText(err));
+const report = (err: unknown) => {
+  log("warn", errorText(err));
+  status(errorText(err));
+};
 
 async function openedPayload(w: Win, h: string): Promise<import("@beacon/ui").Opened> {
   return { path: h, name: basename(h, ".beproj"), project: core.doc(h), session: await core.session(h), rev: w.current?.path === h ? w.current.bridge.rev() : 0 };
@@ -96,7 +126,7 @@ function shortcutsChanged(next: ShortcutInfo[]): ShortcutInfo[] {
 
 /**
  * An agent's MCP server, with the project not open here, runs its own core and writes the same app-wide files:
- * follow them, so the menus, keys, panel items' use and settings here don't stay stale (and aren't saved back over it).
+ * follow them, so the menus, keys, panel items' use, preferences and settings here don't stay stale (and aren't saved back over it).
  */
 function followConfig() {
   // This process's own changes reach the windows as core's events: the files they write aren't told again.
@@ -110,6 +140,7 @@ function followConfig() {
     });
   const reload: Record<string, () => void> = {
     "settings.json": () => void core.reloadSettings(),
+    "preferences.json": () => core.reloadPreferences(),
     "keymap.json": () => void core.shortcuts().then((next) => Bun.deepEquals(next, shortcuts) || shortcutsChanged(next)),
     "usage.json": () => void core.recentItems().then((items) => broadcast("usage", { items })),
     // An agent's proposal, or its project's decisions, or memory.md edited by hand: Settings › Memory shows them.
@@ -131,6 +162,7 @@ function followConfig() {
   }
 }
 followConfig();
+core.watchApp((e) => void (e.kind === "job" && e.job.state === "failed" && log("error", `job failed: ${e.job.label}: ${e.job.error ?? "no reason given"}`)));
 
 /** Resources offered this session: the dialog asks once, not on every import. */
 const offered = new Set<string>();
@@ -250,10 +282,35 @@ const projects = createProjects({
   },
 });
 
+/** Where the last diagnostics report went: the folder Save Diagnostics… opens on next time (the Desktop at first). */
+const diagnosticsFolderFile = () => join(core.configDir, "diagnostics-folder");
+
+/** Help › Save Diagnostics…: the report saved in a folder the user picks, shown in Finder, for them to look over and send. */
+async function saveDiagnostics() {
+  let start = join(homedir(), "Desktop");
+  try {
+    const last = readFileSync(diagnosticsFolderFile(), "utf8").trim();
+    if (last && existsSync(last)) start = last;
+  } catch {
+    // None yet: the Desktop.
+  }
+  const [folder] = await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false, startingFolder: start });
+  if (!folder) return;
+  const devices = await core.recorderDevices().catch(() => undefined);
+  const text = await core.diagnostics({ app: { version: appVersion }, ...(devices ? { permissions: devices.permissions } : {}), log: logTail(), crashes: crashReports() });
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", ".");
+  const file = join(folder, `Beacon diagnostics ${stamp}.txt`);
+  writeFileSync(file, text);
+  writeFileSync(diagnosticsFolderFile(), folder);
+  Utils.showItemInFolder(file);
+  status(`Saved ${basename(file)}: look it over, then attach it to your report`);
+}
+
 /** The app's own actions, from their menu items, the command palette or keys a window matched, in that window. */
 function appAction(id: string, w: Win | undefined = focused): void {
   if (id === "app.open") return void projects.openDialog().catch(report);
   if (id === "app.checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
+  if (id === "app.diagnostics") return void saveDiagnostics().catch(report);
   // With every window closed (the app stays up while the recorder's are open), one comes back for it.
   const target = w ?? openWindow();
   if (id === "app.new") return void projects.newProject(target);
@@ -409,8 +466,8 @@ function openWindow(): Win {
         previewControl: ({ op, time }) => w.views.previewControl(op, time),
         renameProject: ({ name }) => reply(() => projects.renameProject(w, name)),
         showFile: ({ path, open }) => {
-          if (open) Bun.spawn(["/usr/bin/open", path]);
-          else Utils.showItemInFolder(path);
+          if (open && openable(path)) Bun.spawn(["/usr/bin/open", "--", path]);
+          else if (!open) Utils.showItemInFolder(path);
         },
         copyText: ({ text }) => Utils.clipboardWriteText(text),
         canvasMenu: () => menus.canvasMenu(),

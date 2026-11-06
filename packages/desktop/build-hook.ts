@@ -1,15 +1,14 @@
 // Electrobun's postBuild and postWrap hooks (electrobun.config.ts). postBuild gets the app before Electrobun packs it
 // into its self-extracting wrapper, so its Info.plist entries are written there. Signing waits for postWrap: Electrobun
 // writes the build's hash into the app's version.json after postBuild, which would break the seal, so the packed app
-// is unpacked, signed and packed again, then the wrapper the DMG holds is signed. Ad hoc until there is a Developer
-// ID: hardened runtime and notarization come with one.
+// is unpacked, signed and packed again, then the wrapper the DMG holds is signed: ad hoc, or with the Developer ID and
+// hardened runtime when BEACON_SIGN_IDENTITY names one (sign.ts).
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import { signApp } from "./sign";
 import { patchInfoPlist } from "./src/bun/info-plist";
-
-const sign = (app: string) => $`codesign --force --deep --sign - ${app}`.quiet();
 
 const wrapper = process.env.ELECTROBUN_WRAPPER_BUNDLE_PATH;
 const dir = process.env.ELECTROBUN_BUILD_DIR;
@@ -27,7 +26,7 @@ if (!wrapper) {
     await $`tar -xf app.tar && rm app.tar`.cwd(work).quiet();
     const [app] = readdirSync(work).filter((f) => f.endsWith(".app"));
     if (!app) throw new Error(`no app in ${packed}`);
-    await sign(join(work, app));
+    await signApp(join(work, app));
     // No AppleDouble files or extended attributes in the archive: the extractor would write them into the app.
     await $`tar --no-xattrs --no-mac-metadata -cf app.tar ${app}`.cwd(work).env({ ...process.env, COPYFILE_DISABLE: "1" }).quiet();
     // A release is packed as small as zstd goes (49 MB, about 35 s); other builds in 3 s for 6 MB more.
@@ -39,5 +38,5 @@ if (!wrapper) {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  await sign(wrapper);
+  await signApp(wrapper);
 }

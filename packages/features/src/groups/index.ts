@@ -175,6 +175,7 @@ export const groups = defineFeature({
   actions: [
     defineAction({
       id: "edit.group",
+      duplicates: "clip.group",
       description: "Group the selected clips (⌘G) and select the group",
       args: z.strictObject({}),
       resolve: (_, ctx) => {
@@ -190,6 +191,7 @@ export const groups = defineFeature({
     }),
     defineAction({
       id: "edit.ungroup",
+      duplicates: "clip.ungroup",
       description: "Ungroup the selected groups (⌘U) and select their clips",
       args: z.strictObject({}),
       resolve: (_, ctx) => {

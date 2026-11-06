@@ -8,6 +8,7 @@ import type { Host } from "./app";
 import type { Init } from "./rpc";
 import { clock } from "./time";
 import { NO_NESTED, timelineView } from "./timeline-draw";
+import { SIDE_PANEL } from "./side-panel";
 
 export const auphonicReviewOf = (s: Session) => s.features.auphonic as AuphonicReview | undefined;
 
@@ -51,7 +52,7 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
   const ready = Array.isArray(presets) && !!preset && clips.length > 0;
   const tip = useShortcutTip();
   return (
-    <div className="panel-card flex w-[300px] shrink-0 flex-col overflow-y-auto p-4 text-body" data-auphonic-review>
+    <div className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-y-auto p-4 text-body`} data-auphonic-review>
       <div className="mb-4 text-title font-semibold text-text-strong">Clean with Auphonic</div>
       {presets === undefined && <div className="mb-4 text-text-muted">Reading your presets…</div>}
       {presets && !Array.isArray(presets) && (

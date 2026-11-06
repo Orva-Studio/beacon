@@ -190,6 +190,19 @@ export function pauses(project: Project, registry: FeatureRegistry, data: Data, 
 }
 
 /** Words grouped into lines at sentence ends and pauses of `gap` seconds or more. */
+const bare = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']+/gu, "");
+
+/** Each run of words saying `phrase`, in order. */
+function phrasePlaces(words: TimelineWord[], phrase: string): TimelineWord[][] {
+  const want = phrase.split(/\s+/).map(bare).filter(Boolean);
+  const said = words.map((w) => bare(w.text));
+  const out: TimelineWord[][] = [];
+  for (let k = 0; want.length && k + want.length <= words.length; k++) {
+    if (want.every((x, j) => said[k + j] === x)) out.push(words.slice(k, k + want.length));
+  }
+  return out;
+}
+
 function lines(words: TimelineWord[], gap: number): string {
   const out: string[] = [];
   let line: TimelineWord[] = [];
@@ -791,6 +804,8 @@ export const transcript = defineFeature({
       variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
       // Music and sound effects from a library say nothing to transcribe (a song's lyrics would become captions).
       applies: (asset) => !!asset.derived.media && !asset.derived.library && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
+      // Whisper takes the whole GPU: two at once (a project's media, opened) finish no sooner and ran the fans.
+      oneAtATime: true,
       async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
@@ -799,7 +814,7 @@ export const transcript = defineFeature({
         const apiKey = who === "openai" ? await env.secret("openai-api-key") : undefined;
         for (const i of audio.keys()) {
           const src = sourceOf(asset, "audio", i);
-          streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), onProgress: (f) => progress((i + f) / audio.length) });
+          streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), ...(env.quiet ? { quiet: true } : {}), onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },
@@ -837,18 +852,27 @@ export const transcript = defineFeature({
     defineQuery({
       id: "transcript.get",
       description:
-        "What is said on the timeline, in timeline seconds. `text`: lines as `[first-last word index] start-end  words`, with pauses; `words`: every word with its times. Indices change after any edit, so re-read before cutting again. Empty until the transcript job for the media has finished",
+        "What is said on the timeline, in timeline seconds. `text`: lines as `[first-last word index] start-end  words`, with pauses; `words`: every word with its times. `from`/`to` narrow it to a stretch; `find` to where a phrase is said (`text`: the lines saying it; `words`: each place's words, ready for transcript_cut). Indices change after any edit, so re-read before cutting again. Empty until the transcript job for the media has finished",
       args: z.strictObject({
         format: z.enum(["text", "words"]).default("text"),
         from: z.number().nonnegative().optional(),
         to: z.number().nonnegative().optional(),
+        find: z.string().trim().min(1).optional().describe("A phrase, matched by its words (case and punctuation ignored)"),
         pause: z.number().positive().default(0.5).describe("Seconds of silence that start a new line (text format)"),
       }),
       resource: { uri: "beacon://project/transcript", name: "Transcript", mimeType: "text/plain" },
-      run({ format, from, to, pause }, { project, registry, data }) {
+      run({ format, from, to, find, pause }, { project, registry, data }) {
         const words = timelineWords(project, registry, data).filter((w) => (from === undefined || w.end > from) && (to === undefined || w.start < to));
-        if (format === "words") return words;
-        return words.length ? lines(words, pause) : "(no transcript yet: check the transcript job, or the media has no speech)";
+        if (!words.length) return format === "words" ? [] : "(no transcript yet: check the transcript job, or the media has no speech)";
+        if (!find) return format === "words" ? words : lines(words, pause);
+        const places = phrasePlaces(words, find);
+        if (format === "words") return places.flat();
+        const hits = new Set(places.flat().map((w) => w.i));
+        const said = lines(words, pause).split("\n").filter((l) => {
+          const m = /^\[(\d+)-(\d+)\]/.exec(l);
+          return m && [...hits].some((i) => i >= Number(m[1]) && i <= Number(m[2]));
+        });
+        return said.length ? said.join("\n") : `("${find}" isn't said${from !== undefined || to !== undefined ? " in that stretch" : ""})`;
       },
     }),
     defineQuery({

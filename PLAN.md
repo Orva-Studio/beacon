@@ -3711,6 +3711,64 @@ MCP server sets round each tool call and the socket round each request that name
 No new features: improving what is there (the user, 2026-11-05). After thirteen phases of features, go back
 over the code: clear technical debt, remove code for features that are gone or unused (and features nobody
 uses), simplify, and measure and improve performance; then the security audit below.
+
+**Survey (2026-11-05, branch `phase-14` from `phase-13.5`):**
+- *Dead code:* very little. Two unused effect pictures (`highlight-green`/`-magenta` in `ui/src/art`), three
+  tick helpers only tests use (`frameToTicks`, `ticksToFrame`, `sampleToTicks`), an unused type (`motion/blocks.ts`
+  `Area`), ~125 exports only their own file uses (drop `export`). No unused feature, file, asset, WGSL or Rust fn;
+  every RPC request and MCP tool is live. `retired.ts` stays (old projects open).
+- *Debt, quick:* UI deep-imports into features (`music.tsx`, `ai-settings.tsx`); core re-exports `LABEL_COLORS`
+  from features; timeline-draw names B-roll; `clamp` four times; ffmpeg spawned by hand in auphonic, broll, angles
+  (not `ffmpegArgs`); two `onDisk`s; a drop-timing `console.log` (`desktop/projects.ts:314`); Epidemic's GraphQL
+  untyped; `#runAgent` starts jobs its own way.
+- *Debt, large:* about 12 feature UIs live in `packages/ui` and `properties.tsx`/`canvas.tsx`/`bridge.ts` branch on
+  feature ids (principle: core never names a feature); `Timeline` is one ~870-line component (a ~750-line effect);
+  `LocalCore` does project, import, export, tasks and agents (split out Exporter, Importer, Tasks, AgentRuns as
+  Analyses was); `SESSION_COMMANDS` is one 500-line array; two settings stores (`preferences.json`, `settings.json`).
+- *Performance:* the 2026-10-13 numbers hold (jump p50 19.8 ms, settle 98.8 / 142.8 ms, scrub 266 / 244 fps, play
+  0 skipped; edits 3-3.5 ms p50).
+- *Security, high:* the app is unsigned and updates aren't signature-checked; no CSP in the window; `showFile` runs
+  `open` on any path the page sends; the socket has no token (any process as the user can record, export, read);
+  `recorder_start` over MCP records with no confirmation in the app. *Medium:* a recording's `name` can write
+  outside the project (`../`); `#checkOutput` doesn't realpath (symlinks); task `frame()` and `saveAs`'s copy follow
+  links; `.tscproj` read without limits, its paths anywhere; Keychain items readable by `security` from any local
+  process; motion pages can fetch anywhere (no CSP in the iframe); CI doesn't run `bun run audit`; uploads (frames
+  and transcript text, not only audio) and the `BEACON_*_URL` overrides undocumented.
+Decided (the user, 2026-11-05): **the full registry move**: features register their inspector tabs, panels,
+reviews, clip labels and placeholders, and their UI moves into their folders, so `packages/ui` names no feature;
+**split the big files** (Timeline into hooks, LocalCore into Exporter/Importer/Tasks/AgentRuns, SESSION_COMMANDS
+by area, one settings store); **no Developer ID yet**: Beacon signs each update itself (ed25519 over the manifest,
+the public key in the app, checked before applying), app signing and notarization accepted-for-now in
+`docs/security.md`; **an agent's recording asks in the app** (Record / Don't, refused unanswered), and the socket
+takes a per-launch token.
+Order: (1) dead code and quick debt; (2) security's highs and mediums, CI audit; (3) the splits; (4) the registry
+move; (5) `docs/security.md`, uploads listed, and the fuzzing gate. Each a commit, the suite green between.
+**Changed (the user, 2026-11-05):** a Developer ID next week and people using Beacon soon, so Phase 14 aims at what
+they will feel. The full registry move is dropped (behind the scenes only, and risky before a launch); instead the
+**smaller fix**: shared code stops naming features (B-roll's timeline label, core re-exporting `LABEL_COLORS`, deep
+imports into feature internals). Then, in order: **performance as people meet it** (launch, opening a big project,
+memory over a long session, export, a timeline of hundreds of clips: measured, the worst fixed, guarded);
+**ready for the Developer ID** (signing with the hardened runtime and notarization in CI, waiting only on the
+certificate; then the keys in the Keychain through the Security framework); **first run** on a fresh Mac
+(permissions, first recording, first export) smoothed; **diagnostics** a user can send.
+**MCP made lean (the user, 2026-11-05):** server instructions under 4 KB (Claude Code cuts at 4,096; Beacon's were
+12.9k), the rest in resources; 4-5 core tools always loaded; duplicate `edit_*` tools out of MCP; `transaction`
+first, compact results; filtered `timeline_clips`/`transcript_get`; errors naming valid choices; `scripts/mcp-eval.ts`
+before/after (baseline 263 tools, ~44k tokens of definitions). **Done 2026-11-05** on `phase-14` (the `mcp-lean` agent
+had left only the eval): instructions 2.8k chars, the guide a resource; 5 tools always loaded; 25 duplicate editor keys
+out (`ActionDef.duplicates` names the command, MCP points there); per-clip `changed`; compact `timeline_clips`;
+`transcript_get` `find`; errors listing valid ids or the nearest names. Twelve tasks 130.5 → 26.5 KB received
+(docs/performance.md).
+**Also done 2026-11-05:** a small project levels off at ~810 MB (left); export 9× real time (small), 5× (304 clips);
+the timeline drew in square time of its clips (shown spans), now linear: 2,350 clips zoom 52.7 → 20.7 ms a step,
+guarded by `many-clips.test.ts`. Developer ID ready (`packages/desktop/sign.ts`, `scripts/notarize.ts`, release.yml
+steps that run once the secrets are set; a hardened ad hoc package passed check-release and launched). Help › Save
+Diagnostics… and `~/Library/Logs/Beacon/beacon.log`. The certificate and the Keychain
+moved to Phase 14.5 (the user, 2026-11-06). **Also fixed 2026-11-06:** Auto-normalize raised a quiet microphone
+(-52.6 LUFS) 35 dB and the export clipped: now it raises at most 20 dB and the mix goes through a limiter at -1 dBFS.
+Left here: the by-hand checks in `docs/tested.md` (the user's, last).
+**Done 2026-11-05:** launch 1.2-2.6 s to a drawn window, opening 8 ms; memory levels off, ~130 MB saved while playing
+(decoder keeps ½ s behind); Camtasia ~2.2 GB vs Beacon ~1.0 GB on the same project (docs/performance.md).
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
@@ -3738,7 +3796,32 @@ with each finding fixed or written down as an accepted risk in
 **Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
 and a fuzzing run of the file readers finds no crash.
 
+### Phase 14.5 — Signed and notarized (the user, 2026-11-06; split from Phase 14)
+
+Phase 14 made the release ready for a Developer ID (`packages/desktop/sign.ts`, `scripts/notarize.ts`, the release's
+Developer ID and Notarize steps, `docs/security.md` "Developer ID"); this phase turns it on once the certificate is
+there (the week of 2026-11-09):
+- Add the five secrets (`BEACON_DEVELOPER_ID_P12`, `_PASSWORD`, `APPLE_API_KEY`, `_ID`, `_ISSUER`), cut a release,
+  and check it: notarized and stapled, opens without a warning on a fresh Mac, screen/camera/microphone permissions
+  kept across the next update (asked once more on the first signed one).
+- The API keys in the Keychain through the Security framework, with an access list naming only Beacon, in place of
+  `/usr/bin/security` (any process running as the user can read them now: `docs/security.md`, Accepted for now).
+- Recording with camera and microphone under the hardened runtime, checked by hand.
+- The first run on a fresh Mac, by a beta tester (the user has no fresh Mac): download, open, permissions, first
+  recording, first export; anything odd comes back as Help › Save Diagnostics…'s report.
+**Gate:** a notarized release installed on a fresh Mac records, edits and exports without a warning or a lost
+permission across an update; the keys readable only by Beacon.
+
 ### Phase 15 — Camtasia export (the user, 2026-10-16; was Phase 14 until 2026-10-27)
+
+**Parked here (the user, 2026-11-05):** GPU memory, broken down then cut if it can be: a small 1080p project holds
+~285 MB on the GPU and ~275 MB of decoded frames (4 bytes a pixel; keeping the decoder's own smaller format and
+converting on the GPU could save ~150 MB). Not felt yet (flat, no leak, under Camtasia's), so after launch.
+
+**Parked here (the user, 2026-11-06): resizable side panels.** Every right panel shares one width (320 px since
+Phase 14, so switching Properties, Music and the reviews no longer moves the canvas); next, drag its left edge to
+widen it (about 280-480 px, double-click resets), remembered app-wide like the timeline divider and shared by every
+right panel. Open: the left panels (Media Bin and the tools) the same way.
 Handing a Beacon project to someone who keeps editing in Camtasia: File ›
 Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
 media beside it), one way and best effort, as import is (§11). Not for

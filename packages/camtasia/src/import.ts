@@ -48,13 +48,19 @@ function speedOf(scalar: unknown): Clip["speed"] {
   return d ? { num: d, den: n } : { num: 1000, den: Math.round(n * 1000) };
 }
 
+const MAX_TSCPROJ = 200e6;
+
 /**
  * Builds a Beacon project from a `.cmproj` (PLAN §11). The structure
  * (assets, tracks, times, keyframes) is read here; what each media type,
  * parameter and effect means comes from the features' Camtasia mappers.
  */
 export async function importCmproj(cmproj: string, registry: FeatureRegistry): Promise<ImportResult> {
-  const doc = JSON.parse(await Bun.file(join(cmproj, "project.tscproj")).text()) as CamtasiaObject;
+  const file = Bun.file(join(cmproj, "project.tscproj"));
+  // A project file is a few MB at most; a far bigger one is not one to read into memory whole.
+  if (file.size > MAX_TSCPROJ) throw new Error(`${cmproj}: project.tscproj is ${Math.round(file.size / 1e6)} MB, too big to be a Camtasia project`);
+  const doc = JSON.parse(await file.text()) as CamtasiaObject;
+  if (typeof doc !== "object" || doc === null || (doc.sourceBin !== undefined && !Array.isArray(doc.sourceBin))) throw new Error(`${cmproj}: project.tscproj isn't a Camtasia project`);
   const report: string[] = [];
   const mappers = [...registry.features.values()].flatMap((f) => (f.camtasia ? [f.camtasia] : []));
 

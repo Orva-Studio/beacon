@@ -201,6 +201,7 @@ export const stitching = defineFeature({
   actions: [
     defineAction({
       id: "edit.stitch",
+      duplicates: "clip.stitch",
       description: "Stitch the selected pieces of one recording into one clip (⌥⌘I)",
       args: z.strictObject({}),
       resolve: (_, ctx) => {
@@ -214,6 +215,7 @@ export const stitching = defineFeature({
     }),
     defineAction({
       id: "edit.unstitch",
+      duplicates: "clip.unstitch",
       description: "Take the selected stitched clips apart (Remove All Stitches, ⇧⌘\\\\)",
       args: z.strictObject({}),
       resolve: (_, ctx) => {

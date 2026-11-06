@@ -271,6 +271,12 @@ function atempo(speed: number): string {
  * [start, start + length) into `[aout]`, starting at `firstInput`; the
  * export muxes it under the video, playback streams it to the device.
  */
+/**
+ * The mix kept under -1 dBFS: levelled clips (Auto-normalize) and several at once went over full scale and clipped. Its
+ * look-ahead is taken back out (`latency`), so the sound stays on the picture; below the limit it passes unchanged.
+ */
+const LIMITER = `alimiter=limit=${(10 ** (-1 / 20)).toFixed(4)}:attack=5:release=50:level=false:latency=1`;
+
 function audioMix(project: Project, registry: FeatureRegistry, start: number, length: number, firstInput = 0, source?: AudioSource): { inputs: string[]; filter?: string } {
   const inputs: string[] = [];
   const filters: string[] = [];
@@ -308,7 +314,7 @@ function audioMix(project: Project, registry: FeatureRegistry, start: number, le
     filters.push(`${at}${volume}${atempo(s.speed)},adelay=delays=${((from - start) * 1000).toFixed(4)}:all=1[a${n}]`);
   }
   if (!n) return { inputs };
-  return { inputs, filter: `${filters.join(";")};${Array.from({ length: n }, (_, i) => `[a${i + 1}]`).join("")}amix=inputs=${n}:normalize=0:duration=longest,apad[aout]` };
+  return { inputs, filter: `${filters.join(";")};${Array.from({ length: n }, (_, i) => `[a${i + 1}]`).join("")}amix=inputs=${n}:normalize=0:duration=longest,${LIMITER},apad[aout]` };
 }
 
 /** Where to read a segment's audio instead of its original file (a proxy with the same timing). */

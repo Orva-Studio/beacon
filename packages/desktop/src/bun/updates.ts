@@ -1,4 +1,5 @@
 import { Updater, Utils } from "electrobun/main";
+import { checkDownload, signatureFor } from "./update-signature";
 
 /** How long after launch the quiet check waits, so it doesn't compete with opening a project. */
 const LAUNCH_DELAY_MS = 15_000;
@@ -40,9 +41,11 @@ export async function checkForUpdates({ quiet = false, status, stopped }: { quie
     if (response !== 0) return;
     // The user asked for it: from here a failure is always said, launch check or not.
     try {
+      const signed = await signatureFor(await Updater.localInfo.baseUrl(), info.version, info.hash);
       status(`Downloading Beacon ${info.version}…`);
       await Updater.downloadUpdate();
       if (!Updater.updateInfo().updateReady) throw new Error(Updater.updateInfo().error || "the download didn't finish");
+      await checkDownload(signed);
       await Updater.applyUpdate();
       // A handoff that worked quits Beacon; returning means it didn't, and Electrobun says why in updateInfo, not by throwing.
       throw new Error(Updater.updateInfo().error || "the update didn't start");

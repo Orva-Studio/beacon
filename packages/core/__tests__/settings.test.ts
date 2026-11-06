@@ -121,3 +121,26 @@ test("Remove Silences' and Remove Retakes' last settings are kept app-wide: chec
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("preferences.json edited by hand is told on reload, only what changed, and an unreadable one is the defaults", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "beacon-settings-"));
+  try {
+    const configDir = join(dir, "config");
+    const core = new LocalCore({ configDir });
+    await core.setPreference("transcriber", "apple");
+    await core.setPreference("retakeWithin", "60");
+    const told: unknown[] = [];
+    core.watchApp((e) => e.kind === "preference" && told.push(e));
+    core.reloadPreferences();
+    expect(told).toEqual([]);
+    writeFileSync(join(configDir, "preferences.json"), JSON.stringify({ transcriber: "whisper", retakeWithin: "60" }));
+    core.reloadPreferences();
+    expect(told).toEqual([{ kind: "preference", id: "transcriber", value: "whisper" }]);
+    writeFileSync(join(configDir, "preferences.json"), "{ not json");
+    core.reloadPreferences();
+    expect(told).toHaveLength(2);
+    expect(told[1]).toEqual({ kind: "preference", id: "retakeWithin", value: "30" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

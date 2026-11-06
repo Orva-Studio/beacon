@@ -11,13 +11,13 @@ import {
   secondsToTicks,
   ticksToSeconds,
   TRACK_HEIGHT,
-  wordsInWindow,
   type Animation,
   type Clip,
   type Project,
   type Session,
   type Track,
 } from "@beacon/model";
+import { clipLabel as featureLabel } from "@beacon/features/ui";
 import type { PanelItem } from "./drop";
 import { drawIcon, type IconName } from "./controls";
 import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, BAND, TRACKS_TOP, volumeY } from "./timeline-layout";
@@ -189,17 +189,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
   const inner = innerTracks(clip, nested)?.[0]?.clips[0];
   const asset = project.assets[clip.assetId ?? inner?.assetId ?? ""];
   if (asset) return assetName(asset);
-  // Annotations say what they are: a text callout its text, the rest their shape or kind.
-  const callout = clip.props.callout as { shape?: string; text?: { text?: string } } | undefined;
-  if (callout?.shape === "text") return callout.text?.text?.split("\n")[0]?.trim() || "Text";
-  if (callout?.shape) return callout.shape === "rectangle" ? "Shape" : callout.shape[0]!.toUpperCase() + callout.shape.slice(1);
-  const caption = (clip.props.caption as { words?: { text: string; start: number; end: number }[] } | undefined)?.words;
-  if (caption) return wordsInWindow(clip, caption).map((w) => w.text).join(" ") || "Caption";
-  // B-roll without footage yet: what it will show.
-  if (clip.type === "broll") return ((b) => (b?.source === "manual" ? b.manual : b?.prompt))(clip.props.broll as { prompt?: string; manual?: string; source?: string } | undefined)?.trim() || "B-roll";
-  const region = (clip.props.region as { kind?: string } | undefined)?.kind;
-  if (region) return region[0]!.toUpperCase() + region.slice(1);
-  return clip.type;
+  return featureLabel(clip) ?? clip.type;
 }
 
 /**
@@ -245,8 +235,19 @@ export function drawTimeline(t: TimelineDrawing) {
     const width = Math.max(1, w - HEADER);
     const pps = width / (end - start);
     const x = (t: number) => HEADER + (t - start) * pps;
-    const shown = (t: Track, clip: Clip) =>
-      shownSpan(ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration), t.clips.filter((c) => c !== clip).map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const), 1 / pps);
+    // Each track's spans worked out once a draw, from each clip's neighbours in time: asking every other clip of the
+    // track for each one made a zoom of two thousand clips take 50 ms.
+    const spans = new Map<string, [number, number]>();
+    const shown = (t: Track, clip: Clip): [number, number] => {
+      const hit = spans.get(clip.id);
+      if (hit) return hit;
+      const sorted = [...t.clips].sort((p, q) => p.start - q.start).map((c) => [c.id, ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)] as const);
+      sorted.forEach(([id, a, b], k) => {
+        const near = [sorted[k - 1], sorted[k + 1]].flatMap((n) => (n ? [[n[1], n[2]] as const] : []));
+        spans.set(id, shownSpan(a, b, near, 1 / pps));
+      });
+      return spans.get(clip.id)!;
+    };
 
     // Everything but the playhead is drawn into a cached layer, redrawn only when what it shows changes:
     // a playback tick then costs a copy and the playhead.

@@ -7,9 +7,9 @@ let quit = 0;
 let dialogs: { message?: string; buttons?: string[] }[] = [];
 let answer = 0;
 const Updater = {
-  localInfo: { version: async () => "0.4.0" },
+  localInfo: { version: async () => "0.4.0", baseUrl: async () => "https://example.invalid" },
   checkForUpdate: async () => info,
-  downloadUpdate: async () => void (info = { ...info, updateReady: true }),
+  downloadUpdate: async () => void (downloads++, (info = { ...info, updateReady: true })),
   // Electrobun 2.0.2 reports a failed handoff in updateInfo and returns, rather than throwing.
   applyUpdate: async () => void (info = { ...info, error: applyError }),
   updateInfo: () => info,
@@ -19,6 +19,16 @@ const Utils = {
   quit: () => void quit++,
 };
 mock.module("electrobun/main", () => ({ Updater, Utils }));
+// The release's signature and the downloaded tar pass (update-signature.test.ts tests them).
+let unsigned = "";
+let downloads = 0;
+mock.module("../src/bun/update-signature", () => ({
+  signatureFor: async () => {
+    if (unsigned) throw new Error(unsigned);
+    return { version: "0.4.1", hash: "b", tarSha256: "" };
+  },
+  checkDownload: async () => {},
+}));
 const { checkForUpdates } = await import("../src/bun/updates");
 
 let statuses: string[] = [];
@@ -30,6 +40,15 @@ beforeEach(() => {
   dialogs = [];
   statuses = [];
   answer = 0;
+  unsigned = "";
+  downloads = 0;
+});
+
+test("an update not signed by Beacon is refused before anything downloads", async () => {
+  unsigned = "the update isn't signed by Beacon";
+  await checkForUpdates({ status, stopped: () => false });
+  expect(downloads).toBe(0);
+  expect(statuses.at(-1)).toBe("Update failed: the update isn't signed by Beacon");
 });
 
 test("an update whose handoff fails says so, and Beacon carries on when nothing was closed", async () => {

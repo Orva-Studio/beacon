@@ -1,9 +1,10 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { asAuthor } from "./author";
+import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Socket } from "bun";
 import type { AppEvent, CoreEvent, BeaconCore, ProjectHandle } from "./api";
+import { asAuthor } from "./author";
 import { alive } from "./persist";
 import { LineReader } from "@beacon/media";
 
@@ -29,7 +30,7 @@ export const CONTROL_SOCKET = join(SOCKET_DIR, `mcp-${process.pid}.sock`);
 /** Removes sockets left by app processes that are gone (a crash leaves them behind). */
 function removeStaleSockets(dir: string) {
   for (const name of existsSync(dir) ? readdirSync(dir) : []) {
-    const pid = Number(name.match(/^(?:app|mcp)-(\d+)\.sock$/)?.[1]);
+    const pid = Number(name.match(/^(?:app|mcp)-(\d+)\.sock(?:\.token)?$/)?.[1]);
     if (pid && pid !== process.pid && !alive(pid)) rmSync(join(dir, name), { force: true });
   }
 }
@@ -46,7 +47,7 @@ export function appSockets(): string[] {
     .map((name) => join(SOCKET_DIR, name));
 }
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /**
  * Core methods that go over the socket as they are: called with their arguments, answered with their result.
@@ -99,8 +100,20 @@ interface Client {
   reader: LineReader;
   writer: LineWriter;
   watching: Map<ProjectHandle, () => void>;
-  /** Stops the app-wide events this client is sent. */
-  unwatchApp: () => void;
+  /** Stops the app-wide events this client is sent, once its `hello` gave the token. */
+  unwatchApp?: () => void;
+}
+
+/** Where an app's per-launch token is, beside its socket: readable by this user only. */
+const tokenFile = (socket: string) => `${socket}.token`;
+
+/** The token a client gives in `hello`; undefined when the app at `socket` wrote none. */
+export function socketToken(socket: string): string | undefined {
+  try {
+    return readFileSync(tokenFile(socket), "utf8").trim();
+  } catch {
+    return undefined;
+  }
 }
 
 export interface CoreServer {
@@ -121,6 +134,9 @@ export function serveCore(
   removeStaleSockets(dirname(path));
   // A path given explicitly (BEACON_SOCKET, tests) is the caller's to reuse.
   if (existsSync(path)) rmSync(path);
+  // Reaching the socket isn't enough: a client also reads this launch's token, from a file only this user can read.
+  const token = randomBytes(24).toString("hex");
+  writeFileSync(tokenFile(path), token, { mode: 0o600 });
 
   const send = (s: Socket<Client>, msg: unknown) => s.data.writer.send(msg);
 
@@ -134,7 +150,11 @@ export function serveCore(
       if (!(METHODS as readonly string[]).includes(req.method)) throw new Error(`unknown method "${req.method}"`);
       const method = req.method as Method;
       let result: unknown;
-      if (method === "hello") result = { protocol: PROTOCOL_VERSION, projects: opts.projects?.() ?? [] };
+      if (method === "hello") {
+        if (params[0] !== token) throw new Error(`this Beacon app wants its token in hello (protocol ${PROTOCOL_VERSION}): update the client`);
+        if (!s.data.unwatchApp) s.data.unwatchApp = core.watchApp((event: AppEvent) => send(s, { jsonrpc: "2.0", method: "appEvent", params: { event } }));
+        result = { protocol: PROTOCOL_VERSION, projects: opts.projects?.() ?? [] };
+      } else if (!s.data.unwatchApp) throw new Error("say hello first, with the app's token");
       else if (method === "show") {
         if (!opts.show) throw new Error("this app can't show a project");
         opts.show(String(params[0]));
@@ -174,7 +194,7 @@ export function serveCore(
             return send(s, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
           }
           void handle(s, req);
-        }), writer: new LineWriter((bytes) => s.write(bytes)), watching: new Map(), unwatchApp: core.watchApp((event: AppEvent) => send(s, { jsonrpc: "2.0", method: "appEvent", params: { event } })) };
+        }), writer: new LineWriter((bytes) => s.write(bytes)), watching: new Map() };
       },
       data(s, chunk) {
         s.data.reader.push(chunk);
@@ -183,7 +203,7 @@ export function serveCore(
         s.data.writer.drain();
       },
       close(s) {
-        s.data?.unwatchApp();
+        s.data?.unwatchApp?.();
         for (const off of s.data?.watching.values() ?? []) off();
       },
     },
@@ -194,6 +214,7 @@ export function serveCore(
     stop() {
       server.stop(true);
       rmSync(path, { force: true });
+      rmSync(tokenFile(path), { force: true });
     },
   };
 }
@@ -297,13 +318,17 @@ export async function askOwner(socket: string, method: "show" | "letGo", path: s
   const answer = new Promise<string | undefined>((resolve) => (done = resolve));
   const timer = setTimeout(() => done("it didn't answer"), ms);
   const reader = new LineReader((line) => {
-    const msg = decode(line) as { error?: { message: string } };
+    const msg = decode(line) as { id?: number; error?: { message: string } };
+    // An app's hello (its token, id 0) answers first; only a refused one is the answer.
+    if (msg.id === 0 && !msg.error) return;
     done(msg.error?.message);
   });
   try {
     conn = await Bun.connect({ unix: socket, socket: { data: (_, chunk) => reader.push(chunk), close: () => done("it closed the connection"), error: () => done("it couldn't be reached") } }).catch(() => {
       throw new Error("it couldn't be reached");
     });
+    // `show` goes to an app's socket, which wants its token first; `letGo` to an agent's control socket, which doesn't.
+    if (method === "show") conn.write(`${encode({ jsonrpc: "2.0", id: 0, method: "hello", params: [socketToken(socket) ?? null] })}\n`);
     conn.write(`${encode({ jsonrpc: "2.0", id: 1, method, params: [path] })}\n`);
     const error = await answer;
     if (error) throw new Error(error);

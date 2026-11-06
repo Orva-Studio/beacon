@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { projectDuration, ticksToSeconds, type Project, type Session } from "@beacon/model";
 import type { MusicPage, MusicReview, MusicTrack, PopIn, SoundEffect, SuggestOption, Suggestion } from "@beacon/features";
-import { POP_TERMS, type PopKind } from "@beacon/features/src/music/pops";
+import { POP_TERMS, type PopKind } from "@beacon/features/ui";
 import { Button, Check, Icon, Segmented, Slider, TextInput } from "./controls";
 import { useShortcutTip } from "./keymap";
 import { useQuery } from "./query";
@@ -9,6 +9,7 @@ import { useView } from "./store";
 import type { TimelineMark } from "./timeline-draw";
 import type { Host } from "./app";
 import { clock } from "./time";
+import { SIDE_PANEL } from "./side-panel";
 
 export const musicReviewOf = (s: Session) => s.features.music as MusicReview | undefined;
 
@@ -106,7 +107,7 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
   const title = review.tab === "suggest" ? "Music and Sounds" : music ? "Music" : "Sound Effects";
 
   return (
-    <div className="panel-card flex w-[320px] shrink-0 flex-col overflow-hidden p-4 text-body" data-music-review>
+    <div className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-hidden p-4 text-body`} data-music-review>
       <audio ref={audio} onEnded={() => setPlaying(undefined)} onPlaying={() => setLoading(undefined)} onError={() => (setPlaying(undefined), setLoading(undefined))} />
       <div className="mb-3 flex flex-col items-start gap-2">
         <span className="text-title font-semibold text-text-strong">{title}</span>

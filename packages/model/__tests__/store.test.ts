@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { anyAgent, authorIs, ProjectStore, UndoBlocked } from "../src";
+import { anyAgent, authorIs, ProjectStore, TICKS_PER_SECOND, UndoBlocked } from "../src";
 import { setup } from "./fixture";
 
 test("apply then undo returns the original document exactly, and redo the edited one", () => {
@@ -57,9 +57,9 @@ test("dry run returns the patch and a readable diff without applying", () => {
   const clip = store.run<string>("clip.add", { type: "video", track, start: 0, duration: 100 }).result;
   const before = store.doc;
 
-  const r = store.run("clip.set", { clip, start: 300 }, { dryRun: true });
+  const r = store.run("clip.set", { clip, start: TICKS_PER_SECOND * 2 }, { dryRun: true });
   expect(r.dryRun).toBe(true);
-  expect(r.diff).toEqual(["set tracks/0/clips/0/start: 0 -> 300"]);
+  expect(r.diff).toEqual([`set clip ${clip}: start 0 -> 2`]);
   expect(store.doc).toBe(before);
   expect(store.canRedo).toBe(false);
 });
@@ -126,6 +126,25 @@ test("a removed clip undone under an agent's step comes back in its place; the u
   store.undo();
   store.run("clip.set", { clip: ids[0]!, start: 10 });
   expect(store.canRedo).toBe(false);
+});
+
+test("the diff names what a removal took, not every clip it shifted", () => {
+  const { store } = setup();
+  const first = store.run<string>("track.add", { name: "A" }).result;
+  const second = store.run<string>("track.add", { name: "B" }).result;
+  const gone = store.run<string>("clip.add", { type: "video", track: first, start: 0, duration: 5 }).result;
+  for (const t of [0, 10, 20]) store.run("clip.add", { type: "video", track: second, start: t, duration: 5 });
+  const r = store.run("track.remove", { track: first });
+  expect(r.diff).toEqual([`remove track ${first}`, `remove clip ${gone} (was video 0-5s on ${first})`]);
+});
+
+test("the diff makes one line of many clips added alike", () => {
+  const { store } = setup();
+  const track = store.run<string>("track.add", { name: "Captions" }).result;
+  const r = store.transaction("Add Captions", (tx) => {
+    for (let t = 0; t < 10; t++) tx.run("clip.add", { type: "video", track, start: t * 2, duration: 2 });
+  });
+  expect(r.diff).toEqual([`add 10 video clips on ${track}, 0-20s`]);
 });
 
 test("an insertion before others is undone under someone else's later step, and their neighbours aren't taken as changed", () => {

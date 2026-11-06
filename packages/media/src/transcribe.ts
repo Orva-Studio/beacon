@@ -38,6 +38,8 @@ export interface TranscribeOptions {
   /** whisper.cpp's alignment-heads preset for the model (`--dtw`). */
   dtw?: string;
   language?: string;
+  /** Local Whisper at macOS background priority (the app's Quiet setting): slower, and the fans stay off. */
+  quiet?: boolean;
   onProgress?: (fraction: number) => void;
 }
 
@@ -72,6 +74,13 @@ const SEARCH: Record<Transcriber, [number, number]> = { whisper: [0.25, 0.03], a
 const CHUNK_GAP = 0.3;
 const MAX_CHUNK = 25;
 const PAD = 0.2;
+/**
+ * Whisper's encoder works on a whole 30 s window whatever the file's length, so each short chunk cost as much as 30 s
+ * of audio: a 7½-minute take kept the GPU busy (and the fans going) for over a minute. Chunks are packed into files
+ * of up to `PACKED` seconds, `PACK_GAP` of silence apart, and each word is put back where it was said (`packSpans`).
+ */
+const PACKED = 28;
+const PACK_GAP = 1;
 /**
  * A pause between words can sit above the silence threshold (breath, the room with someone in front of the mic):
  * this far below the recording's speech level, for at least `MIN_PAUSE`, between louder sound, is a pause too.
@@ -247,35 +256,93 @@ function chunkWords(tokens: WhisperToken[], [offset, end]: [number, number]): Wo
 
 const whisperModel = (opts: TranscribeOptions) => opts.model ?? process.env.BEACON_WHISPER_MODEL ?? DEFAULT_WHISPER_MODEL;
 
-/** whisper.cpp over each span of the audio (seconds), in one run: each span's words. */
-async function whisperSpans(dir: string, name: string, pcm: Int16Array, spans: [number, number][], opts: TranscribeOptions, language: string, progress?: (f: number) => void): Promise<Word[][]> {
+/**
+ * Spans laid end to end, `PACK_GAP` apart, into files of up to `PACKED` seconds: each file's spans, by index, and
+ * where each starts in it. Neighbouring spans never share a file: in one window whisper hears a line said again
+ * straight after itself as one, and drops the retake. A file takes every `stride`th span, so its spans are far apart.
+ */
+function packSpans(spans: [number, number][], pack: boolean): { span: number; at: number }[][] {
+  if (!pack) return spans.map((_, i) => [{ span: i, at: 0 }]);
+  const total = spans.reduce((n, [a, b]) => n + b - a + PACK_GAP, 0);
+  const stride = Math.max(2, Math.ceil(total / PACKED));
+  const files: { span: number; at: number }[][] = [];
+  for (let first = 0; first < stride; first++) {
+    let length = Infinity;
+    for (let i = first; i < spans.length; i += stride) {
+      const [a, b] = spans[i]!;
+      const at = length + PACK_GAP;
+      if (at + (b - a) > PACKED) {
+        files.push([{ span: i, at: 0 }]);
+        length = b - a;
+      } else {
+        files.at(-1)!.push({ span: i, at });
+        length = at + (b - a);
+      }
+    }
+  }
+  return files;
+}
+
+/**
+ * whisper.cpp over each span of the audio (seconds), in one run: each span's words. `pack`: several spans to a file
+ * (see `PACKED`); otherwise each is heard on its own.
+ */
+async function whisperSpans(dir: string, name: string, pcm: Int16Array, spans: [number, number][], opts: TranscribeOptions, language: string, progress?: (f: number) => void, pack = false): Promise<Word[][]> {
   const model = whisperModel(opts);
   if (!existsSync(model)) throw new Error(`whisper model not found at ${model}; download ggml-large-v3-turbo-q5_0.bin from huggingface.co/ggerganov/whisper.cpp`);
-  const files = spans.map(([a, b], i) => {
+  const groups = packSpans(spans, pack);
+  const gap = new Int16Array(Math.round(PACK_GAP * RATE));
+  const files = groups.map((group, i) => {
     const file = join(dir, `${name}${i}.wav`);
-    writeFileSync(file, wavFile(pcm.subarray(Math.floor(a * RATE), Math.ceil(b * RATE))));
+    const parts = group.flatMap(({ span }, k) => {
+      const [a, b] = spans[span]!;
+      const audio = pcm.subarray(Math.floor(a * RATE), Math.ceil(b * RATE));
+      return k ? [gap, audio] : [audio];
+    });
+    const joined = new Int16Array(parts.reduce((n, x) => n + x.length, 0));
+    let o = 0;
+    for (const x of parts) (joined.set(x, o), (o += x.length));
+    writeFileSync(file, wavFile(joined));
     return file;
   });
   let done = 0;
   if (files.length) {
     const dtw = opts.dtw ?? process.env.BEACON_WHISPER_DTW ?? "large.v3.turbo";
-    await runTool([tool("whisper-cli"), "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
+    await runTool([...(opts.quiet ? ["/usr/sbin/taskpolicy", "-b"] : []), tool("whisper-cli"), "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
       done += chunk.match(/saving output/g)?.length ?? 0;
       progress?.(done / files.length);
     } });
   }
-  const out: Word[][] = [];
+  const out: Word[][] = spans.map(() => []);
   for (const [i, file] of files.entries()) {
     const json = (await Bun.file(`${file}.json`).json()) as { transcription: { tokens: WhisperToken[] }[] };
-    out.push(chunkWords(json.transcription.flatMap((seg) => seg.tokens), spans[i]!));
+    const group = groups[i]!;
+    const last = group.at(-1)!;
+    const words = chunkWords(json.transcription.flatMap((seg) => seg.tokens), [0, last.at + spans[last.span]![1] - spans[last.span]![0]]);
+    // A word belongs to the span its start is in, or the one after the gap it starts in (DTW starts lag the sound).
+    for (const w of words) {
+      const k = group.findLastIndex(({ at }, j) => w.start >= (j ? at - PACK_GAP : -Infinity));
+      const { span, at } = group[k]!;
+      const [a, b] = spans[span]!;
+      const into = (t: number) => Math.min(b, Math.max(a, a + t - at));
+      out[span]!.push({ ...w, start: into(w.start), end: into(w.end) });
+    }
   }
   return out;
 }
 
 /** Raw word times from whisper.cpp, chunked at pauses (see `transcribe`). */
 async function whisperWords(dir: string, pcm: Int16Array, speech: [number, number][], opts: TranscribeOptions, language: string): Promise<{ words: Word[]; model: string }> {
-  const words = (await whisperSpans(dir, "c", pcm, chunksOf(speech, pcm.length / RATE), opts, language, opts.onProgress)).flat();
-  return { words, model: whisperModel(opts).split("/").pop()! };
+  const chunks = chunksOf(speech, pcm.length / RATE);
+  const packed = await whisperSpans(dir, "c", pcm, chunks, opts, language, opts.onProgress, true);
+  // Beside other chunks whisper now and then leaves out a quiet or mumbled word, and the next one takes its time:
+  // a chunk with such a word (its last runs to the chunk's end, so it doesn't count) is heard again on its own, as before.
+  const again = chunks.flatMap((c, i) => (packed[i]!.slice(0, -1).some(stretched) ? [i] : []));
+  if (again.length) {
+    const alone = await whisperSpans(dir, "a", pcm, again.map((i) => chunks[i]!), opts, language);
+    for (const [k, i] of again.entries()) packed[i] = alone[k]!;
+  }
+  return { words: packed.flat(), model: whisperModel(opts).split("/").pop()! };
 }
 
 const said = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");

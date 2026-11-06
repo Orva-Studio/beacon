@@ -17,7 +17,7 @@ import type {
   SchemaInfo,
 } from "./api";
 import { LineReader } from "@beacon/media";
-import { appSockets, decode, encode, FORWARDED, LineWriter, PROTOCOL_VERSION, type Method } from "./socket";
+import { appSockets, decode, encode, FORWARDED, LineWriter, PROTOCOL_VERSION, socketToken, type Method } from "./socket";
 
 interface Pending {
   resolve: (v: any) => void;
@@ -71,7 +71,7 @@ export class RemoteCore implements BeaconCore {
       },
     });
     r.#writer = new LineWriter((bytes) => r.#socket.write(bytes));
-    const hello = await r.#call<{ protocol: number }>("hello");
+    const hello = await r.#call<{ protocol: number }>("hello", socketToken(path));
     if (hello.protocol !== PROTOCOL_VERSION) {
       r.disconnect();
       throw new Error(`the Beacon app speaks protocol ${hello.protocol}, this client ${PROTOCOL_VERSION}; update one of them`);
@@ -207,7 +207,7 @@ async function probe(path: string): Promise<string[] | undefined> {
   });
   try {
     socket = await Bun.connect({ unix: path, socket: { data: (_, chunk) => reader.push(chunk), close: () => done(undefined), error: () => done(undefined) } });
-    socket.write(`${encode({ jsonrpc: "2.0", id: 1, method: "hello", params: [] })}\n`);
+    socket.write(`${encode({ jsonrpc: "2.0", id: 1, method: "hello", params: [socketToken(path) ?? null] })}\n`);
     return await answer;
   } catch {
     return undefined;

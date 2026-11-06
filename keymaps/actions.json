@@ -31,6 +31,11 @@
       "description": "Look for a newer Beacon"
     },
     {
+      "id": "app.diagnostics",
+      "name": "Save Diagnostics…",
+      "description": "Save a report of this Mac, Beacon's setup and its recent errors in a folder you choose, to send with a problem"
+    },
+    {
       "id": "app.new",
       "name": "New Project",
       "description": "Start a new project"

@@ -34,7 +34,7 @@ function commands(r: FeatureRegistry): CommandInfo[] {
     ...[...r.commands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "core" })),
     ...SESSION_COMMANDS.map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: "session" })),
     ...[...r.sessionCommands.values()].map((c) => ({ id: c.id, description: c.description, args: jsonSchemaOf(c.args), feature: owner.get(c.id) ?? "session" })),
-    ...[...r.actions.values()].map((a) => ({ id: a.id, description: a.description, args: jsonSchemaOf(a.args), feature: owner.get(a.id) ?? "core" })),
+    ...[...r.actions.values()].map((a) => ({ id: a.id, description: a.description, args: jsonSchemaOf(a.args), feature: owner.get(a.id) ?? "core", ...(a.duplicates ? { duplicates: a.duplicates } : {}) })),
   ];
 }
 

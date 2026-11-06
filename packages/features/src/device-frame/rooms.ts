@@ -32,7 +32,7 @@ const ready = new Map<string, string>();
  * A bundled picture on disk for the renderer. Bundled, the import may be relative to the bundle or inside a compiled
  * binary's own file system, which the renderer can't open: then it is copied out once to the temp folder.
  */
-function onDisk(src: string): string {
+function bundledFile(src: string): string {
   const known = ready.get(src);
   if (known) return known;
   const abs = isAbsolute(src) ? src : resolve(import.meta.dir, src);
@@ -53,8 +53,8 @@ function onDisk(src: string): string {
   return path;
 }
 
-export const roomPath = () => onDisk(tealStudio);
-export const panoramaPath = (room: Panorama) => onDisk(PANORAMAS[room].image);
+export const roomPath = () => bundledFile(tealStudio);
+export const panoramaPath = (room: Panorama) => bundledFile(PANORAMAS[room].image);
 /**
  * What glossy glass mirrors, 512×342, blurred: the room behind the camera with someone standing in it
  * (gpt-image-2.6-sunburst, the user preferred it to the rooms' own reflections, 2026-11-05), each room blended in
@@ -68,4 +68,4 @@ const REFLECTIONS = {
   "teal-studio": { image: studioReflection, mirror: 2.4 },
   none: { image: reflection, mirror: 2.4 },
 } as const;
-export const reflectionOf = (room: keyof typeof REFLECTIONS) => ({ path: onDisk(REFLECTIONS[room].image), mirror: REFLECTIONS[room].mirror });
+export const reflectionOf = (room: keyof typeof REFLECTIONS) => ({ path: bundledFile(REFLECTIONS[room].image), mirror: REFLECTIONS[room].mirror });

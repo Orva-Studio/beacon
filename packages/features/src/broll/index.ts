@@ -1,7 +1,7 @@
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
-import { jobSignal, runTool, tool } from "@beacon/media";
+import { ffmpegArgs, ffmpegInput, jobSignal, runTool } from "@beacon/media";
 import {
   clipEnd,
   clipSpeed,
@@ -454,7 +454,7 @@ async function makeTake(env: TaskEnv, token: string, model: VideoModel, live: Li
     writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, slug: model.slug, resolution, aspect: aspect ?? "the model's own", made: new Date().toISOString() }, null, 2));
     // B-roll is silent: sound a model made anyway (one whose schema has no audio switch) is taken off the file.
     const silent = `${out}.silent.mp4`;
-    await runTool([tool("ffmpeg"), "-v", "error", "-y", "-i", out, "-map", "0:v:0", "-c", "copy", "-an", silent]);
+    await runTool([...ffmpegArgs(), "-y", ...ffmpegInput(out), "-map", "0:v:0", "-c", "copy", "-an", silent]);
     renameSync(silent, out);
     const asset = await env.asset(out, "video");
     return { clip: c.id, asset: { ...asset, name: `B-roll: ${c.prompt.slice(0, 60)}`, derived: { ...asset.derived, broll: info } } };

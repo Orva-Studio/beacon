@@ -322,6 +322,11 @@ export interface JobAnalyzerDef {
    */
   when?: "import" | "preview" | "asked";
   /**
+   * Its jobs run one after another, across every project, the rest waiting their turn: for an analysis that takes
+   * the whole GPU (Whisper), where two at once finish no sooner and only load the Mac twice as hard.
+   */
+  oneAtATime?: boolean;
+  /**
    * `cacheDir`: where derived files (e.g. proxies) may be written; `quiet`: run tools at background
    * priority, slower but quiet (the app's Quiet setting); `resource`: where a downloaded resource is;
    * `pref`: preferences; `secret`: a secret's value, undefined when it isn't set; `data`: the asset's other
@@ -550,6 +555,8 @@ export interface ActionDef<A = any> {
   description: string;
   args: z.ZodType<A>;
   resolve: (args: A, ctx: ActionContext) => ActionPlan;
+  /** The command it runs on the selection, when that is all it does: agents call that command instead, and MCP leaves the action out. */
+  duplicates?: string;
 }
 
 /**

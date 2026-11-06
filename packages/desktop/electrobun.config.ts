@@ -23,6 +23,7 @@ export default {
     views: { mainview: { entrypoint: "../ui/src/main.tsx" }, recordpanel: { entrypoint: "../ui/src/record-panel-main.tsx" } },
     copy: {
       "../ui/src/index.html": "views/mainview/index.html",
+      "../ui/src/motion-frame.html": "views/mainview/motion-frame.html",
       "../ui/dist/styles.css": "views/mainview/styles.css",
       "../ui/src/record-panel.html": "views/recordpanel/index.html",
       "../../THIRD_PARTY_NOTICES": "THIRD_PARTY_NOTICES",
