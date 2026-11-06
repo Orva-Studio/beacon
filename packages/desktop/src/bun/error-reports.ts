@@ -1,10 +1,10 @@
-// Error reports to Sentry (EU), Beacon's own small sender rather than an SDK: what leaves the Mac is only what is
+// Error reports to Better Stack (in Sentry's envelope format, which it takes), Beacon's own small sender rather than an SDK: what leaves the Mac is only what is
 // built here, every string through the diagnostics redactor, with no hostname, user, breadcrumbs or IP inference.
 // Release builds only (`available`), unless turned off in Settings › General or on the first-run notice.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const DSN = "https://71947e55705fc3485558c8c6d7f208f1@o4511071286198272.ingest.de.sentry.io/4512385569849424";
+export const DSN = "https://YyLqHJLBqEL5LRYHHkU4f484@s2826331.us-west-2a.betterstackdata.com/2826331";
 /** Reports sent in one run at most: a loop of errors mustn't become a flood. */
 const MAX_PER_RUN = 20;
 const MAX_TEXT = 2000;
@@ -52,7 +52,7 @@ export function parseStack(stack: string): Frame[] {
 
 const hex = (bytes: number) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-/** The Sentry event for an error: redacted, with nothing about the user or this Mac but its macOS version and chip. */
+/** The event (Sentry's format) for an error: redacted, with nothing about the user or this Mac but its macOS version and chip. */
 export function errorEvent(input: ErrorInput, ctx: ReportContext): Record<string, unknown> {
   const clean = (s: string) => ctx.redact(s).slice(0, MAX_TEXT);
   const frames = input.stack ? parseStack(input.stack).map((f) => ({ ...f, ...(f.function ? { function: clean(f.function) } : {}), ...(f.filename ? { filename: clean(f.filename) } : {}) })) : [];
@@ -79,7 +79,7 @@ export function errorEvent(input: ErrorInput, ctx: ReportContext): Record<string
   };
 }
 
-/** The envelope Sentry's ingest takes, and where it goes. */
+/** The envelope the ingest takes (Sentry's format), and where it goes. */
 export function envelope(event: Record<string, unknown>, dsn = DSN): { url: string; headers: Record<string, string>; body: string } {
   const u = new URL(dsn);
   const project = u.pathname.replace(/^\//, "");
@@ -127,13 +127,17 @@ export function createReporter(opts: {
   };
 }
 
-/** A crash report of macOS's (`.ips`): which of Beacon's processes crashed, and how. Nothing else of it is read. */
-export function crashSummary(file: string): { process: string; exception: string } | undefined {
+/**
+ * A crash report of macOS's (`.ips`): which of Beacon's processes crashed, and how. Only one whose executable is inside
+ * `bundle` (this Beacon.app): another app's bun, ffmpeg or launcher crashes under the same names. Nothing else is read.
+ */
+export function crashSummary(file: string, bundle: string): { process: string; exception: string } | undefined {
   if (!existsSync(file)) return;
   try {
     const [head, ...rest] = readFileSync(file, "utf8").split("\n");
     const header = JSON.parse(head!) as { app_name?: string; name?: string };
-    const body = JSON.parse(rest.join("\n")) as { procName?: string; exception?: { type?: string; signal?: string; subtype?: string } };
+    const body = JSON.parse(rest.join("\n")) as { procName?: string; procPath?: string; exception?: { type?: string; signal?: string; subtype?: string } };
+    if (!body.procPath?.startsWith(`${bundle}/`)) return;
     const ex = body.exception;
     return { process: body.procName ?? header.app_name ?? header.name ?? "unknown", exception: [ex?.type, ex?.signal && `(${ex.signal})`].filter(Boolean).join(" ") || "unknown" };
   } catch {
@@ -145,14 +149,14 @@ export function crashSummary(file: string): { process: string; exception: string
  * Crash reports new since the last run, each sent once. The first run only notes those already there: they predate
  * the notice. `seen` lives in Beacon's config folder.
  */
-export async function reportNewCrashes(reporter: Reporter, names: string[], seenFile: string, dir: string, write: (file: string, text: string) => void): Promise<number> {
+export async function reportNewCrashes(reporter: Reporter, names: string[], seenFile: string, dir: string, bundle: string, write: (file: string, text: string) => void): Promise<number> {
   const first = !existsSync(seenFile);
   const seen = new Set<string>(first ? [] : (() => { try { return JSON.parse(readFileSync(seenFile, "utf8")) as string[]; } catch { return []; } })());
   const fresh = first ? [] : names.filter((n) => !seen.has(n));
   write(seenFile, JSON.stringify(names));
   let n = 0;
   for (const name of fresh) {
-    const s = crashSummary(join(dir, name));
+    const s = crashSummary(join(dir, name), bundle);
     if (!s) continue;
     await reporter.report({ origin: "native", mechanism: "crash", type: `${s.process} crashed`, message: s.exception });
     n++;

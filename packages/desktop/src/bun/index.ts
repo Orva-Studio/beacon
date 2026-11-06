@@ -85,9 +85,9 @@ const reportError = (e: unknown, mechanism: "onerror" | "onunhandledrejection") 
   void reporter.report({ origin: "main", mechanism, type: e instanceof Error ? e.name : typeof e, message: e instanceof Error ? e.message : String(e), ...(e instanceof Error && e.stack ? { stack: e.stack } : {}) });
 process.on("uncaughtException", (e) => reportError(e, "onerror"));
 process.on("unhandledRejection", (e) => reportError(e, "onunhandledrejection"));
-if (reportsAvailable) {
+if (reportsAvailable && bundle) {
   const crashDir = join(homedir(), "Library/Logs/DiagnosticReports");
-  void reportNewCrashes(reporter, crashReports().names, join(core.configDir, "reported-crashes.json"), crashDir, (file, text) => {
+  void reportNewCrashes(reporter, crashReports().names, join(core.configDir, "reported-crashes.json"), crashDir, bundle, (file, text) => {
     mkdirSync(core.configDir, { recursive: true });
     writeFileSync(file, text);
   }).catch((e: unknown) => log("warn", "crash reports not read:", e));

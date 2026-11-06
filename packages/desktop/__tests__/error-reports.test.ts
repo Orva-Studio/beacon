@@ -39,10 +39,10 @@ test("a window's stack (WebKit's fn@file:line:col) is read too", () => {
   ]);
 });
 
-test("the envelope goes to the EU project's ingest with the DSN's key", () => {
+test("the envelope goes to Better Stack's ingest with the DSN's key", () => {
   const { url, headers, body } = envelope(errorEvent({ origin: "window", mechanism: "onunhandledrejection", type: "Error", message: "x" }, ctx));
-  expect(url).toBe("https://o4511071286198272.ingest.de.sentry.io/api/4512385569849424/envelope/");
-  expect(headers["X-Sentry-Auth"]).toContain("sentry_key=71947e55705fc3485558c8c6d7f208f1");
+  expect(url).toBe("https://s2826331.us-west-2a.betterstackdata.com/api/2826331/envelope/");
+  expect(headers["X-Sentry-Auth"]).toContain("sentry_key=YyLqHJLBqEL5LRYHHkU4f484");
   const [head, item, event] = body.split("\n").map((l) => JSON.parse(l));
   expect(item).toEqual({ type: "event", content_type: "application/json" });
   expect(head.event_id).toBe(event.event_id);
@@ -76,18 +76,21 @@ test("reports: none while off (asked at each one), the same error once a run, at
   expect(posts).toHaveLength(19);
 });
 
-test("crash reports: the first run only notes those there; later, each new one is sent once with only the process and how it crashed", async () => {
+test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once with only the process and how it crashed; another app's bun is not", async () => {
   const dir = mkdtempSync(join(tmpdir(), "beacon-crashes-"));
   const seen = join(dir, "seen.json");
-  const ips = (name: string, proc: string) =>
-    writeFileSync(join(dir, name), `${JSON.stringify({ app_name: proc })}\n${JSON.stringify({ procName: proc, exception: { type: "EXC_CRASH", signal: "SIGABRT" }, threads: [{ frames: [{ symbol: `${home}/secret` }] }] })}`);
+  const bundle = "/Applications/Beacon.app";
+  const ips = (name: string, proc: string, inside = bundle) =>
+    writeFileSync(join(dir, name), `${JSON.stringify({ app_name: proc })}\n${JSON.stringify({ procName: proc, procPath: `${inside}/Contents/MacOS/${proc}`, exception: { type: "EXC_CRASH", signal: "SIGABRT" }, threads: [{ frames: [{ symbol: `${home}/secret` }] }] })}`);
   ips("bun-2026-11-06-1.ips", "bun");
   const sent: ErrorInput[] = [];
   const reporter = { report: async (e: ErrorInput) => (sent.push(e), "id") };
   const write = (f: string, t: string) => writeFileSync(f, t);
-  expect(await reportNewCrashes(reporter, ["bun-2026-11-06-1.ips"], seen, dir, write)).toBe(0);
+  expect(await reportNewCrashes(reporter, ["bun-2026-11-06-1.ips"], seen, dir, bundle, write)).toBe(0);
   ips("beacon-worker-2026-11-06-2.ips", "beacon-worker");
-  expect(await reportNewCrashes(reporter, ["beacon-worker-2026-11-06-2.ips", "bun-2026-11-06-1.ips"], seen, dir, write)).toBe(1);
+  ips("bun-2026-11-06-3.ips", "bun", "/Users/someone/.bun/bin");
+  const all = ["beacon-worker-2026-11-06-2.ips", "bun-2026-11-06-3.ips", "bun-2026-11-06-1.ips"];
+  expect(await reportNewCrashes(reporter, all, seen, dir, bundle, write)).toBe(1);
   expect(sent).toEqual([{ origin: "native", mechanism: "crash", type: "beacon-worker crashed", message: "EXC_CRASH (SIGABRT)" }]);
-  expect(await reportNewCrashes(reporter, ["beacon-worker-2026-11-06-2.ips", "bun-2026-11-06-1.ips"], seen, dir, write)).toBe(0);
+  expect(await reportNewCrashes(reporter, all, seen, dir, bundle, write)).toBe(0);
 });

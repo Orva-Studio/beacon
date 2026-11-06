@@ -88,10 +88,11 @@ Only when the user uses the feature, with their own key (Settings › AI and Set
 
 And one service that isn't the user's doing:
 
-### Error reports (Sentry)
+### Error reports (Better Stack)
 
 Release builds (not `electrobun dev`, unless `BEACON_ERROR_REPORTS=1`; `0` turns them off in any build) send an
-error report to Sentry, in the EU (`ingest.de.sentry.io`, project "beacon" of org orva), for:
+error report to Better Stack's error tracking (`s2826331.us-west-2a.betterstackdata.com`, US; Sentry's envelope
+format, which it takes), for:
 
 - an exception or promise rejection nothing caught, in the main process or a window (the window forwards it to the
   main process with `windowError`; only the main process sends);
@@ -103,9 +104,9 @@ A report holds the error's type, message and stack (file, function, line; files 
 version and channel, the macOS version and the chip's architecture. Every string goes through the diagnostics
 redactor (`projectsRedactor` in `packages/core/src/diagnostics.ts`): the home folder, open projects' and media names,
 and every path in a user's folders or on a disk are replaced. No user, hostname, breadcrumbs, settings, keys or
-file contents; `infer_ip: "never"`, and the Sentry project is to have "Prevent Storing of IP Addresses" on (Settings › Security & Privacy). At most 20
+file contents; `infer_ip: "never"`; the service still sees the connection's address. At most 20
 reports a run, each error once. The sender is Beacon's own (`packages/desktop/src/bun/error-reports.ts`, an
-envelope POSTed with `fetch`), not Sentry's SDK, so nothing else is collected. A report that can't be sent is
+envelope POSTed with `fetch`), not an SDK, so nothing else is collected. A report that can't be sent is
 dropped.
 
 The first launch of a release build shows a notice (OK, or Turn Off); Settings › General › Send error reports turns
