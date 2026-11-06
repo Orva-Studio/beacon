@@ -137,6 +137,8 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     } else if (d.kind === "trim") trim.finish(d);
     else if (d.kind === "space") {
       const track = d.track ? { track: d.track } : {};
+      // Drawn as released until the edit is back, as a moved clip is: for a moment it jumped back where it was.
+      if (d.d) settle(d);
       if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d, ...track }, "Ripple Split");
       else if (d.d < 0) run("timeline.removeSpace", { at: d.at, duration: -d.d, ...track }, "Close Space");
       if (d.playhead && d.d) run("playhead.set", { time: d.at + d.d });
