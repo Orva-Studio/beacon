@@ -96,18 +96,23 @@ export const MIN_PIECE = 0.5;
 
 /**
  * Merged, frame-snapped, latest first, so earlier ranges are unaffected by later deletions. No piece of a cut clip
- * on a track the cut reaches is left shorter than `MIN_PIECE`: one holding a word kept (features' `keepWhole`) takes
+ * (footage: media, stitched or grouped) on a track the cut reaches is left shorter than `MIN_PIECE`: one holding a word kept (features' `keepWhole`) takes
  * time back from the cuts beside it until it is that long (or they are used up); any other goes with the cut. A clip
  * no range touches stays however short it is.
  */
-function normalizeRanges(doc: Project, ranges: { start: number; end: number }[], registry: FeatureRegistry, data: CommandContext["data"]): [Ticks, Ticks][] {
+function normalizeRanges(doc: Project, ranges: { start: number; end: number }[], registry: FeatureRegistry, data: CommandContext["data"], exact = false): [Ticks, Ticks][] {
   const snapped = ranges.map((r) => [snapSeconds(r.start, doc.settings.fps), snapSeconds(r.end, doc.settings.fps)] as [Ticks, Ticks]).filter(([a, b]) => b > a);
   let spans = mergeSpans(snapped) as [Ticks, Ticks][];
+  // A range the user drew by hand is cut as drawn; slivers are a worry for cuts worked out for them.
+  if (exact) return spans.reverse();
   const min = secondsToTicks(MIN_PIECE);
   const asked = spans;
   const words = [...registry.features.values()].flatMap((f) => f.keepWhole?.(doc, registry, data) ?? []).filter(([a, b]) => !asked.some(([x, y]) => (a + b) / 2 >= x && (a + b) / 2 < y));
   const holdsWord = (a: Ticks, b: Ticks) => words.some(([w0, w1]) => w1 > a && w0 < b);
-  const clips = doc.tracks.filter((t) => !t.locked && !t.hidden).flatMap((t) => t.clips);
+  // Footage only: a caption, callout or region is often shorter than `MIN_PIECE` by design, and counting one stopped
+  // a short in/out range from deleting anything (the time given back to the word in a caption ate the whole range).
+  const footage = (c: Clip) => ["media", "stitched", "group"].some((t) => registry.hasTrait(c.type, t));
+  const clips = doc.tracks.filter((t) => !t.locked && !t.hidden).flatMap((t) => t.clips).filter(footage);
   // A change on one track can leave a short piece on another: until none is left.
   for (let i = 0; i < 8; i++) {
     let changed = false;
@@ -195,9 +200,15 @@ export function rangesCut(doc: Project, ranges: { start: number; end: number }[]
 }
 
 /** Deletes timeline ranges (seconds, read against the timeline before any of them) from every unlocked, enabled track and closes the gaps. */
-export function rippleDeleteRanges(doc: Project, ranges: { start: number; end: number }[], ctx: CommandContext) {
-  for (const [a, b] of normalizeRanges(doc, ranges, ctx.registry, ctx.data)) removeRange(doc, doc.tracks, a, b, ctx, true);
+export function rippleDeleteRanges(doc: Project, ranges: { start: number; end: number }[], ctx: CommandContext, exact = false) {
+  for (const [a, b] of normalizeRanges(doc, ranges, ctx.registry, ctx.data, exact)) removeRange(doc, doc.tracks, a, b, ctx, true);
 }
+
+/**
+ * Only the editor's own Delete and Ripple Delete of an in/out range: an agent's or a review's cut leaves no sliver of
+ * footage (the user, 2026-11-06).
+ */
+const Exact = z.boolean().optional().describe("Cut exactly the ranges given, keeping pieces under half a second: the editor's Delete of an in/out range. Agents leave it out");
 
 /**
  * Closes the time `removed` left on `affected` tracks, and on every track holding a later clip linked to one on
@@ -607,18 +618,18 @@ export const clipCommands = [
     id: "timeline.rippleDelete",
     description:
       "Delete time ranges (timeline seconds) from every unlocked, enabled track (locked and disabled tracks are left as they are) and close the gaps, splitting clips that cross a range edge. Ranges are all read against the timeline as it is before this command, so pass every cut at once. A piece of a cut clip that would be left under half a second goes with the cut (no slivers). The rough-cut workhorse",
-    args: z.strictObject({ ranges: Ranges }),
-    apply(doc, { ranges }, ctx) {
-      rippleDeleteRanges(doc, ranges, ctx);
+    args: z.strictObject({ ranges: Ranges, exact: Exact }),
+    apply(doc, { ranges, exact }, ctx) {
+      rippleDeleteRanges(doc, ranges, ctx, exact);
     },
   }),
   defineCommand({
     id: "timeline.deleteRanges",
     description:
       "Delete time ranges (timeline seconds) from every unlocked, enabled track, splitting clips that cross a range edge and leaving gaps (Delete with an in/out selection); a piece of a cut clip that would be left under half a second goes too; `timeline.rippleDelete` closes them",
-    args: z.strictObject({ ranges: Ranges }),
-    apply(doc, { ranges }, ctx) {
-      for (const [a, b] of normalizeRanges(doc, ranges, ctx.registry, ctx.data)) removeRange(doc, doc.tracks, a, b, ctx, false);
+    args: z.strictObject({ ranges: Ranges, exact: Exact }),
+    apply(doc, { ranges, exact }, ctx) {
+      for (const [a, b] of normalizeRanges(doc, ranges, ctx.registry, ctx.data, exact)) removeRange(doc, doc.tracks, a, b, ctx, false);
     },
   }),
   defineCommand({

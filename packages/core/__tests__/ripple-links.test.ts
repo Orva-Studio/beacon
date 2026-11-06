@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { ticksToSeconds, type Project } from "@beacon/model";
+import { projectDuration, ticksToSeconds, type Project } from "@beacon/model";
 import { LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -137,4 +137,32 @@ test.skipIf(!existsSync(TAKE))("a clip has one effect of a type: adding it again
   const pieces = (await core.run(h, "clip.unstitch", { clip: stitched })).results[0] as string[];
   const clips = core.doc(h).tracks.flatMap((t) => t.clips);
   for (const id of pieces) expect(clips.find((c) => c.id === id)!.effects.filter((e) => e.type === "round-corners").map((e) => e.params.radius)).toEqual([30]);
+});
+
+// A caption is often under half a second by design: counted as a sliver, one crossing a short in/out range made the
+// cut take its piece (or, holding a word, give the whole range back so nothing was deleted, the user, 2026-11-06).
+test.skipIf(!existsSync(TAKE))("a short range is cut as asked when a caption crosses it: only footage slivers go with a cut", async () => {
+  const { core, h } = await twoTakes("caption-range");
+  const length = () => ticksToSeconds(projectDuration(core.doc(h)));
+  const before = length();
+  await core.run(h, "clip.add", { type: "caption", start: 0.2, duration: 0.5 });
+  await core.run(h, "timeline.rippleDelete", { ranges: [{ start: 0.5, end: 0.6 }] });
+  expect(length()).toBeCloseTo(before - 0.1, 2);
+  const caption = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "caption");
+  expect(caption.map((c) => [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)].map((t) => Math.round(t * 100) / 100))).toEqual([
+    [0.2, 0.5],
+    [0.5, 0.6],
+  ]);
+});
+
+// The no-sliver rule is for cuts worked out for the user (agents, the reviews): their own range is cut as drawn.
+test.skipIf(!existsSync(TAKE))("the user's own ⌘⌫ of an in/out range cuts exactly the range, keeping a piece under half a second", async () => {
+  const { core, h, of } = await twoTakes("exact-range");
+  const end = ticksToSeconds(of(0, "audio").start + of(0, "audio").duration);
+  // The same cut the sliver test makes through the command, by the editor's key: the last 0.2 s stays.
+  await core.run(h, "range.set", { in: 0.5, out: end - 0.2 });
+  await core.run(h, "edit.rippleDelete", {});
+  const pieces = core.doc(h).tracks.flatMap((t) => t.clips).filter((c) => c.type === "audio" && c.assetId === of(0, "audio").assetId);
+  expect(pieces.map((c) => Math.round(ticksToSeconds(c.duration) * 10) / 10).sort()).toContain(0.2);
+  expect(lined(core.doc(h))).toBe(true);
 });

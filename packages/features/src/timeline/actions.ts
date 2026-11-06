@@ -76,7 +76,8 @@ function remove(ctx: ActionContext, { ripple, copy, label }: { ripple: boolean; 
   return {
     label,
     before,
-    steps: [{ command: ripple ? "timeline.rippleDelete" : "timeline.deleteRanges", args: { ranges: [{ start: range.in, end: range.out }] } }],
+    // The user's own range: cut as drawn, no sliver taken with it.
+    steps: [{ command: ripple ? "timeline.rippleDelete" : "timeline.deleteRanges", args: { ranges: [{ start: range.in, end: range.out }], exact: true } }],
     // The range stays after a Delete, showing the gap it left; a ripple closes it.
     after: () => (ripple ? [{ command: "range.clear" }, { command: "playhead.set", args: { time: range.in } }] : []),
   };
