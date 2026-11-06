@@ -6479,12 +6479,21 @@ test.skipIf(skip)("a ⇧-drag left from where clips end, with no room before it,
   const s = await session();
   const header = headerWidth(ui.core.doc(ui.handle).tracks);
   const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  // From the playhead on the ruler, left past the gap: it stops when the clips touch.
+  const startOf = (id: string) => ticksToSeconds(clips().find((c) => c.id === id)!.start);
+  // Half way: the gap closes as far as it is dragged.
+  await page.drag([xAt(firstEnd), box.y + RULER / 2], [xAt(firstEnd - 1), box.y + RULER / 2], ["shift"]);
+  await arrived(() => startOf(second!.id) < firstEnd + 1.5);
+  expect(startOf(second!.id)).toBeCloseTo(firstEnd + 1, 1);
+  await Bun.sleep(200);
+  // A millisecond past the first clip's end, as the playhead's rounding can put it, is still where it ends.
+  await run("playhead.set", { time: firstEnd + 0.001 });
+  await Bun.sleep(200);
+  // From the playhead on the ruler, left past what is left of it: it stops when the clips touch.
   await page.drag([xAt(firstEnd), box.y + RULER / 2], [xAt(firstEnd - 3), box.y + RULER / 2], ["shift"]);
   await arrived(() => ticksToSeconds(clips().find((c) => c.id === second!.id)!.start) < firstEnd + 1);
   expect(ticksToSeconds(clips().find((c) => c.id === second!.id)!.start)).toBeCloseTo(firstEnd, 2);
   expect(ticksToSeconds(clips().find((c) => c.id === first!.id)!.start)).toBeCloseTo(end + 1, 2);
   expect((await session()).playhead).toBeCloseTo(firstEnd, 2);
-  for (let i = 0; i < 3; i++) await ui.core.undo(ui.handle);
+  for (let i = 0; i < 4; i++) await ui.core.undo(ui.handle);
   await run("timeline.zoom", { to: "fit" });
 });

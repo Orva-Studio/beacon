@@ -70,7 +70,8 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
   /** A ⇧-drag from `at`: what it may close before it, or, with no room there, the gap after it. */
   const spaceDrag = (at: number, more: { playhead?: boolean; track?: string; row?: number }): Drag => {
     const room = roomBefore(at, more.track);
-    const end = room > 1e-6 ? undefined : gapEnd(at, more.track);
+    // A few milliseconds is no room: the playhead, kept to the millisecond, can sit just past a clip's end.
+    const end = room > 0.005 ? undefined : gapEnd(at, more.track);
     return { kind: "space", at, d: 0, room, ...more, ...(end !== undefined ? { from: at, gapEnd: end } : {}) };
   };
 
@@ -327,7 +328,8 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
         const left = t < d.from;
         const at = left ? d.gapEnd : d.from;
         const room = left ? d.gapEnd - d.from : 0;
-        dragState.current = { ...d, at, room, d: left ? Math.max(-room, t - at) : t - at };
+        // As far as it is dragged from where it started, the gap's end the point that moves.
+        dragState.current = { ...d, at, room, d: left ? Math.max(-room, t - d.from) : t - at };
       } else dragState.current = { ...d, d: Math.max(-d.room, t - d.at) };
       return draw();
     }
