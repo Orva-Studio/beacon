@@ -6,6 +6,7 @@ import { createHost } from "./host";
 import type { AppRPC } from "./rpc";
 import { replica } from "./store";
 import { messageHandlers } from "./messages";
+import { forwardErrors } from "./window-errors";
 
 const rpc = Electroview.defineRPC<AppRPC>({
   maxRequestTime: 120_000,
@@ -82,6 +83,7 @@ replica.subscribe(() => {
 });
 
 const init = await request.init({});
+forwardErrors((e) => view.rpc!.send.windowError(e), init.crashTest);
 if (init.keyLog) {
   const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName.toLowerCase()}${t.id ? `#${t.id}` : ""}${t.getAttribute("class") ? `.${t.getAttribute("class")!.split(" ")[0]}` : ""}` : String(t));
   const log = (stage: string, e: KeyboardEvent) =>

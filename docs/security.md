@@ -86,6 +86,33 @@ Only when the user uses the feature, with their own key (Settings › AI and Set
 | Firecrawl | A web address | A motion graphic that uses a web page |
 | GitHub | Nothing but the request | Check for Updates |
 
+And one service that isn't the user's doing:
+
+### Error reports (Sentry)
+
+Release builds (not `electrobun dev`, unless `BEACON_ERROR_REPORTS=1`; `0` turns them off in any build) send an
+error report to Sentry, in the EU (`ingest.de.sentry.io`, project "beacon" of org orva), for:
+
+- an exception or promise rejection nothing caught, in the main process or a window (the window forwards it to the
+  main process with `windowError`; only the main process sends);
+- a macOS crash report of Beacon or one of its helpers, new since the last launch: only the process's name and the
+  exception type and signal (`EXC_CRASH (SIGABRT)`), never the rest of the report. The first launch only notes the
+  ones already there.
+
+A report holds the error's type, message and stack (file, function, line; files named from inside the app), Beacon's
+version and channel, the macOS version and the chip's architecture. Every string goes through the diagnostics
+redactor (`projectsRedactor` in `packages/core/src/diagnostics.ts`): the home folder, open projects' and media names,
+and every path in a user's folders or on a disk are replaced. No user, hostname, breadcrumbs, settings, keys or
+file contents; `infer_ip: "never"`, and the Sentry project is to have "Prevent Storing of IP Addresses" on (Settings › Security & Privacy). At most 20
+reports a run, each error once. The sender is Beacon's own (`packages/desktop/src/bun/error-reports.ts`, an
+envelope POSTed with `fetch`), not Sentry's SDK, so nothing else is collected. A report that can't be sent is
+dropped.
+
+The first launch of a release build shows a notice (OK, or Turn Off); Settings › General › Send error reports turns
+them off or on at any time (`errorReports` in `settings.json`). To try them in a dev build:
+`BEACON_ERROR_REPORTS=1 BEACON_CRASH_TEST=main|window|native bun run app` (an uncaught error in that process a few
+seconds in; `native` aborts, and its crash report is sent on the next launch).
+
 ## Fuzzing
 
 Run before a release that touches a reader; each must refuse damaged input with an error, never crash or hang.

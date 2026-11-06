@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Error reports (`feat/error-reports`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Error reports (release builds, `BEACON_ERROR_REPORTS`): uncaught errors and rejections in the main process and the window (forwarded with `windowError`), and new macOS crash reports of Beacon's processes (name and exception only), sent by Beacon's own redacting sender (`error-reports.ts`); a first-run notice (Turn Off, OK) and Settings › General › Send error reports | 2026-11-06 | this commit | `packages/desktop/__tests__/error-reports.test.ts` (no home, user, hostname, project or file names; stacks; envelope; off, once, 20 a run; crashes), UI flow (notice, switch, window errors forwarded). Not yet: a report arriving from the dev app (`BEACON_CRASH_TEST`) |
+
 ## Phase 14: launch readiness (`phase-14`)
 
 ### Checked headless only
