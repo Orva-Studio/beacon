@@ -6316,7 +6316,7 @@ test.skipIf(skip)("right-clicking a tool panel's tile offers to add it (to the s
   await select([]);
 }, 30_000);
 
-test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part (a name picked or typed), never over another; edges and the body drag, a double-click renames, ⌫ deletes, Esc names nothing", async () => {
+test.skipIf(skip)("Sections: a band under the ruler; a plain drag on its empty time moves the playhead, a double-click-drag or ⌥-drag names a part (a name picked or typed), never over another; edges and the body drag, a double-click renames, ⌫ deletes, Esc names nothing", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.snapping", { on: false });
   const box = await timelineBox();
@@ -6327,8 +6327,14 @@ test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part
   const sections = () => ui.core.doc(ui.handle).sections.map((x) => [x.name, Math.round(ticksToSeconds(x.start) * 10) / 10, Math.round(ticksToSeconds(x.end) * 10) / 10]);
   const span = s.timeline.end - s.timeline.start;
   const t = (f: number) => s.timeline.start + span * f;
-  // Drag out a part, pick a name.
+  // A plain drag on empty time scrubs, as the ruler does: no section (they were drawn by accident).
   await page.drag([xAt(t(0.1)), y], [xAt(t(0.3)), y]);
+  await Bun.sleep(200);
+  expect(ui.core.doc(ui.handle).sections).toHaveLength(0);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-section-namer]')")).toBe(false);
+  expect(Math.abs((await session()).playhead - t(0.3))).toBeLessThan(span * 0.02);
+  // A double-click then drag draws a part; pick a name.
+  await page.dblDrag([xAt(t(0.1)), y], [xAt(t(0.3)), y]);
   await page.until("!!document.querySelector('[data-section-namer]')");
   expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section-pick]')].map((b) => b.textContent)")).toContain("Intro");
   await page.screenshot(join(dir, "section-namer.png"));
@@ -6337,8 +6343,8 @@ test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part
   // The page's copy too, before the next drag reads where Intro ends.
   await Bun.sleep(300);
   expect(sections()[0]![0]).toBe("Intro");
-  // Another, its name typed; dragged over Intro it stops at Intro's end.
-  await page.drag([xAt(t(0.6)), y], [xAt(t(0.2)), y]);
+  // Another with ⌥, its name typed; dragged over Intro it stops at Intro's end.
+  await page.drag([xAt(t(0.6)), y], [xAt(t(0.2)), y], ["alt"]);
   await page.until("document.activeElement?.hasAttribute('data-section-name')");
   await type("Demo");
   await page.key("Enter", "Enter");
@@ -6349,7 +6355,7 @@ test.skipIf(skip)("Sections: a band under the ruler; dragging on it names a part
   await Bun.sleep(300);
   await page.screenshot(join(dir, "sections.png"));
   // The project's names come first now.
-  await page.drag([xAt(t(0.7)), y], [xAt(t(0.8)), y]);
+  await page.drag([xAt(t(0.7)), y], [xAt(t(0.8)), y], ["alt"]);
   await page.until("document.activeElement?.hasAttribute('data-section-name')");
   expect((await page.evaluate<string[]>("[...document.querySelectorAll('[data-section-pick]')].map((b) => b.textContent)")).slice(0, 2)).toEqual(["Intro", "Demo"]);
   // Esc names nothing, and no section is made.

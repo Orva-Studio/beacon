@@ -112,6 +112,18 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
       }
       await mouse("mouseReleased", to[0], to[1], mods);
     },
+    /** A double-click whose second press is held and dragged (as a section is drawn on the Sections band). */
+    async dblDrag(from: [number, number], to: [number, number], steps = 12) {
+      await mouse("mouseMoved", from[0], from[1]);
+      await mouse("mousePressed", from[0], from[1], undefined, "left", 1);
+      await mouse("mouseReleased", from[0], from[1], undefined, "left", 1);
+      await mouse("mousePressed", from[0], from[1], undefined, "left", 2);
+      for (let i = 1; i <= steps; i++) {
+        await mouse("mouseMoved", from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps, undefined, "left", 2);
+        await Bun.sleep(16);
+      }
+      await mouse("mouseReleased", to[0], to[1], undefined, "left", 2);
+    },
     /** `key` as KeyboardEvent.key, `code` as KeyboardEvent.code; `commands` are editing commands the key runs ("copy", "paste"), as the OS menu would. */
     async key(key: string, code: string, mods?: Mods, commands?: string[]) {
       // Return carries its text as a real key does: that is what activates a focused button.

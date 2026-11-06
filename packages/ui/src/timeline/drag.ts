@@ -177,7 +177,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       dragState.current = { kind: "track", track: t.id, from: i, to: i };
       return capture();
     }
-    if (y >= RULER && y < TRACKS_TOP) return section.press(e, x);
+    if (y >= RULER && y < TRACKS_TOP && section.press(e, x)) return;
     if (latest.current.section) replica.section(undefined);
     const ph = xOf(session.playhead);
     // A range's edges are dragged on the ruler.
@@ -190,7 +190,8 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     }
     // On the tracks, an arrow or volume point under the playhead line wins over grabbing the line.
     const overMark = y >= RULER && (arrowAt(e.clientX, e.clientY) || ((c) => c && volumeHit(c, e.clientX, e.clientY))(clipAt(e.clientX, e.clientY)));
-    if (y < RULER || (Math.abs(x - ph) <= GRAB && !overMark)) {
+    // The Sections band's empty time scrubs as the ruler does (a section is drawn there after a double-click or with ⌥).
+    if (y < TRACKS_TOP || (Math.abs(x - ph) <= GRAB && !overMark)) {
       capture();
       if (e.metaKey) dragState.current = { kind: "range", anchor: session.playhead };
       else if (e.shiftKey && session.group) status("Close the group (⌃⇧U) to insert space");
