@@ -518,8 +518,9 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
         return list.length ? `\nclips on the timeline: ${list.join(", ")}${r.more ? `; ${r.more}` : ""}` : "\nthe timeline has no clips";
       }
       if (/no track "/.test(message) && current) {
-        const r = (await core.query(current, "timeline.clips", { limit: 1 })) as { tracks: { track: string; name: string }[] };
-        return `\ntracks: ${r.tracks.map((t) => `${t.track} "${t.name}"`).join(", ")}`;
+        // The summary lists every track, empty or not; timeline_clips's `limit` would stop at the first clips.
+        const described = String(await core.query(current, "project.describe", {}));
+        return `\ntracks: ${[...described.matchAll(/^ {2}(\S+) ("[^"]*")/gm)].map((m) => `${m[1]} ${m[2]}`).join(", ")}`;
       }
       const command = /unknown command "([^"]+)"/.exec(message)?.[1];
       if (command) return `\nnearest: ${nearest(toolName(command), [...commandSchemas.keys()].filter((n) => commandIds.has(commandSchemas.get(n)!.id))).join(", ")}`;

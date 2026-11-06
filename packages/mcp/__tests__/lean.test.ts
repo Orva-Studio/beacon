@@ -48,6 +48,11 @@ test("the server stays lean: short instructions, core tools loaded, no duplicate
     const wrong = await call("clip_set", { clip: "c999", props: { transform: { opacity: 0.5 } } });
     expect(wrong.error).toBe(true);
     expect(wrong.text).toContain(`clips on the timeline: ${a} video 0-5s (${track})`);
+    // Every track, not only the first with clips.
+    const second = (await json("track_add", { name: "Camera" })).result;
+    await json("clip_add", { type: "video", track: second, start: 0, duration: 5 });
+    const noTrack = await call("track_set", { track: "t999", hidden: true });
+    expect(noTrack.text).toContain(`tracks: ${track} "Screen", ${second} "Camera"`);
     expect((await call("edit_split")).text).toContain("call clip_split with the clip ids");
     expect((await call("clip_splitt")).text).toContain("nearest: clip_split");
     expect((await call("transaction", { label: "x", commands: [{ command: "clip_sett", args: {} }] })).text).toContain("nearest: clip_set");

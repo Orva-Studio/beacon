@@ -20,18 +20,19 @@ test.skipIf(!existsSync(VIDEO))("the diagnostics report holds the setup and proj
     const r = await core.import(h, [media], { at: 0 });
     for (const j of r.jobs) await core.cancelJob(j).catch(() => {});
 
-    const report = await core.diagnostics({ app: { version: "9.9.9" }, permissions: { screen: "granted", camera: "not asked" }, log: `2026-11-05 error could not read ${media}\n2026-11-05 warn saving ${h}`, crashes: { names: ["bun-2026-11-05.ips"] } });
+    const report = await core.diagnostics({ app: { version: "9.9.9" }, permissions: { screen: "granted", camera: "not asked" }, log: `2026-11-05 error could not read ${media}: denied\n2026-11-05 warn saving ${h}\n2026-11-04 error no such file ${join(homedir(), "Movies/Old Client Pitch.beproj/media/Old Client Pitch.mov")}\n2026-11-05 error transcript of Acme Client Interview.mp4 failed`, crashes: { names: ["bun-2026-11-05.ips"] } });
     expect(report).toContain("Beacon 9.9.9");
     expect(report).toMatch(/^macOS \d+/m);
     expect(report).toContain("camera: not asked");
     expect(report).toContain("OpenAI API key: set");
     expect(report).toMatch(/project 1: \d+×\d+ at [\d.]+ fps, [\d.]+ s, \d+ tracks, \d+ clips, 1 media \(1 video \.mp4\)/);
     expect(report).toContain("bun-2026-11-05.ips");
-    expect(report).toContain("could not read ~/");
-    expect(report).toContain("<media 1.1>");
-    expect(report).toContain("<project 1>.beproj");
+    expect(report).toContain("could not read <path>.mp4: denied");
+    expect(report).toContain("saving <path>.beproj");
+    expect(report).toContain("no such file <path>.mov");
+    expect(report).toContain("transcript of <media 1.1>.mp4 failed");
     expect(report).toMatch(/ffmpeg version/);
-    for (const leak of ["sk-secret-value-123", homedir(), "Acme Client"]) expect(report).not.toContain(leak);
+    for (const leak of ["sk-secret-value-123", homedir(), "Acme Client", "Old Client"]) expect(report).not.toContain(leak);
   } finally {
     core.closeAll();
   }
