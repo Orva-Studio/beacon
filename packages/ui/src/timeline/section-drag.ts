@@ -9,6 +9,12 @@ import type { TimelineHits } from "./hit-test";
 const DOUBLE_MS = 400;
 const DOUBLE_SLOP = 4;
 
+/**
+ * The last press on the band, kept outside `sectionDrag`: the first click of a double-click moves the playhead, which
+ * draws the timeline again and makes a new `sectionDrag`.
+ */
+let last = { at: -Infinity, x: -Infinity };
+
 /** Sections picked, moved, resized and dragged out on the Sections band. */
 export function sectionDrag({ canvas, latest, dragState, draw, run }: DrawingContext, { sectionAt, snapped, spp, timeAt }: TimelineHits, settle: (drag: Drag) => void) {
   /**
@@ -16,7 +22,6 @@ export function sectionDrag({ canvas, latest, dragState, draw, run }: DrawingCon
    * double-click (the second press held) or with ⌥. A plain press there is the ruler's (false): moving the playhead
    * along the band named a section by accident (the user, 2026-11-06).
    */
-  let last = { at: -Infinity, x: -Infinity };
   const press = (e: React.PointerEvent, x: number): boolean => {
     const hit = sectionAt(x);
     // A pointerdown's `detail` stays 0, so the double-click is told from the press before it.

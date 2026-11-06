@@ -117,6 +117,8 @@ export async function openPage(url: string, size = { width: 1600, height: 1000 }
       await mouse("mouseMoved", from[0], from[1]);
       await mouse("mousePressed", from[0], from[1], undefined, "left", 1);
       await mouse("mouseReleased", from[0], from[1], undefined, "left", 1);
+      // As a hand does: long enough for what the first click changed to be drawn.
+      await Bun.sleep(150);
       await mouse("mousePressed", from[0], from[1], undefined, "left", 2);
       for (let i = 1; i <= steps; i++) {
         await mouse("mouseMoved", from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps, undefined, "left", 2);
