@@ -167,9 +167,11 @@ test.skipIf(!existsSync(AUDIO))("playback's sound starts from a short mix of the
   }
 }, 60_000);
 
-// Sound on its way to the speakers when Space paused was heard again from the paused frame on the next play (the user, 2026-11-02).
-test("a pause stops the playhead where the sound stopped, not where the picture was, so playing on doesn't repeat it", async () => {
-  // The device's latency: what is sent but not yet heard.
+// A pause moved the playhead on to where the sound sent to the speakers ended (2026-11-02, so playing on wouldn't
+// repeat it); the output's latency ahead of the frame shown, it looked like the playhead didn't stop where it should,
+// and the picture redrawn jumped back (the user, 2026-11-06). It stays on the frame shown; playing on may repeat that sound.
+test("a pause leaves the playhead on the frame shown, not on where the sound sent to the device ended", async () => {
+  // The device's latency: what is sent but not yet heard, the jump a pause used to make.
   const out = new AudioOutput();
   out.play([], 0);
   await Bun.sleep(300);
@@ -189,10 +191,11 @@ test("a pause stops the playhead where the sound stopped, not where the picture 
     const shown = (await core.session(h)).playhead;
     await core.run(h, "playback.pause", {});
     const paused = (await core.session(h)).playhead;
-    // A frame or so may tick by between reading the playhead and pausing.
-    expect(paused - shown).toBeGreaterThanOrEqual(latency - 0.04);
-    expect(paused - shown).toBeLessThan(latency + 0.08);
+    // A frame or so may tick by between reading the playhead and pausing; never the latency (when it is over that).
+    expect(paused - shown).toBeLessThan(Math.min(0.08, Math.max(0.05, latency - 0.04)));
     expect(view.playing).toBe(false);
+    await Bun.sleep(500);
+    expect((await core.session(h)).playhead).toBe(paused);
   } finally {
     view.close();
     await core.close(h);

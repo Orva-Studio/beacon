@@ -502,10 +502,11 @@ export class LocalCore implements BeaconCore {
     const view = p.view;
     if (!view || p.ticking) return;
     if (changed.includes("playing") && session.playing) p.preview = undefined;
-    if (changed.includes("playing") && !session.playing) {
-      const at = view.stop();
-      if (at !== undefined && at > session.playhead) p.session.run("playhead.set", { time: at }, p.store.doc);
-    } else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
+    // A pause leaves the playhead on the frame shown. It went on to where the sound sent to the device ended, the
+    // output's latency ahead (0.2 s and more over some), and the picture redrawn there jumped back for a moment
+    // (the user, 2026-11-06); a play from it may repeat that much sound, as in other editors.
+    if (changed.includes("playing") && !session.playing) view.stop();
+    else if (session.playing && (changed.includes("playing") || changed.includes("playhead") || changed.includes("rate"))) view.play(session.playhead, session.rate);
     else if (changed.includes("playhead")) view.show(session.playhead);
   }
 

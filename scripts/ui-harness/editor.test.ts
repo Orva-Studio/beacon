@@ -6497,3 +6497,19 @@ test.skipIf(skip)("a ⇧-drag left from where clips end, with no room before it,
   for (let i = 0; i < 4; i++) await ui.core.undo(ui.handle);
   await run("timeline.zoom", { to: "fit" });
 });
+
+// A project opened with its waveforms and thumbnails already made got none: they came before the reply to the
+// window's `init`, which wiped them, and nothing sent them again (the user, 2026-11-06).
+test.skipIf(skip)("the project shown again (the reply to init) keeps the pictures the window already has", async () => {
+  // Whatever the bin shows after the flows before this one: the Media panel open, one of its items.
+  await run("panel.show", { tool: "media" });
+  await page.until("!!document.querySelector('[data-asset]')", 4000);
+  const asset = { id: await page.evaluate<string>("document.querySelector('[data-asset]').getAttribute('data-asset')") };
+  const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  ui.send("media", { thumbs: { [`asset:${asset.id}`]: pixel } });
+  const shown = `document.querySelector('[data-asset="${asset.id}"] img')?.getAttribute('src') === ${JSON.stringify(pixel)}`;
+  await page.until(shown, 4000);
+  ui.send("opened", { path: ui.handle, name: "project", project: ui.core.doc(ui.handle), session: await ui.core.session(ui.handle), rev: 0 });
+  await Bun.sleep(300);
+  expect(await page.evaluate<boolean>(shown)).toBe(true);
+});
