@@ -164,6 +164,8 @@ export class ProjectStore {
       last.patches = [...last.patches, ...patches];
       last.inverse = [...inverse, ...last.inverse];
       last.after = next;
+      // Later than anything undone in between: redo's check for someone's newer change goes by it.
+      last.seq = ++this.#seq;
     } else {
       this.#undo.push({ label, patches, inverse, ...(opts.coalesce ? { coalesce: opts.coalesce } : {}), ...(author !== undefined ? { author } : {}), before, after: next, seq: ++this.#seq });
     }
@@ -306,15 +308,47 @@ const outermost = (things: Thing[]) => things.filter((t) => !things.some((u) => 
 
 const hasId = (v: unknown): v is { id: string } => typeof v === "object" && v !== null && typeof (v as { id?: unknown }).id === "string";
 
-/** What each patch changed, read against the document as it stands just before that patch. */
+/**
+ * What each patch changed, read against the document as it stands just before that patch. An item put in, taken
+ * out or set by its index in a list of items with ids (how Immer writes an insert or removal: every later item
+ * shifted) is read from the whole list before and after the step instead, so the item inserted is found and its
+ * shifted neighbours aren't taken as changed.
+ */
 function touched(before: Project, patches: Patch[]): Thing[] {
   const things = new Map<string, Thing>();
+  const lists = new Map<string, Segment[]>();
   let doc = before as unknown as Objectish;
   for (const p of patches) {
-    for (const t of listed(doc, p) ?? [thingOf(doc, p)]) things.set(keyOf(t.path), t);
+    const list = byIndex(doc, p);
+    if (list) lists.set(keyOf(list), list);
+    else for (const t of listed(doc, p) ?? [thingOf(doc, p)]) things.set(keyOf(t.path), t);
     doc = applyPatches(doc, [p]);
   }
+  for (const list of lists.values()) for (const t of listChanges(before as unknown as Objectish, doc, list)) things.set(keyOf(t.path), t);
   return [...things.values()];
+}
+
+/** The list (by ids) a patch sets an item of by its index, or its length; undefined for any other patch. */
+function byIndex(doc: Objectish, p: Patch): Segment[] | undefined {
+  const last = p.path.at(-1);
+  if (typeof last !== "number" && last !== "length") return undefined;
+  const parent = valueAt(doc, p.path.slice(0, -1));
+  if (!Array.isArray(parent) || !parent.every(hasId) || (p.op !== "remove" && last !== "length" && !hasId(p.value))) return undefined;
+  return segmentsOf(doc, p.path.slice(0, -1));
+}
+
+/** A list's items added, removed or changed between two documents, by id; the whole list when its order changed. */
+function listChanges(before: Objectish, after: Objectish, list: Segment[]): Thing[] {
+  const items = (doc: Objectish) => new Map(((thingIn(doc, list) ?? []) as { id: string }[]).map((x) => [x.id, x]));
+  const was = items(before);
+  const now = items(after);
+  const kind = String([...list].reverse().find((s) => typeof s === "string") ?? "");
+  const what = kind === "clips" ? "this clip" : kind === "tracks" ? "this track" : `this ${kind.replace(/s$/, "")}`;
+  const kept = (m: Map<string, unknown>, other: Map<string, unknown>) => [...m.keys()].filter((id) => other.has(id)).join();
+  if (kept(was, now) !== kept(now, was)) return [{ path: list, owner: list, what: "the order" }];
+  return [...new Set([...was.keys(), ...now.keys()])]
+    .filter((id) => was.get(id) !== now.get(id) && JSON.stringify(was.get(id)) !== JSON.stringify(now.get(id)))
+    .map((id) => ({ path: [...list, { id }], owner: [...list, { id }], what }));
 }
 
 /**
