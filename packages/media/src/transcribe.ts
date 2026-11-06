@@ -38,6 +38,8 @@ export interface TranscribeOptions {
   /** whisper.cpp's alignment-heads preset for the model (`--dtw`). */
   dtw?: string;
   language?: string;
+  /** Local Whisper at macOS background priority (the app's Quiet setting): slower, and the fans stay off. */
+  quiet?: boolean;
   onProgress?: (fraction: number) => void;
 }
 
@@ -306,7 +308,7 @@ async function whisperSpans(dir: string, name: string, pcm: Int16Array, spans: [
   let done = 0;
   if (files.length) {
     const dtw = opts.dtw ?? process.env.BEACON_WHISPER_DTW ?? "large.v3.turbo";
-    await runTool([tool("whisper-cli"), "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
+    await runTool([...(opts.quiet ? ["/usr/sbin/taskpolicy", "-b"] : []), tool("whisper-cli"), "-m", model, "-l", language, "-mc", "0", "-nfa", "--dtw", dtw, "-ojf", "-np", ...files.flatMap((f) => ["-f", f])], { onStderr: (chunk) => {
       done += chunk.match(/saving output/g)?.length ?? 0;
       progress?.(done / files.length);
     } });

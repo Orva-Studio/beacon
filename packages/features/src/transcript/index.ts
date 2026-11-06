@@ -804,6 +804,8 @@ export const transcript = defineFeature({
       variant: (pref) => (transcriber(pref) === "whisper" ? undefined : transcriber(pref)),
       // Music and sound effects from a library say nothing to transcribe (a song's lyrics would become captions).
       applies: (asset) => !!asset.derived.media && !asset.derived.library && mediaInfo(asset).streams.some((s) => s.kind === "audio"),
+      // Whisper takes the whole GPU: two at once (a project's media, opened) finish no sooner and ran the fans.
+      oneAtATime: true,
       async analyze(asset, progress, env) {
         const audio = mediaInfo(asset).streams.filter((s) => s.kind === "audio");
         const streams: TranscriptData["streams"] = {};
@@ -812,7 +814,7 @@ export const transcript = defineFeature({
         const apiKey = who === "openai" ? await env.secret("openai-api-key") : undefined;
         for (const i of audio.keys()) {
           const src = sourceOf(asset, "audio", i);
-          streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), onProgress: (f) => progress((i + f) / audio.length) });
+          streams[i] = await transcribe(src.path, { stream: src.stream, transcriber: who, ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}), ...(env.quiet ? { quiet: true } : {}), onProgress: (f) => progress((i + f) / audio.length) });
         }
         return { streams } satisfies TranscriptData;
       },

@@ -245,25 +245,52 @@ export class Analyses {
       key,
       `${key} ${asset.path}`,
       async (progress) => {
-        const value = await def.analyze(asset, progress, {
-          cacheDir: this.parts.cacheDir,
-          // How background analyses run (Settings › General): quietly, at macOS background priority, unless "fast".
-          quiet: this.config.settings().proxyMode === "quiet",
-          resource: (id) => this.#resourcePath(this.parts.registry.resources.get(id)!),
-          pref,
-          secret: (id) => this.config.secrets.get(id),
-          data: (key) => p.data.get(assetId, key),
-        });
-        // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
-        if (def.variant?.(pref) !== variant) throw new Error(`${key} was for a setting since changed`);
-        jobSignal()?.throwIfAborted();
-        p.data.store(asset, def, value);
-        this.parts.emit(p, { kind: "derived", asset: assetId, key, present: true });
-        return { asset: assetId };
+        const release = await this.#turn(def, progress);
+        try {
+          const value = await def.analyze(asset, progress, {
+            cacheDir: this.parts.cacheDir,
+            // How background analyses run (Settings › General): quietly, at macOS background priority, unless "fast".
+            quiet: this.config.settings().proxyMode === "quiet",
+            resource: (id) => this.#resourcePath(this.parts.registry.resources.get(id)!),
+            pref,
+            secret: (id) => this.config.secrets.get(id),
+            data: (key) => p.data.get(assetId, key),
+          });
+          // Made for the variant it started under (a transcriber since changed): stored there it would be taken for the new one's.
+          if (def.variant?.(pref) !== variant) throw new Error(`${key} was for a setting since changed`);
+          jobSignal()?.throwIfAborted();
+          p.data.store(asset, def, value);
+          this.parts.emit(p, { kind: "derived", asset: assetId, key, present: true });
+          return { asset: assetId };
+        } finally {
+          release();
+        }
       },
       subject,
       assetId,
     );
+  }
+
+  /** The analyzers running one job at a time (`oneAtATime`): each one's last job in line, by analyzer id. */
+  readonly #lines = new Map<string, Promise<void>>();
+
+  /** Waits for the analyzer's turn when it runs one job at a time; the function given back ends this job's turn. */
+  async #turn(def: JobAnalyzerDef, progress: (f: number, stage?: string) => void): Promise<() => void> {
+    if (!def.oneAtATime) return () => {};
+    let release = () => {};
+    const mine = new Promise<void>((r) => (release = r));
+    const before = this.#lines.get(def.id) ?? Promise.resolve();
+    this.#lines.set(def.id, before.then(() => mine));
+    progress(0, "Waiting");
+    try {
+      await before;
+      jobSignal()?.throwIfAborted();
+      progress(0, "");
+    } catch (e) {
+      release();
+      throw e;
+    }
+    return release;
   }
 
   async forget(p: OpenProject, key: string, assetId: string): Promise<boolean> {
