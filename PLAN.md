@@ -2513,7 +2513,7 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
 Done since they were planned here: HyperFrames' catalog, guidance and seek
 conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
 B-roll items, captions for a selection and the user's notes to Phase 11.5;
-whole films to Phase 16.
+whole films to Phase 16 (since dropped, 2026-11-06).
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
@@ -3818,6 +3818,22 @@ permission across an update; the keys readable only by Beacon.
 ~285 MB on the GPU and ~275 MB of decoded frames (4 bytes a pixel; keeping the decoder's own smaller format and
 converting on the GPU could save ~150 MB). Not felt yet (flat, no leak, under Camtasia's), so after launch.
 
+**Also in this phase (the user, 2026-11-06): every doc trimmed to what is current.** Once Phase 14.5's first
+notarized release is out, the README's install section shrinks to download, open, allow the permissions once:
+the quarantine flag (`xattr`), "asks again after each update" and the ad hoc signing notes go. ARCHITECTURE,
+CONTRIBUTING, `docs/` and `skills/` are cut to how Beacon works now; PLAN's finished phases become a few lines
+each (what they delivered, PR, version) and `docs/tested.md` keeps only what is still to check. History stays in
+git and the merged PRs.
+
+**Planned here (the user, 2026-11-06): a camera that dies mid-take is marked, for the user and for agents.** The
+recorder's monitor already sees a camera go black or freeze while its frames keep coming (the Record panel's chip
+turns amber) but a take keeps none of it, so an agent editing it used the dead camera. Record each black or frozen
+stretch in the take (`recording.json`: from, to, black or frozen); on import, draw it on the camera clip (a red
+hatched band) and badge the Media Bin item; `timeline_clips` and `project_describe` list it per clip ("camera black
+3:12–4:40"), and the agent guide says never to show the camera there (the screen instead, the audio kept). For takes
+recorded before, and footage from elsewhere, an analysis finds the same after the fact (FFmpeg's `blackdetect` and
+`freezedetect`, added to Beacon's FFmpeg).
+
 **Parked here (the user, 2026-11-06): resizable side panels.** Every right panel shares one width (320 px since
 Phase 14, so switching Properties, Music and the reviews no longer moves the canvas); next, drag its left edge to
 widen it (about 280-480 px, double-click resets), remembered app-wide like the timeline divider and shared by every
@@ -3855,26 +3871,11 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 
 ---
 
-### Phase 16 — Films: narrated videos made from a brief (the user, 2026-10-26; to be confirmed)
-HyperFrames' other four examples (prompting/examples, "With registry blocks
-and source material") are whole films, not one graphic: a 45 s product
-launch from a URL (its palette and screenshots, a voice, music), a 60 s
-vertical explainer from pasted text (a voice, captions with keywords in the
-brand colour), a 30 s video from a GitHub PR (a code diff beat, kinetic
-captions), a 20 s beat-synced slideshow (eight generated images cut to a
-track's beat grid). Beacon has the pieces for one graphic (motion clips,
-captions, the catalog); a film needs:
-- **AI images**: a set in one visual language (OpenAI's image model), kept
-  in the project's media, usable in a composition.
-- **A voice**: text to speech (the user's cloned voice is a candidate), on
-  its own track, transcribed so captions and timing follow it.
-- **Music and its beat grid**: a track found or made, its beats analysed,
-  cuts and moves placed on them.
-- **Page screenshots** from a URL (a headless capture), and a site's palette.
-- **Several scenes**: a script split into beats, each a motion clip, with
-  transitions that have a cause.
-**Gate:** the four examples made from their prompts, compared with
-HyperFrames' renders as the single graphics were.
+### After Phase 15 (the user, 2026-11-06)
+
+Beacon is feature-complete for the user: no Phase 16 (Films, narrated videos made from a brief, was proposed
+2026-10-26 and is dropped). Next it goes to beta testers; what follows is their feedback, small bug fixes and
+performance work, and keeping the repo tidy.
 
 ## 14. Risks
 
