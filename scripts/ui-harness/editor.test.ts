@@ -6420,6 +6420,46 @@ test.skipIf(skip)("every right-hand panel is as wide as Properties, so opening M
   await page.until("!document.querySelector('[data-silence-review]')");
 });
 
+// Shift-dragging opened the space but drew the clips back where they were until the edit came back, then jumped
+// (the user, 2026-11-06): kept drawn where it was released, as a moved clip is.
+test.skipIf(skip)("a ⇧-drag that opens space keeps the clips after it where it put them while the edit is applied", async () => {
+  await select([]);
+  await run("timeline.view", { start: 0, end: 20 });
+  // Room before it for the playhead.
+  await run("clip.move", { clips: [callout.id], by: 3, linked: false });
+  await Bun.sleep(200);
+  const c = clip(callout.id);
+  const { y, h, xAt, box } = await timelinePlaces(callout.id);
+  const start = ticksToSeconds(c.start);
+  const end = ticksToSeconds(c.start + c.duration);
+  await run("playhead.set", { time: start - 0.5 });
+  await Bun.sleep(200);
+  // The callout's body where it is now: dragged, it moves right and this point shows what was under it.
+  const [ox, oy] = [xAt(Math.min(end - 0.3, start + 0.6)), y + h - 6];
+  const sample = timelinePixel(ox, oy);
+  const body = await page.evaluate<string>(sample);
+  const px = xAt(start - 0.5);
+  ui.faults.runDelay = 60;
+  try {
+    await page.down(box.x + px, box.y + oy, ["shift"]);
+    for (let i = 1; i <= 10; i++) {
+      await page.move(box.x + px + ((xAt(start + 1.5) - px) * i) / 10, box.y + oy, ["shift"]);
+      await Bun.sleep(16);
+    }
+    await page.evaluate(`window.__frames = []; (function tick() { window.__frames.push(${sample}); if (window.__frames.length < 40) requestAnimationFrame(tick); })()`);
+    await page.up(box.x + xAt(start + 1.5), box.y + oy, ["shift"]);
+    await arrived(() => ticksToSeconds(clip(callout.id).start) > start + 1);
+    await page.until("window.__frames.length >= 40");
+  } finally {
+    ui.faults.runDelay = 0;
+  }
+  const frames = await page.evaluate<string[]>("window.__frames");
+  expect(ticksToSeconds(clip(callout.id).start)).toBeCloseTo(start + 2, 1);
+  expect(frames.filter((f) => f === body).length).toBe(0);
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+});
+
 // A project opened with its waveforms and thumbnails already made got none: they came before the reply to the
 // window's `init`, which wiped them, and nothing sent them again (the user, 2026-11-06).
 test.skipIf(skip)("the project shown again (the reply to init) keeps the pictures the window already has", async () => {
