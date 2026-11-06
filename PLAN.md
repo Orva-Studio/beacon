@@ -3805,6 +3805,8 @@ there (the week of 2026-11-09):
 - The API keys in the Keychain through the Security framework, with an access list naming only Beacon, in place of
   `/usr/bin/security` (any process running as the user can read them now: `docs/security.md`, Accepted for now).
 - Recording with camera and microphone under the hardened runtime, checked by hand.
+- The first run on a fresh Mac, by a beta tester (the user has no fresh Mac): download, open, permissions, first
+  recording, first export; anything odd comes back as Help › Save Diagnostics…'s report.
 **Gate:** a notarized release installed on a fresh Mac records, edits and exports without a warning or a lost
 permission across an update; the keys readable only by Beacon.
 
