@@ -2513,7 +2513,7 @@ AI backgrounds (an OpenAI image or a B-roll loop), Exit (Fade, Cut).
 Done since they were planned here: HyperFrames' catalog, guidance and seek
 conventions (`860b2d9`), three.js (`860b2d9`). Moved out (2026-10-26): the
 B-roll items, captions for a selection and the user's notes to Phase 11.5;
-whole films to Phase 16.
+whole films to Phase 16 (since dropped, 2026-11-06).
 
 **Gate:** a range of one of the user's takes planned (with research),
 generated, reviewed and placed in one undo step, in a drawn region, with
@@ -3855,26 +3855,11 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 
 ---
 
-### Phase 16 — Films: narrated videos made from a brief (the user, 2026-10-26; to be confirmed)
-HyperFrames' other four examples (prompting/examples, "With registry blocks
-and source material") are whole films, not one graphic: a 45 s product
-launch from a URL (its palette and screenshots, a voice, music), a 60 s
-vertical explainer from pasted text (a voice, captions with keywords in the
-brand colour), a 30 s video from a GitHub PR (a code diff beat, kinetic
-captions), a 20 s beat-synced slideshow (eight generated images cut to a
-track's beat grid). Beacon has the pieces for one graphic (motion clips,
-captions, the catalog); a film needs:
-- **AI images**: a set in one visual language (OpenAI's image model), kept
-  in the project's media, usable in a composition.
-- **A voice**: text to speech (the user's cloned voice is a candidate), on
-  its own track, transcribed so captions and timing follow it.
-- **Music and its beat grid**: a track found or made, its beats analysed,
-  cuts and moves placed on them.
-- **Page screenshots** from a URL (a headless capture), and a site's palette.
-- **Several scenes**: a script split into beats, each a motion clip, with
-  transitions that have a cause.
-**Gate:** the four examples made from their prompts, compared with
-HyperFrames' renders as the single graphics were.
+### After Phase 15 (the user, 2026-11-06)
+
+Beacon is feature-complete for the user: no Phase 16 (Films, narrated videos made from a brief, was proposed
+2026-10-26 and is dropped). Next it goes to beta testers; what follows is their feedback, small bug fixes and
+performance work, and keeping the repo tidy.
 
 ## 14. Risks
 
