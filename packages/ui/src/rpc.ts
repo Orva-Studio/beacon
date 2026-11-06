@@ -109,6 +109,9 @@ export interface Shown {
   timeline: { start: number; end: number };
   tool: string | null;
   properties: string | null;
+  /** Media whose waveforms it holds, and thumbnails (media and clips) it has to draw. */
+  waveforms: number;
+  thumbs: number;
 }
 
 export interface RunReply {

@@ -609,7 +609,7 @@ core.setSnapshotter(async (h) => {
     s &&
     `${s.project}: ${s.tracks} tracks, ${s.clips} clips, ${s.markers} markers; playhead ${s.playhead.toFixed(2)} s; ` +
       `selected ${s.selection.length ? s.selection.join(", ") : "nothing"}; timeline ${s.timeline.start.toFixed(2)}–${s.timeline.end.toFixed(2)} s; ` +
-      `tool panel ${s.tool ?? "closed"}; properties ${s.properties ?? "closed"}`;
+      `tool panel ${s.tool ?? "closed"}; properties ${s.properties ?? "closed"}; ${s.waveforms} waveforms, ${s.thumbs} thumbnails`;
   return { png, canvas, scale, shown: text };
 });
 
