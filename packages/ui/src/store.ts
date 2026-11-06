@@ -153,6 +153,9 @@ export const replica = {
     if (init.opened) replica.opened(init.opened);
   },
   opened({ project, session, rev, ...rest }: Opened) {
+    // The project shown again (the reply to `init` can come after its pictures did): its waveforms, thumbnails and the
+    // media's state are still its own, and nothing sends them again when they are already made.
+    if (state.opened?.path === rest.path) return void set({ opened: rest, project, session, rev });
     set({ opened: rest, project, session, rev, palette: false, projectSettings: false, waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, captionsPending: false, prepared: 0, proxies: {}, missing: [], binSelected: [], imports: {}, importsHidden: [] });
   },
   /** Applies the next revision's patches; returns false when the replica can't (a gap, or patches that don't apply), so it must resync. */
