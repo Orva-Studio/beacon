@@ -129,7 +129,7 @@ the `beacon` tools. To use it elsewhere, run `bun run mcp`, or
 `bun run build:mcp` for a standalone `dist/beacon-mcp` (with the engine and
 Beacon's tools beside it, as in the app). If the app has the
 project open, `project_open` connects to it and the edits show on its timeline.
-The server's built-in instructions are in `skills/SKILL.md`.
+The server's built-in instructions are `skills/instructions.md` (kept under the 4 KB Claude Code reads); the full guide, `skills/SKILL.md`, is the `beacon://docs/guide` resource.
 
 ## Commands
 | | |

@@ -282,8 +282,10 @@ the Zod args; commands also take `dryRun`/`label`), plus project, import,
 transaction, `frame_at`, `frames_sheet`, export and job tools. Resources: the
 project summary, timeline, transcript, a command reference generated from
 the registry, the workflows and house style. Prompts: the workflows in
-`skills/workflows/`. `skills/SKILL.md` is the server's instructions, built
-in. `bun run build:mcp` compiles it to `dist/beacon-mcp` beside the
+`skills/workflows/`. `skills/instructions.md` is the server's instructions, built in and kept
+under the 4 KB Claude Code reads; the full guide, `skills/SKILL.md`, is the
+`beacon://docs/guide` resource. Five core tools are always loaded
+(`anthropic/alwaysLoad`); editor keys that only run one command are left out. `bun run build:mcp` compiles it to `dist/beacon-mcp` beside the
 engine library, worker, recorder and Beacon's tools, staged as the app's are; `.mcp.json` runs it from source for Claude Code.
 
 ## Transcripts

@@ -3764,7 +3764,9 @@ the timeline drew in square time of its clips (shown spans), now linear: 2,350 c
 guarded by `many-clips.test.ts`. Developer ID ready (`packages/desktop/sign.ts`, `scripts/notarize.ts`, release.yml
 steps that run once the secrets are set; a hardened ad hoc package passed check-release and launched). Help › Save
 Diagnostics… and `~/Library/Logs/Beacon/beacon.log`. The certificate and the Keychain
-moved to Phase 14.5 (the user, 2026-11-06). Left here: the by-hand checks in `docs/tested.md`.
+moved to Phase 14.5 (the user, 2026-11-06). **Also fixed 2026-11-06:** Auto-normalize raised a quiet microphone
+(-52.6 LUFS) 35 dB and the export clipped: now it raises at most 20 dB and the mix goes through a limiter at -1 dBFS.
+Left here: the by-hand checks in `docs/tested.md` (the user's, last).
 **Done 2026-11-05:** launch 1.2-2.6 s to a drawn window, opening 8 ms; memory levels off, ~130 MB saved while playing
 (decoder keeps ½ s behind); Camtasia ~2.2 GB vs Beacon ~1.0 GB on the same project (docs/performance.md).
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -3815,6 +3817,11 @@ permission across an update; the keys readable only by Beacon.
 **Parked here (the user, 2026-11-05):** GPU memory, broken down then cut if it can be: a small 1080p project holds
 ~285 MB on the GPU and ~275 MB of decoded frames (4 bytes a pixel; keeping the decoder's own smaller format and
 converting on the GPU could save ~150 MB). Not felt yet (flat, no leak, under Camtasia's), so after launch.
+
+**Parked here (the user, 2026-11-06): resizable side panels.** Every right panel shares one width (320 px since
+Phase 14, so switching Properties, Music and the reviews no longer moves the canvas); next, drag its left edge to
+widen it (about 280-480 px, double-click resets), remembered app-wide like the timeline divider and shared by every
+right panel. Open: the left panels (Media Bin and the tools) the same way.
 Handing a Beacon project to someone who keeps editing in Camtasia: File ›
 Export › Camtasia Project… writes a `.cmproj` (its `project.tscproj` and the
 media beside it), one way and best effort, as import is (§11). Not for
