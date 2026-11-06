@@ -720,7 +720,11 @@ export class LocalCore implements BeaconCore {
   /** Edit › Undo Agents' Last Change: the newest step of any agent's. */
   async undoAgents(h: ProjectHandle) {
     const p = this.#get(h);
-    return this.#saved(p, p.store.undo(anyAgent))?.label;
+    const entry = this.#saved(p, p.store.undo(anyAgent));
+    // What it learned from the agent's choices goes too, as ⌘Z takes it.
+    const d = entry && p.decided.get(entry.patches);
+    if (d) d.undone = this.#config.dropDecisions(d.step);
+    return entry?.label;
   }
 
   async redo(h: ProjectHandle) {

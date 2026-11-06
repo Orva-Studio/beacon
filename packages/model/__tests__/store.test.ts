@@ -146,3 +146,35 @@ test("the diff makes one line of many clips added alike", () => {
   });
   expect(r.diff).toEqual([`add 10 video clips on ${track}, 0-20s`]);
 });
+
+test("an insertion before others is undone under someone else's later step, and their neighbours aren't taken as changed", () => {
+  const { store } = setup();
+  const a = store.run<string>("track.add", { name: "A" }).result;
+  const b = store.run<string>("track.add", { name: "B", index: 0 }).result;
+  const c = store.run<string>("track.add", { name: "C" }, { author: "codex" }).result;
+  expect(store.doc.tracks.map((t) => t.id)).toEqual([b, a, c]);
+  expect(store.undo()?.label).toBe("track.add");
+  expect(store.doc.tracks.map((t) => t.id)).toEqual([a, c]);
+
+  // A track taken out from the front shifts the rest: an agent's later change to one of them doesn't block its undo.
+  store.run("track.remove", { track: a });
+  store.run("track.set", { track: c, name: "C2" }, { author: "codex" });
+  expect(store.undo()?.label).toBe("track.remove");
+  expect(store.doc.tracks.map((t) => [t.id, t.name])).toEqual([
+    [a, "A"],
+    [c, "C2"],
+  ]);
+});
+
+test("a redo is refused when an agent changed the same clip again in a step that merged with its earlier one", () => {
+  const { store } = setup();
+  const track = store.run<string>("track.add", { name: "Screen" }).result;
+  const clip = store.run<string>("clip.add", { type: "video", track, start: 0, duration: 100 }).result;
+  store.run("clip.set", { clip, start: 10 }, { author: "codex", coalesce: "drag" });
+  store.run("clip.set", { clip, start: 20 });
+  store.undo();
+  store.run("clip.set", { clip, start: 30 }, { author: "codex", coalesce: "drag" });
+  expect(store.steps.undo.filter((s) => s.author === "codex")).toHaveLength(1);
+  expect(() => store.redo()).toThrow(UndoBlocked);
+  expect(store.doc.tracks[0]!.clips[0]!.start).toBe(30);
+});

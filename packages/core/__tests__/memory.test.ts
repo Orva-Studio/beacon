@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { AppEvent } from "../src/api";
 import type { Decision } from "@beacon/model";
 import { DerivedData } from "@beacon/render";
-import { LocalCore } from "../src";
+import { asAuthor, LocalCore } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
 const AUDIO = join(FIXTURES, "audio.m4a");
@@ -142,6 +142,14 @@ test.skipIf(!existsSync(AUDIO))("with learning off, a review opens with Beacon's
   expect((await core.memory()).decisions).toBe(6);
   await core.redo(h);
   expect((await core.memory()).decisions).toBe(applied);
+  // An agent's Apply, taken back with Edit › Undo Agents' Last Change, takes its decisions with it as ⌘Z does.
+  await core.undo(h);
+  await core.run(h, "silences.review", { min: 0.6 });
+  await asAuthor("codex", () => core.run(h, "silences.apply", { all: true }));
+  expect((await core.memory()).decisions).toBe(applied);
+  await core.undoAgents(h);
+  expect((await core.memory()).decisions).toBe(6);
+  await core.redo(h);
   // Choices that can't be kept don't undo the cut or leave the review open: it's said, not thrown.
   await core.undo(h);
   rmSync(join(configDir, "decisions.json"));
