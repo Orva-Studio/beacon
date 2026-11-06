@@ -3818,6 +3818,13 @@ permission across an update; the keys readable only by Beacon.
 ~285 MB on the GPU and ~275 MB of decoded frames (4 bytes a pixel; keeping the decoder's own smaller format and
 converting on the GPU could save ~150 MB). Not felt yet (flat, no leak, under Camtasia's), so after launch.
 
+**Also in this phase (the user, 2026-11-06): every doc trimmed to what is current.** Once Phase 14.5's first
+notarized release is out, the README's install section shrinks to download, open, allow the permissions once:
+the quarantine flag (`xattr`), "asks again after each update" and the ad hoc signing notes go. ARCHITECTURE,
+CONTRIBUTING, `docs/` and `skills/` are cut to how Beacon works now; PLAN's finished phases become a few lines
+each (what they delivered, PR, version) and `docs/tested.md` keeps only what is still to check. History stays in
+git and the merged PRs.
+
 **Parked here (the user, 2026-11-06): resizable side panels.** Every right panel shares one width (320 px since
 Phase 14, so switching Properties, Music and the reviews no longer moves the canvas); next, drag its left edge to
 widen it (about 280-480 px, double-click resets), remembered app-wide like the timeline divider and shared by every
