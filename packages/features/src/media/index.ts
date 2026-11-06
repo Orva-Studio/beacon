@@ -62,12 +62,18 @@ export function sourceOf(asset: Asset, kind: "video" | "audio", n: number): { pa
 
 /** An audio clip's segment of the mix: its volume envelope, scaled by its gain and the levelling to the project's target. */
 const AUDIO_DEFAULTS: AudioProps = { gain: 1, volume: 1, normalize: false, muted: false };
+/**
+ * The most Auto-normalize raises a clip, in dB: a microphone recorded at -52.6 LUFS was raised 35 dB to the -18 target,
+ * its room noise with it (the mix's limiter keeps the peaks from clipping). Quieter than this plays under the target.
+ */
+const MAX_BOOST = 20;
 
 function audioSegment(project: Project, clip: Clip, asset: Asset, stream: number): AudioSegment {
   const a: AudioProps = { ...AUDIO_DEFAULTS, ...(clip.props.audio as Partial<AudioProps> | undefined) };
   const target = project.settings.loudnessTarget;
   const measured = (asset.derived.loudness as Loudness | undefined)?.[stream];
-  const k = a.gain * (a.normalize && target !== undefined && measured !== undefined ? 10 ** ((target - measured) / 20) : 1);
+  const level = a.normalize && target !== undefined && measured !== undefined ? Math.min(MAX_BOOST, target - measured) : 0;
+  const k = a.gain * 10 ** (level / 20);
   return {
     ...sourceOf(asset, "audio", stream),
     start: ticksToSeconds(clip.start),
