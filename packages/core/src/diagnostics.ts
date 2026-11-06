@@ -38,11 +38,12 @@ const run = (cmd: string[]) => {
 };
 
 /**
- * A path in a user's folders or on a disk, to the end of its last part: the folders and file names in it can name
- * clients, whichever project they were from (the log keeps earlier sessions'), so all that is kept is its extension.
+ * A path in a user's folders or on a disk, its parts allowed spaces, ending where a message goes on (`: `, `, `, ` (`,
+ * a quote or bracket) or the line does: the folders and file names in it can name clients, whichever project they
+ * were from (the log keeps earlier sessions'), so all that is kept is its last extension.
  */
-const PATH = /(?:~|\/(?:Users|Volumes)\/[^/\n]+)((?:\/[^/\n]+)+)/g;
-const EXTENSION = /\.[A-Za-z0-9]{1,8}(?=$|[\s:,;)'"\]])/;
+const PATH = /(?:~|\/(?:Users|Volumes)\/[^/\n:]+)(?:\/(?:(?!: |, | \(|["'`)\]])[^/\n])+)+/g;
+const EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 /** Replaces the home folder, each name in `names`, then every path, so the report says what kind of file, not whose. */
 export function redactor(names: Map<string, string>): (text: string) => string {
@@ -51,11 +52,7 @@ export function redactor(names: Map<string, string>): (text: string) => string {
   return (text) => {
     let out = text.split(home).join("~");
     for (const [name, as] of ordered) out = out.split(name).join(as);
-    return out.replace(PATH, (_, rest: string) => {
-      const last = rest.slice(rest.lastIndexOf("/") + 1);
-      const ext = EXTENSION.exec(last);
-      return ext ? `<path>${ext[0]}${last.slice(ext.index + ext[0].length)}` : "<path>";
-    });
+    return out.replace(PATH, (path) => `<path>${EXTENSION.exec(path.slice(path.lastIndexOf("/") + 1))?.[0] ?? ""}`);
   };
 }
 
