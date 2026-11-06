@@ -192,7 +192,7 @@ function ClipProperties({
         </Section>
       )}
       {tab?.id === "effects" && clip.effects.map((e) => (
-          <Effect key={e.id} clip={clip} effect={e} host={host} def={init?.effects.find((x) => x.id === e.type)} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
+          <Effect key={e.id} clip={clip} effect={e} targets={effectTargets(selected, e)} host={host} def={init?.effects.find((x) => x.id === e.type)} selected={session.effects.some((x) => x.clip === clip.id && x.id === e.id)} />
         ))}
       <ClipId ids={selected.map((c) => c.id)} host={host} />
     </>
@@ -733,11 +733,20 @@ type JsonSchema = {
   when?: Record<string, unknown>;
   slider?: { min?: number; max: number }; percent?: boolean; degrees?: boolean; hue?: boolean; color?: boolean; minimum?: number; maximum?: number; exclusiveMinimum?: number; enum?: unknown[]; properties?: Record<string, JsonSchema>; pattern?: string };
 
-/** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove. */
-function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: EffectInstance; host: Host; def?: Init["effects"][number]; selected: boolean }) {
+/** The effect of `fx`'s type on each selected clip that has one, the shown clip's first: what a change in its section applies to. */
+function effectTargets(selected: Clip[], fx: EffectInstance): { clip: string; effect: string }[] {
+  return selected.flatMap((c) => {
+    const own = c.effects.find((e) => e.type === fx.type);
+    return own ? [{ clip: c.id, effect: own.id }] : [];
+  });
+}
+
+/** An effect's params as controls generated from its schema (PLAN §2.6), with on/off and remove; params change on every clip in `targets`. */
+function Effect({ clip, effect, targets, host, def, selected }: { clip: Clip; effect: EffectInstance; targets: { clip: string; effect: string }[]; host: Host; def?: Init["effects"][number]; selected: boolean }) {
   const fields = (def?.schema as JsonSchema | undefined)?.properties ?? {};
   const name = def?.title ?? effect.type;
-  const set = (params: Record<string, unknown>, key?: string) => host.run("effect.set", { clip: clip.id, effect: effect.id, params }, name, key);
+  const setOn = (params: Record<string, unknown>, label: string, key?: string) => host.run("effect.set", { effects: targets, params }, label, key);
+  const set = (params: Record<string, unknown>, key?: string) => setOn(params, name, key);
   /** Why the look file last chosen couldn't be read. */
   const [importError, setImportError] = useState<string>();
   /** Why the file last chosen for a file param (a LUT) couldn't be imported. */
@@ -775,7 +784,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
     if (!path) return;
     try {
       const look = (await host.query(def!.importFile!.query, { path })) as { name: string; params: Record<string, unknown>; notReproduced?: string[] };
-      host.run("effect.set", { clip: clip.id, effect: effect.id, params: look.params }, `Import ${look.name}`);
+      setOn(look.params, `Import ${look.name}`);
       setImportError(undefined);
       if (keep) {
         // Kept for every project; one of the same name gives way.
@@ -815,7 +824,7 @@ function Effect({ clip, effect, host, def, selected }: { clip: Clip; effect: Eff
                     onChange={(id) => {
                       const p = looks.find((x) => x.id === id);
                       if (p) {
-                        host.run("effect.set", { clip: clip.id, effect: effect.id, params: p.params }, p.title);
+                        setOn(p.params, p.title);
                         setImportError(undefined);
                       }
                       host.previewEffect(null);

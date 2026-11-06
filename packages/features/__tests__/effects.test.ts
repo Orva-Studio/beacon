@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { importCmproj } from "@beacon/camtasia";
-import { defineFeature, evaluate, ProjectStore, type CamtasiaContext, type CamtasiaObject, type VisualLayer } from "@beacon/model";
+import { createProject, defineFeature, evaluate, ProjectStore, type CamtasiaContext, type CamtasiaObject, type VisualLayer } from "@beacon/model";
 import { createRegistry } from "../src";
 
 const FIXTURES = process.env.BEACON_FIXTURES ?? join(homedir(), "beacon-fixtures");
@@ -53,4 +53,23 @@ test("panel items: a feature may name its own preset; a repeated id, or an Annot
   expect(() => createRegistry().register(defineFeature({ id: "bare", version: 1, panelItems: [annotation("annotation:bare", {})] }))).toThrow("names annotation preset");
   const animation = { id: "animation:restore", label: "Restore", title: "Restore", command: "edit.addAnimation", args: { preset: "restore" } };
   expect(() => createRegistry().register(defineFeature({ id: "anim", version: 1, panelItems: [animation] }))).not.toThrow();
+});
+
+test("effect.set with `effects` changes each clip's effect in one undo step, merged into its own params, and undoes exactly", () => {
+  const registry = createRegistry();
+  const store = new ProjectStore(registry, createProject(registry, {}));
+  const track = store.run<string>("track.add", { name: "Track 1" }).result!;
+  const a = store.run<string>("clip.add", { type: "callout", track, start: 0, duration: 1 }).result!;
+  const b = store.run<string>("clip.add", { type: "callout", track, start: 2, duration: 1 }).result!;
+  const fa = store.run<string>("effect.add", { clip: a, type: "film-look", params: { fade: 0.2 } }).result!;
+  const fb = store.run<string>("effect.add", { clip: b, type: "film-look", params: { fade: 0.4 } }).result!;
+  const before = JSON.stringify(store.doc);
+  const params = (clip: string) => store.doc.tracks.flatMap((t) => t.clips).find((c) => c.id === clip)!.effects[0]!.params;
+  store.run("effect.set", { effects: [{ clip: a, effect: fa }, { clip: b, effect: fb }], params: { warmth: 0.5 } });
+  expect([params(a).warmth, params(a).fade, params(b).warmth, params(b).fade]).toEqual([0.5, 0.2, 0.5, 0.4]);
+  store.undo();
+  expect(JSON.stringify(store.doc)).toBe(before);
+  expect(() => store.run("effect.set", { clip: a, effects: [{ clip: b, effect: fb }], params: {} })).toThrow();
+  expect(() => store.run("effect.set", { effects: [{ clip: a, effect: fb }], params: {} })).toThrow(`has no effect "${fb}"`);
+  expect(JSON.stringify(store.doc)).toBe(before);
 });
