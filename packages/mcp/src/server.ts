@@ -13,7 +13,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { CONTROL_SOCKET, RemoteCore, formatIssues, fpsRational, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, VideoEncodingSchema, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
+import { asAuthor, CONTROL_SOCKET, RemoteCore, formatIssues, fpsRational, jsonSchemaOf, KeysSchema, SETTINGS_TABS, SettingsPatchSchema, UI_DIALOGS, VideoEncodingSchema, type CommandInfo, type CommandResult, type Image, type BeaconCore, type ProjectHandle } from "@beacon/core";
 import { DOCS, INSTRUCTIONS, WORKFLOWS, type Workflow } from "./docs";
 
 type Content = CallToolResult["content"];
@@ -169,7 +169,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     run: async () => (await core.reveal(project()), text("shown in Finder")),
   });
   add("project_undo", {
-    description: "Undo the last change (a command or transaction)",
+    description: "Undo your own last change (a command or transaction): never the user's or another agent's, which the user undoes with ⌘Z and Edit › Undo Agents' Last Change. Refused, saying whose, when someone else changed the same clip since",
     schema: z.strictObject({}),
     run: async () => {
       const label = await core.undo(project());
@@ -177,7 +177,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     },
   });
   add("project_redo", {
-    description: "Redo the last undone change",
+    description: "Redo your own change undone last",
     schema: z.strictObject({}),
     run: async () => {
       const label = await core.redo(project());
@@ -185,7 +185,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     },
   });
   add("project_history", {
-    description: "Undo and redo history labels, oldest first",
+    description: "Undo and redo history labels, oldest first; `steps` says who made each (`author`: an agent's name, yours among them; none: the user)",
     schema: z.strictObject({}),
     run: async () => core.history(project()),
   });
@@ -509,7 +509,8 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     try {
       const args = def.schema instanceof z.ZodUnknown ? (req.params.arguments ?? {}) : def.schema.parse(req.params.arguments ?? {});
       const joined = handedOver && !["project_open", "project_create"].includes(req.params.name) ? await joinApp() : undefined;
-      const out = await def.run(args);
+      // Each change it makes is its own undo step, apart from the user's (⌘Z skips it; Edit › Undo Agents' Last Change takes it).
+      const out = await asAuthor(server.getClientVersion()?.name ?? "agent", () => def.run(args));
       const content = Array.isArray(out) && out.every((c) => c && typeof c === "object" && "type" in c) ? (out as Content) : text(typeof out === "string" ? out : JSON.stringify(out, null, 1));
       return { content: joined ? [...text(joined), ...content] : content };
     } catch (e) {

@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { currentAuthor } from "./author";
 import { resolve } from "node:path";
 import type { Socket } from "bun";
 import { lockOwner } from "./persist";
@@ -121,7 +122,8 @@ export class RemoteCore implements BeaconCore {
     const id = this.#next++;
     return new Promise<T>((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
-      this.#writer.send({ jsonrpc: "2.0", id, method, params });
+      const author = currentAuthor();
+      this.#writer.send({ jsonrpc: "2.0", id, method, params, ...(author !== undefined ? { author } : {}) });
     });
   }
 

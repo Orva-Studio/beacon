@@ -1,11 +1,13 @@
 export * from "./api";
 export * from "./local";
 export * from "./remote";
+export { asAuthor, currentAuthor } from "./author";
 export { findDropped, importDropped } from "./dropped";
 export { LOCK_FILE, lockOwner, ProjectLockedError, projectName, readProject, writeProject, type Owner } from "./persist";
 export { summarizeReport } from "@beacon/camtasia";
 export { askControl, askOwner, CONTROL_SOCKET, controlSockets, DEFAULT_SOCKET, serveControl, serveCore, type ControlHandlers, type CoreServer } from "./socket";
 export {
+  agentName,
   chordOf,
   enginePlacement,
   fitPercent,

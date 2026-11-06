@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalCore, serveControl } from "@beacon/core";
+import { asAuthor, LocalCore, serveControl } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
 import { assetName, EASINGS, ease, evaluate, keysLabel, mediaBounds, projectDuration, secondsToTicks, ticksToSeconds, trimBounds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
@@ -372,6 +372,19 @@ test.skipIf(skip)("the colour picker sets a colour from a preset and from its sq
   expect(Math.max(...text().slice(0, 3))).toBeLessThan(0.1);
   expect((await ui.core.history(ui.handle)).undo.length - undoBefore).toBe(1);
   await page.key("Escape", "Escape");
+});
+
+test.skipIf(skip)("⌘Z undoes the user's own change under an agent's, leaving the agent's; Undo Agents' Last Change takes the agent's", async () => {
+  const camera = clips().find((c) => c.type === "video")!;
+  const shadows = (id: string) => clip(id).effects.filter((e) => e.type === "drop-shadow").length;
+  const [mine, theirs] = [shadows(screen.id), shadows(camera.id)];
+  await run("effect.add", { clip: screen.id, type: "drop-shadow" });
+  await asAuthor("claude-code", () => run("effect.add", { clip: camera.id, type: "drop-shadow" }));
+  await page.key("z", "KeyZ", ["meta"]);
+  await arrived(() => shadows(screen.id) === mine);
+  expect(shadows(camera.id)).toBe(theirs + 1);
+  await ui.core.undoAgents(ui.handle);
+  expect(shadows(camera.id)).toBe(theirs);
 });
 
 test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the effects; with nothing selected it pastes the clip", async () => {

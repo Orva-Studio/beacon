@@ -219,6 +219,12 @@ export interface SchemaInfo {
   panelItems: PanelItemDef[];
 }
 
+/** A project's undo steps and who made each: oldest first, and redo's in the order it would redo them. */
+export interface HistorySteps {
+  undo: { label: string; author?: string }[];
+  redo: { label: string; author?: string }[];
+}
+
 export interface RunOptions {
   dryRun?: boolean;
   label?: string;
@@ -289,9 +295,13 @@ export interface BeaconCore {
   close(h: ProjectHandle): Promise<void>;
   run(h: ProjectHandle, command: string, args: unknown, opts?: RunOptions): Promise<CommandResult>;
   transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }): Promise<CommandResult>;
+  /** Undoes the caller's own last step: the user's, skipping the agents' (refused when someone else's later step changed the same thing), or an agent's own. */
   undo(h: ProjectHandle): Promise<string | undefined>;
+  /** Edit › Undo Agents' Last Change: the newest step any agent made. */
+  undoAgents(h: ProjectHandle): Promise<string | undefined>;
   redo(h: ProjectHandle): Promise<string | undefined>;
-  history(h: ProjectHandle): Promise<{ undo: string[]; redo: string[] }>;
+  /** Labels oldest first; `steps` with who made each (`author`, an agent's name; none, the user). */
+  history(h: ProjectHandle): Promise<{ undo: string[]; redo: string[]; steps: HistorySteps }>;
   query(h: ProjectHandle, name: string, args?: unknown): Promise<unknown>;
   /** The canvas at a timeline time in seconds. */
   frame(h: ProjectHandle, time: number, opts?: FrameOptions): Promise<Image>;

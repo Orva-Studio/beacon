@@ -57,6 +57,7 @@ export interface ActionHost {
   run(command: string, args?: unknown): void;
   undo(): void;
   redo(): void;
+  undoAgents(): void;
   openDialog(): void;
   /** One of the app's own actions (`app.export`…), as its menu item runs it. */
   app(id: string): void;
@@ -82,5 +83,6 @@ export function runAction(host: ActionHost, a: Pick<ShortcutInfo, "command" | "a
   }
   else if (a.command === "project.undo") host.undo();
   else if (a.command === "project.redo") host.redo();
+  else if (a.command === "project.undoAgents") host.undoAgents();
   else host.run(a.command, a.args ?? {});
 }

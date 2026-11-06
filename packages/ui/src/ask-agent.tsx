@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import type { AgentAbout, AgentSession } from "@beacon/core";
-import { assetName, clipEnd, ticksToSeconds, type Clip, type Section } from "@beacon/model";
+import { agentName, assetName, clipEnd, ticksToSeconds, type Clip, type Section } from "@beacon/model";
 import { Button, Modal, Select, TextArea, Toast } from "./controls";
 import { replica, useView, type AgentRequest } from "./store";
 import type { Host } from "./app";
 import { clock } from "./time";
 
-/** How a session's agent reads: "Claude Code", else the name it gives. */
-const AGENT_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex" };
-export const agentName = (name: string) => AGENT_NAMES[name] ?? name;
+export { agentName };
 
 /** Agents that take a request into their open session (Claude Code's channels); others can't be sent one yet. */
 const TAKES_REQUESTS = new Set(["claude-code"]);

@@ -43,6 +43,7 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   query(name: string, args?: unknown): Promise<unknown>;
   undo(): void;
   redo(): void;
+  undoAgents(): void;
   canvasView(id: number, rect: { x: number; y: number; width: number; height: number }, scale: number, surround: [number, number, number]): void;
   /** Draws the selection and guides in the native preview: positions in canvas pixels, sizes in points; without it the overlay draws them itself. */
   canvasMarks?(marks: CanvasMark[]): void;

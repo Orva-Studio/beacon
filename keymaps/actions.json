@@ -83,12 +83,17 @@
     {
       "id": "project.undo",
       "name": "Undo",
-      "description": "Undo the last change"
+      "description": "Undo your last change, skipping any an agent made since (Undo Agents' Last Change takes those)"
     },
     {
       "id": "project.redo",
       "name": "Redo",
       "description": "Redo the change undone last"
+    },
+    {
+      "id": "project.undoAgents",
+      "name": "Undo Agents' Last Change",
+      "description": "Undo the newest change an agent (Claude Code, Codex) made to the project, leaving yours; Undo skips the agents' changes"
     },
     {
       "id": "edit.cut",

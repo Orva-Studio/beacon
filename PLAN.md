@@ -3679,9 +3679,7 @@ caption shadow. In this order, on this branch:
    **Built (2026-11-05):** `music.suggest` (a job; `packages/features/src/music/suggest.ts`), the Suggest tab
    (`music.review` `choose`), Apply through `music.apply`; beacon-writer's `mood` and `moment` kinds.
 
-### Phase 14 — Security audit (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27)
-
-#### First: Undo Agents' Last Change, a history per author (the user, 2026-11-04; before the audit)
+### Phase 13.5 — Undo Agents' Last Change, a history per author (the user, 2026-11-04; its own phase from 2026-11-05)
 The user edits by hand while an agent (Claude, Codex) edits another part of the
 same project, sharing one undo history: ⌘Z undid the agent's last change
 rather than the user's mistake. Decided (the user, 2026-11-04): each undo step
@@ -3695,6 +3693,24 @@ this clip since: undo the agent's change first"). Why its own item, before the
 audit: undo steps are Immer patches by position ("track 2's 5th clip"), so
 undoing an older step out of order needs patches found by id; every command's
 undo exactness rides on it (unit tests for undo exactness are the rule).
+Decided (the user, 2026-11-05): an agent's `project_undo` undoes **its own steps only**; a person's redo is
+cleared only by their own new change (refused, saying whose change is in the way, if another's touched the same
+clip); the Edit menu names the step and who: **Undo Split**, **Undo Claude Code's Change: Split** (greyed
+"Undo Agents' Last Change" when there is none); who made each step shows in the menus and `project_history`
+(no History panel).
+How: the author comes from the connection (an agent's MCP client name over the automation socket; the window's
+own calls are the user's), so no command changes. Undoing the newest step is as today (its inverse patches);
+a step with someone else's on top is undone by the objects it changed, found by id (each clip, track, effect…,
+put back as it was), refused when a later step of someone else's touched one of them.
+**Done (2026-11-05):** the store records each step's author (`StoreOptions.author`, from `authorContext`, which the
+MCP server sets round each tool call and the socket round each request that names one); `undo`/`redo` take whose;
+`core.undoAgents`; the Edit menu names the steps.
+
+### Phase 14 — Security audit, code quality and performance (the user, 2026-10-16; was Phase 11 until 2026-10-21, Phase 13 until 2026-10-27; widened 2026-11-05)
+
+No new features: improving what is there (the user, 2026-11-05). After thirteen phases of features, go back
+over the code: clear technical debt, remove code for features that are gone or unused (and features nobody
+uses), simplify, and measure and improve performance; then the security audit below.
 A review of what an attacker could reach, before Beacon is shared more widely,
 with each finding fixed or written down as an accepted risk in
 `docs/security.md`. What to look at:
