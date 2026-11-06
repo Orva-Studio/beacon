@@ -24,7 +24,7 @@ export interface DragOptions {
  */
 export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu, markClick }: DragOptions) {
   const { canvas, latest, dragState, settling, snapLine, pickedDiamond, anchor, pending, edge, drawRef, draw, run, HEADER, TRACK, TOP, tracks } = c;
-  const { timeAt, roomBefore, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer } = hits;
+  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer } = hits;
 
   const setHeight = (clientY: number) => {
     const r = canvas.current!.getBoundingClientRect();
@@ -65,6 +65,13 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       edge.current.raf = requestAnimationFrame(step);
     };
     edge.current.raf = requestAnimationFrame(step);
+  };
+
+  /** A ⇧-drag from `at`: what it may close before it, or, with no room there, the gap after it. */
+  const spaceDrag = (at: number, more: { playhead?: boolean; track?: string; row?: number }): Drag => {
+    const room = roomBefore(at, more.track);
+    const end = room > 1e-6 ? undefined : gapEnd(at, more.track);
+    return { kind: "space", at, d: 0, room, ...more, ...(end !== undefined ? { from: at, gapEnd: end } : {}) };
   };
 
   /** Keeps a released edit drawn until its patch arrives; a refused one (no patch) is dropped after a second. */
@@ -141,7 +148,8 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       if (d.d) settle(d);
       if (d.d > 0) run("timeline.insertSpace", { at: d.at, duration: d.d, ...track }, "Ripple Split");
       else if (d.d < 0) run("timeline.removeSpace", { at: d.at, duration: -d.d, ...track }, "Close Space");
-      if (d.playhead && d.d) run("playhead.set", { time: d.at + d.d });
+      // Closing the gap after it, the playhead stays where it started: where the clips before it end.
+      if (d.playhead && d.d) run("playhead.set", { time: d.from !== undefined && d.at !== d.from ? d.from : d.at + d.d });
     } else if (d.kind === "range" || d.kind === "rangeEdge") {
       if (!session.range) run("range.clear");
     }
@@ -197,7 +205,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       capture();
       if (e.metaKey) dragState.current = { kind: "range", anchor: session.playhead };
       else if (e.shiftKey && session.group) status("Close the group (⌃⇧U) to insert space");
-      else if (e.shiftKey) dragState.current = { kind: "space", at: session.playhead, d: 0, room: roomBefore(session.playhead), playhead: true };
+      else if (e.shiftKey) dragState.current = spaceDrag(session.playhead, { playhead: true });
       else {
         dragState.current = { kind: "playhead" };
         scrub(e.clientX);
@@ -239,7 +247,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       let at = timeAt(e.clientX);
       at += snapped([at], new Set(), e.ctrlKey);
       const track = e.altKey ? tracks[row]!.id : undefined;
-      dragState.current = { kind: "space", at, d: 0, room: roomBefore(at, track), ...(track ? { track, row } : {}) };
+      dragState.current = spaceDrag(at, track ? { track, row } : {});
     } else {
       const base = e.metaKey ? session.selection : [];
       if (!base.length && session.selection.length) run("selection.clear");
@@ -313,7 +321,14 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     if (d.kind === "range") return throttled("range.set", { in: d.anchor, out: t, playhead: t });
     if (d.kind === "rangeEdge") return throttled("range.set", { in: d.other, out: t });
     if (d.kind === "space") {
-      dragState.current = { ...d, d: Math.max(-d.room, t - d.at) };
+      // No room before where it started but a gap after: dragged left, it closes that gap (the clips after it slide
+      // back to touch the ones before), as if dragged from where they start; right, it opens space where it started.
+      if (d.gapEnd !== undefined && d.from !== undefined) {
+        const left = t < d.from;
+        const at = left ? d.gapEnd : d.from;
+        const room = left ? d.gapEnd - d.from : 0;
+        dragState.current = { ...d, at, room, d: left ? Math.max(-room, t - at) : t - at };
+      } else dragState.current = { ...d, d: Math.max(-d.room, t - d.at) };
       return draw();
     }
   };

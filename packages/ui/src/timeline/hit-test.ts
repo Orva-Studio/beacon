@@ -26,6 +26,25 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     return Math.max(0, at - last);
   };
 
+  /**
+   * Where the next clips start after `at` (on every unlocked track, or `track`), when nothing is going at `at` itself:
+   * the gap a ⇧-drag left from there closes when there is no room before it. Undefined with no gap.
+   */
+  const gapEnd = (at: number, track?: string) => {
+    // The playhead is kept to the millisecond, a clip's edge isn't: a few milliseconds either way are the same place.
+    const near = 0.005;
+    let next = Infinity;
+    for (const t of latest.current.project.tracks) {
+      if (track ? t.id !== track : t.locked) continue;
+      for (const c of t.clips) {
+        const [a, b] = [ticksToSeconds(c.start), ticksToSeconds(c.start + c.duration)];
+        if (a < at - near && b > at + near) return undefined;
+        if (a >= at - near) next = Math.min(next, a);
+      }
+    }
+    return Number.isFinite(next) && next - at > near ? next : undefined;
+  };
+
   /** Seconds per screen point. */
   const spp = () => {
     const { start, end } = latest.current.session.timeline;
@@ -171,5 +190,5 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
-  return { timeAt, roomBefore, spp, xOf, shown, clipAt, dropHit, mediaHit, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer };
+  return { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, dropHit, mediaHit, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer };
 }

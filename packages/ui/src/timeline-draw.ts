@@ -44,7 +44,7 @@ export type Drag =
   /** A section's edge or body dragged: drawn from `a` to `b` (seconds), kept between `lo` and `hi` (its neighbours). */
   | { kind: "section"; section: string; part: "start" | "end" | "body"; x0: number; a0: number; b0: number; a: number; b: number; lo: number; hi: number; moved: boolean }
   /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`); `playhead`: begun on it, which follows. */
-  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number; playhead?: boolean }
+  | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number; playhead?: boolean; from?: number; gapEnd?: number }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
   | PressDrag
   | MoveDrag

@@ -6459,3 +6459,32 @@ test.skipIf(skip)("a ⇧-drag that opens space keeps the clips after it where it
   await ui.core.undo(ui.handle);
   await ui.core.undo(ui.handle);
 });
+
+// A ⇧-drag left from where clips end closed nothing: no room before the point, so the gap after it stayed (the user,
+// 2026-11-06). With no room before it, dragged left it closes the gap after it until the clips touch.
+test.skipIf(skip)("a ⇧-drag left from where clips end, with no room before it, closes the gap after it until the clips touch", async () => {
+  await select([]);
+  const end = ticksToSeconds(projectDuration(ui.core.doc(ui.handle)));
+  const ids = () => new Set(clips().map((c) => c.id));
+  const before = ids();
+  await run("edit.addAnnotation", { preset: "text", time: end + 1, duration: 2 });
+  await run("edit.addAnnotation", { preset: "text", time: end + 5, duration: 2 });
+  const [first, second] = clips().filter((c) => !before.has(c.id)).sort((a, b) => a.start - b.start);
+  const firstEnd = ticksToSeconds(first!.start + first!.duration);
+  expect(ticksToSeconds(second!.start) - firstEnd).toBeCloseTo(2, 1);
+  await run("timeline.view", { start: end - 1, end: end + 10 });
+  await run("playhead.set", { time: firstEnd });
+  await Bun.sleep(300);
+  const box = await timelineBox();
+  const s = await session();
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  // From the playhead on the ruler, left past the gap: it stops when the clips touch.
+  await page.drag([xAt(firstEnd), box.y + RULER / 2], [xAt(firstEnd - 3), box.y + RULER / 2], ["shift"]);
+  await arrived(() => ticksToSeconds(clips().find((c) => c.id === second!.id)!.start) < firstEnd + 1);
+  expect(ticksToSeconds(clips().find((c) => c.id === second!.id)!.start)).toBeCloseTo(firstEnd, 2);
+  expect(ticksToSeconds(clips().find((c) => c.id === first!.id)!.start)).toBeCloseTo(end + 1, 2);
+  expect((await session()).playhead).toBeCloseTo(firstEnd, 2);
+  for (let i = 0; i < 3; i++) await ui.core.undo(ui.handle);
+  await run("timeline.zoom", { to: "fit" });
+});
