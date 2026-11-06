@@ -3763,8 +3763,8 @@ out (`ActionDef.duplicates` names the command, MCP points there); per-clip `chan
 the timeline drew in square time of its clips (shown spans), now linear: 2,350 clips zoom 52.7 → 20.7 ms a step,
 guarded by `many-clips.test.ts`. Developer ID ready (`packages/desktop/sign.ts`, `scripts/notarize.ts`, release.yml
 steps that run once the secrets are set; a hardened ad hoc package passed check-release and launched). Help › Save
-Diagnostics… and `~/Library/Logs/Beacon/beacon.log`. Left: Keychain through the Security framework (once signed);
-by-hand checks of first run on a fresh Mac (Gatekeeper, permissions, first recording and export).
+Diagnostics… and `~/Library/Logs/Beacon/beacon.log`. The certificate and the Keychain
+moved to Phase 14.5 (the user, 2026-11-06). Left here: the by-hand checks in `docs/tested.md`.
 **Done 2026-11-05:** launch 1.2-2.6 s to a drawn window, opening 8 ms; memory levels off, ~130 MB saved while playing
 (decoder keeps ½ s behind); Camtasia ~2.2 GB vs Beacon ~1.0 GB on the same project (docs/performance.md).
 A review of what an attacker could reach, before Beacon is shared more widely,
@@ -3793,6 +3793,20 @@ with each finding fixed or written down as an accepted risk in
   when used, and the recorder can't run without the window knowing.
 **Gate:** the audit's findings are fixed or accepted in `docs/security.md`,
 and a fuzzing run of the file readers finds no crash.
+
+### Phase 14.5 — Signed and notarized (the user, 2026-11-06; split from Phase 14)
+
+Phase 14 made the release ready for a Developer ID (`packages/desktop/sign.ts`, `scripts/notarize.ts`, the release's
+Developer ID and Notarize steps, `docs/security.md` "Developer ID"); this phase turns it on once the certificate is
+there (the week of 2026-11-09):
+- Add the five secrets (`BEACON_DEVELOPER_ID_P12`, `_PASSWORD`, `APPLE_API_KEY`, `_ID`, `_ISSUER`), cut a release,
+  and check it: notarized and stapled, opens without a warning on a fresh Mac, screen/camera/microphone permissions
+  kept across the next update (asked once more on the first signed one).
+- The API keys in the Keychain through the Security framework, with an access list naming only Beacon, in place of
+  `/usr/bin/security` (any process running as the user can read them now: `docs/security.md`, Accepted for now).
+- Recording with camera and microphone under the hardened runtime, checked by hand.
+**Gate:** a notarized release installed on a fresh Mac records, edits and exports without a warning or a lost
+permission across an update; the keys readable only by Beacon.
 
 ### Phase 15 — Camtasia export (the user, 2026-10-16; was Phase 14 until 2026-10-27)
 
