@@ -137,6 +137,15 @@ export function createReporter(opts: {
     }
   };
   const dropPending = () => rmSync(opts.pending, { recursive: true, force: true });
+  /** The pending reports newest first, `keep` among them, past MAX_PENDING deleted (one being sent too: the oldest go). */
+  const trim = (keep?: string): string[] => {
+    const files = readdirSync(opts.pending)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => join(opts.pending, f))
+      .sort((a, b) => Number(b === keep) - Number(a === keep) || statSync(b).mtimeMs - statSync(a).mtimeMs);
+    for (const old of files.slice(MAX_PENDING)) rmSync(old, { force: true });
+    return files.slice(0, MAX_PENDING);
+  };
   return {
     async report(input) {
       if (!opts.enabled()) return;
@@ -149,6 +158,7 @@ export function createReporter(opts: {
       try {
         mkdirSync(opts.pending, { recursive: true });
         writeFileSync(file, JSON.stringify(envelope(event)));
+        trim(file);
       } catch (e) {
         opts.log?.(`error report not written: ${e instanceof Error ? e.message : e}`);
         return;
@@ -159,14 +169,10 @@ export function createReporter(opts: {
       if (!existsSync(opts.pending)) return 0;
       // Turned off: what was written while on isn't sent later either.
       if (!opts.enabled()) return (dropPending(), 0);
-      const files = readdirSync(opts.pending)
-        .filter((f) => f.endsWith(".json"))
-        .map((f) => join(opts.pending, f))
-        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-      for (const old of files.slice(MAX_PENDING)) rmSync(old, { force: true });
       let n = 0;
-      for (const f of files.slice(0, MAX_PENDING)) {
+      for (const f of trim()) {
         if (!opts.enabled() || used >= MAX_PER_RUN) break;
+        if (!existsSync(f)) continue;
         used++;
         if (await deliver(f)) n++;
       }

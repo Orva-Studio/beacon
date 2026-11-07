@@ -37,7 +37,8 @@ const run = (cmd: string[]) => {
   }
 };
 
-const PATH_START = /(?:~|\/(?:Users|Volumes))\//g;
+// Temporary folders too: a drop or an export passes through them under the user's own file names.
+const PATH_START = /(?:~|\/(?:Users|Volumes|(?:private\/)?var\/folders|(?:private\/)?tmp))\//g;
 const EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 /**

@@ -117,6 +117,28 @@ test("pending reports: kept on 429, dropped on other 4xx, sent within the run's 
   expect(existsSync(pending)).toBe(false);
 });
 
+test("pending reports stay at most 20 on disk while new ones are written during a slow send", async () => {
+  const pending = mkdtempSync(join(tmpdir(), "beacon-pending-"));
+  const offline = createReporter({ enabled: () => true, context: () => ctx, pending, send: async () => ({ ok: false, status: 503 }) });
+  for (let n = 0; n < 20; n++) await offline.report({ origin: "main", mechanism: "onerror", type: "Error", message: `old ${n}` });
+  let release!: () => void;
+  const stalled = new Promise<void>((r) => (release = r));
+  const next = createReporter({ enabled: () => true, context: () => ctx, pending, send: async () => (await stalled, { ok: false, status: 503 }) });
+  const draining = next.sendPending();
+  const writing = Array.from({ length: 10 }, (_, n) => next.report({ origin: "main", mechanism: "onerror", type: "Error", message: `new ${n}` }));
+  await Bun.sleep(10);
+  expect(readdirSync(pending).length).toBeLessThanOrEqual(20);
+  release();
+  await Promise.all([draining, ...writing]);
+  expect(readdirSync(pending).length).toBeLessThanOrEqual(20);
+});
+
+test("temporary-folder paths are redacted in reports", () => {
+  const event = errorEvent({ origin: "main", mechanism: "onerror", type: "Error", message: "ENOENT: no such file, open /private/var/folders/ab/cd/T/TemporaryItems/Confidential Client.mov" }, ctx);
+  expect(JSON.stringify(event)).not.toContain("Confidential");
+  expect(JSON.stringify(event)).toContain("open <path>.mov");
+});
+
 test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once with only the process and how it crashed; another app's bun is not", async () => {
   const dir = mkdtempSync(join(tmpdir(), "beacon-crashes-"));
   const seen = join(dir, "seen.json");
