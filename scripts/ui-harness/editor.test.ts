@@ -1025,7 +1025,7 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await run("track.set", { track: cameraTrack.id, muted: true });
   const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] };
   ui.send("exportSheet", sheet);
-  await page.until("/is muted and won't be exported/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
+  await page.until("/is muted: its audio won't be exported/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
   await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
   await page.until("!document.querySelector('[data-export-muted]')");
   const muted = (id: string) => !!ui.core.doc(ui.handle).tracks.find((t) => t.id === id)!.muted;

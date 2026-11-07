@@ -274,7 +274,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
         <div className="mt-4 flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/12 px-3 py-2 text-text-strong" data-export-muted>
           <Icon name="speaker-slash" size={18} filled className="shrink-0 text-warning" />
           <span className="flex-1">
-            <span className="font-semibold">{muted.join(", ")}</span> {muted.length === 1 ? "is muted and won't be exported." : "are muted and won't be exported."}
+            <span className="font-semibold">{muted.join(", ")}</span> {muted.length === 1 ? "is muted: its audio won't be exported." : "are muted: their audio won't be exported."}
           </span>
           {unmute && <Button onClick={unmute}>Unmute</Button>}
         </div>
