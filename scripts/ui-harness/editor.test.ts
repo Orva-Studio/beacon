@@ -3947,6 +3947,42 @@ test.skipIf(skip)("an imported .hlook is kept for every project: under Your look
   }
 }, 30_000);
 
+test.skipIf(skip)("with several clips selected, a Film Look look or a moved slider changes every selected clip that has Film Look, one undo step each; a selected clip without it is left alone", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const camera = clips().find((c) => c.type === "video")!;
+  try {
+    await run("effect.add", { clip: screen.id, type: "film-look" });
+    await run("effect.add", { clip: callout.id, type: "film-look" });
+    const fx = (id: string) => clip(id).effects.find((e) => e.type === "film-look");
+    const without = JSON.stringify(clip(camera.id).effects);
+    await select([screen.id, callout.id, camera.id]);
+    await run("inspector.tab", { tab: "effects" });
+    await page.until("document.querySelector('[data-effect-preset]')?.dataset.value === 'default'");
+    let undo = (await ui.core.history(ui.handle)).undo.length;
+    await pickLook("cinestill-800t");
+    await arrived(() => fx(callout.id)!.params.warmth !== 0 && fx(screen.id)!.params.warmth !== 0);
+    expect(fx(callout.id)!.params).toEqual(fx(screen.id)!.params);
+    expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+    // The Warmth slider, pressed at the far right of its groove: the warmest there is, on both.
+    undo = (await ui.core.history(ui.handle)).undo.length;
+    const at = await page.evaluate<{ x: number; y: number }>(`(() => { const hit = [...document.querySelectorAll('[data-effect] [data-slider-hit]')].find((h) => { for (let e = h.parentElement; e; e = e.parentElement) if (e.firstElementChild?.tagName === 'SPAN' && e.firstElementChild.textContent === 'Warmth') return true; return false; }); hit.scrollIntoView({ block: 'center' }); const b = hit.getBoundingClientRect(); return { x: b.x + b.width - 2, y: b.y + b.height / 2 }; })()`);
+    const before = fx(screen.id)!.params.warmth as number;
+    await page.click(at.x, at.y);
+    await arrived(() => (fx(screen.id)!.params.warmth as number) > before && fx(callout.id)!.params.warmth === fx(screen.id)!.params.warmth);
+    expect(fx(callout.id)!.params.warmth).toBe(fx(screen.id)!.params.warmth);
+    expect(fx(callout.id)!.params).toEqual(fx(screen.id)!.params);
+    expect((await ui.core.history(ui.handle)).undo.length - undo).toBe(1);
+    expect(JSON.stringify(clip(camera.id).effects)).toBe(without);
+    // One undo puts both back.
+    await ui.core.undo(ui.handle);
+    expect(fx(screen.id)!.params.warmth).toBe(before);
+    expect(fx(callout.id)!.params.warmth).toBe(before);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await select([]);
+  }
+}, 30_000);
+
 test.skipIf(skip)("Film Look's save icon, beside its trash, names the sliders in a dialog (\"My Look 1\" to type over) and keeps them in Your looks for every project, then shows it in the Look menu; greyed while the sliders are a look already; Tab reaches the Look menu", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   const kept = async () => JSON.parse((await ui.core.preferences()).find((p) => p.id === "filmLookLooks")!.value) as { id: string; name: string; params: Record<string, unknown> }[];
@@ -5920,12 +5956,19 @@ test.skipIf(skip)("B-roll from the AI panel adds a clip over the range whose pro
     // The Model menu: Settings › AI's by default, each model with its price for this clip; one picked is the clip's.
     await page.until("!!document.querySelector('[data-broll-model]')");
     expect(await page.evaluate<string>("document.querySelector('[data-broll-model] option').textContent")).toMatch(/^Default · Veo 3\.1 Fast · \$\d/);
-    const pick = (value: string) => page.evaluate(`(() => { const s = document.querySelector('[data-broll-model]'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    // The menu can re-render between steps (its prices arrive): each pick waits for it, with the option, and is picked again if one was lost.
+    const pick = async (value: string) => {
+      const option = `[data-broll-model] option[value=${JSON.stringify(value)}]`;
+      for (let i = 0; i < 3 && (props() as { model?: string }).model !== value; i++) {
+        await page.until(`!!document.querySelector('${option}')`);
+        await page.evaluate(`(() => { const s = document.querySelector('[data-broll-model]'); if (!s) return; s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        for (let j = 0; j < 40 && (props() as { model?: string }).model !== value; j++) await Bun.sleep(50);
+      }
+      expect((props() as { model?: string }).model).toBe(value);
+    };
     await pick("flux-3");
-    await arrived(() => (props() as { model?: string }).model === "flux-3");
     await page.until("(document.querySelector('[data-broll-generate]')?.textContent ?? '').includes('$')");
     await pick("");
-    await arrived(() => (props() as { model?: string }).model === "");
     // Written once: picking another clip and this one again doesn't write it anew.
     const written = readFileSync(writes, "utf8").length;
     await page.click(...(await timelineClipCentre(callout.id)));

@@ -11,7 +11,16 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| Error reports to Better Stack (release builds, `BEACON_ERROR_REPORTS`): uncaught errors and rejections in the main process and the window (forwarded with `windowError`), and new macOS crash reports of this Beacon.app's processes (name and exception only; another app's bun or ffmpeg is not sent), sent by Beacon's own redacting sender (`error-reports.ts`); a first-run notice (Turn Off, OK) and Settings › General › Send error reports | 2026-11-06 | this commit | `packages/desktop/__tests__/error-reports.test.ts` (no home, user, hostname, project or file names; stacks; envelope; off, once, 20 a run; crashes), UI flow (notice, switch, window errors forwarded). Sent from the dev app with `BEACON_ERROR_REPORTS=1 BEACON_CRASH_TEST=main|window|native` (2026-11-06): main written as it died and sent on the next launch, window sent at once, the native abort's crash report sent on the next launch; Better Stack accepted each (no HTTP error). Not yet: seen in Better Stack's dashboard |
+| Error reports to Better Stack (release builds, `BEACON_ERROR_REPORTS`): uncaught errors and rejections in the main process and the window (forwarded with `windowError`), and new macOS crash reports of this Beacon.app's processes (name and exception only; another app's bun or ffmpeg is not sent), sent by Beacon's own redacting sender (`error-reports.ts`); a first-run notice (Turn Off, OK) and Settings › General › Send error reports | 2026-11-06 | this commit | `packages/desktop/__tests__/error-reports.test.ts` (no home, user, hostname, project or file names; stacks; envelope; off, once, 20 a run; crashes), UI flow (notice, switch, window errors forwarded). Sent from the dev app with `BEACON_ERROR_REPORTS=1 BEACON_CRASH_TEST=main|window|native` (2026-11-06): main written as it died and sent on the next launch, window sent at once, the native abort's crash report sent on the next launch; Better Stack accepted each (no HTTP error). In Better Stack (the user, 2026-11-07): the window crash shows; the main-process and native ones (both sent on the next launch) don't, though accepted with HTTP 200, still being looked into |
+
+## v0.17.3 (`fix/film-look-multi`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| With several clips selected, a look picked from an effect's Look menu (Film Look), an imported look or any of its controls (sliders, checks, menus, colours) changes that effect on every selected clip that has it, in one undo step: only the first selected clip changed (the user, 2026-11-06). Its on/off switch, Remove and Auto Tune are still the shown clip's. `effect.set` takes `effects` (a list of {clip, effect}) for this | 2026-11-06 | this commit | UI flow (a look and the Warmth slider on two clips with Film Look and a third without; one undo puts both back), `effects.test.ts` (undo exact) |
+| The B-roll flow's Model picks wait for the menu, with the option, before each pick, and pick again if a re-render lost one (it flaked once on main) | 2026-11-06 | this commit | The B-roll flows |
 
 ## Phase 14: launch readiness (`phase-14`)
 

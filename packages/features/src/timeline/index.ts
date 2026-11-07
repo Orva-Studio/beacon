@@ -146,25 +146,30 @@ const commands = [
   defineCommand({
     id: "effect.set",
     description:
-      "Change an effect's params (merged), turn it on or off, or set the part of the clip it applies to: `span` in timeline seconds (its bar dragged on the timeline), null for the whole clip",
-    args: z.strictObject({
-      clip: Id,
-      effect: Id,
-      params: z.record(z.string(), z.unknown()).optional(),
-      enabled: z.boolean().optional(),
-      span: z.strictObject({ start: Seconds, end: Seconds }).nullable().optional(),
-    }),
-    apply(doc, { clip, effect, params, enabled, span }, ctx) {
-      const loc = findClip(doc, ctx.registry, clip);
-      const c = loc.clip;
-      const fx = c.effects.find((e) => e.id === effect);
-      if (!fx) throw new Error(`clip "${clip}" has no effect "${effect}"`);
-      if (params) fx.params = { ...fx.params, ...params };
-      if (enabled !== undefined) fx.enabled = enabled;
-      if (span === null) delete fx.span;
-      else if (span) {
-        if (span.end <= span.start) throw new Error("an effect's span must end after it starts");
-        fx.span = { start: mediaTimeAt(c, onTrack(doc, loc, span.start)), end: mediaTimeAt(c, onTrack(doc, loc, span.end)) };
+      "Change an effect's params (merged), turn it on or off, or set the part of the clip it applies to: `span` in timeline seconds (its bar dragged on the timeline), null for the whole clip. `effects` (a list of {clip, effect}) in place of `clip` and `effect` makes the same change to several clips' effects in one step",
+    args: z
+      .strictObject({
+        clip: Id.optional(),
+        effect: Id.optional(),
+        effects: z.array(z.strictObject({ clip: Id, effect: Id })).min(1).optional(),
+        params: z.record(z.string(), z.unknown()).optional(),
+        enabled: z.boolean().optional(),
+        span: z.strictObject({ start: Seconds, end: Seconds }).nullable().optional(),
+      })
+      .refine((a) => (a.effects === undefined ? a.clip !== undefined && a.effect !== undefined : a.clip === undefined && a.effect === undefined), {
+        message: "give `clip` and `effect`, or `effects`",
+      }),
+    apply(doc, { clip, effect, effects, params, enabled, span }, ctx) {
+      if (span && span.end <= span.start) throw new Error("an effect's span must end after it starts");
+      for (const target of effects ?? [{ clip: clip!, effect: effect! }]) {
+        const loc = findClip(doc, ctx.registry, target.clip);
+        const c = loc.clip;
+        const fx = c.effects.find((e) => e.id === target.effect);
+        if (!fx) throw new Error(`clip "${target.clip}" has no effect "${target.effect}"`);
+        if (params) fx.params = { ...fx.params, ...params };
+        if (enabled !== undefined) fx.enabled = enabled;
+        if (span === null) delete fx.span;
+        else if (span) fx.span = { start: mediaTimeAt(c, onTrack(doc, loc, span.start)), end: mediaTimeAt(c, onTrack(doc, loc, span.end)) };
       }
     },
   }),
