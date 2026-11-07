@@ -99,6 +99,8 @@ export interface Reporter {
   report(input: ErrorInput): Promise<string | undefined>;
   /** Sends what an earlier run wrote and couldn't send (it died first, or was offline). */
   sendPending(): Promise<number>;
+  /** Deletes what is written and not sent: reports were turned off. */
+  dropPending(): void;
 }
 
 /** Pending reports kept at most: older ones are dropped. */
@@ -134,6 +136,7 @@ export function createReporter(opts: {
       return false;
     }
   };
+  const dropPending = () => rmSync(opts.pending, { recursive: true, force: true });
   return {
     async report(input) {
       if (!opts.enabled()) return;
@@ -155,7 +158,7 @@ export function createReporter(opts: {
     async sendPending() {
       if (!existsSync(opts.pending)) return 0;
       // Turned off: what was written while on isn't sent later either.
-      if (!opts.enabled()) return (rmSync(opts.pending, { recursive: true, force: true }), 0);
+      if (!opts.enabled()) return (dropPending(), 0);
       const files = readdirSync(opts.pending)
         .filter((f) => f.endsWith(".json"))
         .map((f) => join(opts.pending, f))
@@ -169,6 +172,7 @@ export function createReporter(opts: {
       }
       return n;
     },
+    dropPending,
   };
 }
 

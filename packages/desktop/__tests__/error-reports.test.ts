@@ -109,6 +109,12 @@ test("pending reports: kept on 429, dropped on other 4xx, sent within the run's 
   expect(readdirSync(pending)).toHaveLength(4);
   expect(await third.sendPending()).toBe(0);
   expect(existsSync(pending)).toBe(false);
+  on = true;
+  status = 503;
+  await third.report(err(300));
+  expect(readdirSync(pending)).toHaveLength(1);
+  third.dropPending();
+  expect(existsSync(pending)).toBe(false);
 });
 
 test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once with only the process and how it crashed; another app's bun is not", async () => {
@@ -119,7 +125,7 @@ test("crash reports: the first run only notes those there; later, each new one o
     writeFileSync(join(dir, name), `${JSON.stringify({ app_name: proc })}\n${JSON.stringify({ procName: proc, procPath: `${inside}/Contents/MacOS/${proc}`, exception: { type: "EXC_CRASH", signal: "SIGABRT" }, threads: [{ frames: [{ symbol: `${home}/secret` }] }] })}`);
   ips("bun-2026-11-06-1.ips", "bun");
   const sent: ErrorInput[] = [];
-  const reporter = { report: async (e: ErrorInput) => (sent.push(e), "id"), sendPending: async () => 0 };
+  const reporter = { report: async (e: ErrorInput) => (sent.push(e), "id"), sendPending: async () => 0, dropPending: () => {} };
   const write = (f: string, t: string) => writeFileSync(f, t);
   expect(await reportNewCrashes(reporter, ["bun-2026-11-06-1.ips"], seen, dir, bundle, write)).toBe(0);
   ips("beacon-worker-2026-11-06-2.ips", "beacon-worker");

@@ -577,6 +577,7 @@ appBridge(core, broadcast, {
   shortcuts: (list) => void shortcutsChanged(list),
   settings: (s) => {
     reportsOn = s.errorReports !== false;
+    if (!reportsOn) reporter.dropPending();
     for (const w of windows) if (w !== changedBy) w.message("appSettings", s);
   },
   job: (job) => {

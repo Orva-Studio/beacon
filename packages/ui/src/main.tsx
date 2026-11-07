@@ -6,7 +6,7 @@ import { createHost } from "./host";
 import type { AppRPC } from "./rpc";
 import { replica } from "./store";
 import { messageHandlers } from "./messages";
-import { forwardErrors } from "./window-errors";
+import { crashTest, forwardErrors } from "./window-errors";
 
 const rpc = Electroview.defineRPC<AppRPC>({
   maxRequestTime: 120_000,
@@ -41,6 +41,8 @@ const rpc = Electroview.defineRPC<AppRPC>({
 });
 const view = new Electrobun.Electroview({ rpc });
 const request = view.rpc!.request;
+// Before anything awaits, so a failed or slow `init` is reported too.
+forwardErrors((e) => view.rpc!.send.windowError(e));
 
 /** The window's document missed or couldn't apply a change: take the main process's copy. */
 let resyncing = false;
@@ -83,7 +85,7 @@ replica.subscribe(() => {
 });
 
 const init = await request.init({});
-forwardErrors((e) => view.rpc!.send.windowError(e), init.crashTest);
+if (init.crashTest) crashTest();
 if (init.keyLog) {
   const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName.toLowerCase()}${t.id ? `#${t.id}` : ""}${t.getAttribute("class") ? `.${t.getAttribute("class")!.split(" ")[0]}` : ""}` : String(t));
   const log = (stage: string, e: KeyboardEvent) =>
