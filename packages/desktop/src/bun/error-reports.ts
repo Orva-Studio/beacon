@@ -2,7 +2,8 @@
 // built here, every string through the diagnostics redactor, with no hostname, user, breadcrumbs or IP inference.
 // Release builds only (`available`), unless turned off in Settings › General or on the first-run notice.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 
 export const DSN = "https://YyLqHJLBqEL5LRYHHkU4f484@s2826331.us-west-2a.betterstackdata.com/2826331";
 /** Reports sent in one run at most: a loop of errors mustn't become a flood. */
@@ -190,13 +191,23 @@ export function createReporter(opts: {
  * A crash report of macOS's (`.ips`): which of Beacon's processes crashed, and how. Only one whose executable is inside
  * `bundle` (this Beacon.app): another app's bun, ffmpeg or launcher crashes under the same names. Nothing else is read.
  */
-export function crashSummary(file: string, bundle: string): { process: string; exception: string } | undefined {
+/**
+ * Whether a crash report's `procPath` is inside `bundle`. macOS hides a home folder in it ("/Users/USER/" then
+ * "*" for the folders up to the app), so a Beacon there is matched by its bundle's name.
+ */
+export function inBundle(procPath: string | undefined, bundle: string, home = homedir()): boolean {
+  if (!procPath) return false;
+  if (procPath.startsWith(`${bundle}/`)) return true;
+  return bundle.startsWith(`${home}/`) && procPath.startsWith(`/Users/USER/*/${basename(bundle)}/`);
+}
+
+export function crashSummary(file: string, bundle: string, home = homedir()): { process: string; exception: string } | undefined {
   if (!existsSync(file)) return;
   try {
     const [head, ...rest] = readFileSync(file, "utf8").split("\n");
     const header = JSON.parse(head!) as { app_name?: string; name?: string };
     const body = JSON.parse(rest.join("\n")) as { procName?: string; procPath?: string; exception?: { type?: string; signal?: string; subtype?: string } };
-    if (!body.procPath?.startsWith(`${bundle}/`)) return;
+    if (!inBundle(body.procPath, bundle, home)) return;
     const ex = body.exception;
     return { process: body.procName ?? header.app_name ?? header.name ?? "unknown", exception: [ex?.type, ex?.signal && `(${ex.signal})`].filter(Boolean).join(" ") || "unknown" };
   } catch {
