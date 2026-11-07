@@ -168,7 +168,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   askKey={askKey("transcripts")}
                 />
               )}
-              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The repeated lines' words go to OpenAI (not audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} askKey={askKey("transcripts")} />}
+              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The repeated lines' words go to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} askKey={askKey("transcripts")} />}
             </div>
           )}
           {tab === "ai" && prefs && keys && (

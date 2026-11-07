@@ -797,7 +797,7 @@ test.skipIf(skip)("offline, what needs the internet says so: the AI tools grey o
     await page.until("!!document.querySelector('[data-ai-offline]')");
     // B-roll's prompt and a motion graphic's words can be typed: they need no transcript. Camera angles and Music are online.
     expect(await greyed()).toEqual([true, true, false, true, false, true, true]);
-    expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI transcribes over the internet");
+    expect(await page.evaluate<string>("document.querySelector('[data-ai-offline]').textContent")).toContain("Whisper through OpenAI needs the internet");
     await page.screenshot(join(dir, "ai-offline.png"));
     // A transcriber on this Mac works offline.
     await ui.core.setPreference("transcriber", "apple");
@@ -1025,7 +1025,7 @@ test.skipIf(skip)("the Export dialog warns when a muted track has audio, and Unm
   await run("track.set", { track: cameraTrack.id, muted: true });
   const sheet = { name: "Muted", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] };
   ui.send("exportSheet", sheet);
-  await page.until("/is muted: its audio won't be in the export/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
+  await page.until("/is muted and won't be exported/.test(document.querySelector('[data-export-muted]')?.textContent ?? '')");
   await page.evaluate("[...document.querySelectorAll('[data-export-muted] button')].find((b) => b.textContent === 'Unmute').click()");
   await page.until("!document.querySelector('[data-export-muted]')");
   const muted = (id: string) => !!ui.core.doc(ui.handle).tracks.find((t) => t.id === id)!.muted;
@@ -1385,17 +1385,17 @@ test.skipIf(skip)("The microphone alone is voice narration: it plays the timelin
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([false, false, true, false]);
   expect(await page.evaluate<string>("document.querySelector('[data-source=Microphone]').closest('[data-narration] > *').querySelector('select').value")).toBe("mic-2");
   expect(await page.evaluate<boolean>("document.querySelector('[data-hear]').getAttribute('aria-checked') === 'true'")).toBe(false);
-  await page.until("/from the playhead \\(0:02\\)/.test(document.querySelector('[data-narration-span]').textContent)");
+  await page.until("/Plays from 0:02 /.test(document.querySelector('[data-narration-span]').textContent)");
   // Only the microphone is previewed, for its level.
   const previews = () => ui.menus.slice(before).filter((m) => m.startsWith("recordPreview:")).map((m) => JSON.parse(m.slice("recordPreview:".length)));
   await arrived(() => previews().at(-1)?.microphone?.id === "mic-2");
   expect(previews().at(-1)).toEqual({ microphone: { id: "mic-2" } });
   await run("range.set", { in: 1, out: 3 });
-  await page.until("document.querySelector('[data-narration-span]').textContent.includes('the range 0:01–0:03')");
+  await page.until("document.querySelector('[data-narration-span]').textContent.includes('Plays 0:01–0:03')");
   // Return on a focused checkbox starts, as the dialog's default (hear stays off).
   await page.evaluate("document.querySelector('[data-hear]').focus()");
   await page.key("Enter", "Enter");
-  await page.until("/plays from 0:01/.test(document.querySelector('[data-countdown]')?.textContent ?? '')");
+  await page.until("/Plays from 0:01/.test(document.querySelector('[data-countdown]')?.textContent ?? '')");
   await page.until("!document.querySelector('[data-countdown]') && !document.querySelector('[data-record]')", 6000);
   const asked = ui.menus.slice(before).find((m) => m.startsWith("startNarration:"))!;
   expect(JSON.parse(asked.slice("startNarration:".length))).toEqual({ microphone: { id: "mic-2" }, hear: false });
@@ -1418,7 +1418,7 @@ test.skipIf(skip)("The microphone alone is voice narration: it plays the timelin
   await run("playhead.jump", { to: "end" });
   const end = ui.menus.length;
   ui.send("recordSheet", { ...devices, mode: "narration", hear: true, sources: { microphone: { id: "mic-1" } } });
-  await page.until("document.querySelector('[data-narration-span]')?.textContent.includes('records at the playhead') ?? false");
+  await page.until("document.querySelector('[data-narration-span]')?.textContent.includes('Records at ') ?? false");
   expect(await has("[data-hear]")).toBe(false);
   await page.evaluate("document.querySelector('[data-record-start]').click()");
   await page.until("/Records at /.test(document.querySelector('[data-countdown]')?.textContent ?? '')");
@@ -1470,7 +1470,7 @@ test.skipIf(skip)("Check Sync: says what to do, shows the camera, beeps through 
   await page.until("!!document.querySelector('[data-sync-setup] [data-preview=Camera]') && document.querySelector('[data-sync-setup]').textContent.includes('volume')");
   // The Mac's sound goes to Bluetooth headphones: the beeps play through its speakers instead, and say so.
   expect(await page.evaluate<string>("document.querySelector('[data-sync-output]').value")).toBe("BuiltInSpeakerDevice");
-  expect(await page.evaluate<string>("document.querySelector('[data-sync-setup]').textContent")).toContain("WH-XB900N (Bluetooth headphones): Beacon plays the beeps through MacBook Pro Speakers");
+  expect(await page.evaluate<string>("document.querySelector('[data-sync-setup]').textContent")).toContain("WH-XB900N (Bluetooth headphones). The check beeps through MacBook Pro Speakers");
   await page.evaluate("document.querySelector('[data-test-beep]').click()");
   await page.until("document.querySelector('[data-sync-setup]').closest('[tabindex]').textContent.includes('Heard the beep')");
   await page.evaluate("(() => { const s = document.querySelector('[data-sync-display]'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
@@ -1529,7 +1529,7 @@ test.skipIf(skip)("after a take, its name is offered to type over; Enter renames
   // A source the recorder couldn't save is said, not only logged.
   ui.send("recordedSheet", { asset: take.id, name: "2026-10-20 12.37.32", duration: 748, problems: ["microphone: The operation could not be completed"] });
   await page.until("!!document.querySelector('[data-recorded-problem]')");
-  expect(await page.evaluate<string>("document.querySelector('[data-recorded-problem]').textContent")).toBe("The microphone stopped saving (The operation could not be completed): the take has no microphone after that.");
+  expect(await page.evaluate<string>("document.querySelector('[data-recorded-problem]').textContent")).toBe("The microphone stopped saving (The operation could not be completed).");
   await page.key("Escape", "Escape");
   await page.until("!document.querySelector('[data-recorded]')");
 
@@ -2170,8 +2170,8 @@ test.skipIf(skip)("an agent opens each dialog the menus open, and closes it; it 
   expect(await ui.core.settings()).toMatchObject({ proxyMode: "quiet", exportColorSpace: "srgb" });
   // Back to the project's media folder: unset in core too (it was kept when the window sent its whole settings).
   await ui.core.setSettings({ snapshotFolder: dir });
-  await page.until("!!document.querySelector('[data-snapshot-folder] button[title*=\"media folder again\"]')");
-  await page.evaluate("document.querySelector('[data-snapshot-folder] button[title*=\"media folder again\"]').click()");
+  await page.until("!!document.querySelector('[data-snapshot-folder] button[title*=\"in the project folder\"]')");
+  await page.evaluate("document.querySelector('[data-snapshot-folder] button[title*=\"in the project folder\"]').click()");
   for (let i = 0; i < 50 && (await ui.core.settings()).snapshotFolder !== undefined; i++) await Bun.sleep(20);
   expect((await ui.core.settings()).snapshotFolder).toBeUndefined();
   // The window shows it once its settings come back from core, a round trip after core has it.
@@ -4133,10 +4133,10 @@ test.skipIf(skip)("Remove Silences marks the silences and cuts nothing until ask
   await page.until("/shorter\\.$/.test(document.querySelector('[data-silences-summary]')?.textContent ?? '')");
   // An edit while the review is open: the summary describes the timeline as it is now, not as it was.
   const shows = (text: string) => page.until(`(document.querySelector('[data-silences-summary]')?.textContent ?? '').startsWith(${JSON.stringify(text)})`);
-  const reviewed = `${(await found()).silences.length} silences.`;
+  const reviewed = `${(await found()).silences.length} silences:`;
   await shows(reviewed);
   await run("timeline.rippleDelete", { ranges: [{ start: 0, end: 30 }] });
-  const edited = `${(await found()).silences.length} silences.`;
+  const edited = `${(await found()).silences.length} silences:`;
   expect(edited).not.toBe(reviewed);
   await shows(edited);
   await ui.core.undo(ui.handle);
@@ -5343,7 +5343,7 @@ test.skipIf(skip)("The AI panel's Music tile opens the Music panel: without a ke
     await page.until("!document.querySelector('[data-music-loading]')", 10_000);
     await page.evaluate("document.querySelector('[data-music-item=rec-1]').click()");
     await page.until("document.querySelector('[data-music-item=rec-1]')?.getAttribute('aria-selected') === 'true'");
-    expect(await page.evaluate<string>("document.querySelector('[data-music-where]').textContent")).toContain("Over the range, 0:01–0:07 (0:06): re-cut by Epidemic Sound to fit");
+    expect(await page.evaluate<string>("document.querySelector('[data-music-where]').textContent")).toContain("0:01–0:07 (0:06), re-cut to fit");
     await page.screenshot(join(dir, "music-panel.png"));
     // Apply (↩): the panel closes, the job fits and downloads it, then it is on a Music track at the bottom.
     await page.key("Enter", "Enter");
