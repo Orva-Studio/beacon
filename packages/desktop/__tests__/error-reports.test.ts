@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { redactor } from "@beacon/core";
-import { createReporter, envelope, errorEvent, parseStack, reportNewCrashes, type ErrorInput } from "../src/bun/error-reports";
+import { createReporter, envelope, errorEvent, inBundle, parseStack, reportNewCrashes, type ErrorInput } from "../src/bun/error-reports";
 
 const ctx = { version: "0.17.3", channel: "stable", macos: "26.1", arch: "arm64", redact: redactor(new Map([["Acme Launch Video", "<project 1>"]])) };
 const home = homedir();
@@ -137,6 +137,15 @@ test("temporary-folder paths are redacted in reports", () => {
   const event = errorEvent({ origin: "main", mechanism: "onerror", type: "Error", message: "ENOENT: no such file, open /private/var/folders/ab/cd/T/TemporaryItems/Confidential Client.mov" }, ctx);
   expect(JSON.stringify(event)).not.toContain("Confidential");
   expect(JSON.stringify(event)).toContain("open <path>.mov");
+});
+
+test("a crash report's path matches this Beacon.app, also as macOS hides a home folder (`/Users/USER/*/`)", () => {
+  const home = "/Users/someone";
+  expect(inBundle("/Applications/Beacon.app/Contents/MacOS/bun", "/Applications/Beacon.app", home)).toBe(true);
+  expect(inBundle("/Users/USER/*/Beacon-dev.app/Contents/MacOS/bun", `${home}/beacon/build/Beacon-dev.app`, home)).toBe(true);
+  expect(inBundle("/Users/USER/*/Beacon.app/Contents/MacOS/bun", `${home}/beacon/build/Beacon-dev.app`, home)).toBe(false);
+  expect(inBundle("/Users/USER/*/Beacon.app/Contents/MacOS/bun", "/Applications/Beacon.app", home)).toBe(false);
+  expect(inBundle("/Users/USER/*/.bun/bin/bun", `${home}/Applications/Beacon.app`, home)).toBe(false);
 });
 
 test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once (tried again while not written) with only the process and how it crashed; another app's bun is not", async () => {
