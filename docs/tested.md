@@ -5,6 +5,15 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## v0.17.3 (`fix/film-look-multi`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| With several clips selected, a look picked from an effect's Look menu (Film Look), an imported look or any of its controls (sliders, checks, menus, colours) changes that effect on every selected clip that has it, in one undo step: only the first selected clip changed (the user, 2026-11-06). Its on/off switch, Remove and Auto Tune are still the shown clip's. `effect.set` takes `effects` (a list of {clip, effect}) for this | 2026-11-06 | this commit | UI flow (a look and the Warmth slider on two clips with Film Look and a third without; one undo puts both back), `effects.test.ts` (undo exact) |
+| The B-roll flow's Model picks wait for the menu, with the option, before each pick, and pick again if a re-render lost one (it flaked once on main) | 2026-11-06 | this commit | The B-roll flows |
+
 ## Phase 14: launch readiness (`phase-14`)
 
 ### Checked headless only
