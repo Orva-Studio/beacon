@@ -37,7 +37,8 @@ const run = (cmd: string[]) => {
   }
 };
 
-const PATH_START = /(?:~|\/(?:Users|Volumes))\//g;
+// Temporary folders too: a drop or an export passes through them under the user's own file names.
+const PATH_START = /(?:~|\/(?:Users|Volumes|(?:private\/)?var\/folders|(?:private\/)?tmp))\//g;
 const EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 /**
@@ -98,13 +99,22 @@ function project(doc: Project, i: number): string[] {
   ];
 }
 
-/** The report, as plain text. */
-export function diagnosticsReport(src: DiagnosticsSource, extra: DiagnosticsExtra = {}): string {
+/** The open projects' and their media's names, each with what replaces it. */
+function namesOf(projects: DiagnosticsSource["projects"]): Map<string, string> {
   const names = new Map<string, string>();
-  src.projects.forEach(({ path, doc }, i) => {
+  projects.forEach(({ path, doc }, i) => {
     names.set(basename(path, extname(path)), `<project ${i + 1}>`);
     for (const [k, a] of Object.values(doc.assets).entries()) names.set(basename(a.path, extname(a.path)), `<media ${i + 1}.${k + 1}>`);
   });
+  return names;
+}
+
+/** What `diagnosticsReport` does to its text, for other text leaving the Mac (error reports). */
+export const projectsRedactor = (projects: DiagnosticsSource["projects"]) => redactor(namesOf(projects));
+
+/** The report, as plain text. */
+export function diagnosticsReport(src: DiagnosticsSource, extra: DiagnosticsExtra = {}): string {
+  const names = namesOf(src.projects);
   const ffmpeg = (() => {
     try {
       return run([tool("ffmpeg"), "-version"]).split("\n")[0] ?? "";

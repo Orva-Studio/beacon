@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { diagnosticsReport, type DiagnosticsExtra } from "./diagnostics";
+import { diagnosticsReport, projectsRedactor, type DiagnosticsExtra } from "./diagnostics";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { createRegistry } from "@beacon/features";
@@ -1031,6 +1031,11 @@ export class LocalCore implements BeaconCore {
   async diagnostics(extra: DiagnosticsExtra = {}): Promise<string> {
     const [preferences, secrets, resources, jobs, settings] = await Promise.all([this.preferences(), this.secrets(), this.resources(), this.jobs(), this.settings()]);
     return diagnosticsReport({ projects: [...this.#projects.values()].map((p) => ({ path: p.path, doc: p.store.doc })), settings, preferences, secrets, resources, jobs }, extra);
+  }
+
+  /** `text` redacted as the diagnostics report is: the home folder, open projects' and media names, and paths replaced. */
+  redact(text: string): string {
+    return projectsRedactor([...this.#projects.values()].map((p) => ({ path: p.path, doc: p.store.doc })))(text);
   }
 
   async fetchResource(id: string): Promise<Job> {

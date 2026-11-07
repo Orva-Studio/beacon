@@ -7,6 +7,7 @@ import type { ProjectWindow } from "./app";
 import { patchInfoPlist } from "./info-plist";
 import { checkForUpdates, checkForUpdatesSoon } from "./updates";
 import { crashReports, log, logTail, startLog } from "./log";
+import { createReporter, reportNewCrashes } from "./error-reports";
 
 const appVersion = await Updater.localInfo.version().catch(() => "unknown");
 startLog(appVersion);
@@ -50,7 +51,8 @@ type Send = import("@beacon/ui").Send;
 const socket = process.env.BEACON_SOCKET ?? DEFAULT_SOCKET;
 const keyLog = process.env.BEACON_KEYLOG ? join(homedir(), "Library/Logs/beacon-keys.log") : undefined;
 // In each project's lock, so another Beacon that finds one held can say by which.
-const ownerName = (await Updater.localInfo.channel()) === "dev" ? "Beacon dev" : "Beacon";
+const channel = await Updater.localInfo.channel().catch(() => "dev");
+const ownerName = channel === "dev" ? "Beacon dev" : "Beacon";
 const core = new LocalCore({
   socket,
   name: ownerName,
@@ -70,6 +72,35 @@ const core = new LocalCore({
 });
 /** Every action with its keys, the user's over the defaults: the menus show them. */
 let shortcuts = await core.shortcuts();
+
+// Error reports: release builds only; BEACON_ERROR_REPORTS=1 sends from a dev build too (to try them), 0 never.
+const reportsAvailable = process.env.BEACON_ERROR_REPORTS === "1" || (channel !== "dev" && process.env.BEACON_ERROR_REPORTS !== "0");
+const macos = Bun.spawnSync(["sw_vers", "-productVersion"]).stdout.toString().trim() || "unknown";
+/** Settings' switch, kept here so a report never waits on it (the process may be dying). */
+let reportsOn = (await core.settings()).errorReports !== false;
+const reporter = createReporter({
+  enabled: () => reportsAvailable && reportsOn,
+  pending: join(core.configDir, "error-reports"),
+  context: () => ({ version: appVersion, channel, macos, arch: process.arch, redact: (text) => core.redact(text) }),
+  log: (text) => log("warn", text),
+});
+const reportError = (e: unknown, mechanism: "onerror" | "onunhandledrejection") =>
+  void reporter.report({ origin: "main", mechanism, type: e instanceof Error ? e.name : typeof e, message: e instanceof Error ? e.message : String(e), ...(e instanceof Error && e.stack ? { stack: e.stack } : {}) });
+// Ahead of Electrobun's own handler, which exits at once: the report is written before that (and sent on the next launch).
+process.prependListener("uncaughtException", (e) => reportError(e, "onerror"));
+process.on("unhandledRejection", (e) => reportError(e, "onunhandledrejection"));
+void reporter.sendPending();
+if (reportsAvailable && bundle) {
+  const crashDir = join(homedir(), "Library/Logs/DiagnosticReports");
+  void reportNewCrashes(reporter, crashReports().names, join(core.configDir, "reported-crashes.json"), crashDir, bundle, (file, text) => {
+    mkdirSync(core.configDir, { recursive: true });
+    writeFileSync(file, text);
+  }).catch((e: unknown) => log("warn", "crash reports not read:", e));
+}
+// To try reports from a dev build: an error nothing catches, in this process or the window, a few seconds in.
+if (process.env.BEACON_CRASH_TEST === "main") setTimeout(() => { throw new Error("Beacon crash test (main process)"); }, 4000);
+// A native crash: macOS writes its report, sent when Beacon is next opened.
+if (process.env.BEACON_CRASH_TEST === "native") setTimeout(() => process.abort(), 4000);
 
 /** One editor window: its project (none on the start screen), native views, Media Bin pictures and exports. */
 interface Win extends ProjectWindow {
@@ -415,6 +446,8 @@ function openWindow(): Win {
             newStandalone: projects.newStandalone(),
             keyLog: !!keyLog,
             socket,
+            errorReportsNotice: reportsAvailable && !(await core.settings()).errorReportsNoticed,
+            ...(process.env.BEACON_CRASH_TEST === "window" ? { crashTest: true } : {}),
           };
           // The webview may load after the project opened: its pictures again, once the reply they would follow is made.
           setTimeout(() => {
@@ -497,6 +530,7 @@ function openWindow(): Win {
         shown: (s) => void (w.shown = s),
         keyLog: ({ line }) => keyLog && appendFileSync(keyLog, `${new Date().toISOString()} ${line}\n`),
         canvasMarks: ({ marks }) => w.views.marks(marks),
+        windowError: ({ mechanism, type, message, stack }) => void reporter.report({ origin: "window", mechanism, type, message, ...(stack ? { stack } : {}) }),
       }),
     },
   });
@@ -542,6 +576,8 @@ openWindow();
 appBridge(core, broadcast, {
   shortcuts: (list) => void shortcutsChanged(list),
   settings: (s) => {
+    reportsOn = s.errorReports !== false;
+    if (!reportsOn) reporter.dropPending();
     for (const w of windows) if (w !== changedBy) w.message("appSettings", s);
   },
   job: (job) => {
