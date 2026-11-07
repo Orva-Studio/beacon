@@ -57,6 +57,9 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     for (const wake of frameWaiters.splice(0)) wake();
   };
   let chosenFile: string | null = null;
+  /** Errors the page sent for an error report (`windowError`), and whether its next `init` shows the notice about them. */
+  const windowErrors: unknown[] = [];
+  const reports = { notice: false };
   let tile: TileMenu | undefined;
   let narrationDevices: unknown = { permissions: { screen: "granted", camera: "granted", microphone: "granted" }, displays: [], cameras: [], microphones: [{ id: "mic-1", name: "Blue Yeti" }], outputs: [], sources: { microphone: { id: "mic-1" } }, hear: false };
   /** The app's own handlers for what is core's alone. */
@@ -128,7 +131,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         if (msg.type === "setPreference" || msg.type === "setSecret") menus.push(msg.type === "setPreference" ? `setPreference:${p.id}=${p.value}` : `setSecret:${p.id}=${p.value === null ? "removed" : "set"}`);
         if (shared[msg.type]) result = await shared[msg.type]!(p as never);
         else if (msg.type === "init") {
-          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], projectsFolder: "/Users/someone/Movies/Beacon", socket: "" };
+          result = { ...(await initPayload(core)), opened: shown ? await opened(ws) : undefined, recent: opts.recent ?? [], projectsFolder: "/Users/someone/Movies/Beacon", socket: "", errorReportsNotice: reports.notice && !(await core.settings()).errorReportsNoticed };
         }
         else if (msg.type === "resync") result = await opened(ws);
         else if (msg.type === "openRecent" || msg.type === "openDialog") {
@@ -139,6 +142,7 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
         }
         else if (msg.type === "clipMenu") menus.push(p.clip);
         else if (msg.type === "copyText") copied.push(p.text);
+        else if (msg.type === "windowError") windowErrors.push(p);
         else if (msg.type === "canvasMenu") menus.push("canvas");
         else if (msg.type === "trackMenu") menus.push(`track:${p.track}`);
         else if (msg.type === "sectionMenu") menus.push(`section:${p.section}`);
@@ -269,6 +273,8 @@ export async function serveUi(project: string, opts: { cacheDir?: string; closed
     /** What the UI put on the clipboard (Copy ID). */
     copied,
     faults,
+    windowErrors,
+    reports,
     /** Picks a choice ("add") from the tile menu shown last, as the app's native menu does. */
     chooseTile(choice: string) {
       return tileChoice(core, h, tile!, choice);

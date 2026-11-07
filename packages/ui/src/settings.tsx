@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { KeptLooksSchema, type KeptLook } from "@beacon/model";
 import { Button, Check, DeviceSelect, Modal, NumberBox, RenameField, Select, SettingsRow as Row } from "./controls";
 import { AiSettings, type WaitingChoice } from "./ai-settings";
+import { ERROR_REPORTS_TEXT } from "./error-reports";
 import { syncKey, withPatch, type AppSettings, type CameraSync, type RecordDevices, type SettingsPatch, type SettingsSheet, type SettingsTab } from "./rpc";
 import { CameraSyncControl, type SyncCheckHost } from "./sync-check";
 import { replica, useView } from "./store";
@@ -107,6 +108,9 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                     </Button>
                   )}
                 </div>
+              </Row>
+              <Row label="Error Reports" hint={ERROR_REPORTS_TEXT}>
+                <Check label="Send error reports" checked={settings.errorReports !== false} onChange={(on) => update({ errorReports: on, errorReportsNoticed: true })} data-error-reports />
               </Row>
               <Row label="Make Proxies For" hint="Quick-to-seek copies made in the background, so scrubbing is fast. Unticked: only from Proxy Video in Media's menu.">
                 <div className="flex flex-col gap-1.5" data-auto-proxy>

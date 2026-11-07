@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App } from "../src/app";
 import { createHost } from "../src/host";
+import { forwardErrors } from "../src/window-errors";
 import { RecordPanel } from "../src/record-panel";
 import type { Init } from "../src/rpc";
 import { replica } from "../src/store";
@@ -64,6 +65,8 @@ if (panel !== null) {
   const state = { started: Date.now(), screen: has("screen"), camera: has("camera"), microphone: has("microphone"), systemAudio: has("systemAudio") };
   createRoot(document.getElementById("root")!).render(<RecordPanel state={state} onStop={() => void request("stopRecording")} onHide={() => void request("hidePanel")} />);
 } else {
-  replica.init(await request<Init>("init"));
+  const init = await request<Init>("init");
+  forwardErrors((e) => void request("windowError", e));
+  replica.init(init);
   createRoot(document.getElementById("root")!).render(<App host={host} />);
 }

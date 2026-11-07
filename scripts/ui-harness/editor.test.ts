@@ -1859,6 +1859,48 @@ test.skipIf(skip)(": u unlinks the selected recording (the user found it doing n
   await select([]);
 });
 
+test.skipIf(skip)("error reports: a first-run notice (release builds) until it is answered, Turn Off turning them off and OK keeping them; Settings › General's switch; an error nothing in the window caught, and a rejection, go to the main process", async () => {
+  const on = async () => (await ui.core.settings()).errorReports;
+  ui.reports.notice = true;
+  const p = await openPage(ui.url);
+  try {
+    await p.until("!!document.querySelector('[data-error-reports-notice]')", 10_000);
+    expect(await p.evaluate<string>("document.querySelector('[data-error-reports-notice]').textContent")).toContain("Never your files or their names, folders or keys");
+    await p.evaluate("document.querySelector('[data-error-reports-off]').click()");
+    for (let i = 0; i < 50 && (await on()) !== false; i++) await Bun.sleep(20);
+    expect(await ui.core.settings()).toMatchObject({ errorReports: false, errorReportsNoticed: true });
+    await p.until("!document.querySelector('[data-error-reports-notice]')");
+    // Answered: a window opened afterwards doesn't ask again.
+    const again = await openPage(ui.url);
+    await again.until("!!document.querySelector('[data-timeline-card]')", 10_000);
+    await Bun.sleep(300);
+    expect(await again.evaluate<boolean>("!!document.querySelector('[data-error-reports-notice]')")).toBe(false);
+    again.close();
+    // Settings › General turns them back on.
+    await ui.core.uiOpen(ui.handle, "settings", "general");
+    await page.until("document.querySelector('[data-error-reports]')?.getAttribute('aria-checked') === 'false'");
+    await page.evaluate("document.querySelector('[data-error-reports]').click()");
+    for (let i = 0; i < 50 && (await on()) !== true; i++) await Bun.sleep(20);
+    expect(await on()).toBe(true);
+    await page.until("document.querySelector('[data-error-reports]').getAttribute('aria-checked') === 'true'");
+    await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
+    // What the window couldn't catch reaches the main process, with its stack.
+    ui.windowErrors.length = 0;
+    await p.evaluate("setTimeout(() => { throw new TypeError('flow boom'); }); Promise.reject(new RangeError('flow rejected')); 0");
+    for (let i = 0; i < 100 && ui.windowErrors.length < 2; i++) await Bun.sleep(20);
+    const got = ui.windowErrors as { mechanism: string; type: string; message: string; stack?: string }[];
+    expect(got.map((e) => [e.mechanism, e.type, e.message]).sort()).toEqual([
+      ["onerror", "TypeError", "flow boom"],
+      ["onunhandledrejection", "RangeError", "flow rejected"],
+    ]);
+    expect(got.every((e) => typeof e.stack === "string")).toBe(true);
+  } finally {
+    p.close();
+    ui.reports.notice = false;
+    await ui.core.setSettings({ errorReports: true });
+  }
+}, 40_000);
+
 test.skipIf(skip)("Settings › Shortcuts changes the leader key: the Leader Key row takes one key, has no None, and the sequences start with it at once (\\ p opens the palette; : starts nothing)", async () => {
   const row = '[data-shortcut="app.leader"]';
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });

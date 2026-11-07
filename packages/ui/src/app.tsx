@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chordId, eventChordId, leaderOf, rationalToNumber, ticksToSeconds, trackName, type Project, type Session } from "@beacon/model";
 import { match, menuKey, runAction, sequenceStep, useKeymap, useShortcutTip, type ActionHost } from "./keymap";
 import { LeaderKeys } from "./leader";
+import { ErrorReportsNotice } from "./error-reports";
 import { Palette } from "./palette";
 import { acceptFiles, BEACON_CLIPS, droppedFiles, pastedImage } from "./drop";
 import type { DroppedFile, EffectPreview, Narrating, RunReply, TileMenu } from "./rpc";
@@ -297,6 +298,7 @@ export function App({ host }: { host: Host }) {
           <AgentToasts host={host} />
           <LearnedToasts host={host} />
           <SnapshotSaved host={host} />
+          <ErrorReportsNotice host={host} />
           <ImportProgress project={project} />
         </Toasts>
         <SettingsUi host={host} />

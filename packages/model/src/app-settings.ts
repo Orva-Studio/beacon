@@ -26,6 +26,10 @@ export const AppSettingsSchema = z.object({
   recordingPlace: z.enum(["end", "playhead", "bin"]).optional(),
   /** The share of the window's height the timeline takes, dragged on the divider above it (unset: 38%). */
   timelineShare: z.number().min(0.1).max(0.9).optional(),
+  /** Error reports to Sentry (release builds only): sent unless turned off here or on the first-run notice. */
+  errorReports: z.boolean().optional(),
+  /** The first-run notice about error reports was answered. */
+  errorReportsNoticed: z.boolean().optional(),
 });
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>;

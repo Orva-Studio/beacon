@@ -96,6 +96,10 @@ export interface Init {
   usedItems: string[];
   /** BEACON_KEYLOG=1: the window reports every key event it sees (`keyLog`), to debug shortcuts in the app. */
   keyLog?: boolean;
+  /** Error reports would be sent and the user hasn't answered the first-run notice about them yet. */
+  errorReportsNotice?: boolean;
+  /** BEACON_CRASH_TEST=window: the window throws an error nothing catches, to try error reports. */
+  crashTest?: boolean;
 }
 
 /** What the window has drawn, reported back so agents and tests can check the UI caught up. */
@@ -428,6 +432,8 @@ export type AppRPC = {
       /** What the canvas view draws over the picture (selection, handles, guides): positions in canvas pixels, sizes in points. */
       canvasMarks: { marks: CanvasMark[] };
       keyLog: { line: string };
+      /** An error nothing in the window caught, for an error report (the main process redacts it and decides). */
+      windowError: { mechanism: "onerror" | "onunhandledrejection"; type: string; message: string; stack?: string };
     };
   };
   webview: {
