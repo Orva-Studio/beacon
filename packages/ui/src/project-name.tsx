@@ -21,7 +21,7 @@ export interface SaveAsSheet {
   standalone: boolean;
 }
 
-const STANDALONE_HINT = "Copies media into the project's folder, so it can be moved or shared whole";
+const STANDALONE_HINT = "Copies media into the project, so it moves as one";
 
 function StandaloneCheck({ checked, onChange }: { checked: boolean; onChange: (on: boolean) => void }) {
   return (

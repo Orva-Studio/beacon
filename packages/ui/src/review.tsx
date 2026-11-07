@@ -111,11 +111,11 @@ function OneByOne<T extends Item>({ review, items, current, host, describe, deta
           </div>
           {detail?.(item)}
           <div className="flex justify-end gap-2">
-            <Button title="Leave it as it is and go to the next" onClick={() => step(1)} data-one-skip>
+            <Button title="Skip" onClick={() => step(1)} data-one-skip>
               Skip
             </Button>
             <Button
-              title="Cut only this one, then go to the next"
+              title="Cut this one and go on"
               onClick={() => {
                 host.run(`${review}.apply`, { one: true });
                 host.run("playhead.set", { time: Math.max(0, item.start - 1) });
@@ -127,7 +127,7 @@ function OneByOne<T extends Item>({ review, items, current, host, describe, deta
           </div>
         </>
       ) : (
-        <div className="text-label text-text-faint">Step through them to hear each one and cut them one by one.</div>
+        <div className="text-label text-text-faint">Hear and cut them one by one.</div>
       )}
     </div>
   );
@@ -175,7 +175,7 @@ export function ReviewPanel<T extends Item>(props: {
   const summary = !found
     ? `Finding ${noun}…`
     : found.waiting.length
-      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}: ${noun} are found in the transcript.`
+      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}`
       : !items.length
         ? none
         : `${tally ? tally(items) : `${items.length} ${noun}: ${cut} to cut, ${kept} kept.`} ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;

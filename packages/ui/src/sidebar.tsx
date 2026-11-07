@@ -79,13 +79,13 @@ function ItemsPanel({ title, items, host }: { title: string; items: Item[]; host
   };
   return (
     <Panel title={title}>
-      <div className="mb-3 text-center text-label text-text-faint">Drag onto media, or double-click to apply to the selection</div>
+      <div className="mb-3 text-center text-label text-text-faint">Drag onto a clip, or double-click</div>
       <div className="grid grid-cols-2 gap-2">
         {items.map((it) => (
           <ItemTile
             key={it.item}
             art={it.art}
-            title={`${it.title}. Drag it onto media, or double-click to apply it to the selection`}
+            title={`${it.title}. Drag onto a clip, or double-click`}
             data-item={it.item}
             selected={selected === it.item}
             onPointerDown={(e) => pressItem(e, it, (command, args) => use(it, command, args), { click: () => setSelected(it.item) })}
@@ -154,7 +154,7 @@ function NarrationPanel({ host }: { host: Host }) {
           <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />
         </div>
         {devices && !granted && devices.permissions.microphone !== "not asked" && (
-          <span className="text-caption text-warning">Allow Beacon in System Settings › Privacy & Security › Microphone</span>
+          <span className="text-caption text-warning">Allow Beacon in System Settings › Privacy › Microphone</span>
         )}
         {!span.still && (
           <Check label="Hear the timeline while recording" checked={hear} disabled={narrating} onChange={setHear} data-narration-hear />
@@ -200,10 +200,10 @@ function AiPanel({ host }: { host: Host }) {
   const online = useOnline();
   return (
     <Panel title="AI">
-      <div className="mb-3 text-center text-label text-text-faint">Click to review it on the timeline, then apply</div>
+      <div className="mb-3 text-center text-label text-text-faint">Review on the timeline, then apply</div>
       {offline && (
         <div className="mb-3 rounded-md bg-chip px-3 py-2 text-caption text-warning" data-ai-offline>
-          You're offline, and {offline} transcribes over the internet: media here has no transcript yet, so these can't work until you're back online. Apple's transcriber works offline (Settings › Transcripts).
+          You're offline and {offline} needs the internet. Apple's transcriber works offline (Settings › Transcripts).
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
@@ -211,7 +211,7 @@ function AiPanel({ host }: { host: Host }) {
           <ItemTile
             key={t.id}
             art={t.art}
-            title={t.online && !online ? "Needs the internet: you're offline" : offline && t.transcript !== false ? `Needs a transcript ${offline} can't make offline` : t.title}
+            title={t.online && !online ? "You're offline" : offline && t.transcript !== false ? `${offline} needs the internet` : t.title}
             disabled={(!!offline && t.transcript !== false) || (!!t.online && !online)}
             onClick={() => (t.start(host), host.itemUsed(`ai:${t.id}`))}
             data-ai={t.id}

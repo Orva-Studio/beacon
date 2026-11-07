@@ -750,9 +750,9 @@ export const motion = defineFeature({
       title: "Motion graphics made by",
       description: "Who writes motion graphics (Make) and their Auto prompts: OpenAI (the default), Claude or Apple's model; picked in Settings › AI",
       options: [
-        { id: "apple", title: "Apple, on this Mac", description: "Apple's on-device model fills a template (a title, lower third, number, list or text): free, offline, no key, but plain" },
-        { id: "openai", title: "OpenAI", description: "gpt-6.1-sol with your OpenAI API key designs each graphic in HTML (3D, maps, any style, a reference image), about $0.10–0.20 a Make on your account", secret: OPENAI, online: true },
-        { id: "claude", title: "Claude", description: "Claude Opus 5.5 with your Anthropic API key designs each graphic in HTML (3D, maps, any style, a reference image), about $0.20–0.35 a Make on your account", secret: ANTHROPIC, online: true },
+        { id: "apple", title: "Apple, on this Mac", description: "Templates only: free, offline, plain" },
+        { id: "openai", title: "OpenAI", description: "Designs anything. About $0.10–0.20 a Make, on your key", secret: OPENAI, online: true },
+        { id: "claude", title: "Claude", description: "Designs anything. About $0.20–0.35 a Make, on your key", secret: ANTHROPIC, online: true },
       ],
       default: "openai",
     },

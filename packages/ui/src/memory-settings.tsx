@@ -48,7 +48,7 @@ function Habits({ title, habits, host }: { title: string; habits: HabitInfo[]; h
               {h.agree} of your {h.of} choices{h.format ? "" : ", from every kind of video: too few of these yet"}
             </div>
           </div>
-          <Button look="quiet" title="Forget the choices this was learned from" onClick={() => host.memoryChange({ forget: { rules: h.rules, ...(h.format ? { format: h.format } : {}) } })} data-memory-forget>
+          <Button look="quiet" title="Forget this" onClick={() => host.memoryChange({ forget: { rules: h.rules, ...(h.format ? { format: h.format } : {}) } })} data-memory-forget>
             Forget
           </Button>
         </div>

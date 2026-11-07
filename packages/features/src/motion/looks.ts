@@ -32,7 +32,7 @@ export const LOOKS: Look[] = [
   {
     id: "clean",
     name: "Clean",
-    description: "The Text annotation's font, white, a green accent and a soft shadow; words rise into place",
+    description: "White with a green accent; words rise in",
     heading: { font: "", weight: 700 },
     body: { font: "", weight: 400 },
     text: WHITE,
@@ -46,7 +46,7 @@ export const LOOKS: Look[] = [
   {
     id: "bold",
     name: "Bold",
-    description: "Heavy condensed type in yellow and white, a hard shadow; pieces punch in",
+    description: "Heavy yellow and white type; punches in",
     heading: { font: "DIN Condensed", weight: 700 },
     body: { font: "Avenir Next", weight: 700 },
     text: WHITE,
@@ -60,7 +60,7 @@ export const LOOKS: Look[] = [
   {
     id: "editorial",
     name: "Editorial",
-    description: "A serif heading over a light sans, warm white on a cream card; slow and calm",
+    description: "Serif on a cream card; slow and calm",
     heading: { font: "Didot", weight: 700 },
     body: { font: "Avenir Next", weight: 400 },
     text: [0.98, 0.96, 0.92, 1],
@@ -74,7 +74,7 @@ export const LOOKS: Look[] = [
   {
     id: "tech",
     name: "Tech",
-    description: "Monospaced type, a cyan accent and glow on a dark card; pieces slide in",
+    description: "Monospaced, cyan glow on dark; slides in",
     heading: { font: "Menlo", weight: 700 },
     body: { font: "Menlo", weight: 400 },
     text: [0.9, 0.98, 1, 1],
@@ -88,7 +88,7 @@ export const LOOKS: Look[] = [
   {
     id: "minimal",
     name: "Minimal",
-    description: "Helvetica Neue in white, no shadow, wiped in plainly",
+    description: "Plain white Helvetica; wipes in",
     heading: { font: "Helvetica Neue", weight: 500 },
     body: { font: "Helvetica Neue", weight: 400 },
     text: WHITE,

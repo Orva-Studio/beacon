@@ -92,7 +92,7 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
         <TextArea
           autoFocus
           rows={4}
-          placeholder="What should it do? (“Make this a counter from 0 to 10,000”, “Lay out this section”)"
+          placeholder="What should it do? (“Make this a counter to 10,000”)"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
@@ -121,10 +121,10 @@ function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; 
         )}
         {sessions && !sessions.length && (
           <div className="flex flex-col gap-2 rounded-md bg-groove px-3 py-2" data-ask-none>
-            <span className="text-warning">No Claude Code session is connected to Beacon, and Codex isn't installed.</span>
-            <span className="text-caption text-text-muted">Start one in the project's folder that takes requests from Beacon:</span>
+            <span className="text-warning">No agent is connected.</span>
+            <span className="text-caption text-text-muted">Start Claude Code in the project folder:</span>
             <code className="rounded-sm bg-chip px-2 py-1 text-caption text-text-strong select-text">{START_COMMAND}</code>
-            <span className="text-caption text-text-faint">Or copy the request with what it's about, and paste it into any agent.</span>
+            <span className="text-caption text-text-faint">Or copy the request into any agent.</span>
           </div>
         )}
         {error && <div className="text-danger">{error}</div>}
@@ -169,7 +169,7 @@ function AgentToast({ request: r, host }: { request: AgentRequest; host: Pick<Ho
         )}
         {r.state === "silent" && (
           <div className="mt-2 flex flex-col items-start gap-2">
-            <span className="text-caption text-text-muted">Its session may not take requests from Beacon: start one with</span>
+            <span className="text-caption text-text-muted">It may not take requests. Start it with</span>
             <code className="rounded-sm bg-chip px-2 py-1 text-caption text-text-strong select-text">{START_COMMAND}</code>
             <Button
               onClick={() => {

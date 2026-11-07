@@ -110,7 +110,7 @@ export function LearnedShortcuts({ host, shortcuts }: { host: LearnedHost; short
           <span className="shrink-0 text-caption text-text-faint">
             {s.uses} {s.uses === 1 ? "use" : "uses"}
           </span>
-          <TrashButton label="Remove (it won't be offered again)" onClick={() => host.memoryChange({ shortcut: { remove: s.item } })} />
+          <TrashButton label="Remove for good" onClick={() => host.memoryChange({ shortcut: { remove: s.item } })} />
         </Row>
       ))}
       {shortcuts.offers.map((s) => (

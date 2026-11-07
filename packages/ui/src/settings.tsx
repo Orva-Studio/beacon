@@ -82,7 +82,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
         <div className={`min-w-0 flex-1 pr-1 ${tab === "shortcuts" ? "flex flex-col" : "overflow-y-auto"}`} data-settings-section={tab}>
           {tab === "general" && (
             <div className="flex flex-col gap-3">
-              <Row label="Export Color Space" hint="BT.709 is the video standard; with sRGB, QuickTime shows it as the editor does.">
+              <Row label="Export Color Space" hint="BT.709 is standard. sRGB matches the editor in QuickTime.">
                 <div className="w-56">
                   <Select value={settings.exportColorSpace} onChange={(e) => update({ exportColorSpace: e.target.value as AppSettings["exportColorSpace"] })}>
                     <option value="bt709">BT.709</option>
@@ -90,7 +90,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   </Select>
                 </div>
               </Row>
-              <Row label="Save Snapshots To" hint="Snapshot (the camera in the timeline's toolbar) saves the frame at the playhead as a PNG here and adds it to the Media Bin.">
+              <Row label="Save Snapshots To" hint="Where Snapshot saves its PNGs.">
                 <div className="flex min-w-0 items-center gap-2" data-snapshot-folder>
                   <span className="min-w-0 flex-1 truncate text-text" title={settings.snapshotFolder ?? "The project's media folder"}>
                     {settings.snapshotFolder ? settings.snapshotFolder.replace(/^\/Users\/[^/]+/, "~") : "The project's media folder"}
@@ -102,13 +102,13 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                     Choose…
                   </Button>
                   {settings.snapshotFolder && (
-                    <Button look="quiet" title="Save snapshots in the project's media folder again" onClick={() => update({ snapshotFolder: null })}>
+                    <Button look="quiet" title="Save snapshots in the project folder" onClick={() => update({ snapshotFolder: null })}>
                       Use Project
                     </Button>
                   )}
                 </div>
               </Row>
-              <Row label="Make Proxies For" hint="Quick-to-seek copies made in the background, so scrubbing is fast. Unticked: only from Proxy Video in Media's menu.">
+              <Row label="Make Proxies For" hint="Faster scrubbing. Off: Media › Proxy Video.">
                 <div className="flex flex-col gap-1.5" data-auto-proxy>
                   {(
                     [
@@ -120,7 +120,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   ))}
                 </div>
               </Row>
-              <Row label="Build Proxies" hint="Quietly: one at a time at background priority, so the fans stay off. Fast: two at once.">
+              <Row label="Build Proxies" hint="Quietly keeps the fans off. Fast makes two at once.">
                 <div className="w-56">
                   <Select data-proxy-mode value={settings.proxyMode} onChange={(e) => update({ proxyMode: e.target.value as AppSettings["proxyMode"] })}>
                     <option value="quiet">Quietly</option>
@@ -128,7 +128,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   </Select>
                 </div>
               </Row>
-              <Row label="Proxy Videos" hint="Every project's; open projects make theirs again when next opened.">
+              <Row label="Proxy Videos" hint="For every project. Open projects remake theirs.">
                 <div className="flex items-center gap-3" data-proxy-space>
                   <Button
                     disabled={proxySpace === "deleting" || !proxySpace}
@@ -160,7 +160,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                 <TranscriptsSettings
                   pref={transcriber}
                   label="Transcriber"
-                  offline="Apple's transcriber works offline, and Whisper on this Mac once its speech model is downloaded."
+                  offline="Apple's and Whisper on this Mac work offline."
                   model={resources?.find((r) => r.id === "whisper-model")}
                   close={close}
                   host={host}
@@ -168,7 +168,7 @@ function SettingsWindow({ app: { tab: opening, devices, resources, preferences, 
                   askKey={askKey("transcripts")}
                 />
               )}
-              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The words of each line said more than once are sent to OpenAI (not the audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} askKey={askKey("transcripts")} />}
+              {judge && <TranscriptsSettings pref={judge} label="Best Take" sends="The repeated lines' words go to OpenAI (not audio)" offline="Beacon's own scoring works offline." close={close} host={host} changed={setPrefs} askKey={askKey("transcripts")} />}
             </div>
           )}
           {tab === "ai" && prefs && keys && (
@@ -201,7 +201,7 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
   const [microphone, setMicrophone] = useState(devices?.microphone ?? devices?.microphones[0]?.id);
   const takes = (
     <>
-      <Row label="Place New Recordings" hint="Where a take goes when you stop recording. An agent's recording goes where it says.">
+      <Row label="Place New Recordings" hint="Where a take goes when you stop.">
         <div className="w-56">
           <Select data-recording-place value={settings.recordingPlace ?? "end"} onChange={(e) => update({ recordingPlace: e.target.value as NonNullable<AppSettings["recordingPlace"]> })}>
             <option value="end">At the end of the timeline</option>
@@ -210,7 +210,7 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
           </Select>
         </div>
       </Row>
-      <Row label="Cursor Size" hint="The size a recording's cursor starts at when it's imported, in every project. Clips already placed keep theirs.">
+      <Row label="Cursor Size" hint="For new imports. Placed clips keep theirs.">
         <div className="flex items-center gap-2" data-cursor-scale>
           <NumberBox value={(settings.cursorScale ?? 1) * 100} unit="%" min={25} max={1000} step={25} width={70} onCommit={(v) => update({ cursorScale: v / 100 })} />
         </div>
@@ -221,7 +221,7 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
     return (
       <div className="flex flex-col gap-3" data-recording-settings>
         {takes}
-        <div className="text-text-faint">Connect a camera and a microphone to set how they line up.</div>
+        <div className="text-text-faint">Connect a camera and a microphone to sync them.</div>
       </div>
     );
   const key = syncKey(camera, microphone);
@@ -235,7 +235,7 @@ function RecordingSettings({ devices, settings, update, host }: { devices?: Reco
       <Row label="Microphone">
         <DeviceSelect devices={devices.microphones} value={microphone} onChange={setMicrophone} />
       </Row>
-      <Row label="Sync" hint="A camera through a capture card shows its picture late. Each take recorded with this pair moves its camera clip earlier by this much, so lips match the voice.">
+      <Row label="Sync" hint="Capture cards show the picture late. New takes move the camera earlier by this much.">
         <div className="min-w-0 flex-1">
           <CameraSyncControl
             key={key}
@@ -265,9 +265,9 @@ function KeptLooks({ value, save }: { value: string; save: (value: string) => vo
   const [renaming, setRenaming] = useState<string>();
   const put = (next: KeptLook[]) => save(JSON.stringify(next));
   return (
-    <Row label="Your Film Looks" hint="Looks imported into Film Look (.hlook) or saved from it (the save icon by its trash): every project's Look menu lists them, under Your looks. One imported or saved under the same name replaces it.">
+    <Row label="Your Film Looks" hint="Looks you saved or imported in Film Look, for every project.">
       <div className="flex min-w-0 flex-col gap-1.5" data-kept-looks>
-        {!looks.length && <span className="text-text-muted">None yet: Film Look's Import .hlook… or its save icon adds one.</span>}
+        {!looks.length && <span className="text-text-muted">None yet. Save or import one in Film Look.</span>}
         {looks.map((l) => (
           <div key={l.id} className="flex min-w-0 items-center gap-2" data-kept-look={l.id}>
             {renaming === l.id ? (

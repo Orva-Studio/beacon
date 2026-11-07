@@ -32,7 +32,7 @@ const LOOKS: CaptionPreset[] = [
   {
     id: "editorial-line",
     title: "Editorial Line",
-    description: "A small, quiet line in a serif, a few words at a time, cut in as they are said: no box, no colour",
+    description: "A small, quiet serif line, no box",
     style: ({ height }) => ({
       font: SERIF,
       weight: 400,
@@ -50,13 +50,13 @@ const LOOKS: CaptionPreset[] = [
   {
     id: "karaoke",
     title: "Karaoke",
-    description: "No box: the words to come dimmed, each turning white as it is said, the spoken one in yellow",
+    description: "Dim words turning white as said, spoken one yellow",
     style: ({ height }) => ({ font: "Avenir Next", weight: 700, background: NONE, upcoming: [1, 1, 1, 0.45], shadow: SHADOW, shadowBlur: Math.round(8 * (height / 1080)), anchorY: "bottom", offsetY: Math.round(height * 0.28), maxWidth: 0.72 }),
   },
   {
     id: "word-pop",
     title: "Word Pop",
-    description: "Big bold capitals popping in as each word is said, the spoken word in green, keywords in yellow",
+    description: "Big bold capitals popping in, keywords yellow",
     style: ({ height }) => {
       const k = height / 1080;
       return {
@@ -103,7 +103,7 @@ const LOOKS: CaptionPreset[] = [
   {
     id: "editorial-headline",
     title: "Editorial Headline",
-    description: "Huge serif words across the top, two to a line, each line stretched to fill the width, cut in as they are said; numbers count up; blurs away",
+    description: "Huge serif words across the top, stretched to fill",
     headline: true,
     style: ({ height }) => ({
       layout: "headline",
@@ -131,7 +131,7 @@ const LOOKS: CaptionPreset[] = [
   {
     id: "headline",
     title: "Headline",
-    description: "Beside the speaker: a few small lines building word by word around one big keyword line, underlined, then fading out",
+    description: "Beside the speaker: small lines around one big keyword",
     headline: true,
     style: ({ width, height }) => {
       const k = height / 1080;
@@ -159,7 +159,7 @@ const LOOKS: CaptionPreset[] = [
   {
     id: "headline-glow",
     title: "Headline Glow",
-    description: "Beside the speaker: the keyword line big in glowing yellow, the words around it white",
+    description: "Beside the speaker: keyword in glowing yellow",
     headline: true,
     style: ({ width, height }) => {
       const k = height / 1080;

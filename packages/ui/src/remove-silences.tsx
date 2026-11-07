@@ -57,20 +57,20 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
   const summary = !found
     ? "Finding silences…"
     : found.waiting.length
-      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}: silences are found in the transcript.`
+      ? `Transcribing ${found.waiting.length === 1 ? "the speech" : `${found.waiting.length} media items`}${progress === undefined ? "" : ` (${Math.round(progress * 100)}%)`}`
       : !items.length
         ? `No silences longer than ${review.min} s.`
         : picked
           ? `${picked} of ${items.length} silences selected: ${clock(found.selectedSaved)} shorter.`
-          : `${items.length} silences. Cutting them all: ${clock(length)} → ${clock(length - found.saved)}, ${clock(found.saved)} shorter.`;
+          : `${items.length} silences: ${clock(found.saved)} shorter.`;
   return (
     <div className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-y-auto p-4 text-body`} data-silence-review>
       <div className="mb-4 text-title font-semibold text-text-strong">Remove Silences</div>
       <Slider label="Longer than" title="Silences longer than this are found" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
-      <Slider label="Leave" title={quiet ? "Most of each cut silence left in, half each side: with Trim quiet on the cut follows the sound, so no noise is kept" : "How much of each cut silence is left in, half each side"} value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
+      <Slider label="Leave" title={quiet ? "Most silence kept, split each side" : "Silence kept, split each side"} value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
       <Slider
         label="Trim quiet"
-        title="Low noise this far under your voice counts as silence too (a breath, the room after a word), and each cut follows the sound so none of it is kept. 0 for off"
+        title="Also cut quiet sound this far under your voice. 0 for off"
         value={quiet}
         unit=" dB"
         digits={0}

@@ -763,9 +763,9 @@ export const transcript = defineFeature({
       title: "Transcriber",
       description: "Who makes transcripts (Remove Silences, cutting by transcript, captions). Transcripts already made by one are kept for when it is chosen again",
       options: [
-        { id: "whisper", title: "Whisper on this Mac", description: "OpenAI's Whisper, run on this Mac, offline. Needs its speech model (about 575 MB, downloaded once). Best on technical words" },
-        { id: "apple", title: "Apple's transcriber", description: "macOS's own on-device transcriber: offline, no download and about 5× faster, but weaker on technical words and on exact word times" },
-        { id: "openai", title: "Whisper through OpenAI", description: "OpenAI's Whisper over its API with your own API key: the audio is uploaded to OpenAI to be transcribed, and OpenAI charges your account for it", secret: "openai-api-key", online: true },
+        { id: "whisper", title: "Whisper on this Mac", description: "Offline, best on technical words. 575 MB download, once" },
+        { id: "apple", title: "Apple's transcriber", description: "Offline, no download, 5× faster. Weaker on technical words" },
+        { id: "openai", title: "Whisper through OpenAI", description: "Uploads the audio to OpenAI, charged to your key", secret: "openai-api-key", online: true },
       ],
       default: "whisper",
     },
@@ -774,8 +774,8 @@ export const transcript = defineFeature({
       title: "Best take",
       description: "Who picks the take to keep of a line said more than once (Remove Retakes)",
       options: [
-        { id: "beacon", title: "Beacon's own scoring", description: "On this Mac: the last take that says the whole line, unless an earlier one has noticeably fewer fillers and stumbles" },
-        { id: "openai", title: "OpenAI", description: "OpenAI's API with your own API key reads each line's takes and picks one: their words are sent to OpenAI (not the audio), and OpenAI charges your account for it", secret: "openai-api-key", online: true },
+        { id: "beacon", title: "Beacon's own scoring", description: "Offline. Keeps the last full take, or a cleaner earlier one" },
+        { id: "openai", title: "OpenAI", description: "OpenAI reads the takes' words and picks one, charged to your key", secret: "openai-api-key", online: true },
       ],
       default: "beacon",
     },

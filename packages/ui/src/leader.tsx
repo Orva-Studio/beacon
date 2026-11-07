@@ -57,7 +57,7 @@ export function LeaderKeys() {
               <span className="flex items-center gap-2 truncate text-text">
                 <span className="truncate">{n.names.map((x) => (depth > 1 ? x.replace(/^[^:]*: /, "") : x)).join(", ")}</span>
                 {n.fresh && (
-                  <span className="shrink-0 rounded-sm bg-accent/20 px-1 text-caption text-accent" title="Learned from how often you use it (Settings › Memory)" data-leader-new>
+                  <span className="shrink-0 rounded-sm bg-accent/20 px-1 text-caption text-accent" title="Learned from your use" data-leader-new>
                     new
                   </span>
                 )}

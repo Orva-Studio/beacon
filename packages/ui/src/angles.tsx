@@ -74,14 +74,14 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
           <Toggle
             value={a.move}
             options={[
-              { value: "handheld", label: "Handheld", title: "A little drift, as a camera held by hand" },
-              { value: "locked", label: "Locked", title: "Locked off on a tripod: no movement" },
+              { value: "handheld", label: "Handheld", title: "A little drift" },
+              { value: "locked", label: "Locked", title: "No movement" },
             ]}
             onChange={(move) => set({ move }, "Angle Camera")}
             data-angle-move
           />
         </Row>
-        <TextArea className="mt-2 h-14 w-full" placeholder="Anything else, in a few words (optional)" value={note} onChange={(e) => setNote(e.target.value)} onBlur={saveNote} data-angle-note />
+        <TextArea className="mt-2 h-14 w-full" placeholder="Anything else (optional)" value={note} onChange={(e) => setNote(e.target.value)} onBlur={saveNote} data-angle-note />
       </Section>
       <Section>
         <div className="mb-1 text-label text-text-faint">Room photos</div>
@@ -114,7 +114,7 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
         ) : (
           (crop || over) && (
             <div className="mb-2 text-label text-text-muted" data-angle-cost>
-              {crop && "Your camera has the pixels for this close-up: it can be a crop of your own frames, free and in sync."}
+              {crop && "Your camera is sharp enough to crop this close-up: free and in sync."}
               {over && <span className="text-danger">About {dollars(estimate.cost)}: over your {dollars(estimate.limit)} limit per generation (Settings › AI).</span>}
             </div>
           )
@@ -145,7 +145,7 @@ export function AngleTab({ clip, project, session, host }: { clip: Clip; project
           <Button
             look={crop ? "quiet" : "primary"}
             disabled={!ready}
-            title={online ? "Made on your Replicate account; upscaling is charged there too" : "Generating needs the internet"}
+            title={online ? "Charged to your Replicate account" : "You're offline"}
             onClick={() => host.run("angle.generate", { clip: clip.id })}
             data-angle-generate
           >

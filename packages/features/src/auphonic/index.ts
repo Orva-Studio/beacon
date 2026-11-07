@@ -337,7 +337,7 @@ export const auphonic = defineFeature({
     {
       id: "audio:auphonic",
       label: "Auphonic",
-      title: "Clean the clip's audio with Auphonic, with one of your presets (on your Auphonic account)",
+      title: "Clean the audio with an Auphonic preset",
       command: "auphonic.review",
       args: {},
       traits: ["audio"],

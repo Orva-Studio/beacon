@@ -125,15 +125,15 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
             {camera ? <img src={`data:image/jpeg;base64,${camera}`} alt="Camera preview" className="h-full w-full -scale-x-100 object-cover" data-preview="Camera" /> : <Icon name="video-camera" size={18} className="text-text-faint" />}
           </div>
           <ol className="flex list-decimal flex-col gap-1.5 pl-4 text-text-muted">
-            <li>Sit where you record, facing the screen below: the camera measures its light on you.</li>
-            <li>Beacon turns your Mac's volume up for the check, and back after.</li>
-            <li>Stay still and quiet while the screen flashes and beeps, about 10 seconds.</li>
+            <li>Sit where you record, facing the screen.</li>
+            <li>Your volume goes up for the check, then back.</li>
+            <li>Stay still and quiet for about 10 seconds.</li>
           </ol>
         </div>
         <Row label="Camera">
           <span className="truncate text-text">{devices.camera.name}</span>
         </Row>
-        <Row label="Microphone" hint={beep === "heard" ? "Heard the beep." : beep === "missed" ? "The microphone didn't hear the beep: turn the speakers up or bring the microphone closer." : undefined}>
+        <Row label="Microphone" hint={beep === "heard" ? "Heard the beep." : beep === "missed" ? "Didn't hear the beep. Turn the speakers up or move the mic closer." : undefined}>
           <span className="w-44 truncate text-text">{devices.microphone.name}</span>
           <LevelMeter label="Microphone level" db={level?.db} peak={level?.peak} />
         </Row>
@@ -141,11 +141,11 @@ function SyncCheckDialog({ devices, host, onClose, onMeasured }: { devices: Sync
           label="Beeps Through"
           hint={
             !chosen
-              ? "Nothing here plays out loud: connect speakers, or unplug headphones, so the microphone can hear the beeps."
+              ? "Nothing plays out loud. Connect speakers or unplug headphones."
               : !chosen.speakers
                 ? `The microphone can't hear ${KIND[chosen.kind] ?? "this"}: choose speakers.`
                 : current && current.id !== chosen.id
-                  ? `Your Mac's sound goes to ${current.name}${current.speakers ? "" : ` (${KIND[current.kind] ?? "not out loud"})`}: Beacon plays the beeps through ${chosen.name} for the check, then switches back.`
+                  ? `Your Mac's sound goes to ${current.name}${current.speakers ? "" : ` (${KIND[current.kind] ?? "not out loud"})`}. The check beeps through ${chosen.name}, then switches back.`
                   : undefined
           }
         >
@@ -198,7 +198,7 @@ export function CameraSyncControl({ sync, onChange, onCheck, host, devices, type
     ? `Measured ${day(sync.checked.at)} from ${sync.checked.flashes} flashes (within ${sync.checked.spreadMs} ms).`
     : sync
       ? "Typed in. Check Sync measures it."
-      : "Not checked: Check Sync measures it.";
+      : "Not checked yet.";
   return (
     <div className="flex flex-col gap-1" data-camera-sync>
       <div className="flex items-center gap-2">

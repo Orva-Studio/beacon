@@ -3877,6 +3877,12 @@ Beacon is feature-complete for the user: no Phase 16 (Films, narrated videos mad
 2026-10-26 and is dropped). Next it goes to beta testers; what follows is their feedback, small bug fixes and
 performance work, and keeping the repo tidy.
 
+**Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
+much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,
+offline or online, what Off means); how it works is dropped, not moved to a tooltip (the user chose "Lean" over
+Camtasia-style tooltips-only and over a light trim). Text only agents read (command and setting descriptions over
+MCP) is left as it is.
+
 ## 14. Risks
 
 | Risk | Mitigation |

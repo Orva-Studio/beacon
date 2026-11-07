@@ -1659,7 +1659,7 @@ test.skipIf(skip)("a click selects a panel's tile; a double-click applies it to 
   await run("panel.show", { tool: "annotations" });
   await page.until(`!!document.querySelector('${tile("annotation:blur")}')`);
   expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-item]')].map((e) => e.dataset.item)`)).toEqual(["annotation:text", "annotation:rectangle", "annotation:spotlight", "annotation:blur", "annotation:highlight"]);
-  expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto media, or double-click to apply to the selection");
+  expect(await page.evaluate<string>("document.body.innerText")).toContain("Drag onto a clip, or double-click");
   // A click selects it, adding nothing; no star.
   const before = clips().length;
   await page.click(...(await centre(tile("annotation:blur"))));
@@ -4322,7 +4322,7 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     await p.evaluate("document.querySelector('[data-ai=retakes]').click()");
     await p.until("!!document.querySelector('[data-retake-review]')");
     await p.until("/shorter\\.$/.test(document.querySelector('[data-retakes-summary]')?.textContent ?? '')", 30_000);
-    expect(await summary()).toStartWith("2 lines said more than once, 2 takes to cut.");
+    expect(await summary()).toStartWith("2 repeated lines, 2 takes to cut.");
     const first = await found();
     expect(first.groups.map((g) => [g.takes.length, g.best, g.by])).toEqual([
       [2, 1, "beacon"],
@@ -4364,7 +4364,7 @@ test.skipIf(skip)("Remove Retakes reviews on the timeline: each take marked, the
     await p.evaluate("document.querySelector('[data-take-cut]').click()");
     await p.until("!!document.querySelector('[data-take-cut-all]') && !document.querySelector('[data-retake-takes] [data-kept]')");
     expect((await found()).groups[1]!.best).toBe(-1);
-    expect(await summary()).toStartWith("2 lines said more than once, 3 takes to cut.");
+    expect(await summary()).toStartWith("2 repeated lines, 3 takes to cut.");
     const g1 = (await found()).groups[1]!;
     await go("timeline.view", { start: g1.start - 1, end: g1.end + 1 });
     await Bun.sleep(200);

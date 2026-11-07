@@ -268,7 +268,7 @@ function ImportTile({ list, host, empty }: { list: boolean; host: Host; empty: b
   return (
     <button
       data-bin-import
-      title="Import Media… (⌘I): or drop files anywhere on the window"
+      title="Import Media (⌘I), or drop files"
       onClick={() => host.importMedia()}
       className={`flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-field-edge text-label text-text-dim hover:border-accent hover:text-text-strong ${
         list ? "py-2" : empty ? "col-span-2 aspect-[16/7] flex-col" : "min-h-24 flex-col"
@@ -316,19 +316,19 @@ function BinItem({ asset: a, list, thumb, peaks, selection, order, host }: { ass
         </>
       )}
       {preparing !== undefined ? (
-        <div className={`absolute inset-x-1 ${list ? "bottom-0.5" : "bottom-6"}`} data-proxy-progress title="Making a proxy: a copy that seeks quickly, for scrubbing">
+        <div className={`absolute inset-x-1 ${list ? "bottom-0.5" : "bottom-6"}`} data-proxy-progress title="Making a proxy for faster scrubbing">
           <Progress value={preparing} className="bg-black/60" />
         </div>
       ) : (
         proxy &&
         !list && (
-          <span className="absolute top-1 right-1 flex size-3.5 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black ring-1 ring-black/50" data-proxy title="Has a proxy: scrubbing reads a quick-to-seek copy">
+          <span className="absolute top-1 right-1 flex size-3.5 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black ring-1 ring-black/50" data-proxy title="Has a proxy for faster scrubbing">
             P
           </span>
         )
       )}
       {missing && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/70 text-center" data-missing title={`${a.path} was moved, renamed or deleted. Right-click and choose Locate Media… to find it.`}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/70 text-center" data-missing title={`${a.path} is missing. Right-click › Locate Media…`}>
           <span className="text-label font-semibold text-danger">Missing</span>
           {!list && <span className="text-[10px] text-text-muted">Right-click › Locate Media…</span>}
         </div>
@@ -393,7 +393,7 @@ function BinItem({ asset: a, list, thumb, peaks, selection, order, host }: { ass
           {name}
           <span className="flex-1" />
           {proxy && (
-            <span className="flex size-3.5 shrink-0 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black" data-proxy title="Has a proxy: scrubbing reads a quick-to-seek copy">
+            <span className="flex size-3.5 shrink-0 items-center justify-center rounded-[3px] bg-accent text-[9px] leading-none font-bold text-black" data-proxy title="Has a proxy for faster scrubbing">
               P
             </span>
           )}

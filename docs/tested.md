@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Word review (`chore/word-review`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Every hint, tooltip and note a user sees cut to one short sentence ("Lean"): Properties and its AI tools, Settings, the sync check, the sidebar, Record, the reviews, Music, Export, the Media Bin, caption and Motion look descriptions, transcriber and planner options. Agent-only text untouched | 2026-11-07 | this branch | typecheck, the UI flows (two expected texts updated). Not yet: read through in the app |
+
 ## Phase 14: launch readiness (`phase-14`)
 
 ### Checked headless only

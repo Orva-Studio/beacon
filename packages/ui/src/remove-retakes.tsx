@@ -102,7 +102,7 @@ function Takes({ group, host, session }: { group: RetakeGroup; host: Host; sessi
         </span>
         <Button
           look="quiet"
-          title={group.best < 0 ? "Keep one take again: the one picked" : "Cut every take of this line, keeping none"}
+          title={group.best < 0 ? "Keep the picked take" : "Cut every take"}
           onClick={() => host.run("retakes.cutAll", { start: group.start, end: group.end, key: group.key, on: group.best >= 0 })}
           data-take-cut
           data-take-cut-all={group.best < 0 || undefined}
@@ -133,12 +133,12 @@ export function RetakeReviewPanel({ project, session, host, found }: { project: 
       one="retake"
       title="Remove Retakes"
       noun="retakes"
-      none="No line said more than once."
+      none="No repeated lines."
       project={project}
       host={host}
       found={found}
       items={found?.groups.map((g) => ({ ...g, cut: true as const }))}
-      tally={(groups) => `${groups.length} ${groups.length === 1 ? "line" : "lines"} said more than once, ${groups.reduce((n, g) => n + cutCount(g), 0)} takes to cut.`}
+      tally={(groups) => `${groups.length} repeated ${groups.length === 1 ? "line" : "lines"}, ${groups.reduce((n, g) => n + cutCount(g), 0)} takes to cut.`}
       describe={(g) => `${clock(g.start)}: ${g.takes.length} takes, ${g.best < 0 ? "cutting them all" : `keeping take ${g.best + 1}`}`}
       list
       learned={review.learned}
@@ -149,20 +149,20 @@ export function RetakeReviewPanel({ project, session, host, found }: { project: 
             <span className="h-2.5 w-4 rounded-sm bg-take-kept" /> Take kept
             <span className="ml-3 h-2.5 w-4 rounded-sm bg-silence-cut" /> To cut
           </span>
-          <span>Click a line on the timeline or in the list to look at it, then one of its takes to keep it instead.</span>
+          <span>Click a take to keep it instead.</span>
         </>
       }
       note={
         found?.judge === "openai" && !found.waiting.length && (asking.length || error) ? (
           <div className="mb-2 text-label text-text-muted" data-retakes-judging>
-            {error && !asking.length ? `${error}. Beacon's own picks are shown.` : "OpenAI is picking the best takes; Beacon's own picks are shown until it has."}
+            {error && !asking.length ? `${error}. Beacon's own picks are shown.` : "OpenAI is picking the best takes…"}
           </div>
         ) : undefined
       }
     >
-      <Slider label="Repeats" title="Words in a row a take must say again to count as a retake" value={review.minWords} unit=" words" digits={0} step={1} min={2} max={8} onChange={(v) => set({ minWords: Math.round(v) })} />
-      <Slider label="Within" title="Seconds between the starts of two takes, at most" value={review.within} unit=" s" digits={0} step={5} min={5} max={120} onChange={(v) => set({ within: Math.round(v) })} />
-      <div className="mb-4 text-label text-text-faint">Lines restarted or said again, found in the transcript. {found?.judge === "openai" ? "OpenAI picks the take to keep" : "The last take that says the whole line is kept, unless an earlier one has noticeably fewer fillers and stumbles"}; Best Take in Settings › Transcripts chooses who picks.</div>
+      <Slider label="Repeats" title="Words repeated to count as a retake" value={review.minWords} unit=" words" digits={0} step={1} min={2} max={8} onChange={(v) => set({ minWords: Math.round(v) })} />
+      <Slider label="Within" title="Most seconds between takes" value={review.within} unit=" s" digits={0} step={5} min={5} max={120} onChange={(v) => set({ within: Math.round(v) })} />
+      <div className="mb-4 text-label text-text-faint">{found?.judge === "openai" ? "OpenAI picks the take to keep." : "Keeps the last full take, or a cleaner earlier one."}</div>
     </ReviewPanel>
   );
 }
