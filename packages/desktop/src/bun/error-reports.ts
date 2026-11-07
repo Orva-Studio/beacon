@@ -101,6 +101,8 @@ export interface Reporter {
   sendPending(): Promise<number>;
   /** Deletes what is written and not sent: reports were turned off. */
   dropPending(): void;
+  /** Whether reports are on now. */
+  enabled(): boolean;
 }
 
 /** Pending reports kept at most: older ones are dropped. */
@@ -180,6 +182,7 @@ export function createReporter(opts: {
       return n;
     },
     dropPending,
+    enabled: opts.enabled,
   };
 }
 
@@ -208,7 +211,8 @@ export function crashSummary(file: string, bundle: string): { process: string; e
 export async function reportNewCrashes(reporter: Reporter, names: string[], seenFile: string, dir: string, bundle: string, write: (file: string, text: string) => void): Promise<number> {
   const first = !existsSync(seenFile);
   const seen = new Set<string>(first ? [] : (() => { try { return JSON.parse(readFileSync(seenFile, "utf8")) as string[]; } catch { return []; } })());
-  const fresh = first ? [] : names.filter((n) => !seen.has(n));
+  // Off: those there now are seen, never sent once reports are on again.
+  const fresh = first || !reporter.enabled() ? [] : names.filter((n) => !seen.has(n));
   // Seen once on disk as a report to send (or not Beacon's), never before: one not written (the run's 20 used) is
   // tried again next launch. Each is written before any is sent, so quitting mid-send loses none.
   const sends: Promise<string | undefined>[] = [];

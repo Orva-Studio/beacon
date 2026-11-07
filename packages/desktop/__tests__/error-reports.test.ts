@@ -148,7 +148,9 @@ test("crash reports: the first run only notes those there; later, each new one o
   ips("bun-2026-11-06-1.ips", "bun");
   const sent: ErrorInput[] = [];
   let full = false;
+  let on = true;
   const reporter = {
+    enabled: () => on,
     report: async (e: ErrorInput, onWritten?: () => void) => {
       if (full) return undefined;
       onWritten?.();
@@ -162,6 +164,11 @@ test("crash reports: the first run only notes those there; later, each new one o
   ips("beacon-worker-2026-11-06-2.ips", "beacon-worker");
   ips("bun-2026-11-06-3.ips", "bun", "/Users/someone/.bun/bin");
   const all = ["beacon-worker-2026-11-06-2.ips", "bun-2026-11-06-3.ips", "bun-2026-11-06-1.ips"];
+  ips("bun-2026-11-06-4.ips", "bun");
+  on = false;
+  expect(await reportNewCrashes(reporter, ["bun-2026-11-06-4.ips", "bun-2026-11-06-1.ips"], seen, dir, bundle, write)).toBe(0);
+  on = true;
+  expect(await reportNewCrashes(reporter, ["bun-2026-11-06-4.ips", "bun-2026-11-06-1.ips"], seen, dir, bundle, write)).toBe(0);
   // Not written (the run's 20 used): tried again next launch.
   full = true;
   expect(await reportNewCrashes(reporter, all, seen, dir, bundle, write)).toBe(0);
