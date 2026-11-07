@@ -139,7 +139,7 @@ test("temporary-folder paths are redacted in reports", () => {
   expect(JSON.stringify(event)).toContain("open <path>.mov");
 });
 
-test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once with only the process and how it crashed; another app's bun is not", async () => {
+test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once (tried again while not written) with only the process and how it crashed; another app's bun is not", async () => {
   const dir = mkdtempSync(join(tmpdir(), "beacon-crashes-"));
   const seen = join(dir, "seen.json");
   const bundle = "/Applications/Beacon.app";
@@ -147,12 +147,25 @@ test("crash reports: the first run only notes those there; later, each new one o
     writeFileSync(join(dir, name), `${JSON.stringify({ app_name: proc })}\n${JSON.stringify({ procName: proc, procPath: `${inside}/Contents/MacOS/${proc}`, exception: { type: "EXC_CRASH", signal: "SIGABRT" }, threads: [{ frames: [{ symbol: `${home}/secret` }] }] })}`);
   ips("bun-2026-11-06-1.ips", "bun");
   const sent: ErrorInput[] = [];
-  const reporter = { report: async (e: ErrorInput) => (sent.push(e), "id"), sendPending: async () => 0, dropPending: () => {} };
+  let full = false;
+  const reporter = {
+    report: async (e: ErrorInput, onWritten?: () => void) => {
+      if (full) return undefined;
+      onWritten?.();
+      return (sent.push(e), "id");
+    },
+    sendPending: async () => 0,
+    dropPending: () => {},
+  };
   const write = (f: string, t: string) => writeFileSync(f, t);
   expect(await reportNewCrashes(reporter, ["bun-2026-11-06-1.ips"], seen, dir, bundle, write)).toBe(0);
   ips("beacon-worker-2026-11-06-2.ips", "beacon-worker");
   ips("bun-2026-11-06-3.ips", "bun", "/Users/someone/.bun/bin");
   const all = ["beacon-worker-2026-11-06-2.ips", "bun-2026-11-06-3.ips", "bun-2026-11-06-1.ips"];
+  // Not written (the run's 20 used): tried again next launch.
+  full = true;
+  expect(await reportNewCrashes(reporter, all, seen, dir, bundle, write)).toBe(0);
+  full = false;
   expect(await reportNewCrashes(reporter, all, seen, dir, bundle, write)).toBe(1);
   expect(sent).toEqual([{ origin: "native", mechanism: "crash", type: "beacon-worker crashed", message: "EXC_CRASH (SIGABRT)" }]);
   expect(await reportNewCrashes(reporter, all, seen, dir, bundle, write)).toBe(0);

@@ -96,7 +96,7 @@ export interface Reporter {
    * Reports an error, unless reports are off, it was reported already this run, or the run's share is used: written
    * to `pending` at once (the process may be about to die), then sent. Resolves to the event id once sent.
    */
-  report(input: ErrorInput): Promise<string | undefined>;
+  report(input: ErrorInput, onWritten?: () => void): Promise<string | undefined>;
   /** Sends what an earlier run wrote and couldn't send (it died first, or was offline). */
   sendPending(): Promise<number>;
   /** Deletes what is written and not sent: reports were turned off. */
@@ -147,7 +147,7 @@ export function createReporter(opts: {
     return files.slice(0, MAX_PENDING);
   };
   return {
-    async report(input) {
+    async report(input, onWritten) {
       if (!opts.enabled()) return;
       const key = `${input.origin}|${input.type}|${input.message}|${input.stack?.split("\n").slice(0, 3).join("|") ?? ""}`;
       if (sent.has(key) || used >= MAX_PER_RUN) return;
@@ -163,6 +163,7 @@ export function createReporter(opts: {
         opts.log?.(`error report not written: ${e instanceof Error ? e.message : e}`);
         return;
       }
+      onWritten?.();
       return (await deliver(file)) ? (event.event_id as string) : undefined;
     },
     async sendPending() {
@@ -208,13 +209,18 @@ export async function reportNewCrashes(reporter: Reporter, names: string[], seen
   const first = !existsSync(seenFile);
   const seen = new Set<string>(first ? [] : (() => { try { return JSON.parse(readFileSync(seenFile, "utf8")) as string[]; } catch { return []; } })());
   const fresh = first ? [] : names.filter((n) => !seen.has(n));
-  write(seenFile, JSON.stringify(names));
-  let n = 0;
+  // Seen once on disk as a report to send (or not Beacon's), never before: one not written (the run's 20 used) is
+  // tried again next launch. Each is written before any is sent, so quitting mid-send loses none.
+  const sends: Promise<string | undefined>[] = [];
+  const unseen = new Set<string>();
   for (const name of fresh) {
     const s = crashSummary(join(dir, name), bundle);
     if (!s) continue;
-    await reporter.report({ origin: "native", mechanism: "crash", type: `${s.process} crashed`, message: s.exception });
-    n++;
+    let written = false;
+    sends.push(reporter.report({ origin: "native", mechanism: "crash", type: `${s.process} crashed`, message: s.exception }, () => (written = true)));
+    if (!written) unseen.add(name);
   }
-  return n;
+  write(seenFile, JSON.stringify(names.filter((n) => !unseen.has(n))));
+  await Promise.all(sends);
+  return sends.length - unseen.size;
 }
