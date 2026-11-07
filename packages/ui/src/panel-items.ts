@@ -58,12 +58,12 @@ interface AiHost {
  * false`: it works without one (a prompt can be typed), so a transcriber that can't run offline doesn't stop it.
  */
 export const AI_TOOLS: { id: string; label: string; title: string; art: string; online?: boolean; transcript?: false; start: (host: AiHost) => void }[] = [
-  { id: "silences", label: "Remove Silences", title: "Shorten the pauses in speech, from its transcript (made on this Mac)", art: "remove-silences", start: (host) => review(host, "silences.review") },
-  { id: "retakes", label: "Remove Retakes", title: "Find lines said more than once (a restart, a sentence said again) and keep the best take", art: "remove-retakes", start: (host) => review(host, "retakes.review") },
+  { id: "silences", label: "Remove Silences", title: "Shorten pauses in speech", art: "remove-silences", start: (host) => review(host, "silences.review") },
+  { id: "retakes", label: "Remove Retakes", title: "Keep the best take of each repeated line", art: "remove-retakes", start: (host) => review(host, "retakes.review") },
   {
     id: "broll",
     label: "B-roll",
-    title: "Add a B-roll clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size it on the canvas, pick a style, and make its footage with AI (on your Replicate account)",
+    title: "AI footage of what's said here. Replicate account",
     art: "b-roll",
     transcript: false,
     // Prompt from Auto: its prompt written as soon as it is added (a clip added where nothing is said says so).
@@ -75,7 +75,7 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "angles",
     label: "Camera Angle",
-    title: "A 3 s cutaway of you from another angle (side profile, wide, close-up, detail) at the playhead or over the range, made with AI from your camera and your own sound (on your Replicate account), or a free close-up crop when your camera has the pixels",
+    title: "A cutaway of you from another angle. Replicate account",
     art: "remove-background",
     online: true,
     transcript: false,
@@ -84,7 +84,7 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "motion",
     label: "Motion Graphics",
-    title: "Add a motion graphics clip at the playhead (or over the range), its prompt written from the words said there: drag and trim it, size its box on the canvas, then Make it into a title, name, number or list",
+    title: "A title, name, number or list from what's said here",
     art: "text",
     transcript: false,
     // Prompt from Auto: written as soon as it is added (a clip added where nothing is said says so).
@@ -96,7 +96,7 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "music",
     label: "Music",
-    title: "Music and sound effects from Epidemic Sound (on your own subscription): search and listen, then add a track fitted to the range and ducked under speech, or a sound effect at the playhead",
+    title: "Music and sound effects. Epidemic Sound subscription",
     art: "music",
     online: true,
     transcript: false,
@@ -105,7 +105,7 @@ export const AI_TOOLS: { id: string; label: string; title: string; art: string; 
   {
     id: "captions",
     label: "Captions",
-    title: "Captions from the transcript, a few words at a time, the spoken word highlighted: burned into the export (an .srt beside it is a tick box in Export)",
+    title: "Word-by-word captions from the transcript",
     art: "captions",
     start: () => replica.pendCaptions(true),
   },

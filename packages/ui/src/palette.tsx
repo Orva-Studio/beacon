@@ -72,9 +72,9 @@ function PaletteUi({ host }: { host: PaletteHost }) {
     const removals = (clip?.effects ?? []).map((fx, i, all): Entry => {
       const same = all.filter((f) => f.type === fx.type);
       const name = `Remove ${title(fx.type)}${same.length > 1 ? ` ${same.indexOf(fx) + 1}` : ""}`;
-      return { id: `remove:${fx.id}`, name, description: "Take this effect off the selected clip", group: "Selected Clip", icon: "trash", start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
+      return { id: `remove:${fx.id}`, name, description: "Remove from the selected clip", group: "Selected Clip", icon: "trash", start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
     });
-    const ask: Entry = { id: "agent:ask", name: "Ask an Agent…", description: "Send a request to an agent you have open (Claude Code) about the selected clip, the range, or the project", group: "Agent", icon: "sparkle", start: () => replica.askAgent(aboutSelection()) };
+    const ask: Entry = { id: "agent:ask", name: "Ask an Agent…", description: "Ask your agent about the selection or project", group: "Agent", icon: "sparkle", start: () => replica.askAgent(aboutSelection()) };
     const used = new Set(recent);
     return [...inUseOrder([...items, ...tools].filter((e) => used.has(e.item)), recent), ...items.filter((e) => !used.has(e.item)), ...removals, ...tools.filter((e) => !used.has(e.item)), ask];
   }, [init, recent, project, session]);
@@ -107,7 +107,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
         <TextInput
           autoFocus
           value={query}
-          placeholder="Add an annotation, an effect, an AI tool or media"
+          placeholder="Add an annotation, effect, AI tool or media"
           className="w-full py-2 pl-9 text-body"
           data-palette-search
           onChange={(e) => setQuery(e.target.value)}
@@ -121,7 +121,7 @@ function PaletteUi({ host }: { host: PaletteHost }) {
           }}
         />
       </div>
-      <div className="mt-2 text-caption text-text-faint">Annotations and media go in at the playhead; effects on the selected clips</div>
+      <div className="mt-2 text-caption text-text-faint">Added at the playhead; effects go on the selection</div>
       <div ref={list} className="-mx-2 mt-2 max-h-[min(420px,60vh)] overflow-y-auto" role="listbox">
         {found.map((e, i) => (
           <div

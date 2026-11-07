@@ -50,7 +50,7 @@ export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onSt
         <div className="electrobun-webkit-app-region-no-drag flex cursor-default items-center gap-1">
           <button
             className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-strong"
-            title="Hide to the menu bar (it keeps recording)"
+            title="Hide (keeps recording)"
             aria-label="Hide"
             onClick={onHide}
             data-record-hide
@@ -67,7 +67,7 @@ export function RecordPanel({ state, onStop, onHide }: { state: PanelState; onSt
           const off = stopped(key);
           const picture = key === "camera" && !off ? levels.picture?.camera : undefined;
           const state = off ? "stopped" : picture ?? "live";
-          const title = off ? `${label}: nothing is being saved (it stopped sending, or its file couldn't be written)` : picture ? `${label}: the picture is ${picture}` : `${label}: recording`;
+          const title = off ? `${label}: not saving` : picture ? `${label}: the picture is ${picture}` : `${label}: recording`;
           return (
             <span
               key={key}

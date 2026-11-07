@@ -73,7 +73,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
   const auto = b.source === "auto";
   // Adding and Apple's planner work offline; Replicate, and OpenAI's planner, need the internet.
   const online = useOnline();
-  const offline = "Needs the internet: you're offline";
+  const offline = "You're offline";
   const set = (fields: Partial<BrollProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { broll: fields } }, label);
   // Asked again when the clip's length or Settings › AI's model, resolution or limit change: what is shown is what Generate pays.
   const priced = useView((v) => v.preferences.filter((p) => p.id.startsWith("broll")).map((p) => p.value).join());
@@ -119,25 +119,25 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
         {auto ? (
           <div className="flex flex-col gap-1">
             <div className={`rounded-md bg-groove px-3 py-2 text-caption ${b.prompt ? "text-text" : "text-text-faint"}`} data-broll-prompt>
-              {planning ? "Writing the prompt…" : b.prompt || "Written from the words under the clip"}
+              {planning ? "Writing the prompt…" : b.prompt || "Written from what's said here"}
             </div>
             <div className="flex items-center gap-2">
               <Button disabled={busy || (planner === "openai" && !online)} title={planner === "openai" && !online ? offline : undefined} onClick={() => host.run("broll.plan", { clip: clip.id })} data-broll-plan>
                 {planning ? "Writing…" : b.prompt ? "Write Again" : "Write the Prompt"}
               </Button>
-              <Button look="quiet" disabled={!b.prompt || planning} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: b.prompt }, "Copy B-roll Prompt to Manual")} data-broll-copy>
+              <Button look="quiet" disabled={!b.prompt || planning} title="Edit as a Manual prompt" onClick={() => set({ source: "manual", manual: b.prompt }, "Copy B-roll Prompt to Manual")} data-broll-copy>
                 Copy to Manual
               </Button>
             </div>
-            {planner === "openai" && <Check label="Research" title="OpenAI searches the web for the names, products and places said, so the shot shows the right thing" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
+            {planner === "openai" && <Check label="Research" title="Look up names and places said, so the shot is right" checked={b.research} onChange={(on) => set({ research: on }, "B-roll Research")} data-broll-research />}
             <span className="text-caption text-text-faint">
-              {planner === "openai" ? "Written by OpenAI (your key)." : "Written by Apple's model on this Mac."} A clip longer than the video model makes is split into shots.
+              {planner === "openai" ? "Written by OpenAI." : "Written on this Mac."} Long clips are split into shots.
             </span>
           </div>
         ) : (
           <label className="flex flex-col gap-1">
             <TextArea rows={4} placeholder={said || "Describe the shot"} value={manual} onChange={(e) => setManual(e.target.value)} onBlur={saveManual} data-broll-prompt />
-            <span className="text-caption text-text-faint">Starts from the words said under the clip. Say the look you want here (anime, realistic, 3D animation…).</span>
+            <span className="text-caption text-text-faint">Add a look: anime, realistic, 3D…</span>
           </label>
         )}
         {estimate && (
@@ -178,7 +178,7 @@ export function BrollTab({ clip, project, session, host }: { clip: Clip; project
           {making ? "Making…" : !estimate ? "Pricing…" : `${clip.assetId ? "Make Again" : "Generate"} · ${dollars(cost?.cost ?? 0)}`}
         </Button>
         <span className="text-caption text-text-faint">
-          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Replicate charges your account; files are kept in the project's media/B-roll folder. The default model is set in Settings › AI.
+          {estimate ? `${estimate.model}, ${estimate.resolution}. ` : ""}Charged to your Replicate account.
         </span>
       </div>
     </Section>

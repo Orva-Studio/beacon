@@ -371,10 +371,10 @@ function NarrationBar({ narrating, host }: { narrating: Narrating; host: Host })
     <div className="flex items-center gap-2 rounded-md bg-danger/15 py-0.5 pl-2.5 pr-1 text-xs" data-narrating>
       <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
       <span className="tabular-nums text-text-strong">Narrating {clock((now - narrating.started) / 1000, { floor: true })}</span>
-      <Button look="danger" onClick={() => host.stopNarration()} title="Stop and put the narration on the timeline (⌘⇧2)" data-narration-stop>
+      <Button look="danger" onClick={() => host.stopNarration()} title="Stop and keep (⌘⇧2)" data-narration-stop>
         Stop
       </Button>
-      <Button look="quiet" onClick={() => host.stopNarration(true)} title="Stop and throw the narration away" data-narration-discard>
+      <Button look="quiet" onClick={() => host.stopNarration(true)} title="Stop and discard" data-narration-discard>
         Discard
       </Button>
     </div>
@@ -403,7 +403,7 @@ function TopBar({ name, project, session, host, status, saved, preparing, effect
       <Button onClick={() => host.openDialog()}>Open…</Button>
       <div className="flex flex-1 justify-center">{narrating && <NarrationBar narrating={narrating} host={host} />}</div>
       {preparing && (
-        <span className="text-xs text-text-faint" data-preparing title="Making proxies: copies of the media that seek quickly; each item's progress is on its Media Bin tile">
+        <span className="text-xs text-text-faint" data-preparing title="Making proxies for faster scrubbing">
           Preparing media for scrubbing {preparing.done + 1} of {preparing.total}
         </span>
       )}
@@ -475,7 +475,7 @@ function CanvasArea({ host, project, session, clipTypes }: { host: Host; project
           {session && view.width > 0 && <CanvasOverlay project={project} session={session} host={host} view={view} clipTypes={clipTypes} />}
         </>
       ) : (
-        <div className="flex h-full items-center justify-center text-text-off">Open a project (⌘O), or start a new one (⌘N) and import media (⌘I)</div>
+        <div className="flex h-full items-center justify-center text-text-off">Open a project (⌘O) or start a new one (⌘N)</div>
       )}
     </div>
   );
@@ -518,7 +518,7 @@ function Toolbar({ session, host }: { session: Session; host: Host }) {
       {tool("copy", `Copy${tip("edit.copy")}`, () => host.run("edit.copy"), some)}
       {tool("paste", `Paste${tip("edit.paste")}`, () => host.run("edit.paste"), !!session.clipboard)}
       {tool("split", `Split${tip("edit.split")}`, () => host.run("edit.split"))}
-      {tool("snapshot", "Snapshot: add the frame at the playhead to the Media Bin", () => host.captureFrame())}
+      {tool("snapshot", "Snapshot the frame to the Media Bin", () => host.captureFrame())}
       <div className="flex-1" />
       <Button look="icon" title={`Zoom out${tip("timeline.zoom", { to: "out" })}`} onClick={() => host.run("timeline.zoom", { to: "out" })}>
         <Icon name="minus" />

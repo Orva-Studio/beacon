@@ -96,12 +96,12 @@ export function TranscriptsSettings({ pref, label = "Transcripts", sends = "Your
       )}
       {!option.secret && error && <div className="text-danger">{error}</div>}
       {choice === "whisper" && model && (
-        <Row label="" hint={`Made on this Mac with the ${model.title}${model.present ? "." : `, a one-time download of about ${Math.round(model.bytes / 1e6)} MB.`}`}>
+        <Row label="" hint={`Runs on this Mac${model.present ? "." : `. One-time ${Math.round(model.bytes / 1e6)} MB download.`}`}>
           <div className="flex items-center gap-3" data-resource-row={model.id}>
             {model.present ? (
               <span className="text-text-muted">Speech model downloaded</span>
             ) : (
-              <Button disabled={!online} title={online ? undefined : "Needs the internet: you're offline"} onClick={() => (close(), replica.resource(model))}>
+              <Button disabled={!online} title={online ? undefined : "You're offline"} onClick={() => (close(), replica.resource(model))}>
                 Download Speech Model…
               </Button>
             )}

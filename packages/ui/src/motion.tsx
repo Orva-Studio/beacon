@@ -71,7 +71,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
   const planner = useView((v) => v.preferences.find((p) => p.id === "motionPlanner")?.value);
   const online = useOnline();
   const needsNet = planner !== "apple" && !online;
-  const offline = `Needs the internet: you're offline (${planner === "claude" ? "Claude" : "OpenAI"} makes it)`;
+  const offline = "You're offline";
   const settingsOpen = useView((v) => !!v.settings);
   const auto = m.source === "auto";
   const set = (fields: Partial<MotionProps>, label: string) => host.run("clip.set", { clip: clip.id, props: { motion: fields } }, label);
@@ -165,7 +165,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           ) : (
             skill && (
               <span className="text-caption text-text-faint">
-                {planner === "apple" ? "Skills need OpenAI or Claude: Apple's model only fills templates (Settings › AI)." : "Make and Revise follow its design and rules. Kept for every project; Settings › AI lists them."}
+                {planner === "apple" ? "Skills need OpenAI or Claude (Settings › AI)." : "Make and Revise follow it."}
               </span>
             )
           )}
@@ -181,7 +181,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             onChange={(timing) => timing !== m.timing && restyle(host, [clip], { timing }, "Motion Graphics Timing")}
             data-motion-timing
           />
-          {designed && <span className="text-caption text-text-faint">Designed with its own look and timing: Look and Words change only the parts that use them.</span>}
+          {designed && <span className="text-caption text-text-faint">Has its own design: Look and Words change only parts of it.</span>}
         </div>
         <div className={`flex flex-col gap-1 ${writing ? "opacity-50" : ""}`}>
           <span className="text-label font-medium text-text-muted">Prompt</span>
@@ -202,13 +202,13 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
         {auto ? (
           <div className="flex flex-col gap-1">
             <div className={`rounded-md bg-groove px-3 py-2 text-caption ${m.prompt ? "text-text" : "text-text-faint"}`} data-motion-prompt>
-              {writing ? "Writing the prompt…" : m.prompt || "Written from the words under the clip"}
+              {writing ? "Writing the prompt…" : m.prompt || "Written from what's said here"}
             </div>
             <div className="flex items-center gap-2">
               <Button disabled={busy || needsNet} title={needsNet ? offline : undefined} onClick={() => host.run("motion.write", { clip: clip.id })} data-motion-write>
                 {writing ? "Writing…" : m.prompt ? "Write Again" : "Write the Prompt"}
               </Button>
-              <Button look="quiet" disabled={!m.prompt || writing} title="Start Manual's prompt from this one, to edit it" onClick={() => set({ source: "manual", manual: m.prompt }, "Copy Motion Graphics Prompt to Manual")}>
+              <Button look="quiet" disabled={!m.prompt || writing} title="Edit as a Manual prompt" onClick={() => set({ source: "manual", manual: m.prompt }, "Copy Motion Graphics Prompt to Manual")}>
                 Copy to Manual
               </Button>
             </div>
@@ -217,13 +217,13 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           <label className="flex flex-col gap-1">
             <TextArea
               rows={4}
-              placeholder={said || 'Describe it: "a title: Ship faster", "Sarah Chen, head of design", "87% counting up, revenue growth"'}
+              placeholder={said || '"A title: Ship faster", "Sarah Chen, head of design", "87% counting up"'}
               value={manual}
               onChange={(e) => setManual(e.target.value)}
               onBlur={saveManual}
               data-motion-prompt
             />
-            <span className="text-caption text-text-faint">A title, a name and role, a number, a list, or a line of text, with the words to show.</span>
+            <span className="text-caption text-text-faint">A title, name, number, list or line, with its words.</span>
           </label>
         )}
         <div className="flex flex-col gap-1">
@@ -250,7 +250,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             </Button>
           )}
           <span className="text-caption text-text-faint">
-            {reference && planner === "apple" ? "Needs OpenAI or Claude: choose one in Settings › AI › Motion Graphics." : "Make recreates its design and animates it."}
+            {reference && planner === "apple" ? "Needs OpenAI or Claude (Settings › AI)." : "Make copies its design and animates it."}
           </span>
         </div>
         {m.takes.length > 1 && (
@@ -281,7 +281,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
         >
           {making ? "Making…" : `${m.takes.length ? "Make Again" : "Make"} · ${planner === "apple" ? "Free" : `~$${cost.toFixed(2)}`}`}
         </Button>
-        <Button title="Ask an agent you have open (Claude Code) to work on this motion graphic" onClick={() => replica.askAgent(aboutClip(clip, "Motion graphic"))} data-motion-ask>
+        <Button title="Ask your agent to work on it" onClick={() => replica.askAgent(aboutClip(clip, "Motion graphic"))} data-motion-ask>
           Send to Agent…
         </Button>
         {making && (
@@ -290,7 +290,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           </span>
         )}
         {m.shown >= 0 && (
-          <Button look="quiet" disabled={busy} title="Draw it again at its box's size and length now, after resizing or trimming it (no AI)" onClick={() => host.run("motion.render", { clips: [clip.id] })} data-motion-render>
+          <Button look="quiet" disabled={busy} title="Redraw at its new size and length (no AI)" onClick={() => host.run("motion.render", { clips: [clip.id] })} data-motion-render>
             Draw Again
           </Button>
         )}
@@ -302,7 +302,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
               <Button
                 className="flex-1"
                 disabled={!note.trim() || busy || needsNet || planner === "apple"}
-                title={planner === "apple" ? "Revise needs OpenAI or Claude: choose one in Settings › AI" : needsNet ? offline : "The AI changes what you asked and keeps the rest: a new take"}
+                title={planner === "apple" ? "Needs OpenAI or Claude (Settings › AI)" : needsNet ? offline : "Changes only what you ask, as a new take"}
                 onClick={() => host.run("motion.revise", { clip: clip.id, note: note.trim() })}
                 data-motion-revise
               >
@@ -312,7 +312,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             <Button
               look="quiet"
               disabled={busy}
-              title={m.shown >= 0 ? "Edit its HTML, CSS and script with a live preview: a new take, free" : "Write its HTML, CSS and script by hand with a live preview, instead of Make: free"}
+              title={m.shown >= 0 ? "Edit its code, free, as a new take" : "Write its code yourself, free"}
               onClick={() => setEditing(true)}
               data-motion-code
             >
@@ -321,7 +321,7 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
             {page && (
               <Button
                 look="quiet"
-                title="Show its page (HTML, CSS and script) in Finder, to open in any editor"
+                title="Show its code in Finder"
                 aria-label="Show Code in Finder"
                 onClick={() => void host.reveal(page).then((why) => why && replica.status(`Can't show the code: ${why}`))}
                 data-motion-reveal
@@ -334,9 +334,8 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
         {editing && <MotionCode host={host} clip={clip.id} html={m.takes[m.shown]?.html ?? ""} onClose={() => setEditing(false)} />}
         <span className="text-caption text-text-faint">
           {planner === "apple"
-            ? "Apple's model on this Mac fills a template: a title, lower third, number, list or text. OpenAI and Claude design anything (3D, maps, any style)."
-            : `Designed by ${planner === "claude" ? "Claude" : "OpenAI"} with your key, charged to your account (about what the button says, from what Makes have cost).`}{" "}
-          Drawn with transparency into the project's media/Motion graphics folder.
+            ? "Apple: templates, free. OpenAI and Claude design anything."
+            : `Designed by ${planner === "claude" ? "Claude" : "OpenAI"}, charged to your key.`}
         </span>
       </div>
     </Section>

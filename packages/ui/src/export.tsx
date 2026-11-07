@@ -241,9 +241,9 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
                 <Row label="Profile">
                   <div className="w-72">
                     <Select value={s.profile} onChange={(e) => set({ profile: e.target.value as ExportSettings["profile"] })}>
-                      <option value="baseline">Baseline (Largest file, plays everywhere)</option>
+                      <option value="baseline">Baseline (largest, plays everywhere)</option>
                       <option value="main">Main</option>
-                      <option value="high">High (Smallest file, playback on recent devices)</option>
+                      <option value="high">High (smallest, newer devices)</option>
                     </Select>
                   </div>
                 </Row>
@@ -274,7 +274,7 @@ function ExportDialog({ sheet, host, muted = [], unmute }: { sheet: ExportSheet;
         <div className="mt-4 flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/12 px-3 py-2 text-text-strong" data-export-muted>
           <Icon name="speaker-slash" size={18} filled className="shrink-0 text-warning" />
           <span className="flex-1">
-            <span className="font-semibold">{muted.join(", ")}</span> {muted.length === 1 ? "is muted: its audio won't be in the export." : "are muted: their audio won't be in the export."}
+            <span className="font-semibold">{muted.join(", ")}</span> {muted.length === 1 ? "is muted: its audio won't be exported." : "are muted: their audio won't be exported."}
           </span>
           {unmute && <Button onClick={unmute}>Unmute</Button>}
         </div>

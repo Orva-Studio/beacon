@@ -85,7 +85,7 @@ export function Properties({ project: full, session, host, init }: { project: Pr
       }}
     >
       {!clip ? (
-        <div className="p-4 text-center text-text-faint">{session.selection.length ? "Selection is not on the timeline" : "Select media on the timeline to see its properties"}</div>
+        <div className="p-4 text-center text-text-faint">{session.selection.length ? "Selection is not on the timeline" : "Select a clip to see its properties"}</div>
       ) : (
         <ClipProperties project={project} session={session} clip={clip} selected={selected} host={host} init={init} />
       )}
@@ -166,7 +166,7 @@ function ClipProperties({
         <Section>
           <Slider
             label="Volume"
-            title="The level of the clip's volume line where the playhead is (drag the line on the timeline to change it there)"
+            title="Volume at the playhead"
             value={value("audio", "volume", 1) * 100}
             max={100}
             unit="%"
@@ -174,7 +174,7 @@ function ClipProperties({
           />
           <Slider
             label="Boost"
-            title="Gain: makes a quiet recording louder, up to 500%, on top of the volume line"
+            title="Boost a quiet recording, up to 500%"
             value={value("audio", "gain", 1) * 100}
             max={500}
             unit="%"
@@ -206,7 +206,7 @@ function ClipId({ ids, host }: { ids: string[]; host: Host }) {
     <div className="mt-auto flex justify-center px-4 pt-6 pb-3">
       <button
         data-clip-id
-        title={ids.length > 1 ? "Copy these clips' ids, to name them to an agent" : "Copy this clip's id, to name it to an agent"}
+        title={ids.length > 1 ? "Copy ids for an agent" : "Copy id for an agent"}
         className="max-w-full truncate rounded-md bg-control px-2 py-0.5 font-mono text-label text-text-faint hover:text-text-muted"
         onClick={() => {
           host.copyText(text);
@@ -224,13 +224,13 @@ function CameraDelay({ clip, host }: { clip: Clip; host: Host }) {
   const delay = (clip.props.media as { delay?: number } | undefined)?.delay ?? 0;
   return (
     <Section>
-      <Row label="Camera delay" title="How late this take's camera is behind its sound, in milliseconds: its picture is shown that much earlier (negative: later). Every camera clip of the take moves; the sound and screen stay">
+      <Row label="Camera delay" title="How far the camera lags its sound. Moves every camera clip of the take">
         <div className="flex-1" />
         <div data-camera-delay>
           <NumberBox value={delay} unit=" ms" digits={0} min={-2000} max={2000} onCommit={(ms) => host.run("media.cameraDelay", { clip: clip.id, ms: Math.round(ms) }, "Camera Delay")} />
         </div>
       </Row>
-      <div className="ml-[92px] text-caption text-text-faint">Positive if the lips move after the sound</div>
+      <div className="ml-[92px] text-caption text-text-faint">Positive if lips move after the sound</div>
     </Section>
   );
 }
@@ -285,7 +285,7 @@ function Visual({ clip, project, value, edit, picture, turn }: { clip: Clip; pro
       </Section>
       {picture && (
         <Section>
-          <Slider unit="" label="Border" title="A border just inside the edge, following Round Corners: its thickness, 0 for none" value={border.thickness} max={100} onChange={(v, key) => edit("border", { thickness: Math.max(0, v) }, "Border", key)} />
+          <Slider unit="" label="Border" title="Thickness, 0 for none" value={border.thickness} max={100} onChange={(v, key) => edit("border", { thickness: Math.max(0, v) }, "Border", key)} />
           {/* No opacity of its own: beside the clip's, a second Opacity read as a duplicate that did nothing. */}
           <ColorRow label="Color" color={border.color} opacity={false} onChange={(color, key) => edit("border", { color }, "Border Color", key)} />
         </Section>
@@ -445,7 +445,7 @@ function CountRows({ count, set }: { count: Count; set: (fields: Partial<Count>,
         <div className="flex-1" />
         <NumberBox value={count.to} digits={count.decimals} onCommit={(to) => set({ to }, "Count To")} />
       </Row>
-      <Row label="Seconds" title="How long it takes, from the clip's start">
+      <Row label="Seconds" title="How long the count takes">
         <div className="flex-1" />
         <NumberBox value={count.seconds} unit=" s" digits={2} min={0} onCommit={(seconds) => set({ seconds: Math.max(0, seconds) }, "Count Length")} />
       </Row>
@@ -499,7 +499,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
         <TextArea
           className="h-16 w-full"
           value={draft ?? text}
-          title="What this caption says: Return or leaving the field sets it"
+          title="Return to set"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
@@ -517,7 +517,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
               key={`${w.start}-${i}`}
               data-caption-word={i}
               data-em={w.em ? "" : undefined}
-              title={w.em ? "A keyword: click to make it a plain word" : "Make it a keyword, drawn in the emphasis look"}
+              title={w.em ? "Keyword: click to unmark" : "Click to make a keyword"}
               className={`rounded px-1.5 py-0.5 text-label ${w.em ? "bg-accent font-semibold text-black" : "bg-chip text-text-dim hover:text-text-strong"}`}
               onClick={() => host.run("caption.emphasize", { clip: clip.id, words: [i], on: !w.em }, w.em ? "Plain Word" : "Keyword")}
             >
@@ -550,7 +550,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
       </Section>
       <Fold id="caption-box" title="Box and Highlight" hint={[style.background[3] > 0 && "Box", style.highlight[3] > 0 && "Highlight"].filter(Boolean).join(", ")}>
           <ColorRow label="Highlight" color={style.highlight} onChange={(highlight, key) => set({ highlight }, "Caption Highlight", key)} />
-          <div className="ml-[92px] mb-3 text-caption text-text-faint">The word being spoken; transparent for none</div>
+          <div className="ml-[92px] mb-3 text-caption text-text-faint">The spoken word. Transparent for none</div>
           <ColorRow label="Box" color={style.background} onChange={(background, key) => set({ background }, "Caption Box", key)} />
           <Slider unit="" label="Corners" value={style.cornerRadius} max={60} onChange={(v, key) => set({ cornerRadius: Math.max(0, v) }, "Caption Corners", key)} />
       </Fold>
@@ -580,7 +580,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
           </Select>
         </Row>
         {style.reveal === "phrase" && <ColorRow label="Not yet said" color={style.upcoming} onChange={(upcoming, key) => set({ upcoming }, "Caption Upcoming", key)} />}
-        {style.reveal === "phrase" && <div className="ml-[92px] mb-3 text-caption text-text-faint">Words to come, until they are said; transparent for the caption's colour</div>}
+        {style.reveal === "phrase" && <div className="ml-[92px] mb-3 text-caption text-text-faint">Words not yet said. Transparent for the caption colour</div>}
         <Row label="Layout">
           <Select data-caption-layout value={style.layout} onChange={(e) => set({ layout: e.target.value as CaptionStyle["layout"] }, "Caption Layout")}>
             <option value="line">Line</option>
@@ -607,7 +607,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
         <div className="mt-3 ml-[92px] flex flex-col gap-2">
           <Check label="Stretch lines to fill the width" checked={style.stretch} onChange={(stretch) => set({ stretch }, "Stretch Caption Lines")} data-caption-stretch />
           <Check label="Count numbers up" checked={style.countUp} onChange={(countUp) => set({ countUp }, "Count Numbers Up")} data-caption-count />
-          <Check label="Behind the speaker" title="Drawn behind the person on camera under it, through their matte (found the first time, about a minute per minute of video)" checked={style.behind} onChange={(behind) => set({ behind }, "Captions Behind the Speaker")} data-caption-behind />
+          <Check label="Behind the speaker" title="First use takes about a minute per minute of video" checked={style.behind} onChange={(behind) => set({ behind }, "Captions Behind the Speaker")} data-caption-behind />
         </div>
       </Fold>
       <Fold id="caption-keywords" title="Keywords">
@@ -667,7 +667,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
             const fields = a.fields(Math.round((80 * project.settings.height) / 1080));
             const on = Object.entries(fields).every(([k, v]) => place[k as keyof CaptionStyle] === v);
             return (
-              <Button key={a.label} look={on ? "solid" : "quiet"} title={`Align ${own ? "this caption" : "the captions"} to the ${a.label.toLowerCase()} of the canvas`} onClick={() => align(fields)}>
+              <Button key={a.label} look={on ? "solid" : "quiet"} title={`Align ${a.label.toLowerCase()}`} onClick={() => align(fields)}>
                 <span className="flex items-center gap-2">
                   <Icon name={a.icon} size={16} />
                   {a.label}
@@ -676,7 +676,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
             );
           })}
         </div>
-        <div className="mb-3 text-caption text-text-faint">Drag a caption to move them all. ⌥-drag moves this one alone; ⌥⇧ moves it and the captions after it.</div>
+        <div className="mb-3 text-caption text-text-faint">Drag moves all. ⌥ moves this one; ⌥⇧ this and later ones.</div>
         <Slider unit="%" label="Width" value={style.maxWidth * 100} min={20} max={100} onChange={(v, key) => set({ maxWidth: Math.min(1, Math.max(0.2, v / 100)) }, "Caption Width", key)} />
       </Section>
     </>
@@ -777,7 +777,7 @@ function Effect({ clip, effect, targets, host, def, selected }: { clip: Clip; ef
     if (!name) return;
     // One of the same name gives way, as an import does.
     const look = { id: `look-${Date.now().toString(36)}`, name, params: { ...effect.params } };
-    void host.setPreference(keep!, JSON.stringify([...kept.filter((l) => l.name !== name), look])).then((r) => replica.status(r.ok ? `Saved "${name}" in Your looks, for every project` : `Couldn't save "${name}": ${r.error}`));
+    void host.setPreference(keep!, JSON.stringify([...kept.filter((l) => l.name !== name), look])).then((r) => replica.status(r.ok ? `Saved "${name}" to Your looks` : `Couldn't save "${name}": ${r.error}`));
   };
   const importLook = async () => {
     const path = await host.chooseFile(def!.importFile!.extensions);
@@ -802,9 +802,9 @@ function Effect({ clip, effect, targets, host, def, selected }: { clip: Clip; ef
       title={name}
       foldKey={`${clip.id}/${effect.id}`}
       selected={selected}
-      selectHint="Select the effect (⇧ or ⌘ for several): ⌘C copies it, Delete removes it"
+      selectHint="Select to copy (⌘C) or delete"
       onSelect={(e) => host.run("effect.select", { effects: [{ clip: clip.id, id: effect.id }], add: e.shiftKey || e.metaKey })}
-      action={keep ? { icon: "floppy-disk", label: "Save these settings as a look of your own, for every project", run: () => setNaming(nextName()), disabled: preset ? `These settings are ${preset.title} already` : undefined } : undefined}
+      action={keep ? { icon: "floppy-disk", label: "Save as a look", run: () => setNaming(nextName()), disabled: preset ? `Already ${preset.title}` : undefined } : undefined}
       remove={{ label: "Remove Effect", run: () => host.run("effect.remove", { clip: clip.id, effect: effect.id }, `Remove ${name}`) }}
       enabled={effect.enabled}
       onEnable={(on) => host.run("effect.set", { clip: clip.id, effect: effect.id, enabled: on }, on ? `Enable ${name}` : `Disable ${name}`)}
@@ -833,7 +833,7 @@ function Effect({ clip, effect, targets, host, def, selected }: { clip: Clip; ef
                   />
                 )}
                 {def.importFile && (
-                  <Button look="quiet" title={`Read a look from a .${def.importFile.extensions[0]} file onto these sliders`} onClick={() => void importLook()} data-effect-import>
+                  <Button look="quiet" title={`Import a .${def.importFile.extensions[0]} look`} onClick={() => void importLook()} data-effect-import>
                     {def.importFile.label}
                   </Button>
                 )}
@@ -953,7 +953,7 @@ function Effect({ clip, effect, targets, host, def, selected }: { clip: Clip; ef
                       ))}
                     </Select>
                     {exts && (
-                      <Button look="quiet" title={`Pick a .${exts[0]} file; it is copied into the project`} onClick={() => void choose()} data-effect-choose={k}>
+                      <Button look="quiet" title={`Choose a .${exts[0]} file`} onClick={() => void choose()} data-effect-choose={k}>
                         Choose…
                       </Button>
                     )}
@@ -1031,7 +1031,7 @@ function SaveLookDialog({ name: suggested, taken, onDone }: { name: string; take
       <div className="flex flex-col gap-3" data-save-look>
         <TextInput autoFocus maxLength={LOOK_NAME_MAX} value={name} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} data-save-look-name />
         <span className="text-caption text-text-faint">
-          {taken.includes(trimmed) ? `Replaces your look "${trimmed}".` : "Listed under Your looks in Film Look's Look menu, in every project. Renamed and deleted in Settings › General."}
+          {taken.includes(trimmed) ? `Replaces your look "${trimmed}".` : "Shows under Your looks in every project."}
         </span>
         <div className="flex justify-end gap-2">
           <Button look="quiet" onClick={() => onDone("")}>

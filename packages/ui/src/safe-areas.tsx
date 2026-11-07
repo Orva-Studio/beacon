@@ -116,7 +116,7 @@ export function SafeAreaPicker({ host, project, session, layouts }: { host: Quer
         </button>
       )}
       {id && <SafeAreaKey host={host} hidden={hiddenSafeParts(session)} />}
-      <Select look="bar" value={id ?? ""} title="Safe areas: where the platform's own UI sits over the video" onChange={(e) => host.run("safeAreas.show", { layout: e.target.value || null })} data-safe-area-select>
+      <Select look="bar" value={id ?? ""} title="Safe areas" onChange={(e) => host.run("safeAreas.show", { layout: e.target.value || null })} data-safe-area-select>
         <option value="">No Safe Areas</option>
         {fitting.map((l) => (
           <option key={l.id} value={l.id} title={l.source}>
@@ -141,7 +141,7 @@ function SafeAreaKey({ host, hidden }: { host: QueryHost; hidden: SafePart[] }) 
   };
   return (
     <span className="flex items-center gap-1.5 text-xs text-text-faint" data-safe-key>
-      {item("zones", "size-2.5 rounded-[2px] border border-safe-edge bg-safe-zone", "Platform UI", "Where the app draws its own buttons, captions and tabs over the video: keep text and faces out")}
+      {item("zones", "size-2.5 rounded-[2px] border border-safe-edge bg-safe-zone", "Platform UI", "Keep text and faces out of the app's buttons")}
       {item("headroom", "size-2.5 rounded-[2px] border border-safe-headroom-edge bg-safe-headroom", "Headroom", "Where the top of a head sits in a well-framed shot")}
       {item("eyeLine", "w-3 border-t-2 border-dashed border-safe-guide", "Eye line", "Where the eyes sit in a well-framed shot")}
     </span>

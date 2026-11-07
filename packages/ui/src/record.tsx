@@ -142,7 +142,7 @@ export function useRecordLevels(host: { recordPreview(sources: RecordSources): v
 }
 
 /** Narration with the timeline heard: from speakers it records into the take. */
-export const HEADPHONES = "Use headphones: from speakers, the timeline records into the narration";
+export const HEADPHONES = "Use headphones, or the timeline records into the narration";
 
 /** Tools › Voice Narration…: the microphone last used (or the first) and nothing else. */
 function narrationSources(sources: RecordSources, sheet: RecordSheet): RecordSources {
@@ -212,10 +212,10 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
           <div className="text-6xl font-semibold tabular-nums text-text-strong">{Math.max(counting, 1)}</div>
           <div className="text-center text-text-muted">
             {!narration
-              ? "Beacon goes to the Dock while you record (bring it back to record Beacon itself). Stop from the menu bar or ⌘⇧2."
+              ? "Beacon hides while you record. Stop from the menu bar or ⌘⇧2."
               : still
-                ? `Records at ${clock(span.from, { floor: true })}. Stop in the top bar or ⌘⇧2 ends it.`
-                : `The timeline plays from ${clock(span.from, { floor: true })} while you speak. Stop in the top bar or ⌘⇧2 ends it.`}
+                ? `Records at ${clock(span.from, { floor: true })}. Stop with ⌘⇧2.`
+                : `Plays from ${clock(span.from, { floor: true })} while you speak. Stop with ⌘⇧2.`}
           </div>
         </div>
         <div className="flex justify-end">
@@ -286,13 +286,12 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
         )}
         {narration && (
           <div className="text-caption text-text-muted" data-narration-span>
-            Voice narration: Beacon stays open
             {still
-              ? ` and records at the playhead (${clock(span.from, { floor: true })}) until you stop. Nothing plays: the timeline ends there.`
+              ? `Records at ${clock(span.from, { floor: true })} until you stop.`
               : span.ranged
-                ? ` and plays the range ${clock(span.from, { floor: true })}–${clock(span.until, { floor: true })} while you speak, then stops.`
-                : ` and plays from the playhead (${clock(span.from, { floor: true })}) while you speak, until you stop or the timeline ends.`}{" "}
-            It goes on a new track at {clock(span.from, { floor: true })}.
+                ? `Plays ${clock(span.from, { floor: true })}–${clock(span.until, { floor: true })} while you speak.`
+                : `Plays from ${clock(span.from, { floor: true })} while you speak.`}{" "}
+            Goes on a new track.
           </div>
         )}
       </div>
@@ -317,7 +316,7 @@ const SOURCE_NAMES: Record<string, string> = { screen: "The screen", camera: "Th
 function lostSource(problem: string): string {
   const [, key, why] = /^(\w+): (.*)$/.exec(problem) ?? [];
   const name = key && SOURCE_NAMES[key];
-  return name ? `${name} stopped saving (${why}): the take has no ${name.replace(/^The /, "").toLowerCase()} after that.` : problem;
+  return name ? `${name} stopped saving (${why}).` : problem;
 }
 
 /** After a take: its name (the date and time) selected to type over; Enter keeps what is typed, Esc the name it has. */
@@ -353,7 +352,7 @@ function RecordedDialog({ sheet, host }: { sheet: RecordedSheet; host: RecordHos
         ))}
       </div>
       <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={remove} title="Remove this take and its clips from the project (⌘Z brings it back)" data-recorded-delete>
+        <Button onClick={remove} title="Remove this take (⌘Z undoes)" data-recorded-delete>
           Delete
         </Button>
         <span className="flex-1" />

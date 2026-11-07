@@ -83,11 +83,11 @@ export function AuphonicPanel({ project: full, session, host, init }: { project:
         </div>
       ) : (
         <div className="mt-2 mb-4 flex flex-col items-start gap-2 rounded-md bg-groove px-3 py-2 text-text" data-auphonic-none>
-          <span className="text-warning">Select the audio to clean on the timeline.</span>
+          <span className="text-warning">Select audio to clean.</span>
           <Button onClick={() => host.run("auphonic.selectAudio")} data-auphonic-select-all>
             Select All Audio
           </Button>
-          <span className="text-caption text-text-faint">All the audio the export plays: not muted, on tracks not muted.</span>
+          <span className="text-caption text-text-faint">All audio that isn't muted.</span>
         </div>
       )}
       <div className="mt-auto flex justify-end gap-2">

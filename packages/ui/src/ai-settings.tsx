@@ -6,12 +6,12 @@ import { SecretRow, type TranscriptsHost } from "./transcripts-settings";
 
 /** Every API key Beacon keeps, in the order shown, with what it is used for (and when audio leaves the Mac). */
 const KEYS: { id: string; label: string; use: string; placeholder: string }[] = [
-  { id: "openai-api-key", label: "OpenAI", use: "For B-roll planning, motion graphics made by OpenAI, and OpenAI transcribing or Best Take if you pick them in Transcripts", placeholder: "sk-…" },
+  { id: "openai-api-key", label: "OpenAI", use: "For B-roll plans, motion graphics, and OpenAI transcripts or Best Take", placeholder: "sk-…" },
   { id: "anthropic-api-key", label: "Anthropic", use: "For motion graphics made by Claude", placeholder: "sk-ant-…" },
-  { id: "firecrawl-api-key", label: "Firecrawl", use: "Optional: motion graphics search the web (real logos, icons) keyless, about 1,000 lookups a month; a free key gives more", placeholder: "fc-…" },
+  { id: "firecrawl-api-key", label: "Firecrawl", use: "Optional: more web lookups for motion graphics (free key)", placeholder: "fc-…" },
   { id: "replicate-api-token", label: "Replicate", use: "For B-roll footage", placeholder: "r8_…" },
   { id: "auphonic-api-key", label: "Auphonic", use: "For Clean with Auphonic", placeholder: "Auphonic API key" },
-  { id: "epidemic-sound-api-key", label: "Epidemic Sound", use: "For Music: a key from your Epidemic Sound account (Account › API keys); downloads need a paid subscription", placeholder: "Epidemic Sound key" },
+  { id: "epidemic-sound-api-key", label: "Epidemic Sound", use: "For Music. Downloads need a paid subscription", placeholder: "Epidemic Sound key" },
 ];
 
 /** A choice made elsewhere in Settings that waits for a key: once the key is saved here, it is made and Settings goes back. */
@@ -70,7 +70,7 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
   return (
     <div className="flex flex-col gap-3" data-ai-settings>
       <div className="text-label font-medium text-text-muted">API Keys</div>
-      <div className="-mt-2 text-caption text-text-faint">All optional: add one only for the features you use. Kept in this Mac's Keychain; each service charges your own account.</div>
+      <div className="-mt-2 text-caption text-text-faint">All optional. Kept in your Keychain; each service bills your account.</div>
       {KEYS.map((k) => {
         const secret = secrets.find((s) => s.id === k.id);
         return secret && <SecretRow key={k.id} secret={secret} label={k.label} use={k.use} placeholder={k.placeholder} host={host} saved={saved(k.id)} />;
@@ -80,8 +80,8 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
       <StylesList
         kind="motion"
         label="Your Skills"
-        hint="The Skill menu on the Motion tab lists them, in every project; Make and Revise follow the one picked. A skill's front matter or title names it."
-        placeholder={{ name: "Name: Paper cutout", text: "The design and rules: dark ground, cream torn-paper cards, orange accents, labels not sentences" }}
+        hint="Listed in the Motion tab's Skill menu, for every project."
+        placeholder={{ name: "Name: Paper cutout", text: "Dark ground, cream torn-paper cards, orange accents" }}
         newLabel="New Skill"
         saveLabel="Save Skill"
         value={prefs.find((p) => p.id === "motionSkills")?.value ?? "[]"}

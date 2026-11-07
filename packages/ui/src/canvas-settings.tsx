@@ -105,7 +105,7 @@ export function CanvasSettings({ value, onChange }: { value: CanvasValues; onCha
         <NumberField value={value.width} title="Canvas width in pixels" onCommit={(w) => size(w, locked ? (w * value.height) / value.width : value.height)} />
         <button
           className={`flex size-8 items-center justify-center rounded-md ${locked ? "bg-accent-wash text-accent" : "text-text-faint hover:bg-control hover:text-text-strong"}`}
-          title={locked ? "Width and height keep their shape: click to set them apart" : "Width and height are set apart: click to keep their shape"}
+          title={locked ? "Aspect ratio locked" : "Aspect ratio unlocked"}
           aria-label={locked ? "Unlock width and height" : "Lock width and height"}
           data-lock={locked}
           onClick={() => setLocked(!locked)}

@@ -66,7 +66,7 @@ export const regions = defineFeature({
   panelItems: [
     { id: "annotation:spotlight", label: "Spotlight", title: "Darken everything outside the box", command: "edit.addAnnotation", args: { preset: "spotlight" }, seconds: 5 },
     { id: "annotation:blur", label: "Blur", title: "Blur what is inside the box", command: "edit.addAnnotation", args: { preset: "blur" }, seconds: 5 },
-    { id: "annotation:highlight", label: "Highlight", title: "A highlighter's colour over what is inside the box, the text under it still readable", command: "edit.addAnnotation", args: { preset: "highlight" }, seconds: 5 },
+    { id: "annotation:highlight", label: "Highlight", title: "A highlighter over the box", command: "edit.addAnnotation", args: { preset: "highlight" }, seconds: 5 },
   ],
   annotations: {
     spotlight: preset("spotlight", 0.5, "Add Spotlight"),

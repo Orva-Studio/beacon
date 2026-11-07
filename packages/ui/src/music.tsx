@@ -37,12 +37,12 @@ type Item = (MusicTrack | SoundEffect) & { artist?: string; bpm?: number; moods?
 
 /** What Apply would do with the range and playhead as they are: where the music goes, and how long it lasts. */
 function where(review: MusicReview, project: Project, session: Session): string {
-  if (review.tab === "sfx") return `At the playhead (${clock(session.playhead)}), on an SFX track`;
+  if (review.tab === "sfx") return `At ${clock(session.playhead)}, on an SFX track`;
   const end = ticksToSeconds(projectDuration(project));
   const [from, to] = session.range ? [session.range.in, session.range.out] : [session.playhead, end - session.playhead >= 1 ? end : undefined];
-  if (to === undefined) return `From the playhead (${clock(from)}), the whole track`;
+  if (to === undefined) return `From ${clock(from)}, the whole track`;
   const fitted = review.fit === "edit" && to - from <= 300 && (review.vocals || !review.pick?.vocals);
-  return `${session.range ? "Over the range" : "From the playhead to the end"}, ${clock(from)}–${clock(to)} (${clock(to - from)}): ${fitted ? "re-cut by Epidemic Sound to fit" : "cut there and faded out"}`;
+  return `${clock(from)}–${clock(to)} (${clock(to - from)}), ${fitted ? "re-cut to fit" : "faded out"}`;
 }
 
 /**
@@ -135,7 +135,7 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
         <>
           {!music && (
             <div className="mb-3">
-              <Button title="A whoosh or pop as each motion graphic, B-roll clip, screenshot and logo comes on, all at once" onClick={() => set({ tab: "popins" })} data-music-popins>
+              <Button title="A whoosh or pop as each graphic comes on" onClick={() => set({ tab: "popins" })} data-music-popins>
                 Sounds for my graphics…
               </Button>
             </div>
@@ -206,16 +206,16 @@ export function MusicPanel({ project, session, host, popIns }: { project: Projec
           {music && (
             <div className="mb-3 flex flex-col gap-2 border-t border-divider pt-3">
               <Check
-                label="Fit to the range (Epidemic re-cuts the track)"
-                title="Off: cut where the range ends and faded out"
+                label="Fit to the range"
+                title="Off: faded out at the end"
                 checked={review.fit === "edit"}
                 onChange={(on) => set({ fit: on ? "edit" : "cut" })}
                 data-music-fit
               />
               {review.pick?.vocals && (
-                <Check label="Keep the singing" title="Off: the track's instruments alone (cut to fit)" checked={review.vocals} onChange={(on) => set({ vocals: on })} data-music-vocals />
+                <Check label="Keep the singing" title="Off: instrumental" checked={review.vocals} onChange={(on) => set({ vocals: on })} data-music-vocals />
               )}
-              <Check label="Duck under speech" title="Dips under what is said, as audio points you can drag" checked={review.duck} onChange={(on) => set({ duck: on })} data-music-duck />
+              <Check label="Duck under speech" title="Quieter while you talk" checked={review.duck} onChange={(on) => set({ duck: on })} data-music-duck />
               <Slider label="Volume" value={Math.round(review.level * 100)} unit="%" max={100} onChange={(v) => set({ level: Math.round(v) / 100 })} />
               {review.duck && <Slider label="Under speech" value={Math.round(review.under * 100)} unit="%" max={100} onChange={(v) => set({ under: Math.round(v) / 100 })} />}
             </div>
@@ -261,7 +261,7 @@ function suggestCount(review: MusicReview) {
 }
 
 function suggestSummary(review: MusicReview) {
-  if (!review.suggestion) return <span className="text-text-muted">Nothing downloads until Apply, on your Epidemic Sound subscription.</span>;
+  if (!review.suggestion) return <span className="text-text-muted">Nothing downloads until Apply.</span>;
   const { tracks, sounds } = suggestCount(review);
   const n = (k: number, one: string, many: string) => (k === 1 ? `1 ${one}` : `${k} ${many}`);
   return <span>{n(tracks, "track", "tracks")} and {n(sounds, "sound", "sounds")}, ducked under speech, one undo step. Downloads use your Epidemic Sound subscription.</span>;
@@ -280,7 +280,7 @@ function Suggest({ review, host, listen, playing, loading }: { review: MusicRevi
   if (!s)
     return (
       <div className="mb-3 flex min-h-0 flex-1 flex-col items-start gap-3" data-music-suggest>
-        <span className="text-text-muted">Reads the talk for the kind of video and each section's mood, then finds music for each part and sounds for section changes, key moments and graphics coming on.</span>
+        <span className="text-text-muted">Picks music for each section and sounds for key moments.</span>
         <Button look="primary" disabled={review.suggesting} onClick={() => host.run("music.suggest")} data-music-suggest-start>
           {review.suggesting ? "Reading the talk…" : "Suggest"}
         </Button>
@@ -332,7 +332,7 @@ function Suggest({ review, host, listen, playing, loading }: { review: MusicRevi
         <span className="text-label text-text-muted" data-suggest-kind>
           {s.kind ? `A ${s.kind}` : "Suggested"}
         </span>
-        <Button look="quiet" disabled={review.suggesting} onClick={() => host.run("music.suggest")} title="Read the talk again and search again">
+        <Button look="quiet" disabled={review.suggesting} onClick={() => host.run("music.suggest")} title="Search again">
           {review.suggesting ? "Reading…" : "Again"}
         </Button>
       </div>
@@ -356,7 +356,7 @@ const popCount = (review: MusicReview, found: PopIn[] | undefined) => (found ?? 
 
 function popSummary(review: MusicReview, found: PopIn[] | undefined) {
   if (!found) return <span className="text-text-muted">Finding pop-ins…</span>;
-  if (!found.length) return <span className="text-text-muted">Nothing comes onto the picture yet: add motion graphics, B-roll or pictures first.</span>;
+  if (!found.length) return <span className="text-text-muted">Add motion graphics, B-roll or pictures first.</span>;
   const n = popCount(review, found);
   return <span>{n === 1 ? "1 sound" : `${n} sounds`} on SFX tracks, one undo step. Downloads use your Epidemic Sound subscription.</span>;
 }
