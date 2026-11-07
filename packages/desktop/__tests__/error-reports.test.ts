@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { redactor } from "@beacon/core";
@@ -79,6 +79,36 @@ test("reports: none while off (asked at each one), the same error once a run, at
   expect(readdirSync(pending)).toEqual([]);
   for (let n = 2; n < 40; n++) await reporter.report(err(n));
   expect(posts).toHaveLength(2 + 18);
+});
+
+test("pending reports: kept on 429, dropped on other 4xx, sent within the run's 20, stopped by turning off, deleted while off", async () => {
+  const pending = mkdtempSync(join(tmpdir(), "beacon-pending-"));
+  let status = 429;
+  let on = true;
+  const posts: string[] = [];
+  const send = async (_url: string, init: RequestInit) => (posts.push(String(init.body)), { ok: status === 200, status });
+  const err = (n: number): ErrorInput => ({ origin: "main", mechanism: "onerror", type: "Error", message: `boom ${n}` });
+  const first = createReporter({ enabled: () => on, context: () => ctx, pending, send });
+  for (let n = 0; n < 15; n++) await first.report(err(n));
+  expect(readdirSync(pending)).toHaveLength(15);
+  status = 400;
+  await first.report(err(15));
+  expect(readdirSync(pending)).toHaveLength(15);
+
+  status = 200;
+  posts.length = 0;
+  const next = createReporter({ enabled: () => on, context: () => ctx, pending, send });
+  for (let n = 0; n < 10; n++) await next.report(err(100 + n));
+  expect(await next.sendPending()).toBe(10);
+  expect(posts).toHaveLength(20);
+  expect(readdirSync(pending)).toHaveLength(5);
+  expect(await next.report(err(200))).toBeUndefined();
+
+  const third = createReporter({ enabled: () => on, context: () => ctx, pending, send: async (url, init) => ((on = false), send(url, init)) });
+  expect(await third.sendPending()).toBe(1);
+  expect(readdirSync(pending)).toHaveLength(4);
+  expect(await third.sendPending()).toBe(0);
+  expect(existsSync(pending)).toBe(false);
 });
 
 test("crash reports: the first run only notes those there; later, each new one of this Beacon.app's is sent once with only the process and how it crashed; another app's bun is not", async () => {

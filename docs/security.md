@@ -106,8 +106,10 @@ redactor (`projectsRedactor` in `packages/core/src/diagnostics.ts`): the home fo
 and every path in a user's folders or on a disk are replaced. No user, hostname, breadcrumbs, settings, keys or
 file contents; `infer_ip: "never"`; the service still sees the connection's address. At most 20
 reports a run, each error once. The sender is Beacon's own (`packages/desktop/src/bun/error-reports.ts`, an
-envelope POSTed with `fetch`), not an SDK, so nothing else is collected. A report that can't be sent is
-dropped.
+envelope POSTed with `fetch`), not an SDK, so nothing else is collected. Each report is written to
+`error-reports/` in the config folder before it is sent (a dying process may not get it out), and one not sent
+(offline, the app died, or HTTP 408/429) goes on a later launch: at most 20 kept, the 20 a run shared with new ones.
+One the service refuses otherwise is dropped. Turning reports off deletes those not sent.
 
 The first launch of a release build shows a notice (OK, or Turn Off); Settings › General › Send error reports turns
 them off or on at any time (`errorReports` in `settings.json`). To try them in a dev build:

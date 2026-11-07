@@ -118,13 +118,15 @@ export function createReporter(opts: {
   log?: (text: string) => void;
 }): Reporter {
   const sent = new Set<string>();
+  /** Reports sent or being sent this run, new and pending alike: at most MAX_PER_RUN. */
+  let used = 0;
   const send = opts.send ?? ((url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(10_000) }));
-  /** Sends one written report; removes it once the ingest has it, or when it refuses it (4xx: sending again won't help). */
+  /** Sends one written report; removes it once the ingest has it, or when it refuses it (a 4xx other than 408 and 429: sending again won't help). */
   const deliver = async (file: string): Promise<boolean> => {
     try {
       const { url, headers, body } = JSON.parse(readFileSync(file, "utf8")) as ReturnType<typeof envelope>;
       const r = await send(url, { method: "POST", headers, body });
-      if (r.ok || (r.status >= 400 && r.status < 500)) rmSync(file, { force: true });
+      if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429)) rmSync(file, { force: true });
       if (!r.ok) opts.log?.(`error report not sent: HTTP ${r.status}`);
       return r.ok;
     } catch (e) {
@@ -136,8 +138,9 @@ export function createReporter(opts: {
     async report(input) {
       if (!opts.enabled()) return;
       const key = `${input.origin}|${input.type}|${input.message}|${input.stack?.split("\n").slice(0, 3).join("|") ?? ""}`;
-      if (sent.has(key) || sent.size >= MAX_PER_RUN) return;
+      if (sent.has(key) || used >= MAX_PER_RUN) return;
       sent.add(key);
+      used++;
       const event = errorEvent(input, opts.context());
       const file = join(opts.pending, `${event.event_id as string}.json`);
       try {
@@ -150,14 +153,20 @@ export function createReporter(opts: {
       return (await deliver(file)) ? (event.event_id as string) : undefined;
     },
     async sendPending() {
-      if (!opts.enabled() || !existsSync(opts.pending)) return 0;
+      if (!existsSync(opts.pending)) return 0;
+      // Turned off: what was written while on isn't sent later either.
+      if (!opts.enabled()) return (rmSync(opts.pending, { recursive: true, force: true }), 0);
       const files = readdirSync(opts.pending)
         .filter((f) => f.endsWith(".json"))
         .map((f) => join(opts.pending, f))
         .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
       for (const old of files.slice(MAX_PENDING)) rmSync(old, { force: true });
       let n = 0;
-      for (const f of files.slice(0, MAX_PENDING)) if (await deliver(f)) n++;
+      for (const f of files.slice(0, MAX_PENDING)) {
+        if (!opts.enabled() || used >= MAX_PER_RUN) break;
+        used++;
+        if (await deliver(f)) n++;
+      }
       return n;
     },
   };
