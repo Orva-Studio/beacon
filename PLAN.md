@@ -3658,8 +3658,10 @@ caption shadow. In this order, on this branch:
    each output pixel's footprint in linear light (no moiré at any angle, the picture's brightness kept, left out where
    the blur is wider than a pixel, a matte sparkle very close in); the panel dimmer and its blacks lifting off axis and
    a little toward its edges; reflections by each point's own angle (Fresnel), Glossy's glass over the bezel, a faint
-   room haze on Matte; by Day, Glossy mirrors the room's own windows as a wash of daylight (the user's reference of a
-   screen by a window; not Sunlit's leaves). Left as decided: no Glow or grade of its own (Film Look's halation, grain and vignette), the
+   room haze on Matte; by Day, Glossy mirrors a window as a wash of daylight (the user's reference of a screen by a
+   window; its own picture, gpt-image-2.6-sunburst, the user's OK; not Sunlit's leaves); the monitor's edge rounded and
+   lit by the room in place of the gold hairline. A subagent reviewed the frames: its points on doubled blurred text,
+   the faint grid, the flat bezel and the daylight are in. Left as decided: no Glow or grade of its own (Film Look's halation, grain and vignette), the
    bezel sharp at any Blur, Zoom's 2.5, the rooms. Looked at and left out: the monitor's sides (never in shot from
    these cameras), dust and smudges (a matter of taste: ask first), a lens's vignette (Film Look has it).
 6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New

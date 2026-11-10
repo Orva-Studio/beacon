@@ -94,23 +94,23 @@ fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
   let k = param(23u) * 2.0;
   let extra = clamp(k - 1.0, 0.0, 1.0);
   let sharp = 1.0 - smoothstep(0.3, 1.0, df_radius(v.uv) / min(scale.x, scale.y));
-  let across = min(k, 1.0) * smoothstep(2.5 - extra, 6.0 - 2.5 * extra, scale.x) * sharp;
-  let down = min(k, 1.0) * smoothstep(2.0 - 0.8 * extra, 5.0 - 2.0 * extra, scale.y) * sharp * (0.8 + 0.2 * extra);
+  let across = min(k, 1.0) * smoothstep(2.0 - 0.5 * extra, 4.5 - 1.5 * extra, scale.x) * sharp;
+  let down = min(k, 1.0) * smoothstep(2.0 - 0.5 * extra, 4.5 - 1.5 * extra, scale.y) * sharp * (0.85 + 0.15 * extra);
   if (across <= 0.0 && down <= 0.0) {
     return c;
   }
   let w = max(span, vec2(0.06));
-  let a = 0.112 - 0.04 * extra;
+  let a = 0.1 - 0.035 * extra;
   let stripes = vec3(px_cover(r.x, w.x, 1.0 / 6.0, a), px_cover(r.x, w.x, 0.5, a), px_cover(r.x, w.x, 5.0 / 6.0, a));
-  let gap = 0.09 + 0.06 * extra;
+  let gap = 0.11 + 0.06 * extra;
   let rows = px_cover(r.y, w.y, 0.5, 0.5 - gap);
   let mask = mix(vec3(1.0), stripes, across) * mix(1.0, rows, down);
   // A stripe can be no brighter than white, so where the picture is too bright for its stripes to carry all of its
-  // light the gaps between them fill in instead (a bright screen flares over its own grid): the picture keeps its
-  // brightness at any strength, and the grid fades toward white as it does in an exposed photo.
+  // light the gaps between them fill in part of the way (a bright screen flares over its own grid): greys keep their
+  // brightness exactly, whites keep most of it and still show their stripes, as white text does in a macro shot.
   let peak = mix(1.0, 0.5 / a, across) * mix(1.0, 1.0 / (1.0 - 2.0 * gap), down);
   let light = c.rgb * c.rgb;
-  let fill = max((light - 1.0 / peak) / (1.0 - 1.0 / peak), vec3(0.0));
+  let fill = max((light - 1.0 / peak) / (1.0 - 1.0 / peak), vec3(0.0)) * 0.8;
   var lin = fill + min(light, (1.0 - fill) / peak) * mask;
   // A matte coating's sparkle: each subpixel a touch brighter or dimmer through the grain of the anti-glare layer,
   // once a subpixel is a couple of output pixels wide.
@@ -328,7 +328,7 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
   // picture's bright parts are opened up and its dark parts held back. The window then washes the screen pale while
   // what stands in front of it (a person, shelves) leaves a clear patch, as glass does by a window.
   let sky = max(max(c.r, c.g), c.b);
-  let lit = mix(c.rgb, c.rgb * (0.25 + 2.4 * smoothstep(0.5, 0.95, sky)), param(10u));
+  let lit = mix(c.rgb, c.rgb * (0.35 + 2.3 * smoothstep(0.45, 0.95, sky)), param(10u));
   // The bezel under the glass mirrors less than the panel does, or a thin bezel reads as a bright outline.
   let on_screen = step(param(11u), at.x) * step(at.x, param(11u) + param(13u)) * step(param(12u), at.y) * step(at.y, param(12u) + param(14u));
   let light = lit * param(4u) * fresnel * inside * mix(0.4, 1.0, on_screen);
@@ -336,20 +336,34 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
   return vec4(mix(light, 1.0 - exp(-1.25 * light), param(10u)), 0.0);
 }
 
-// device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,
-// 1 right), the layer's width and height. The bezel catches the room's warm light along its top and its side nearest
-// the camera, so it sits in the room rather than on it.
+// device-rim params: the room's light (r, g, b), strength, the edge's width (layer px), the near side (0 left,
+// 1 right), the layer's width and height, the part (0 the monitor's rounded outer edge, 1 the bezel's face), then for
+// the face the bezel's widths round the screen (left, top, right, bottom). The monitor has a little depth: its outer
+// edge is rounded, so the room's light runs along the middle of it, most on top and on the side nearest the camera,
+// least underneath; the bezel's face is near black, a touch lighter toward the top, with a fine lip where it meets
+// the panel that catches the screen's light.
 @fragment
 fn fs_rim(v: VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(src, samp, v.uv, 0.0);
   let p = to_layer(v.uv);
   let size = vec2(param(6u), param(7u));
-  let band = max(param(4u), 1.0);
-  let top = exp(-p.y / band);
-  let x = select(p.x, size.x - p.x, param(5u) > 0.5);
-  let near = exp(-x / band) * 0.7;
-  let light = vec3(param(0u), param(1u), param(2u)) * param(3u) * clamp(top + near, 0.0, 1.0);
-  return vec4(c.rgb + light * c.a, c.a);
+  let room = vec3(param(0u), param(1u), param(2u)) * param(3u);
+  let near_x = select(p.x, size.x - p.x, param(5u) > 0.5);
+  let far_x = size.x - near_x;
+  if (param(8u) < 0.5) {
+    let w = max(param(4u), 0.5);
+    let edge = min(min(p.x, size.x - p.x), min(p.y, size.y - p.y));
+    let round = sin(clamp(edge / w, 0.0, 1.0) * 3.1415927);
+    let top = 1.0 - smoothstep(0.0, w * 1.5, p.y);
+    let side = 0.6 * (1.0 - smoothstep(0.0, w * 1.5, near_x)) + 0.3 * (1.0 - smoothstep(0.0, w * 1.5, far_x));
+    let under = 0.08 * (1.0 - smoothstep(0.0, w * 1.5, size.y - p.y));
+    return vec4(c.rgb * 0.5 + room * round * clamp(max(max(top, side), under), 0.0, 1.0) * c.a, c.a);
+  }
+  let inner = vec4(param(9u), param(10u), size.x - param(11u), size.y - param(12u));
+  let out_of = max(max(inner.x - p.x, p.x - inner.z), max(inner.y - p.y, p.y - inner.w));
+  let lip = vec3(0.05, 0.055, 0.065) * exp(-max(out_of, 0.0) / max(param(4u), 0.5));
+  let sheen = room * 0.05 * (1.0 - smoothstep(0.0, size.y, p.y));
+  return vec4(c.rgb + (lip + sheen) * c.a, c.a);
 }
 
 // device-room params: the room (0 drawn dark, 1 a photo), then for a photo its lift and how much of its colour it keeps

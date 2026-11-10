@@ -35,8 +35,8 @@ const RIM_COLOR: [number, number, number, number] = [0.13, 0.12, 0.11, 1];
 /** How much of the room glossy glass gives back head on at Reflection 100%, and a matte coating as haze. */
 const GLASS = 0.3;
 const MATTE_HAZE = 0.035;
-/** The room lamps' warm light, caught by the bezel's top edge and the side nearest the camera. */
-const LAMP: [number, number, number] = [0.62, 0.42, 0.24];
+/** The light each room throws on the monitor's edge: warm from the night's lamps, white by day. */
+const ROOM_LIGHT: Record<DeviceFrameParams["room"], [number, number, number]> = { night: [0.5, 0.4, 0.3], day: [0.62, 0.62, 0.6], "teal-studio": [0.36, 0.42, 0.42], none: [0.42, 0.36, 0.31] };
 
 function seedOf(id: string): number {
   let h = 0;
@@ -110,8 +110,10 @@ function reflectionLayer(room: DeviceFrameParams["room"], strength: number, blur
   const { path, mirror } = reflectionOf(room);
   const sc = Math.max((rect[2] * 1.35) / pw, (rect[3] * 1.35) / ph);
   const centre = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
-  const dx = (cam.target[0] - centre[0]!) * 0.6 + Math.sin(cam.yaw) * rect[2] * 0.5;
-  const dy = (cam.target[1] - centre[1]!) * 0.6 - Math.sin(cam.pitch) * rect[3] * 0.5;
+  // Day's picture has one window: it slides less as the camera moves, or the window would leave the glass.
+  const [follow, slide] = room === "day" ? [0.25, 0.2] : [0.6, 0.5];
+  const dx = (cam.target[0] - centre[0]!) * follow + Math.sin(cam.yaw) * rect[2] * slide;
+  const dy = (cam.target[1] - centre[1]!) * follow - Math.sin(cam.pitch) * rect[3] * slide;
   const [ox, oy] = [centre[0]! + dx - (sc * pw) / 2, centre[1]! + dy - (sc * ph) / 2];
   const placed = split(multiply(frameOf, [sc, 0, ox, 0, sc, oy, 0, 0, 1]));
   const inPlate = [(glass[0] - ox) / sc, (glass[1] - oy) / sc, glass[2] / sc, glass[3] / sc];
@@ -172,13 +174,13 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
 
   // Thin, as the reference's: about 2% of the frame at this shot's size.
   const bezel = [0.007 * W, 0.007 * W, 0.007 * W, 0.01 * W] as const;
-  const rim = 0.0012 * W;
+  const rim = 0.0022 * W;
   const solid = (color: [number, number, number, number], left: number, top: number, right: number, bottom: number, radius: number): VisualLayer => {
     const placed = place(multiply(frameOf, translate3(rect[0] - left, rect[1] - top)));
     return { kind: "visual", content: { type: "solid", color }, size: [rect[2] + left + right, rect[3] + top + bottom], transform: placed.transform, ...(placed.perspective ? { perspective: placed.perspective } : {}), radius: [radius, radius, radius, radius] };
   };
   const nearSide = cam.yaw >= 0 ? 0 : 1;
-  const lit = (layer: VisualLayer, strength: number, width: number): VisualLayer => ({ ...layer, passes: [{ pass: "device-rim", params: [...LAMP, strength, width, nearSide, ...layer.size] }] });
+  const lit = (layer: VisualLayer, strength: number, width: number, face: boolean): VisualLayer => ({ ...layer, passes: [{ pass: "device-rim", params: [...ROOM_LIGHT[p.room], strength, width, nearSide, ...layer.size, face ? 1 : 0, ...bezel] }] });
   // Head on, the studio photo filling the frame, a little larger so the camera's moves shift it a touch (a far wall
   // behind a near screen), lifted a little so a grade doesn't sink it, and keeping half its colour (the user found it
   // too vivid). Otherwise a dark room drawn: a warm lamp's falloff from the side away from the camera.
@@ -193,7 +195,7 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     : photo
     ? { kind: "visual", content: { type: "source", source: ctx.source({ kind: "image", path: roomPath() }) }, size: [iw, ih], transform: [sc, 0, 0, sc, cx - (sc * iw) / 2, cy - (sc * ih) / 2], passes: [{ pass: "device-room", params: [1, 1.25, 0.5] }] }
     : { kind: "visual", content: { type: "solid", color: DARK_ROOM }, size: [W, H], transform: IDENTITY, passes: [{ pass: "device-room", params: [0, Math.sin(cam.yaw)] }] };
-  const under = [room, lit(solid(RIM_COLOR, bezel[0] + rim, bezel[1] + rim, bezel[2] + rim, bezel[3] + rim, 0.004 * W), 0.5, 0.02 * W), lit(solid(BEZEL_COLOR, ...bezel, 0.004 * W), 0.18, 0.05 * W)];
+  const under = [room, lit(solid(RIM_COLOR, bezel[0] + rim, bezel[1] + rim, bezel[2] + rim, bezel[3] + rim, 0.004 * W + rim), 0.55, rim, false), lit(solid(BEZEL_COLOR, ...bezel, 0.004 * W), 1, 0.0012 * W, true)];
 
   const focusDepth = depthAt(M, ...focusPoint);
   // Far enough that a photo's detail melts into soft shapes (the user: the less busy the background the better).
