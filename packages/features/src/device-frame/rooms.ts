@@ -66,7 +66,7 @@ export const panoramaPath = (room: Panorama) => bundledFile(PANORAMAS[room].imag
 export const REFLECTION_SIZE: [number, number] = [512, 342];
 const REFLECTIONS = {
   night: { image: nightReflection, mirror: 2.4 },
-  day: { image: dayReflection, mirror: 1.5 },
+  day: { image: dayReflection, mirror: 2 },
   "teal-studio": { image: studioReflection, mirror: 2.4 },
   none: { image: reflection, mirror: 2.4 },
 } as const;

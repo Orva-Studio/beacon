@@ -170,13 +170,16 @@ fn fs_bokeh(v: VOut) -> @location(0) vec4<f32> {
   let turn = df_turn(v.uv);
   let px = radius / target_size();
   let narrow = 1.0 - 0.04 * min(param(25u), 1.0);
+  // On the screen the disc is soft-edged: a hard disc turns each stroke of small text into two edges, which reads as
+  // camera shake rather than focus. The room keeps the hard disc, where its lights make bokeh.
+  let soft = select(0.0, 1.0, region == 2);
   var acc = vec4(0.0);
   var wsum = vec4(0.0);
   for (var i = 0; i < n; i++) {
     let k = sqrt((f32(i) + 0.5) / f32(n));
     let ang = f32(i) * 2.3999632 + turn;
     let at = v.uv + vec2(cos(ang), sin(ang)) * k * px;
-    let same = select(0.0, 1.0, df_region(at) == region) * (0.94 + 0.12 * k * k);
+    let same = select(0.0, 1.0, df_region(at) == region) * mix(0.94 + 0.12 * k * k, exp(-2.2 * k * k), soft);
     let side = 1.0 - smoothstep(narrow - 0.06, narrow, k);
     let w = same * vec4(side, 1.0, side, 1.0);
     acc += df_light(textureSampleLevel(src, samp, at, 0.0), open) * w;
@@ -293,7 +296,7 @@ fn fs_panorama(v: VOut) -> @location(0) vec4<f32> {
 
 // device-reflection params: the glass in the plate's pixels (left, top, width, height), strength (head on), the
 // glass's corner radius (plate px), the blur's radius (plate px), the camera's place over the plate (plate px: across,
-// down, and how far in front), daylight (1 by day). The room behind the camera, kept to the glass and added as light (alpha 0 adds under
+// down, and how far in front), daylight (1 by day), the screen within the glass (plate px: left, top, width, height). The room behind the camera, kept to the glass and added as light (alpha 0 adds under
 // premultiplied blending), as glass reflects: about as much at any angle up to 45° or so, then more and more toward
 // grazing (Fresnel), so across a turned screen the far side mirrors the room most.
 @fragment
@@ -326,7 +329,11 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
   // what stands in front of it (a person, shelves) leaves a clear patch, as glass does by a window.
   let sky = max(max(c.r, c.g), c.b);
   let lit = mix(c.rgb, c.rgb * (0.25 + 2.4 * smoothstep(0.5, 0.95, sky)), param(10u));
-  return vec4(lit * param(4u) * fresnel * inside, 0.0);
+  // The bezel under the glass mirrors less than the panel does, or a thin bezel reads as a bright outline.
+  let on_screen = step(param(11u), at.x) * step(at.x, param(11u) + param(13u)) * step(param(12u), at.y) * step(at.y, param(12u) + param(14u));
+  let light = lit * param(4u) * fresnel * inside * mix(0.4, 1.0, on_screen);
+  // Daylight rolls off toward white as a sensor's highlights do, rather than clipping flat.
+  return vec4(mix(light, 1.0 - exp(-1.25 * light), param(10u)), 0.0);
 }
 
 // device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,

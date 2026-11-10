@@ -122,7 +122,7 @@ function reflectionLayer(room: DeviceFrameParams["room"], strength: number, blur
     size: [pw, ph],
     transform: placed.transform,
     ...(placed.perspective ? { perspective: placed.perspective } : {}),
-    passes: [{ pass: "device-reflection", params: [...inPlate, strength * mirror, (0.004 * W) / sc, blur * 0.08 * ph, (px - ox) / sc, (py - oy) / sc, pz / sc, room === "day" && glass !== rect ? 1 : 0] }],
+    passes: [{ pass: "device-reflection", params: [...inPlate, strength * mirror, (0.004 * W) / sc, blur * 0.08 * ph, (px - ox) / sc, (py - oy) / sc, pz / sc, room === "day" && glass !== rect ? 1 : 0, (rect[0] - ox) / sc, (rect[1] - oy) / sc, rect[2] / sc, rect[3] / sc] }],
   };
 }
 
