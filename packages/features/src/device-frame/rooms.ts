@@ -57,9 +57,11 @@ export const roomPath = () => bundledFile(tealStudio);
 export const panoramaPath = (room: Panorama) => bundledFile(PANORAMAS[room].image);
 /**
  * What glossy glass mirrors, 512×342, blurred: the room behind the camera with someone standing in it
- * (gpt-image-2.6-sunburst, the user preferred it to the rooms' own reflections, 2026-11-05), each room blended in
- * (Night's window, Day's shelves, the studio's teal) so they differ a little; no room has it as it is. `mirror`: how
- * much of it the glass gives back at Reflection 100% (the day's is brighter).
+ * (gpt-image-2.6-sunburst, the user preferred it to the rooms' own reflections, 2026-11-05), Night's window and the
+ * studio's teal blended in so they differ a little; no room has it as it is. Day's is its own room's windows (cut from
+ * its panorama, mirrored and blurred), since by day it is the windows a screen mirrors (the user's reference,
+ * 2026-11-10): the reflection's pass opens them up into a wash of daylight. `mirror`: how much of it the glass gives
+ * back at Reflection 100%.
  */
 export const REFLECTION_SIZE: [number, number] = [512, 342];
 const REFLECTIONS = {

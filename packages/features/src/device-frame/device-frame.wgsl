@@ -293,7 +293,7 @@ fn fs_panorama(v: VOut) -> @location(0) vec4<f32> {
 
 // device-reflection params: the glass in the plate's pixels (left, top, width, height), strength (head on), the
 // glass's corner radius (plate px), the blur's radius (plate px), the camera's place over the plate (plate px: across,
-// down, and how far in front). The room behind the camera, kept to the glass and added as light (alpha 0 adds under
+// down, and how far in front), daylight (1 by day). The room behind the camera, kept to the glass and added as light (alpha 0 adds under
 // premultiplied blending), as glass reflects: about as much at any angle up to 45° or so, then more and more toward
 // grazing (Fresnel), so across a turned screen the far side mirrors the room most.
 @fragment
@@ -321,7 +321,12 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
     }
     c /= 24.0;
   }
-  return vec4(c.rgb * param(4u) * fresnel * inside, 0.0);
+  // Daylight: a window is many times brighter than the wall beside it, which a photo of the room can't hold, so the
+  // picture's bright parts are opened up and its dark parts held back. The window then washes the screen pale while
+  // what stands in front of it (a person, shelves) leaves a clear patch, as glass does by a window.
+  let sky = max(max(c.r, c.g), c.b);
+  let lit = mix(c.rgb, c.rgb * (0.25 + 2.4 * smoothstep(0.5, 0.95, sky)), param(10u));
+  return vec4(lit * param(4u) * fresnel * inside, 0.0);
 }
 
 // device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,
