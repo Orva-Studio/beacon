@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Monitor realism (`feat/monitor-realism`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| Monitor filmed as a lens and a panel would show it, no settings added or changed (still v8): the **focus blur** is a disc of light (bokeh), not a Gaussian, gathered in linear light with highlights opened past white (the room's lamps more than the screen's whites), so a lamp or a city light stays a bright disc and blurred text stays bright; green's disc a touch wider than red's and blue's (a faint green edge on what is out of focus); the bezel still sharp at any Blur, each part of the frame still blurred from itself only. **Pixels**: each output pixel takes the stripes' average over its own footprint in linear light, so the grid no longer beats against the output (the moiré on angled close-ups is gone), a grey stays the same grey (it used to darken), whites fill their gaps rather than dim, the grid is left out where the focus blur is wider than a pixel, and a matte screen sparkles a little subpixel by subpixel very close in. **The panel**: dimmer and its blacks lifting the further off axis each point is seen (the far side of a turned screen falls away), a little dimmer toward its edges. **Reflections**: stronger toward a grazing angle at each point of the glass (Fresnel) rather than by the camera's turn alone; Glossy's glass runs over the bezel, which mirrors the room too; Matte picks up the room's light as a faint haze with no picture in it | 2026-11-10 | this branch | core test (`device-frame.test.ts`: the stripes keep the picture's light within 8% at the project's size); frames looked at before and after on take.brec and on a made-up editor screen (head on night and day, whole screen, Left Edge, From the Right glossy, Low Macro, Top-Left Corner glossy, turned 50°, Pixels close in head on and on Low Macro): `docs/monitor-realism/before-after.jpg`; preview timed (`scripts/perf.ts`, 1080p, Blur 100%: a re-render 13 ms from 8, play keeps 30 fps) |
+
+### Not checked yet
+
+- Monitor's new lens and panel in the app, on one of your recordings: does the room's blur read as a real lens's (lights as discs), and is blurred text too bright or too busy now? Turn Rotation Y to 40-50°: does the far side dimming look like a real panel or just dark? Pixels at 50% and 100% with Scale pushed in: is the grid strong enough now that it no longer darkens the picture, and does it stay still (no shimmer) as the camera drifts? Glossy: the bezel mirroring the room; Matte: is the haze too much on a dark screen? Does playback keep up?
+
 ## Word review (`chore/word-review`)
 
 ### Checked headless only

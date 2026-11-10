@@ -19,6 +19,13 @@ async function pixels(png: Uint8Array, name: string): Promise<Uint8Array> {
   return new Uint8Array(await new Response(p.stdout).arrayBuffer());
 }
 
+/** The light a saved frame gives off: the mean of its red, green and blue as linear light (a gamma of 2). */
+async function light(name: string): Promise<number> {
+  const p = Bun.spawn([tool("ffmpeg"), "-v", "error", "-i", join(dir, `${name}.png`), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], { stdout: "pipe" });
+  const px = new Uint8Array(await new Response(p.stdout).arrayBuffer());
+  return px.reduce((a, v) => a + (v / 255) ** 2, 0) / px.length;
+}
+
 /** How much detail a band of columns holds: the mean step between neighbouring pixels. */
 function detail(px: Uint8Array, from: number, to: number): number {
   const height = px.length / WIDTH;
@@ -69,7 +76,16 @@ test.skipIf(!existsSync(TAKE))("Monitor puts the recording on a monitor filmed h
   const scale = (screen.props.transform as { scaleX: number }).scaleX * 5;
   await core.run(h, "clip.set", { clip: screen.id, props: { transform: { scaleX: scale, scaleY: scale } } });
   const close = { zoom: 2.5, blur: 0, focusX: 0.06, focusY: 0.08 };
-  expect(detail(await at({ ...close, pixels: 1 }, "stripes"), 0.2, 0.8)).toBeGreaterThan(detail(await at({ ...close, pixels: 0 }, "plain"), 0.2, 0.8) * 1.3);
+  const stripes = await at({ ...close, pixels: 1 }, "stripes");
+  const plain = await at({ ...close, pixels: 0 }, "plain");
+  expect(detail(stripes, 0.2, 0.8)).toBeGreaterThan(detail(plain, 0.2, 0.8) * 1.3);
+  // The stripes share out each pixel's light rather than taking it away: the picture keeps its brightness (at the
+  // project's own size: a frame scaled down averages display values, which darkens fine stripes).
+  writeFileSync(join(dir, "plain-full.png"), (await core.frame(h, 1)).png);
+  await core.undo(h);
+  writeFileSync(join(dir, "stripes-full.png"), (await core.frame(h, 1)).png);
+  await core.redo(h);
+  expect(Math.abs((await light("stripes-full")) / (await light("plain-full")) - 1)).toBeLessThan(0.08);
   for (let i = 0; i < 3; i++) await core.undo(h);
   expect(Buffer.from(await at({ zoom: 2, blur: 0.6, focusX: 0.9, focusY: 0.9, pixels: 1 }, "far-stripes")).equals(Buffer.from(far))).toBe(true);
   // Glossy glass mirrors the room behind the camera: light added on the screen.

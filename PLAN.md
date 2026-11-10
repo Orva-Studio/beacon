@@ -3652,6 +3652,15 @@ caption shadow. In this order, on this branch:
    2.5 (Pixels showed as moiré past it); the bezel and its rim stay sharp at any Blur, the focus blur gathering only
    from its own part of the frame; Reflection Blur (15%) on Glossy, the first reflection back with each room blended in;
    Studio's photo on every shot; Corner moves the whole screen when zoomed out. v8. Export's Speed goes from 0.25× to 3× on a slider.
+6d4. **Monitor's realism pass (the user, 2026-11-10; done, headless only):** what a lens and a panel do, in the
+   shaders, with no setting added (v8 stays). The focus blur a disc gathered in linear light, highlights opened past
+   white (bokeh: lamps stay discs; a faint green edge out of focus), in place of the Gaussian; Pixels averaged over
+   each output pixel's footprint in linear light (no moiré at any angle, the picture's brightness kept, left out where
+   the blur is wider than a pixel, a matte sparkle very close in); the panel dimmer and its blacks lifting off axis and
+   a little toward its edges; reflections by each point's own angle (Fresnel), Glossy's glass over the bezel, a faint
+   room haze on Matte. Left as decided: no Glow or grade of its own (Film Look's halation, grain and vignette), the
+   bezel sharp at any Blur, Zoom's 2.5, the rooms. Looked at and left out: the monitor's sides (never in shot from
+   these cameras), dust and smudges (a matter of taste: ask first), a lens's vignette (Film Look has it).
 6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
    Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
    `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New
