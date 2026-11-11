@@ -3889,6 +3889,15 @@ Beacon is feature-complete for the user: no Phase 16 (Films, narrated videos mad
 2026-10-26 and is dropped). Next it goes to beta testers; what follows is their feedback, small bug fixes and
 performance work, and keeping the repo tidy.
 
+**Bug still open: the second project shows no thumbnails or waveforms (the user, 2026-11-11, v0.18.0).** With two
+projects open (one window each), the one opened first has its Media Bin thumbnails and timeline waveforms; the one
+opened second has neither: every Media Bin tile is the blank video icon, and the clips have no waveform. The user's
+screenshot: `claude-leak` (first, fine) beside `openai-meta` (second, all blank, though its preview plays). 99cb25d
+(2026-11-06, in v0.18.0) was meant to fix this ("a project opened untouched in a second window showed none": the
+window's `init` reply wiped the pictures sent at open) and doesn't. Not fixed yet; to be handed to another agent. Check
+in the app with two projects whose pictures are already cached, and with fresh ones; the `docs/tested.md` row for
+99cb25d moves back to Not checked.
+
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
 much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,
 offline or online, what Off means); how it works is dropped, not moved to a tooltip (the user chose "Lean" over
