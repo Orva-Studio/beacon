@@ -67,6 +67,34 @@ fn px_cover(x: f32, w: f32, c: f32, a: f32) -> f32 {
   return (px_lit(x + w * 0.5, c, a) - px_lit(x - w * 0.5, c, a)) / (w * 2.0 * a);
 }
 
+// The same stripes seen through a Gaussian of `sigma` (recording px), summed from their Fourier series. A box average
+// leaves the thin stripes' harmonics ringing past the output's resolution, where they fold back as beats a few pixels
+// apart; the Gaussian takes them out.
+fn px_wave(x: f32, sigma: f32, c: f32, a: f32) -> f32 {
+  var s = 1.0;
+  for (var h = 1; h <= 16; h++) {
+    let f = f32(h);
+    let g = exp(-2.0 * (3.14159265 * f * sigma) * (3.14159265 * f * sigma));
+    if (g < 1e-3) {
+      break;
+    }
+    let t = 6.28318531 * a * f;
+    s += 2.0 * sin(t) / t * g * cos(6.28318531 * f * (x - c));
+  }
+  return s;
+}
+
+// The stripes as an output pixel `span` recording px wide sees them: Gaussian filtered while a recording pixel is only
+// a few output pixels wide, the exact box average once it is wide enough that nothing folds back.
+fn px_stripe(x: f32, span: f32, c: f32, a: f32) -> f32 {
+  let t = smoothstep(6.0, 9.0, 1.0 / span);
+  let boxed = px_cover(x, max(span, 0.06), c, a);
+  if (t >= 1.0) {
+    return boxed;
+  }
+  return mix(px_wave(x, 0.55 * span, c, a), boxed, t);
+}
+
 fn px_hash(p: vec2<f32>) -> f32 {
   var p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
@@ -75,8 +103,9 @@ fn px_hash(p: vec2<f32>) -> f32 {
 
 // An LCD's subpixels at the recording's own pixel size: red, green and blue stripes in each pixel, a dark line between
 // rows. Drawn on the finished frame, so at any angle and zoom it is at the output's resolution. Each output pixel takes
-// the stripes' average over its own footprint (not their value at its centre), in linear light, so they melt into the
-// picture as they get small instead of beating against the output's grid (moiré), and a grey stays the same grey.
+// the stripes low-pass filtered to its own footprint (not their value at its centre), in linear light, so they melt
+// into the picture as they get small instead of beating against the output's grid (moiré), and a dark grey stays the
+// same grey.
 // Where the focus blur is wider than a pixel the grid is left out: the lens would have averaged it away.
 @fragment
 fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
@@ -99,18 +128,18 @@ fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
   if (across <= 0.0 && down <= 0.0) {
     return c;
   }
-  let w = max(span, vec2(0.06));
   let a = 0.1 - 0.035 * extra;
-  let stripes = vec3(px_cover(r.x, w.x, 1.0 / 6.0, a), px_cover(r.x, w.x, 0.5, a), px_cover(r.x, w.x, 5.0 / 6.0, a));
+  let stripes = vec3(px_stripe(r.x, span.x, 1.0 / 6.0, a), px_stripe(r.x, span.x, 0.5, a), px_stripe(r.x, span.x, 5.0 / 6.0, a));
   let gap = 0.11 + 0.06 * extra;
-  let rows = px_cover(r.y, w.y, 0.5, 0.5 - gap);
+  let rows = px_stripe(r.y, span.y, 0.5, 0.5 - gap);
   let mask = mix(vec3(1.0), stripes, across) * mix(1.0, rows, down);
   // A stripe can be no brighter than white, so where the picture is too bright for its stripes to carry all of its
   // light the gaps between them fill in part of the way (a bright screen flares over its own grid): greys keep their
-  // brightness exactly, whites keep most of it and still show their stripes, as white text does in a macro shot.
+  // brightness exactly up to a mid-dark grey (about 0.3 of white at Pixels 100%), lighter greys lose a little and
+  // whites about a fifth, still showing their stripes, as white text does in a macro shot.
   let peak = mix(1.0, 0.5 / a, across) * mix(1.0, 1.0 / (1.0 - 2.0 * gap), down);
   let light = c.rgb * c.rgb;
-  let fill = max((light - 1.0 / peak) / (1.0 - 1.0 / peak), vec3(0.0)) * 0.8;
+  let fill = max(light * peak - 1.0, vec3(0.0)) / max(peak - 1.0, 1e-4) * 0.8;
   var lin = fill + min(light, (1.0 - fill) / peak) * mask;
   // A matte coating's sparkle: each subpixel a touch brighter or dimmer through the grain of the anti-glare layer,
   // once a subpixel is a couple of output pixels wide.
@@ -309,6 +338,7 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
   let d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
   let aa = max(fwidth(d), 1e-3);
   let inside = 1.0 - smoothstep(-aa, aa, d);
+  let fw = max(fwidth(at), vec2(1e-3));
   let cam = vec3(param(7u), param(8u), param(9u));
   let grazing = 1.0 - cam.z / length(vec3(at - cam.xy, cam.z));
   let fresnel = min(1.0 + 24.0 * pow(grazing, 5.0) + 2.0 * grazing * grazing, 6.0);
@@ -330,7 +360,8 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
   let sky = max(max(c.r, c.g), c.b);
   let lit = mix(c.rgb, c.rgb * (0.35 + 2.3 * smoothstep(0.45, 0.95, sky)), param(10u));
   // The bezel under the glass mirrors less than the panel does, or a thin bezel reads as a bright outline.
-  let on_screen = step(param(11u), at.x) * step(at.x, param(11u) + param(13u)) * step(param(12u), at.y) * step(at.y, param(12u) + param(14u));
+  let on_screen = smoothstep(-fw.x, fw.x, at.x - param(11u)) * smoothstep(-fw.x, fw.x, param(11u) + param(13u) - at.x)
+    * smoothstep(-fw.y, fw.y, at.y - param(12u)) * smoothstep(-fw.y, fw.y, param(12u) + param(14u) - at.y);
   let light = lit * param(4u) * fresnel * inside * mix(0.4, 1.0, on_screen);
   // Daylight rolls off toward white as a sensor's highlights do, rather than clipping flat.
   return vec4(mix(light, 1.0 - exp(-1.25 * light), param(10u)), 0.0);

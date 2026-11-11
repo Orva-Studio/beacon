@@ -3654,8 +3654,8 @@ caption shadow. In this order, on this branch:
    Studio's photo on every shot; Corner moves the whole screen when zoomed out. v8. Export's Speed goes from 0.25× to 3× on a slider.
 6d4. **Monitor's realism pass (the user, 2026-11-10; done, headless only):** what a lens and a panel do, in the
    shaders, with no setting added (v8 stays). The focus blur a disc gathered in linear light, highlights opened past
-   white (bokeh: lamps stay discs; a faint green edge out of focus), in place of the Gaussian; Pixels averaged over
-   each output pixel's footprint in linear light (no moiré at any angle, the picture's brightness kept, left out where
+   white (bokeh: lamps stay discs; a faint green edge out of focus), in place of the Gaussian; Pixels low-pass filtered
+   to each output pixel's footprint in linear light (moiré under 2.5% of the light at any zoom, left out where
    the blur is wider than a pixel, a matte sparkle very close in); the panel dimmer and its blacks lifting off axis and
    a little toward its edges; reflections by each point's own angle (Fresnel), Glossy's glass over the bezel, a faint
    room haze on Matte; by Day, Glossy mirrors a window as a wash of daylight (the user's reference of a screen by a

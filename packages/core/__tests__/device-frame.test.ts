@@ -113,3 +113,58 @@ test.skipIf(!existsSync(TAKE))("Monitor puts the recording on a monitor filmed h
   expect(Buffer.from(await pixels((await core.frame(h, 1, { width: WIDTH })).png, "back")).equals(Buffer.from(flat))).toBe(true);
   await core.close(h);
 }, 120_000);
+
+test.skipIf(!existsSync(TAKE))("Monitor's Pixels add no beats where a recording pixel is only a few output pixels wide (the close shots people use most)", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-moire"), configDir: join(dir, "config-moire") });
+  const h = await core.create({ path: join(dir, "moire.beproj") });
+  const take = join(dir, "moire.brec");
+  cpSync(TAKE, take, { recursive: true });
+  for (const j of (await core.import(h, [take], { at: 0 })).jobs) await core.cancelJob(j).catch(() => {});
+  for (const t of core.doc(h).tracks) if (!t.clips.some((c) => c.type === "screen")) await core.run(h, "track.set", { track: t.id, hidden: true });
+  const screen = core.doc(h).tracks.flatMap((t) => t.clips).find((c) => c.type === "screen")!;
+  const fx = (await core.run(h, "effect.add", { clip: screen.id, type: "device-frame", params: { drift: 0, zoom: 2.5, blur: 0, focus: "point", focusX: 0.5, focusY: 0.5, reflection: 0, pixels: 1 } })).results[0] as string;
+  const base = (screen.props.transform as { scaleX: number }).scaleX;
+  const rgb = async (pixels: number) => {
+    await core.run(h, "effect.set", { clip: screen.id, effect: fx, params: { pixels } });
+    writeFileSync(join(dir, "moire.png"), (await core.frame(h, 1)).png);
+    const p = Bun.spawn([tool("ffmpeg"), "-v", "error", "-i", join(dir, "moire.png"), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], { stdout: "pipe" });
+    return new Uint8Array(await new Response(p.stdout).arrayBuffer());
+  };
+  // About 2.5 and 3.5 output pixels per recording pixel, where a plain average over each pixel beat at 13% and 17%.
+  for (const m of [2.2, 3]) {
+    await core.run(h, "clip.set", { clip: screen.id, props: { transform: { scaleX: base * m, scaleY: base * m } } });
+    const [a, b] = [await rgb(1), await rgb(0)];
+    const width = core.doc(h).settings.width;
+    const height = a.length / 3 / width;
+    // Each column's light with the grid over its light without, across the middle of the screen: the picture cancels,
+    // leaving the stripes and any bands they beat into.
+    const ratio: number[] = [];
+    for (let x = Math.floor(width * 0.3); x < width * 0.7; x++) {
+      let sa = 0;
+      let sb = 0;
+      for (let y = Math.floor(height * 0.3); y < height * 0.7; y++)
+        for (let k = 0; k < 3; k++) {
+          const i = (y * width + x) * 3 + k;
+          sa += (a[i]! / 255) ** 2;
+          sb += (b[i]! / 255) ** 2;
+        }
+      ratio.push(sa / Math.max(sb, 1e-6));
+    }
+    const n = ratio.length;
+    const mean = ratio.reduce((s, v) => s + v, 0) / n;
+    const amp = (k: number) => {
+      let re = 0;
+      let im = 0;
+      for (let i = 0; i < n; i++) {
+        re += (ratio[i]! - mean) * Math.cos((2 * Math.PI * k * i) / n);
+        im += (ratio[i]! - mean) * Math.sin((2 * Math.PI * k * i) / n);
+      }
+      return (2 * Math.hypot(re, im)) / n / mean;
+    };
+    // Bands 5 to 30 pixels apart: slower than the stripes (under 4.5 px apart here), faster than the picture's own shapes.
+    let worst = 0;
+    for (let k = Math.ceil(n / 30); k <= n / 5; k++) worst = Math.max(worst, amp(k));
+    expect(worst).toBeLessThan(0.04);
+  }
+  await core.close(h);
+}, 120_000);
