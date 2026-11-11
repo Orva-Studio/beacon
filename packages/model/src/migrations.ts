@@ -17,6 +17,8 @@ export const CORE_MIGRATIONS: Migration[] = [
       return doc;
     },
   },
+  // Sections may carry a comment and the agent's reply: optional, so nothing changes in a document.
+  { version: 5, migrate: (doc) => doc },
 ];
 
 type Raw = Record<string, any>;

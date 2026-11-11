@@ -262,7 +262,7 @@ function describe(project: Project): string {
     if (rest.length) lines.push(`    … ${rest.length} more, ${s(rest[0]!.start)}-${s(Math.max(...rest.map((c) => c.start + c.duration)))}s: timeline_clips with from/to or track "${t.id}"`);
   }
   if (project.markers.length) lines.push(`markers: ${project.markers.map((m) => `${s(m.time)}s "${m.name}"`).join(", ")}`);
-  if (project.sections.length) lines.push(`sections: ${project.sections.map((x) => `${x.id} "${x.name}" ${s(x.start)}-${s(x.end)}s`).join(", ")}`);
+  if (project.sections.length) lines.push(`sections: ${project.sections.map((x) => `${x.id} "${x.name}" ${s(x.start)}-${s(x.end)}s${x.comment ? ` comment ${JSON.stringify(x.comment)}${x.reply ? ` done: ${JSON.stringify(x.reply)}` : " (open)"}` : ""}`).join(", ")}`);
   return lines.join("\n");
 }
 

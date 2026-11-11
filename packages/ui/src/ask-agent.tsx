@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentAbout, AgentSession } from "@beacon/core";
-import { agentName, assetName, clipEnd, ticksToSeconds, type Clip, type Section } from "@beacon/model";
+import { agentName, assetName, clipEnd, sectionLabel, ticksToSeconds, type Clip, type Section } from "@beacon/model";
 import { Button, Modal, Select, TextArea, Toast } from "./controls";
 import { replica, useView, type AgentRequest } from "./store";
 import type { Host } from "./app";
@@ -22,7 +22,7 @@ const project = () => replica.get().opened?.path;
 /** A request about a section: its name and span. */
 export function aboutSection(s: Section): AgentAbout {
   const [from, to] = [ticksToSeconds(s.start), ticksToSeconds(s.end)];
-  return { ...(project() ? { project: project()! } : {}), section: s.id, from, to, label: `Section “${s.name}”, ${clock(from)}–${clock(to)}` };
+  return { ...(project() ? { project: project()! } : {}), section: s.id, from, to, label: `Section “${sectionLabel(s)}”, ${clock(from)}–${clock(to)}${s.comment && !s.reply ? `, its comment: ${JSON.stringify(s.comment)}` : ""}` };
 }
 
 /** A request about a clip: what it is and where. */

@@ -6525,6 +6525,57 @@ test.skipIf(skip)("Sections: a band under the ruler; a plain drag on its empty t
   await run("timeline.snapping", { on: true });
 }, 30_000);
 
+test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line, a press outside keeps it), its bar shows the comment when it has no name; the agent's reply marks it done and Clear takes the reply away", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("timeline.snapping", { on: false });
+  const box = await timelineBox();
+  const s = await session();
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const y = box.y + RULER + BAND / 2;
+  const t = (f: number) => s.timeline.start + (s.timeline.end - s.timeline.start) * f;
+  // A new section: Tab from the name to the comment, two lines, then a press outside saves it.
+  await page.drag([xAt(t(0.1)), y], [xAt(t(0.4)), y], ["alt"]);
+  await page.until("document.activeElement?.hasAttribute('data-section-name')", 5000);
+  await page.key("Tab", "Tab");
+  await page.until("document.activeElement?.hasAttribute('data-section-comment')");
+  await type("remove white circle here");
+  // ⇧Enter is a new line, not a save.
+  await page.key("Enter", "Enter", ["shift"]);
+  await Bun.sleep(100);
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-section-namer]')")).toBe(true);
+  await type("remove white circle here\nand zoom in");
+  await page.click(xAt(t(0.8)), box.y + 6);
+  await arrived(() => ui.core.doc(ui.handle).sections.length === 1);
+  const added = ui.core.doc(ui.handle).sections[0]!;
+  expect(added.name).toBe("");
+  expect(added.comment).toBe("remove white circle here\nand zoom in");
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Section");
+  // The agent does it and replies; the section stays.
+  await run("section.set", { section: added.id, reply: "Removed the circle and zoomed in" });
+  // The page's copy too, before the double-click reads it.
+  await Bun.sleep(300);
+  // Reopened, the comment has focus and the reply shows; Clear then Enter takes the reply away, the comment kept.
+  await page.dblclick(xAt(t(0.25)), y);
+  await page.until("document.activeElement?.hasAttribute('data-section-comment')");
+  expect(await page.evaluate<string>("document.querySelector('[data-section-reply]').textContent")).toContain("Removed the circle");
+  await page.screenshot(join(dir, "section-comment.png"));
+  await page.click(...(await centre("[data-section-reply-clear]")));
+  await page.until("!document.querySelector('[data-section-reply]')");
+  await page.key("Enter", "Enter");
+  await arrived(() => !ui.core.doc(ui.handle).sections[0]!.reply);
+  expect(ui.core.doc(ui.handle).sections[0]!.comment).toBe("remove white circle here\nand zoom in");
+  // A long name typed by hand (an old comment) isn't offered as a name.
+  await run("section.set", { section: added.id, name: "don't use background remove here" });
+  await page.drag([xAt(t(0.6)), y], [xAt(t(0.7)), y], ["alt"]);
+  await page.until("!!document.querySelector('[data-section-namer]')");
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-section-pick]')].map((b) => b.textContent)")).not.toContain("don't use background remove here");
+  await page.key("Escape", "Escape");
+  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  expect(ui.core.doc(ui.handle).sections).toEqual([]);
+  await run("timeline.snapping", { on: true });
+}, 30_000);
+
 test.skipIf(skip)("every right-hand panel is as wide as Properties, so opening Music or a review never moves the canvas", async () => {
   await run("panel.show", { properties: true });
   // The canvas's card grows to fill its row; the panel on the right of that row is Properties or what replaces it.

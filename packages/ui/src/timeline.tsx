@@ -169,13 +169,14 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         <SectionNamer
           key={namingSection.id ?? `${namingSection.start}`}
           project={project}
-          value={project.sections.find((s) => s.id === namingSection.id)?.name ?? ""}
+          value={project.sections.find((s) => s.id === namingSection.id) ?? { name: "" }}
           style={{ left: Math.min(Math.max(HEADER, hits.xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2 }}
-          onDone={(name) => {
+          onDone={(text) => {
             replica.nameSection(undefined);
-            if (name === null) return draw();
-            if (namingSection.id) run("section.set", { section: namingSection.id, name }, "Rename Section");
-            else run("section.add", { start: namingSection.start, end: namingSection.end, name }, "Add Section");
+            if (text === null || (!namingSection.id && !text.name && !text.comment)) return draw();
+            if (!namingSection.id) return run("section.add", { start: namingSection.start, end: namingSection.end, ...(text.name ? { name: text.name } : {}), ...(text.comment ? { comment: text.comment } : {}) }, "Add Section");
+            if (!text.name && !text.comment) return run("section.remove", { section: namingSection.id }, "Remove Section");
+            run("section.set", { section: namingSection.id, name: text.name, comment: text.comment, ...(text.clearReply ? { reply: null } : {}) }, "Edit Section");
           }}
         />
       )}

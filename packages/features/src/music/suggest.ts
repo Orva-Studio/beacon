@@ -70,7 +70,7 @@ interface Part {
 /** The video's parts: its sections, each running on to the next (the first from the start), or the whole video. */
 export function partsOf(project: Project): Part[] {
   const end = ticksToSeconds(projectDuration(project));
-  const sections = [...project.sections].sort((a, b) => a.start - b.start).filter((s) => ticksToSeconds(s.start) < end);
+  const sections = [...project.sections].sort((a, b) => a.start - b.start).filter((s) => s.name && ticksToSeconds(s.start) < end);
   if (!sections.length) return end > 0 ? [{ from: 0, to: end, name: "The video" }] : [];
   return sections.map((s, i) => ({ from: i === 0 ? 0 : ticksToSeconds(s.start), to: i + 1 < sections.length ? ticksToSeconds(sections[i + 1]!.start) : end, name: s.name }));
 }
