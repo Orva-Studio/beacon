@@ -6525,6 +6525,22 @@ test.skipIf(skip)("Sections: a band under the ruler; a plain drag on its empty t
   await run("timeline.snapping", { on: true });
 }, 30_000);
 
+test.skipIf(skip)("hovering a marker's diamond on the ruler shows its name; moving off hides it", async () => {
+  const box = await timelineBox();
+  const s = await session();
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const at = s.timeline.start + (s.timeline.end - s.timeline.start) * 0.3;
+  const x = box.x + header + ((at - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  await run("marker.add", { time: at, name: "The Hacker News: https://example.com/story" });
+  await Bun.sleep(300);
+  await page.move(x, box.y + RULER - 5);
+  await page.until("!!document.querySelector('[data-marker-tip]')");
+  expect(await page.evaluate<string>("document.querySelector('[data-marker-tip]').textContent")).toBe("The Hacker News: https://example.com/story");
+  await page.move(x + 60, box.y + RULER - 5);
+  await page.until("!document.querySelector('[data-marker-tip]')");
+  await ui.core.undo(ui.handle);
+});
+
 test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line, a press outside keeps it), its bar shows the comment when it has no name; the agent's reply marks it done and Clear takes the reply away", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.snapping", { on: false });

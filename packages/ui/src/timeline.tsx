@@ -3,7 +3,7 @@ import { trackName, type Clip, type Project, type Session } from "@beacon/model"
 import { acceptFiles, addDropTarget, type DropTarget } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
-import { headerWidth, maxTop, rowTop, TRACKS_TOP } from "./timeline-layout";
+import { headerWidth, maxTop, rowTop, RULER, TRACKS_TOP } from "./timeline-layout";
 import { SectionNamer } from "./section-namer";
 import { replica, useView } from "./store";
 import { clipLabel, drawTimeline, keepImages, timelineView, type Drag, type TimelineMark } from "./timeline-draw";
@@ -145,7 +145,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   };
   useEffect(() => addDropTarget((...a) => dropRef.current!(...a)), []);
 
-  const { onPointerDown, onPointerMove, finish } = timelineDrag({ ...context, draw }, hits, { trackMenu, markClick });
+  const [marker, setMarker] = useState<{ id: string; name: string; x: number }>();
+  const hoverMarker = (m: typeof marker) => setMarker((was) => (was?.id === m?.id && was?.x === m?.x ? was : m));
+  const { onPointerDown, onPointerMove, finish } = timelineDrag({ ...context, draw }, hits, { trackMenu, markClick, markerHover: hoverMarker });
   const clicks = timelineClicks(context, hits, { menu, trackMenu, sectionMenu, dropFiles });
 
   return (
@@ -156,8 +158,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         className="absolute inset-0"
         onDragOver={acceptFiles}
         onDrop={clicks.onDrop}
-        onPointerDown={onPointerDown}
+        onPointerDown={(e) => (setMarker(undefined), onPointerDown(e))}
         onPointerMove={onPointerMove}
+        onPointerLeave={() => setMarker(undefined)}
         onPointerUp={finish}
         onPointerCancel={finish}
         onLostPointerCapture={(e) => dragState.current && finish(e)}
@@ -165,6 +168,15 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         onContextMenu={clicks.onContextMenu}
         onWheel={clicks.onWheel}
       />
+      {marker && (
+        <div
+          className="pointer-events-none absolute z-20 max-w-80 rounded-md border border-divider bg-panel px-2 py-1 text-label break-words text-text-strong shadow-xl"
+          style={{ left: Math.max(4, Math.min(marker.x - 8, size.current.w - 330)), top: RULER + 2 }}
+          data-marker-tip
+        >
+          {marker.name}
+        </div>
+      )}
       {namingSection && (
         <SectionNamer
           key={namingSection.id ?? `${namingSection.start}`}
