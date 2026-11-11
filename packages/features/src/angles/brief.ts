@@ -33,3 +33,35 @@ export function brief(o: { view: View; move: "handheld" | "locked"; note: string
     .filter(Boolean)
     .join(" ");
 }
+
+/** The angle's camera, for a model shown one frame rather than the take. */
+const cameraFor = (view: View) => VIEWS[view].camera.replace("[Video1]", "the first image");
+
+/**
+ * Wan's first step: one frame of the take shown again from the angle's camera (Wan 2.7 Image), since Wan 3.0 starts
+ * its video on the frame it is given. A frame from the camera as it is would open every angle head on.
+ */
+export function stillBrief(o: { view: View; note: string; photos: number }): string {
+  return [
+    `The first image is a frame of a person speaking to camera at their desk. Show this same moment as ${cameraFor(o.view)}.`,
+    "The same person and everything they wear, their expression, the room and the light; the room as seen from this side.",
+    o.photos ? `The other ${o.photos === 1 ? "image is a photo" : "images are photos"} of this same room: use them for its walls, furniture and layout from the new angle; the light and colour stay as in the first image.` : "",
+    o.note.trim() ? `Also: ${o.note.trim()}` : "",
+    "A real photograph: no text, logos or graphics added.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** Wan's second step: the re-framed still animated (Wan 3.0), the camera kept at its angle and the person talking on. */
+export function motionBrief(o: { view: View; move: "handheld" | "locked"; note: string }): string {
+  return [
+    "A person at their desk talking naturally, in the shot this image is: the camera stays at this angle.",
+    o.view === "detail" || o.view === "high" ? "They keep talking, with small natural gestures." : "They keep talking with small natural head movements and gestures, looking where they look in the image.",
+    o.move === "handheld" ? "Handheld with micro-drift, easing, never locked off." : "Locked-off camera.",
+    o.note.trim() ? `Also: ${o.note.trim()}` : "",
+    "The same person, room and light throughout. Real time, naturalistic, no music. No camera orbit or zoom, no captions, text, logos or graphics.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}

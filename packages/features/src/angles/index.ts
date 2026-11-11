@@ -26,7 +26,7 @@ import {
 } from "@beacon/model";
 import { mediaInfo, sourceOf, streamOf, visualSize } from "../media";
 import { download, predict, upload, type MakeStage } from "../broll/replicate";
-import { brief, VIEWS, type View } from "./brief";
+import { brief, motionBrief, stillBrief, VIEWS, type View } from "./brief";
 
 const TOKEN = "replicate-api-token";
 /** Settings › AI's limit per generation, shared with B-roll (the user, 2026-11-04). */
@@ -40,6 +40,20 @@ const RESOLUTIONS = [
 ];
 const SEEDANCE = { slug: "bytedance/seedance-2.5", title: "Seedance 2.5" };
 const UPSCALER = { slug: "bytedance/video-upscaler", title: "ByteDance's upscaler" };
+/** Which model makes an angle (Settings › AI): Seedance re-films the take; Wan declines less but sees one frame of it. */
+const MODEL = "angleModel";
+type Model = "seedance" | "wan";
+const MODELS = [
+  { id: "seedance", title: "Seedance 2.5", description: "Re-films your take from the new angle, the lips kept to your voice; declines some takes" },
+  { id: "wan", title: "Wan 3.0", description: "Declines less: a frame of your take shown from the new angle, then animated at 720p; the lips don't follow your voice" },
+];
+const modelOf = (pref: (id: string) => unknown): Model => (pref(MODEL) === "wan" ? "wan" : "seedance");
+const WAN_STILL = { slug: "wan-video/wan-2.7-image", title: "Wan 2.7 Image" };
+const WAN = { slug: "alibaba/wan-3", title: "Wan 3.0" };
+/** Wan 3.0 at 720p per second, and Wan 2.7 Image per still (Replicate, 2026-11-11). 720p at most: the upscaler does the rest (the user). */
+const WAN_PRICE = 0.07;
+const WAN_STILL_PRICE = 0.03;
+const WAN_SHORTEST = 2;
 /** Seedance 2.5 at 480p with a video in, per second it makes (Replicate, 2026-11-03). */
 const PRICE = 0.4304;
 /** Seedance makes 4 s at least: an angle is generated as the 4 s from its start and trimmed to its length. */
@@ -82,7 +96,7 @@ export const angleState = (s: Session) => (s.features.angles as AngleState | und
 export interface AngleTakeInfo {
   view: View;
   prompt: string;
-  /** Dollars Seedance charged by its price; the upscaler's isn't known to a token. */
+  /** Dollars its model charged by its price; the upscaler's isn't known to a token. */
   cost: number;
   seconds: number;
 }
@@ -141,8 +155,12 @@ function canCrop(project: Project, registry: FeatureRegistry, camera: Clip): boo
   return size[1] - s.top - s.bottom >= shown * ZOOM - 1e-6;
 }
 
-/** Seconds of the take an angle is generated from, and what Seedance charges for them. */
-const cost = (clip: Clip) => {
+/** Seconds an angle is generated for, and what its model charges for them (Wan: its still too). */
+const cost = (clip: Clip, model: Model) => {
+  if (model === "wan") {
+    const seconds = Math.max(WAN_SHORTEST, Math.ceil(ticksToSeconds(clip.duration) - 1e-6));
+    return { seconds, cost: Math.round((seconds * WAN_PRICE + WAN_STILL_PRICE) * 100) / 100 };
+  }
   const seconds = Math.max(SHORTEST, Math.ceil(ticksToSeconds(clip.duration)));
   return { seconds, cost: Math.round(seconds * PRICE * 100) / 100 };
 };
@@ -280,7 +298,7 @@ function target(ctx: ActionContext, id?: string): Clip {
 }
 
 /** Where an angle's job is: cutting, uploading, on Replicate, downloading. */
-const STAGES: Record<string, string> = { cutting: "Cutting the take", uploading: "Uploading the take", queued: "Waiting its turn on Replicate", making: "Seedance is re-filming it", upscaling: "Upscaling to 1080p", downloading: "Downloading" };
+const STAGES: Record<string, string> = { cutting: "Cutting the take", uploading: "Uploading the take", queued: "Waiting its turn on Replicate", making: "Seedance is re-filming it", reframing: "Wan is showing a frame from the new angle", animating: "Wan 3.0 is animating it", upscaling: "Upscaling to 1080p", downloading: "Downloading" };
 
 const angleAdd = defineAction({
   id: "angles.add",
@@ -315,18 +333,21 @@ const angleAdd = defineAction({
 const angleGenerate = defineAction({
   id: "angle.generate",
   description:
-    "Generate an Angle clip (`clip`, else the selected one) through Replicate on the user's token: the 4 s of its camera and sound from its start (Seedance's shortest), and the Angles track's room photos, are sent to Seedance 2.5 (480p, re-filmed from the angle with the speaker's lips kept to their sound), then ByteDance's upscaler to 1080p; saved in the project's media/Angles folder, added to the Media Bin and shown in the clip, one undo step. Replicate charges the user's account (angle.estimate says how much); refused over the limit per generation in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
+    "Generate an Angle clip (`clip`, else the selected one) through Replicate on the user's token: the 4 s of its camera and sound from its start (Seedance's shortest), and the Angles track's room photos, are sent to Seedance 2.5 (480p, re-filmed from the angle with the speaker's lips kept to their sound), or with Settings › AI's Camera Angles model on Wan 3.0, one frame of the camera (and the room photos) to Wan 2.7 Image to show it from the angle, then Wan 3.0 to animate that at 720p (2 s at least; it declines less, but the lips don't follow the sound), then ByteDance's upscaler to 1080p; saved in the project's media/Angles folder, added to the Media Bin and shown in the clip, one undo step. Replicate charges the user's account (angle.estimate says how much); refused over the limit per generation in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = target(ctx, id);
     const a = angleOf(clip)!;
     if (angleState(ctx.session).making.includes(clip.id)) throw new Error("that angle is being made already");
     const { camera } = cameraOf(ctx.project, ctx.registry, clip);
-    const sound = soundOf(ctx.project, camera) ?? fail("the camera has no sound linked to it: an angle keeps the lips to the take's own sound");
-    const { seconds, cost: price } = cost(clip);
+    const model = modelOf(ctx.pref);
+    const sound = soundOf(ctx.project, camera);
+    if (model === "seedance" && !sound) fail("the camera has no sound linked to it: an angle keeps the lips to the take's own sound");
+    const { seconds, cost: price } = cost(clip, model);
+    const title = model === "wan" ? WAN.title : SEEDANCE.title;
     const limit = Number(ctx.pref(LIMIT)) || 0;
     const resolution = RESOLUTIONS.some((r) => r.id === ctx.pref(RESOLUTION)) ? String(ctx.pref(RESOLUTION)) : "1080p";
-    if (limit > 0 && price > limit) throw new Error(`about $${price.toFixed(2)} for Seedance alone, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
+    if (limit > 0 && price > limit) throw new Error(`about $${price.toFixed(2)} for ${title} alone, over the $${limit.toFixed(2)} limit per generation set in Settings › AI`);
     const track = ctx.project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
     const photos = ((track?.props?.angleRoom as { photos?: string[] } | undefined)?.photos ?? []).flatMap((p) => {
       const asset = ctx.project.assets[p];
@@ -334,9 +355,10 @@ const angleGenerate = defineAction({
     });
     const start = ticksToSeconds(clip.start);
     const video = sourceOf(ctx.project.assets[camera.assetId!]!, "video", (camera.props.media as { stream?: number } | undefined)?.stream ?? 0);
-    const audio = sourceOf(ctx.project.assets[sound.clip.assetId!]!, "audio", sound.stream);
-    const [vFrom, aFrom] = [mediaAt(camera, start), mediaAt(sound.clip, start)];
-    const prompt = brief({ view: a.view, move: a.move, note: a.note, photos: photos.length });
+    const audio = sound && sourceOf(ctx.project.assets[sound.clip.assetId!]!, "audio", sound.stream);
+    const vFrom = mediaAt(camera, start);
+    const aFrom = sound ? mediaAt(sound.clip, start) : 0;
+    const prompt = model === "wan" ? `${stillBrief({ view: a.view, note: a.note, photos: photos.length })}\n\n${motionBrief(a)}` : brief({ view: a.view, move: a.move, note: a.note, photos: photos.length });
     const fps = [24, 30, 60].reduce((best, f) => (Math.abs(f - ctx.project.settings.fps.num / ctx.project.settings.fps.den) < Math.abs(best - ctx.project.settings.fps.num / ctx.project.settings.fps.den) ? f : best), 30);
     const ids = [clip.id];
     return {
@@ -349,21 +371,36 @@ const angleGenerate = defineAction({
           const token = (await env.secret(TOKEN)) ?? fail("no Replicate API token: add one in Settings › AI");
           const tmp = mkdtempSync(join(tmpdir(), "beacon-angle-"));
           try {
-            tell(0.02, "cutting");
-            const take = join(tmp, "take.mp4");
-            const said = join(tmp, "said.wav");
-            await runTool([...ffmpegArgs(), "-y", "-ss", vFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(video.path), "-map", `0:v:${video.stream}`, "-vf", "scale=-2:720", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-an", take]);
-            await runTool([...ffmpegArgs(), "-y", "-ss", aFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(audio.path), "-map", `0:a:${audio.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
-            tell(0.08, "uploading");
-            const [v, s, ...images] = await Promise.all([upload(token, take, "video/mp4"), upload(token, said, "audio/wav"), ...photos.map((p) => upload(token, p.path, MIME[extname(p.path).toLowerCase()] ?? "image/jpeg"))]);
-            const stage = (base: number, span: number) => (st: MakeStage) => tell(base + (st === "making" ? span / 2 : 0), st);
             let made: string;
-            try {
-              made = await predict(token, SEEDANCE, { prompt, reference_videos: [v], reference_audios: [s], ...(images.length ? { reference_images: images } : {}), duration: -1, aspect_ratio: "adaptive", resolution: "480p", generate_audio: false }, stage(0.15, 0.5));
-            } catch (e) {
-              // Seedance's moderation refuses some takes (a brand on screen was one): said plainly, never worked around.
-              if (/E005|sensitive/i.test((e as Error).message)) throw new Error("Seedance declined this take (it flags some, often for a brand or logo in it): try another stretch, or a close-up crop");
-              throw e;
+            if (model === "wan") {
+              tell(0.02, "cutting");
+              const frame = join(tmp, "frame.png");
+              await runTool([...ffmpegArgs(), "-y", "-ss", vFrom.toFixed(3), ...ffmpegInput(video.path), "-map", `0:v:${video.stream}`, "-frames:v", "1", "-vf", "scale=-2:720", frame]);
+              tell(0.08, "uploading");
+              const [f, ...images] = await Promise.all([upload(token, frame, "image/png"), ...photos.map((p) => upload(token, p.path, MIME[extname(p.path).toLowerCase()] ?? "image/jpeg"))]);
+              const still = await predict(token, WAN_STILL, { images: [f, ...images], prompt: stillBrief({ view: a.view, note: a.note, photos: photos.length }), size: "2K" }, (st) => tell(st === "making" ? 0.2 : 0.15, st === "making" ? "reframing" : st));
+              made = await predict(
+                token,
+                WAN,
+                { image: still, prompt: motionBrief(a), negative_prompt: "camera orbit, zoom, a different face, extra people, distorted hands, text, watermark", resolution: "720p", duration: seconds },
+                (st) => tell(st === "making" ? 0.45 : 0.3, st === "making" ? "animating" : st),
+              );
+            } else {
+              tell(0.02, "cutting");
+              const take = join(tmp, "take.mp4");
+              const said = join(tmp, "said.wav");
+              await runTool([...ffmpegArgs(), "-y", "-ss", vFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(video.path), "-map", `0:v:${video.stream}`, "-vf", "scale=-2:720", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-an", take]);
+              await runTool([...ffmpegArgs(), "-y", "-ss", aFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(audio!.path), "-map", `0:a:${audio!.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
+              tell(0.08, "uploading");
+              const [v, s, ...images] = await Promise.all([upload(token, take, "video/mp4"), upload(token, said, "audio/wav"), ...photos.map((p) => upload(token, p.path, MIME[extname(p.path).toLowerCase()] ?? "image/jpeg"))]);
+              const stage = (base: number, span: number) => (st: MakeStage) => tell(base + (st === "making" ? span / 2 : 0), st);
+              try {
+                made = await predict(token, SEEDANCE, { prompt, reference_videos: [v], reference_audios: [s], ...(images.length ? { reference_images: images } : {}), duration: -1, aspect_ratio: "adaptive", resolution: "480p", generate_audio: false }, stage(0.15, 0.5));
+              } catch (e) {
+                // Seedance's moderation refuses some takes (a brand on screen was one): said plainly, never worked around.
+                if (/E005|sensitive/i.test((e as Error).message)) throw new Error("Seedance declined this take (it flags some, often for a brand or logo in it): try another stretch, a close-up crop, or Wan 3.0 (Settings › AI › Camera Angles › Model), which declines less but doesn't keep the lips to your voice");
+                throw e;
+              }
             }
             tell(0.7, "upscaling");
             const upscaled = await predict(token, UPSCALER, { video: made, scene: "aigc", target_resolution: resolution, target_fps: fps, processing_type: "standard" }, (st) => tell(st === "making" ? 0.8 : 0.72, st === "making" ? "upscaling" : st));
@@ -374,8 +411,8 @@ const angleGenerate = defineAction({
             await download(upscaled, join(tmp, "made.mp4"));
             // Silent: the take's own sound plays under it.
             await runTool([...ffmpegArgs(), "-y", ...ffmpegInput(join(tmp, "made.mp4")), "-map", "0:v:0", "-c", "copy", "-an", out]);
-            const info: AngleTakeInfo = { view: a.view, prompt, cost: Math.round(seconds * PRICE * 100) / 100, seconds };
-            writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, models: [SEEDANCE.slug, UPSCALER.slug], made: new Date().toISOString() }, null, 2));
+            const info: AngleTakeInfo = { view: a.view, prompt, cost: price, seconds };
+            writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, models: model === "wan" ? [WAN_STILL.slug, WAN.slug, UPSCALER.slug] : [SEEDANCE.slug, UPSCALER.slug], made: new Date().toISOString() }, null, 2));
             const asset = await env.asset(out, "video");
             jobSignal()?.throwIfAborted();
             env.progress(1, `Made, in the project's media/${TRACK} folder`);
@@ -431,11 +468,14 @@ export const angles = defineFeature({
   commands,
   sessionCommands,
   actions: [angleAdd, angleGenerate],
-  preferences: [{ id: RESOLUTION, title: "Camera angles: upscaled to", description: "The resolution a generated angle is upscaled to; higher is sharper and takes longer", options: RESOLUTIONS, default: "1080p" }],
+  preferences: [
+    { id: MODEL, title: "Camera angles: model", description: "What makes a generated angle: Seedance keeps the lips to your voice; Wan 3.0 declines fewer takes", options: MODELS, default: "seedance" },
+    { id: RESOLUTION, title: "Camera angles: upscaled to", description: "The resolution a generated angle is upscaled to; higher is sharper and takes longer", options: RESOLUTIONS, default: "1080p" },
+  ],
   queries: [
     defineQuery({
       id: "angle.estimate",
-      description: "What generating an Angle clip (`clip`) would cost: the seconds sent (4 at least), Seedance's dollars (the upscaler's are on the user's Replicate bill), the limit per generation, and whether its camera can give a close-up by cropping instead (`crop`, free)",
+      description: "What generating an Angle clip (`clip`) would cost with Settings › AI's Camera Angles model (`model`): the seconds made (4 at least on Seedance, 2 on Wan), the model's dollars (the upscaler's are on the user's Replicate bill), the limit per generation, and whether its camera can give a close-up by cropping instead (`crop`, free)",
       args: z.strictObject({ clip: z.string().min(1) }),
       run({ clip: id }, { project, registry, pref }) {
         const { clip } = findClip(project, registry, id);
@@ -449,7 +489,7 @@ export const angles = defineFeature({
         } catch {
           // No camera under it: said by `camera` missing.
         }
-        return { ...cost(clip), limit: Number(pref(LIMIT)) || 0, crop, ...(camera ? { camera } : {}) };
+        return { ...cost(clip, modelOf(pref)), model: modelOf(pref), limit: Number(pref(LIMIT)) || 0, crop, ...(camera ? { camera } : {}) };
       },
     }),
   ],
