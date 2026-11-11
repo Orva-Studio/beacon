@@ -32,6 +32,10 @@ export interface ViewState {
   section?: string;
   /** A section being named: a new one from `start` to `end` (seconds), or `id` renamed. */
   namingSection?: { id?: string; start: number; end: number };
+  /** The marker picked on the ruler (⌫ removes it). */
+  marker?: string;
+  /** The marker being named. */
+  namingMarker?: string;
   /** False after a save failed, until one succeeds. */
   saved?: boolean;
   /** Assets whose proxy is being made, and its progress 0-1. */
@@ -179,7 +183,7 @@ export const replica = {
   session(changes: Partial<Session>) {
     // Clips picked (in the preview, by ⌘A, by an agent) take over from a picked section: ⌫ is theirs then.
     const picked = changes.selection?.length && changes.selection !== state.session?.selection;
-    if (state.session) set({ session: { ...state.session, ...changes }, ...(picked ? { section: undefined } : {}) });
+    if (state.session) set({ session: { ...state.session, ...changes }, ...(picked ? { section: undefined, marker: undefined } : {}) });
   },
   media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, analyzing, analysisFailed, jobFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; analyzing?: ViewState["analyzing"]; analysisFailed?: ViewState["analysisFailed"]; jobFailed?: ViewState["jobFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
@@ -207,11 +211,18 @@ export const replica = {
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
   },
+  // A section and a marker are never picked together: ⌫ would take the section the user didn't mean.
   section(section: string | undefined) {
-    if (section !== state.section) set({ section });
+    if (section !== state.section) set({ section, ...(section ? { marker: undefined } : {}) });
   },
   nameSection(naming: ViewState["namingSection"]) {
     set({ namingSection: naming });
+  },
+  marker(marker: string | undefined) {
+    if (marker !== state.marker) set({ marker, ...(marker ? { section: undefined } : {}) });
+  },
+  nameMarker(marker: string | undefined) {
+    set({ namingMarker: marker });
   },
   usedItems(usedItems: string[]) {
     set({ usedItems });

@@ -65,6 +65,15 @@ test("v4: a clip with the same effect twice keeps one, the last, nested clips to
   expect(out.tracks[0].clips[0].props.group.tracks[0].clips[0].effects.map((e: { id: string }) => e.id)).toEqual(["e"]);
 });
 
+test("v5: sections as they were, a comment allowed after", () => {
+  const registry = new FeatureRegistry([testFeature]);
+  const doc = createProject(registry);
+  const section = { id: "s1", start: 0, end: 30_000, name: "Intro" };
+  const migrated = migrateProject({ ...doc, schemaVersion: 4, sections: [section] }, registry);
+  expect(migrated.sections).toEqual([section]);
+  expect(() => migrateProject({ ...migrated, sections: [{ ...section, comment: "zoom in", reply: "zoomed in" }] }, registry)).not.toThrow();
+});
+
 test("documents from a newer Beacon are refused", () => {
   const registry = new FeatureRegistry([testFeature]);
   const doc = createProject(registry);

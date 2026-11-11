@@ -106,8 +106,11 @@ export function canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on, m
    * Snaps a moved box (canvas pixels) to the canvas's edges and centre and
    * other clips' edges: returns the shift and, per axis, the
    * guide to show (a line through the aligned edges or between the centres).
+   * `along` keeps the move to one axis (Shift held): the other stays where it began and isn't snapped.
    */
-  const snapMove = (boxes: [number, number][][], dx: number, dy: number, off: boolean) => {
+  const snapMove = (boxes: [number, number][][], dx: number, dy: number, off: boolean, along?: "x" | "y") => {
+    if (along === "x") dy = 0;
+    if (along === "y") dx = 0;
     if (off || !on) return { dx, dy, guides: [] as Guide[] };
     const all = boxes.flat();
     const lo = (i: 0 | 1) => Math.min(...all.map((q) => q[i]));
@@ -116,8 +119,8 @@ export function canvasSnapping({ placed, ox, oy, k, width: CW, height: CH, on, m
       const j = (1 - i) as 0 | 1;
       return nearest(lines(lo(i) + d, hi(i) + d, lo(j) + other, hi(j) + other), snapTargets(i, moving));
     };
-    const sx = snapAxis(0, dx, dy);
-    const sy = snapAxis(1, dy, dx + (sx?.by ?? 0));
+    const sx = along === "y" ? undefined : snapAxis(0, dx, dy);
+    const sy = along === "x" ? undefined : snapAxis(1, dy, dx + (sx?.by ?? 0));
     return { dx: dx + (sx?.by ?? 0), dy: dy + (sy?.by ?? 0), guides: [...(sx ? [guideOf(0, sx)] : []), ...(sy ? [guideOf(1, sy)] : [])] };
   };
   return { snapResize, snapMove };

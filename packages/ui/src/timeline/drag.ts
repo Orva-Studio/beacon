@@ -16,15 +16,17 @@ export interface DragOptions {
   trackMenu: (track: string | null) => void;
   /** A click on a mark (not by the playhead): Remove Silences flips it, or with ⌥ goes to it. */
   markClick?: (mark: TimelineMark, alt: boolean, shift: boolean, meta: boolean) => void;
+  /** The marker under the pointer (its diamond on the ruler), or none: its name shows beside it. */
+  markerHover?: (marker: { id: string; name: string; x: number } | undefined) => void;
 }
 
 /**
  * The timeline's presses and drags: a press decides what is dragged (the playhead, a range, a track, a section, an
  * arrow, a volume point, a clip's edge or the clip, space, a marquee), moves draw its ghost, and the release sends it.
  */
-export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu, markClick }: DragOptions) {
+export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu, markClick, markerHover }: DragOptions) {
   const { canvas, latest, dragState, settling, snapLine, pickedDiamond, anchor, pending, edge, drawRef, draw, run, HEADER, TRACK, TOP, tracks } = c;
-  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer } = hits;
+  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, markerAt, snapped, pointer } = hits;
 
   const setHeight = (clientY: number) => {
     const r = canvas.current!.getBoundingClientRect();
@@ -188,6 +190,10 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       dragState.current = { kind: "track", track: t.id, from: i, to: i };
       return capture();
     }
+    // A marker's diamond picks it (⌫ removes it) and takes the playhead there; the rest of the ruler scrubs.
+    const marker = markerAt(x, y);
+    replica.marker(marker?.id);
+    if (marker) return run("playhead.set", { time: ticksToSeconds(marker.time) });
     if (y >= RULER && y < TRACKS_TOP && section.press(e, x)) return;
     if (latest.current.section) replica.section(undefined);
     const ph = xOf(session.playhead);
@@ -261,6 +267,8 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     const { x, y } = pointer(e);
     const { project, session } = latest.current;
     if (!d) {
+      const marker = markerAt(x, y);
+      markerHover?.(marker && marker.name ? { id: marker.id, name: marker.name, x: xOf(ticksToSeconds(marker.time)) } : undefined);
       if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
         const part = sectionAt(x)?.part;
         canvas.current!.style.cursor = part === "start" || part === "end" ? "ew-resize" : "default";

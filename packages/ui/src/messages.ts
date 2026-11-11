@@ -21,6 +21,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
     if (op === "rename") replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
     else replica.askAgent(aboutSection(s));
   },
+  markerAction: ({ marker }) => replica.nameMarker(marker),
   renameMedia: ({ asset }) => replica.renameMedia(asset),
   newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),

@@ -16,6 +16,7 @@ import {
   type Project,
   type Session,
   type Track,
+  sectionLabel,
 } from "@beacon/model";
 import { clipLabel as featureLabel } from "@beacon/features/ui";
 import type { PanelItem } from "./drop";
@@ -199,7 +200,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
 /** What drawing the timeline reads: the component's latest render, its refs and its hit tests. */
 export interface TimelineDrawing {
   canvas: RefObject<HTMLCanvasElement | null>;
-  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"] }>;
+  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"]; marker?: string }>;
   size: RefObject<{ w: number; h: number }>;
   staticLayer: RefObject<{ canvas?: HTMLCanvasElement; key: unknown[] }>;
   dragState: RefObject<Drag | null>;
@@ -253,7 +254,7 @@ export function drawTimeline(t: TimelineDrawing) {
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, latest.current.marker, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -649,6 +650,12 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.lineTo(px, RULER);
       ctx.lineTo(px - 5, RULER - 5);
       ctx.fill();
+      if (m.id === latest.current.marker) {
+        ctx.strokeStyle = color("text-bright");
+        ctx.lineWidth = 1.5;
+        ctx.closePath();
+        ctx.stroke();
+      }
     }
     drawSections(ctx);
 
@@ -746,9 +753,12 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.stroke();
     const d = dragState.current ?? settling.current?.drag;
     const naming = latest.current.naming;
-    const bars: { id?: string; name: string; a: number; b: number; fresh?: boolean }[] = project.sections.map((s) =>
-      d?.kind === "section" && d.section === s.id ? { id: s.id, name: s.name, a: d.a, b: d.b } : { id: s.id, name: s.name, a: ticksToSeconds(s.start), b: ticksToSeconds(s.end) },
-    );
+    const bars: { id?: string; name: string; a: number; b: number; fresh?: boolean; note?: "open" | "done" }[] = project.sections.map((s) => ({
+      id: s.id,
+      name: sectionLabel(s),
+      ...(s.comment ? { note: s.reply ? ("done" as const) : ("open" as const) } : {}),
+      ...(d?.kind === "section" && d.section === s.id ? { a: d.a, b: d.b } : { a: ticksToSeconds(s.start), b: ticksToSeconds(s.end) }),
+    }));
     if (d?.kind === "sectionNew") bars.push({ name: "", a: Math.min(d.a, d.b), b: Math.max(d.a, d.b), fresh: true });
     else if (naming && !naming.id) bars.push({ name: "", a: naming.start, b: naming.end, fresh: true });
     ctx.save();
@@ -772,13 +782,32 @@ export function drawTimeline(t: TimelineDrawing) {
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
-      if (b - a > 24 && s.name) {
+      // A comment for the agent: a speech dot while it is open, a tick once the agent has done it.
+      const badge = s.note && b - a > 14 ? 12 : 0;
+      if (badge) {
+        const bx = Math.max(a, HEADER) + 4;
+        const cy = y + bh / 2;
+        ctx.fillStyle = color(s.note === "open" ? "accent" : "section-text");
+        ctx.beginPath();
+        ctx.arc(bx + 5, cy, 5, 0, Math.PI * 2);
+        ctx.fill();
+        if (s.note === "done") {
+          ctx.strokeStyle = color(sectionTone(s.name));
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(bx + 2.5, cy);
+          ctx.lineTo(bx + 4.5, cy + 2);
+          ctx.lineTo(bx + 7.5, cy - 2);
+          ctx.stroke();
+        }
+      }
+      if (b - a > 24 + badge && s.name) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(a + 6, y, b - a - 12, bh);
         ctx.clip();
         ctx.fillStyle = color("section-text");
-        ctx.fillText(s.name, Math.max(a, HEADER) + 6, y + bh / 2 + 4);
+        ctx.fillText(s.name, Math.max(a, HEADER) + 6 + badge, y + bh / 2 + 4);
         ctx.restore();
       }
     }

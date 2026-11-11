@@ -27,6 +27,12 @@ overlap; gaps are fine; ripple edits move them with the clips. Name parts the
 way the user's other sections are named, and propose them only when asked:
 the user corrects what you add.
 
+A section may carry a **comment**: what the user wants changed in that stretch
+(`project_describe` shows it, "(open)" until done). Do what it asks, then
+`section_set` with `reply`: one line on what you did. Leave the section and its
+comment in place; the user reads the reply and clears it. Never remove a
+section to mark a comment done.
+
 ## Media
 `media_import` adds files at the end of the timeline (or at `at`). A Camtasia
 recording (`.trec`) becomes clips on separate tracks: "Screen" (with

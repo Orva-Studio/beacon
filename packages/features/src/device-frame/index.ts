@@ -32,8 +32,11 @@ const DEFAULTS: DeviceFrameParams = { shot: "head-on", corner: "top-left", room:
 const DARK_ROOM: [number, number, number, number] = [0.045, 0.034, 0.028, 1];
 const BEZEL_COLOR: [number, number, number, number] = [0.006, 0.006, 0.007, 1];
 const RIM_COLOR: [number, number, number, number] = [0.13, 0.12, 0.11, 1];
-/** The room lamps' warm light, caught by the bezel's top edge and the side nearest the camera. */
-const LAMP: [number, number, number] = [0.62, 0.42, 0.24];
+/** How much of the room glossy glass gives back head on at Reflection 100%, and a matte coating as haze. */
+const GLASS = 0.3;
+const MATTE_HAZE = 0.035;
+/** The light each room throws on the monitor's edge: warm from the night's lamps, white by day. */
+const ROOM_LIGHT: Record<DeviceFrameParams["room"], [number, number, number]> = { night: [0.5, 0.4, 0.3], day: [0.62, 0.62, 0.6], "teal-studio": [0.36, 0.42, 0.42], none: [0.42, 0.36, 0.31] };
 
 function seedOf(id: string): number {
   let h = 0;
@@ -88,31 +91,40 @@ function panoramaLayer(room: Panorama | "teal-studio", cam: Camera, zoom: number
   };
 }
 
+/** Where the camera is over the screen's plane, in canvas pixels: across, down, and how far in front of it. */
+function cameraPlace(cam: Camera, H: number): [number, number, number] {
+  const d = focalLength(H) / cam.size;
+  const [cy, sy, cp, sp] = [Math.cos(cam.yaw), Math.sin(cam.yaw), Math.cos(cam.pitch), Math.sin(cam.pitch)];
+  return [cam.target[0] + d * cp * sy, cam.target[1] - d * sp, d * cy * cp];
+}
+
 /**
- * Glossy glass mirroring the room behind the camera: the room's reflection picture on the screen's plane, a third
- * larger than the screen, shifted as the camera moves (the room it mirrors is far behind the glass, so it slides across
- * the screen rather than staying on it), stronger at a grazing angle (Fresnel). Its pass keeps it to the screen,
- * softens it by Reflection Blur and adds it as light.
+ * Glass mirroring the room behind the camera: the room's reflection picture on the screen's plane, a third larger
+ * than the screen, shifted as the camera moves (the room it mirrors is far behind the glass, so it slides across the
+ * screen rather than staying on it). Its pass keeps it to `glass` (left, top, width, height on the canvas), softens
+ * it by `blur`, adds it as light and strengthens it toward a grazing angle at each point (Fresnel). `strength`: how
+ * much of it shows head on.
  */
-function reflectionLayer(p: DeviceFrameParams, cam: Camera, rect: [number, number, number, number], W: number, frameOf: Matrix3, ctx: EvalContext): VisualLayer {
+function reflectionLayer(room: DeviceFrameParams["room"], strength: number, blur: number, cam: Camera, rect: [number, number, number, number], glass: [number, number, number, number], W: number, H: number, frameOf: Matrix3, ctx: EvalContext): VisualLayer {
   const [pw, ph] = REFLECTION_SIZE;
-  const { path, mirror } = reflectionOf(p.room);
+  const { path, mirror } = reflectionOf(room);
   const sc = Math.max((rect[2] * 1.35) / pw, (rect[3] * 1.35) / ph);
   const centre = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
-  const dx = (cam.target[0] - centre[0]!) * 0.6 + Math.sin(cam.yaw) * rect[2] * 0.5;
-  const dy = (cam.target[1] - centre[1]!) * 0.6 - Math.sin(cam.pitch) * rect[3] * 0.5;
+  // Day's picture has one window: it slides less as the camera moves, or the window would leave the glass.
+  const [follow, slide] = room === "day" ? [0.25, 0.2] : [0.6, 0.5];
+  const dx = (cam.target[0] - centre[0]!) * follow + Math.sin(cam.yaw) * rect[2] * slide;
+  const dy = (cam.target[1] - centre[1]!) * follow - Math.sin(cam.pitch) * rect[3] * slide;
   const [ox, oy] = [centre[0]! + dx - (sc * pw) / 2, centre[1]! + dy - (sc * ph) / 2];
   const placed = split(multiply(frameOf, [sc, 0, ox, 0, sc, oy, 0, 0, 1]));
-  const cos = Math.cos(cam.yaw) * Math.cos(cam.pitch);
-  const strength = p.reflection * (0.3 + 0.7 * (1 - cos) ** 1.5) * mirror;
-  const inPlate = [(rect[0] - ox) / sc, (rect[1] - oy) / sc, rect[2] / sc, rect[3] / sc];
+  const inPlate = [(glass[0] - ox) / sc, (glass[1] - oy) / sc, glass[2] / sc, glass[3] / sc];
+  const [px, py, pz] = cameraPlace(cam, H);
   return {
     kind: "visual",
     content: { type: "source", source: ctx.source({ kind: "image", path }) },
     size: [pw, ph],
     transform: placed.transform,
     ...(placed.perspective ? { perspective: placed.perspective } : {}),
-    passes: [{ pass: "device-reflection", params: [...inPlate, strength, (0.004 * W) / sc, p.reflectionBlur * 0.08 * ph] }],
+    passes: [{ pass: "device-reflection", params: [...inPlate, strength * mirror, (0.004 * W) / sc, blur * 0.08 * ph, (px - ox) / sc, (py - oy) / sc, pz / sc, room === "day" && glass !== rect ? 1 : 0, (rect[0] - ox) / sc, (rect[1] - oy) / sc, rect[2] / sc, rect[3] / sc] }],
   };
 }
 
@@ -155,19 +167,20 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     delete layer.motion;
     delete layer.motionPerspective;
   }
+  const eye = cameraPlace(cam, H);
   // A Film Look on the clip grades the whole shot (room, bezel and screen), not just the recording under the glass.
   const grades = (e.main.passes ?? []).filter((x) => x.pass === "film-look");
-  e.main.passes = [...(e.main.passes ?? []).filter((x) => x.pass !== "film-look"), { pass: "device-screen", params: [p.screen === "glossy" ? 1 : 0, w, h] }];
+  e.main.passes = [...(e.main.passes ?? []).filter((x) => x.pass !== "film-look"), { pass: "device-screen", params: [p.screen === "glossy" ? 1 : 0, w, h, (eye[0] - rect[0]) / fit, (eye[1] - rect[1]) / fit, eye[2] / fit] }];
 
   // Thin, as the reference's: about 2% of the frame at this shot's size.
   const bezel = [0.007 * W, 0.007 * W, 0.007 * W, 0.01 * W] as const;
-  const rim = 0.0012 * W;
+  const rim = 0.0022 * W;
   const solid = (color: [number, number, number, number], left: number, top: number, right: number, bottom: number, radius: number): VisualLayer => {
     const placed = place(multiply(frameOf, translate3(rect[0] - left, rect[1] - top)));
     return { kind: "visual", content: { type: "solid", color }, size: [rect[2] + left + right, rect[3] + top + bottom], transform: placed.transform, ...(placed.perspective ? { perspective: placed.perspective } : {}), radius: [radius, radius, radius, radius] };
   };
   const nearSide = cam.yaw >= 0 ? 0 : 1;
-  const lit = (layer: VisualLayer, strength: number, width: number): VisualLayer => ({ ...layer, passes: [{ pass: "device-rim", params: [...LAMP, strength, width, nearSide, ...layer.size] }] });
+  const lit = (layer: VisualLayer, strength: number, width: number, face: boolean): VisualLayer => ({ ...layer, passes: [{ pass: "device-rim", params: [...ROOM_LIGHT[p.room], strength, width, nearSide, ...layer.size, face ? 1 : 0, ...bezel] }] });
   // Head on, the studio photo filling the frame, a little larger so the camera's moves shift it a touch (a far wall
   // behind a near screen), lifted a little so a grade doesn't sink it, and keeping half its colour (the user found it
   // too vivid). Otherwise a dark room drawn: a warm lamp's falloff from the side away from the camera.
@@ -182,27 +195,29 @@ function draw(e: ClipEval & { main: VisualLayer }, p: DeviceFrameParams, ctx: Ev
     : photo
     ? { kind: "visual", content: { type: "source", source: ctx.source({ kind: "image", path: roomPath() }) }, size: [iw, ih], transform: [sc, 0, 0, sc, cx - (sc * iw) / 2, cy - (sc * ih) / 2], passes: [{ pass: "device-room", params: [1, 1.25, 0.5] }] }
     : { kind: "visual", content: { type: "solid", color: DARK_ROOM }, size: [W, H], transform: IDENTITY, passes: [{ pass: "device-room", params: [0, Math.sin(cam.yaw)] }] };
-  const under = [room, lit(solid(RIM_COLOR, bezel[0] + rim, bezel[1] + rim, bezel[2] + rim, bezel[3] + rim, 0.004 * W), 0.5, 0.02 * W), lit(solid(BEZEL_COLOR, ...bezel, 0.004 * W), 0.18, 0.05 * W)];
+  const under = [room, lit(solid(RIM_COLOR, bezel[0] + rim, bezel[1] + rim, bezel[2] + rim, bezel[3] + rim, 0.004 * W + rim), 0.55, rim, false), lit(solid(BEZEL_COLOR, ...bezel, 0.004 * W), 1, 0.0012 * W, true)];
 
   const focusDepth = depthAt(M, ...focusPoint);
   // Far enough that a photo's detail melts into soft shapes (the user: the less busy the background the better).
   const roomDepth = depthAt(M, W / 2, H / 2) + (photo || panorama ? 1.4 : 0.6) * W;
   const back = invert(frameOf);
+  const frameParams = [...back, M[6], M[7], M[8], focusDepth, p.blur * 0.05 * W * Math.min(1, (cam.size / 2) ** 0.7), roomDepth, ...bezel, rect[2], rect[3], 0.014 * W, 1 / fit, p.pixels, p.screen === "matte" ? 1 : 0, 0.0012 * W, ...focusPoint, headOn ? 0.09 * W : 1e9, rect[0], rect[1], rim];
   const frame: BackdropLayer = {
     kind: "backdrop",
     size: [W, H],
     transform: IDENTITY,
     passes: [
-      ...(p.pixels > 0 ? [{ pass: "device-pixels", params: [...back, rect[0], rect[1], rect[2], rect[3], 1 / fit, p.pixels] }] : []),
-      {
-        pass: "device-frame",
-        params: [...back, M[6], M[7], M[8], focusDepth, p.blur * 0.05 * W * Math.min(1, (cam.size / 2) ** 0.7), roomDepth, ...bezel, rect[2], rect[3], 0.014 * W, 0, 0, 0, 0.0012 * W, ...focusPoint, headOn ? 0.09 * W : 1e9, rect[0], rect[1], rim],
-      },
+      ...(p.pixels > 0 ? [{ pass: "device-pixels", params: frameParams }] : []),
+      { pass: "device-frame", params: frameParams },
       ...grades,
     ],
   };
   e.layers.unshift(...under);
-  if (p.screen === "glossy" && p.reflection > 0) e.layers.push(reflectionLayer(p, cam, rect, W, frameOf, ctx));
+  // Glossy glass runs over the bezel to the monitor's edge and mirrors the room all the way; a matte coating is on
+  // the panel alone and scatters the same light into a faint haze with no picture in it.
+  const cover: [number, number, number, number] = [rect[0] - bezel[0], rect[1] - bezel[1], rect[2] + bezel[0] + bezel[2], rect[3] + bezel[1] + bezel[3]];
+  if (p.screen === "matte") e.layers.push(reflectionLayer(p.room, MATTE_HAZE, 1, cam, rect, rect, W, H, frameOf, ctx));
+  else if (p.reflection > 0) e.layers.push(reflectionLayer(p.room, p.reflection * GLASS, p.reflectionBlur, cam, rect, cover, W, H, frameOf, ctx));
   e.layers.push(frame);
   const fade = Math.max(0, Math.min(1, (t as TransformValues & { opacity?: number }).opacity ?? 1));
   if (fade < 1) {
@@ -336,7 +351,7 @@ export const deviceFrame = defineFeature({
     },
   ],
   passes: [
-    { id: "device-frame", wgsl, steps: ["fs_dof_h", "fs_dof_v"] },
+    { id: "device-frame", wgsl, steps: ["fs_bokeh", "fs_bokeh_fill", "fs_fringe"] },
     { id: "device-screen", wgsl, steps: ["fs_screen"] },
     { id: "device-pixels", wgsl, steps: ["fs_pixels"] },
     { id: "device-reflection", wgsl, steps: ["fs_reflection"] },

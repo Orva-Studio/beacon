@@ -402,6 +402,12 @@ export function createMenus(app: MenusApp) {
     ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), SEPARATOR, own("Delete Section", "remove")]);
   }
 
+  function markerMenu({ marker }: { marker: string }) {
+    if (!app.current()) return;
+    const own = (label: string, op: string) => ({ label, action: `marker:${op}:${marker}` });
+    ContextMenu.showContextMenu([own("Rename…", "rename"), SEPARATOR, own("Delete Marker", "remove")]);
+  }
+
   /** Track menu items, as track commands. */
   function trackAction(h: string, op: string, track: string) {
     const found = track ? trackAt(h, track) : undefined;
@@ -530,8 +536,11 @@ export function createMenus(app: MenusApp) {
     else if (kind === "section") {
       if (op === "remove") void core.run(current.path, "section.remove", { section: id }, { label: "Delete Section" }).catch(fail);
       else message("sectionAction", { section: id, op: op as "ask" | "rename" });
+    } else if (kind === "marker") {
+      if (op === "remove") void core.run(current.path, "marker.remove", { marker: id }, { label: "Delete Marker" }).catch(fail);
+      else message("markerAction", { marker: id, op: "rename" });
     }
   });
 
-  return { setMenu, historyChanged, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, tileMenu, recentMenu };
+  return { setMenu, historyChanged, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, markerMenu, tileMenu, recentMenu };
 }

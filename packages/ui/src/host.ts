@@ -43,6 +43,7 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     canvasMenu: () => void request("canvasMenu", {}),
     trackMenu: (track) => void request("trackMenu", { track }),
     sectionMenu: (section) => void request("sectionMenu", { section }),
+    markerMenu: (marker) => void request("markerMenu", { marker }),
     binMenu: (asset, assets) => void request("binMenu", asset ? { asset, ...(assets && assets.length > 1 ? { assets } : {}) } : {}),
     tileMenu: (tile) => void request("tileMenu", tile),
     agents: () => request("agents", {}),

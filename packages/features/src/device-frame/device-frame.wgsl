@@ -7,7 +7,7 @@
 //  15-18 the bezel's edges around the screen: left, top, right, bottom
 //  19    the screen's width, 20 its height; 29-30 its top-left corner (the recording's place on the canvas)
 //  21    the largest blur (sigma)
-//  22-24 unused
+//  22-24 device-pixels' own (below)
 //  25    chromatic aberration at the frame's corners
 //  26-27 the focus point on the screen, 28 how far from it the screen stays sharp (screen px)
 //  31    the rim's width round the bezel
@@ -53,94 +53,235 @@ fn df_sigma(uv: vec2<f32>) -> f32 {
   return min(coc, param(21u)) * frame.layer.z;
 }
 
-// device-pixels params: 0-8 frame pixel → screen point (as device-frame's), 9-10 the screen's top-left corner, 11-12
-// its width and height (canvas px), 13 recording pixels per canvas pixel, 14 strength.
+// The screen's own pixels, on the same params as device-frame: 22 recording pixels per canvas pixel, 23 strength,
+// 24 the surface (1 matte).
+
+// How much of [0, x] a stripe of half-width `a` centred at `c` in every unit cell lights (c - a >= 0, c + a <= 1).
+fn px_lit(x: f32, c: f32, a: f32) -> f32 {
+  return floor(x) * 2.0 * a + clamp(fract(x) - (c - a), 0.0, 2.0 * a);
+}
+
+// The stripe's share of the `w` wide stretch centred at `x`, over its share of the whole: 1 on average, so the
+// picture keeps its brightness however small the stripes get.
+fn px_cover(x: f32, w: f32, c: f32, a: f32) -> f32 {
+  return (px_lit(x + w * 0.5, c, a) - px_lit(x - w * 0.5, c, a)) / (w * 2.0 * a);
+}
+
+// The same stripes seen through a Gaussian of `sigma` (recording px), summed from their Fourier series. A box average
+// leaves the thin stripes' harmonics ringing past the output's resolution, where they fold back as beats a few pixels
+// apart; the Gaussian takes them out.
+fn px_wave(x: f32, sigma: f32, c: f32, a: f32) -> f32 {
+  var s = 1.0;
+  for (var h = 1; h <= 16; h++) {
+    let f = f32(h);
+    let g = exp(-2.0 * (3.14159265 * f * sigma) * (3.14159265 * f * sigma));
+    if (g < 1e-3) {
+      break;
+    }
+    let t = 6.28318531 * a * f;
+    s += 2.0 * sin(t) / t * g * cos(6.28318531 * f * (x - c));
+  }
+  return s;
+}
+
+// The stripes as an output pixel `span` recording px wide sees them: Gaussian filtered while a recording pixel is only
+// a few output pixels wide, the exact box average once it is wide enough that nothing folds back.
+fn px_stripe(x: f32, span: f32, c: f32, a: f32) -> f32 {
+  let t = smoothstep(6.0, 9.0, 1.0 / span);
+  let boxed = px_cover(x, max(span, 0.06), c, a);
+  if (t >= 1.0) {
+    return boxed;
+  }
+  return mix(px_wave(x, 0.55 * span, c, a), boxed, t);
+}
+
+fn px_hash(p: vec2<f32>) -> f32 {
+  var p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
 // An LCD's subpixels at the recording's own pixel size: red, green and blue stripes in each pixel, a dark line between
-// rows. Drawn on the finished frame, so at any angle and zoom it is at the output's resolution; each part fades out
-// before it gets smaller than a few output pixels, so it never shimmers (moiré). The focus blur comes after.
+// rows. Drawn on the finished frame, so at any angle and zoom it is at the output's resolution. Each output pixel takes
+// the stripes low-pass filtered to its own footprint (not their value at its centre), in linear light, so they melt
+// into the picture as they get small instead of beating against the output's grid (moiré), and a dark grey stays the
+// same grey.
+// Where the focus blur is wider than a pixel the grid is left out: the lens would have averaged it away.
 @fragment
 fn fs_pixels(v: VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(src, samp, v.uv, 0.0);
-  let o = vec2(param(9u), param(10u));
-  let r = (df_screen_point(v.uv) - o) * param(13u);
-  // Output pixels per recording pixel, across and down, from how far a pixel step moves in the recording.
-  let span = vec2(length(vec2(dpdx(r.x), dpdy(r.x))), length(vec2(dpdx(r.y), dpdy(r.y))));
-  let scale = 1.0 / max(span, vec2(1e-4));
-  let s = df_screen_point(v.uv) - o;
-  if (s.x < 0.0 || s.y < 0.0 || s.x > param(11u) || s.y > param(12u)) {
+  let s = df_screen_point(v.uv) - vec2(param(29u), param(30u));
+  let r = s * param(22u);
+  // Recording pixels per output pixel, across and down, from how far a pixel step moves in the recording.
+  let span = max(vec2(length(vec2(dpdx(r.x), dpdy(r.x))), length(vec2(dpdx(r.y), dpdy(r.y)))), vec2(1e-4));
+  let scale = 1.0 / span;
+  if (s.x < 0.0 || s.y < 0.0 || s.x > param(19u) || s.y > param(20u)) {
     return c;
   }
   // Strength 0 to 0.5 brings the grid in; past 0.5 it goes to extremes: thinner stripes with black between them,
-  // darker and wider lines between rows, showing from further away (a little moiré allowed at the very top).
-  let k = param(14u) * 2.0;
+  // darker and wider lines between rows, showing from further away.
+  let k = param(23u) * 2.0;
   let extra = clamp(k - 1.0, 0.0, 1.0);
-  let across = min(k, 1.0) * smoothstep(2.5 - extra, 6.0 - 2.5 * extra, scale.x);
-  let down = min(k, 1.0) * smoothstep(2.0 - 0.8 * extra, 5.0 - 2.0 * extra, scale.y);
-  let f = fract(r);
-  let d = abs(fract(vec3(f.x) - vec3(1.0 / 6.0, 0.5, 5.0 / 6.0) + 0.5) - 0.5);
-  let stripe = 1.0 - smoothstep(vec3(0.09 - 0.05 * extra), vec3(1.0 / 6.0 - 0.05 * extra), d);
-  let band = 0.14 + 0.12 * extra;
-  let row = smoothstep(0.0, band, f.y) * (1.0 - smoothstep(1.0 - band, 1.0, f.y));
-  // Brighter where lit, so the stripes' average stays near the picture's own brightness.
-  let mask = mix(vec3(1.0), stripe * (2.2 + 1.3 * extra), across) * mix(1.0, row, down * (0.8 + 0.2 * extra));
-  return vec4(min(c.rgb * mask, vec3(c.a)), c.a);
+  let sharp = 1.0 - smoothstep(0.3, 1.0, df_radius(v.uv) / min(scale.x, scale.y));
+  let across = min(k, 1.0) * smoothstep(2.0 - 0.5 * extra, 4.5 - 1.5 * extra, scale.x) * sharp;
+  let down = min(k, 1.0) * smoothstep(2.0 - 0.5 * extra, 4.5 - 1.5 * extra, scale.y) * sharp * (0.85 + 0.15 * extra);
+  if (across <= 0.0 && down <= 0.0) {
+    return c;
+  }
+  let a = 0.1 - 0.035 * extra;
+  let stripes = vec3(px_stripe(r.x, span.x, 1.0 / 6.0, a), px_stripe(r.x, span.x, 0.5, a), px_stripe(r.x, span.x, 5.0 / 6.0, a));
+  let gap = 0.11 + 0.06 * extra;
+  let rows = px_stripe(r.y, span.y, 0.5, 0.5 - gap);
+  let mask = mix(vec3(1.0), stripes, across) * mix(1.0, rows, down);
+  // A stripe can be no brighter than white, so where the picture is too bright for its stripes to carry all of its
+  // light the gaps between them fill in part of the way (a bright screen flares over its own grid): greys keep their
+  // brightness exactly up to a mid-dark grey (about 0.3 of white at Pixels 100%), lighter greys lose a little and
+  // whites about a fifth, still showing their stripes, as white text does in a macro shot.
+  let peak = mix(1.0, 0.5 / a, across) * mix(1.0, 1.0 / (1.0 - 2.0 * gap), down);
+  let light = c.rgb * c.rgb;
+  let fill = max(light * peak - 1.0, vec3(0.0)) / max(peak - 1.0, 1e-4) * 0.8;
+  var lin = fill + min(light, (1.0 - fill) / peak) * mask;
+  // A matte coating's sparkle: each subpixel a touch brighter or dimmer through the grain of the anti-glare layer,
+  // once a subpixel is a couple of output pixels wide.
+  let cell = floor(vec2(r.x * 3.0, r.y));
+  lin *= 1.0 + 0.16 * (px_hash(cell) - 0.5) * param(24u) * across * smoothstep(6.0, 12.0, scale.x);
+  return vec4(sqrt(min(lin, vec3(c.a * c.a))), c.a);
 }
 
-fn df_blur(uv: vec2<f32>, dir: vec2<f32>, sigma: f32) -> vec4<f32> {
-  if (sigma < 0.3) {
-    return textureSampleLevel(src, samp, uv, 0.0);
+// The frame as light: display values to linear (a gamma of 2, near enough and exact both ways), highlights opened up
+// past white by `open`, since a room's lamps are far brighter than the grey beside them and a camera only clips them
+// (the screen's whites less so: it is what the camera is exposed for). Blurred as light, a bright point stays a
+// bright disc (bokeh) instead of fading to a grey smudge.
+fn df_open(region: i32) -> f32 {
+  return select(0.82, 0.3, region == 2);
+}
+
+fn df_light(c: vec4<f32>, open: f32) -> vec4<f32> {
+  let lin = c.rgb * c.rgb;
+  let m = min(max(max(lin.r, lin.g), lin.b), 1.0);
+  return vec4(lin / (1.0 - open * m), c.a);
+}
+
+fn df_display(c: vec4<f32>, open: f32) -> vec4<f32> {
+  let m = max(max(c.r, c.g), c.b);
+  return vec4(sqrt(c.rgb / (1.0 + open * m)), c.a);
+}
+
+// The blur disc's radius (target px): a lens's blur is a disc, twice as wide as the Gaussian of the same spread.
+fn df_radius(uv: vec2<f32>) -> f32 {
+  return df_sigma(uv) * 2.0;
+}
+
+fn df_taps(radius: f32) -> i32 {
+  return i32(clamp(radius * radius * 1.2 + 12.0, 12.0, 56.0));
+}
+
+// A different turn of the taps at each pixel, so too few taps show as fine noise (which the second step smooths)
+// rather than as rings or copies of the picture.
+fn df_turn(uv: vec2<f32>) -> f32 {
+  return 6.2831853 * px_hash(floor(uv * target_size()));
+}
+
+// The focus blur: the light of a disc round each pixel (a golden-angle spiral of taps), a little brighter toward its
+// rim as a fast lens's is. Green's disc is a touch wider than red's and blue's (a lens focuses each colour at its own
+// distance), so what is out of focus gets a faint green edge. Only what is in the same part of the frame: the dark
+// bezel would otherwise spread over the room and the picture's edge as the blur grows, a halo round the monitor.
+@fragment
+fn fs_bokeh(v: VOut) -> @location(0) vec4<f32> {
+  let radius = df_radius(v.uv);
+  let c = textureSampleLevel(src, samp, v.uv, 0.0);
+  if (radius < 0.6) {
+    return c;
   }
-  // Up to 25 taps a side, spread out for wide blurs: soft enough, and a frame stays cheap.
-  let spread = max(1.0, sigma * 3.0 / 25.0);
-  let px = dir / target_size() * spread;
-  let n = i32(min(ceil(sigma * 3.0 / spread), 25.0));
-  let s = sigma / spread;
-  // Only what is in the same part of the frame: the dark bezel would otherwise spread over the room and the
-  // picture's edge as the blur grows, a halo round the monitor.
-  let region = df_region(uv);
+  let region = df_region(v.uv);
+  let open = df_open(region);
+  let n = df_taps(radius);
+  let turn = df_turn(v.uv);
+  let px = radius / target_size();
+  let narrow = 1.0 - 0.04 * min(param(25u), 1.0);
+  // On the screen the disc is soft-edged: a hard disc turns each stroke of small text into two edges, which reads as
+  // camera shake rather than focus. The room keeps the hard disc, where its lights make bokeh.
+  let soft = select(0.0, 1.0, region == 2);
   var acc = vec4(0.0);
-  var wsum = 0.0;
-  for (var k = -n; k <= n; k++) {
-    let at = uv + px * f32(k);
-    let w = exp(-f32(k * k) / (2.0 * s * s)) * select(0.0, 1.0, df_region(at) == region);
-    acc += textureSampleLevel(src, samp, at, 0.0) * w;
+  var wsum = vec4(0.0);
+  for (var i = 0; i < n; i++) {
+    let k = sqrt((f32(i) + 0.5) / f32(n));
+    let ang = f32(i) * 2.3999632 + turn;
+    let at = v.uv + vec2(cos(ang), sin(ang)) * k * px;
+    let same = select(0.0, 1.0, df_region(at) == region) * mix(0.94 + 0.12 * k * k, exp(-2.2 * k * k), soft);
+    let side = 1.0 - smoothstep(narrow - 0.06, narrow, k);
+    let w = same * vec4(side, 1.0, side, 1.0);
+    acc += df_light(textureSampleLevel(src, samp, at, 0.0), open) * w;
     wsum += w;
   }
-  return acc / max(wsum, 1e-6);
+  if (wsum.r <= 0.0) {
+    return c;
+  }
+  return df_display(acc / wsum, open);
 }
 
+// The blur's second step: each pixel with its neighbours a tap's spacing away, which closes the gaps between the
+// first step's taps.
 @fragment
-fn fs_dof_h(v: VOut) -> @location(0) vec4<f32> {
-  return df_blur(v.uv, vec2(1.0, 0.0), df_sigma(v.uv));
+fn fs_bokeh_fill(v: VOut) -> @location(0) vec4<f32> {
+  let radius = df_radius(v.uv);
+  let c = textureSampleLevel(src, samp, v.uv, 0.0);
+  if (radius < 0.6) {
+    return c;
+  }
+  let region = df_region(v.uv);
+  let open = df_open(region);
+  let px = radius * 1.4 / sqrt(f32(df_taps(radius))) / target_size();
+  let turn = df_turn(v.uv + vec2(0.37, 0.61));
+  var acc = df_light(c, open);
+  var wsum = 1.0;
+  for (var i = 0; i < 12; i++) {
+    let k = sqrt((f32(i) + 0.5) / 12.0);
+    let ang = f32(i) * 2.3999632 + turn;
+    let at = v.uv + vec2(cos(ang), sin(ang)) * k * px;
+    let w = select(0.0, 1.0, df_region(at) == region);
+    acc += df_light(textureSampleLevel(src, samp, at, 0.0), open) * w;
+    wsum += w;
+  }
+  return df_display(acc / wsum, open);
 }
 
-// The second half of the blur, red and blue pulled apart toward the corners as a fast lens does.
+// Red and blue pulled apart toward the frame's corners, as a fast lens does.
 @fragment
-fn fs_dof_v(v: VOut) -> @location(0) vec4<f32> {
-  let sigma = df_sigma(v.uv);
+fn fs_fringe(v: VOut) -> @location(0) vec4<f32> {
   let off = (v.uv - 0.5) * 2.0;
   let shift = off * dot(off, off) * 0.5 * param(25u) * frame.layer.z / target_size();
-  let g = df_blur(v.uv, vec2(0.0, 1.0), sigma);
-  let r = df_blur(v.uv + shift, vec2(0.0, 1.0), sigma).r;
-  let b = df_blur(v.uv - shift, vec2(0.0, 1.0), sigma).b;
+  let g = textureSampleLevel(src, samp, v.uv, 0.0);
+  let r = textureSampleLevel(src, samp, v.uv + shift, 0.0).r;
+  let b = textureSampleLevel(src, samp, v.uv - shift, 0.0).b;
   return vec4(r, g.g, b, g.a);
 }
 
-// device-screen params: the surface (0 matte, 1 glossy), the screen's width and height (layer px).
+// device-screen params: the surface (0 matte, 1 glossy), the screen's width and height (layer px), the camera's place
+// over the screen (layer px: across, down, and how far in front).
 // Glossy: a touch more contrast (its reflection is a layer of its own, device-reflection); matte: a faint haze that
-// lifts the blacks, as an anti-glare coating does.
+// lifts the blacks, as an anti-glare coating does. An LCD seen from the side: dimmer the further off its axis each
+// point is seen, its blacks lifting to a faint glow (IPS glow), so the far side of a turned screen falls away.
 @fragment
 fn fs_screen(v: VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(src, samp, v.uv, 0.0);
-  let p = to_layer(v.uv) / vec2(param(1u), param(2u));
+  let at = to_layer(v.uv);
+  let p = at / vec2(param(1u), param(2u));
   let glossy = param(0u);
   let haze = vec3(0.035, 0.032, 0.03) * (1.0 - glossy);
   var rgb = c.rgb;
   rgb = mix(rgb, (rgb - 0.5 * c.a) * 1.05 + 0.5 * c.a, glossy);
+  let cam = vec3(param(3u), param(4u), param(5u));
+  let off_axis = 1.0 - cam.z / length(vec3(at - cam.xy, cam.z));
+  // The backlight, a little dimmer toward the panel's edges and corners.
+  let u = abs(p * 2.0 - 1.0);
+  let backlight = 1.0 - 0.05 * (pow(u.x, 4.0) + pow(u.y, 4.0));
+  rgb *= backlight * pow(1.0 - off_axis, 0.55);
+  let glow = vec3(0.05, 0.047, 0.058) * smoothstep(0.02, 0.5, off_axis);
   // The panel's backlight bleeding a little along its edges, so a dark picture still meets the black bezel at a line.
   let edge = min(min(p.x, 1.0 - p.x) * param(1u), min(p.y, 1.0 - p.y) * param(2u));
   let bleed = vec3(0.05, 0.06, 0.08) * exp(-max(edge, 0.0) / (0.002 * param(1u)));
-  rgb = rgb + (haze + bleed) * (vec3(c.a) - rgb);
+  rgb = rgb + (haze + bleed + glow) * (vec3(c.a) - rgb);
   return vec4(clamp(rgb, vec3(0.0), vec3(c.a)), c.a);
 }
 
@@ -182,18 +323,25 @@ fn fs_panorama(v: VOut) -> @location(0) vec4<f32> {
   return vec4(mix(grey, lifted, param(13u)), 1.0);
 }
 
-// device-reflection params: the screen in the plate's pixels (left, top, width, height), strength, the screen's corner
-// radius (plate px), the blur's radius (plate px). The room behind the camera, kept to the screen and added as light
-// (alpha 0 adds under premultiplied blending), as glass reflects.
+// device-reflection params: the glass in the plate's pixels (left, top, width, height), strength (head on), the
+// glass's corner radius (plate px), the blur's radius (plate px), the camera's place over the plate (plate px: across,
+// down, and how far in front), daylight (1 by day), the screen within the glass (plate px: left, top, width, height). The room behind the camera, kept to the glass and added as light (alpha 0 adds under
+// premultiplied blending), as glass reflects: about as much at any angle up to 45° or so, then more and more toward
+// grazing (Fresnel), so across a turned screen the far side mirrors the room most.
 @fragment
 fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
-  let p = to_layer(v.uv) - vec2(param(0u), param(1u));
+  let at = to_layer(v.uv);
+  let p = at - vec2(param(0u), param(1u));
   let half_size = vec2(param(2u), param(3u)) * 0.5;
   let r = param(5u);
   let q = abs(p - half_size) - half_size + r;
   let d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
   let aa = max(fwidth(d), 1e-3);
   let inside = 1.0 - smoothstep(-aa, aa, d);
+  let fw = max(fwidth(at), vec2(1e-3));
+  let cam = vec3(param(7u), param(8u), param(9u));
+  let grazing = 1.0 - cam.z / length(vec3(at - cam.xy, cam.z));
+  let fresnel = min(1.0 + 24.0 * pow(grazing, 5.0) + 2.0 * grazing * grazing, 6.0);
   // Blurred by a disc of taps (a golden-angle spiral).
   let radius = param(6u) * frame.layer.z / target_size();
   var c = textureSampleLevel(src, samp, v.uv, 0.0);
@@ -206,23 +354,47 @@ fn fs_reflection(v: VOut) -> @location(0) vec4<f32> {
     }
     c /= 24.0;
   }
-  return vec4(c.rgb * param(4u) * inside, 0.0);
+  // Daylight: a window is many times brighter than the wall beside it, which a photo of the room can't hold, so the
+  // picture's bright parts are opened up and its dark parts held back. The window then washes the screen pale while
+  // what stands in front of it (a person, shelves) leaves a clear patch, as glass does by a window.
+  let sky = max(max(c.r, c.g), c.b);
+  let lit = mix(c.rgb, c.rgb * (0.35 + 2.3 * smoothstep(0.45, 0.95, sky)), param(10u));
+  // The bezel under the glass mirrors less than the panel does, or a thin bezel reads as a bright outline.
+  let on_screen = smoothstep(-fw.x, fw.x, at.x - param(11u)) * smoothstep(-fw.x, fw.x, param(11u) + param(13u) - at.x)
+    * smoothstep(-fw.y, fw.y, at.y - param(12u)) * smoothstep(-fw.y, fw.y, param(12u) + param(14u) - at.y);
+  let light = lit * param(4u) * fresnel * inside * mix(0.4, 1.0, on_screen);
+  // Daylight rolls off toward white as a sensor's highlights do, rather than clipping flat.
+  return vec4(mix(light, 1.0 - exp(-1.25 * light), param(10u)), 0.0);
 }
 
-// device-rim params: the lamp's colour (r, g, b), strength, the lit band's width (layer px), the near side (0 left,
-// 1 right), the layer's width and height. The bezel catches the room's warm light along its top and its side nearest
-// the camera, so it sits in the room rather than on it.
+// device-rim params: the room's light (r, g, b), strength, the edge's width (layer px), the near side (0 left,
+// 1 right), the layer's width and height, the part (0 the monitor's rounded outer edge, 1 the bezel's face), then for
+// the face the bezel's widths round the screen (left, top, right, bottom). The monitor has a little depth: its outer
+// edge is rounded, so the room's light runs along the middle of it, most on top and on the side nearest the camera,
+// least underneath; the bezel's face is near black, a touch lighter toward the top, with a fine lip where it meets
+// the panel that catches the screen's light.
 @fragment
 fn fs_rim(v: VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(src, samp, v.uv, 0.0);
   let p = to_layer(v.uv);
   let size = vec2(param(6u), param(7u));
-  let band = max(param(4u), 1.0);
-  let top = exp(-p.y / band);
-  let x = select(p.x, size.x - p.x, param(5u) > 0.5);
-  let near = exp(-x / band) * 0.7;
-  let light = vec3(param(0u), param(1u), param(2u)) * param(3u) * clamp(top + near, 0.0, 1.0);
-  return vec4(c.rgb + light * c.a, c.a);
+  let room = vec3(param(0u), param(1u), param(2u)) * param(3u);
+  let near_x = select(p.x, size.x - p.x, param(5u) > 0.5);
+  let far_x = size.x - near_x;
+  if (param(8u) < 0.5) {
+    let w = max(param(4u), 0.5);
+    let edge = min(min(p.x, size.x - p.x), min(p.y, size.y - p.y));
+    let round = sin(clamp(edge / w, 0.0, 1.0) * 3.1415927);
+    let top = 1.0 - smoothstep(0.0, w * 1.5, p.y);
+    let side = 0.6 * (1.0 - smoothstep(0.0, w * 1.5, near_x)) + 0.3 * (1.0 - smoothstep(0.0, w * 1.5, far_x));
+    let under = 0.08 * (1.0 - smoothstep(0.0, w * 1.5, size.y - p.y));
+    return vec4(c.rgb * 0.5 + room * round * clamp(max(max(top, side), under), 0.0, 1.0) * c.a, c.a);
+  }
+  let inner = vec4(param(9u), param(10u), size.x - param(11u), size.y - param(12u));
+  let out_of = max(max(inner.x - p.x, p.x - inner.z), max(inner.y - p.y, p.y - inner.w));
+  let lip = vec3(0.05, 0.055, 0.065) * exp(-max(out_of, 0.0) / max(param(4u), 0.5));
+  let sheen = room * 0.05 * (1.0 - smoothstep(0.0, size.y, p.y));
+  return vec4(c.rgb + (lip + sheen) * c.a, c.a);
 }
 
 // device-room params: the room (0 drawn dark, 1 a photo), then for a photo its lift and how much of its colour it keeps

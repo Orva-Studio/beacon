@@ -345,6 +345,7 @@ export type AppRPC = {
       trackMenu: { params: { track: string | null }; response: void };
       /** A section's right-click menu: Ask an Agent…, Rename…, Delete Section. */
       sectionMenu: { params: { section: string }; response: void };
+      markerMenu: { params: { marker: string }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
       /** An effect shown with other params on the canvas only, or null to show it as it is (a look under the pointer). */
@@ -451,6 +452,7 @@ export type AppRPC = {
       rename: { track: string };
       /** A section menu's choice the window carries out: ask an agent about it, or rename it. */
       sectionAction: { section: string; op: "ask" | "rename" };
+      markerAction: { marker: string; op: "rename" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
       /** Something to read and dismiss (what a `.cmproj` import left out). */

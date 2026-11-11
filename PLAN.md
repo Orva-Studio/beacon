@@ -3652,6 +3652,18 @@ caption shadow. In this order, on this branch:
    2.5 (Pixels showed as moiré past it); the bezel and its rim stay sharp at any Blur, the focus blur gathering only
    from its own part of the frame; Reflection Blur (15%) on Glossy, the first reflection back with each room blended in;
    Studio's photo on every shot; Corner moves the whole screen when zoomed out. v8. Export's Speed goes from 0.25× to 3× on a slider.
+6d4. **Monitor's realism pass (the user, 2026-11-10; done, headless only):** what a lens and a panel do, in the
+   shaders, with no setting added (v8 stays). The focus blur a disc gathered in linear light, highlights opened past
+   white (bokeh: lamps stay discs; a faint green edge out of focus), in place of the Gaussian; Pixels low-pass filtered
+   to each output pixel's footprint in linear light (moiré under 2.5% of the light at any zoom, left out where
+   the blur is wider than a pixel, a matte sparkle very close in); the panel dimmer and its blacks lifting off axis and
+   a little toward its edges; reflections by each point's own angle (Fresnel), Glossy's glass over the bezel, a faint
+   room haze on Matte; by Day, Glossy mirrors a window as a wash of daylight (the user's reference of a screen by a
+   window; its own picture, gpt-image-2.6-sunburst, the user's OK; not Sunlit's leaves); the monitor's edge rounded and
+   lit by the room in place of the gold hairline. A subagent reviewed the frames: its points on doubled blurred text,
+   the faint grid, the flat bezel and the daylight are in. Left as decided: no Glow or grade of its own (Film Look's halation, grain and vignette), the
+   bezel sharp at any Blur, Zoom's 2.5, the rooms. Looked at and left out: the monitor's sides (never in shot from
+   these cameras), dust and smudges (a matter of taste: ask first), a lens's vignette (Film Look has it).
 6e. **New Folder in New Project's Choose… (the user, 2026-11-05):** Finder's folder picker there has no New
    Folder button: Electrobun's `Utils.openFileDialog` has no option for it (NSOpenPanel's
    `canCreateDirectories` is off by default). Either AppleScript's `choose folder` (osascript; it has New
@@ -3876,6 +3888,15 @@ At every gate: review `docs/shared-candidates.md` and decide what moves to
 Beacon is feature-complete for the user: no Phase 16 (Films, narrated videos made from a brief, was proposed
 2026-10-26 and is dropped). Next it goes to beta testers; what follows is their feedback, small bug fixes and
 performance work, and keeping the repo tidy.
+
+**Bug still open: the second project shows no thumbnails or waveforms (the user, 2026-11-11, v0.18.0).** With two
+projects open (one window each), the one opened first has its Media Bin thumbnails and timeline waveforms; the one
+opened second has neither: every Media Bin tile is the blank video icon, and the clips have no waveform. The user's
+screenshot: `claude-leak` (first, fine) beside `openai-meta` (second, all blank, though its preview plays). 99cb25d
+(2026-11-06, in v0.18.0) was meant to fix this ("a project opened untouched in a second window showed none": the
+window's `init` reply wiped the pictures sent at open) and doesn't. Not fixed yet; to be handed to another agent. Check
+in the app with two projects whose pictures are already cached, and with fresh ones; the `docs/tested.md` row for
+99cb25d moves back to Not checked.
 
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
 much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,

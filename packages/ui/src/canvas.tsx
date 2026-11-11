@@ -157,6 +157,9 @@ interface CaptionLayout {
 
 const isCaption = (p: Placed) => p.clip.type === "caption";
 
+/** With Shift held, a move keeps to the axis it has gone further along since the drag began. */
+const axisLock = (dx: number, dy: number, shift: boolean): "x" | "y" | undefined => (shift ? (Math.abs(dx) >= Math.abs(dy) ? "x" : "y") : undefined);
+
 /**
  * Canvas handles, over the native preview: click selects the top
  * clip under the pointer, dragging moves the selection, corner handles scale
@@ -500,7 +503,7 @@ export function CanvasOverlay({
           return;
         }
         if (d.kind === "captionMove") {
-          const snap = snapMove([d.box], (px - d.x0) / k, (py - d.y0) / k, e.ctrlKey);
+          const snap = snapMove([d.box], (px - d.x0) / k, (py - d.y0) / k, e.ctrlKey, axisLock(px - d.x0, py - d.y0, e.shiftKey));
           setGuides(snap.guides);
           const s = d.style;
           const offsetX = s.offsetX + (s.anchorX === "right" ? -snap.dx : snap.dx);
@@ -530,7 +533,7 @@ export function CanvasOverlay({
             // Corners as they were when the drag began, in canvas pixels.
             return p.corners.map(([x, y]) => [(x - ox) / k - (p.t.x - s.x), (y - oy) / k + (p.t.y - s.y)] as [number, number]);
           });
-          const snap = snapMove(boxes, (px - d.x0) / k, (py - d.y0) / k, e.ctrlKey);
+          const snap = snapMove(boxes, (px - d.x0) / k, (py - d.y0) / k, e.ctrlKey, axisLock(px - d.x0, py - d.y0, e.shiftKey));
           setGuides(snap.guides);
           send(d.start.map((s) => ({ clip: s.id, props: { transform: { x: s.sx + snap.dx, y: s.sy - snap.dy } } })), "Move", d.key);
           return;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -104,7 +104,18 @@ const SectionSchema = z.strictObject({
   start: TicksSchema,
   end: TicksSchema,
   name: z.string(),
+  /** What the user wants changed here, for an agent to do. */
+  comment: z.string().optional(),
+  /** The agent's one line on what it did about the comment; set, the comment is done. */
+  reply: z.string().optional(),
 });
+
+/** What a section's bar shows: its name, or the start of its comment when it has none. */
+export function sectionLabel(s: { name: string; comment?: string }): string {
+  if (s.name) return s.name;
+  const line = (s.comment ?? "").split("\n")[0]!;
+  return line.length > 40 ? `${line.slice(0, 39)}…` : line;
+}
 
 export const SettingsSchema = z.strictObject({
   width: z.int().positive(),
