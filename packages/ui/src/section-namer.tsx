@@ -64,7 +64,7 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
   return (
     <div
       ref={box}
-      className="absolute z-20 flex w-72 flex-col gap-2 rounded-lg border border-divider bg-panel p-2 shadow-2xl"
+      className="absolute z-20 flex w-72 flex-col gap-2 overflow-y-auto rounded-lg border border-divider bg-panel p-2 shadow-2xl"
       style={style}
       onPointerDown={(e) => e.stopPropagation()}
       data-section-namer
@@ -90,7 +90,7 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
             <span className="text-accent">Done: </span>
             {reply}
           </span>
-          <button className="text-text-muted hover:text-text-strong" onClick={() => ((cleared.current = true), setReply(undefined))} data-section-reply-clear>
+          <button className="text-text-muted hover:text-text-strong" onClick={() => ((cleared.current = true), setReply(undefined), comment.current?.focus())} data-section-reply-clear>
             Clear
           </button>
         </div>

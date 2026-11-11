@@ -6564,6 +6564,30 @@ test.skipIf(skip)("a marker's diamond picks it and takes the playhead there; dou
   await page.rightClick(x, box.y + RULER - 5);
   await arrived(() => ui.menus.includes(`marker:${marker.id}`));
   expect(ui.menus).toContain(`marker:${marker.id}`);
+  // A marker picked after a section: ⌫ takes the marker, not the section.
+  await run("section.add", { start: at - 1, end: at + 1, name: "Demo" });
+  await Bun.sleep(300);
+  await page.click(x, box.y + RULER + BAND / 2);
+  await page.click(x, box.y + RULER - 5);
+  await page.key("Backspace", "Backspace");
+  await arrived(() => ui.core.doc(ui.handle).markers.length === 0);
+  expect(ui.core.doc(ui.handle).markers).toHaveLength(0);
+  expect(ui.core.doc(ui.handle).sections).toHaveLength(1);
+  await ui.core.undo(ui.handle);
+  await Bun.sleep(300);
+  // A press anywhere off the timeline lets the marker go: ⌫ is for what was pressed then.
+  await page.click(x, box.y + RULER - 5);
+  await page.click(...(await centre("[data-canvas-overlay]")));
+  await page.key("Backspace", "Backspace");
+  await Bun.sleep(300);
+  expect(ui.core.doc(ui.handle).markers).toHaveLength(1);
+  // A rename while hovering shows the new name.
+  await page.move(x, box.y + RULER - 5);
+  await page.until("document.querySelector('[data-marker-tip]')?.textContent === 'Source: The Hacker News'");
+  await run("marker.set", { marker: marker.id, name: "Renamed" });
+  await Bun.sleep(200);
+  await page.move(x + 1, box.y + RULER - 5);
+  await page.until("document.querySelector('[data-marker-tip]')?.textContent === 'Renamed'");
   // ⌫ takes the picked marker and nothing else.
   const clips = ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).length;
   await page.click(x, box.y + RULER - 5);
@@ -6612,9 +6636,19 @@ test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line,
   await page.screenshot(join(dir, "section-comment.png"));
   await page.click(...(await centre("[data-section-reply-clear]")));
   await page.until("!document.querySelector('[data-section-reply]')");
+  // The comment has focus again, so Enter saves (from the button it went to the app).
+  await page.until("document.activeElement?.hasAttribute('data-section-comment')");
   await page.key("Enter", "Enter");
   await arrived(() => !ui.core.doc(ui.handle).sections[0]!.reply);
+  expect(ui.core.doc(ui.handle).sections[0]!.reply).toBeUndefined();
   expect(ui.core.doc(ui.handle).sections[0]!.comment).toBe("remove white circle here\nand zoom in");
+  // In a short timeline a long comment scrolls inside the popup rather than running off the bottom.
+  await run("section.set", { section: added.id, comment: Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"), reply: "Done" });
+  await Bun.sleep(300);
+  await page.dblclick(xAt(t(0.25)), y);
+  await page.until("!!document.querySelector('[data-section-namer]')");
+  expect(await page.evaluate<boolean>("(() => { const n = document.querySelector('[data-section-namer]').getBoundingClientRect(); const t = document.querySelector('[data-timeline]').getBoundingClientRect(); return n.bottom <= t.bottom + 1; })()")).toBe(true);
+  await page.key("Escape", "Escape");
   // A long name typed by hand (an old comment) isn't offered as a name.
   await run("section.set", { section: added.id, name: "don't use background remove here" });
   await page.drag([xAt(t(0.6)), y], [xAt(t(0.7)), y], ["alt"]);

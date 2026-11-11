@@ -211,14 +211,15 @@ export const replica = {
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
   },
+  // A section and a marker are never picked together: ⌫ would take the section the user didn't mean.
   section(section: string | undefined) {
-    if (section !== state.section) set({ section });
+    if (section !== state.section) set({ section, ...(section ? { marker: undefined } : {}) });
   },
   nameSection(naming: ViewState["namingSection"]) {
     set({ namingSection: naming });
   },
   marker(marker: string | undefined) {
-    if (marker !== state.marker) set({ marker });
+    if (marker !== state.marker) set({ marker, ...(marker ? { section: undefined } : {}) });
   },
   nameMarker(marker: string | undefined) {
     set({ namingMarker: marker });

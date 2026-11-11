@@ -139,6 +139,17 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   useTimelineKeys(dragState, snapLine, drawRef);
 
+  // A press anywhere off the timeline (the canvas, a panel) lets a picked section or marker go, so ⌫ is for what was pressed.
+  useEffect(() => {
+    const away = (e: PointerEvent) => {
+      if (e.target === canvas.current) return;
+      replica.section(undefined);
+      replica.marker(undefined);
+    };
+    window.addEventListener("pointerdown", away, true);
+    return () => window.removeEventListener("pointerdown", away, true);
+  }, []);
+
   const context: TimelineContext = { canvas, latest, size, dragState, settling, snapLine, pickedDiamond, anchor, pending, edge, drawRef, HEADER, TRACK, TOP, tracks, clipTypes, run };
   const hits = timelineHits(context);
   const dropRef = useRef<DropTarget>(undefined);
@@ -149,7 +160,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   useEffect(() => addDropTarget((...a) => dropRef.current!(...a)), []);
 
   const [marker, setMarker] = useState<{ id: string; name: string; x: number }>();
-  const hoverMarker = (m: typeof marker) => setMarker((was) => (was?.id === m?.id && was?.x === m?.x ? was : m));
+  const hoverMarker = (m: typeof marker) => setMarker((was) => (was?.id === m?.id && was?.x === m?.x && was?.name === m?.name ? was : m));
   const { onPointerDown, onPointerMove, finish } = timelineDrag({ ...context, draw }, hits, { trackMenu, markClick, markerHover: hoverMarker });
   const clicks = timelineClicks(context, hits, { menu, trackMenu, sectionMenu, markerMenu, dropFiles });
 
@@ -199,7 +210,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           key={namingSection.id ?? `${namingSection.start}`}
           project={project}
           value={project.sections.find((s) => s.id === namingSection.id) ?? { name: "" }}
-          style={{ left: Math.min(Math.max(HEADER, hits.xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2 }}
+          style={{ left: Math.min(Math.max(HEADER, hits.xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2, maxHeight: Math.max(120, size.current.h - TRACKS_TOP - 8) }}
           onDone={(text) => {
             replica.nameSection(undefined);
             if (text === null || (!namingSection.id && !text.name && !text.comment)) return draw();
