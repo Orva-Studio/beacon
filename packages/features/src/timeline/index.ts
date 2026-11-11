@@ -205,6 +205,16 @@ const commands = [
       doc.markers.splice(i, 1);
     },
   }),
+  defineCommand({
+    id: "marker.set",
+    description: "Rename a timeline marker",
+    args: z.strictObject({ marker: Id, name: z.string() }),
+    apply(doc, { marker, name }) {
+      const m = doc.markers.find((x) => x.id === marker);
+      if (!m) throw new Error(`no marker "${marker}"`);
+      m.name = name;
+    },
+  }),
 ];
 
 const s = (t: Ticks) => roundSeconds(ticksToSeconds(t));

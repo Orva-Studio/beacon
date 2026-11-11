@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { trackName, type Clip, type Project, type Session } from "@beacon/model";
+import { ticksToSeconds, trackName, type Clip, type Project, type Session } from "@beacon/model";
 import { acceptFiles, addDropTarget, type DropTarget } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
@@ -27,6 +27,7 @@ interface Props {
   /** A track's menu (Insert Track, Rename…, Lock…), or with null the track options under ⌄. */
   trackMenu: (track: string | null) => void;
   sectionMenu: (section: string) => void;
+  markerMenu: (marker: string) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
   /** Spans marked across the tracks while something is reviewed (Remove Silences: every one red, the selected outlined). */
@@ -35,7 +36,7 @@ interface Props {
   markClick?: (mark: TimelineMark, alt: boolean, shift: boolean, meta: boolean) => void;
 }
 
-export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, sectionMenu, dropFiles, marks, markClick }: Props) {
+export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, sectionMenu, markerMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
@@ -43,6 +44,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const dragging = useView((s) => s.dragging);
   const pickedSection = useView((s) => s.section);
   const namingSection = useView((s) => s.namingSection);
+  const pickedMarker = useView((s) => s.marker);
+  const namingMarker = useView((s) => s.namingMarker);
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const size = useRef({ w: 0, h: 0 });
@@ -64,7 +67,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   }, [session.animation?.id]);
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
-  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection });
+  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection, marker: pickedMarker });
   useEffect(() => keepImages(full, thumbs), [full, thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
@@ -72,7 +75,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   /** When each clip last had an effect added, for its badge's flash. */
   const flashes = useRef(new Map<string, number>());
   const effectCounts = useRef<Map<string, number> | null>(null);
-  latest.current = { project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection };
+  latest.current = { project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection, marker: pickedMarker };
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
@@ -148,7 +151,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const [marker, setMarker] = useState<{ id: string; name: string; x: number }>();
   const hoverMarker = (m: typeof marker) => setMarker((was) => (was?.id === m?.id && was?.x === m?.x ? was : m));
   const { onPointerDown, onPointerMove, finish } = timelineDrag({ ...context, draw }, hits, { trackMenu, markClick, markerHover: hoverMarker });
-  const clicks = timelineClicks(context, hits, { menu, trackMenu, sectionMenu, dropFiles });
+  const clicks = timelineClicks(context, hits, { menu, trackMenu, sectionMenu, markerMenu, dropFiles });
 
   return (
     <div ref={box} className="relative min-h-0 flex-1 overflow-hidden">
@@ -177,6 +180,20 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
           {marker.name}
         </div>
       )}
+      {namingMarker &&
+        ((m) =>
+          m && (
+            <RenameField
+              key={m.id}
+              value={m.name}
+              className="absolute z-20 text-label"
+              style={{ left: Math.max(HEADER, Math.min(hits.xOf(ticksToSeconds(m.time)) - 8, size.current.w - 248)), top: RULER + 2, width: 240, height: 22 }}
+              onDone={(name) => {
+                replica.nameMarker(undefined);
+                if (name !== null && name !== m.name) run("marker.set", { marker: m.id, name }, "Rename Marker");
+              }}
+            />
+          ))(project.markers.find((x) => x.id === namingMarker))}
       {namingSection && (
         <SectionNamer
           key={namingSection.id ?? `${namingSection.start}`}

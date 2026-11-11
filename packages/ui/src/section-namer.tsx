@@ -81,6 +81,9 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
         onKeyDown={keys}
         data-section-comment
       />
+      <div className="-mt-1 text-label text-text-muted" data-section-hint>
+        Enter saves · ⇧Enter new line · Esc cancels
+      </div>
       {reply && (
         <div className="flex items-start gap-2 rounded-sm bg-chip px-2 py-1 text-label text-text-muted" data-section-reply>
           <span className="flex-1">
@@ -99,7 +102,6 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
           </button>
         ))}
       </div>
-      <div className="text-label text-text-muted">Enter saves · ⇧Enter new line · Esc cancels</div>
     </div>
   );
 }

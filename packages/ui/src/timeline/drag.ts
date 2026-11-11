@@ -26,7 +26,7 @@ export interface DragOptions {
  */
 export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu, markClick, markerHover }: DragOptions) {
   const { canvas, latest, dragState, settling, snapLine, pickedDiamond, anchor, pending, edge, drawRef, draw, run, HEADER, TRACK, TOP, tracks } = c;
-  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer } = hits;
+  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, markerAt, snapped, pointer } = hits;
 
   const setHeight = (clientY: number) => {
     const r = canvas.current!.getBoundingClientRect();
@@ -190,6 +190,10 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       dragState.current = { kind: "track", track: t.id, from: i, to: i };
       return capture();
     }
+    // A marker's diamond picks it (⌫ removes it) and takes the playhead there; the rest of the ruler scrubs.
+    const marker = markerAt(x, y);
+    replica.marker(marker?.id);
+    if (marker) return run("playhead.set", { time: ticksToSeconds(marker.time) });
     if (y >= RULER && y < TRACKS_TOP && section.press(e, x)) return;
     if (latest.current.section) replica.section(undefined);
     const ph = xOf(session.playhead);
@@ -263,7 +267,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     const { x, y } = pointer(e);
     const { project, session } = latest.current;
     if (!d) {
-      const marker = x > HEADER && y >= RULER - 12 && y <= RULER ? project.markers.find((m) => Math.abs(xOf(ticksToSeconds(m.time)) - x) <= 6) : undefined;
+      const marker = markerAt(x, y);
       markerHover?.(marker && marker.name ? { id: marker.id, name: marker.name, x: xOf(ticksToSeconds(marker.time)) } : undefined);
       if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
         const part = sectionAt(x)?.part;

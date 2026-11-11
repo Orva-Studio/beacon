@@ -170,6 +170,10 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     return undefined;
   };
 
+  /** The marker whose diamond on the ruler is under (`x`, `y`). */
+  const markerAt = (x: number, y: number) =>
+    x > HEADER && y >= RULER - 12 && y <= RULER ? latest.current.project.markers.find((m) => Math.abs(xOf(ticksToSeconds(m.time)) - x) <= 6) : undefined;
+
   /** Snaps `edges` (seconds) by the smallest shift onto a snap target, unless snapping is off or Control is held. */
   const snapped = (edges: number[], exclude: Set<string>, ctrl: boolean): number => {
     const { project, session } = latest.current;
@@ -190,5 +194,5 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
-  return { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, dropHit, mediaHit, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, snapped, pointer };
+  return { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, dropHit, mediaHit, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, markerAt, snapped, pointer };
 }

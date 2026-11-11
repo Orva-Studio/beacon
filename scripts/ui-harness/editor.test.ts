@@ -6541,6 +6541,40 @@ test.skipIf(skip)("hovering a marker's diamond on the ruler shows its name; movi
   await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("a marker's diamond picks it and takes the playhead there; double-click names it, right-click offers its menu, ⌫ deletes it in one undo step", async () => {
+  const box = await timelineBox();
+  const s = await session();
+  const header = headerWidth(ui.core.doc(ui.handle).tracks);
+  const at = s.timeline.start + (s.timeline.end - s.timeline.start) * 0.4;
+  const x = box.x + header + ((at - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  await run("marker.add", { time: at, name: "" });
+  await Bun.sleep(300);
+  const marker = ui.core.doc(ui.handle).markers[0]!;
+  await page.click(x, box.y + RULER - 5);
+  await Bun.sleep(200);
+  expect((await session()).playhead).toBeCloseTo(ticksToSeconds(marker.time), 2);
+  // Named by a double-click on it; Enter saves.
+  await page.dblclick(x, box.y + RULER - 5);
+  await page.until("document.activeElement?.tagName === 'INPUT'", 5000);
+  await type("Source: The Hacker News");
+  await page.key("Enter", "Enter");
+  await arrived(() => ui.core.doc(ui.handle).markers[0]?.name === "Source: The Hacker News");
+  expect(ui.core.doc(ui.handle).markers[0]?.name).toBe("Source: The Hacker News");
+  await page.rightClick(x, box.y + RULER - 5);
+  await arrived(() => ui.menus.includes(`marker:${marker.id}`));
+  expect(ui.menus).toContain(`marker:${marker.id}`);
+  // ⌫ takes the picked marker and nothing else.
+  const clips = ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).length;
+  await page.click(x, box.y + RULER - 5);
+  await page.key("Backspace", "Backspace");
+  await arrived(() => ui.core.doc(ui.handle).markers.length === 0);
+  expect(ui.core.doc(ui.handle).markers).toHaveLength(0);
+  expect(ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).length).toBe(clips);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Marker");
+  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+});
+
 test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line, a press outside keeps it), its bar shows the comment when it has no name; the agent's reply marks it done and Clear takes the reply away", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.snapping", { on: false });

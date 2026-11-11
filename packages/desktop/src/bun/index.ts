@@ -513,6 +513,7 @@ function openWindow(): Win {
         dropFiles: ({ files, time, track, timing }) => reply(() => projects.dropFiles(w, files, { time, track }, timing)),
         trackMenu: (params) => menus.trackMenu(params),
         sectionMenu: (params) => menus.sectionMenu(params),
+        markerMenu: (params) => menus.markerMenu(params),
         captureFrame: () =>
           reply(async () => {
             if (!w.current) return;

@@ -13,13 +13,14 @@ export interface ClickOptions {
   /** A track's menu (Insert Track, Rename…, Lock…), or with null the track options under ⌄. */
   trackMenu: (track: string | null) => void;
   sectionMenu: (section: string) => void;
+  markerMenu: (marker: string) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
 }
 
 /** The timeline's double-clicks, right-clicks, wheel and Finder drops. */
-export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, tracks, clipTypes, run }: TimelineContext, hits: TimelineHits, { menu, trackMenu, sectionMenu, dropFiles }: ClickOptions) {
-  const { timeAt, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, sectionAt, pointer } = hits;
+export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, tracks, clipTypes, run }: TimelineContext, hits: TimelineHits, { menu, trackMenu, sectionMenu, markerMenu, dropFiles }: ClickOptions) {
+  const { timeAt, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, sectionAt, markerAt, pointer } = hits;
 
   const onDrop = (e: React.DragEvent<HTMLCanvasElement>) => {
     if (!e.dataTransfer.files.length || latest.current.session.group) return;
@@ -34,6 +35,8 @@ export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, track
 
   const onDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = pointer(e);
+    const marker = markerAt(x, y);
+    if (marker) return replica.nameMarker(marker.id);
     if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
       const s = sectionAt(x)?.section;
       if (s) replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
@@ -68,6 +71,11 @@ export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, track
       const i = rowUnder(y);
       if (i !== undefined) trackMenu(tracks[i]!.id);
       return;
+    }
+    const marker = markerAt(x, y);
+    if (marker) {
+      replica.marker(marker.id);
+      return markerMenu(marker.id);
     }
     if (y >= RULER && y < TRACKS_TOP) {
       const s = sectionAt(x)?.section;

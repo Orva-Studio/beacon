@@ -200,7 +200,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
 /** What drawing the timeline reads: the component's latest render, its refs and its hit tests. */
 export interface TimelineDrawing {
   canvas: RefObject<HTMLCanvasElement | null>;
-  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"] }>;
+  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"]; marker?: string }>;
   size: RefObject<{ w: number; h: number }>;
   staticLayer: RefObject<{ canvas?: HTMLCanvasElement; key: unknown[] }>;
   dragState: RefObject<Drag | null>;
@@ -254,7 +254,7 @@ export function drawTimeline(t: TimelineDrawing) {
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, latest.current.marker, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -650,6 +650,12 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.lineTo(px, RULER);
       ctx.lineTo(px - 5, RULER - 5);
       ctx.fill();
+      if (m.id === latest.current.marker) {
+        ctx.strokeStyle = color("text-bright");
+        ctx.lineWidth = 1.5;
+        ctx.closePath();
+        ctx.stroke();
+      }
     }
     drawSections(ctx);
 

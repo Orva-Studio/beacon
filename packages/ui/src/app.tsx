@@ -55,6 +55,7 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   canvasMenu(): void;
   trackMenu(track: string | null): void;
   sectionMenu(section: string): void;
+  markerMenu(marker: string): void;
   /** A Media Bin item's menu; without one, the bin's own (its empty space). */
   /** `assets`: the selected media it acts on, when it is one of several selected. */
   binMenu(asset?: string, assets?: string[]): void;
@@ -183,6 +184,15 @@ export function App({ host }: { host: Host }) {
         if (e.key !== "Escape" && !e.repeat) host.run("section.remove", { section }, "Delete Section");
         return;
       }
+      // So does a marker picked on the ruler.
+      const marker = replica.get().marker;
+      if (marker && replica.get().project?.markers.some((m) => m.id === marker) && !field && (b?.command === "edit.delete" || b?.command === "edit.rippleDelete" || e.key === "Escape")) {
+        e.preventDefault();
+        e.stopPropagation();
+        replica.marker(undefined);
+        if (e.key !== "Escape" && !e.repeat) host.run("marker.remove", { marker }, "Delete Marker");
+        return;
+      }
       if (!b?.command || CLIPBOARD[b.command]) return;
       // In a text field keys type, except the app's own with ⌘ or ⌃ (Export…, the palette), as their menu items would take them.
       if (field && !(b.command.startsWith("app.") && menuKey(b.keys))) return;
@@ -258,6 +268,7 @@ export function App({ host }: { host: Host }) {
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
               sectionMenu={host.sectionMenu}
+              markerMenu={host.markerMenu}
               dropFiles={host.dropFiles}
               marks={
                 session && musicReviewOf(session)?.tab === "suggest" && musicReviewOf(session)!.suggestion
