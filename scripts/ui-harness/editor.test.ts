@@ -3055,6 +3055,47 @@ test.skipIf(skip)("resizing on the canvas snaps the side dragged to a recording'
   await select([]);
 });
 
+test.skipIf(skip)("moving a clip on the canvas with Shift held keeps it to the axis it has gone further along; let go of Shift and it moves freely again", async () => {
+  await run("playhead.set", { time: 1 });
+  const handle = (h: string) => `[data-handle="${h}"][data-clip="${callout.id}"]`;
+  await select([callout.id]);
+  await page.until(`!!document.querySelector('${handle("e")}')`);
+  const [[ex, y], [wx]] = [await centre(handle("e")), await centre(handle("w"))];
+  const from: [number, number] = [(ex + wx) / 2, y];
+  const at = () => {
+    const c = ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).find((c) => c.id === callout.id)!;
+    const t = (c.props.transform ?? {}) as { x?: number; y?: number };
+    return { x: t.x ?? 0, y: t.y ?? 0 };
+  };
+  const start = at();
+  const drag = async (path: [number, number][], shift: boolean[]) => {
+    await page.down(...from);
+    for (let i = 0; i < path.length; i++) {
+      await page.move(from[0] + path[i]![0], from[1] + path[i]![1], shift[i] ? ["shift"] : undefined);
+      await Bun.sleep(16);
+    }
+    await page.up(from[0] + path.at(-1)![0], from[1] + path.at(-1)![1], shift.at(-1) ? ["shift"] : undefined);
+    await Bun.sleep(300);
+  };
+  // Mostly sideways with Shift: it slides across only.
+  await drag([[10, 3], [30, 8], [60, 20]], [true, true, true]);
+  expect(at().y).toBe(start.y);
+  expect(at().x).not.toBe(start.x);
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Move");
+  await ui.core.undo(ui.handle);
+  // Mostly up with Shift: it moves up only.
+  await drag([[3, -10], [8, -30], [15, -50]], [true, true, true]);
+  expect(at().x).toBe(start.x);
+  expect(at().y).not.toBe(start.y);
+  await ui.core.undo(ui.handle);
+  // Shift let go before the end: both axes move.
+  await drag([[10, 3], [30, 8], [60, 20]], [true, true, false]);
+  expect(at().x).not.toBe(start.x);
+  expect(at().y).not.toBe(start.y);
+  await ui.core.undo(ui.handle);
+  await select([]);
+});
+
 test.skipIf(skip)("a video's Media Bin tile shows its proxy being made, then a P badge; deleting the proxy removes the badge and its files", async () => {
   // A fresh copy has no cached proxy, so making it is real work.
   const copy = join(dir, `like-${Date.now()}.mp4`);
