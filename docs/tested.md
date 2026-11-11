@@ -11,11 +11,11 @@ feature lands and when it is checked.
 
 | What | Date | Commit | How |
 |---|---|---|---|
-| **Settings › AI › Camera Angles › Model** (the user, 2026-11-11: Seedance declines some takes): Seedance 2.5 (the default) or Wan 3.0. With Wan, a frame of the camera at the angle's start (and the Angles track's room photos) goes to Wan 2.7 Image to show it from the angle, then Wan 3.0 animates that at 720p for the angle's length (2 s at least), then the upscaler as before; no sound is sent, the take's own plays under it; priced $0.07/s plus $0.03 (`angle.estimate` says which model). A take Seedance declines now suggests Wan 3.0 | 2026-11-11 | this branch | core test (`angles.test.ts`: the Wan path's calls, prompts, price and take; the refusal's hint); UI flow (`Settings › AI › Camera Angles has a Model…`); the two-step tried for real on the site's presenter (one frame, $0.24) and looked at |
+| **Settings › AI › Camera Angles › Model** (the user, 2026-11-11: Seedance declines some takes): Seedance 2.5 (the default) or Wan 3.0 + lip sync. With Wan, a frame of the camera at the angle's start (and the Angles track's room photos) goes to Wan 2.7 Image to show it from the angle, Wan 3.0 animates that at 720p (2 s at least), Sync's lipsync-2-pro lip-syncs it to the take's sound cut to the angle's length (the user chose this from the comparison), then the upscaler as before; priced $0.07/s + $0.08325/s + $0.03 (`angle.estimate` says which model). A take Seedance declines now suggests it | 2026-11-11 | this branch | core test (`angles.test.ts`: the Wan path's four calls, prompts, the sound's length, price and take; the refusal's hint); UI flow (`Settings › AI › Camera Angles has a Model…`); the chain tried for real on the site's presenter take beside Seedance (the user watched the comparison) |
 
 ### Not checked yet
 
-- Camera angles on Wan 3.0 on one of your takes: Settings › AI › Camera Angles › Model › Wan 3.0, then Generate on an angle. Is it a true cutaway from the first frame, does it hold your face, and is it worth it for the takes Seedance declines?
+- Camera angles on Wan 3.0 + lip sync in the app, on one of your takes: Settings › AI › Camera Angles › Model › Wan 3.0 + lip sync, then Generate on an angle. Does it look like the comparison's C, and are the lips in time once the upscaler has run?
 
 ## Monitor realism (`feat/monitor-realism`)
 

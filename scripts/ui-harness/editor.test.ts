@@ -6660,15 +6660,15 @@ test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line,
   await run("timeline.snapping", { on: true });
 }, 30_000);
 
-test.skipIf(skip)("Settings › AI › Camera Angles has a Model: Seedance 2.5 by default, Wan 3.0 to pick (it declines fewer takes), its hint saying what each does", async () => {
+test.skipIf(skip)("Settings › AI › Camera Angles has a Model: Seedance 2.5 by default, Wan 3.0 + lip sync to pick (it declines fewer takes), its hint saying what each does", async () => {
   await ui.core.uiOpen(ui.handle, "settings", "ai");
   await page.until("document.querySelector('[data-preference=angleModel]')?.value === 'seedance'");
-  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-preference=angleModel] option')].map((o) => o.textContent)")).toEqual(["Seedance 2.5", "Wan 3.0"]);
+  expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-preference=angleModel] option')].map((o) => o.textContent)")).toEqual(["Seedance 2.5", "Wan 3.0 + lip sync"]);
   expect(await page.evaluate<string>("document.querySelector('[data-settings-section]').textContent")).toContain("the lips kept to your voice");
   await page.evaluate(`(() => { const s = document.querySelector('[data-preference="angleModel"]'); s.value = 'wan'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   for (let i = 0; i < 50 && (await ui.core.preferences()).find((p) => p.id === "angleModel")!.value !== "wan"; i++) await Bun.sleep(50);
   expect((await ui.core.preferences()).find((p) => p.id === "angleModel")!.value).toBe("wan");
-  await page.until("document.querySelector('[data-settings-section]').textContent.includes(\"the lips don't follow your voice\")");
+  await page.until("document.querySelector('[data-settings-section]').textContent.includes(\"lip-synced to your voice\")");
   await ui.core.setPreference("angleModel", "seedance");
   await page.evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Done').click()");
   await page.until("!document.querySelector('[data-settings-nav]')");

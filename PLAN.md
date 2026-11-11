@@ -3904,8 +3904,10 @@ and MiniMax H3 (`minimax/h3`) both made the shot with no refusal, both well shor
 first frame and a prompt, so a frame of the camera opened every angle head on and swung round; a frame first shown
 from the angle by Wan 2.7 Image (`wan-video/wan-2.7-image`, $0.03) then animated by Wan 3.0 (720p, $0.07/s, 2 s at
 least) gives a true cutaway: about $0.24 for 3 s, against Seedance's $1.72. 720p at most: ByteDance's upscaler does the
-rest (the user). Settings › AI › Camera Angles › Model: Seedance 2.5 (the default) or Wan 3.0, whose lips don't follow
-the voice; a take Seedance declines says to try Wan 3.0. MiniMax H3 (768p at least, $0.08/s, 4 s at least, reference
+rest (the user). Settings › AI › Camera Angles › Model: Seedance 2.5 (the default) or Wan 3.0 + lip sync: Wan's shot
+barely moves the lips, so it is lip-synced to the take's sound by `sync/lipsync-2-pro` ($0.08325/s) before the upscaler
+(the user, 2026-11-11, from the comparison: "really, really good"); about $0.49 for 3 s. A take Seedance declines says
+to try it. MiniMax H3 (768p at least, $0.08/s, 4 s at least, reference
 video and audio like Seedance) waits for a test on a real take with its sound.
 
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too

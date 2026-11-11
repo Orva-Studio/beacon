@@ -45,11 +45,15 @@ const MODEL = "angleModel";
 type Model = "seedance" | "wan";
 const MODELS = [
   { id: "seedance", title: "Seedance 2.5", description: "Re-films your take from the new angle, the lips kept to your voice; declines some takes" },
-  { id: "wan", title: "Wan 3.0", description: "Declines less: a frame of your take shown from the new angle, then animated at 720p; the lips don't follow your voice" },
+  { id: "wan", title: "Wan 3.0 + lip sync", description: "Declines less: a frame of your take shown from the new angle, animated at 720p, then lip-synced to your voice" },
 ];
 const modelOf = (pref: (id: string) => unknown): Model => (pref(MODEL) === "wan" ? "wan" : "seedance");
 const WAN_STILL = { slug: "wan-video/wan-2.7-image", title: "Wan 2.7 Image" };
 const WAN = { slug: "alibaba/wan-3", title: "Wan 3.0" };
+/** Wan's angle barely moves the lips: lip-synced to the take's sound after (the user, 2026-11-11, from the comparison). */
+const LIPSYNC = { slug: "sync/lipsync-2-pro", title: "Sync's lip sync" };
+/** Per second it makes (Replicate, 2026-11-11). */
+const LIPSYNC_PRICE = 0.08325;
 /** Wan 3.0 at 720p per second, and Wan 2.7 Image per still (Replicate, 2026-11-11). 720p at most: the upscaler does the rest (the user). */
 const WAN_PRICE = 0.07;
 const WAN_STILL_PRICE = 0.03;
@@ -159,7 +163,7 @@ function canCrop(project: Project, registry: FeatureRegistry, camera: Clip): boo
 const cost = (clip: Clip, model: Model) => {
   if (model === "wan") {
     const seconds = Math.max(WAN_SHORTEST, Math.ceil(ticksToSeconds(clip.duration) - 1e-6));
-    return { seconds, cost: Math.round((seconds * WAN_PRICE + WAN_STILL_PRICE) * 100) / 100 };
+    return { seconds, cost: Math.round((seconds * (WAN_PRICE + LIPSYNC_PRICE) + WAN_STILL_PRICE) * 100) / 100 };
   }
   const seconds = Math.max(SHORTEST, Math.ceil(ticksToSeconds(clip.duration)));
   return { seconds, cost: Math.round(seconds * PRICE * 100) / 100 };
@@ -298,7 +302,7 @@ function target(ctx: ActionContext, id?: string): Clip {
 }
 
 /** Where an angle's job is: cutting, uploading, on Replicate, downloading. */
-const STAGES: Record<string, string> = { cutting: "Cutting the take", uploading: "Uploading the take", queued: "Waiting its turn on Replicate", making: "Seedance is re-filming it", reframing: "Wan is showing a frame from the new angle", animating: "Wan 3.0 is animating it", upscaling: "Upscaling to 1080p", downloading: "Downloading" };
+const STAGES: Record<string, string> = { cutting: "Cutting the take", uploading: "Uploading the take", queued: "Waiting its turn on Replicate", making: "Seedance is re-filming it", reframing: "Wan is showing a frame from the new angle", animating: "Wan 3.0 is animating it", lipsyncing: "Lip-syncing it to your voice", upscaling: "Upscaling to 1080p", downloading: "Downloading" };
 
 const angleAdd = defineAction({
   id: "angles.add",
@@ -333,7 +337,7 @@ const angleAdd = defineAction({
 const angleGenerate = defineAction({
   id: "angle.generate",
   description:
-    "Generate an Angle clip (`clip`, else the selected one) through Replicate on the user's token: the 4 s of its camera and sound from its start (Seedance's shortest), and the Angles track's room photos, are sent to Seedance 2.5 (480p, re-filmed from the angle with the speaker's lips kept to their sound), or with Settings › AI's Camera Angles model on Wan 3.0, one frame of the camera (and the room photos) to Wan 2.7 Image to show it from the angle, then Wan 3.0 to animate that at 720p (2 s at least; it declines less, but the lips don't follow the sound), then ByteDance's upscaler to 1080p; saved in the project's media/Angles folder, added to the Media Bin and shown in the clip, one undo step. Replicate charges the user's account (angle.estimate says how much); refused over the limit per generation in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
+    "Generate an Angle clip (`clip`, else the selected one) through Replicate on the user's token: the 4 s of its camera and sound from its start (Seedance's shortest), and the Angles track's room photos, are sent to Seedance 2.5 (480p, re-filmed from the angle with the speaker's lips kept to their sound), or with Settings › AI's Camera Angles model on Wan 3.0, one frame of the camera (and the room photos) to Wan 2.7 Image to show it from the angle, then Wan 3.0 to animate that at 720p (2 s at least; it declines less), lip-synced to the take's sound by Sync's lipsync-2-pro, then ByteDance's upscaler to 1080p; saved in the project's media/Angles folder, added to the Media Bin and shown in the clip, one undo step. Replicate charges the user's account (angle.estimate says how much); refused over the limit per generation in Settings › AI. Runs as a job. Only when the user asks: it spends their money",
   args: z.strictObject({ clip: z.string().min(1).optional() }),
   resolve: ({ clip: id }, ctx) => {
     const clip = target(ctx, id);
@@ -341,8 +345,7 @@ const angleGenerate = defineAction({
     if (angleState(ctx.session).making.includes(clip.id)) throw new Error("that angle is being made already");
     const { camera } = cameraOf(ctx.project, ctx.registry, clip);
     const model = modelOf(ctx.pref);
-    const sound = soundOf(ctx.project, camera);
-    if (model === "seedance" && !sound) fail("the camera has no sound linked to it: an angle keeps the lips to the take's own sound");
+    const sound = soundOf(ctx.project, camera) ?? fail("the camera has no sound linked to it: an angle keeps the lips to the take's own sound");
     const { seconds, cost: price } = cost(clip, model);
     const title = model === "wan" ? WAN.title : SEEDANCE.title;
     const limit = Number(ctx.pref(LIMIT)) || 0;
@@ -355,9 +358,8 @@ const angleGenerate = defineAction({
     });
     const start = ticksToSeconds(clip.start);
     const video = sourceOf(ctx.project.assets[camera.assetId!]!, "video", (camera.props.media as { stream?: number } | undefined)?.stream ?? 0);
-    const audio = sound && sourceOf(ctx.project.assets[sound.clip.assetId!]!, "audio", sound.stream);
-    const vFrom = mediaAt(camera, start);
-    const aFrom = sound ? mediaAt(sound.clip, start) : 0;
+    const audio = sourceOf(ctx.project.assets[sound.clip.assetId!]!, "audio", sound.stream);
+    const [vFrom, aFrom] = [mediaAt(camera, start), mediaAt(sound.clip, start)];
     const prompt = model === "wan" ? `${stillBrief({ view: a.view, note: a.note, photos: photos.length })}\n\n${motionBrief(a)}` : brief({ view: a.view, move: a.move, note: a.note, photos: photos.length });
     const fps = [24, 30, 60].reduce((best, f) => (Math.abs(f - ctx.project.settings.fps.num / ctx.project.settings.fps.den) < Math.abs(best - ctx.project.settings.fps.num / ctx.project.settings.fps.den) ? f : best), 30);
     const ids = [clip.id];
@@ -383,14 +385,19 @@ const angleGenerate = defineAction({
                 token,
                 WAN,
                 { image: still, prompt: motionBrief(a), negative_prompt: "camera orbit, zoom, a different face, extra people, distorted hands, text, watermark", resolution: "720p", duration: seconds },
-                (st) => tell(st === "making" ? 0.45 : 0.3, st === "making" ? "animating" : st),
+                (st) => tell(st === "making" ? 0.4 : 0.3, st === "making" ? "animating" : st),
               );
+              // Its own length, so the lip-synced shot ends with the angle (Sync cuts to the shorter).
+              const said = join(tmp, "said.wav");
+              await runTool([...ffmpegArgs(), "-y", "-ss", aFrom.toFixed(3), "-t", ticksToSeconds(clip.duration).toFixed(3), ...ffmpegInput(audio.path), "-map", `0:a:${audio.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
+              const voice = await upload(token, said, "audio/wav");
+              made = await predict(token, LIPSYNC, { video: made, audio: voice, sync_mode: "cut_off" }, (st) => tell(st === "making" ? 0.6 : 0.55, st === "making" ? "lipsyncing" : st));
             } else {
               tell(0.02, "cutting");
               const take = join(tmp, "take.mp4");
               const said = join(tmp, "said.wav");
               await runTool([...ffmpegArgs(), "-y", "-ss", vFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(video.path), "-map", `0:v:${video.stream}`, "-vf", "scale=-2:720", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-an", take]);
-              await runTool([...ffmpegArgs(), "-y", "-ss", aFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(audio!.path), "-map", `0:a:${audio!.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
+              await runTool([...ffmpegArgs(), "-y", "-ss", aFrom.toFixed(3), "-t", String(seconds), ...ffmpegInput(audio.path), "-map", `0:a:${audio.stream}`, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", said]);
               tell(0.08, "uploading");
               const [v, s, ...images] = await Promise.all([upload(token, take, "video/mp4"), upload(token, said, "audio/wav"), ...photos.map((p) => upload(token, p.path, MIME[extname(p.path).toLowerCase()] ?? "image/jpeg"))]);
               const stage = (base: number, span: number) => (st: MakeStage) => tell(base + (st === "making" ? span / 2 : 0), st);
@@ -398,7 +405,7 @@ const angleGenerate = defineAction({
                 made = await predict(token, SEEDANCE, { prompt, reference_videos: [v], reference_audios: [s], ...(images.length ? { reference_images: images } : {}), duration: -1, aspect_ratio: "adaptive", resolution: "480p", generate_audio: false }, stage(0.15, 0.5));
               } catch (e) {
                 // Seedance's moderation refuses some takes (a brand on screen was one): said plainly, never worked around.
-                if (/E005|sensitive/i.test((e as Error).message)) throw new Error("Seedance declined this take (it flags some, often for a brand or logo in it): try another stretch, a close-up crop, or Wan 3.0 (Settings › AI › Camera Angles › Model), which declines less but doesn't keep the lips to your voice");
+                if (/E005|sensitive/i.test((e as Error).message)) throw new Error("Seedance declined this take (it flags some, often for a brand or logo in it): try another stretch, a close-up crop, or Wan 3.0 + lip sync (Settings › AI › Camera Angles › Model), which declines less");
                 throw e;
               }
             }
@@ -412,7 +419,7 @@ const angleGenerate = defineAction({
             // Silent: the take's own sound plays under it.
             await runTool([...ffmpegArgs(), "-y", ...ffmpegInput(join(tmp, "made.mp4")), "-map", "0:v:0", "-c", "copy", "-an", out]);
             const info: AngleTakeInfo = { view: a.view, prompt, cost: price, seconds };
-            writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, models: model === "wan" ? [WAN_STILL.slug, WAN.slug, UPSCALER.slug] : [SEEDANCE.slug, UPSCALER.slug], made: new Date().toISOString() }, null, 2));
+            writeFileSync(out.replace(/\.mp4$/, ".json"), JSON.stringify({ ...info, models: model === "wan" ? [WAN_STILL.slug, WAN.slug, LIPSYNC.slug, UPSCALER.slug] : [SEEDANCE.slug, UPSCALER.slug], made: new Date().toISOString() }, null, 2));
             const asset = await env.asset(out, "video");
             jobSignal()?.throwIfAborted();
             env.progress(1, `Made, in the project's media/${TRACK} folder`);
@@ -469,7 +476,7 @@ export const angles = defineFeature({
   sessionCommands,
   actions: [angleAdd, angleGenerate],
   preferences: [
-    { id: MODEL, title: "Camera angles: model", description: "What makes a generated angle: Seedance keeps the lips to your voice; Wan 3.0 declines fewer takes", options: MODELS, default: "seedance" },
+    { id: MODEL, title: "Camera angles: model", description: "What makes a generated angle: Seedance re-films the take; Wan 3.0 declines fewer takes and is lip-synced after", options: MODELS, default: "seedance" },
     { id: RESOLUTION, title: "Camera angles: upscaled to", description: "The resolution a generated angle is upscaled to; higher is sharper and takes longer", options: RESOLUTIONS, default: "1080p" },
   ],
   queries: [
