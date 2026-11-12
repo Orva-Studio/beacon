@@ -3984,6 +3984,12 @@ head on (no use for angles); H3 between re-framed first and last stills turns th
 stopped on Replicate credit). Left to try: the take's grade matched (the made shots are warmer and brighter, the room
 re-drawn), and best of several.
 
+**Seedance 2.5 Flash** (released 2026-11-12 on Jimeng and third-party apps; API on BytePlus ModelArk from 2026-11-15,
+not on Replicate yet): ByteDance says close to Seedance 2.5, twice as fast, about 34% cheaper (¥0.99/s at 720p on
+Volcano Engine; if Replicate keeps the discount, a 3 s angle about $1.15 against $1.72). Same inputs as Seedance 2.5
+(references of image, video, audio; 720p, up to 30 s), so a third Model option. Likely declines what Seedance does
+(same family; untested). When Replicate lists it: one angle of the presenter take against Seedance and Wan + lip sync.
+
 ### Ideas from Beeble (the user's find, 2026-11-04; candidates)
 Beeble (beeble.ai: a cloud with an API at developer.beeble.ai, and a local
 Beeble Studio) sells VFX models for footage. What could serve Beacon:
