@@ -98,6 +98,7 @@ export function AiSettings({ prefs, secrets, host, changed, keySet, waiting }: {
         </div>
       </Row>
       <div className="mt-2 text-label font-medium text-text-muted">Camera Angles</div>
+      {pick("angleModel", "Model")}
       {pick("angleResolution", "Upscaled to")}
       {error && <div className="text-danger">{error}</div>}
     </div>

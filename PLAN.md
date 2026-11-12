@@ -3898,6 +3898,18 @@ window's `init` reply wiped the pictures sent at open) and doesn't. Not fixed ye
 in the app with two projects whose pictures are already cached, and with fresh ones; the `docs/tested.md` row for
 99cb25d moves back to Not checked.
 
+**Wan 3.0 for camera angles (the user, 2026-11-11).** Seedance 2.5 declines some takes and the user wants a model
+that doesn't. Tried on Replicate with the site's presenter (one frame, as her take isn't kept): Wan 3.0 (`alibaba/wan-3`)
+and MiniMax H3 (`minimax/h3`) both made the shot with no refusal, both well short of Seedance. Wan 3.0 only takes a
+first frame and a prompt, so a frame of the camera opened every angle head on and swung round; a frame first shown
+from the angle by Wan 2.7 Image (`wan-video/wan-2.7-image`, $0.03) then animated by Wan 3.0 (720p, $0.07/s, 2 s at
+least) gives a true cutaway: about $0.24 for 3 s, against Seedance's $1.72. 720p at most: ByteDance's upscaler does the
+rest (the user). Settings › AI › Camera Angles › Model: Seedance 2.5 (the default) or Wan 3.0 + lip sync: Wan's shot
+barely moves the lips, so it is lip-synced to the take's sound by `sync/lipsync-2-pro` ($0.08325/s) before the upscaler
+(the user, 2026-11-11, from the comparison: "really, really good"); about $0.49 for 3 s. A take Seedance declines says
+to try it. MiniMax H3 (768p at least, $0.08/s, 4 s at least, reference
+video and audio like Seedance) waits for a test on a real take with its sound.
+
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
 much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,
 offline or online, what Off means); how it works is dropped, not moved to a tooltip (the user chose "Lean" over
@@ -3943,6 +3955,40 @@ are. To find out first: the API's price per second, whether it takes a short
 range and a lighting setup in words or a reference picture, how long it takes,
 and whether the face and lips stay true. A spike with the user's go-ahead
 before any paid call, then a plan.
+
+### Camera angles as good as Seedance on cheaper models (the user, 2026-11-11; to try)
+Wan 3.0 and MiniMax H3 accept what Seedance 2.5 declines but look worse, and others get close with them. What
+Seedance does that they don't, and how each could be closed, cheapest first (prices Replicate's, 2026-11-11):
+1. **Lips to the voice, as a second pass.** The biggest gap. The Wan angle (silent) and the take's sound to a lip-sync
+   model: `sync/lipsync-2-pro`, `kwaivgi/kling-lip-sync`, `heygen/lipsync-precision`. Or in one step, the re-framed
+   still and the voice to an audio-driven model (`lightricks/ltx-2.3-pro` audio-to-video, `prunaai/p-video-2-pro-avatar`).
+2. **MiniMax H3's reference mode.** It takes the take's video and sound as Seedance does (reference seconds billed as
+   output): may keep the lips without a second pass. About $0.64 a test (4 s out, 4 s in).
+3. **First and last frame.** Both ends of the take shown from the angle as stills, then H3 or Wan 2.7 i2v between
+   them: the performance ends where the take does (H3 drifted into a smile on its own).
+4. **Match the take.** Most of "looks generated" is the grade, grain and sharpness: Film Look's Auto Tune toward the
+   camera's own frames, grain to match, the upscaler as now.
+5. **Best of several.** Two or three Wan takes cost less than one Seedance take; scored by likeness to the take's face
+   and by mouth-to-sound sync (the spike's measure), the best shown.
+6. **Fine-tuning (LoRA) and ComfyUI.** What studios do with open weights (Wan 2.x is open; Wan 3.0 and H3 as served
+   here are not): a LoRA of the presenter and the room, run in a ComfyUI graph on their own GPUs (Beeble's SwitchX 3.0
+   says only "rebuilt on MiniMax H3", and keeps the real performance, changing only the world around it). Needs
+   hosted GPUs: with Beacon Cloud, not before.
+Each is tried on a real take of the user's with its sound, judged against Seedance by the user.
+
+**Tried 2026-11-11** on the site's presenter take (the 3.2 s Seedance 2.5 had re-angled to three-quarter left; about
+$1.70; side by side in a comparison video): Wan 3.0 from a re-framed still turns the camera further than Seedance did
+but barely moves the lips; **the same with `sync/lipsync-2-pro` on the take's sound talks to her words** (about $0.55
+in all) and is the closest to Seedance; MiniMax H3 given the take as reference ignored the angle and copied the take
+head on (no use for angles); H3 between re-framed first and last stills turns the camera like Wan (its lip-sync pass
+stopped on Replicate credit). Left to try: the take's grade matched (the made shots are warmer and brighter, the room
+re-drawn), and best of several.
+
+**Seedance 2.5 Flash** (released 2026-11-12 on Jimeng and third-party apps; API on BytePlus ModelArk from 2026-11-15,
+not on Replicate yet): ByteDance says close to Seedance 2.5, twice as fast, about 34% cheaper (¥0.99/s at 720p on
+Volcano Engine; if Replicate keeps the discount, a 3 s angle about $1.15 against $1.72). Same inputs as Seedance 2.5
+(references of image, video, audio; 720p, up to 30 s), so a third Model option. Likely declines what Seedance does
+(same family; untested). When Replicate lists it: one angle of the presenter take against Seedance and Wan + lip sync.
 
 ### Ideas from Beeble (the user's find, 2026-11-04; candidates)
 Beeble (beeble.ai: a cloud with an API at developer.beeble.ai, and a local

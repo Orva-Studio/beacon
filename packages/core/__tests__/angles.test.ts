@@ -52,7 +52,11 @@ const server = Bun.serve({
     const p = m && predictions[Number(m[1]) - 1];
     if (!p) return new Response("not found", { status: 404 });
     if (String(p.input.prompt ?? "").includes("[e005]")) return Response.json({ id: m![0], status: "failed", error: "E005: The input or output was flagged as sensitive" });
-    const out = p.model === "bytedance/video-upscaler" ? footage("1920x1080.mp4", 1920, 1080) : footage("854x480.mp4", 854, 480);
+    if (p.model === "wan-video/wan-2.7-image") {
+      copyFileSync(IMAGE, join(dir, "still.png"));
+      return Response.json({ id: m![0], status: "succeeded", output: [`${url.origin}/replicate/files/still.png`] });
+    }
+    const out = p.model === "bytedance/video-upscaler" ? footage("1920x1080.mp4", 1920, 1080) : p.model === "alibaba/wan-3" || p.model === "sync/lipsync-2-pro" ? footage("1280x720.mp4", 1280, 720, 3) : footage("854x480.mp4", 854, 480);
     return Response.json({ id: m![0], status: "succeeded", output: `${url.origin}/replicate/files/${out.split("/").at(-1)}` });
   },
 });
@@ -142,7 +146,7 @@ test.skipIf(!existsSync(TAKE) || !existsSync(IMAGE))("a camera angle: added over
   await core.close(h);
 }, 120_000);
 
-test.skipIf(!existsSync(TAKE))("Seedance refusing a take says so plainly, offering another stretch or a crop", async () => {
+test.skipIf(!existsSync(TAKE))("Seedance refusing a take says so plainly, offering another stretch, a crop or Wan 3.0", async () => {
   const { core, h } = await project("refuse", TAKE);
   await core.run(h, "playhead.set", { time: 0.2 });
   await core.run(h, "angles.add", {});
@@ -151,7 +155,9 @@ test.skipIf(!existsSync(TAKE))("Seedance refusing a take says so plainly, offeri
   const started = await core.run(h, "angle.generate", { clip: angle });
   const job = (started.results[0] as { job: string }).job;
   for (let s = "running"; s === "running"; await Bun.sleep(50)) s = (await core.job(job)).state;
-  expect((await core.session(h)).features.angles).toMatchObject({ making: [], errors: { [angle]: expect.stringContaining("Seedance declined this take") } });
+  const said = ((await core.session(h)).features.angles as { errors: Record<string, string> }).errors[angle]!;
+  expect(said).toContain("Seedance declined this take");
+  expect(said).toContain("Wan 3.0 + lip sync (Settings › AI › Camera Angles › Model)");
   expect(clipOf(core, h, angle).assetId).toBeUndefined();
   await core.close(h);
 }, 60_000);
@@ -196,3 +202,46 @@ test.skipIf(!existsSync(TAKE))("New Angle Here on a camera clip makes the angle 
   await expect(core.run(h, "angles.add", { camera: other.id })).rejects.toThrow("New Angle Here is for a camera clip");
   await core.close(h);
 }, 60_000);
+
+test.skipIf(!existsSync(TAKE) || !existsSync(IMAGE))("with Wan 3.0 + lip sync as the Camera Angles model: a frame of the camera (and the room photos) shown from the angle by Wan 2.7 Image, animated by Wan 3.0 at 720p, lip-synced to the take's sound for the angle's length, then upscaled; priced as all three", async () => {
+  const { core, h } = await project("wan", TAKE);
+  await core.setPreference("angleModel", "wan");
+  await core.run(h, "playhead.set", { time: 0.2 });
+  await core.run(h, "angles.add", {});
+  const angle = (await core.session(h)).selection[0]!;
+  // Its own length (2 s at least) at $0.07 for Wan and $0.08325 for the lip sync, and a still at $0.03; Seedance always makes 4 s.
+  const length = ticksToSeconds(clipOf(core, h, angle).duration);
+  const seconds = Math.max(2, Math.ceil(length - 1e-6));
+  const price = Math.round((seconds * (0.07 + 0.08325) + 0.03) * 100) / 100;
+  expect(await core.query(h, "angle.estimate", { clip: angle })).toMatchObject({ model: "wan", seconds, cost: price });
+  const track = core.doc(h).tracks.find((t) => t.clips.some((c) => c.id === angle))!;
+  copyFileSync(IMAGE, join(dir, "wan-room.png"));
+  const img = await core.import(h, [join(dir, "wan-room.png")]);
+  await core.run(h, "angles.room", { track: track.id, photos: [img.assets[0]] });
+  await core.run(h, "clip.set", { clip: angle, props: { angle: { view: "three-quarter-right", note: "keep the plant in" } } });
+  const [sentUploads, sent] = [uploads.length, predictions.length];
+  const job = ((await core.run(h, "angle.generate", { clip: angle })).results[0] as { job: string }).job;
+  for (let s = "running"; s === "running"; await Bun.sleep(50)) s = (await core.job(job)).state;
+  expect((await core.job(job)).error).toBeUndefined();
+  expect(uploads.slice(sentUploads).map((u) => u.type.replace("x-wav", "wav")).sort()).toEqual(["audio/wav", "image/png", "image/png"]);
+  const [still, motion, lipsync, upscale] = predictions.slice(sent);
+  expect(still!.model).toBe("wan-video/wan-2.7-image");
+  expect((still!.input.images as string[]).length).toBe(2);
+  for (const said of ["35 degrees to the speaker's right", "looking where they look in the first image", "photo of this same room", "Also: keep the plant in"]) expect(String(still!.input.prompt)).toContain(said);
+  expect(motion!.model).toBe("alibaba/wan-3");
+  expect(motion!.input).toMatchObject({ image: expect.stringContaining("still.png"), resolution: "720p", duration: seconds });
+  expect(String(motion!.input.prompt)).toContain("the camera stays at this angle");
+  // The take's sound, cut to the angle's own length, so the shot ends with it.
+  expect(lipsync!.model).toBe("sync/lipsync-2-pro");
+  expect(lipsync!.input).toMatchObject({ video: expect.stringContaining("1280x720.mp4"), audio: expect.stringContaining("said.wav"), sync_mode: "cut_off" });
+  const sent_wav = join(dir, "up-said.wav");
+  const probe = Bun.spawnSync([tool("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", sent_wav]);
+  expect(Number(probe.stdout.toString())).toBeCloseTo(length, 1);
+  expect(upscale!.model).toBe("bytedance/video-upscaler");
+  expect(upscale!.input).toMatchObject({ video: expect.stringContaining("1280x720.mp4") });
+  const made = clipOf(core, h, angle);
+  expect(core.doc(h).assets[made.assetId!]!.derived.angle).toMatchObject({ cost: price, seconds });
+  expect(JSON.parse(await Bun.file(core.doc(h).assets[made.assetId!]!.path.replace(/\.mp4$/, ".json")).text()).models).toEqual(["wan-video/wan-2.7-image", "alibaba/wan-3", "sync/lipsync-2-pro", "bytedance/video-upscaler"]);
+  await core.setPreference("angleModel", "seedance");
+  await core.close(h);
+}, 120_000);
