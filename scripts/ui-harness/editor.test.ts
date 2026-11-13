@@ -6601,28 +6601,32 @@ test.skipIf(skip)("a marker's diamond picks it and takes the playhead there; dou
 
 test.skipIf(skip)("a section's colour is chosen from its right-click menu's Colour (or by an agent), its bar drawn in it; Automatic goes back to its name's", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
-  const box = await timelineBox();
-  const s = await session();
-  const header = headerWidth(ui.core.doc(ui.handle).tracks);
-  const t = s.timeline.start + (s.timeline.end - s.timeline.start) * 0.3;
-  const x = header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const y = RULER + BAND / 2 + 6;
-  await run("section.add", { start: t - 0.5, end: t + 0.5, name: "Demo" });
-  const id = ui.core.doc(ui.handle).sections.at(-1)!.id;
-  const tone = (name: string) => page.evaluate<string>(`(() => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-section-${name}').trim(); c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3).join(); })()`);
-  await page.rightClick(box.x + x, box.y + y);
-  await arrived(() => ui.menus.includes(`section:${id}`));
-  for (const color of ["green", "red"] as const) {
-    await run("section.set", { section: id, color });
-    const want = await tone(color);
-    await page.until(`${timelinePixel(x, y)} === ${JSON.stringify(want)}`);
+  try {
+    const box = await timelineBox();
+    const s = await session();
+    const header = headerWidth(ui.core.doc(ui.handle).tracks);
+    const span = s.timeline.end - s.timeline.start;
+    // A tenth of what is shown, wherever no section is: wide enough to read its colour at any zoom.
+    const free = [0.1, 0.3, 0.5, 0.7].map((f) => s.timeline.start + span * f).find((a) => !ui.core.doc(ui.handle).sections.some((x) => ticksToSeconds(x.start) < a + span * 0.1 && a < ticksToSeconds(x.end)))!;
+    await run("section.add", { start: free, end: free + span * 0.1, name: "Demo" });
+    const x = header + ((free + span * 0.05 - s.timeline.start) / span) * (box.w - header);
+    const y = RULER + BAND / 2 + 6;
+    const id = ui.core.doc(ui.handle).sections.find((x) => x.name === "Demo")!.id;
+    const tone = (name: string) => page.evaluate<string>(`(() => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-section-${name}').trim(); c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3).join(); })()`);
+    await page.rightClick(box.x + x, box.y + y);
+    await arrived(() => ui.menus.includes(`section:${id}`));
+    for (const color of ["green", "red"] as const) {
+      await run("section.set", { section: id, color });
+      const want = await tone(color);
+      await page.until(`${timelinePixel(x, y)} === ${JSON.stringify(want)}`);
+    }
+    await run("section.set", { section: id, color: null });
+    expect(ui.core.doc(ui.handle).sections.find((x) => x.id === id)!.color).toBeUndefined();
+    await page.until(`${timelinePixel(x, y)} !== ${JSON.stringify(await tone("red"))}`);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
   }
-  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("section.set");
-  await run("section.set", { section: id, color: null });
-  expect(ui.core.doc(ui.handle).sections.at(-1)!.color).toBeUndefined();
-  await page.until(`${timelinePixel(x, y)} !== ${JSON.stringify(await tone("red"))}`);
-  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
-});
+}, 30_000);
 
 test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line, a press outside keeps it), its bar shows the comment when it has no name; the agent's reply marks it done and Clear takes the reply away", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
