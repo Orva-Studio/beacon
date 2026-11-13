@@ -21,6 +21,7 @@ Beacon (by Orva): a macOS screen-recording editor on its own project format, wit
 - `bun scripts/launch-bench.ts <project | recording>` - launch, memory over a session (`BEACON_APP` for another build)
 - `bun scripts/energy-bench.ts <recording> [--fresh] [--transcriber id]` - CPU, GPU and energy of the app on a recording (`--fresh`: an empty cache, `BEACON_CACHE_DIR`)
 - `bun scripts/mcp-eval.ts` - the MCP server driven through everyday tasks: calls and bytes
+- `bun scripts/agent-gaps.ts [--since date]` - what agents used the shell for in Beacon editing sessions (from Claude Code's transcripts), and each MCP tool's calls, time and errors
 - `BEACON_PROFILE=1` prints the worker's per-stage times, and each file drop's steps (`[drop]`, printed anyway when a drop takes over a second)
 - `scripts/ui-harness/` - the editor UI served to headless Chromium, backed by a `LocalCore`: `serveUi(project)` then `openPage(url)` to click, drag, type and screenshot with no window (use it instead of the app during working hours)
 
