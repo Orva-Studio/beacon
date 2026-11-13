@@ -464,6 +464,22 @@ test.skipIf(skip)("double-clicking a Media Bin item previews it: video with a pl
   expect(ui.menus.filter((m) => m.startsWith("preview:"))).toEqual(["preview:play:0", "preview:close", "preview:close"]);
 });
 
+test.skipIf(skip)("⇧-double-clicking a Media Bin item adds it to the timeline at the playhead, selected, with no preview", async () => {
+  const id = await page.evaluate<string>("document.querySelectorAll('[data-asset]')[0].dataset.asset");
+  const before = new Set(clips().map((c) => c.id));
+  await run("playhead.set", { time: 1 });
+  const [x, y] = await page.evaluate<[number, number]>(`(() => { const r = document.querySelector('[data-asset="${id}"]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + 30]; })()`);
+  await page.evaluate(`document.elementFromPoint(${x}, ${y}).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, shiftKey: true }))`);
+  await arrived(() => clips().some((c) => !before.has(c.id)));
+  const added = clips().filter((c) => !before.has(c.id));
+  expect(added.every((c) => c.assetId === id)).toBe(true);
+  expect(Math.min(...added.map((c) => ticksToSeconds(c.start)))).toBeCloseTo(1, 1);
+  expect([...(await session()).selection].sort()).toEqual(added.map((c) => c.id).sort());
+  expect(await page.evaluate<boolean>("document.body.innerText.includes('Preview - ')")).toBe(false);
+  await ui.core.undo(ui.handle);
+  await arrived(() => clips().every((c) => before.has(c.id)));
+});
+
 test.skipIf(skip)("a double-click on a text callout types into it on the canvas, with a caret and selection", async () => {
   await select([callout.id]);
   const [x, y] = await page.evaluate<[number, number]>(`(() => { const g = [...document.querySelectorAll('[data-clip]')].map(e => e.getBoundingClientRect()); const xs = g.map(r => r.x + r.width / 2), ys = g.map(r => r.y + r.height / 2); return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]; })()`);
