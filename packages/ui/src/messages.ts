@@ -45,6 +45,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   settingsSheet: (s) => replica.settings(s),
   usage: ({ items }) => replica.usedItems(items),
   agentReply: ({ request, status, text }) => replica.agentState(request, status, text),
+  agentStatus: ({ agent, text }) => replica.agentStatus(agent, text),
   shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
   memory: ({ memory }) => replica.memory(memory),
   palette: () => replica.palette(true),

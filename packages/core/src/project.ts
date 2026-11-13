@@ -23,6 +23,11 @@ export interface OpenProject {
   saveTimer?: ReturnType<typeof setTimeout>;
   /** The features' editor state last written to the project's `editor.json`, as JSON. */
   editorSaved?: string;
+  /**
+   * Set while a batch (a script, a transaction of actions) is being made as one undo step: what must wait until it is
+   * kept (background jobs, review decisions for Memory), each returning a line for its result; dropped if it isn't.
+   */
+  batch?: { later: (() => string | void)[] };
 }
 
 /** What core's parts (analyses, recording) are given of it: its open projects, telling their watchers, saving and jobs. */

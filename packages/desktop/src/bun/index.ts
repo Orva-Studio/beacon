@@ -614,7 +614,8 @@ const recorder = createRecording({
 const server = serveCore(core, {
   path: socket,
   canOpen: (p) => !!winFor(resolve(p)),
-  projects: () => [...windows].flatMap((w) => (w.current ? [w.current.path] : [])),
+  // The focused window's first: an agent's project_open without a path takes it.
+  projects: () => [...(focused ? [focused] : []), ...[...windows].filter((w) => w !== focused)].flatMap((w) => (w.current ? [w.current.path] : [])),
   // Another Beacon found the project held by this one: its window comes forward.
   show: (p) => {
     const w = winFor(resolve(p));

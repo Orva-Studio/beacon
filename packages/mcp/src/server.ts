@@ -27,13 +27,16 @@ interface ToolDef {
 /** Claude's API allows only `[a-zA-Z0-9_-]` in tool names. */
 const toolName = (id: string) => id.replaceAll(".", "_");
 
-const text = (t: string): Content => [{ type: "text", text: t }];
+/** Replies made as MCP content: anything else a tool returns is data, sent as JSON (a list of clips has `type` too). */
+const made = new WeakSet<object>();
+const content = (c: Content): Content => (made.add(c), c);
+const text = (t: string): Content => content([{ type: "text", text: t }]);
 
 function image(img: Image, caption: string): Content {
-  return [
+  return content([
     { type: "image", data: Buffer.from(img.png).toString("base64"), mimeType: "image/png" },
     { type: "text", text: caption },
-  ];
+  ]);
 }
 
 const MAX_DIFF = 40;
@@ -56,7 +59,17 @@ function commandReply(r: CommandResult): string {
 }
 
 /** Loaded with the server instead of found through tool search: what nearly every task starts with. */
-const CORE_TOOLS = new Set(["project_open", "project_describe", "timeline_clips", "transcript_get", "transaction"]);
+const CORE_TOOLS = new Set([
+  "project_open", "project_describe", "timeline_clips", "transcript_get", "transaction", "script", "status",
+  "frame_at", "frames_sheet", "timeline_rippleDelete", "transcript_cut", "asset_place", "memory_list",
+]);
+
+/**
+ * Replies read whole, not saved to a file the agent must read back (Claude Code's default past 50,000 characters): a
+ * long video's transcript, its clips.
+ */
+const LARGE_RESULTS = new Set(["transcript_get", "timeline_clips", "project_describe", "project_open", "script"]);
+const LARGE_CHARS = 200_000;
 
 /** The few names closest to a mistyped one, for an error that offers them. */
 function nearest(name: string, names: Iterable<string>, n = 3): string[] {
@@ -75,6 +88,28 @@ function nearest(name: string, names: Iterable<string>, n = 3): string[] {
     .sort((a, b) => a.d - b.d)
     .slice(0, n)
     .map((c) => c.x);
+}
+
+/** Tools that say nothing in the app's window: the status line itself, and waiting. */
+const QUIET = new Set(["status", "app_reply", "project_open", "project_create", "job_status"]);
+
+/** What a call is doing, for the app's window: its own words where the tool has some, else the start of its description. */
+const DOING: Record<string, string> = {
+  transcript_get: "Reading the transcript",
+  timeline_clips: "Reading the timeline",
+  project_describe: "Reading the project",
+  frame_at: "Looking at a frame",
+  frames_sheet: "Looking at frames",
+  ui_snapshot: "Looking at the editor",
+  memory_list: "Reading your editing habits",
+  transaction: "Editing",
+  script: "Editing",
+  export_start: "Starting an export",
+};
+function doing(name: string, description: string): string {
+  if (DOING[name]) return DOING[name];
+  const first = description.split(/[.:;(]|, (?:or|and|else|with)\b/)[0]!.trim();
+  return first.length > 60 ? `${first.slice(0, 57).trimEnd()}…` : first;
 }
 
 const Seconds = z.number().nonnegative();
@@ -154,23 +189,34 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       return text(`created ${h}\n\n${await core.summary(h)}`);
     },
   });
+  /** The project in the app's frontmost window (listed first), and the others open. */
   const appProject = async () => {
-    const open = (await opts.appProjects?.()) ?? [];
-    if (open.length === 1) return open[0]!;
-    if (!open.length) throw new Error("the Beacon app isn't running or has no project open: give project_open a path");
-    throw new Error(`Beacon apps have ${open.length} projects open; give project_open one of their paths: ${open.join(", ")}`);
+    const [first, ...others] = (await opts.appProjects?.()) ?? [];
+    if (!first) throw new Error("the Beacon app isn't running or has no project open: give project_open a path");
+    return { path: first, others };
+  };
+  /** The user's editing habits in their words, read before editing for them: given at open, saving a call. */
+  const habits = async () => {
+    try {
+      const m = (await core.memory()) as { sentences?: { text: string; format?: string }[] };
+      const lines = (m.sentences ?? []).map((x) => `- ${x.text}${x.format ? ` (${x.format === "short" ? "Shorts" : "long videos"})` : ""}`);
+      return lines.length ? `\n\nHow the user edits (memory; edit their way):\n${lines.join("\n")}` : "";
+    } catch {
+      return "";
+    }
   };
   add("project_open", {
     description:
-      "Open an existing .beproj project as the session's project. If the Beacon app has it open, the session connects to the app: edits appear on its timeline live and share its undo history. Without `path`, the project open in the Beacon app",
+      "Open an existing .beproj project as the session's project. If the Beacon app has it open, the session connects to the app: edits appear on its timeline live and share its undo history. Without `path`, the project in the app's front window. Replies with the project's summary and the user's editing habits (memory), so neither needs a call of its own",
     schema: z.strictObject({ path: z.string().optional().describe("A .beproj folder; omitted: the one open in the Beacon app") }),
     async run({ path }) {
-      const p = path ? expandHome(path) : await appProject();
-      const app = await opts.appCore?.(p);
+      const chosen = path ? { path: expandHome(path), others: [] } : await appProject();
+      const app = await opts.appCore?.(chosen.path);
       const next = app ?? local;
-      const h = await next.open(p);
+      const h = await next.open(chosen.path);
       await switchTo(h, next);
-      return text(`${app ? "connected to the open Beacon app; changes show there live\n\n" : ""}${await core.summary(h)}`);
+      const others = chosen.others.length ? `the project in the app's front window; also open: ${chosen.others.join(", ")} (project_open with its path for one of those)\n` : "";
+      return text(`${others}${app ? "connected to the open Beacon app; changes show there live\n\n" : ""}${await core.summary(h)}${await habits()}`);
     },
   });
   add("project_save", {
@@ -278,7 +324,7 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   });
   add("transaction", {
     description:
-      "Run several commands as one undo step, all or nothing: prefer it to a call per command. `commands` is a list of {command, args}, by tool name (\"clip_set\") or command id (\"clip.set\"). Results come back in order, with what changed per clip. Editor commands (selection, playhead, view) run on their own, outside",
+      "Run several commands as one undo step, all or nothing: prefer it to a call per command. `commands` is a list of {command, args}, by tool name (\"clip_set\") or command id (\"clip.set\"): commands, actions (motion_add, edit_addAnnotation…) and editor commands (selection, playhead), each made on what the ones before it left. Results come back in order, with what changed per clip. For loops, or steps that need an earlier result, use `script`",
     schema: z.strictObject({
       label: z.string(),
       commands: z.array(z.strictObject({ command: z.string(), args: z.record(z.string(), z.unknown()).default({}) })).min(1),
@@ -289,6 +335,35 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
       const r = await core.transaction(project(), label, steps, { dryRun });
       return text(commandReply(r));
     },
+  });
+  add("script", {
+    description:
+      "Run JavaScript against the project in one call, as one undo step (all or nothing; a throw keeps nothing): loops, filters and maths over many clips or words instead of a call each. " +
+      "`beacon.query(name, args)` reads (timeline_clips, transcript_get, project_get…), `beacon.run(name, args)` edits (any command, action or editor command; returns its result, e.g. a new clip's id) and sees what earlier runs made, `beacon.log(...)` notes a line. Names as tool names or ids; args as the tool's. `return` a value (JSON) for the reply. " +
+      "Synchronous, no await; no files, network or Node APIs; stopped after `seconds` (10, at most 30). " +
+      'Example: `const { tracks } = beacon.query("timeline_clips", { type: "camera" }); for (const t of tracks) for (const c of t.clips) beacon.run("effect_add", { clip: c.id, type: "filmLook" }); return tracks.length`',
+    schema: z.strictObject({
+      code: z.string().min(1).describe("A function body: statements, ending in `return` for a reply"),
+      label: z.string().optional().describe("Undo history label"),
+      dryRun: z.boolean().optional().describe("Run it, report what it would change and keep nothing"),
+      seconds: z.number().positive().max(30).optional(),
+    }),
+    async run({ code, label, dryRun, seconds }) {
+      const r = await core.script(project(), code, { ...(label ? { label } : {}), ...(dryRun ? { dryRun } : {}), ...(seconds ? { seconds } : {}) });
+      const diff = r.diff.length > MAX_DIFF ? [...r.diff.slice(0, MAX_DIFF), `... ${r.diff.length - MAX_DIFF} more changes`] : r.diff;
+      return JSON.stringify({
+        result: r.value,
+        ...(r.logs.length ? { log: r.logs } : {}),
+        [r.dryRun ? "wouldChange" : "changed"]: diff.length ? diff : "nothing",
+        ...(r.dryRun ? { dryRun: true } : r.changed ? { undo: r.label } : {}),
+      });
+    },
+  });
+  add("status", {
+    description:
+      "Tell the user, in the Beacon app's window, what you are doing outside Beacon's tools (capturing a page, rendering frames, reading files) and how long it may take, in a few plain words: \"Capturing hackertube.org, about a minute\". Beacon's own tools say what they do there by themselves. Only with the project open in the app",
+    schema: z.strictObject({ text: z.string().trim().min(1).max(120) }),
+    run: async ({ text: t }) => (await core.agentStatus(project(), t), "shown"),
   });
   add("frame_at", {
     description: "Render the canvas at a timeline time, as the export will look. Returns the image",
@@ -507,7 +582,10 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
   // A Claude Code channel too: the user's requests from the Beacon app arrive in the session (`prompt`).
   const server = new Server({ name: "beacon", version }, { capabilities: { tools: {}, resources: {}, prompts: {}, experimental: { "claude/channel": {} } }, instructions: `${INSTRUCTIONS}\n\n${CHANNEL}` });
 
-  const meta = (name: string) => (CORE_TOOLS.has(name) ? { _meta: { "anthropic/alwaysLoad": true } } : {});
+  const meta = (name: string) => {
+    const m = { ...(CORE_TOOLS.has(name) ? { "anthropic/alwaysLoad": true } : {}), ...(LARGE_RESULTS.has(name) ? { "anthropic/maxResultSizeChars": LARGE_CHARS } : {}) };
+    return Object.keys(m).length ? { _meta: m } : {};
+  };
 
   /** What an error is missing to be acted on: the ids, tracks or names that would have worked. */
   const hint = async (message: string): Promise<string> => {
@@ -521,6 +599,14 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
         // The summary lists every track, empty or not; timeline_clips's `limit` would stop at the first clips.
         const described = String(await core.query(current, "project.describe", {}));
         return `\ntracks: ${[...described.matchAll(/^ {2}(\S+) ("[^"]*")/gm)].map((m) => `${m[1]} ${m[2]}`).join(", ")}`;
+      }
+      const bad = /^([\w.]+): (?:args: )?(?:Unrecognized key|Invalid input|.*expected)/.exec(message)?.[1];
+      const info = bad && (commandSchemas.get(toolName(bad)) ?? commandSchemas.get(bad));
+      if (info) {
+        const props = ((info.args as { properties?: Record<string, { type?: string }> }).properties ?? {});
+        const required = new Set((info.args as { required?: string[] }).required ?? []);
+        const list = Object.entries(props).map(([k, v]) => `${k}${required.has(k) ? "" : "?"}${v.type ? `: ${v.type}` : ""}`);
+        return list.length ? `\n${toolName(info.id)} takes: ${list.join(", ")}` : "";
       }
       const command = /unknown command "([^"]+)"/.exec(message)?.[1];
       if (command) return `\nnearest: ${nearest(toolName(command), [...commandSchemas.keys()].filter((n) => commandIds.has(commandSchemas.get(n)!.id))).join(", ")}`;
@@ -566,13 +652,17 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
         ),
       };
     }
+    if (core !== local && current && !QUIET.has(req.params.name)) {
+      // What the agent is doing, shown in the app's window; it must never hold up or fail the call.
+      void core.agentStatus(current, doing(req.params.name, commandSchemas.get(req.params.name)?.description ?? def.description)).catch(() => {});
+    }
     try {
       const args = def.schema instanceof z.ZodUnknown ? (req.params.arguments ?? {}) : def.schema.parse(req.params.arguments ?? {});
       const joined = handedOver && !["project_open", "project_create"].includes(req.params.name) ? await joinApp() : undefined;
       // Each change it makes is its own undo step, apart from the user's (⌘Z skips it; Edit › Undo Agents' Last Change takes it).
       const out = await asAuthor(server.getClientVersion()?.name ?? "agent", () => def.run(args));
-      const content = Array.isArray(out) && out.every((c) => c && typeof c === "object" && "type" in c) ? (out as Content) : text(typeof out === "string" ? out : JSON.stringify(out ?? null));
-      return { content: joined ? [...text(joined), ...content] : content };
+      const reply = typeof out === "object" && out !== null && made.has(out) ? (out as Content) : text(typeof out === "string" ? out : JSON.stringify(out ?? null));
+      return { content: joined ? [...text(joined), ...reply] : reply };
     } catch (e) {
       const message = e instanceof z.ZodError ? formatIssues(e) : e instanceof Error ? e.message : String(e);
       return { isError: true, content: text(message + (await hint(message))) };

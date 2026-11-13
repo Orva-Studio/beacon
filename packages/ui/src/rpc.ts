@@ -486,6 +486,8 @@ export type AppRPC = {
       importing: ImportingFiles;
       /** An agent answered a request sent from here: it has it, or it is done (with what it did). */
       agentReply: { request: string; status: "received" | "done"; text?: string };
+      /** What an agent working on this project is doing now, in a few words. */
+      agentStatus: { agent: string; text: string };
       /** A panel item was used (in any window): the items by use, most first. */
       usage: { items: string[] };
       /** The app's settings changed (in Settings, by Check Sync or an agent): an open Settings window shows them. */

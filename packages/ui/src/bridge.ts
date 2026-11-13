@@ -136,7 +136,8 @@ export function projectBridge(core: Core, h: string, send: Send, hooks: BridgeHo
         send("taskJob", { id, label, ...(stage ? { stage } : {}), progress, state, ...(error ? { error } : {}) });
       }
       hooks.other?.(e);
-    } else if (e.kind === "importing") {
+    } else if (e.kind === "agentStatus") send("agentStatus", { agent: e.agent, text: e.text });
+    else if (e.kind === "importing") {
       const { kind: _, ...files } = e;
       send("importing", files);
     } else hooks.other?.(e);

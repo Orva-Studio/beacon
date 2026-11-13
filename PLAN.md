@@ -3910,6 +3910,21 @@ barely moves the lips, so it is lip-synced to the take's sound by `sync/lipsync-
 to try it. MiniMax H3 (768p at least, $0.08/s, 4 s at least, reference
 video and audio like Seedance) waits for a test on a real take with its sound.
 
+**Faster agents over MCP (the user, 2026-11-13).** Agents spent minutes before their first edit (a median of 51 s over
+90 requests, a quarter over 2 min) and the user saw nothing meanwhile. Beacon's calls take about a second; the time is
+the agent's turns and its work outside Beacon. Done on `feat/mcp-speed`, from Anthropic's guidance (code execution with
+MCP, advanced tool use, writing tools for agents) and Claude Code's MCP docs:
+- `script`: the agent's JavaScript run in QuickJS (no files, network or Node), calling Beacon's commands and queries,
+  one undo step, all or nothing: loops and maths in one call, not a call per clip or a Python script.
+- `transaction` takes actions and editor commands too, each made on what the steps before it left.
+- The agent's status in the editor: a toast saying what it is doing (each call by itself, or `status` for work outside
+  Beacon), gone 15 s after it stops.
+- `project_open` takes the front window's project and gives the user's memory with its summary; more tools load at
+  start; long transcripts come back whole; `asset_clips`'s replies fixed; a wrong argument's error lists the right ones.
+Waiting: MCP tasks (exports, B-roll and renders that report when done while the agent keeps working) need protocol
+revision 2026-07-28 in Claude Code and the MCP SDK has only 2025-11-25 (1.32.2): when it has it. Clicking the toast to
+jump to the last edit was left out.
+
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
 much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,
 offline or online, what Off means); how it works is dropped, not moved to a tooltip (the user chose "Lean" over

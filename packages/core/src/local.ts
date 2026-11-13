@@ -8,6 +8,7 @@ import {
   changedSettings,
   createProject,
   describeSession,
+  SESSION_COMMANDS,
   type SharedSession,
   projectDuration,
   ProjectStore,
@@ -46,6 +47,7 @@ import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, type ViewTarge
 import type {
   AgentAbout,
   AgentSession,
+  ScriptResult,
   AssetPreview,
   CommandInfo,
   AppEvent,
@@ -88,6 +90,7 @@ import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { currentAuthor } from "./author";
 import { AgentRuns, type RunAgent } from "./agent-run";
+import { loadScriptEngine, runScript, SCRIPT_SECONDS, type ScriptHost } from "./script";
 import { Tasks } from "./tasks";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
 
@@ -430,10 +433,15 @@ export class LocalCore implements BeaconCore {
 
   async run(h: ProjectHandle, command: string, args: unknown, opts: RunOptions = {}): Promise<CommandResult> {
     const p = this.#get(h);
-    if (p.session.has(command)) return this.#runSession(p, command, args, opts);
     if (command === "project.settings.set" && (args as { standalone?: unknown } | null)?.standalone === true && !p.store.doc.settings.standalone && !opts.dryRun) {
       return this.#makeStandalone(p, args, opts);
     }
+    return this.#runNow(p, command, args, opts);
+  }
+
+  /** A command, action or editor command, done before it returns: what a batch is made of. */
+  #runNow(p: OpenProject, command: string, args: unknown, opts: RunOptions = {}): CommandResult {
+    if (p.session.has(command)) return this.#runSession(p, command, args, opts);
     const action = this.registry.actions.get(command);
     if (action) return this.#tasks.runAction(p, action, args, opts);
     if (opts.coalesce && !opts.dryRun) {
@@ -442,6 +450,42 @@ export class LocalCore implements BeaconCore {
       return r;
     }
     return this.#saved(p, p.store.run(command, args, opts));
+  }
+
+  /**
+   * `fn`'s changes as one undo step, all or nothing: each applied (and shown) as it is made, every one taken back
+   * if it throws or this is a dry run, the editor's state with them. Saved once, at the end.
+   */
+  #batch<T>(p: OpenProject, label: string, fn: () => T, opts: { dryRun?: boolean } = {}): { value: T; result: CommandResult } {
+    if (p.batch) throw new Error("a batch is already being made in this project");
+    const session = p.session.state;
+    p.store.begin(label);
+    p.batch = { later: [] };
+    let value: T;
+    try {
+      value = fn();
+    } catch (e) {
+      p.batch = undefined;
+      p.store.abort();
+      if (p.session.state !== session) p.session.restore(session);
+      throw e;
+    }
+    const later = p.batch.later;
+    p.batch = undefined;
+    if (opts.dryRun) {
+      const result = p.store.abort();
+      if (p.session.state !== session) p.session.restore(session);
+      return { value, result };
+    }
+    const result = this.#saved(p, p.store.commit());
+    const lines = later.flatMap((f) => {
+      try {
+        return f() ?? [];
+      } catch (e) {
+        return [`(${e instanceof Error ? e.message : String(e)})`];
+      }
+    });
+    return { value, result: { ...result, diff: [...result.diff, ...lines] } };
   }
 
   /** A drag changes the document many times a second: write it once things settle. */
@@ -462,14 +506,75 @@ export class LocalCore implements BeaconCore {
 
   async transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts: { dryRun?: boolean } = {}): Promise<CommandResult> {
     const p = this.#get(h);
-    const editor = steps.find((s) => p.session.has(s.command));
-    if (editor) throw new Error(`${editor.command} changes the editor, not the project; run it on its own, outside a transaction`);
+    const names = this.#scriptNames();
+    steps = steps.map((s) => ({ ...s, command: names.get(s.command)?.id ?? s.command }));
     if (steps.some((s) => s.command === "project.settings.set" && (s.args as { standalone?: unknown } | null)?.standalone === true)) {
       throw new Error("standalone copies media into the project: run project.settings.set on its own, outside a transaction");
     }
-    return this.#saved(p, p.store.transaction(label, (tx) => {
-      for (const s of steps) tx.run(s.command, s.args ?? {});
-    }, opts));
+    const plain = steps.every((s) => !p.session.has(s.command) && !this.registry.actions.has(s.command));
+    if (plain) {
+      return this.#saved(p, p.store.transaction(label, (tx) => {
+        for (const s of steps) tx.run(s.command, s.args ?? {});
+      }, opts));
+    }
+    // Actions and editor commands are planned on the document as the steps before them left it, so each is made in turn.
+    const { value, result } = this.#batch(p, label, () => steps.map((s, i) => {
+      try {
+        const r = this.#runNow(p, s.command, s.args ?? {});
+        return r.results.length === 1 ? r.results[0] : r.results;
+      } catch (e) {
+        throw new Error(`step ${i + 1} (${s.command}): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }), opts);
+    return { ...result, results: value };
+  }
+
+  /**
+   * An agent's script (`script.ts`): its `beacon.run` calls made as one undo step, all or nothing, and what it returns.
+   * Commands, actions, editor commands and queries are named by id or tool name (`clip.set` or `clip_set`).
+   */
+  async script(h: ProjectHandle, code: string, opts: { label?: string; dryRun?: boolean; seconds?: number } = {}): Promise<ScriptResult> {
+    const p = this.#get(h);
+    const names = this.#scriptNames();
+    const id = (name: string, kind: string) => {
+      const found = names.get(name) ?? names.get(name.replaceAll("_", "."));
+      if (!found || (kind === "query") !== (found.kind === "query")) {
+        throw new Error(`no ${kind === "query" ? "query" : "command"} "${name}"${found ? `: it is a ${found.kind === "query" ? "query, for beacon.query" : "command, for beacon.run"}` : ""}`);
+      }
+      return found.id;
+    };
+    const host: ScriptHost = {
+      run: (name, args) => {
+        const r = this.#runNow(p, id(name, "run"), args ?? {});
+        return r.results.length === 1 ? r.results[0] : r.results;
+      },
+      query: (name, args) => {
+        const q = id(name, "query");
+        const v = q === UI_STATE.id ? { session: p.session.state, description: describeSession(p.session.state, p.store.doc) } : this.registry.runQuery(q, args ?? {}, this.#queryContext(p));
+        if (v instanceof Promise) throw new Error(`${q} takes time (it waits on something): call it outside the script`);
+        return v;
+      },
+    };
+    await loadScriptEngine();
+    const label = opts.label ?? "Script";
+    let logs: string[] = [];
+    const { value, result } = this.#batch(p, label, () => {
+      const outcome = runScript(code, host, Math.min(opts.seconds ?? SCRIPT_SECONDS, 30));
+      logs = outcome.logs;
+      return outcome.value;
+    }, opts);
+    return { value, logs, diff: result.diff, label, dryRun: !!opts.dryRun, changed: result.patches.length > 0 };
+  }
+
+  #scriptNames(): Map<string, { id: string; kind: "run" | "query" }> {
+    const names = new Map<string, { id: string; kind: "run" | "query" }>();
+    const put = (id: string, kind: "run" | "query") => (names.set(id, { id, kind }), names.set(id.replaceAll(".", "_"), { id, kind }));
+    for (const c of this.registry.commands.keys()) put(c, "run");
+    for (const a of this.registry.actions.keys()) put(a, "run");
+    for (const c of [...SESSION_COMMANDS.map((c) => c.id), ...this.registry.sessionCommands.keys()]) put(c, "run");
+    for (const q of this.registry.queries.keys()) put(q, "query");
+    put(UI_STATE.id, "query");
+    return names;
   }
 
   #runSession(p: OpenProject, command: string, args: unknown, opts: RunOptions): CommandResult {
@@ -765,7 +870,11 @@ export class LocalCore implements BeaconCore {
   async query(h: ProjectHandle, name: string, args: unknown = {}): Promise<unknown> {
     const p = this.#get(h);
     if (name === UI_STATE.id) return { session: p.session.state, description: describeSession(p.session.state, p.store.doc) };
-    return await this.registry.runQuery(name, args, { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, memory: p.memory, session: p.session.state, secret: (id) => this.#config.secrets.get(id) });
+    return await this.registry.runQuery(name, args, this.#queryContext(p));
+  }
+
+  #queryContext(p: OpenProject) {
+    return { project: p.store.doc, registry: this.registry, data: p.data.get, pref: p.data.pref, memory: p.memory, session: p.session.state, secret: (id: string) => this.#config.secrets.get(id) };
   }
 
   async frame(h: ProjectHandle, time: number, opts: FrameOptions = {}): Promise<Image> {
@@ -984,6 +1093,11 @@ export class LocalCore implements BeaconCore {
 
   async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
     return this.#agentRuns.ask(socket, prompt, about);
+  }
+
+  async agentStatus(h: ProjectHandle, text: string): Promise<void> {
+    const p = this.#get(h);
+    this.#emit(p, { kind: "agentStatus", agent: agentName(currentAuthor() ?? "agent"), text: text.slice(0, 120) });
   }
 
   async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {

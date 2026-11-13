@@ -74,6 +74,8 @@ export interface ViewState {
   askAgent?: import("@beacon/core").AgentAbout;
   /** Requests sent to agents from here, as their toasts show them. */
   agentRequests: AgentRequest[];
+  /** What each agent working on the project said it is doing last, and when (ms): its toast while it works. */
+  agentActivity: Record<string, { text: string; at: number }>;
   /** Project Settings, while open. */
   projectSettings?: boolean;
   /** A panel item being dragged onto media, and where the pointer is (client points). */
@@ -139,7 +141,7 @@ export interface AgentRequest {
   run?: boolean;
 }
 
-let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], agentActivity: {}, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -260,6 +262,17 @@ export const replica = {
   agentState(id: string, state2: AgentRequest["state"], text?: string) {
     if (state2 !== "silent" && !state.agentRequests.some((r) => r.id === id)) return void earlyReplies.set(id, { state: state2, ...(text ? { text } : {}) });
     set({ agentRequests: state.agentRequests.map((r) => (r.id === id && !(state2 === "silent" && r.state !== "sent") ? { ...r, state: state2, ...(text ? { text } : {}) } : r)) });
+  },
+  /** A request sent from here that the agent is on shows its step; otherwise its own toast does. */
+  agentStatus(agent: string, text: string) {
+    if (state.agentRequests.some((r) => r.agent === agent && r.state === "received")) {
+      return void set({ agentRequests: state.agentRequests.map((r) => (r.agent === agent && r.state === "received" ? { ...r, text } : r)) });
+    }
+    set({ agentActivity: { ...state.agentActivity, [agent]: { text, at: Date.now() } } });
+  },
+  dismissActivity(agent: string) {
+    const { [agent]: _, ...rest } = state.agentActivity;
+    set({ agentActivity: rest });
   },
   dismissAgent(id: string) {
     set({ agentRequests: state.agentRequests.filter((r) => r.id !== id) });
