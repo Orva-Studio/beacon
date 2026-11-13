@@ -71,6 +71,8 @@ interface Open {
   label: string;
   patches: Patch[];
   inverse: Patch[];
+  /** Each change's own lines, as it was made: a later change's patches can't be read against the step's start. */
+  diff: string[];
   before: Project;
   author?: string;
 }
@@ -170,6 +172,7 @@ export class ProjectStore {
     if (this.#open) {
       this.#open.patches.push(...patches);
       this.#open.inverse.unshift(...inverse);
+      this.#open.diff.push(...result.diff);
     } else {
       const author = opts.author ?? this.#author();
       const last = this.#undo.at(-1);
@@ -193,7 +196,7 @@ export class ProjectStore {
   begin(label: string, opts: { author?: string } = {}): void {
     if (this.#open) throw new Error(`"${this.#open.label}" is still being made`);
     const author = opts.author ?? this.#author();
-    this.#open = { label, patches: [], inverse: [], before: this.#doc, ...(author !== undefined ? { author } : {}) };
+    this.#open = { label, patches: [], inverse: [], diff: [], before: this.#doc, ...(author !== undefined ? { author } : {}) };
   }
 
   /** The step begun, made one undo step; its result as a transaction's (no patches: nothing changed). */
@@ -202,7 +205,9 @@ export class ProjectStore {
     const result: CommandResult = { label: open.label, patches: open.patches, inverse: open.inverse, results: [], diff: [], dryRun: false };
     if (!open.patches.length) return result;
     this.#push({ label: open.label, patches: open.patches, inverse: open.inverse, before: open.before, ...(open.author !== undefined ? { author: open.author } : {}) });
-    return { ...result, diff: describePatches(open.before, this.#doc, open.patches) };
+    // Its changes were told as they were made; this tells history's watchers (the Edit menu) of the new step.
+    this.#emit({ kind: "apply", label: open.label, patches: [], doc: this.#doc });
+    return { ...result, diff: open.diff };
   }
 
   /** The step begun, taken back as if never made; its result says what it would have changed. */
@@ -210,10 +215,9 @@ export class ProjectStore {
     const open = this.#take();
     const result: CommandResult = { label: open.label, patches: open.patches, inverse: open.inverse, results: [], diff: [], dryRun: true };
     if (!open.patches.length) return result;
-    const after = this.#doc;
     this.#doc = open.before;
     this.#emit({ kind: "undo", label: open.label, patches: open.inverse, doc: this.#doc });
-    return { ...result, diff: describePatches(open.before, after, open.patches) };
+    return { ...result, diff: open.diff };
   }
 
   #push(entry: Omit<HistoryEntry, "after" | "seq">) {

@@ -214,7 +214,12 @@ export class LocalCore implements BeaconCore {
     const project = Bun.hash(path).toString(36);
     const memory: Memory = {
       decisions: () => (this.#config.learning() ? this.#config.decisions() : []),
-      record: (ds) => this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() }))),
+      record: (ds) => {
+        // In a batch (editor commands record too), kept back until it is kept: one thrown away teaches nothing.
+        const open = this.#projects.get(path)?.batch;
+        if (open) return void open.decisions.push(...ds);
+        this.#config.recordDecisions(ds.map((d) => ({ ...d, format: projectFormat(current.settings), project, at: Date.now() })));
+      },
     };
     // Commands only read the decisions: what they cut is recorded by the plan that runs them.
     const store = new ProjectStore(this.registry, doc, { newId: shortId, data: data.get, memory: { ...memory, record: () => {} }, author: currentAuthor, authorName: (a) => (a === undefined ? "you" : agentName(a)) });
@@ -564,7 +569,11 @@ export class LocalCore implements BeaconCore {
       query: (name, args) => {
         const q = id(name, "query");
         const v = q === UI_STATE.id ? { session: p.session.state, description: describeSession(p.session.state, p.store.doc) } : this.registry.runQuery(q, args ?? {}, this.#queryContext(p));
-        if (v instanceof Promise) throw new Error(`${q} takes time (it waits on something): call it outside the script`);
+        if (v instanceof Promise) {
+          // Started already: its failure must not go unhandled.
+          v.catch(() => {});
+          throw new Error(`${q} takes time (it waits on something): call it outside the script`);
+        }
         return v;
       },
     };
