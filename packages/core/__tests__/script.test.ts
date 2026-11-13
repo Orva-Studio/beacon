@@ -92,6 +92,7 @@ test("a script runs in a sandbox: loops over queries and commands as one undo st
   expect(readProject(h, core.registry).doc.tracks).toHaveLength(doc.tracks.length);
   await expect(core.script(h, `beacon.run("project.settings.set", { standalone: true })`)).rejects.toThrow(/on its own/);
   await expect(core.script(h, `beacon.run("track.add", { name: "A" }); return 1n;`)).rejects.toThrow(/JSON/);
+  await expect(core.script(h, `beacon.run("track.add", { name: "A" }); const o = { x: 1n }; return o;`)).rejects.toThrow(/JSON/);
   await expect(core.script(h, `beacon.run("track.add", { name: "A" }); beacon.run("playback.pause", {});`)).rejects.toThrow(/on its own/);
   expect(core.doc(h)).toBe(doc);
   // A step changing what an earlier one made.

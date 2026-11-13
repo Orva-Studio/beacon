@@ -80,22 +80,17 @@ export function runScript(code: string, host: ScriptHost, seconds = SCRIPT_SECON
     log.dispose();
     vm.unwrapResult(vm.evalCode(PRELUDE, "prelude.js")).dispose();
     // A function body, so `return` gives the result; strict, so a typo'd name throws instead of making a global.
-    const result = vm.evalCode(`"use strict";\n(() => {\n${code}\n})()`, "script.js");
+    // Made JSON inside, so a value that can't be sent (a BigInt, a cycle) throws there, before the batch is kept.
+    const result = vm.evalCode(`"use strict";\nJSON.stringify((() => {\n${code}\n})() ?? null)`, "script.js");
     if (result.error) {
       const e = vm.dump(result.error) as { message?: string; stack?: string } | string;
       result.error.dispose();
       const message = typeof e === "string" ? e : (e?.message ?? JSON.stringify(e));
-      throw new Error(/interrupted/i.test(message) ? `the script ran past ${seconds} s and was stopped` : `script: ${message}${typeof e === "object" && e?.stack ? `\n${e.stack.split("\n").filter((l) => l.includes("script.js")).slice(0, 3).join("\n")}` : ""}`);
+      throw new Error(/interrupted/i.test(message) ? `the script ran past ${seconds} s and was stopped` : `script: ${/BigInt|circular/i.test(message) ? `its return value can't be sent as JSON: ` : ""}${message}${typeof e === "object" && e?.stack ? `\n${e.stack.split("\n").filter((l) => l.includes("script.js")).slice(0, 3).join("\n")}` : ""}`);
     }
-    const dumped = vm.dump(result.value);
+    const json = vm.dump(result.value) as string | undefined;
     result.value.dispose();
-    // Checked here, inside the batch: a reply that can't be sent must not leave its edits kept.
-    let value: unknown;
-    try {
-      value = dumped === undefined ? null : JSON.parse(JSON.stringify(dumped));
-    } catch (e) {
-      throw new Error(`the script's return value can't be sent as JSON: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    const value: unknown = json === undefined ? null : JSON.parse(json);
     return { value, logs };
   } finally {
     vm.dispose();

@@ -494,12 +494,12 @@ export class LocalCore implements BeaconCore {
       return { value, result: { ...result, diff: [...result.diff, ...notes] } };
     }
     const result = this.#saved(p, p.store.commit());
-    if (decisions.length && result.patches.length) {
+    if (decisions.length) {
       // As an action run alone records them: undoing the batch takes them back (`decided`, by its patches).
-      const step = crypto.randomUUID().slice(0, 8);
+      const step = result.patches.length ? crypto.randomUUID().slice(0, 8) : undefined;
       try {
-        p.memory.record(decisions.map((d) => ({ ...d, step })));
-        p.decided.set(result.patches, { step });
+        p.memory.record(step ? decisions.map((d) => ({ ...d, step })) : decisions);
+        if (step) p.decided.set(result.patches, { step });
       } catch (e) {
         later.push(() => `(your choices weren't kept for Settings › Memory: ${e instanceof Error ? e.message : String(e)})`);
       }
