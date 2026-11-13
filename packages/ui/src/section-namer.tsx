@@ -1,21 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { SECTION_NAMES, type Project } from "@beacon/model";
 import { PLAIN_TEXT } from "./controls/buttons";
-
-/** The names offered: this project's own first (as the video's other parts were named), then Beacon's. A long one is an
- * old comment typed as a name, so it isn't offered. */
-export function sectionNames(project: Project): string[] {
-  return [...new Set([...project.sections.map((s) => s.name).filter((n) => n && n.split(/\s+/).length <= 3), ...SECTION_NAMES])];
-}
 
 export type SectionText = { name: string; comment: string; clearReply?: boolean };
 
 /**
- * Names a section and says what should change there (a comment, for an agent). Enter or a picked name saves, ⇧Enter
+ * Names a section and says what should change there (a comment, for an agent). Enter saves, ⇧Enter
  * starts a new line in the comment, Esc leaves it as it was; a press outside saves what was typed (a long comment
  * shouldn't be lost to a stray click). The agent's reply, once it has done the comment, shows under it to clear.
  */
-export function SectionNamer({ project, value, style, onDone }: { project: Project; value: { name: string; comment?: string; reply?: string }; style: CSSProperties; onDone: (text: SectionText | null) => void }) {
+export function SectionNamer({ value, style, onDone }: { value: { name: string; comment?: string; reply?: string }; style: CSSProperties; onDone: (text: SectionText | null) => void }) {
   const name = useRef<HTMLInputElement>(null);
   const comment = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -27,13 +20,13 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
     done.current = true;
     onDone(text);
   };
-  const typed = (picked?: string): SectionText => ({
-    name: (picked ?? name.current?.value ?? "").trim(),
+  const typed = (): SectionText => ({
+    name: (name.current?.value ?? "").trim(),
     comment: (comment.current?.value ?? "").trim(),
     ...(cleared.current ? { clearReply: true } : {}),
   });
-  const save = (picked?: string) => {
-    const t = typed(picked);
+  const save = () => {
+    const t = typed();
     const same = t.name === value.name && t.comment === (value.comment ?? "") && !t.clearReply;
     finish(same ? null : t);
   };
@@ -47,7 +40,7 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
     grow();
     const first = value.comment ? comment.current : name.current;
     requestAnimationFrame(() => (first?.focus(), first?.select()));
-    // A press anywhere else saves. Not on blur: the app blurs fields on any press, a name picked too.
+    // A press anywhere else saves. Not on blur: the app blurs fields on any press.
     const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && save();
     window.addEventListener("pointerdown", away, true);
     return () => window.removeEventListener("pointerdown", away, true);
@@ -95,13 +88,6 @@ export function SectionNamer({ project, value, style, onDone }: { project: Proje
           </button>
         </div>
       )}
-      <div className="flex flex-wrap gap-1">
-        {sectionNames(project).map((n) => (
-          <button key={n} className="rounded-sm bg-chip px-1.5 py-0.5 text-label text-text-muted hover:bg-item-hover hover:text-text-strong" onClick={() => save(n)} data-section-pick={n}>
-            {n}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
