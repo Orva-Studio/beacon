@@ -5681,6 +5681,10 @@ test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… 
     await ui.core.agentReply(id, "received");
     await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'received'`);
     expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').closest('[data-toast]').textContent`)).toContain("Claude Code is on it");
+    // What it is doing shows under the request, not in a toast of its own.
+    await asAuthor("claude-code", () => ui.core.agentStatus(ui.handle, "Reading the transcript"));
+    await page.until(`document.querySelector('[data-agent-request="${id}"] [data-agent-step]')?.textContent === 'Reading the transcript'`);
+    expect(await page.evaluate<number>("document.querySelectorAll('[data-agent-activity]').length")).toBe(0);
     await ui.core.agentReply(id, "done", "Laid it out as the intro");
     await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'done'`);
     expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').textContent`)).toBe("Laid it out as the intro");
@@ -5721,6 +5725,18 @@ test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… 
     await select([]);
   }
 }, 60_000);
+
+test.skipIf(skip)("an agent working from a terminal says what it is doing in a toast, which goes when it stops", async () => {
+  await asAuthor("claude-code", () => ui.core.agentStatus(ui.handle, "Reading the transcript"));
+  await page.until("document.querySelector('[data-agent-activity]')?.textContent === 'Reading the transcript'");
+  expect(await page.evaluate<string>("document.querySelector('[data-agent-activity]').closest('[data-toast]').textContent")).toContain("Claude Code is working");
+  await asAuthor("claude-code", () => ui.core.agentStatus(ui.handle, "Capturing hackertube.org, about a minute"));
+  await page.until("document.querySelector('[data-agent-activity]')?.textContent === 'Capturing hackertube.org, about a minute'");
+  expect(await page.evaluate<number>("document.querySelectorAll('[data-agent-activity]').length")).toBe(1);
+  await page.screenshot(join(dir, "agent-activity.png"));
+  await page.evaluate("document.querySelector('[data-agent-activity]').closest('[data-toast]').querySelector('button[title=Dismiss]').click()");
+  await page.until("!document.querySelector('[data-agent-activity]')");
+});
 
 test.skipIf(skip)("Ask an Agent with Codex: 'New run with Codex' is offered when it is installed, and a run's steps and last message show in its toast", async () => {
   // A stand-in Codex where the harness looks for it: it speaks codex exec's JSON events.

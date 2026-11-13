@@ -6,18 +6,23 @@ has the project open, `project_open` connects to it: edits show there live and
 share its undo history with the user.
 
 ## Start
-- `project_open` (no path: the project open in the app) or `project_create`
-  (optionally from a Camtasia `.cmproj`, read only). Changes save as made.
+- `project_open` (no path: the project in the app's front window) or
+  `project_create` (optionally from a Camtasia `.cmproj`, read only). Changes
+  save as made. `project_open` also gives the summary and the user's memory.
 - Read before editing: `project_describe`, then `timeline_clips` filtered by
   `from`/`to`, `track` or `type` (`detail` for one clip's props), and
   `transcript_get` (`from`/`to`, `find` a phrase). Ids come from these.
-- `memory_list` before editing for the user: follow its `sentences`.
+- Follow the user's memory (`project_open` lists it; `memory_list` for more).
 - Times are timeline seconds, snapped to frames; `mediaStart` is seconds into
   the media file.
 
 ## Edit
-- `transaction` runs several commands as one undo step, all or nothing:
-  prefer it to many single calls. Command results list what changed per clip.
+- Fewest calls: `transaction` runs several commands and actions as one undo
+  step, all or nothing; `script` runs JavaScript (`beacon.query`/`beacon.run`)
+  for loops and maths over many clips or words, also one undo step. Prefer
+  either to many single calls, and to working things out in a shell.
+- Do the work in Beacon: when a tool exists, use it rather than files or
+  scripts outside. Outside work the user can't see: say it with `status`.
 - Every command takes `dryRun: true`; `project_undo` undoes only your own change.
 - `timeline_rippleDelete` cuts time ranges from every track and closes the
   gaps, all ranges in one call; `transcript_cut` removes words by index

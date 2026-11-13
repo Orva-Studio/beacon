@@ -5,6 +5,23 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Faster agents over MCP (`feat/mcp-speed`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **`script`** (an agent's JavaScript in QuickJS, no files, network or Node: `beacon.query`, `beacon.run`, `beacon.log`, `return`), its edits one undo step, all or nothing, a dry run keeping nothing, stopped after 10 s (at most 30); background jobs and Memory decisions of actions in it start only once it is kept | 2026-11-13 | this branch | core tests (`script.test.ts`: loops and queries, undo, the sandbox's escapes tried, a throw and a timeout keeping nothing, over the app's socket as the agent's own step); MCP test (`lean.test.ts`) |
+| **`transaction` takes actions and editor commands** (motion_add, edit_addAnnotation, playhead_set…) as well as commands, by tool name or id, each made on what the steps before it left; a failing step names itself and keeps nothing | 2026-11-13 | this branch | core test; MCP test |
+| **The agent's status in the editor**: each Beacon call says what it is doing in a toast ("Claude Code is working: Reading the transcript"), and the new `status` tool for work outside Beacon; it says it stopped after 15 s without word and goes; a request sent from the app shows the step under it instead | 2026-11-13 | this branch | UI flows (`an agent working from a terminal…`, `Ask an Agent…`); screenshot looked at |
+| **`project_open` without a path** takes the project in the app's front window when several are open (it used to refuse), naming the others; its reply carries the user's memory sentences | 2026-11-13 | this branch | MCP test; typecheck of the app's change |
+| More tools loaded at start (`script`, `status`, `frame_at`, `frames_sheet`, `timeline_rippleDelete`, `transcript_cut`, `asset_place`, `memory_list`) and large replies read whole up to 200,000 characters (`transcript_get`, `timeline_clips`, `project_describe`); a list a query returns no longer taken for MCP content (`asset_clips` failed); a wrong argument's error lists those the tool takes | 2026-11-13 | this branch | MCP test (`lean.test.ts`) |
+
+### Not checked yet
+
+- In the app, with Claude Code in a terminal: ask for an edit and watch the toast at the bottom right. Does it say what Claude is doing, and go away once it stops?
+- Ask Claude for something across many clips (a Film Look on every camera clip): does it do it in one `script` call, as one ⌘Z-able step?
+
 ## Section colours (`feat/section-colours`)
 
 ### Checked headless only

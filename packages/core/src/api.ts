@@ -240,6 +240,17 @@ export interface TransactionStep {
   args?: unknown;
 }
 
+/** What an agent's script did (`BeaconCore.script`): what it returned, its log, and its changes, one undo step. */
+export interface ScriptResult {
+  value: unknown;
+  logs: string[];
+  diff: string[];
+  label: string;
+  dryRun: boolean;
+  /** Whether it changed the project (an undo step was made, unless a dry run). */
+  changed: boolean;
+}
+
 /** What the editor window shows: a screenshot (when the app is open) and its state. */
 export interface Snapshot {
   image?: Image;
@@ -273,6 +284,8 @@ export type CoreEvent =
   | { kind: "narrated"; result: RecordResult }
   /** Files being imported: `reading` while they are probed (before their media exist), then `done` with the media made, or `failed`. */
   | { kind: "importing"; id: string; files: string[]; state: "reading" | "done" | "failed"; assets?: string[]; error?: string }
+  /** What an agent working on the project is doing now, in a few words (each of its calls, or its `status`). */
+  | { kind: "agentStatus"; agent: string; text: string }
   /** Something went wrong outside any call, e.g. the save after a drag: show it, the caller has already returned. */
   | { kind: "error"; message: string }
   /** Only the keys that changed (a playback tick sends the playhead, not the clipboard); merge them into the last session. */
@@ -297,6 +310,10 @@ export interface BeaconCore {
   close(h: ProjectHandle): Promise<void>;
   run(h: ProjectHandle, command: string, args: unknown, opts?: RunOptions): Promise<CommandResult>;
   transaction(h: ProjectHandle, label: string, steps: TransactionStep[], opts?: { dryRun?: boolean }): Promise<CommandResult>;
+  /** Tells the project's window what the calling agent is doing now (a few words); nothing without a window. */
+  agentStatus(h: ProjectHandle, text: string): Promise<void>;
+  /** Runs an agent's JavaScript against the project in a sandbox (`script.ts`): its edits one undo step, all or nothing. */
+  script(h: ProjectHandle, code: string, opts?: { label?: string; dryRun?: boolean; seconds?: number }): Promise<ScriptResult>;
   /** Undoes the caller's own last step: the user's, skipping the agents' (refused when someone else's later step changed the same thing), or an agent's own. */
   undo(h: ProjectHandle): Promise<string | undefined>;
   /** Edit › Undo Agents' Last Change: the newest step any agent made. */

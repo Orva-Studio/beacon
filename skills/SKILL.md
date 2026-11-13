@@ -165,8 +165,15 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   command with the clip ids (`clip_split`, `clip_remove`, `marker_add`).
   Ripple-deleting clips on several tracks (`clip_remove` with `ripple`)
   moves the later clips on each of those tracks left by the same amount.
-- `transaction` runs several commands as one undo step, all or nothing:
-  prefer one transaction to many single calls.
+- `transaction` runs several commands, actions and editor commands as one
+  undo step, all or nothing: prefer one transaction to many single calls.
+- `script` runs JavaScript in a sandbox for loops and maths over many clips or
+  words: `beacon.query(name, args)` reads, `beacon.run(name, args)` edits (and
+  returns a new clip's id), `return` gives the reply; one undo step, all or
+  nothing. E.g. a Film Look on every camera clip, or cuts worked out from word
+  timings, in one call rather than one per clip or a script in a shell.
+- `status` tells the user in the app what you are doing outside Beacon (a
+  capture, a render): they can't see that work otherwise.
 - Every command tool takes `dryRun: true` to see the change without applying
   it, and `project_undo` / `project_redo` step through history.
 

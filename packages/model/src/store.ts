@@ -66,6 +66,17 @@ export class UndoBlocked extends Error {
   }
 }
 
+/** A step begun (`ProjectStore.begin`): the changes made since, and the document before them. */
+interface Open {
+  label: string;
+  patches: Patch[];
+  inverse: Patch[];
+  /** Each change's own lines, as it was made: a later change's patches can't be read against the step's start. */
+  diff: string[];
+  before: Project;
+  author?: string;
+}
+
 export interface Tx {
   run<R = unknown>(command: string, args?: unknown): R;
 }
@@ -102,6 +113,7 @@ export class ProjectStore {
   #undo: HistoryEntry[] = [];
   #redo: HistoryEntry[] = [];
   #seq = 0;
+  #open: Open | undefined;
   #listeners = new Set<(e: StoreEvent) => void>();
   readonly #ctx: CommandContext;
   readonly #historyLimit: number;
@@ -155,26 +167,71 @@ export class ProjectStore {
     const result: CommandResult = { label, patches, inverse, results, diff: describePatches(this.#doc, next, patches), dryRun };
     if (dryRun || !patches.length) return result;
 
-    const author = opts.author ?? this.#author();
     const before = this.#doc;
     this.#doc = next;
-    const last = this.#undo.at(-1);
-    const mine = authorIs(author);
-    // A drag is one step while nothing else came between its changes.
-    if (opts.coalesce && last?.coalesce === opts.coalesce && last.author === author && !last.outOfTurn && last.after === before && !this.#redo.some((e) => mine(e.author))) {
-      last.patches = [...last.patches, ...patches];
-      last.inverse = [...inverse, ...last.inverse];
-      last.after = next;
-      // Later than anything undone in between: redo's check for someone's newer change goes by it.
-      last.seq = ++this.#seq;
+    if (this.#open) {
+      this.#open.patches.push(...patches);
+      this.#open.inverse.unshift(...inverse);
+      this.#open.diff.push(...result.diff);
     } else {
-      this.#undo.push({ label, patches, inverse, ...(opts.coalesce ? { coalesce: opts.coalesce } : {}), ...(author !== undefined ? { author } : {}), before, after: next, seq: ++this.#seq });
+      const author = opts.author ?? this.#author();
+      const last = this.#undo.at(-1);
+      // A drag is one step while nothing else came between its changes.
+      if (opts.coalesce && last?.coalesce === opts.coalesce && last.author === author && !last.outOfTurn && last.after === before && !this.#redo.some((e) => authorIs(author)(e.author))) {
+        last.patches = [...last.patches, ...patches];
+        last.inverse = [...inverse, ...last.inverse];
+        last.after = next;
+        // Later than anything undone in between: redo's check for someone's newer change goes by it.
+        last.seq = ++this.#seq;
+      } else this.#push({ label, patches, inverse, ...(opts.coalesce ? { coalesce: opts.coalesce } : {}), ...(author !== undefined ? { author } : {}), before });
     }
-    if (this.#undo.length > this.#historyLimit) this.#undo.shift();
-    // Only the author's own new change ends what they can redo; someone else's leaves it (the user, 2026-11-05).
-    this.#redo = this.#redo.filter((e) => !mine(e.author));
     this.#emit({ kind: "apply", label, patches, doc: next });
     return result;
+  }
+
+  /**
+   * Starts one undo step that the changes until `commit` make together (a script, a transaction of actions): each is
+   * applied and told as it is made, and `abort` takes them all back.
+   */
+  begin(label: string, opts: { author?: string } = {}): void {
+    if (this.#open) throw new Error(`"${this.#open.label}" is still being made`);
+    const author = opts.author ?? this.#author();
+    this.#open = { label, patches: [], inverse: [], diff: [], before: this.#doc, ...(author !== undefined ? { author } : {}) };
+  }
+
+  /** The step begun, made one undo step; its result as a transaction's (no patches: nothing changed). */
+  commit(): CommandResult {
+    const open = this.#take();
+    const result: CommandResult = { label: open.label, patches: open.patches, inverse: open.inverse, results: [], diff: [], dryRun: false };
+    if (!open.patches.length) return result;
+    this.#push({ label: open.label, patches: open.patches, inverse: open.inverse, before: open.before, ...(open.author !== undefined ? { author: open.author } : {}) });
+    // Its changes were told as they were made; this tells history's watchers (the Edit menu) of the new step.
+    this.#emit({ kind: "apply", label: open.label, patches: [], doc: this.#doc });
+    return { ...result, diff: open.diff };
+  }
+
+  /** The step begun, taken back as if never made; its result says what it would have changed. */
+  abort(): CommandResult {
+    const open = this.#take();
+    const result: CommandResult = { label: open.label, patches: open.patches, inverse: open.inverse, results: [], diff: [], dryRun: true };
+    if (!open.patches.length) return result;
+    this.#doc = open.before;
+    this.#emit({ kind: "undo", label: open.label, patches: open.inverse, doc: this.#doc });
+    return { ...result, diff: open.diff };
+  }
+
+  #push(entry: Omit<HistoryEntry, "after" | "seq">) {
+    this.#undo.push({ ...entry, after: this.#doc, seq: ++this.#seq });
+    if (this.#undo.length > this.#historyLimit) this.#undo.shift();
+    // Only the author's own new change ends what they can redo; someone else's leaves it (the user, 2026-11-05).
+    this.#redo = this.#redo.filter((e) => !authorIs(entry.author)(e.author));
+  }
+
+  #take(): Open {
+    const open = this.#open;
+    if (!open) throw new Error("no step begun");
+    this.#open = undefined;
+    return open;
   }
 
   /** Whether the user (or `who`) has a step to undo. */
@@ -211,6 +268,7 @@ export class ProjectStore {
    * else's changed one of them.
    */
   undo(who: Who = theUser): HistoryEntry | undefined {
+    if (this.#open) throw new Error(`can't undo while "${this.#open.label}" is being made`);
     const i = this.#undo.findLastIndex((e) => who(e.author));
     if (i < 0) return undefined;
     const entry = this.#undo[i]!;
@@ -227,6 +285,7 @@ export class ProjectStore {
   }
 
   redo(who: Who = theUser): HistoryEntry | undefined {
+    if (this.#open) throw new Error(`can't redo while "${this.#open.label}" is being made`);
     const i = this.#redo.findLastIndex((e) => who(e.author));
     if (i < 0) return undefined;
     const entry = this.#redo[i]!;

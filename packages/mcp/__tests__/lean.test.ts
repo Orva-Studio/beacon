@@ -25,7 +25,11 @@ test("the server stays lean: short instructions, core tools loaded, no duplicate
     expect(client.getInstructions()!.length).toBeLessThan(4096);
     const tools = (await client.listTools()).tools;
     const names = new Set(tools.map((t) => t.name));
-    expect(tools.filter((t) => t._meta?.["anthropic/alwaysLoad"]).map((t) => t.name).sort()).toEqual(["project_describe", "project_open", "timeline_clips", "transaction", "transcript_get"]);
+    expect(tools.filter((t) => t._meta?.["anthropic/alwaysLoad"]).map((t) => t.name).sort()).toEqual(
+      ["asset_place", "frame_at", "frames_sheet", "memory_list", "project_describe", "project_open", "script", "status", "timeline_clips", "timeline_rippleDelete", "transaction", "transcript_cut", "transcript_get"],
+    );
+    // Read whole, not saved to a file the agent must read back.
+    expect(tools.find((t) => t.name === "transcript_get")!._meta?.["anthropic/maxResultSizeChars"]).toBe(200_000);
     expect(names.has("edit_split")).toBe(false);
     expect(names.has("edit_fade")).toBe(true);
     const guide = await client.readResource({ uri: "beacon://docs/guide" });
@@ -56,6 +60,16 @@ test("the server stays lean: short instructions, core tools loaded, no duplicate
     expect((await call("edit_split")).text).toContain("call clip_split with the clip ids");
     expect((await call("clip_splitt")).text).toContain("nearest: clip_split");
     expect((await call("transaction", { label: "x", commands: [{ command: "clip_sett", args: {} }] })).text).toContain("nearest: clip_set");
+
+    // Arguments it doesn't take: the error lists those it does.
+    expect((await call("clip_move", { clip: a, start: 40, title: "x" })).text).toMatch(/clip_move takes: .*clip/);
+    // A script: many edits in one call, one undo step, its value back.
+    const made = await json("script", { label: "Three more", code: `const ids = []; for (let i = 0; i < 3; i++) ids.push(beacon.run("clip_add", { type: "video", track: ${JSON.stringify(second)}, start: 10 + i * 2, duration: 1 })); return ids;` });
+    expect(made.result).toHaveLength(3);
+    expect(made.undo).toBe("Three more");
+    // An action in a transaction, beside a command.
+    const both = await json("transaction", { label: "Graphic", commands: [{ command: "motion_add", args: { time: 0, duration: 2 } }, { command: "playhead_set", args: { time: 1 } }] });
+    expect(both.undo).toBe("Graphic");
   } finally {
     await client.close();
   }

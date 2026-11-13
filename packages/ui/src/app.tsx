@@ -25,7 +25,7 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
-import { AgentToasts, AskAgent } from "./ask-agent";
+import { AgentActivity, AgentToasts, AskAgent } from "./ask-agent";
 import { LearnedToasts } from "./learned";
 import { MusicPanel, musicReviewOf, popInMarks, suggestionMarks, usePopIns } from "./music";
 import { goTo } from "./review";
@@ -307,6 +307,7 @@ export function App({ host }: { host: Host }) {
           <ExportToast host={host} />
           <TaskToasts host={host} />
           <AgentToasts host={host} />
+          <AgentActivity />
           <LearnedToasts host={host} />
           <SnapshotSaved host={host} />
           <ErrorReportsNotice host={host} />

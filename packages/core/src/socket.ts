@@ -54,9 +54,9 @@ export const PROTOCOL_VERSION = 2;
  * `RemoteCore` is built from this list, so a method added to `BeaconCore` needs only its name here.
  */
 export const FORWARDED = [
-  "open", "close", "save", "saveAs", "reveal", "run", "transaction", "undo", "undoAgents", "redo", "history", "query", "frame", "captureFrame", "sheet",
+  "open", "close", "save", "saveAs", "reveal", "run", "transaction", "script", "undo", "undoAgents", "redo", "history", "query", "frame", "captureFrame", "sheet",
   "import", "forget", "missing", "relink", "replace", "analysisSize", "forgetAll", "job", "jobs", "cancelJob", "resources", "preferences", "secrets",
-  "setPreference", "recentItems", "itemUsed", "agents", "askAgent", "agentReply", "shortcuts", "shortcutSet", "shortcutReset", "memory", "memoryChange", "settings",
+  "setPreference", "recentItems", "itemUsed", "agents", "askAgent", "agentReply", "agentStatus", "shortcuts", "shortcutSet", "shortcutReset", "memory", "memoryChange", "settings",
   "setSettings", "uiOpen", "summary", "checkOutput", "recorderDevices", "recorderAccess", "recordStart", "recordStatus", "recordStop",
   "session", "snapshot",
 ] as const satisfies readonly (keyof BeaconCore)[];

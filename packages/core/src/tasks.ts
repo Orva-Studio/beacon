@@ -58,6 +58,13 @@ export class Tasks {
     }
     const result = { ...this.#applyPlan(p, plan, label), ...(plan.note ? { note: plan.note } : {}) };
     if (!plan.task) return result;
+    if (p.batch) {
+      const task = plan.task;
+      p.batch.later.push(() => `started job ${this.#startTask(p, task).id}: ${task.label} (job_status follows it)`);
+      const note = `then in the background, once the whole batch is kept: ${task.label}`;
+      p.batch.notes.push(note);
+      return { ...result, diff: [...result.diff, note] };
+    }
     const job = this.#startTask(p, plan.task);
     return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };
   }
@@ -83,7 +90,8 @@ export class Tasks {
     }
     // The document change is committed: what fails after it (keeping the decisions, an editor step) is reported, not thrown, or a retry would apply the change twice.
     const failed: string[] = [];
-    if (plan.decisions?.length) {
+    if (plan.decisions?.length && p.batch) p.batch.decisions.push(...plan.decisions);
+    else if (plan.decisions?.length) {
       const step = result.patches.length ? crypto.randomUUID().slice(0, 8) : undefined;
       try {
         p.memory.record(step ? plan.decisions.map((d) => ({ ...d, step })) : plan.decisions);
