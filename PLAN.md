@@ -3930,6 +3930,9 @@ what the shell was used for. On 2026-11-13, 12 editing sessions made 1,919 Beaco
 The same script also lists each Beacon tool's calls, time and errors (`project_open` failed 15 times in 44).
 `scripts/mcp-eval.ts` should fail a task that falls back to the shell.
 
+**Section colours (the user, 2026-11-13).** Right-click a section › Colour: Automatic (from its name, as before) or one
+of the six section colours; `section_set`'s `color` for agents. Saved with the section (schema v6).
+
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
 much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,
 offline or online, what Off means); how it works is dropped, not moved to a tooltip (the user chose "Lean" over

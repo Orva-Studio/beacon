@@ -74,6 +74,16 @@ test("v5: sections as they were, a comment allowed after", () => {
   expect(() => migrateProject({ ...migrated, sections: [{ ...section, comment: "zoom in", reply: "zoomed in" }] }, registry)).not.toThrow();
 });
 
+test("v6: sections as they were, a colour allowed after", () => {
+  const registry = new FeatureRegistry([testFeature]);
+  const doc = createProject(registry);
+  const section = { id: "s1", start: 0, end: 30_000, name: "Intro", comment: "zoom in" };
+  const migrated = migrateProject({ ...doc, schemaVersion: 5, sections: [section] }, registry);
+  expect(migrated.sections).toEqual([section]);
+  expect(() => migrateProject({ ...migrated, sections: [{ ...section, color: "green" }] }, registry)).not.toThrow();
+  expect(() => migrateProject({ ...migrated, sections: [{ ...section, color: "teal" }] }, registry)).toThrow();
+});
+
 test("documents from a newer Beacon are refused", () => {
   const registry = new FeatureRegistry([testFeature]);
   const doc = createProject(registry);

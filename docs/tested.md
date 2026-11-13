@@ -5,6 +5,20 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Section colours (`feat/section-colours`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **No names offered in the section popup** (the user, 2026-11-13): the chips under the comment (the project's names, then Hook, Intro, Explanation…) are gone; a name is typed | 2026-11-13 | this branch | UI flow (`Sections…`: no buttons in the popup, a name typed and saved) |
+| **A section's colour** (the user, 2026-11-13): right-click a section › Colour › Automatic (its name's, as before) or Blue, Purple, Green, Yellow, Orange, Red, ticked on the current one; agents set it with `section_set`'s `color` (null back to Automatic) or `section_add`'s; one undo step. Schema v6 (nothing changes in older projects) | 2026-11-13 | this branch | core test (`sections.test.ts`); migration test v6; UI flow (`a section's colour is chosen…`: the bar drawn in each colour's token); the native submenu typechecked only |
+
+### Not checked yet
+
+- In the app: drag out a section: the popup has the name and comment boxes and no name chips under them.
+- In the app: right-click a section › Colour › Green. Does the bar turn green, with the tick on Green next time, and does Automatic put it back?
+
 ## Wan 3.0 for camera angles (`feat/wan-angles`)
 
 ### Checked headless only

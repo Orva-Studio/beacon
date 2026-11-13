@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { ApplicationMenu, ContextMenu, Utils } from "electrobun/main";
-import { agentName, chordOf, keyOfCode, keysLabel, locateTrack, menuKey, MODIFIERS, walkClips, type HistorySteps, type Keys, type ShortcutInfo } from "@beacon/core";
+import { agentName, chordOf, keyOfCode, keysLabel, locateTrack, menuKey, MODIFIERS, SECTION_COLORS, walkClips, type HistorySteps, type Keys, type ShortcutInfo } from "@beacon/core";
 import { LABEL_COLORS } from "@beacon/features";
 import { copiedIds, tileChoice, tileMenuItems, type TileMenu } from "@beacon/ui";
 import { errorText, type App } from "./app";
@@ -399,7 +399,13 @@ export function createMenus(app: MenusApp) {
   function sectionMenu({ section }: { section: string }) {
     if (!app.current()) return;
     const own = (label: string, op: string) => ({ label, action: `section:${op}:${section}` });
-    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), SEPARATOR, own("Delete Section", "remove")]);
+    const chosen = core.doc(app.current()!.path).sections.find((s) => s.id === section)?.color;
+    const colours = [
+      { label: "Automatic", action: `section:color-auto:${section}`, checked: !chosen },
+      SEPARATOR,
+      ...SECTION_COLORS.map((c) => ({ label: c[0]!.toUpperCase() + c.slice(1), action: `section:color-${c}:${section}`, checked: chosen === c })),
+    ];
+    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), { label: "Colour", submenu: colours }, SEPARATOR, own("Delete Section", "remove")]);
   }
 
   function markerMenu({ marker }: { marker: string }) {
@@ -535,7 +541,10 @@ export function createMenus(app: MenusApp) {
     else if (kind === "clip") clipAction(current.path, op, id);
     else if (kind === "section") {
       if (op === "remove") void core.run(current.path, "section.remove", { section: id }, { label: "Delete Section" }).catch(fail);
-      else message("sectionAction", { section: id, op: op as "ask" | "rename" });
+      else if (op.startsWith("color-")) {
+        const color = op.slice(6);
+        void core.run(current.path, "section.set", { section: id, color: color === "auto" ? null : color }, { label: "Section Colour" }).catch(fail);
+      } else message("sectionAction", { section: id, op: op as "ask" | "rename" });
     } else if (kind === "marker") {
       if (op === "remove") void core.run(current.path, "marker.remove", { marker: id }, { label: "Delete Marker" }).catch(fail);
       else message("markerAction", { marker: id, op: "rename" });

@@ -25,6 +25,7 @@ export {
   nestedOf,
   placeCanvas,
   projectDuration,
+  SECTION_COLORS,
   SETTINGS_TABS,
   SettingsPatchSchema,
   syncKey,

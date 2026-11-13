@@ -208,7 +208,6 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
       {namingSection && (
         <SectionNamer
           key={namingSection.id ?? `${namingSection.start}`}
-          project={project}
           value={project.sections.find((s) => s.id === namingSection.id) ?? { name: "" }}
           style={{ left: Math.min(Math.max(HEADER, hits.xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2, maxHeight: Math.max(120, size.current.h - TRACKS_TOP - 8) }}
           onDone={(text) => {
