@@ -3910,6 +3910,9 @@ barely moves the lips, so it is lip-synced to the take's sound by `sync/lipsync-
 to try it. MiniMax H3 (768p at least, $0.08/s, 4 s at least, reference
 video and audio like Seedance) waits for a test on a real take with its sound.
 
+**Section colours (the user, 2026-11-13).** Right-click a section › Colour: Automatic (from its name, as before) or one
+of the six section colours; `section_set`'s `color` for agents. Saved with the section (schema v6).
+
 **Word review (the user, 2026-11-07).** Hints in Properties (the AI tools most), Settings and the sync check say too
 much. Every string a user sees is cut to one short sentence: what it does and the facts the user acts on (cost,
 offline or online, what Off means); how it works is dropped, not moved to a tooltip (the user chose "Lean" over

@@ -25,6 +25,15 @@ test("sections name parts of the video: never overlapping, renamed and moved, mo
   expect(shown()).toEqual([["Hook", 0, 6], ["Demo", 6, 12]]);
   expect(await core.query(h, "project.describe", {})).toContain(`"Demo" 6-12s`);
 
+  // A colour chosen, else its name's; null goes back.
+  await core.run(h, "section.set", { section: demo, color: "green" });
+  expect(core.doc(h).sections.find((x) => x.id === demo)!.color).toBe("green");
+  await expect(core.run(h, "section.set", { section: demo, color: "teal" })).rejects.toThrow();
+  await core.run(h, "section.set", { section: demo, color: null });
+  expect(core.doc(h).sections.find((x) => x.id === demo)!.color).toBeUndefined();
+  await core.undo(h);
+  await core.undo(h);
+
   // Ripple: cutting 8–10 s shrinks Demo; opening 2 s at 3 s grows Hook and moves Demo on.
   const before = JSON.stringify(core.doc(h));
   await core.run(h, "timeline.rippleDelete", { ranges: [{ start: 8, end: 10 }] });

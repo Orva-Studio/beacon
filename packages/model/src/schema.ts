@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -98,6 +98,10 @@ const MarkerSchema = z.strictObject({
   name: z.string(),
 });
 
+/** The colours a section can be given; without one, its name picks it. */
+export const SECTION_COLORS = ["blue", "purple", "green", "yellow", "orange", "red"] as const;
+export type SectionColor = (typeof SECTION_COLORS)[number];
+
 /** A named part of the video (Intro, Demo, Outro): a stretch of the main timeline. Sections never overlap; gaps are allowed. */
 const SectionSchema = z.strictObject({
   id: IdSchema,
@@ -108,6 +112,8 @@ const SectionSchema = z.strictObject({
   comment: z.string().optional(),
   /** The agent's one line on what it did about the comment; set, the comment is done. */
   reply: z.string().optional(),
+  /** Chosen by the user; unset, the section is coloured by its name. */
+  color: z.enum(SECTION_COLORS).optional(),
 });
 
 /** What a section's bar shows: its name, or the start of its comment when it has none. */
