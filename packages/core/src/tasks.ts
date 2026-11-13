@@ -61,7 +61,9 @@ export class Tasks {
     if (p.batch) {
       const task = plan.task;
       p.batch.later.push(() => `started job ${this.#startTask(p, task).id}: ${task.label} (job_status follows it)`);
-      return { ...result, diff: [...result.diff, `then in the background, once the whole batch is kept: ${task.label}`] };
+      const note = `then in the background, once the whole batch is kept: ${task.label}`;
+      p.batch.notes.push(note);
+      return { ...result, diff: [...result.diff, note] };
     }
     const job = this.#startTask(p, plan.task);
     return { ...result, results: [...result.results, { job: job.id }], diff: [...result.diff, `started job ${job.id}: ${plan.task.label} (job_status follows it)`] };

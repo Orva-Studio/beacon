@@ -449,7 +449,13 @@ export class LocalCore implements BeaconCore {
     if (p.batch && command === "project.settings.set" && (args as { standalone?: unknown } | null)?.standalone === true) {
       throw new Error("standalone copies media into the project: run project.settings.set on its own, outside a script or transaction");
     }
-    if (p.session.has(command)) return this.#runSession(p, command, args, opts);
+    if (p.session.has(command)) {
+      // Playback and the narration it drives can't be taken back with the batch.
+      if (p.batch && (PLAYBACK.has(command) || command === "playback.pause")) throw new Error(`${command} plays or stops the app's window: run it on its own, outside a script or transaction`);
+      const r = this.#runSession(p, command, args, opts);
+      p.batch?.notes.push(...r.diff);
+      return r;
+    }
     const action = this.registry.actions.get(command);
     if (action) return this.#tasks.runAction(p, action, args, opts);
     if (opts.coalesce && !opts.dryRun) {
@@ -466,9 +472,11 @@ export class LocalCore implements BeaconCore {
    */
   #batch<T>(p: OpenProject, label: string, fn: () => T, opts: { dryRun?: boolean } = {}): { value: T; result: CommandResult } {
     if (p.batch) throw new Error("a batch is already being made in this project");
+    // A narration stops when the playhead moves: a batch taken back couldn't start it again.
+    if (this.#recording.recordingFor(p.path)) throw new Error("a take is being recorded in this project: wait until it ends");
     const session = p.session.state;
     p.store.begin(label);
-    p.batch = { later: [], decisions: [] };
+    p.batch = { later: [], decisions: [], notes: [] };
     let value: T;
     try {
       value = fn();
@@ -478,12 +486,12 @@ export class LocalCore implements BeaconCore {
       if (p.session.state !== session) p.session.restore(session);
       throw e;
     }
-    const { later, decisions } = p.batch;
+    const { later, decisions, notes } = p.batch;
     p.batch = undefined;
     if (opts.dryRun) {
       const result = p.store.abort();
       if (p.session.state !== session) p.session.restore(session);
-      return { value, result };
+      return { value, result: { ...result, diff: [...result.diff, ...notes] } };
     }
     const result = this.#saved(p, p.store.commit());
     if (decisions.length && result.patches.length) {
@@ -503,7 +511,7 @@ export class LocalCore implements BeaconCore {
         return [`(${e instanceof Error ? e.message : String(e)})`];
       }
     });
-    return { value, result: { ...result, diff: [...result.diff, ...lines] } };
+    return { value, result: { ...result, diff: [...result.diff, ...notes, ...lines] } };
   }
 
   /** A drag changes the document many times a second: write it once things settle. */

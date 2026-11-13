@@ -27,7 +27,7 @@ export interface OpenProject {
    * Set while a batch (a script, a transaction of actions) is being made as one undo step: what must wait until it is
    * kept (background jobs, review decisions for Memory), each returning a line for its result; dropped if it isn't.
    */
-  batch?: { later: (() => string | void)[]; decisions: DecisionInput[] };
+  batch?: { later: (() => string | void)[]; decisions: DecisionInput[]; notes: string[] };
 }
 
 /** What core's parts (analyses, recording) are given of it: its open projects, telling their watchers, saving and jobs. */

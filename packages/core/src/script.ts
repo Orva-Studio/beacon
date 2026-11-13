@@ -87,9 +87,16 @@ export function runScript(code: string, host: ScriptHost, seconds = SCRIPT_SECON
       const message = typeof e === "string" ? e : (e?.message ?? JSON.stringify(e));
       throw new Error(/interrupted/i.test(message) ? `the script ran past ${seconds} s and was stopped` : `script: ${message}${typeof e === "object" && e?.stack ? `\n${e.stack.split("\n").filter((l) => l.includes("script.js")).slice(0, 3).join("\n")}` : ""}`);
     }
-    const value = vm.dump(result.value);
+    const dumped = vm.dump(result.value);
     result.value.dispose();
-    return { value: value === undefined ? null : value, logs };
+    // Checked here, inside the batch: a reply that can't be sent must not leave its edits kept.
+    let value: unknown;
+    try {
+      value = dumped === undefined ? null : JSON.parse(JSON.stringify(dumped));
+    } catch (e) {
+      throw new Error(`the script's return value can't be sent as JSON: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return { value, logs };
   } finally {
     vm.dispose();
     runtime.dispose();
