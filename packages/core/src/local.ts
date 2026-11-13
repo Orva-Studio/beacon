@@ -441,6 +441,9 @@ export class LocalCore implements BeaconCore {
 
   /** A command, action or editor command, done before it returns: what a batch is made of. */
   #runNow(p: OpenProject, command: string, args: unknown, opts: RunOptions = {}): CommandResult {
+    if (p.batch && command === "project.settings.set" && (args as { standalone?: unknown } | null)?.standalone === true) {
+      throw new Error("standalone copies media into the project: run project.settings.set on its own, outside a script or transaction");
+    }
     if (p.session.has(command)) return this.#runSession(p, command, args, opts);
     const action = this.registry.actions.get(command);
     if (action) return this.#tasks.runAction(p, action, args, opts);
@@ -460,7 +463,7 @@ export class LocalCore implements BeaconCore {
     if (p.batch) throw new Error("a batch is already being made in this project");
     const session = p.session.state;
     p.store.begin(label);
-    p.batch = { later: [] };
+    p.batch = { later: [], decisions: [] };
     let value: T;
     try {
       value = fn();
@@ -470,7 +473,7 @@ export class LocalCore implements BeaconCore {
       if (p.session.state !== session) p.session.restore(session);
       throw e;
     }
-    const later = p.batch.later;
+    const { later, decisions } = p.batch;
     p.batch = undefined;
     if (opts.dryRun) {
       const result = p.store.abort();
@@ -478,6 +481,16 @@ export class LocalCore implements BeaconCore {
       return { value, result };
     }
     const result = this.#saved(p, p.store.commit());
+    if (decisions.length && result.patches.length) {
+      // As an action run alone records them: undoing the batch takes them back (`decided`, by its patches).
+      const step = crypto.randomUUID().slice(0, 8);
+      try {
+        p.memory.record(decisions.map((d) => ({ ...d, step })));
+        p.decided.set(result.patches, { step });
+      } catch (e) {
+        later.push(() => `(your choices weren't kept for Settings › Memory: ${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
     const lines = later.flatMap((f) => {
       try {
         return f() ?? [];
@@ -843,7 +856,8 @@ export class LocalCore implements BeaconCore {
 
   /** Autosave after a change; a failed save is the caller's error, not a log line. */
   #saved<T extends { patches: unknown[]; dryRun?: boolean } | undefined>(p: OpenProject, change: T, analyse = true): T {
-    if (!change || change.dryRun || !change.patches.length) return change;
+    // A batch is saved, and its media analysed, once it is kept: a step of it taken back must not be on disk.
+    if (!change || change.dryRun || !change.patches.length || p.batch) return change;
     this.#analyses.effectJobs(p);
     try {
       writeProject(p.path, p.store.doc);

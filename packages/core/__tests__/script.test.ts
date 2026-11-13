@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ticksToSeconds } from "@beacon/model";
-import { asAuthor, LocalCore, RemoteCore, serveCore } from "../src";
+import { asAuthor, LocalCore, readProject, RemoteCore, serveCore } from "../src";
 
 const dir = mkdtempSync(join(tmpdir(), "beacon-script-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -88,6 +88,11 @@ test("a script runs in a sandbox: loops over queries and commands as one undo st
   const dry = await core.script(h, `return beacon.run("track.add", { name: "B" })`, { dryRun: true });
   expect(dry.diff.join("\n")).toMatch(/track/);
   expect(core.doc(h)).toBe(doc);
+  // Nor on disk: a batch is saved once it is kept.
+  expect(readProject(h, core.registry).doc.tracks).toHaveLength(doc.tracks.length);
+  await expect(core.script(h, `beacon.run("project.settings.set", { standalone: true })`)).rejects.toThrow(/on its own/);
+  await core.script(h, `beacon.run("track.add", { name: "Kept" })`);
+  expect(readProject(h, core.registry).doc.tracks.map((t) => t.name)).toContain("Kept");
   core.closeAll();
 });
 

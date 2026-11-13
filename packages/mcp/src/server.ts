@@ -654,7 +654,8 @@ export function createServer(local: BeaconCore, version: string, opts: ServerOpt
     }
     if (core !== local && current && !QUIET.has(req.params.name)) {
       // What the agent is doing, shown in the app's window; it must never hold up or fail the call.
-      void core.agentStatus(current, doing(req.params.name, commandSchemas.get(req.params.name)?.description ?? def.description)).catch(() => {});
+      const said = doing(req.params.name, commandSchemas.get(req.params.name)?.description ?? def.description);
+      void asAuthor(server.getClientVersion()?.name ?? "agent", () => core.agentStatus(current!, said)).catch(() => {});
     }
     try {
       const args = def.schema instanceof z.ZodUnknown ? (req.params.arguments ?? {}) : def.schema.parse(req.params.arguments ?? {});

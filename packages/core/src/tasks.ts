@@ -88,10 +88,8 @@ export class Tasks {
     }
     // The document change is committed: what fails after it (keeping the decisions, an editor step) is reported, not thrown, or a retry would apply the change twice.
     const failed: string[] = [];
-    if (plan.decisions?.length && p.batch) {
-      const decisions = plan.decisions;
-      p.batch.later.push(() => void p.memory.record(decisions));
-    } else if (plan.decisions?.length) {
+    if (plan.decisions?.length && p.batch) p.batch.decisions.push(...plan.decisions);
+    else if (plan.decisions?.length) {
       const step = result.patches.length ? crypto.randomUUID().slice(0, 8) : undefined;
       try {
         p.memory.record(step ? plan.decisions.map((d) => ({ ...d, step })) : plan.decisions);

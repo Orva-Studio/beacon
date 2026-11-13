@@ -1,5 +1,5 @@
 import { measureLoudness, probeMedia } from "@beacon/media";
-import { randomId, type Asset, type Decision, type FeatureRegistry, type Memory, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
+import { randomId, type Asset, type Decision, type DecisionInput, type FeatureRegistry, type Memory, type Project, type ProjectStore, type SessionStore } from "@beacon/model";
 import type { DerivedData, FrameRenderer, LiveView } from "@beacon/render";
 import type { CoreEvent, Image, Job, ProjectHandle } from "./api";
 
@@ -27,7 +27,7 @@ export interface OpenProject {
    * Set while a batch (a script, a transaction of actions) is being made as one undo step: what must wait until it is
    * kept (background jobs, review decisions for Memory), each returning a line for its result; dropped if it isn't.
    */
-  batch?: { later: (() => string | void)[] };
+  batch?: { later: (() => string | void)[]; decisions: DecisionInput[] };
 }
 
 /** What core's parts (analyses, recording) are given of it: its open projects, telling their watchers, saving and jobs. */
