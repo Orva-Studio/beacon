@@ -3910,6 +3910,29 @@ barely moves the lips, so it is lip-synced to the take's sound by `sync/lipsync-
 to try it. MiniMax H3 (768p at least, $0.08/s, 4 s at least, reference
 video and audio like Seedance) waits for a test on a real take with its sound.
 
+**Agents use Beacon's tools, not the shell (the user, 2026-11-13).** Agents editing a video spend minutes in Bash
+before they edit, and Bash brings permission prompts. Beacon's MCP should cover what agents need, so they don't
+improvise. `bun scripts/agent-gaps.ts` reads Claude Code's own session transcripts (nothing new is recorded) and lists
+what the shell was used for. On 2026-11-13, 12 editing sessions made 1,919 Beacon calls and 1,020 Bash calls:
+1. **Web capture (~210 calls), first.** Screenshots, scroll recordings, cookie banners, X posts, carousels, the
+   user's own Chrome over CDP. A tool takes a URL (and optionally an element, a scroll path, a zoom) and adds a still
+   or a smooth scroll clip to the Media Bin, banners removed.
+2. **Motion graphics made outside Beacon (~230).** Agents write the HTML, render frames with their own scripts, make
+   contact sheets, and once wrote a script to push the result into `motion.code`. `motion_write` → `motion_render` →
+   `frames_sheet` should be the whole loop, with the guide explaining how motion HTML is timed.
+3. **Media prep (~190).** Downloads, converting to H.264, crops, logos and photos, slowing scroll videos down,
+   loudness. An import that converts as needed, crop to an image, fetch a site's logo.
+4. **Learning from past edits (~35).** `project_describe` on another `.beproj`, or a summary of how one was edited.
+5. **Effect settings (~38).** Agents read Beacon's source to learn Monitor, CRT, blur and regions settings: each
+   effect's settings and what they do go in `beacon://reference`.
+6. **Transcript files read directly (~26)** and **command lists built in scripts (~4):** a "keep these takes" tool
+   and commands that target every clip of a type.
+The same script also lists each Beacon tool's calls, time and errors (`project_open` failed 15 times in 44).
+`scripts/mcp-eval.ts` should fail a task that falls back to the shell.
+
+**Section colours (the user, 2026-11-13).** Right-click a section › Colour: Automatic (from its name, as before) or one
+of the six section colours; `section_set`'s `color` for agents. Saved with the section (schema v6).
+
 **Faster agents over MCP (the user, 2026-11-13).** Agents spent minutes before their first edit (a median of 51 s over
 90 requests, a quarter over 2 min) and the user saw nothing meanwhile. Beacon's calls take about a second; the time is
 the agent's turns and its work outside Beacon. Done on `feat/mcp-speed`, from Anthropic's guidance (code execution with

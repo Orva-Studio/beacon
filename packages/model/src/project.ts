@@ -26,9 +26,6 @@ export function createProject(registry: FeatureRegistry, settings: Partial<Setti
   return doc;
 }
 
-/** Names offered for a new section, after the project's own: a short list, so the same parts are named alike. */
-export const SECTION_NAMES = ["Hook", "Intro", "Explanation", "Demo", "Example", "Recap", "Outro", "Call to Action"];
-
 /** End of the last clip on the timeline. */
 export function projectDuration(project: Project): Ticks {
   return Math.max(0, ...project.tracks.flatMap((t) => t.clips.map((c) => c.start + c.duration)));

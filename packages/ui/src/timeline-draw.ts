@@ -17,6 +17,8 @@ import {
   type Session,
   type Track,
   sectionLabel,
+  SECTION_COLORS,
+  type SectionColor,
 } from "@beacon/model";
 import { clipLabel as featureLabel } from "@beacon/features/ui";
 import type { PanelItem } from "./drop";
@@ -53,13 +55,12 @@ export type Drag =
   | { kind: "trim"; clip: string; edge: "start" | "end"; x0: number; t: number; ripple: boolean; extend: boolean; edges: Map<string, number> };
 
 
-const SECTION_TONES = ["blue", "purple", "green", "yellow", "orange", "red"] as const;
-
-/** A section's colour, from its name: every "Intro" alike, in every project. */
-export function sectionTone(name: string): string {
+/** A section's colour: the one chosen, else from its name (every "Intro" alike, in every project). */
+export function sectionTone(name: string, chosen?: SectionColor): string {
+  if (chosen) return `section-${chosen}`;
   let h = 0;
   for (const ch of name.trim().toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return `section-${SECTION_TONES[h % SECTION_TONES.length]}`;
+  return `section-${SECTION_COLORS[h % SECTION_COLORS.length]}`;
 }
 
 /**
@@ -753,9 +754,10 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.stroke();
     const d = dragState.current ?? settling.current?.drag;
     const naming = latest.current.naming;
-    const bars: { id?: string; name: string; a: number; b: number; fresh?: boolean; note?: "open" | "done" }[] = project.sections.map((s) => ({
+    const bars: { id?: string; name: string; tone?: string; a: number; b: number; fresh?: boolean; note?: "open" | "done" }[] = project.sections.map((s) => ({
       id: s.id,
       name: sectionLabel(s),
+      tone: sectionTone(sectionLabel(s), s.color),
       ...(s.comment ? { note: s.reply ? ("done" as const) : ("open" as const) } : {}),
       ...(d?.kind === "section" && d.section === s.id ? { a: d.a, b: d.b } : { a: ticksToSeconds(s.start), b: ticksToSeconds(s.end) }),
     }));
@@ -772,7 +774,7 @@ export function drawTimeline(t: TimelineDrawing) {
       const y = RULER + 3;
       const bh = BAND - 6;
       ctx.globalAlpha = s.fresh ? 0.5 : 1;
-      ctx.fillStyle = color(sectionTone(s.name));
+      ctx.fillStyle = color(s.tone ?? sectionTone(s.name));
       ctx.beginPath();
       ctx.roundRect(a + 0.5, y, Math.max(2, b - a - 1), bh, 4);
       ctx.fill();
@@ -792,7 +794,7 @@ export function drawTimeline(t: TimelineDrawing) {
         ctx.arc(bx + 5, cy, 5, 0, Math.PI * 2);
         ctx.fill();
         if (s.note === "done") {
-          ctx.strokeStyle = color(sectionTone(s.name));
+          ctx.strokeStyle = color(s.tone ?? sectionTone(s.name));
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.moveTo(bx + 2.5, cy);
