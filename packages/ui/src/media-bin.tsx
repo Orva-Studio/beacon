@@ -372,7 +372,7 @@ function BinItem({ asset: a, list, thumb, peaks, selection, order, host }: { ass
       }}
       // A plain click on one of several selected items leaves just it selected (after any drag of it).
       onClick={(e) => !e.shiftKey && !e.metaKey && selection.length > 1 && replica.selectBin([a.id])}
-      onDoubleClick={() => void openPreview(host, a.id, assetName(a))}
+      onDoubleClick={(e) => (e.shiftKey ? host.run("edit.addMedia", { asset: a.id }, "Add Media") : void openPreview(host, a.id, assetName(a)))}
       onKeyDown={(e) => {
         if (e.key !== "Backspace" && e.key !== "Delete") return;
         e.preventDefault();
