@@ -468,7 +468,7 @@ export function createMenus(app: MenusApp) {
     const ids = asset.split(",");
     if (op === "add") return void core.run(h, "edit.addMedia", { asset: ids }).catch(fail);
     if (op === "addEnd") return void core.run(h, "edit.addMedia", { asset: ids, end: true }).catch(fail);
-    if (op === "delete") return void core.run(h, "edit.deleteMedia", { asset: ids }).catch(fail);
+    if (op === "delete") return message("deleteMedia", { assets: ids });
     const a = core.doc(h).assets[asset];
     if (!a) return;
     if (op === "rename") message("renameMedia", { asset });

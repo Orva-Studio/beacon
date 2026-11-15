@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { assetName, type Asset, type Project } from "@beacon/model";
+import { assetName, eachRawClip, type Asset, type Project } from "@beacon/model";
 import type { Host } from "./app";
 import { pressItem, type PanelItem } from "./drop";
 import { replica, useView, type BinKind, type BinSort } from "./store";
-import { Icon, MediaTile, Progress, RenameField, TextInput, Waveform, type IconName } from "./controls";
+import { Button, Icon, MediaTile, Modal, Progress, RenameField, TextInput, Waveform, type IconName } from "./controls";
 import { PendingTiles } from "./import-progress";
 import { openPreview } from "./media-preview";
 import { clock } from "./time";
@@ -372,12 +372,17 @@ function BinItem({ asset: a, list, thumb, peaks, selection, order, host }: { ass
       }}
       // A plain click on one of several selected items leaves just it selected (after any drag of it).
       onClick={(e) => !e.shiftKey && !e.metaKey && selection.length > 1 && replica.selectBin([a.id])}
-      onDoubleClick={(e) => (e.shiftKey ? host.run("edit.addMedia", { asset: a.id }, "Add Media") : void openPreview(host, a.id, assetName(a)))}
+      onDoubleClick={(e) => {
+        if (!e.shiftKey) return void openPreview(host, a.id, assetName(a));
+        // The new clip is selected: ⌫ is for it now, not Delete Media on this item.
+        e.currentTarget.blur();
+        host.run("edit.addMedia", { asset: a.id }, "Add Media");
+      }}
       onKeyDown={(e) => {
         if (e.key !== "Backspace" && e.key !== "Delete") return;
         e.preventDefault();
         e.stopPropagation();
-        host.run("edit.deleteMedia", { asset: selected ? selection : [a.id] }, "Delete Media");
+        deleteMedia(host, selected ? selection : [a.id]);
       }}
       // WebKit would start its own drag of the thumbnail and keep the pointer events from us.
       onDragStart={(e) => e.preventDefault()}
@@ -403,5 +408,59 @@ function BinItem({ asset: a, list, thumb, peaks, selection, order, host }: { ass
         <div className="mt-1 flex items-center px-0.5 text-label text-text-strong">{name}</div>
       )}
     </MediaTile>
+  );
+}
+
+/** How many clips on the timeline, in groups and stitched media too, use any of `assets`. */
+function clipsUsing(project: Project, assets: string[]): number {
+  const ids = new Set<string>();
+  eachRawClip(project.tracks, (c) => assets.includes(c.assetId) && ids.add(c.id));
+  return ids.size;
+}
+
+/** Media to delete, with how many clips on the timeline go with it. */
+export function mediaToDelete(assets: string[]) {
+  const project = replica.get().project;
+  return { assets, clips: project ? clipsUsing(project, assets) : 0 };
+}
+
+/** Delete Media (⌫ on an item, its menu): at once when nothing on the timeline uses it; else it asks first, as those clips go with it. */
+function deleteMedia(host: Pick<Host, "run">, assets: string[]) {
+  const deleting = mediaToDelete(assets);
+  if (!deleting.clips) return host.run("edit.deleteMedia", { asset: assets }, "Delete Media");
+  replica.askDeleteMedia(deleting);
+}
+
+export function DeleteMediaConfirm({ host }: { host: Pick<Host, "run"> }) {
+  const deleting = useView((v) => v.deletingMedia);
+  const project = useView((v) => v.project);
+  const close = () => replica.askDeleteMedia(undefined);
+  const yes = () => {
+    close();
+    host.run("edit.deleteMedia", { asset: deleting!.assets }, "Delete Media");
+  };
+  // From the menu, media nothing uses goes without asking.
+  useEffect(() => {
+    if (deleting && !deleting.clips) yes();
+  }, [deleting]);
+  if (!deleting?.clips || !project) return null;
+  const names = deleting.assets.map((id) => project.assets[id]).filter(Boolean).map((a) => `“${assetName(a!)}”`);
+  const what = names.length === 1 ? names[0] : `${names.length} items`;
+  return (
+    <Modal title="Delete Media?" width={440} onClose={close} onEnter={yes}>
+      <div className="flex flex-col gap-3" data-delete-media>
+        <p className="text-body text-text">
+          {what} {deleting.clips === 1 ? "is used by a clip" : `is used by ${deleting.clips} clips`} on the timeline. Deleting it removes {deleting.clips === 1 ? "that clip" : "those clips"} too.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button onClick={close} data-delete-media-cancel>
+            Cancel
+          </Button>
+          <Button look="danger" onClick={yes} data-delete-media-yes>
+            Delete
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

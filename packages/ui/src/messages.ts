@@ -2,6 +2,7 @@ import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { ticksToSeconds } from "@beacon/model";
 import { aboutSection } from "./ask-agent";
+import { mediaToDelete } from "./media-bin";
 import { replica } from "./store";
 
 type Messages = AppRPC["webview"]["messages"];
@@ -23,6 +24,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   },
   markerAction: ({ marker }) => replica.nameMarker(marker),
   renameMedia: ({ asset }) => replica.renameMedia(asset),
+  deleteMedia: ({ assets }) => replica.askDeleteMedia(mediaToDelete(assets)),
   newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),
   saveAsSheet: (s) => replica.saveAs(s),

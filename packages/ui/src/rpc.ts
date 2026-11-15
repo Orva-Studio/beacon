@@ -455,6 +455,8 @@ export type AppRPC = {
       markerAction: { marker: string; op: "rename" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
+      /** Delete Media from the item's menu: the window asks first when clips on the timeline use it. */
+      deleteMedia: { assets: string[] };
       /** Something to read and dismiss (what a `.cmproj` import left out). */
       notice: Notice;
       /** The Media Bin preview's clock. */

@@ -1,6 +1,6 @@
 import type { Pointer } from "bun:ffi";
 import { WGPUView } from "electrobun/main";
-import { enginePlacement, fitPercent, placeCanvas, type LiveView, type Session } from "@beacon/core";
+import { enginePlacement, fitPercent, placeCanvas, type LiveView, type Session, type ViewTarget } from "@beacon/core";
 import type { CanvasMark } from "@beacon/ui";
 import type { App, Rect } from "./app";
 
@@ -92,7 +92,19 @@ export function createViews(app: App) {
     if (!current) return null;
     void core.run(current.path, "playback.pause", {});
     preview = { asset };
-    return core.assetPreviewInfo(current.path, asset);
+    const info = core.assetPreviewInfo(current.path, asset);
+    // Audio (a narration, music) has no picture for the window to show, so no native view ever reports: it plays offscreen.
+    if (info.kind === "audio") preview.live = previewLive(current.path, asset, { offscreen: { width: 16, height: 16 } });
+    return info;
+  }
+
+  function previewLive(path: string, asset: string, target: ViewTarget) {
+    let last = 0;
+    const live = core.previewAsset(path, asset, target, {
+      onTime: (t) => message("previewClock", { time: (last = t), playing: live.playing }),
+      onEnd: () => message("previewClock", { time: last, playing: false }),
+    });
+    return live;
   }
 
   function previewView(id: number, rect: Rect, scale: number) {
@@ -104,12 +116,7 @@ export function createViews(app: App) {
       const layer = native?.getNativeHandle() as Pointer | null;
       if (!native || !layer) throw new Error(`no native view ${id}`);
       preview.live?.close();
-      let last = 0;
-      const live = core.previewAsset(current.path, preview.asset, { layer, ...px }, {
-        onTime: (t) => message("previewClock", { time: (last = t), playing: live.playing }),
-        onEnd: () => message("previewClock", { time: last, playing: false }),
-      });
-      Object.assign(preview, { id, live });
+      Object.assign(preview, { id, live: previewLive(current.path, preview.asset, { layer, ...px }) });
       native.onBeforeRemove(() => {
         if (preview?.id === id) closePreview();
       });
