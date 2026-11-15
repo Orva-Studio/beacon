@@ -3,6 +3,7 @@ import type { AppRPC } from "./rpc";
 import { ticksToSeconds } from "@beacon/model";
 import { aboutComment, aboutSection } from "./ask-agent";
 import { newComment } from "./comment-editor";
+import { mediaToDelete } from "./media-bin";
 import { replica } from "./store";
 
 type Messages = AppRPC["webview"]["messages"];
@@ -30,6 +31,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
     else replica.askAgent(aboutComment(c));
   },
   renameMedia: ({ asset }) => replica.renameMedia(asset),
+  deleteMedia: ({ assets }) => replica.askDeleteMedia(mediaToDelete(assets)),
   newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),
   saveAsSheet: (s) => replica.saveAs(s),

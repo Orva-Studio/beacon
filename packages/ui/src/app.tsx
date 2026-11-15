@@ -15,6 +15,7 @@ import { CanvasOverlay } from "./canvas";
 import type { CanvasMark } from "./canvas-marks";
 import { NoticeUi } from "./notice";
 import { MediaPreviewUi, type PreviewHost } from "./media-preview";
+import { DeleteMediaConfirm } from "./media-bin";
 import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project-name";
 import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
@@ -323,6 +324,7 @@ export function App({ host }: { host: Host }) {
         <SaveAsUi host={host} />
         <ResourceUi host={host} />
         <MediaPreviewUi host={host} />
+        <DeleteMediaConfirm host={host} />
         <NoticeUi />
         <Palette host={host} />
         <AskAgent host={host} />

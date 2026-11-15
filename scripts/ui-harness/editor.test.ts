@@ -478,6 +478,46 @@ test.skipIf(skip)("⇧-double-clicking a Media Bin item adds it to the timeline 
   expect(await page.evaluate<boolean>("document.body.innerText.includes('Preview - ')")).toBe(false);
   await ui.core.undo(ui.handle);
   await arrived(() => clips().every((c) => before.has(c.id)));
+  // ⌫ after it deletes the clip it added, not the media (the item had focus from its click: the user, 2026-11-15).
+  await page.click(x, y);
+  await page.evaluate(`document.elementFromPoint(${x}, ${y}).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, shiftKey: true }))`);
+  await arrived(() => clips().some((c) => !before.has(c.id)));
+  await Bun.sleep(300);
+  await page.key("Backspace", "Backspace");
+  await arrived(() => clips().every((c) => before.has(c.id)));
+  expect(clips().every((c) => before.has(c.id))).toBe(true);
+  expect(ui.core.doc(ui.handle).assets[id]).toBeDefined();
+  expect((await ui.core.history(ui.handle)).undo.at(-1)).not.toBe("Delete Media");
+  await ui.core.undo(ui.handle);
+  await ui.core.undo(ui.handle);
+  await arrived(() => clips().every((c) => before.has(c.id)));
+});
+
+test.skipIf(skip)("⌫ on a Media Bin item clips on the timeline use asks first, naming how many go with it; Cancel keeps both, Delete removes both in one step", async () => {
+  const id = await page.evaluate<string>("document.querySelectorAll('[data-asset]')[0].dataset.asset");
+  const used = clips().filter((c) => c.assetId === id).length;
+  expect(used).toBeGreaterThan(0);
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const [x, y] = await page.evaluate<[number, number]>(`(() => { const r = document.querySelector('[data-asset="${id}"]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + 30]; })()`);
+  try {
+    await page.click(x, y);
+    await page.key("Backspace", "Backspace");
+    await page.until("!!document.querySelector('[data-delete-media]')");
+    expect(await page.evaluate<string>("document.querySelector('[data-delete-media]').textContent")).toContain(used === 1 ? "used by a clip" : `used by ${used} clips`);
+    await page.click(...(await centre("[data-delete-media-cancel]")));
+    await page.until("!document.querySelector('[data-delete-media]')");
+    expect(ui.core.doc(ui.handle).assets[id]).toBeDefined();
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+    // From the item's menu too.
+    ui.send("deleteMedia", { assets: [id] });
+    await page.until("!!document.querySelector('[data-delete-media]')");
+    await page.click(...(await centre("[data-delete-media-yes]")));
+    await arrived(() => !ui.core.doc(ui.handle).assets[id]);
+    expect(clips().some((c) => c.assetId === id)).toBe(false);
+    expect((await ui.core.history(ui.handle)).undo.slice(steps)).toEqual(["Delete Media"]);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  }
 });
 
 test.skipIf(skip)("a double-click on a text callout types into it on the canvas, with a caret and selection", async () => {

@@ -24,6 +24,8 @@ export interface ViewState {
   thumbs: Record<string, string>;
   /** The Media Bin's selected items ("Select in Media Bin" and Snapshot select one). */
   binSelected: string[];
+  /** Media about to be deleted with the clips on the timeline that use it, waiting for the user to say yes. */
+  deletingMedia?: { assets: string[]; clips: number };
   /** The track whose name is being edited. */
   renaming?: string;
   /** The Media Bin item whose name is being edited. */
@@ -209,6 +211,9 @@ export const replica = {
   },
   saved(ok: boolean) {
     if (state.saved !== ok) set({ saved: ok });
+  },
+  askDeleteMedia(deleting: ViewState["deletingMedia"]) {
+    set({ deletingMedia: deleting });
   },
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
