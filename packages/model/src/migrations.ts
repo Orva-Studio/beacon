@@ -21,6 +21,22 @@ export const CORE_MIGRATIONS: Migration[] = [
   { version: 5, migrate: (doc) => doc },
   // Sections may carry a colour: optional, so nothing changes in a document.
   { version: 6, migrate: (doc) => doc },
+  // Comments leave sections for their own list, which markers join as comments at a moment. A section's comment the
+  // agent had answered was done, so it goes; a section that was only a comment goes with it.
+  {
+    version: 7,
+    migrate: (raw) => {
+      const doc = raw as Raw;
+      const comments: Raw[] = (doc.markers ?? []).map((m: Raw) => ({ id: m.id, start: m.time, text: m.name ?? "" }));
+      const sections: Raw[] = [];
+      for (const { comment, reply, ...s } of (doc.sections ?? []) as Raw[]) {
+        if (comment && !reply) comments.push({ id: `${s.id}-comment`, start: s.start, end: s.end, text: comment });
+        if (s.name) sections.push(s);
+      }
+      delete doc.markers;
+      return { ...doc, sections, comments: comments.sort((a, b) => a.start - b.start) };
+    },
+  },
 ];
 
 type Raw = Record<string, any>;

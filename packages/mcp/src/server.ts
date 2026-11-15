@@ -735,7 +735,7 @@ export interface AgentInfo {
 
 /** How the session reads requests from the app (Claude Code's channels). */
 const CHANNEL =
-  "Requests the user types in the Beacon app arrive as <channel source=\"beacon\" …> messages: the user's own words about their project, with attributes saying what they refer to (`project`, `clip`, `section`, `from` and `to` in timeline seconds). Work on them with Beacon's tools in that project, as if the user had typed them here. Call app_reply with the message's `request` and `reply_to` at once (status received), and again when finished (status done, one line on what you did); a question for the user goes in the terminal.";
+  "Requests the user types in the Beacon app arrive as <channel source=\"beacon\" …> messages: the user's own words about their project, with attributes saying what they refer to (`project`, `clip`, `section`, `comment`, `from` and `to` in timeline seconds; a `comment` one is removed once you reply done). Work on them with Beacon's tools in that project, as if the user had typed them here. Call app_reply with the message's `request` and `reply_to` at once (status received), and again when finished (status done, one line on what you did); a question for the user goes in the terminal.";
 
 function expandHome(p: string): string {
   return resolve(p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p) + (p.endsWith("/") ? "/" : "");

@@ -1,6 +1,6 @@
 import { secondsToTicks, snapOffset, snapTargets, ticksToSeconds, type Clip, type Track } from "@beacon/model";
 import { takes, type PanelItem } from "../drop";
-import { arrowHalfHeight, clipBox, shownSpan, EDGE, headerIcons, rowAt, RULER, SECTION_EDGE, SNAP, volumeY } from "../timeline-layout";
+import { arrowHalfHeight, clipBox, shownSpan, EDGE, headerIcons, rowAt, RULER, COMMENTS_TOP, SECTION_EDGE, SNAP, TRACKS_TOP, volumeY } from "../timeline-layout";
 import { arrows, volumeAt, volumePoints } from "../timeline-draw";
 import type { TimelineContext } from "./context";
 
@@ -170,9 +170,23 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     return undefined;
   };
 
-  /** The marker whose diamond on the ruler is under (`x`, `y`). */
-  const markerAt = (x: number, y: number) =>
-    x > HEADER && y >= RULER - 12 && y <= RULER ? latest.current.project.markers.find((m) => Math.abs(xOf(ticksToSeconds(m.time)) - x) <= 6) : undefined;
+  /**
+   * The comment under (`x`, `y`) in the Comments lane, and which part: a pin at a moment first (drawn over the bars),
+   * then the shortest bar under the pointer, by an edge within `SECTION_EDGE` points or its body.
+   */
+  const commentAt = (x: number, y: number) => {
+    if (x <= HEADER - 6 || y < COMMENTS_TOP || y >= TRACKS_TOP) return undefined;
+    const all = latest.current.project.comments;
+    const pin = all.filter((c) => c.end === undefined).find((c) => Math.abs(xOf(ticksToSeconds(c.start)) - x) <= 6);
+    if (pin) return { comment: pin, part: "body" as const };
+    const bar = all
+      .filter((c) => c.end !== undefined && x >= xOf(ticksToSeconds(c.start)) - SECTION_EDGE && x <= xOf(ticksToSeconds(c.end)) + SECTION_EDGE)
+      .sort((p, q) => p.end! - p.start - (q.end! - q.start))[0];
+    if (!bar) return undefined;
+    const [a, b] = [xOf(ticksToSeconds(bar.start)), xOf(ticksToSeconds(bar.end!))];
+    const part: "start" | "end" | "body" = Math.abs(x - a) <= SECTION_EDGE && b - a > SECTION_EDGE * 2 ? "start" : Math.abs(x - b) <= SECTION_EDGE ? "end" : x < a ? "start" : "body";
+    return { comment: bar, part };
+  };
 
   /** Snaps `edges` (seconds) by the smallest shift onto a snap target, unless snapping is off or Control is held. */
   const snapped = (edges: number[], exclude: Set<string>, ctrl: boolean): number => {
@@ -194,5 +208,5 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
-  return { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, dropHit, mediaHit, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, markerAt, snapped, pointer };
+  return { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, dropHit, mediaHit, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, commentAt, snapped, pointer };
 }

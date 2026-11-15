@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentAbout, AgentSession } from "@beacon/core";
-import { agentName, assetName, clipEnd, sectionLabel, ticksToSeconds, type Clip, type Section } from "@beacon/model";
+import { agentName, assetName, clipEnd, ticksToSeconds, type Clip, type Comment, type Section } from "@beacon/model";
 import { Button, Modal, Select, TextArea, Toast } from "./controls";
 import { replica, useView, type AgentRequest } from "./store";
 import type { Host } from "./app";
@@ -22,7 +22,15 @@ const project = () => replica.get().opened?.path;
 /** A request about a section: its name and span. */
 export function aboutSection(s: Section): AgentAbout {
   const [from, to] = [ticksToSeconds(s.start), ticksToSeconds(s.end)];
-  return { ...(project() ? { project: project()! } : {}), section: s.id, from, to, label: `Section “${sectionLabel(s)}”, ${clock(from)}–${clock(to)}${s.comment && !s.reply ? `, its comment: ${JSON.stringify(s.comment)}` : ""}` };
+  return { ...(project() ? { project: project()! } : {}), section: s.id, from, to, label: `Section “${s.name}”, ${clock(from)}–${clock(to)}` };
+}
+
+/** A request about a comment: what it says and where. Once the agent is done, Beacon removes the comment. */
+export function aboutComment(c: Comment): AgentAbout {
+  const from = ticksToSeconds(c.start);
+  const to = c.end === undefined ? from : ticksToSeconds(c.end);
+  const where = c.end === undefined ? `at ${clock(from)}` : `${clock(from)}–${clock(to)}`;
+  return { ...(project() ? { project: project()! } : {}), comment: c.id, from, to, label: `Comment ${where}${c.text ? `: ${JSON.stringify(c.text)}` : ""}` };
 }
 
 /** A request about a clip: what it is and where. */
@@ -56,7 +64,8 @@ export function AskAgent({ host }: { host: Pick<Host, "agents" | "askAgent"> }) 
 function AskAgentUi({ host, about }: { host: Pick<Host, "agents" | "askAgent">; about: AgentAbout }) {
   const [sessions, setSessions] = useState<AgentSession[]>();
   const [socket, setSocket] = useState<string>();
-  const [prompt, setPrompt] = useState("");
+  // About a comment, the request is the comment's own text to start with.
+  const [prompt, setPrompt] = useState(() => (about.comment ? (replica.get().project?.comments.find((c) => c.id === about.comment)?.text ?? "") : ""));
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState(false);
   useEffect(() => {

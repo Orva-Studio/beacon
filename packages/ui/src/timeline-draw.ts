@@ -16,14 +16,14 @@ import {
   type Project,
   type Session,
   type Track,
-  sectionLabel,
   SECTION_COLORS,
+  commentLabel,
   type SectionColor,
 } from "@beacon/model";
 import { clipLabel as featureLabel } from "@beacon/features/ui";
 import type { PanelItem } from "./drop";
 import { drawIcon, type IconName } from "./controls";
-import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, BAND, TRACKS_TOP, volumeY } from "./timeline-layout";
+import { clipBox, cornerButtons, maxTop, rowTop, shownSpan, drawArrow, drawFxBadge, headerIcons, shownName, HEIGHT_SLIDER, PIN_H, PIN_W, RANGE_TAB, RULER, BAND, COMMENTS_TOP, LANE, TRACKS_TOP, volumeY } from "./timeline-layout";
 import type { ViewState } from "./store";
 import { color, font } from "./theme";
 import { timecode } from "./time";
@@ -46,6 +46,10 @@ export type Drag =
   | { kind: "sectionNew"; a: number; b: number; lo: number; hi: number }
   /** A section's edge or body dragged: drawn from `a` to `b` (seconds), kept between `lo` and `hi` (its neighbours). */
   | { kind: "section"; section: string; part: "start" | "end" | "body"; x0: number; a0: number; b0: number; a: number; b: number; lo: number; hi: number; moved: boolean }
+  /** A new comment dragged out in the lane, from `a` to `b` (seconds, either order); `a` alone, a click: at a moment. */
+  | { kind: "commentNew"; a: number; b: number }
+  /** A comment's edge or body dragged: drawn from `a` (to `b`, none for one at a moment). */
+  | { kind: "comment"; comment: string; part: "start" | "end" | "body"; x0: number; a0: number; b0?: number; a: number; b?: number; moved: boolean }
   /** Shift-drag: time opened (d > 0) or closed (d < 0, no more than `room`) at `at`, on every unlocked track or `track` (drawn on `row`); `playhead`: begun on it, which follows. */
   | { kind: "space"; at: number; d: number; room: number; track?: string; row?: number; playhead?: boolean; from?: number; gapEnd?: number }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; base: string[] }
@@ -201,7 +205,7 @@ export function clipLabel(project: Project, clip: Clip, nested: Record<string, s
 /** What drawing the timeline reads: the component's latest render, its refs and its hit tests. */
 export interface TimelineDrawing {
   canvas: RefObject<HTMLCanvasElement | null>;
-  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"]; marker?: string }>;
+  latest: RefObject<{ project: Project; session: Session; waveforms: Record<string, Record<number, number[]>>; thumbs: Record<string, string>; dragging: ViewState["dragging"]; marks?: TimelineMark[]; section?: string; naming?: ViewState["namingSection"]; comment?: string; editing?: ViewState["editingComment"] }>;
   size: RefObject<{ w: number; h: number }>;
   staticLayer: RefObject<{ canvas?: HTMLCanvasElement; key: unknown[] }>;
   dragState: RefObject<Drag | null>;
@@ -255,7 +259,7 @@ export function drawTimeline(t: TimelineDrawing) {
     // a playback tick then costs a copy and the playhead.
     const now = performance.now();
     for (const [id, at] of flashes.current) if (now - at > FLASH_MS) flashes.current.delete(id);
-    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, latest.current.marker, flashes.current.size ? now : 0];
+    const key = [project, waveforms, thumbs, latest.current.dragging, dragState.current, settling.current, loaded.current, w, h, dpr, session.selection, session.range, session.timeline, session.animation, session.group, session.track, latest.current.section, latest.current.naming, latest.current.comment, latest.current.editing, flashes.current.size ? now : 0];
     const layer = staticLayer.current;
     if (!layer.canvas || layer.canvas.width !== c.width || layer.canvas.height !== c.height) {
       layer.canvas = document.createElement("canvas");
@@ -641,24 +645,8 @@ export function drawTimeline(t: TimelineDrawing) {
       ctx.stroke();
       ctx.fillText(timecode(t, fps), px + 3, RULER - 12);
     }
-    for (const m of project.markers) {
-      const px = x(ticksToSeconds(m.time));
-      if (px < HEADER) continue;
-      ctx.fillStyle = color("marker");
-      ctx.beginPath();
-      ctx.moveTo(px, RULER - 10);
-      ctx.lineTo(px + 5, RULER - 5);
-      ctx.lineTo(px, RULER);
-      ctx.lineTo(px - 5, RULER - 5);
-      ctx.fill();
-      if (m.id === latest.current.marker) {
-        ctx.strokeStyle = color("text-bright");
-        ctx.lineWidth = 1.5;
-        ctx.closePath();
-        ctx.stroke();
-      }
-    }
     drawSections(ctx);
+    drawComments(ctx);
 
     ctx.fillStyle = color("well");
     ctx.fillRect(0, 0, HEADER, h);
@@ -702,6 +690,7 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.fillStyle = color("text-faint");
     ctx.font = font(11);
     ctx.fillText("Sections", 10, RULER + BAND / 2 + 4);
+    ctx.fillText("Comments", 10, COMMENTS_TOP + LANE / 2 + 4);
     const knob = HEIGHT_SLIDER.bottom - ((TRACK - TRACK_HEIGHT.min) / (TRACK_HEIGHT.max - TRACK_HEIGHT.min)) * (HEIGHT_SLIDER.bottom - HEIGHT_SLIDER.top);
     ctx.fillStyle = color("groove");
     ctx.fillRect(HEIGHT_SLIDER.x - 2, HEIGHT_SLIDER.top, 4, HEIGHT_SLIDER.bottom - HEIGHT_SLIDER.top);
@@ -749,16 +738,15 @@ export function drawTimeline(t: TimelineDrawing) {
     ctx.fillRect(HEADER, RULER, width, BAND);
     ctx.strokeStyle = color("track-line");
     ctx.beginPath();
-    ctx.moveTo(HEADER, TRACKS_TOP - 0.5);
-    ctx.lineTo(w, TRACKS_TOP - 0.5);
+    ctx.moveTo(HEADER, COMMENTS_TOP - 0.5);
+    ctx.lineTo(w, COMMENTS_TOP - 0.5);
     ctx.stroke();
     const d = dragState.current ?? settling.current?.drag;
     const naming = latest.current.naming;
-    const bars: { id?: string; name: string; tone?: string; a: number; b: number; fresh?: boolean; note?: "open" | "done" }[] = project.sections.map((s) => ({
+    const bars: { id?: string; name: string; tone?: string; a: number; b: number; fresh?: boolean }[] = project.sections.map((s) => ({
       id: s.id,
-      name: sectionLabel(s),
-      tone: sectionTone(sectionLabel(s), s.color),
-      ...(s.comment ? { note: s.reply ? ("done" as const) : ("open" as const) } : {}),
+      name: s.name,
+      tone: sectionTone(s.name, s.color),
       ...(d?.kind === "section" && d.section === s.id ? { a: d.a, b: d.b } : { a: ticksToSeconds(s.start), b: ticksToSeconds(s.end) }),
     }));
     if (d?.kind === "sectionNew") bars.push({ name: "", a: Math.min(d.a, d.b), b: Math.max(d.a, d.b), fresh: true });
@@ -784,34 +772,92 @@ export function drawTimeline(t: TimelineDrawing) {
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
-      // A comment for the agent: a speech dot while it is open, a tick once the agent has done it.
-      const badge = s.note && b - a > 14 ? 12 : 0;
-      if (badge) {
-        const bx = Math.max(a, HEADER) + 4;
-        const cy = y + bh / 2;
-        ctx.fillStyle = color(s.note === "open" ? "accent" : "section-text");
-        ctx.beginPath();
-        ctx.arc(bx + 5, cy, 5, 0, Math.PI * 2);
-        ctx.fill();
-        if (s.note === "done") {
-          ctx.strokeStyle = color(s.tone ?? sectionTone(s.name));
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(bx + 2.5, cy);
-          ctx.lineTo(bx + 4.5, cy + 2);
-          ctx.lineTo(bx + 7.5, cy - 2);
-          ctx.stroke();
-        }
-      }
-      if (b - a > 24 + badge && s.name) {
+      if (b - a > 24 && s.name) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(a + 6, y, b - a - 12, bh);
         ctx.clip();
         ctx.fillStyle = color("section-text");
-        ctx.fillText(s.name, Math.max(a, HEADER) + 6 + badge, y + bh / 2 + 4);
+        ctx.fillText(s.name, Math.max(a, HEADER) + 6, y + bh / 2 + 4);
         ctx.restore();
       }
+    }
+    ctx.restore();
+    }
+
+    /** The Comments lane: a comment over a stretch is a bar, one at a moment a pin; the picked one outlined, one dragged drawn where it goes. */
+    function drawComments(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = color("panel");
+    ctx.fillRect(HEADER, COMMENTS_TOP, width, LANE);
+    ctx.strokeStyle = color("track-line");
+    ctx.beginPath();
+    ctx.moveTo(HEADER, TRACKS_TOP - 0.5);
+    ctx.lineTo(w, TRACKS_TOP - 0.5);
+    ctx.stroke();
+    const d = dragState.current ?? settling.current?.drag;
+    const editing = latest.current.editing;
+    const items: { id?: string; text: string; a: number; b?: number; fresh?: boolean }[] = project.comments.map((c) => ({
+      id: c.id,
+      text: commentLabel(c, 80),
+      ...(d?.kind === "comment" && d.comment === c.id ? { a: d.a, ...(d.b !== undefined ? { b: d.b } : {}) } : { a: ticksToSeconds(c.start), ...(c.end !== undefined ? { b: ticksToSeconds(c.end) } : {}) }),
+    }));
+    if (d?.kind === "commentNew" && d.b !== d.a) items.push({ text: "", a: Math.min(d.a, d.b), b: Math.max(d.a, d.b), fresh: true });
+    else if (editing && !editing.id) items.push({ text: "", a: editing.start, ...(editing.end !== undefined ? { b: editing.end } : {}), fresh: true });
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(HEADER, COMMENTS_TOP, width, LANE);
+    ctx.clip();
+    ctx.font = font(10, 500);
+    const y = COMMENTS_TOP + 3;
+    const ch = LANE - 6;
+    // Stretches under moments, so a pin inside a bar can still be seen and picked.
+    for (const c of [...items.filter((i) => i.b !== undefined), ...items.filter((i) => i.b === undefined)]) {
+      const a = x(c.a);
+      const picked = !!c.id && c.id === latest.current.comment;
+      ctx.globalAlpha = c.fresh ? 0.5 : 1;
+      if (c.b !== undefined) {
+        const b = x(c.b);
+        if (b < HEADER || a > w) continue;
+        ctx.fillStyle = color("comment-wash");
+        ctx.beginPath();
+        ctx.roundRect(a + 0.5, y, Math.max(2, b - a - 1), ch, 3);
+        ctx.fill();
+        ctx.fillStyle = color("comment");
+        ctx.fillRect(a + 0.5, y, 2, ch);
+        if (picked) {
+          ctx.strokeStyle = color("text-bright");
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.roundRect(a + 0.5, y, Math.max(2, b - a - 1), ch, 3);
+          ctx.stroke();
+        }
+        if (b - a > 24 && c.text) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(a + 5, y, b - a - 10, ch);
+          ctx.clip();
+          ctx.fillStyle = color("text-strong");
+          ctx.fillText(c.text, Math.max(a, HEADER) + 6, y + ch / 2 + 3.5);
+          ctx.restore();
+        }
+      } else {
+        if (a < HEADER - 6 || a > w + 6) continue;
+        const cy = COMMENTS_TOP + LANE / 2;
+        ctx.fillStyle = color("comment");
+        ctx.beginPath();
+        ctx.moveTo(a, cy - 6);
+        ctx.lineTo(a + 6, cy);
+        ctx.lineTo(a, cy + 6);
+        ctx.lineTo(a - 6, cy);
+        ctx.closePath();
+        ctx.fill();
+        if (picked) {
+          ctx.strokeStyle = color("text-bright");
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
     }

@@ -513,7 +513,7 @@ function openWindow(): Win {
         dropFiles: ({ files, time, track, timing }) => reply(() => projects.dropFiles(w, files, { time, track }, timing)),
         trackMenu: (params) => menus.trackMenu(params),
         sectionMenu: (params) => menus.sectionMenu(params),
-        markerMenu: (params) => menus.markerMenu(params),
+        commentMenu: (params) => menus.commentMenu(params),
         captureFrame: () =>
           reply(async () => {
             if (!w.current) return;
@@ -645,7 +645,7 @@ core.setSnapshotter(async (h) => {
   const s = w.shown;
   const text =
     s &&
-    `${s.project}: ${s.tracks} tracks, ${s.clips} clips, ${s.markers} markers; playhead ${s.playhead.toFixed(2)} s; ` +
+    `${s.project}: ${s.tracks} tracks, ${s.clips} clips, ${s.comments} comments; playhead ${s.playhead.toFixed(2)} s; ` +
       `selected ${s.selection.length ? s.selection.join(", ") : "nothing"}; timeline ${s.timeline.start.toFixed(2)}–${s.timeline.end.toFixed(2)} s; ` +
       `tool panel ${s.tool ?? "closed"}; properties ${s.properties ?? "closed"}; ${s.waveforms} waveforms, ${s.thumbs} thumbnails`;
   return { png, canvas, scale, shown: text };

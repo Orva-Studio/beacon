@@ -380,7 +380,7 @@ export interface BeaconCore {
    * last message told as `agent` events.
    */
   askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string>;
-  /** An agent's answer to a request (`app_reply`): it has it, or it is done. Raises an `agent` event. */
+  /** An agent's answer to a request (`app_reply`): it has it, or it is done. Raises an `agent` event; done, the comment it was about goes. */
   agentReply(request: string, status: "received" | "done", text?: string): Promise<void>;
   /**
    * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
@@ -481,6 +481,8 @@ export interface AgentAbout {
   project?: string;
   clip?: string;
   section?: string;
+  /** A comment the request is about: removed once the agent says it is done. */
+  comment?: string;
   from?: number;
   to?: number;
   /** What the user sees it as ("Motion graphic “Stat” at 0:12"). */

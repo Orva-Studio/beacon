@@ -88,7 +88,7 @@ import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeP
 import { pngImage, probeAsset, shortId, type CoreParts, type OpenProject, type Preview } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
-import { currentAuthor } from "./author";
+import { asAuthor, currentAuthor } from "./author";
 import { AgentRuns, type RunAgent } from "./agent-run";
 import { loadScriptEngine, runScript, SCRIPT_SECONDS, type ScriptHost } from "./script";
 import { Tasks } from "./tasks";
@@ -197,7 +197,7 @@ export class LocalCore implements BeaconCore {
       socket: opts.socket,
       controlDir: opts.controlDir,
       agentClis: opts.agentClis,
-      reply: (request, status, text) => void this.agentReply(request, status, text),
+      reply: (request, status, text, failed) => void this.#agentReplied(request, status, text, failed),
     });
     this.#recording = new Recording(this.#parts, this.#config, this.#analyses, (h, files, o) => this.import(h, files, o));
   }
@@ -782,7 +782,7 @@ export class LocalCore implements BeaconCore {
     const picture = media?.streams?.find((s) => s.kind === "video" && s.width && s.height);
     const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
     const settings = picture ? { ...base.settings, width: even(picture.width!), height: even(picture.height!) } : base.settings;
-    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], markers: [], sections: [] }, { newId: shortId, data: p.data.get });
+    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], sections: [], comments: [] }, { newId: shortId, data: p.data.get });
     store.run("asset.place", { asset: assetId, time: 0 });
     const doc = store.doc;
     const kind = asset.kind === "image" ? "image" : picture ? "video" : "audio";
@@ -1122,8 +1122,13 @@ export class LocalCore implements BeaconCore {
     return this.#agentRuns.agents();
   }
 
+  /** Requests about a comment, by request id: the comment goes when the agent is done. */
+  #askedAbout = new Map<string, { project: string; comment: string }>();
+
   async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
-    return this.#agentRuns.ask(socket, prompt, about);
+    const request = await this.#agentRuns.ask(socket, prompt, about);
+    if (about.comment && about.project) this.#askedAbout.set(request, { project: about.project, comment: about.comment });
+    return request;
   }
 
   async agentStatus(h: ProjectHandle, text: string): Promise<void> {
@@ -1132,6 +1137,16 @@ export class LocalCore implements BeaconCore {
   }
 
   async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {
+    return this.#agentReplied(request, status, text);
+  }
+
+  async #agentReplied(request: string, status: "received" | "done", text?: string, failed = false): Promise<void> {
+    const about = status === "done" ? this.#askedAbout.get(request) : undefined;
+    if (status === "done") this.#askedAbout.delete(request);
+    // The agent may have removed it itself; a run that failed or was cancelled hasn't done it.
+    if (about && !failed && this.#projects.get(about.project)?.store.doc.comments.some((c) => c.id === about.comment)) {
+      await asAuthor("agent", () => this.run(about.project, "comment.remove", { comment: about.comment }, { label: "Comment Done" })).catch(() => {});
+    }
     for (const l of this.#appListeners) l({ kind: "agent", request, status, ...(text ? { text } : {}) });
   }
 

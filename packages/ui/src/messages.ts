@@ -1,7 +1,8 @@
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { ticksToSeconds } from "@beacon/model";
-import { aboutSection } from "./ask-agent";
+import { aboutComment, aboutSection } from "./ask-agent";
+import { newComment } from "./comment-editor";
 import { replica } from "./store";
 
 type Messages = AppRPC["webview"]["messages"];
@@ -21,7 +22,13 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
     if (op === "rename") replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
     else replica.askAgent(aboutSection(s));
   },
-  markerAction: ({ marker }) => replica.nameMarker(marker),
+  commentAction: ({ comment, op }) => {
+    if (op === "new") return newComment();
+    const c = replica.get().project?.comments.find((x) => x.id === comment);
+    if (!c) return;
+    if (op === "edit") replica.editComment({ id: c.id, start: ticksToSeconds(c.start) });
+    else replica.askAgent(aboutComment(c));
+  },
   renameMedia: ({ asset }) => replica.renameMedia(asset),
   newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),

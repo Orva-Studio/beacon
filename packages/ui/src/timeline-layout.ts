@@ -9,8 +9,11 @@ import { color, font } from "./theme";
 export const RULER = 40;
 /** The Sections band under the ruler: the video's named parts. */
 export const BAND = 22;
-/** Where the tracks begin: under the ruler and the Sections band. */
-export const TRACKS_TOP = RULER + BAND;
+/** The Comments lane under the Sections band: notes for an agent, over a stretch or at a moment. */
+export const LANE = 18;
+export const COMMENTS_TOP = RULER + BAND;
+/** Where the tracks begin: under the ruler, the Sections band and the Comments lane. */
+export const TRACKS_TOP = RULER + BAND + LANE;
 /** Within this many points of a section's edge, a press drags the edge. */
 export const SECTION_EDGE = 5;
 export const HEADER = 156;

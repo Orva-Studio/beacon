@@ -138,10 +138,10 @@ export function withLinked(project: Project, ids: string[]): string[] {
   return [...new Set([...ids, ...all.filter((c) => c.linkId && links.has(c.linkId)).map((c) => c.id)])];
 }
 
-/** Timeline seconds of every clip start and end, marker and animation block edge, sorted. */
-export function stops(project: Project, kind: "edit" | "marker" | "animation"): number[] {
+/** Timeline seconds of every clip start and end, comment (its start) and animation block edge, sorted. */
+export function stops(project: Project, kind: "edit" | "comment" | "animation"): number[] {
   const out: number[] = [];
-  if (kind === "marker") for (const m of project.markers) out.push(m.time);
+  if (kind === "comment") for (const c of project.comments) out.push(c.start);
   for (const { clip } of topClips(project)) {
     if (kind === "edit") out.push(clip.start, end(clip));
     if (kind === "animation") {

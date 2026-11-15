@@ -39,7 +39,7 @@ test.skipIf(!existsSync(AI_SLOP))("editing a real project validates, and undo re
     tx.run("zoom.to", { clip: screen.id, at: mid - 1.5, rect: { x: 0, y: 0, width: 960, height: 540 }, until: mid - 1 });
     tx.run("timeline.rippleDelete", { ranges: [{ start: 1, end: 2.5 }, { start: mid - 0.5, end: mid + 0.5 }, { start: length - 3, end: length - 1 }] });
     tx.run("clip.split", { at: 10 });
-    tx.run("marker.add", { time: 5, name: "check" });
+    tx.run("comment.add", { start: 5, end: 8, text: "check" });
   });
   expect(ticksToSeconds(projectDuration(store.doc))).toBeCloseTo(length - 4.5, 1);
 

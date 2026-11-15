@@ -115,3 +115,16 @@ test("a shortcut changed is saved over the defaults; a key taken is refused unle
     rmSync(configDir, { recursive: true, force: true });
   }
 });
+
+test("keys saved for a marker action carry over to the comment action that replaced it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "beacon-keymap-renamed-"));
+  try {
+    await Bun.write(join(dir, "keymap.json"), JSON.stringify({ overrides: { "playhead.jump:nextMarker": [{ key: "n", modifiers: ["option"] }] } }));
+    const core = new LocalCore({ cacheDir: join(dir, "cache"), configDir: dir });
+    const next = (await core.shortcuts()).find((s) => s.id === "playhead.jump:nextComment")!;
+    expect(next.keys).toEqual([{ key: "n", modifiers: ["option"] }]);
+    expect(next.standard).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -19,8 +19,8 @@ export function createProject(registry: FeatureRegistry, settings: Partial<Setti
     settings: { ...DEFAULT_SETTINGS, ...settings },
     assets: {},
     tracks: [],
-    markers: [],
     sections: [],
+    comments: [],
   };
   registry.validate(doc);
   return doc;

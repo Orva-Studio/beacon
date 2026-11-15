@@ -52,6 +52,7 @@ export function runPrompt(prompt: string, about: AgentAbout): string {
     ...(about.label ? [`- ${about.label}`] : []),
     ...(about.clip ? [`- clip id: ${about.clip}`] : []),
     ...(about.section ? [`- section id: ${about.section}`] : []),
+    ...(about.comment ? [`- comment id: ${about.comment} (Beacon removes it once you say you're done)`] : []),
     ...(about.from !== undefined && about.to !== undefined ? [`- timeline: ${about.from.toFixed(2)} s to ${about.to.toFixed(2)} s`] : []),
     "",
     "Work only through the beacon MCP tools (read beacon://docs resources when you need them); don't run shell commands or edit files. Finish with one line saying what you did, or why you couldn't.",
@@ -136,7 +137,8 @@ export interface AgentRunsContext {
   readonly socket?: string;
   readonly controlDir?: string;
   readonly agentClis?: Partial<Record<RunAgent, string>>;
-  reply(request: string, status: "received" | "done", text?: string): void;
+  /** `failed`: done, but it didn't do what was asked (it failed or was cancelled). */
+  reply(request: string, status: "received" | "done", text?: string, failed?: boolean): void;
 }
 
 /** Agent sessions connected to Beacon (asked through their control sockets), and runs of agent CLIs Beacon starts itself. */
@@ -182,14 +184,14 @@ export class AgentRuns {
     if (!RUN_AGENTS.includes(name)) throw new Error(`Beacon can't start a run of ${name}`);
     const cli = await this.#agentCli(name);
     if (!cli) throw new Error(`${name} isn't installed`);
-    const tell = (status: "received" | "done", text?: string) => this.ctx.reply(job.id, status, text);
+    const tell = (status: "received" | "done", text?: string, failed?: boolean) => this.ctx.reply(job.id, status, text, failed);
     const job = this.ctx.parts.startJob(undefined, "agent", `Codex: ${prompt.slice(0, 60)}`, async (progress) => {
       const last = await runCodex(cli.path, prompt, about, (s) => {
         const text = s.tool ? `Using ${s.tool.replace(/_/g, " ")}` : s.message;
         progress(0, text);
         tell("received", text);
       }).catch((e: Error) => {
-        tell("done", jobSignal()?.aborted || e.message === "cancelled" ? "Cancelled" : e.message);
+        tell("done", jobSignal()?.aborted || e.message === "cancelled" ? "Cancelled" : e.message, true);
         throw e;
       });
       tell("done", last || "Done");

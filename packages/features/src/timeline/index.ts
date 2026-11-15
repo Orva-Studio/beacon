@@ -31,6 +31,7 @@ import {
 import { visualSize } from "../media";
 import { actions, animationActions } from "./actions";
 import { clipCommands, packMagnetic } from "./clips";
+import { commentCommands } from "./comments";
 import { sectionCommands } from "./sections";
 
 
@@ -184,37 +185,6 @@ const commands = [
       c.effects.splice(i, 1);
     },
   }),
-  defineCommand({
-    id: "marker.add",
-    description: "Add a timeline marker at a time in seconds. Returns its id",
-    args: z.strictObject({ time: Seconds, name: z.string() }),
-    apply(doc, { time, name }, ctx) {
-      const id = ctx.newId("marker");
-      doc.markers.push({ id, time: snapSeconds(time, doc.settings.fps), name });
-      doc.markers.sort((a, b) => a.time - b.time);
-      return id;
-    },
-  }),
-  defineCommand({
-    id: "marker.remove",
-    description: "Remove a timeline marker",
-    args: z.strictObject({ marker: Id }),
-    apply(doc, { marker }) {
-      const i = doc.markers.findIndex((m) => m.id === marker);
-      if (i < 0) throw new Error(`no marker "${marker}"`);
-      doc.markers.splice(i, 1);
-    },
-  }),
-  defineCommand({
-    id: "marker.set",
-    description: "Rename a timeline marker",
-    args: z.strictObject({ marker: Id, name: z.string() }),
-    apply(doc, { marker, name }) {
-      const m = doc.markers.find((x) => x.id === marker);
-      if (!m) throw new Error(`no marker "${marker}"`);
-      m.name = name;
-    },
-  }),
 ];
 
 const s = (t: Ticks) => roundSeconds(ticksToSeconds(t));
@@ -271,8 +241,8 @@ function describe(project: Project): string {
     const rest = sorted.slice(DESCRIBE_CLIPS);
     if (rest.length) lines.push(`    … ${rest.length} more, ${s(rest[0]!.start)}-${s(Math.max(...rest.map((c) => c.start + c.duration)))}s: timeline_clips with from/to or track "${t.id}"`);
   }
-  if (project.markers.length) lines.push(`markers: ${project.markers.map((m) => `${s(m.time)}s "${m.name}"`).join(", ")}`);
-  if (project.sections.length) lines.push(`sections: ${project.sections.map((x) => `${x.id} "${x.name}" ${s(x.start)}-${s(x.end)}s${x.comment ? ` comment ${JSON.stringify(x.comment)}${x.reply ? ` done: ${JSON.stringify(x.reply)}` : " (open)"}` : ""}`).join(", ")}`);
+  if (project.sections.length) lines.push(`sections: ${project.sections.map((x) => `${x.id} "${x.name}" ${s(x.start)}-${s(x.end)}s`).join(", ")}`);
+  if (project.comments.length) lines.push(`comments: ${project.comments.map((c) => `${c.id} ${s(c.start)}${c.end !== undefined ? `-${s(c.end)}` : ""}s ${JSON.stringify(c.text)}`).join(", ")}`);
   return lines.join("\n");
 }
 
@@ -291,7 +261,7 @@ function pointer(doc: unknown, path: string): unknown {
 const queries = [
   defineQuery({
     id: "project.describe",
-    description: "Plain-text summary of the project: settings, assets, tracks and their clips (the first 40 on each) with times in seconds, markers and sections",
+    description: "Plain-text summary of the project: settings, assets, tracks and their clips (the first 40 on each) with times in seconds, sections and comments",
     args: z.strictObject({}),
     run: (_, { project }) => describe(project),
     resource: { uri: "beacon://project/summary", name: "Project summary", mimeType: "text/plain" },
@@ -340,11 +310,11 @@ const queries = [
   }),
 ];
 
-/** Generic timeline editing: tracks, clips, ripple deletes, animation blocks, effects and markers. */
+/** Generic timeline editing: tracks, clips, ripple deletes, animation blocks, effects, sections and comments. */
 export const timeline = defineFeature({
   id: "timeline",
   version: 1,
-  commands: [...clipCommands, ...commands, ...sectionCommands],
+  commands: [...clipCommands, ...commands, ...sectionCommands, ...commentCommands],
   queries,
   normalize: packMagnetic,
   actions: [...actions, ...animationActions],

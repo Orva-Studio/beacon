@@ -69,12 +69,26 @@ test("Ask an Agent with Codex starts a run with Beacon's tools attached and appr
   expect(prompt).toContain("- timeline: 2.00 s to 5.00 s");
   expect(prompt).toContain("don't run shell commands");
 
+  // About a comment: once the run is done, the comment goes (one undo step, the agent's); a run that fails keeps it.
+  const h = await core.create({ path: join(dir, "comments.beproj") });
+  const comment = (await core.run(h, "comment.add", { start: 2, text: "Make this a counter" })).results[0] as string;
+  const done = await core.askAgent("run:codex", "Make this a counter", { project: h, comment, from: 2, to: 2 });
+  await events(core, done, (e) => e.some((x) => x.kind === "agent" && x.status === "done"), seen);
+  expect(core.doc(h).comments).toEqual([]);
+  expect((await core.history(h)).steps.undo.at(-1)).toEqual({ label: "Comment Done", author: "agent" });
+  expect(readFileSync(join(dir, "args-ok"), "utf8")).toContain(`- comment id: ${comment}`);
+
   // It fails: the toast says why.
   const failing = make("fail");
   failing.watchApp((e) => seen.push(e));
   const bad = await failing.askAgent("run:codex", "Anything", about);
   const failed = await events(failing, bad, (e) => e.some((x) => x.kind === "agent" && x.status === "done"), seen);
   expect(failed.at(-1)).toMatchObject({ status: "done", text: expect.stringContaining("Codex exited with 1: not logged in") });
+  const fh = await failing.create({ path: join(dir, "comments-failed.beproj") });
+  const kept = (await failing.run(fh, "comment.add", { start: 1, end: 3, text: "Zoom in" })).results[0] as string;
+  const nope = await failing.askAgent("run:codex", "Zoom in", { project: fh, comment: kept });
+  await events(failing, nope, (e) => e.some((x) => x.kind === "agent" && x.status === "done"), seen);
+  expect(failing.doc(fh).comments.map((c) => c.id)).toEqual([kept]);
 
   // Cancelled: the run stops, and says so.
   const slow = make("slow");

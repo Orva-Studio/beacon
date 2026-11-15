@@ -5,6 +5,24 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Comments (`feat/comments`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **Comments have their own lane** under the Sections band (the user, 2026-11-15: a comment on a few seconds broke a chapter): over a stretch or at a moment, overlapping each other and sections; a double-click-drag makes one over a stretch, ⌥-drag one over others, ⇧M (Timeline › Add Comment) one at the playhead, its text typed first; hovered, the text shows; a click picks it and takes the playhead there; a double-click edits it, a drag moves or resizes it, right-click › Ask an Agent…, Edit…, Delete Comment, ⌫ deletes it | 2026-11-15 | this branch | UI flow (`Comments: a lane…`); screenshots looked at |
+| **Markers are gone**: comments at a moment replace them (Go to Next/Previous Comment ⌃] ⌃[, range to a comment ⌃⇧{ ⌃⇧}, snapping to comments); keys saved for the marker actions carry over | 2026-11-15 | this branch | core tests (`comments.test.ts`, `keymap.test.ts`) |
+| **Sections are names only**: the comment and reply left them; the popup is a name box | 2026-11-15 | this branch | core test (`sections.test.ts`); UI flow (`Sections…`) |
+| **A comment goes once done**: Ask an Agent from a comment starts with its text; once the agent answers done, Beacon removes it (as the agent's step, so ⌘Z skips it); a run that fails keeps it. Agents are told to `comment_remove` what they've done | 2026-11-15 | this branch | core test (`agent-run.test.ts`); UI flow (`Ask an Agent…`) |
+| **Schema v7**: markers become comments at a moment, a section's open comment a comment over the section, an answered one goes, a section that was only a comment goes | 2026-11-15 | this branch | migration test v7 |
+
+### Not checked yet
+
+- In the app, open a project that had markers or section comments: are they in the Comments lane?
+- Double-click the Comments lane and drag; type a comment and press Enter. Press ⇧M for one at the playhead. Hover, click, drag and right-click them.
+- Right-click a comment › Ask an Agent… with Claude Code connected: once it says done, is the comment gone?
+
 ## Faster agents over MCP (`feat/mcp-speed`)
 
 ### Checked headless only

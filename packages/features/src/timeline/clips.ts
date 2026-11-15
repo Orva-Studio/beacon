@@ -42,6 +42,7 @@ import {
   IdSchema as Id,
   SecondsSchema as Seconds,
 } from "@beacon/model";
+import { cutComments, openComments } from "./comments";
 import { cutSections, openSections } from "./sections";
 
 const Linked = z.boolean().default(true).describe("Include the clips linked to them (a recording's screen, camera and audio)");
@@ -186,8 +187,7 @@ function removeRange(doc: Project, tracks: Track[], a: Ticks, b: Ticks, ctx: Com
     }
   }
   if (ripple && tracks === doc.tracks) {
-    for (let i = doc.markers.length - 1; i >= 0; i--) if (doc.markers[i]!.time >= a && doc.markers[i]!.time < b) doc.markers.splice(i, 1);
-    for (const m of doc.markers) if (m.time >= b) m.time -= gap;
+    cutComments(doc, a, b);
     cutSections(doc, a, b);
   }
 }
@@ -635,7 +635,7 @@ export const clipCommands = [
   defineCommand({
     id: "timeline.insertSpace",
     description:
-      "Open a gap of `duration` seconds at a timeline time on every unlocked track (or only `track`), splitting clips there and moving everything after it, markers too unless only one track moves (Shift-drag right of the playhead or a gap)",
+      "Open a gap of `duration` seconds at a timeline time on every unlocked track (or only `track`), splitting clips there and moving everything after it, comments and sections too unless only one track moves (Shift-drag right of the playhead or a gap)",
     args: z.strictObject({ at: Seconds, duration: z.number().positive(), track: Id.optional() }),
     apply(doc, { at, duration, track }, ctx) {
       const t = snapSeconds(at, doc.settings.fps);
@@ -647,7 +647,7 @@ export const clipCommands = [
         shiftLater(tr, t, d);
       }
       if (!track) {
-        for (const m of doc.markers) if (m.time >= t) m.time += d;
+        openComments(doc, t, d);
         openSections(doc, t, d);
       }
     },
@@ -655,7 +655,7 @@ export const clipCommands = [
   defineCommand({
     id: "timeline.removeSpace",
     description:
-      "Close `duration` seconds of empty time just before a timeline time on every unlocked track (or only `track`), moving everything after it back, markers too unless only one track moves (Shift-drag left of the playhead or a gap). Refused where media is in that time",
+      "Close `duration` seconds of empty time just before a timeline time on every unlocked track (or only `track`), moving everything after it back, comments and sections too unless only one track moves (Shift-drag left of the playhead or a gap). Refused where media is in that time",
     args: z.strictObject({ at: Seconds, duration: z.number().positive(), track: Id.optional() }),
     apply(doc, { at, duration, track }) {
       const t = snapSeconds(at, doc.settings.fps);
@@ -668,7 +668,7 @@ export const clipCommands = [
       if (d > room) throw new Error("there is media in that time; only empty time can be closed");
       for (const tr of tracks) shiftLater(tr, t, -d);
       if (!track) {
-        for (const m of doc.markers) if (m.time >= t - d) m.time = Math.max(t - d, m.time - d);
+        cutComments(doc, t - d, t, true);
         cutSections(doc, t - d, t);
       }
     },

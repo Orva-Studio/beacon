@@ -439,13 +439,13 @@ export const actions = [
     resolve: (_, ctx) => toggleTracks(ctx, "muted", ["Mute", "Unmute"]),
   }),
   defineAction({
-    id: "edit.addMarker",
-    duplicates: "marker.add",
-    description: "Add a timeline marker at the playhead (⇧M)",
+    id: "edit.addComment",
+    duplicates: "comment.add",
+    description: "Add a comment at the playhead (⇧M); in the app, the comment's text is typed first",
     args: none,
     resolve: (_, ctx) => {
-      mainTimelineOnly(ctx, "add a marker");
-      return { label: "Add Marker", steps: [{ command: "marker.add", args: { time: ctx.session.playhead, name: "" } }] };
+      mainTimelineOnly(ctx, "add a comment");
+      return { label: "Add Comment", steps: [{ command: "comment.add", args: { start: ctx.session.playhead, text: "" } }] };
     },
   }),
   defineAction({

@@ -107,7 +107,7 @@ export interface Shown {
   project?: string;
   tracks: number;
   clips: number;
-  markers: number;
+  comments: number;
   playhead: number;
   selection: string[];
   timeline: { start: number; end: number };
@@ -145,7 +145,7 @@ export { panelHeight, recordingTitle } from "./record-panel-size";
 export { clock } from "./time";
 export { copiedIds } from "./clip-ids";
 // The timeline's geometry, for the UI harness's clicks.
-export { BAND, clipBox, cornerButtons, headerIcons, headerWidth, RULER, TRACKS_TOP } from "./timeline-layout";
+export { BAND, clipBox, COMMENTS_TOP, cornerButtons, headerIcons, headerWidth, LANE, RULER, TRACKS_TOP } from "./timeline-layout";
 
 export interface Notice {
   title: string;
@@ -345,7 +345,8 @@ export type AppRPC = {
       trackMenu: { params: { track: string | null }; response: void };
       /** A section's right-click menu: Ask an Agent…, Rename…, Delete Section. */
       sectionMenu: { params: { section: string }; response: void };
-      markerMenu: { params: { marker: string }; response: void };
+      /** A comment's right-click menu: Edit…, Ask an Agent…, Delete Comment. */
+      commentMenu: { params: { comment: string }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
       /** An effect shown with other params on the canvas only, or null to show it as it is (a look under the pointer). */
@@ -452,7 +453,8 @@ export type AppRPC = {
       rename: { track: string };
       /** A section menu's choice the window carries out: ask an agent about it, or rename it. */
       sectionAction: { section: string; op: "ask" | "rename" };
-      markerAction: { marker: string; op: "rename" };
+      /** A comment menu's choice the window carries out (`new`: Add Comment from the menu bar, at the playhead). */
+      commentAction: { comment?: string; op: "edit" | "ask" | "new" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
       /** Something to read and dismiss (what a `.cmproj` import left out). */

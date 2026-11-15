@@ -72,7 +72,7 @@ replica.subscribe(() => {
       project: opened?.name,
       tracks: project.tracks.length,
       clips: project.tracks.reduce((n, t) => n + t.clips.length, 0),
-      markers: project.markers.length,
+      comments: project.comments.length,
       playhead: session.playhead,
       selection: session.selection,
       timeline: session.timeline,

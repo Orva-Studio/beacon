@@ -2,7 +2,7 @@ import { ticksToSeconds } from "@beacon/model";
 import { droppedFiles } from "../drop";
 import type { DroppedFile } from "../rpc";
 import { replica } from "../store";
-import { maxTop, RULER, TRACKS_TOP } from "../timeline-layout";
+import { COMMENTS_TOP, maxTop, RULER, TRACKS_TOP } from "../timeline-layout";
 import { volumeAt, volumePoints } from "../timeline-draw";
 import type { TimelineContext } from "./context";
 import type { TimelineHits } from "./hit-test";
@@ -13,14 +13,14 @@ export interface ClickOptions {
   /** A track's menu (Insert Track, Rename…, Lock…), or with null the track options under ⌄. */
   trackMenu: (track: string | null) => void;
   sectionMenu: (section: string) => void;
-  markerMenu: (marker: string) => void;
+  commentMenu: (comment: string) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
 }
 
 /** The timeline's double-clicks, right-clicks, wheel and Finder drops. */
-export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, tracks, clipTypes, run }: TimelineContext, hits: TimelineHits, { menu, trackMenu, sectionMenu, markerMenu, dropFiles }: ClickOptions) {
-  const { timeAt, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, sectionAt, markerAt, pointer } = hits;
+export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, tracks, clipTypes, run }: TimelineContext, hits: TimelineHits, { menu, trackMenu, sectionMenu, commentMenu, dropFiles }: ClickOptions) {
+  const { timeAt, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, sectionAt, commentAt, pointer } = hits;
 
   const onDrop = (e: React.DragEvent<HTMLCanvasElement>) => {
     if (!e.dataTransfer.files.length || latest.current.session.group) return;
@@ -35,10 +35,10 @@ export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, track
 
   const onDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = pointer(e);
-    const marker = markerAt(x, y);
-    if (marker) return replica.nameMarker(marker.id);
+    const comment = commentAt(x, y)?.comment;
+    if (comment) return replica.editComment({ id: comment.id, start: ticksToSeconds(comment.start) });
     if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
-      const s = sectionAt(x)?.section;
+      const s = y < COMMENTS_TOP ? sectionAt(x)?.section : undefined;
       if (s) replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
       return;
     }
@@ -72,12 +72,12 @@ export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, track
       if (i !== undefined) trackMenu(tracks[i]!.id);
       return;
     }
-    const marker = markerAt(x, y);
-    if (marker) {
-      replica.marker(marker.id);
-      return markerMenu(marker.id);
+    const comment = commentAt(x, y)?.comment;
+    if (comment) {
+      replica.comment(comment.id);
+      return commentMenu(comment.id);
     }
-    if (y >= RULER && y < TRACKS_TOP) {
+    if (y >= RULER && y < COMMENTS_TOP) {
       const s = sectionAt(x)?.section;
       if (s) sectionMenu(s.id);
       return;

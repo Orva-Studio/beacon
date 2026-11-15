@@ -40,7 +40,7 @@
           "shift"
         ]
       },
-      "command": "edit.addMarker"
+      "command": "edit.addComment"
     },
     {
       "keys": {
@@ -161,7 +161,7 @@
       "command": "range.extend",
       "args": {
         "side": "right",
-        "to": "marker"
+        "to": "comment"
       }
     },
     {
@@ -190,7 +190,7 @@
       "command": "range.extend",
       "args": {
         "side": "left",
-        "to": "marker"
+        "to": "comment"
       }
     },
     {
@@ -345,7 +345,7 @@
       },
       "command": "playhead.jump",
       "args": {
-        "to": "nextMarker"
+        "to": "nextComment"
       }
     },
     {
@@ -393,7 +393,7 @@
       },
       "command": "playhead.jump",
       "args": {
-        "to": "previousMarker"
+        "to": "previousComment"
       }
     },
     {

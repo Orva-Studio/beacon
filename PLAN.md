@@ -3930,6 +3930,14 @@ what the shell was used for. On 2026-11-13, 12 editing sessions made 1,919 Beaco
 The same script also lists each Beacon tool's calls, time and errors (`project_open` failed 15 times in 44).
 `scripts/mcp-eval.ts` should fail a task that falls back to the shell.
 
+**Comments, apart from sections (the user, 2026-11-15).** A comment for an agent had to be a section, and sections
+can't overlap, so commenting on a few seconds broke a chapter. Comments now have their own lane under the Sections band
+(schema v7): over a stretch or at a moment, overlapping each other and sections. Sections are names (and colours)
+only. Comments at a moment replace markers, which are gone (their keys and jumps are the comments'). Decided: the lane
+directly under the Sections band; a comment the agent has done is removed (Beacon removes the one a request was about
+once the agent answers done; agents remove those they do); a comment may be at a moment. `comment_add`, `comment_set`,
+`comment_remove` for agents.
+
 **Section colours (the user, 2026-11-13).** Right-click a section › Colour: Automatic (from its name, as before) or one
 of the six section colours; `section_set`'s `color` for agents. Saved with the section (schema v6).
 

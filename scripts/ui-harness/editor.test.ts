@@ -9,7 +9,7 @@ import { openPage } from "./browser";
 import { serveUi } from "./serve";
 import { tool } from "@beacon/media";
 import { regionOfClip } from "@beacon/features";
-import { BAND, clipBox, cornerButtons, DEFAULT_EXPORT, exportFileChoices, exportOptions, headerIcons, headerWidth, recordingTitle, RULER, TRACKS_TOP } from "@beacon/ui";
+import { BAND, clipBox, COMMENTS_TOP, cornerButtons, DEFAULT_EXPORT, exportFileChoices, exportOptions, headerIcons, headerWidth, LANE, recordingTitle, RULER, TRACKS_TOP } from "@beacon/ui";
 
 /**
  * The editor's flows, driven in headless Chromium against a LocalCore (no window, no screen): what was
@@ -2001,8 +2001,8 @@ test.skipIf(skip)("Settings › Shortcuts lists every action, searchable; pressi
   // An agent's change shows in the open list; Reset All puts every key back.
   ui.send("settingsSheet", { exportColorSpace: "bt709", autoProxy: { recording: true, video: true }, proxyMode: "quiet", tab: "shortcuts" });
   await page.until("!!document.querySelector('[data-shortcuts]')");
-  await ui.core.shortcutSet("edit.addMarker", [{ key: "m", modifiers: ["option"] }]);
-  await page.until(`document.querySelector('${row("edit.addMarker")} [data-shortcut-keys]')?.textContent === "⌥M"`);
+  await ui.core.shortcutSet("edit.addComment", [{ key: "m", modifiers: ["option"] }]);
+  await page.until(`document.querySelector('${row("edit.addComment")} [data-shortcut-keys]')?.textContent === "⌥M"`);
   await page.screenshot(join(dir, "shortcuts.png"));
   await page.click(...(await centre("[data-shortcuts-reset-all]")));
   await page.until(`document.querySelector('${row("edit.split")} [data-shortcut-keys]').textContent === "⌘T"`);
@@ -2331,7 +2331,7 @@ test.skipIf(skip)("the ruler moves the playhead past the last clip, and an edit 
   await page.click(xAt(past), box.y + 12);
   await Bun.sleep(300);
   expect((await session()).playhead).toBeCloseTo(past, 1);
-  await run("marker.add", { time: 1, name: "" });
+  await run("comment.add", { start: 1, text: "" });
   await Bun.sleep(200);
   expect((await session()).playhead).toBeCloseTo(past, 1);
   await ui.core.undo(ui.handle);
@@ -5649,7 +5649,7 @@ test.skipIf(skip)("Pop-ins, from Sound Effects' Sounds for my graphics… (no ta
   }
 }, 60_000);
 
-test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… or a section's menu, the request goes to the open Claude Code session with what it is about, and its answers show as toasts; with none, how to start one", async () => {
+test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent…, a section's or a comment's menu (the comment going once it's done), the request goes to the open Claude Code session with what it is about, and its answers show as toasts; with none, how to start one", async () => {
   // A stand-in Claude Code session: Beacon's MCP server's control socket, as `agents()` finds them.
   const sent: { prompt: string; meta: Record<string, string> }[] = [];
   const session = serveControl(
@@ -5696,6 +5696,22 @@ test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent… 
     await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').includes('Section “Intro”, 0:01–0:03')");
     await page.key("Escape", "Escape");
     await page.until("!document.querySelector('[data-ask-agent]')");
+
+    // A comment's menu offers it: the request starts as the comment's text, and once the agent is done the comment goes.
+    const comment = (await ui.core.run(ui.handle, "comment.add", { start: 4, end: 6, text: "make this a counter" })).results[0] as string;
+    await Bun.sleep(300);
+    ui.send("commentAction", { comment, op: "ask" });
+    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').includes('Comment 0:04–0:06')");
+    expect(await page.evaluate<string>("document.querySelector('[data-ask-prompt]').value")).toBe("make this a counter");
+    await page.click(...(await centre("[data-ask-send]")));
+    await page.until("!document.querySelector('[data-ask-agent]')");
+    expect(sent.at(-1)!.meta.comment).toBe(comment);
+    await ui.core.agentReply(sent.at(-1)!.meta.request!, "done", "Made it a counter");
+    await arrived(() => !ui.core.doc(ui.handle).comments.some((c) => c.id === comment));
+    expect(ui.core.doc(ui.handle).comments.some((c) => c.id === comment)).toBe(false);
+    // Removed as the agent's step: ⌘Z skips it, so it is undone as the agent.
+    expect((await ui.core.history(ui.handle)).steps.undo.at(-1)).toEqual({ label: "Comment Done", author: "agent" });
+    await asAuthor("agent", () => ui.core.undo(ui.handle));
 
     // A motion graphic's panel has Send to Agent….
     await run("motion.add", {});
@@ -6255,7 +6271,8 @@ test.skipIf(skip)("with more tracks than fit, scrolling up and down moves throug
   for (const t of added) await run("track.remove", { track: t });
   await run("timeline.trackHeight", { height });
   await Bun.sleep(300);
-  expect((await session()).timeline.top ?? 0).toBe(0);
+  // Back to the tracks there were: scrolled only as far as they overflow, if at all.
+  expect((await session()).timeline.top ?? 0).toBe(Math.max(0, Math.round(doc().tracks.length * height - (box.h - TRACKS_TOP))));
   await select([]);
 }, 30_000);
 
@@ -6297,6 +6314,9 @@ test.skipIf(skip)("a screenshot dropped from its thumbnail (no path to find) and
   const shot = join(dir, "Screenshot 2026-10-20 at 16.14.53.png");
   copyFileSync(image, shot);
   await run("timeline.zoom", { to: "fit" });
+  // Short tracks, so there is room below the last one in any window.
+  const height = (await session()).timeline.trackHeight;
+  await run("timeline.trackHeight", { height: 40 });
   const box = await timelineBox();
   // Below the last track: on a new one, clear of other media.
   const bottom = await page.evaluate<number>("document.querySelector('canvas[data-timeline]').getBoundingClientRect().bottom");
@@ -6340,6 +6360,7 @@ test.skipIf(skip)("a screenshot dropped from its thumbnail (no path to find) and
   expect(images().length).toBe(before + 2);
 
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
+  await run("timeline.trackHeight", { height });
   await select([]);
 }, 60_000);
 
@@ -6556,80 +6577,6 @@ test.skipIf(skip)("Sections: a band under the ruler; a plain drag on its empty t
   await run("timeline.snapping", { on: true });
 }, 30_000);
 
-test.skipIf(skip)("hovering a marker's diamond on the ruler shows its name; moving off hides it", async () => {
-  const box = await timelineBox();
-  const s = await session();
-  const header = headerWidth(ui.core.doc(ui.handle).tracks);
-  const at = s.timeline.start + (s.timeline.end - s.timeline.start) * 0.3;
-  const x = box.x + header + ((at - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  await run("marker.add", { time: at, name: "The Hacker News: https://example.com/story" });
-  await Bun.sleep(300);
-  await page.move(x, box.y + RULER - 5);
-  await page.until("!!document.querySelector('[data-marker-tip]')");
-  expect(await page.evaluate<string>("document.querySelector('[data-marker-tip]').textContent")).toBe("The Hacker News: https://example.com/story");
-  await page.move(x + 60, box.y + RULER - 5);
-  await page.until("!document.querySelector('[data-marker-tip]')");
-  await ui.core.undo(ui.handle);
-});
-
-test.skipIf(skip)("a marker's diamond picks it and takes the playhead there; double-click names it, right-click offers its menu, ⌫ deletes it in one undo step", async () => {
-  const box = await timelineBox();
-  const s = await session();
-  const header = headerWidth(ui.core.doc(ui.handle).tracks);
-  const at = s.timeline.start + (s.timeline.end - s.timeline.start) * 0.4;
-  const x = box.x + header + ((at - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  await run("marker.add", { time: at, name: "" });
-  await Bun.sleep(300);
-  const marker = ui.core.doc(ui.handle).markers[0]!;
-  await page.click(x, box.y + RULER - 5);
-  await Bun.sleep(200);
-  expect((await session()).playhead).toBeCloseTo(ticksToSeconds(marker.time), 2);
-  // Named by a double-click on it; Enter saves.
-  await page.dblclick(x, box.y + RULER - 5);
-  await page.until("document.activeElement?.tagName === 'INPUT'", 5000);
-  await type("Source: The Hacker News");
-  await page.key("Enter", "Enter");
-  await arrived(() => ui.core.doc(ui.handle).markers[0]?.name === "Source: The Hacker News");
-  expect(ui.core.doc(ui.handle).markers[0]?.name).toBe("Source: The Hacker News");
-  await page.rightClick(x, box.y + RULER - 5);
-  await arrived(() => ui.menus.includes(`marker:${marker.id}`));
-  expect(ui.menus).toContain(`marker:${marker.id}`);
-  // A marker picked after a section: ⌫ takes the marker, not the section.
-  await run("section.add", { start: at - 1, end: at + 1, name: "Demo" });
-  await Bun.sleep(300);
-  await page.click(x, box.y + RULER + BAND / 2);
-  await page.click(x, box.y + RULER - 5);
-  await page.key("Backspace", "Backspace");
-  await arrived(() => ui.core.doc(ui.handle).markers.length === 0);
-  expect(ui.core.doc(ui.handle).markers).toHaveLength(0);
-  expect(ui.core.doc(ui.handle).sections).toHaveLength(1);
-  await ui.core.undo(ui.handle);
-  await Bun.sleep(300);
-  // A press anywhere off the timeline lets the marker go: ⌫ is for what was pressed then.
-  await page.click(x, box.y + RULER - 5);
-  await page.click(...(await centre("[data-canvas-overlay]")));
-  await page.key("Backspace", "Backspace");
-  await Bun.sleep(300);
-  expect(ui.core.doc(ui.handle).markers).toHaveLength(1);
-  // A rename while hovering shows the new name.
-  await page.move(x, box.y + RULER - 5);
-  await page.until("document.querySelector('[data-marker-tip]')?.textContent === 'Source: The Hacker News'");
-  await run("marker.set", { marker: marker.id, name: "Renamed" });
-  await Bun.sleep(200);
-  await page.move(x + 1, box.y + RULER - 5);
-  await page.until("document.querySelector('[data-marker-tip]')?.textContent === 'Renamed'");
-  // ⌫ takes the picked marker and nothing else.
-  const clips = ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).length;
-  await page.click(x, box.y + RULER - 5);
-  await page.key("Backspace", "Backspace");
-  await arrived(() => ui.core.doc(ui.handle).markers.length === 0);
-  expect(ui.core.doc(ui.handle).markers).toHaveLength(0);
-  expect(ui.core.doc(ui.handle).tracks.flatMap((t) => t.clips).length).toBe(clips);
-  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Marker");
-  while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
-});
-
 test.skipIf(skip)("a section's colour is chosen from its right-click menu's Colour (or by an agent), its bar drawn in it; Automatic goes back to its name's", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   try {
@@ -6659,60 +6606,115 @@ test.skipIf(skip)("a section's colour is chosen from its right-click menu's Colo
   }
 }, 30_000);
 
-test.skipIf(skip)("a section takes a comment for the agent (⇧Enter a new line, a press outside keeps it), its bar shows the comment when it has no name; the agent's reply marks it done and Clear takes the reply away", async () => {
+test.skipIf(skip)("Comments: a lane under the Sections band; a plain press scrubs, a double-click-drag writes one over a stretch, ⌥-drag one over others, ⇧M one at the playhead (typed first, ⇧Enter a new line); they overlap each other and sections; hovered, its text shows; a click picks it and takes the playhead there, a double-click edits, a drag moves it, right-click offers its menu, ⌫ deletes it", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.snapping", { on: false });
-  const box = await timelineBox();
-  const s = await session();
-  const header = headerWidth(ui.core.doc(ui.handle).tracks);
-  const xAt = (t: number) => box.x + header + ((t - s.timeline.start) / (s.timeline.end - s.timeline.start)) * (box.w - header);
-  const y = box.y + RULER + BAND / 2;
-  const t = (f: number) => s.timeline.start + (s.timeline.end - s.timeline.start) * f;
-  // A new section: Tab from the name to the comment, two lines, then a press outside saves it.
-  await page.drag([xAt(t(0.1)), y], [xAt(t(0.4)), y], ["alt"]);
-  await page.until("document.activeElement?.hasAttribute('data-section-name')", 5000);
-  await page.key("Tab", "Tab");
-  await page.until("document.activeElement?.hasAttribute('data-section-comment')");
-  await type("remove white circle here");
-  // ⇧Enter is a new line, not a save.
-  await page.key("Enter", "Enter", ["shift"]);
-  await Bun.sleep(100);
-  expect(await page.evaluate<boolean>("!!document.querySelector('[data-section-namer]')")).toBe(true);
-  await type("remove white circle here\nand zoom in");
-  await page.click(xAt(t(0.8)), box.y + 6);
-  await arrived(() => ui.core.doc(ui.handle).sections.length === 1);
-  const added = ui.core.doc(ui.handle).sections[0]!;
-  expect(added.name).toBe("");
-  expect(added.comment).toBe("remove white circle here\nand zoom in");
-  expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Section");
-  // The agent does it and replies; the section stays.
-  await run("section.set", { section: added.id, reply: "Removed the circle and zoomed in" });
-  // The page's copy too, before the double-click reads it.
-  await Bun.sleep(300);
-  // Reopened, the comment has focus and the reply shows; Clear then Enter takes the reply away, the comment kept.
-  await page.dblclick(xAt(t(0.25)), y);
-  await page.until("document.activeElement?.hasAttribute('data-section-comment')");
-  expect(await page.evaluate<string>("document.querySelector('[data-section-reply]').textContent")).toContain("Removed the circle");
-  await page.screenshot(join(dir, "section-comment.png"));
-  await page.click(...(await centre("[data-section-reply-clear]")));
-  await page.until("!document.querySelector('[data-section-reply]')");
-  // The comment has focus again, so Enter saves (from the button it went to the app).
-  await page.until("document.activeElement?.hasAttribute('data-section-comment')");
-  await page.key("Enter", "Enter");
-  await arrived(() => !ui.core.doc(ui.handle).sections[0]!.reply);
-  expect(ui.core.doc(ui.handle).sections[0]!.reply).toBeUndefined();
-  expect(ui.core.doc(ui.handle).sections[0]!.comment).toBe("remove white circle here\nand zoom in");
-  // In a short timeline a long comment scrolls inside the popup rather than running off the bottom.
-  await run("section.set", { section: added.id, comment: Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"), reply: "Done" });
-  await Bun.sleep(300);
-  await page.dblclick(xAt(t(0.25)), y);
-  await page.until("!!document.querySelector('[data-section-namer]')");
-  expect(await page.evaluate<boolean>("(() => { const n = document.querySelector('[data-section-namer]').getBoundingClientRect(); const t = document.querySelector('[data-timeline]').getBoundingClientRect(); return n.bottom <= t.bottom + 1; })()")).toBe(true);
-  await page.key("Escape", "Escape");
-  for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
-  expect(ui.core.doc(ui.handle).sections).toEqual([]);
-  await run("timeline.snapping", { on: true });
-}, 30_000);
+  try {
+    const box = await timelineBox();
+    const s = await session();
+    const header = headerWidth(ui.core.doc(ui.handle).tracks);
+    const span = s.timeline.end - s.timeline.start;
+    const t = (f: number) => s.timeline.start + span * f;
+    const xAt = (time: number) => box.x + header + ((time - s.timeline.start) / span) * (box.w - header);
+    const y = box.y + COMMENTS_TOP + LANE / 2;
+    const comments = () => ui.core.doc(ui.handle).comments;
+    const near = (a: number, b: number) => Math.abs(a - b) < span * 0.02;
+    // A plain drag on empty time scrubs, as the ruler does: no comment.
+    await page.drag([xAt(t(0.1)), y], [xAt(t(0.3)), y]);
+    await Bun.sleep(200);
+    expect(comments()).toHaveLength(0);
+    expect(near((await session()).playhead, t(0.3))).toBe(true);
+    await run("section.add", { start: t(0.05), end: t(0.5), name: "Demo" });
+    // A double-click then drag writes one over that stretch; ⇧Enter is a new line, Enter saves.
+    await page.dblDrag([xAt(t(0.1)), y], [xAt(t(0.3)), y]);
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    await type("zoom in on the button");
+    await page.key("Enter", "Enter", ["shift"]);
+    await Bun.sleep(100);
+    expect(await page.evaluate<boolean>("!!document.querySelector('[data-comment-editor]')")).toBe(true);
+    await type("zoom in on the button\nthen hold");
+    await page.screenshot(join(dir, "comment-editor.png"));
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 1);
+    const zoom = comments()[0]!;
+    expect(zoom.text).toBe("zoom in on the button\nthen hold");
+    expect(near(ticksToSeconds(zoom.start), t(0.1)) && near(ticksToSeconds(zoom.end!), t(0.3))).toBe(true);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Comment");
+    // Another over part of it with ⌥ (a press on it would take it), inside the same section.
+    await Bun.sleep(300);
+    await page.drag([xAt(t(0.2)), y], [xAt(t(0.4)), y], ["alt"]);
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    await type("add a caption");
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 2);
+    // ⇧M: one at the playhead, its text typed first; Esc leaves none behind.
+    await run("playhead.set", { time: t(0.6) });
+    // The page's copy of the playhead, which ⇧M reads.
+    await Bun.sleep(300);
+    await page.key("M", "KeyM", ["shift"]);
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-comment-editor]')");
+    expect(comments()).toHaveLength(2);
+    await page.key("M", "KeyM", ["shift"]);
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    await type("check the audio");
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 3);
+    const pin = comments().find((c) => c.end === undefined)!;
+    expect(pin.text).toBe("check the audio");
+    expect(ticksToSeconds(pin.start)).toBeCloseTo(t(0.6), 1);
+    expect(ui.core.doc(ui.handle).sections).toHaveLength(1);
+    await Bun.sleep(300);
+    await page.screenshot(join(dir, "comments.png"));
+    // Hovered, its text shows; off it, it goes.
+    await page.move(xAt(t(0.6)), y);
+    await page.until("document.querySelector('[data-comment-tip]')?.textContent === 'check the audio'");
+    await page.move(xAt(t(0.8)), y);
+    await page.until("!document.querySelector('[data-comment-tip]')");
+    // A click picks it and takes the playhead there.
+    await run("playhead.set", { time: t(0.9) });
+    await page.click(xAt(t(0.6)), y);
+    for (let i = 0; i < 100 && !near((await session()).playhead, t(0.6)); i++) await Bun.sleep(20);
+    expect(near((await session()).playhead, t(0.6))).toBe(true);
+    // A double-click edits it.
+    await page.dblclick(xAt(t(0.6)), y);
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    expect(await page.evaluate<string>("document.activeElement.value")).toBe("check the audio");
+    await type("check the audio levels");
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().find((c) => c.id === pin.id)?.text === "check the audio levels");
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Edit Comment");
+    await page.rightClick(xAt(t(0.6)), y);
+    await arrived(() => ui.menus.includes(`comment:${pin.id}`));
+    // Its body dragged later: the same length, one step.
+    await Bun.sleep(200);
+    await page.drag([xAt(t(0.15)), y], [xAt(t(0.2)), y]);
+    await arrived(() => comments().find((c) => c.id === zoom.id)!.start > zoom.start);
+    const moved = comments().find((c) => c.id === zoom.id)!;
+    expect(moved.end! - moved.start).toBe(zoom.end! - zoom.start);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Move Comment");
+    // Picked, then a section picked: ⌫ takes the section, not the comment. Picked again, ⌫ takes the comment, and only it.
+    await Bun.sleep(300);
+    await page.click(xAt(t(0.6)), y);
+    await page.click(xAt(t(0.45)), box.y + RULER + BAND / 2);
+    await page.key("Backspace", "Backspace");
+    await arrived(() => ui.core.doc(ui.handle).sections.length === 0);
+    expect(comments()).toHaveLength(3);
+    await ui.core.undo(ui.handle);
+    await Bun.sleep(300);
+    const clipCount = clips().length;
+    await page.click(xAt(t(0.6)), y);
+    await page.key("Backspace", "Backspace");
+    await arrived(() => comments().length === 2);
+    expect(clips().length).toBe(clipCount);
+    expect(ui.core.doc(ui.handle).sections).toHaveLength(1);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Delete Comment");
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await run("timeline.snapping", { on: true });
+  }
+}, 40_000);
 
 test.skipIf(skip)("Settings › AI › Camera Angles has a Model: Seedance 2.5 by default, Wan 3.0 + lip sync to pick (it declines fewer takes), its hint saying what each does", async () => {
   await ui.core.uiOpen(ui.handle, "settings", "ai");

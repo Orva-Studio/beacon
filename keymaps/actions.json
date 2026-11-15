@@ -320,9 +320,9 @@
       "description": "Take the selected clips' colour label off"
     },
     {
-      "id": "edit.addMarker",
-      "name": "Add Timeline Marker",
-      "command": "edit.addMarker"
+      "id": "edit.addComment",
+      "name": "Add Comment",
+      "command": "edit.addComment"
     },
     {
       "id": "edit.addAnimation",
@@ -825,22 +825,22 @@
       "description": "Move the playhead to the previous clip start or end"
     },
     {
-      "id": "playhead.jump:nextMarker",
-      "name": "Go to Next Marker",
+      "id": "playhead.jump:nextComment",
+      "name": "Go to Next Comment",
       "command": "playhead.jump",
       "args": {
-        "to": "nextMarker"
+        "to": "nextComment"
       },
-      "description": "Move the playhead to the next timeline marker"
+      "description": "Move the playhead to the next comment"
     },
     {
-      "id": "playhead.jump:previousMarker",
-      "name": "Go to Previous Marker",
+      "id": "playhead.jump:previousComment",
+      "name": "Go to Previous Comment",
       "command": "playhead.jump",
       "args": {
-        "to": "previousMarker"
+        "to": "previousComment"
       },
-      "description": "Move the playhead to the previous timeline marker"
+      "description": "Move the playhead to the previous comment"
     },
     {
       "id": "playhead.jump:nextAnimation",
@@ -879,24 +879,24 @@
       "description": "Move the in/out range's end a frame later (one from the playhead if there is none)"
     },
     {
-      "id": "range.extend:leftMarker",
-      "name": "Extend the Range Left to a Marker",
+      "id": "range.extend:leftComment",
+      "name": "Extend the Range Left to a Comment",
       "command": "range.extend",
       "args": {
         "side": "left",
-        "to": "marker"
+        "to": "comment"
       },
-      "description": "Move the in/out range's start to the previous marker"
+      "description": "Move the in/out range's start to the previous comment"
     },
     {
-      "id": "range.extend:rightMarker",
-      "name": "Extend the Range Right to a Marker",
+      "id": "range.extend:rightComment",
+      "name": "Extend the Range Right to a Comment",
       "command": "range.extend",
       "args": {
         "side": "right",
-        "to": "marker"
+        "to": "comment"
       },
-      "description": "Move the in/out range's end to the next marker"
+      "description": "Move the in/out range's end to the next comment"
     },
     {
       "id": "range.extend:leftEdit",
