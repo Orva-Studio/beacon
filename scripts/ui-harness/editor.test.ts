@@ -3786,6 +3786,32 @@ test.skipIf(skip)("Canvas Color shows a background with alpha, as a Camtasia imp
   await run("project.settings.set", { background: before });
 });
 
+test.skipIf(skip)("one main dialog at a time: Record opened over Export takes its place, and Export over Record (the user, 2026-11-16: ⌘E then ⌘R showed both)", async () => {
+  const exporting = { name: "One", folder: dir, settings: DEFAULT_EXPORT, canvas: { width: 1920, height: 1080, fps: 30 }, duration: 10, files: [] };
+  const recording = {
+    permissions: { screen: "granted", camera: "denied", microphone: "granted" },
+    displays: [{ id: 1, width: 1800, height: 1169 }],
+    cameras: [],
+    microphones: [{ id: "mic-1", name: "Blue Yeti" }],
+    sources: { screen: { fps: 60 }, microphone: { id: "mic-1" } },
+  };
+  const shown = () => page.evaluate<number>("document.querySelectorAll('[data-modal]').length");
+  const exportOpen = "[...document.querySelectorAll('[data-modal]')].some((d) => /^Export/.test(d.textContent ?? ''))";
+  try {
+    ui.send("exportSheet", exporting);
+    await page.until(exportOpen);
+    ui.send("recordSheet", recording);
+    await page.until(`!!document.querySelector('[data-record]') && !(${exportOpen})`);
+    expect(await shown()).toBe(1);
+    ui.send("exportSheet", exporting);
+    await page.until(`!document.querySelector('[data-record]') && ${exportOpen}`);
+    expect(await shown()).toBe(1);
+  } finally {
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-modal]')").catch(() => {});
+  }
+});
+
 test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); after a click on the timeline it goes to the timeline instead", async () => {
   const copy = join(dir, `del-${Date.now()}.mp4`);
   copyFileSync(join(FIXTURES, "video.mp4"), copy);

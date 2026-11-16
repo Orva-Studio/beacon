@@ -143,6 +143,12 @@ export interface AgentRequest {
   run?: boolean;
 }
 
+/** The main dialogs (Export, Record, Settings, Project Settings, New Project, the palette) all closed. */
+const NO_DIALOG: Partial<ViewState> = { settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false };
+
+/** One main dialog at a time: one opening (⌘E then ⌘R) takes the place of whichever was open. */
+const opening = (opens: boolean, changes: Partial<ViewState>): Partial<ViewState> => (opens ? { ...NO_DIALOG, ...changes } : changes);
+
 let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], agentActivity: {}, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -283,7 +289,7 @@ export const replica = {
     set({ agentRequests: state.agentRequests.filter((r) => r.id !== id) });
   },
   projectSettings(open: boolean) {
-    set({ projectSettings: open && !!state.opened });
+    set(opening(open && !!state.opened, { projectSettings: open && !!state.opened }));
   },
   /** Settings changed elsewhere: an open Settings window takes them. */
   appSettings(next: import("./rpc").AppSettings) {
@@ -291,16 +297,16 @@ export const replica = {
   },
   /** The dialogs an agent can open (`ui_open`), closed. */
   closeDialogs() {
-    set({ settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
+    set(NO_DIALOG);
   },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });
   },
   exportSheet(exportSheet: ExportSheet | undefined) {
-    set({ exportSheet });
+    set(opening(!!exportSheet && !state.exportSheet, { exportSheet }));
   },
   recordSheet(recordSheet: RecordSheet | undefined) {
-    set({ recordSheet });
+    set(opening(!!recordSheet && !state.recordSheet, { recordSheet }));
   },
   recordDevices(devices: Pick<RecordSheet, "permissions" | "displays" | "cameras" | "microphones" | "outputs">) {
     const s = state.recordSheet;
@@ -360,7 +366,7 @@ export const replica = {
     if (state.init) set({ init: { ...state.init, recent } });
   },
   newProject(newProject: ViewState["newProject"]) {
-    set({ newProject });
+    set(opening(!!newProject && !state.newProject, { newProject }));
   },
   saveAs(saveAs: ViewState["saveAs"]) {
     set({ saveAs });
@@ -383,7 +389,7 @@ export const replica = {
     set({ editingText });
   },
   settings(settings: SettingsSheet | undefined) {
-    set({ settings });
+    set(opening(!!settings && !state.settings, { settings }));
   },
   status(status: string) {
     clearTimeout(statusTimer);
