@@ -2308,10 +2308,12 @@ test.skipIf(skip)("in the Media Bin, a click selects one item, ⇧-click adds, t
   await page.click(...(await tile(ids[1]!)), ["shift"]);
   await Bun.sleep(150);
   expect((await selected()).sort()).toEqual([ids[0]!, ids[1]!].sort());
-  // ⌫ deletes both, one undo step.
+  // ⌫ deletes both, one undo step; clips use them, so it asks first.
   const assets = () => Object.keys(ui.core.doc(ui.handle).assets);
   const before = assets().length;
   await page.key("Backspace", "Backspace");
+  await page.until("!!document.querySelector('[data-delete-media]')");
+  await page.click(...(await centre("[data-delete-media-yes]")));
   await arrived(() => assets().length === before - 2);
   expect(assets()).not.toContain(ids[0]!);
   expect(assets()).not.toContain(ids[1]!);
@@ -3793,6 +3795,11 @@ test.skipIf(skip)("⌫ on a selected Media item deletes it (one undo step); afte
   await page.until(`!!document.querySelector('[data-asset="${id}"]')`);
   await page.click(...(await centre(`[data-asset="${id}"]`)));
   await page.key("Backspace", "Backspace");
+  // The import put it on the timeline too, so Delete Media asks first.
+  if (clips().some((c) => c.assetId === id)) {
+    await page.until("!!document.querySelector('[data-delete-media]')");
+    await page.click(...(await centre("[data-delete-media-yes]")));
+  }
   await page.until(`!document.querySelector('[data-asset="${id}"]')`);
   expect(ui.core.doc(ui.handle).assets[id]).toBeUndefined();
   await ui.core.undo(ui.handle);
