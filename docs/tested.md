@@ -13,6 +13,7 @@ feature lands and when it is checked.
 |---|---|---|---|
 | **⌫ after ⇧-double-click deletes the new clip** (the user, 2026-11-15: a narration added this way and deleted came out of the Media Bin, with a clip of it already in the edit): the item lets go of focus, so ⌫ is the timeline's Delete, not Delete Media | 2026-11-15 | this branch | UI flow (`⇧-double-clicking a Media Bin item…`: fails without the fix) |
 | **Delete Media asks first when clips use it**: ⌫ on an item, or its menu's Delete Media, names how many clips on the timeline go with it; Cancel keeps both, Delete removes both in one step; media nothing uses goes at once | 2026-11-15 | this branch | UI flow (`⌫ on a Media Bin item clips… use asks first…`) |
+| **TikTok's and Instagram Reels' safe areas from the user's templates** (2026-11-17, 1080×1920): TikTok 160 px top, 120 px each side, the caption band the bottom 480 px, the rail 780 px across from 840 px down; Reels 250 px top, 120 px each side, the bottom 320 px, the rail the bottom 768 px from 848 px across (its headroom band moved below the deeper header) | 2026-11-17 | this branch | core test (`safe-areas.test.ts`: low captions now hit only TikTok's caption band, the rail ending above them); UI flow (`safe areas on a 9:16 project…`) |
 | **One main dialog at a time** (the user, 2026-11-16: ⌘E then ⌘R showed Export and Record on top of each other): opening Export, Record, Settings, Project Settings, New Project or the palette closes whichever of them was open, either way round; Record's previews stop with it | 2026-11-16 | this branch | UI flow (`one main dialog at a time…`: fails without the fix) |
 | **Audio previews play** (narrations, music, sounds): double-clicked, they played nothing, as playback waited for a picture view audio never shows; now they play offscreen from the moment the preview opens | 2026-11-15 | this branch | typecheck only: headless can't hear it |
 
@@ -22,6 +23,7 @@ feature lands and when it is checked.
 - ⇧-double-click a narration, then press ⌫: does only the new clip go, the narration staying in the Media Bin?
 - Press ⌫ on a Media Bin item that's in your edit: does it ask first?
 - Press ⌘E, then ⌘R: does Record replace Export? Then ⌘E again: does Export replace Record?
+- On a 9:16 project, View › Safe Areas › TikTok, then Instagram Reels: do the zones match the templates you sent?
 
 ## Comments (`feat/comments`)
 
