@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { Clip, Project, Session } from "@beacon/model";
 import type { CustomStyle, Look, MotionProps, MotionState } from "@beacon/features";
 import { Button, Icon, Section, Segmented, Select, TextArea } from "./controls";
-import { aboutClip } from "./ask-agent";
 import { MotionCode } from "./motion-code";
 import { useOnline } from "./online";
 import { useQuery } from "./query";
@@ -280,9 +279,6 @@ export function MotionTab({ clip, project, session, host }: { clip: Clip; projec
           data-motion-make
         >
           {making ? "Making…" : `${m.takes.length ? "Make Again" : "Make"} · ${planner === "apple" ? "Free" : `~$${cost.toFixed(2)}`}`}
-        </Button>
-        <Button title="Ask your agent to work on it" onClick={() => replica.askAgent(aboutClip(clip, "Motion graphic"))} data-motion-ask>
-          Send to Agent…
         </Button>
         {making && (
           <span className="text-caption text-text-muted" data-motion-making-note>

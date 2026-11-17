@@ -65,23 +65,45 @@ test("v4: a clip with the same effect twice keeps one, the last, nested clips to
   expect(out.tracks[0].clips[0].props.group.tracks[0].clips[0].effects.map((e: { id: string }) => e.id)).toEqual(["e"]);
 });
 
-test("v5: sections as they were, a comment allowed after", () => {
+// Before 7, a document had markers and no comments.
+const old = (registry: FeatureRegistry) => {
+  const { comments: _, ...doc } = createProject(registry);
+  return { ...doc, markers: [] };
+};
+
+test("v5 and v6: sections as they were", () => {
   const registry = new FeatureRegistry([testFeature]);
-  const doc = createProject(registry);
   const section = { id: "s1", start: 0, end: 30_000, name: "Intro" };
-  const migrated = migrateProject({ ...doc, schemaVersion: 4, sections: [section] }, registry);
-  expect(migrated.sections).toEqual([section]);
-  expect(() => migrateProject({ ...migrated, sections: [{ ...section, comment: "zoom in", reply: "zoomed in" }] }, registry)).not.toThrow();
+  expect(migrateProject({ ...old(registry), schemaVersion: 4, sections: [section] }, registry).sections).toEqual([section]);
+  expect(migrateProject({ ...old(registry), schemaVersion: 5, sections: [{ ...section, color: "green" }] }, registry).sections).toEqual([{ ...section, color: "green" }]);
+  expect(() => migrateProject({ ...old(registry), schemaVersion: 6, sections: [{ ...section, color: "teal" }] }, registry)).toThrow();
 });
 
-test("v6: sections as they were, a colour allowed after", () => {
+test("v7: comments leave sections for their own list, markers become comments at a moment; an answered comment and a section that was only a comment go", () => {
   const registry = new FeatureRegistry([testFeature]);
-  const doc = createProject(registry);
-  const section = { id: "s1", start: 0, end: 30_000, name: "Intro", comment: "zoom in" };
-  const migrated = migrateProject({ ...doc, schemaVersion: 5, sections: [section] }, registry);
-  expect(migrated.sections).toEqual([section]);
-  expect(() => migrateProject({ ...migrated, sections: [{ ...section, color: "green" }] }, registry)).not.toThrow();
-  expect(() => migrateProject({ ...migrated, sections: [{ ...section, color: "teal" }] }, registry)).toThrow();
+  const doc = {
+    ...old(registry),
+    schemaVersion: 6,
+    markers: [{ id: "m1", time: 90_000, name: "check audio" }, { id: "m2", time: 10_000, name: "" }],
+    sections: [
+      { id: "s1", start: 0, end: 30_000, name: "Intro", comment: "zoom in", color: "green" },
+      { id: "s2", start: 30_000, end: 60_000, name: "", comment: "remove the circle" },
+      { id: "s3", start: 60_000, end: 80_000, name: "Demo", comment: "add a caption", reply: "Added it" },
+    ],
+  };
+  const migrated = migrateProject(doc, registry);
+  expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+  expect("markers" in migrated).toBe(false);
+  expect(migrated.sections).toEqual([
+    { id: "s1", start: 0, end: 30_000, name: "Intro", color: "green" },
+    { id: "s3", start: 60_000, end: 80_000, name: "Demo" },
+  ]);
+  expect(migrated.comments).toEqual([
+    { id: "s1-comment", start: 0, end: 30_000, text: "zoom in" },
+    { id: "m2", start: 10_000, text: "" },
+    { id: "s2-comment", start: 30_000, end: 60_000, text: "remove the circle" },
+    { id: "m1", start: 90_000, text: "check audio" },
+  ]);
 });
 
 test("documents from a newer Beacon are refused", () => {

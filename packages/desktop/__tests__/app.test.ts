@@ -71,10 +71,10 @@ test.skipIf(!existsSync(SMALL))(
       expect(snap[0]!.type).toBe("image");
       expect(Buffer.from(snap[0]!.data!, "base64").subarray(1, 4).toString()).toBe("PNG");
 
-      await call("marker_add", { time: 50, name: "from the agent" });
-      await shown(/ 1 markers/);
+      await call("comment_add", { start: 50, text: "from the agent" });
+      await shown(/ 1 comments/);
       await call("project_undo");
-      await shown(/ 0 markers/);
+      await shown(/ 0 comments/);
     } finally {
       await client.close();
     }

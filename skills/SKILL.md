@@ -27,11 +27,13 @@ overlap; gaps are fine; ripple edits move them with the clips. Name parts the
 way the user's other sections are named, and propose them only when asked:
 the user corrects what you add.
 
-A section may carry a **comment**: what the user wants changed in that stretch
-(`project_describe` shows it, "(open)" until done). Do what it asks, then
-`section_set` with `reply`: one line on what you did. Leave the section and its
-comment in place; the user reads the reply and clears it. Never remove a
-section to mark a comment done.
+## Comments
+**Comments** are the user's notes on the Comments lane under the Sections band:
+mostly what they want changed there, over a stretch (`start` to `end`) or at one
+moment (no `end`). They overlap each other and sections, and ripple edits move
+them. `project_describe` lists them; `comment_add`, `comment_set` and
+`comment_remove` change them. Do what a comment asks, then `comment_remove` it:
+the comments left are what is left to do.
 
 ## Media
 `media_import` adds files at the end of the timeline (or at `at`). A Camtasia
@@ -161,8 +163,8 @@ that ended by itself imported; `recorder_stop` with `discard` throws a take away
   selection, in/out range and playhead (`selection_set`, `range_set`,
   `playhead_set` first): `edit_paste`, `edit_duplicate`, `edit_fade`,
   `edit_addAnimation`, ... Keys that only run one command on the selection
-  (split, delete, copy, add marker, lock track…) aren't tools: call that
-  command with the clip ids (`clip_split`, `clip_remove`, `marker_add`).
+  (split, delete, copy, lock track…) aren't tools: call that
+  command with the clip ids (`clip_split`, `clip_remove`, `comment_add`).
   Ripple-deleting clips on several tracks (`clip_remove` with `ripple`)
   moves the later clips on each of those tracks left by the same amount.
 - `transaction` runs several commands, actions and editor commands as one

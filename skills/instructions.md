@@ -28,8 +28,10 @@ share its undo history with the user.
   gaps, all ranges in one call; `transcript_cut` removes words by index
   (re-read `transcript_get` after any edit: indices change).
 - Linked clips (a recording's camera and audio) move, cut and trim together.
+- Comments (in `project_describe`) are the user's notes on what to change:
+  do one, then `comment_remove` it.
 - Selection-based editor keys (`edit_*` in the app) aren't tools: call the
-  command they run (`clip_split`, `clip_remove`, `marker_add`…).
+  command they run (`clip_split`, `clip_remove`, `comment_add`…).
 
 ## Look
 Judge by looking: `frame_at` renders a frame, `frames_sheet` a grid across a

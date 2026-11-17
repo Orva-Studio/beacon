@@ -1,11 +1,12 @@
 import { rationalToNumber, ticksToSeconds, TRACK_HEIGHT } from "@beacon/model";
 import { replica } from "../store";
-import { cornerButtonAt, EDGE_ZONE, GRAB, HEIGHT_SLIDER, rangeEdgeAt, rowTop, RULER, TRACKS_TOP } from "../timeline-layout";
+import { cornerButtonAt, EDGE_ZONE, GRAB, HEIGHT_SLIDER, rangeEdgeAt, rowTop, RULER, COMMENTS_TOP, TRACKS_TOP } from "../timeline-layout";
 import { volumePoints, type Drag, type PressDrag, type TimelineMark } from "../timeline-draw";
 import { propsOf } from "../props";
 import type { DrawingContext } from "./context";
 import { animationTimes, partEdges, plannedMove, volumeEdit } from "./drag-state";
 import type { TimelineHits } from "./hit-test";
+import { commentDrag } from "./comment-drag";
 import { sectionDrag } from "./section-drag";
 import { trimDrag } from "./trim";
 
@@ -16,17 +17,17 @@ export interface DragOptions {
   trackMenu: (track: string | null) => void;
   /** A click on a mark (not by the playhead): Remove Silences flips it, or with ⌥ goes to it. */
   markClick?: (mark: TimelineMark, alt: boolean, shift: boolean, meta: boolean) => void;
-  /** The marker under the pointer (its diamond on the ruler), or none: its name shows beside it. */
-  markerHover?: (marker: { id: string; name: string; x: number } | undefined) => void;
+  /** The comment under the pointer in the Comments lane, or none: its text shows under it. */
+  commentHover?: (comment: { id: string; text: string; x: number } | undefined) => void;
 }
 
 /**
  * The timeline's presses and drags: a press decides what is dragged (the playhead, a range, a track, a section, an
  * arrow, a volume point, a clip's edge or the clip, space, a marquee), moves draw its ghost, and the release sends it.
  */
-export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu, markClick, markerHover }: DragOptions) {
+export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu, markClick, commentHover }: DragOptions) {
   const { canvas, latest, dragState, settling, snapLine, pickedDiamond, anchor, pending, edge, drawRef, draw, run, HEADER, TRACK, TOP, tracks } = c;
-  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, markerAt, snapped, pointer } = hits;
+  const { timeAt, roomBefore, gapEnd, spp, xOf, shown, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, edgeAt, sectionAt, commentAt, snapped, pointer } = hits;
 
   const setHeight = (clientY: number) => {
     const r = canvas.current!.getBoundingClientRect();
@@ -89,6 +90,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
   };
 
   const section = sectionDrag(c, hits, settle);
+  const comment = commentDrag(c, hits, settle);
   const trim = trimDrag(c, hits, settle);
 
   const startMove = (press: PressDrag, e: React.PointerEvent) => {
@@ -128,6 +130,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     if (!d) return;
     const { session } = latest.current;
     if (d.kind === "sectionNew" || d.kind === "section") section.finish(d);
+    else if (d.kind === "commentNew" || d.kind === "comment") comment.finish(d);
     else if (d.kind === "track") {
       // Display rows run top to bottom; tracks are stored bottom to top.
       if (d.to !== d.from) run("track.move", { track: d.track, index: tracks.length - 1 - d.to }, "Move Track");
@@ -190,12 +193,10 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       dragState.current = { kind: "track", track: t.id, from: i, to: i };
       return capture();
     }
-    // A marker's diamond picks it (⌫ removes it) and takes the playhead there; the rest of the ruler scrubs.
-    const marker = markerAt(x, y);
-    replica.marker(marker?.id);
-    if (marker) return run("playhead.set", { time: ticksToSeconds(marker.time) });
-    if (y >= RULER && y < TRACKS_TOP && section.press(e, x)) return;
+    if (y >= RULER && y < COMMENTS_TOP && section.press(e, x)) return;
+    if (y >= COMMENTS_TOP && y < TRACKS_TOP && comment.press(e, x, y)) return;
     if (latest.current.section) replica.section(undefined);
+    if (latest.current.comment) replica.comment(undefined);
     const ph = xOf(session.playhead);
     // A range's edges are dragged on the ruler.
     if (session.range && y < RULER) {
@@ -207,7 +208,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     }
     // On the tracks, an arrow or volume point under the playhead line wins over grabbing the line.
     const overMark = y >= RULER && (arrowAt(e.clientX, e.clientY) || ((c) => c && volumeHit(c, e.clientX, e.clientY))(clipAt(e.clientX, e.clientY)));
-    // The Sections band's empty time scrubs as the ruler does (a section is drawn there after a double-click or with ⌥).
+    // The Sections band's and Comments lane's empty time scrubs as the ruler does (one is made there after a double-click or with ⌥).
     if (y < TRACKS_TOP || (Math.abs(x - ph) <= GRAB && !overMark)) {
       capture();
       if (e.metaKey) dragState.current = { kind: "range", anchor: session.playhead };
@@ -267,10 +268,14 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
     const { x, y } = pointer(e);
     const { project, session } = latest.current;
     if (!d) {
-      const marker = markerAt(x, y);
-      markerHover?.(marker && marker.name ? { id: marker.id, name: marker.name, x: xOf(ticksToSeconds(marker.time)) } : undefined);
+      const hovered = commentAt(x, y);
+      commentHover?.(hovered && hovered.comment.text ? { id: hovered.comment.id, text: hovered.comment.text, x: xOf(ticksToSeconds(hovered.comment.start)) } : undefined);
+      if (hovered) {
+        canvas.current!.style.cursor = hovered.part === "body" ? "default" : "ew-resize";
+        return;
+      }
       if (x > HEADER && y >= RULER && y < TRACKS_TOP) {
-        const part = sectionAt(x)?.part;
+        const part = y < COMMENTS_TOP ? sectionAt(x)?.part : undefined;
         canvas.current!.style.cursor = part === "start" || part === "end" ? "ew-resize" : "default";
         return;
       }
@@ -280,6 +285,7 @@ export function timelineDrag(c: DrawingContext, hits: TimelineHits, { trackMenu,
       return;
     }
     if (d.kind === "sectionNew" || d.kind === "section") return section.move(d, e, x);
+    if (d.kind === "commentNew" || d.kind === "comment") return comment.move(d, e, x);
     if (d.kind === "playhead") {
       // Every move, so a pointer back out of the edge stops the scrolling.
       edge.current.x = e.clientX;

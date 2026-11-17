@@ -24,6 +24,8 @@ export interface ViewState {
   thumbs: Record<string, string>;
   /** The Media Bin's selected items ("Select in Media Bin" and Snapshot select one). */
   binSelected: string[];
+  /** Media about to be deleted with the clips on the timeline that use it, waiting for the user to say yes. */
+  deletingMedia?: { assets: string[]; clips: number };
   /** The track whose name is being edited. */
   renaming?: string;
   /** The Media Bin item whose name is being edited. */
@@ -32,10 +34,10 @@ export interface ViewState {
   section?: string;
   /** A section being named: a new one from `start` to `end` (seconds), or `id` renamed. */
   namingSection?: { id?: string; start: number; end: number };
-  /** The marker picked on the ruler (⌫ removes it). */
-  marker?: string;
-  /** The marker being named. */
-  namingMarker?: string;
+  /** The comment picked in the Comments lane (⌫ removes it). */
+  comment?: string;
+  /** A comment being written: a new one from `start` (to `end`, seconds; none: at a moment), or `id` edited. */
+  editingComment?: { id?: string; start: number; end?: number };
   /** False after a save failed, until one succeeds. */
   saved?: boolean;
   /** Assets whose proxy is being made, and its progress 0-1. */
@@ -70,10 +72,6 @@ export interface ViewState {
   memory?: import("@beacon/model").MemoryState;
   /** The command palette, while open. */
   palette?: boolean;
-  /** "Ask an agent", while open: what the request is about. */
-  askAgent?: import("@beacon/core").AgentAbout;
-  /** Requests sent to agents from here, as their toasts show them. */
-  agentRequests: AgentRequest[];
   /** What each agent working on the project said it is doing last, and when (ms): its toast while it works. */
   agentActivity: Record<string, { text: string; at: number }>;
   /** Project Settings, while open. */
@@ -125,23 +123,13 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image" | "recording";
 
-const earlyReplies = new Map<string, { state: AgentRequest["state"]; text?: string }>();
+/** The main dialogs (Export, Record, Settings, Project Settings, New Project, the palette) all closed. */
+const NO_DIALOG: Partial<ViewState> = { settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false };
 
-/** A request sent to an agent from the app: sent, acknowledged, done, or never acknowledged. */
-export interface AgentRequest {
-  id: string;
-  /** "Claude Code". */
-  agent: string;
-  prompt: string;
-  /** The prompt with its context, to paste elsewhere when the session never answers. */
-  copy: string;
-  state: "sent" | "received" | "done" | "silent";
-  text?: string;
-  /** A run Beacon started (Codex): it can be cancelled; its id is its job's. */
-  run?: boolean;
-}
+/** One main dialog at a time: one opening (⌘E then ⌘R) takes the place of whichever was open. */
+const opening = (opens: boolean, changes: Partial<ViewState>): Partial<ViewState> => (opens ? { ...NO_DIALOG, ...changes } : changes);
 
-let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], agentActivity: {}, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentActivity: {}, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -185,7 +173,7 @@ export const replica = {
   session(changes: Partial<Session>) {
     // Clips picked (in the preview, by ⌘A, by an agent) take over from a picked section: ⌫ is theirs then.
     const picked = changes.selection?.length && changes.selection !== state.session?.selection;
-    if (state.session) set({ session: { ...state.session, ...changes }, ...(picked ? { section: undefined, marker: undefined } : {}) });
+    if (state.session) set({ session: { ...state.session, ...changes }, ...(picked ? { section: undefined, comment: undefined } : {}) });
   },
   media({ waveforms, thumbs, highlight, preparing, transcribing, judging, judgeFailed, analyzing, analysisFailed, jobFailed, proxies, missing }: { waveforms?: ViewState["waveforms"]; thumbs?: ViewState["thumbs"]; highlight?: string; preparing?: ViewState["preparing"]; transcribing?: ViewState["transcribing"]; judging?: ViewState["judging"]; judgeFailed?: ViewState["judgeFailed"]; analyzing?: ViewState["analyzing"]; analysisFailed?: ViewState["analysisFailed"]; jobFailed?: ViewState["jobFailed"]; proxies?: ViewState["proxies"]; missing?: string[] }) {
     set({
@@ -210,21 +198,24 @@ export const replica = {
   saved(ok: boolean) {
     if (state.saved !== ok) set({ saved: ok });
   },
+  askDeleteMedia(deleting: ViewState["deletingMedia"]) {
+    set({ deletingMedia: deleting });
+  },
   renameMedia(asset: string | undefined) {
     set({ renamingMedia: asset });
   },
-  // A section and a marker are never picked together: ⌫ would take the section the user didn't mean.
+  // A section and a comment are never picked together: ⌫ would take the one the user didn't mean.
   section(section: string | undefined) {
-    if (section !== state.section) set({ section, ...(section ? { marker: undefined } : {}) });
+    if (section !== state.section) set({ section, ...(section ? { comment: undefined } : {}) });
   },
   nameSection(naming: ViewState["namingSection"]) {
     set({ namingSection: naming });
   },
-  marker(marker: string | undefined) {
-    if (marker !== state.marker) set({ marker, ...(marker ? { section: undefined } : {}) });
+  comment(comment: string | undefined) {
+    if (comment !== state.comment) set({ comment, ...(comment ? { section: undefined } : {}) });
   },
-  nameMarker(marker: string | undefined) {
-    set({ namingMarker: marker });
+  editComment(editing: ViewState["editingComment"]) {
+    set({ editingComment: editing });
   },
   usedItems(usedItems: string[]) {
     set({ usedItems });
@@ -249,36 +240,16 @@ export const replica = {
     // A focus asked for before (an effect added, then undone at once) mustn't take the caret from the palette.
     set({ palette: palette && !!state.opened, ...(palette ? { focusInputs: undefined } : {}) });
   },
-  askAgent(about: import("@beacon/core").AgentAbout | undefined) {
-    set({ askAgent: about && state.opened ? about : undefined });
-  },
-  agentSent(request: AgentRequest) {
-    // A run's answers can come before its id did.
-    const early = earlyReplies.get(request.id);
-    earlyReplies.delete(request.id);
-    set({ agentRequests: [...state.agentRequests, early ? { ...request, state: early.state, ...(early.text ? { text: early.text } : {}) } : request] });
-  },
-  /** An agent's answer; a request it never acknowledged goes `silent` (the session doesn't take channels). */
-  agentState(id: string, state2: AgentRequest["state"], text?: string) {
-    if (state2 !== "silent" && !state.agentRequests.some((r) => r.id === id)) return void earlyReplies.set(id, { state: state2, ...(text ? { text } : {}) });
-    set({ agentRequests: state.agentRequests.map((r) => (r.id === id && !(state2 === "silent" && r.state !== "sent") ? { ...r, state: state2, ...(text ? { text } : {}) } : r)) });
-  },
-  /** A request sent from here that the agent is on shows its step; otherwise its own toast does. */
+  /** What an agent working from a terminal says it is doing: its toast. */
   agentStatus(agent: string, text: string) {
-    if (state.agentRequests.some((r) => r.agent === agent && r.state === "received")) {
-      return void set({ agentRequests: state.agentRequests.map((r) => (r.agent === agent && r.state === "received" ? { ...r, text } : r)) });
-    }
     set({ agentActivity: { ...state.agentActivity, [agent]: { text, at: Date.now() } } });
   },
   dismissActivity(agent: string) {
     const { [agent]: _, ...rest } = state.agentActivity;
     set({ agentActivity: rest });
   },
-  dismissAgent(id: string) {
-    set({ agentRequests: state.agentRequests.filter((r) => r.id !== id) });
-  },
   projectSettings(open: boolean) {
-    set({ projectSettings: open && !!state.opened });
+    set(opening(open && !!state.opened, { projectSettings: open && !!state.opened }));
   },
   /** Settings changed elsewhere: an open Settings window takes them. */
   appSettings(next: import("./rpc").AppSettings) {
@@ -286,16 +257,16 @@ export const replica = {
   },
   /** The dialogs an agent can open (`ui_open`), closed. */
   closeDialogs() {
-    set({ settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false });
+    set(NO_DIALOG);
   },
   drag(dragging: ViewState["dragging"]) {
     set({ dragging });
   },
   exportSheet(exportSheet: ExportSheet | undefined) {
-    set({ exportSheet });
+    set(opening(!!exportSheet && !state.exportSheet, { exportSheet }));
   },
   recordSheet(recordSheet: RecordSheet | undefined) {
-    set({ recordSheet });
+    set(opening(!!recordSheet && !state.recordSheet, { recordSheet }));
   },
   recordDevices(devices: Pick<RecordSheet, "permissions" | "displays" | "cameras" | "microphones" | "outputs">) {
     const s = state.recordSheet;
@@ -355,7 +326,7 @@ export const replica = {
     if (state.init) set({ init: { ...state.init, recent } });
   },
   newProject(newProject: ViewState["newProject"]) {
-    set({ newProject });
+    set(opening(!!newProject && !state.newProject, { newProject }));
   },
   saveAs(saveAs: ViewState["saveAs"]) {
     set({ saveAs });
@@ -378,7 +349,7 @@ export const replica = {
     set({ editingText });
   },
   settings(settings: SettingsSheet | undefined) {
-    set({ settings });
+    set(opening(!!settings && !state.settings, { settings }));
   },
   status(status: string) {
     clearTimeout(statusTimer);

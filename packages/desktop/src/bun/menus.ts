@@ -84,6 +84,8 @@ export function createMenus(app: MenusApp) {
     if (!current) return;
     const h = current.path;
     const s = app.shortcuts().find((x) => x.id === id);
+    // The window opens the comment's editor at the playhead: its text is typed before it is added.
+    if (id === "edit.addComment") return message("commentAction", { op: "new" });
     if (id === "project.undo") core.undo(h).catch(fail);
     else if (id === "project.redo") core.redo(h).catch(fail);
     else if (id === "project.undoAgents") core.undoAgents(h).catch(fail);
@@ -187,7 +189,7 @@ export function createMenus(app: MenusApp) {
           item("selection.clear"),
           { label: "Playhead", submenu: [item("edit.trimToPlayhead:start"), item("edit.trimToPlayhead:end")] },
           SEPARATOR,
-          item("edit.addMarker"),
+          item("edit.addComment"),
           SEPARATOR,
           item("app.projectSettings", { enabled: open }),
         ],
@@ -405,13 +407,13 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       ...SECTION_COLORS.map((c) => ({ label: c[0]!.toUpperCase() + c.slice(1), action: `section:color-${c}:${section}`, checked: chosen === c })),
     ];
-    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), { label: "Colour", submenu: colours }, SEPARATOR, own("Delete Section", "remove")]);
+    ContextMenu.showContextMenu([own("Rename…", "rename"), { label: "Colour", submenu: colours }, SEPARATOR, own("Delete Section", "remove")]);
   }
 
-  function markerMenu({ marker }: { marker: string }) {
+  function commentMenu({ comment }: { comment: string }) {
     if (!app.current()) return;
-    const own = (label: string, op: string) => ({ label, action: `marker:${op}:${marker}` });
-    ContextMenu.showContextMenu([own("Rename…", "rename"), SEPARATOR, own("Delete Marker", "remove")]);
+    const own = (label: string, op: string) => ({ label, action: `comment:${op}:${comment}` });
+    ContextMenu.showContextMenu([own("Edit…", "edit"), SEPARATOR, own("Delete Comment", "remove")]);
   }
 
   /** Track menu items, as track commands. */
@@ -468,7 +470,7 @@ export function createMenus(app: MenusApp) {
     const ids = asset.split(",");
     if (op === "add") return void core.run(h, "edit.addMedia", { asset: ids }).catch(fail);
     if (op === "addEnd") return void core.run(h, "edit.addMedia", { asset: ids, end: true }).catch(fail);
-    if (op === "delete") return void core.run(h, "edit.deleteMedia", { asset: ids }).catch(fail);
+    if (op === "delete") return message("deleteMedia", { assets: ids });
     const a = core.doc(h).assets[asset];
     if (!a) return;
     if (op === "rename") message("renameMedia", { asset });
@@ -544,12 +546,12 @@ export function createMenus(app: MenusApp) {
       else if (op.startsWith("color-")) {
         const color = op.slice(6);
         void core.run(current.path, "section.set", { section: id, color: color === "auto" ? null : color }, { label: "Section Colour" }).catch(fail);
-      } else message("sectionAction", { section: id, op: op as "ask" | "rename" });
-    } else if (kind === "marker") {
-      if (op === "remove") void core.run(current.path, "marker.remove", { marker: id }, { label: "Delete Marker" }).catch(fail);
-      else message("markerAction", { marker: id, op: "rename" });
+      } else message("sectionAction", { section: id, op: "rename" });
+    } else if (kind === "comment") {
+      if (op === "remove") void core.run(current.path, "comment.remove", { comment: id }, { label: "Delete Comment" }).catch(fail);
+      else message("commentAction", { comment: id, op: "edit" });
     }
   });
 
-  return { setMenu, historyChanged, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, markerMenu, tileMenu, recentMenu };
+  return { setMenu, historyChanged, canvasMenu, clipMenu, binMenu, trackMenu, sectionMenu, commentMenu, tileMenu, recentMenu };
 }

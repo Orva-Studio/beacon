@@ -7,8 +7,19 @@ const ACTIONS = actionList.actions as ActionListing[];
 const ACTION_BY_ID = new Map(ACTIONS.map((a) => [a.id, a]));
 const DEFAULTS = defaultKeymap.bindings as { keys: Keys; command: string; args?: Record<string, unknown> }[];
 
+/** Actions renamed since keys were saved for them: markers became comments (schema 7). */
+const RENAMED: Record<string, string> = {
+  "edit.addMarker": "edit.addComment",
+  "playhead.jump:nextMarker": "playhead.jump:nextComment",
+  "playhead.jump:previousMarker": "playhead.jump:previousComment",
+  "range.extend:leftMarker": "range.extend:leftComment",
+  "range.extend:rightMarker": "range.extend:rightComment",
+};
+
 /** `keymap.json`: the user's keys by action id, replacing that action's defaults (an empty list: no keys). */
-export const KeymapFileSchema = z.object({ overrides: z.record(z.string(), z.array(KeysSchema)) });
+export const KeymapFileSchema = z.object({
+  overrides: z.record(z.string(), z.array(KeysSchema)).transform((o) => Object.fromEntries(Object.entries(o).map(([id, keys]) => [RENAMED[id] ?? id, keys]))),
+});
 export type KeymapOverrides = Record<string, Keys[]>;
 
 /** Key hints in command descriptions ("(⇧⌘T)", "(⌃⇧← / ⌃⇧→)") go stale once keys change: the list shows the real ones. */

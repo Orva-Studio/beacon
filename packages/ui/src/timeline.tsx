@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ticksToSeconds, trackName, type Clip, type Project, type Session } from "@beacon/model";
+import { CommentEditor } from "./comment-editor";
 import { acceptFiles, addDropTarget, type DropTarget } from "./drop";
 import type { DroppedFile } from "./rpc";
 import { RenameField } from "./controls";
-import { headerWidth, maxTop, rowTop, RULER, TRACKS_TOP } from "./timeline-layout";
+import { headerWidth, maxTop, rowTop, TRACKS_TOP } from "./timeline-layout";
+import { clock } from "./time";
 import { SectionNamer } from "./section-namer";
 import { replica, useView } from "./store";
 import { clipLabel, drawTimeline, keepImages, timelineView, type Drag, type TimelineMark } from "./timeline-draw";
@@ -27,7 +29,7 @@ interface Props {
   /** A track's menu (Insert Track, Rename…, Lock…), or with null the track options under ⌄. */
   trackMenu: (track: string | null) => void;
   sectionMenu: (section: string) => void;
-  markerMenu: (marker: string) => void;
+  commentMenu: (comment: string) => void;
   /** Files dragged in from Finder, dropped at a time (and on a track). */
   dropFiles: (files: DroppedFile[], at: { time: number; track?: string }) => void;
   /** Spans marked across the tracks while something is reviewed (Remove Silences: every one red, the selected outlined). */
@@ -36,7 +38,7 @@ interface Props {
   markClick?: (mark: TimelineMark, alt: boolean, shift: boolean, meta: boolean) => void;
 }
 
-export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, sectionMenu, markerMenu, dropFiles, marks, markClick }: Props) {
+export function Timeline({ project: full, session, waveforms, thumbs, clipTypes, nested, run, menu, trackMenu, sectionMenu, commentMenu, dropFiles, marks, markClick }: Props) {
   const { project } = timelineView(full, session, nested);
   const HEADER = headerWidth(project.tracks);
   const label = (clip: Clip) => clipLabel(project, clip, nested, clipTypes[clip.type]);
@@ -44,8 +46,8 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   const dragging = useView((s) => s.dragging);
   const pickedSection = useView((s) => s.section);
   const namingSection = useView((s) => s.namingSection);
-  const pickedMarker = useView((s) => s.marker);
-  const namingMarker = useView((s) => s.namingMarker);
+  const pickedComment = useView((s) => s.comment);
+  const editingComment = useView((s) => s.editingComment);
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const size = useRef({ w: 0, h: 0 });
@@ -67,7 +69,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   }, [session.animation?.id]);
   const pending = useRef(0);
   const edge = useRef({ x: 0, raf: 0 });
-  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection, marker: pickedMarker });
+  const latest = useRef({ project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection, comment: pickedComment, editing: editingComment });
   useEffect(() => keepImages(full, thumbs), [full, thumbs]);
   const staticLayer = useRef<{ canvas?: HTMLCanvasElement; key: unknown[] }>({ key: [] });
   /** Counts thumbnails decoded, so the cached layer is redrawn with them. */
@@ -75,7 +77,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   /** When each clip last had an effect added, for its badge's flash. */
   const flashes = useRef(new Map<string, number>());
   const effectCounts = useRef<Map<string, number> | null>(null);
-  latest.current = { project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection, marker: pickedMarker };
+  latest.current = { project, session, waveforms, thumbs, dragging, marks, section: pickedSection, naming: namingSection, comment: pickedComment, editing: editingComment };
 
   const tracks = [...project.tracks].reverse();
   const TRACK = session.timeline.trackHeight;
@@ -139,12 +141,12 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
 
   useTimelineKeys(dragState, snapLine, drawRef);
 
-  // A press anywhere off the timeline (the canvas, a panel) lets a picked section or marker go, so ⌫ is for what was pressed.
+  // A press anywhere off the timeline (the canvas, a panel) lets a picked section or comment go, so ⌫ is for what was pressed.
   useEffect(() => {
     const away = (e: PointerEvent) => {
       if (e.target === canvas.current) return;
       replica.section(undefined);
-      replica.marker(undefined);
+      replica.comment(undefined);
     };
     window.addEventListener("pointerdown", away, true);
     return () => window.removeEventListener("pointerdown", away, true);
@@ -159,10 +161,10 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
   };
   useEffect(() => addDropTarget((...a) => dropRef.current!(...a)), []);
 
-  const [marker, setMarker] = useState<{ id: string; name: string; x: number }>();
-  const hoverMarker = (m: typeof marker) => setMarker((was) => (was?.id === m?.id && was?.x === m?.x && was?.name === m?.name ? was : m));
-  const { onPointerDown, onPointerMove, finish } = timelineDrag({ ...context, draw }, hits, { trackMenu, markClick, markerHover: hoverMarker });
-  const clicks = timelineClicks(context, hits, { menu, trackMenu, sectionMenu, markerMenu, dropFiles });
+  const [tip, setTip] = useState<{ id: string; text: string; x: number }>();
+  const hoverComment = (m: typeof tip) => setTip((was) => (was?.id === m?.id && was?.x === m?.x && was?.text === m?.text ? was : m));
+  const { onPointerDown, onPointerMove, finish } = timelineDrag({ ...context, draw }, hits, { trackMenu, markClick, commentHover: hoverComment });
+  const clicks = timelineClicks(context, hits, { menu, trackMenu, sectionMenu, commentMenu, dropFiles });
 
   return (
     <div ref={box} className="relative min-h-0 flex-1 overflow-hidden">
@@ -172,9 +174,9 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         className="absolute inset-0"
         onDragOver={acceptFiles}
         onDrop={clicks.onDrop}
-        onPointerDown={(e) => (setMarker(undefined), onPointerDown(e))}
+        onPointerDown={(e) => (setTip(undefined), onPointerDown(e))}
         onPointerMove={onPointerMove}
-        onPointerLeave={() => setMarker(undefined)}
+        onPointerLeave={() => setTip(undefined)}
         onPointerUp={finish}
         onPointerCancel={finish}
         onLostPointerCapture={(e) => dragState.current && finish(e)}
@@ -182,40 +184,43 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
         onContextMenu={clicks.onContextMenu}
         onWheel={clicks.onWheel}
       />
-      {marker && (
+      {tip && !editingComment && (
         <div
-          className="pointer-events-none absolute z-20 max-w-80 rounded-md border border-divider bg-panel px-2 py-1 text-label break-words text-text-strong shadow-xl"
-          style={{ left: Math.max(4, Math.min(marker.x - 8, size.current.w - 330)), top: RULER + 2 }}
-          data-marker-tip
+          className="pointer-events-none absolute z-20 max-w-80 rounded-md border border-divider bg-panel px-2 py-1 text-label break-words whitespace-pre-wrap text-text-strong shadow-xl"
+          style={{ left: Math.max(4, Math.min(tip.x - 8, size.current.w - 330)), top: TRACKS_TOP + 2 }}
+          data-comment-tip
         >
-          {marker.name}
+          {tip.text}
         </div>
       )}
-      {namingMarker &&
-        ((m) =>
-          m && (
-            <RenameField
-              key={m.id}
-              value={m.name}
-              className="absolute z-20 text-label"
-              style={{ left: Math.max(HEADER, Math.min(hits.xOf(ticksToSeconds(m.time)) - 8, size.current.w - 248)), top: RULER + 2, width: 240, height: 22 }}
-              onDone={(name) => {
-                replica.nameMarker(undefined);
-                if (name !== null && name !== m.name) run("marker.set", { marker: m.id, name }, "Rename Marker");
+      {editingComment &&
+        ((c) =>
+          (c || !editingComment.id) && (
+            <CommentEditor
+              key={editingComment.id ?? `${editingComment.start}`}
+              value={c?.text ?? ""}
+              where={((a, b) => (b === undefined ? `at ${clock(a)}` : `${clock(a)}–${clock(b)}`))(c ? ticksToSeconds(c.start) : editingComment.start, c ? (c.end === undefined ? undefined : ticksToSeconds(c.end)) : editingComment.end)}
+              style={{ left: Math.min(Math.max(HEADER, hits.xOf(editingComment.start) - 8), Math.max(HEADER, size.current.w - 296)), top: TRACKS_TOP + 2, maxHeight: Math.max(120, size.current.h - TRACKS_TOP - 8) }}
+              onDone={(text) => {
+                replica.editComment(undefined);
+                if (text === null) return draw();
+                if (!c) return text ? run("comment.add", { start: editingComment.start, ...(editingComment.end !== undefined ? { end: editingComment.end } : {}), text }, "Add Comment") : draw();
+                if (!text) return run("comment.remove", { comment: c.id }, "Delete Comment");
+                run("comment.set", { comment: c.id, text }, "Edit Comment");
               }}
             />
-          ))(project.markers.find((x) => x.id === namingMarker))}
+          ))(editingComment.id ? project.comments.find((x) => x.id === editingComment.id) : undefined)}
       {namingSection && (
         <SectionNamer
           key={namingSection.id ?? `${namingSection.start}`}
           value={project.sections.find((s) => s.id === namingSection.id) ?? { name: "" }}
-          style={{ left: Math.min(Math.max(HEADER, hits.xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2, maxHeight: Math.max(120, size.current.h - TRACKS_TOP - 8) }}
-          onDone={(text) => {
+          style={{ left: Math.min(Math.max(HEADER, hits.xOf(namingSection.start)), Math.max(HEADER, size.current.w - 264)), top: TRACKS_TOP + 2 }}
+          onDone={(name) => {
             replica.nameSection(undefined);
-            if (text === null || (!namingSection.id && !text.name && !text.comment)) return draw();
-            if (!namingSection.id) return run("section.add", { start: namingSection.start, end: namingSection.end, ...(text.name ? { name: text.name } : {}), ...(text.comment ? { comment: text.comment } : {}) }, "Add Section");
-            if (!text.name && !text.comment) return run("section.remove", { section: namingSection.id }, "Remove Section");
-            run("section.set", { section: namingSection.id, name: text.name, comment: text.comment, ...(text.clearReply ? { reply: null } : {}) }, "Edit Section");
+            if (name === null || (!namingSection.id && !name)) return draw();
+            if (!namingSection.id) return run("section.add", { start: namingSection.start, end: namingSection.end, name }, "Add Section");
+            if (!name) return run("section.remove", { section: namingSection.id }, "Remove Section");
+            run("section.set", { section: namingSection.id, name }, "Rename Section");
           }}
         />
       )}

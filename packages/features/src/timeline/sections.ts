@@ -24,46 +24,31 @@ export const sectionCommands = [
   defineCommand({
     id: "section.add",
     description:
-      "Name a part of the video (Intro, Explanation, Demo, Outro…): a section of the main timeline from `start` to `end` (seconds), with a name, a comment (what the user wants changed there), or both, and optionally a `color` (else its name picks one). Sections can't overlap; gaps are fine. Returns its id",
-    args: z
-      .strictObject({ start: Seconds, end: Seconds, name: z.string().trim().optional(), comment: z.string().trim().optional(), color: Color.optional() })
-      .refine((a) => !!a.name || !!a.comment, "a section needs a name or a comment"),
-    apply(doc, { start, end, name, comment, color }, ctx) {
+      "Name a part of the video (Intro, Explanation, Demo, Outro…): a section of the main timeline from `start` to `end` (seconds), optionally with a `color` (else its name picks one). Sections can't overlap; gaps are fine. What the user wants changed is a comment (comment_add), not a section. Returns its id",
+    args: z.strictObject({ start: Seconds, end: Seconds, name: z.string().trim().min(1, "a section needs a name"), color: Color.optional() }),
+    apply(doc, { start, end, name, color }, ctx) {
       const id = ctx.newId("section");
-      place(doc, { id, start: snapSeconds(start, doc.settings.fps), end: snapSeconds(end, doc.settings.fps), name: name ?? "", ...(comment ? { comment } : {}), ...(color ? { color } : {}) }, doc.sections);
+      place(doc, { id, start: snapSeconds(start, doc.settings.fps), end: snapSeconds(end, doc.settings.fps), name, ...(color ? { color } : {}) }, doc.sections);
       return id;
     },
   }),
   defineCommand({
     id: "section.set",
     description:
-      "Rename a section, change its comment or `color` (null: back to the colour its name picks), or move its start or end (seconds); it still can't overlap another. When you have done what a section's comment asks, set `reply` to one line on what you did (the section stays; the user clears it). A new comment (\"\" removes it) clears the reply",
+      "Rename a section, change its `color` (null: back to the colour its name picks), or move its start or end (seconds); it still can't overlap another",
     args: z.strictObject({
       section: Id,
-      name: z.string().trim().optional(),
-      comment: z.string().trim().optional(),
-      reply: z.string().trim().nullable().optional(),
+      name: z.string().trim().min(1, "a section needs a name").optional(),
       color: Color.nullable().optional(),
       start: Seconds.optional(),
       end: Seconds.optional(),
     }),
-    apply(doc, { section, name, comment, reply, color, start, end }) {
+    apply(doc, { section, name, color, start, end }) {
       const s = find(doc, section);
       const fps = doc.settings.fps;
       const next: Section = { ...s, ...(name !== undefined ? { name } : {}), ...(start !== undefined ? { start: snapSeconds(start, fps) } : {}), ...(end !== undefined ? { end: snapSeconds(end, fps) } : {}) };
-      if (comment !== undefined && comment !== (s.comment ?? "")) {
-        delete next.comment;
-        delete next.reply;
-        if (comment) next.comment = comment;
-      }
-      if (reply === null || reply === "") delete next.reply;
-      else if (reply !== undefined) {
-        if (!next.comment) throw new Error("a reply answers a comment, and this section has none");
-        next.reply = reply;
-      }
       if (color === null) delete next.color;
       else if (color !== undefined) next.color = color;
-      if (!next.name && !next.comment) throw new Error("a section needs a name or a comment");
       place(doc, next, doc.sections.filter((x) => x.id !== section));
     },
   }),

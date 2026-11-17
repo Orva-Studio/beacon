@@ -15,6 +15,7 @@ import { CanvasOverlay } from "./canvas";
 import type { CanvasMark } from "./canvas-marks";
 import { NoticeUi } from "./notice";
 import { MediaPreviewUi, type PreviewHost } from "./media-preview";
+import { DeleteMediaConfirm } from "./media-bin";
 import { NewProjectUi, ProjectName, SaveAsUi, type ProjectHost } from "./project-name";
 import { ResourceUi, type ResourceHost } from "./resource";
 import { followResizes, MASK, nativeViewStyle, syncNativeView } from "./native-view";
@@ -25,7 +26,8 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
-import { AgentActivity, AgentToasts, AskAgent } from "./ask-agent";
+import { AgentActivity } from "./agent-activity";
+import { newComment } from "./comment-editor";
 import { LearnedToasts } from "./learned";
 import { MusicPanel, musicReviewOf, popInMarks, suggestionMarks, usePopIns } from "./music";
 import { goTo } from "./review";
@@ -55,15 +57,11 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   canvasMenu(): void;
   trackMenu(track: string | null): void;
   sectionMenu(section: string): void;
-  markerMenu(marker: string): void;
+  commentMenu(comment: string): void;
   /** A Media Bin item's menu; without one, the bin's own (its empty space). */
   /** `assets`: the selected media it acts on, when it is one of several selected. */
   binMenu(asset?: string, assets?: string[]): void;
   tileMenu(tile: TileMenu): void;
-  /** The agent sessions Beacon's MCP server serves, newest first. */
-  agents(): Promise<import("@beacon/core").AgentSession[]>;
-  /** Sends a request the user typed to an agent session: its id, or why it couldn't be sent. */
-  askAgent(socket: string, prompt: string, about: import("@beacon/core").AgentAbout): Promise<{ id: string } | { error: string }>;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
@@ -184,13 +182,13 @@ export function App({ host }: { host: Host }) {
         if (e.key !== "Escape" && !e.repeat) host.run("section.remove", { section }, "Delete Section");
         return;
       }
-      // So does a marker picked on the ruler.
-      const marker = replica.get().marker;
-      if (marker && replica.get().project?.markers.some((m) => m.id === marker) && !field && (b?.command === "edit.delete" || b?.command === "edit.rippleDelete" || e.key === "Escape")) {
+      // So does a comment picked in the Comments lane.
+      const comment = replica.get().comment;
+      if (comment && replica.get().project?.comments.some((c) => c.id === comment) && !field && (b?.command === "edit.delete" || b?.command === "edit.rippleDelete" || e.key === "Escape")) {
         e.preventDefault();
         e.stopPropagation();
-        replica.marker(undefined);
-        if (e.key !== "Escape" && !e.repeat) host.run("marker.remove", { marker }, "Delete Marker");
+        replica.comment(undefined);
+        if (e.key !== "Escape" && !e.repeat) host.run("comment.remove", { comment }, "Delete Comment");
         return;
       }
       if (!b?.command || CLIPBOARD[b.command]) return;
@@ -204,6 +202,8 @@ export function App({ host }: { host: Host }) {
       // Silences selected on the timeline: ⌫ cuts them.
       const reviews = replica.get().session?.features.transcript as { silences?: { selected: number[] } } | undefined;
       if (b.command === "edit.delete" && reviews?.silences?.selected.length) return host.run("silences.apply");
+      // ⇧M: the comment's text is typed first, so an empty one isn't left behind.
+      if (b.command === "edit.addComment") return newComment();
       runAction(host, b);
     };
     // ⌘X/⌘C/⌘V arrive as clipboard events, from the keys or the Edit menu's roles alike; text fields keep theirs.
@@ -268,7 +268,7 @@ export function App({ host }: { host: Host }) {
               menu={host.clipMenu}
               trackMenu={host.trackMenu}
               sectionMenu={host.sectionMenu}
-              markerMenu={host.markerMenu}
+              commentMenu={host.commentMenu}
               dropFiles={host.dropFiles}
               marks={
                 session && musicReviewOf(session)?.tab === "suggest" && musicReviewOf(session)!.suggestion
@@ -306,7 +306,6 @@ export function App({ host }: { host: Host }) {
         <Toasts>
           <ExportToast host={host} />
           <TaskToasts host={host} />
-          <AgentToasts host={host} />
           <AgentActivity />
           <LearnedToasts host={host} />
           <SnapshotSaved host={host} />
@@ -320,9 +319,9 @@ export function App({ host }: { host: Host }) {
         <SaveAsUi host={host} />
         <ResourceUi host={host} />
         <MediaPreviewUi host={host} />
+        <DeleteMediaConfirm host={host} />
         <NoticeUi />
         <Palette host={host} />
-        <AskAgent host={host} />
         <LeaderKeys />
         {/* The dragged panel item; a mask so it shows over the native canvas too. */}
         {dragging && (

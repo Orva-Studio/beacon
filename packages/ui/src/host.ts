@@ -43,14 +43,9 @@ export function createHost(request: Request, extras: Partial<Host> = {}): Host {
     canvasMenu: () => void request("canvasMenu", {}),
     trackMenu: (track) => void request("trackMenu", { track }),
     sectionMenu: (section) => void request("sectionMenu", { section }),
-    markerMenu: (marker) => void request("markerMenu", { marker }),
+    commentMenu: (comment) => void request("commentMenu", { comment }),
     binMenu: (asset, assets) => void request("binMenu", asset ? { asset, ...(assets && assets.length > 1 ? { assets } : {}) } : {}),
     tileMenu: (tile) => void request("tileMenu", tile),
-    agents: () => request("agents", {}),
-    askAgent: async (socket, prompt, about) => {
-      const r = await request("askAgent", { socket, prompt, about });
-      return r.ok ? { id: r.result! } : { error: r.error ?? "it couldn't be sent" };
-    },
     recentMenu: (path) => void request("recentMenu", { path }),
     importMedia: () => void request("importMedia", {}),
     dropFiles: (files, at) => commands.send(() => request("dropFiles", { files, ...at, timing: dropTiming() })),

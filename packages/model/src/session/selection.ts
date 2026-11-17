@@ -179,8 +179,8 @@ export const SELECTION_COMMANDS: SessionCommandDef[] = [
   sessionCommand({
     id: "range.extend",
     description:
-      "Move one end of the in/out range (starting one from the playhead when there is none): by a frame (⇧< / ⇧>), or to the previous or next clip edge (⌥⇧⌘< / ⌥⇧⌘>) or marker (⌃⇧{ / ⌃⇧})",
-    args: z.strictObject({ side: z.enum(["left", "right"]), to: z.enum(["frame", "edit", "marker"]).default("frame") }),
+      "Move one end of the in/out range (starting one from the playhead when there is none): by a frame (⇧< / ⇧>), or to the previous or next clip edge (⌥⇧⌘< / ⌥⇧⌘>) or comment (⌃⇧{ / ⌃⇧})",
+    args: z.strictObject({ side: z.enum(["left", "right"]), to: z.enum(["frame", "edit", "comment"]).default("frame") }),
     apply: (s, { side, to }, { project, full }) => {
       const r = s.range ?? { in: s.playhead, out: s.playhead };
       const from = side === "left" ? r.in : r.out;

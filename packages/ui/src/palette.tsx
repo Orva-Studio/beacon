@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { assetName, type Asset } from "@beacon/model";
 import { Icon, Modal, TextInput, type IconName } from "./controls";
 import { KIND_ICON } from "./media-bin";
-import { aboutSelection } from "./ask-agent";
 import { AI_TOOLS, allItems, inUseOrder } from "./panel-items";
 import { searchByName } from "./search";
 import { NO_NESTED, timelineView } from "./timeline-draw";
@@ -74,9 +73,8 @@ function PaletteUi({ host }: { host: PaletteHost }) {
       const name = `Remove ${title(fx.type)}${same.length > 1 ? ` ${same.indexOf(fx) + 1}` : ""}`;
       return { id: `remove:${fx.id}`, name, description: "Remove from the selected clip", group: "Selected Clip", icon: "trash", start: (h) => h.run("effect.remove", { clip: clip!.id, effect: fx.id }) };
     });
-    const ask: Entry = { id: "agent:ask", name: "Ask an Agent…", description: "Ask your agent about the selection or project", group: "Agent", icon: "sparkle", start: () => replica.askAgent(aboutSelection()) };
     const used = new Set(recent);
-    return [...inUseOrder([...items, ...tools].filter((e) => used.has(e.item)), recent), ...items.filter((e) => !used.has(e.item)), ...removals, ...tools.filter((e) => !used.has(e.item)), ask];
+    return [...inUseOrder([...items, ...tools].filter((e) => used.has(e.item)), recent), ...items.filter((e) => !used.has(e.item)), ...removals, ...tools.filter((e) => !used.has(e.item))];
   }, [init, recent, project, session]);
   const media = useMemo(
     () =>

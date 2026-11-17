@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Core document shape. Bump with a migration in `migrations.ts`. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const TicksSchema = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const SignedTicksSchema = z.int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -92,10 +92,15 @@ export const trackName = (track: { name: string }, index: number) => track.name 
 /** What the Media Bin and clips call an asset: its name, else the file's name without its extension. */
 export const assetName = (a: { name?: string; path: string }) => a.name ?? a.path.split("/").pop()!.replace(/\.[^.]+$/, "");
 
-const MarkerSchema = z.strictObject({
+/**
+ * A note on the timeline, mostly what the user wants an agent to change there: over a stretch (`end` set) or at one
+ * moment. Comments may overlap each other and sections; the agent removes one once it has done it.
+ */
+const CommentSchema = z.strictObject({
   id: IdSchema,
-  time: TicksSchema,
-  name: z.string(),
+  start: TicksSchema,
+  end: TicksSchema.optional(),
+  text: z.string(),
 });
 
 /** The colours a section can be given; without one, its name picks it. */
@@ -108,19 +113,14 @@ const SectionSchema = z.strictObject({
   start: TicksSchema,
   end: TicksSchema,
   name: z.string(),
-  /** What the user wants changed here, for an agent to do. */
-  comment: z.string().optional(),
-  /** The agent's one line on what it did about the comment; set, the comment is done. */
-  reply: z.string().optional(),
   /** Chosen by the user; unset, the section is coloured by its name. */
   color: z.enum(SECTION_COLORS).optional(),
 });
 
-/** What a section's bar shows: its name, or the start of its comment when it has none. */
-export function sectionLabel(s: { name: string; comment?: string }): string {
-  if (s.name) return s.name;
-  const line = (s.comment ?? "").split("\n")[0]!;
-  return line.length > 40 ? `${line.slice(0, 39)}…` : line;
+/** A comment's first line, shortened for a bar, a menu or a label. */
+export function commentLabel(c: { text: string }, max = 40): string {
+  const line = c.text.split("\n")[0]!;
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
 export const SettingsSchema = z.strictObject({
@@ -143,9 +143,10 @@ export const ProjectSchema = z.strictObject({
   assets: z.record(IdSchema, AssetSchema),
   /** Ordered bottom → top. */
   tracks: z.array(TrackSchema),
-  markers: z.array(MarkerSchema),
   /** Sorted by start. */
   sections: z.array(SectionSchema),
+  /** Sorted by start. */
+  comments: z.array(CommentSchema),
 });
 
 export type Easing = z.infer<typeof EasingSchema>;
@@ -154,7 +155,7 @@ export type EffectInstance = z.infer<typeof EffectInstanceSchema>;
 export type Clip = z.infer<typeof ClipSchema>;
 export type Track = z.infer<typeof TrackSchema>;
 export type Asset = z.infer<typeof AssetSchema>;
-export type Marker = z.infer<typeof MarkerSchema>;
+export type Comment = z.infer<typeof CommentSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 

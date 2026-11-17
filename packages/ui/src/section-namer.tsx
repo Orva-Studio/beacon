@@ -1,93 +1,49 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { PLAIN_TEXT } from "./controls/buttons";
 
-export type SectionText = { name: string; comment: string; clearReply?: boolean };
-
 /**
- * Names a section and says what should change there (a comment, for an agent). Enter saves, ⇧Enter
- * starts a new line in the comment, Esc leaves it as it was; a press outside saves what was typed (a long comment
- * shouldn't be lost to a stray click). The agent's reply, once it has done the comment, shows under it to clear.
+ * Names a section (Intro, Demo…). Enter saves, Esc leaves it as it was; a press outside saves what was typed. An empty
+ * name removes the section, or doesn't make a new one.
  */
-export function SectionNamer({ value, style, onDone }: { value: { name: string; comment?: string; reply?: string }; style: CSSProperties; onDone: (text: SectionText | null) => void }) {
+export function SectionNamer({ value, style, onDone }: { value: { name: string }; style: CSSProperties; onDone: (name: string | null) => void }) {
   const name = useRef<HTMLInputElement>(null);
-  const comment = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const done = useRef(false);
-  const [reply, setReply] = useState(value.reply);
-  const cleared = useRef(false);
-  const finish = (text: SectionText | null) => {
+  const finish = (text: string | null) => {
     if (done.current) return;
     done.current = true;
     onDone(text);
   };
-  const typed = (): SectionText => ({
-    name: (name.current?.value ?? "").trim(),
-    comment: (comment.current?.value ?? "").trim(),
-    ...(cleared.current ? { clearReply: true } : {}),
-  });
   const save = () => {
-    const t = typed();
-    const same = t.name === value.name && t.comment === (value.comment ?? "") && !t.clearReply;
-    finish(same ? null : t);
-  };
-  const grow = () => {
-    const el = comment.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    const t = (name.current?.value ?? "").trim();
+    finish(t === value.name ? null : t);
   };
   useEffect(() => {
-    grow();
-    const first = value.comment ? comment.current : name.current;
-    requestAnimationFrame(() => (first?.focus(), first?.select()));
+    requestAnimationFrame(() => (name.current?.focus(), name.current?.select()));
     // A press anywhere else saves. Not on blur: the app blurs fields on any press.
     const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && save();
     window.addEventListener("pointerdown", away, true);
     return () => window.removeEventListener("pointerdown", away, true);
   }, []);
-  const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const keys = (e: React.KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter") {
       e.preventDefault();
       save();
     }
     if (e.key === "Escape") finish(null);
   };
-  const field = "rounded-sm border border-divider bg-well px-2 py-1 text-body text-text-strong outline-none focus:border-accent";
   return (
-    <div
-      ref={box}
-      className="absolute z-20 flex w-72 flex-col gap-2 overflow-y-auto rounded-lg border border-divider bg-panel p-2 shadow-2xl"
-      style={style}
-      onPointerDown={(e) => e.stopPropagation()}
-      data-section-namer
-    >
-      <input {...PLAIN_TEXT} ref={name} defaultValue={value.name} placeholder="Name (Intro, Demo…)" className={field} onKeyDown={keys} data-section-name />
-      <textarea
+    <div ref={box} className="absolute z-20 flex w-60 flex-col gap-2 rounded-lg border border-divider bg-panel p-2 shadow-2xl" style={style} onPointerDown={(e) => e.stopPropagation()} data-section-namer>
+      <input
         {...PLAIN_TEXT}
-        ref={comment}
-        defaultValue={value.comment ?? ""}
-        rows={2}
-        placeholder="Comment: what should change here"
-        className={`${field} resize-none leading-snug`}
-        onInput={grow}
+        ref={name}
+        defaultValue={value.name}
+        placeholder="Name (Intro, Demo…)"
+        className="rounded-sm border border-divider bg-well px-2 py-1 text-body text-text-strong outline-none focus:border-accent"
         onKeyDown={keys}
-        data-section-comment
+        data-section-name
       />
-      <div className="-mt-1 text-label text-text-muted" data-section-hint>
-        Enter saves · ⇧Enter new line · Esc cancels
-      </div>
-      {reply && (
-        <div className="flex items-start gap-2 rounded-sm bg-chip px-2 py-1 text-label text-text-muted" data-section-reply>
-          <span className="flex-1">
-            <span className="text-accent">Done: </span>
-            {reply}
-          </span>
-          <button className="text-text-muted hover:text-text-strong" onClick={() => ((cleared.current = true), setReply(undefined), comment.current?.focus())} data-section-reply-clear>
-            Clear
-          </button>
-        </div>
-      )}
     </div>
   );
 }

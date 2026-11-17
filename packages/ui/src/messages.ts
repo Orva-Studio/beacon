@@ -1,7 +1,8 @@
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { ticksToSeconds } from "@beacon/model";
-import { aboutSection } from "./ask-agent";
+import { newComment } from "./comment-editor";
+import { mediaToDelete } from "./media-bin";
 import { replica } from "./store";
 
 type Messages = AppRPC["webview"]["messages"];
@@ -17,12 +18,15 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   rename: ({ track }) => replica.rename(track),
   sectionAction: ({ section, op }) => {
     const s = replica.get().project?.sections.find((x) => x.id === section);
-    if (!s) return;
-    if (op === "rename") replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
-    else replica.askAgent(aboutSection(s));
+    if (s && op === "rename") replica.nameSection({ id: s.id, start: ticksToSeconds(s.start), end: ticksToSeconds(s.end) });
   },
-  markerAction: ({ marker }) => replica.nameMarker(marker),
+  commentAction: ({ comment, op }) => {
+    if (op === "new") return newComment();
+    const c = replica.get().project?.comments.find((x) => x.id === comment);
+    if (c && op === "edit") replica.editComment({ id: c.id, start: ticksToSeconds(c.start) });
+  },
   renameMedia: ({ asset }) => replica.renameMedia(asset),
+  deleteMedia: ({ assets }) => replica.askDeleteMedia(mediaToDelete(assets)),
   newProjectSheet: ({ name, folder, standalone }) => replica.newProject({ name, folder, standalone: !!standalone }),
   recent: (r) => replica.recent(r),
   saveAsSheet: (s) => replica.saveAs(s),
@@ -44,7 +48,6 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   snapshotSaved: ({ path }) => replica.snapshot(path),
   settingsSheet: (s) => replica.settings(s),
   usage: ({ items }) => replica.usedItems(items),
-  agentReply: ({ request, status, text }) => replica.agentState(request, status, text),
   agentStatus: ({ agent, text }) => replica.agentStatus(agent, text),
   shortcuts: ({ shortcuts }) => replica.shortcuts(shortcuts),
   memory: ({ memory }) => replica.memory(memory),

@@ -106,11 +106,14 @@ export function snapOffset(edges: number[], targets: number[], threshold: number
   return best;
 }
 
-/** Where dragged edges snap: other clips' edges, the playhead, the range's ends and markers. */
+/** Where dragged edges snap: other clips' edges, the playhead, the range's ends and comments. */
 export function snapTargets(project: Project, opts: { playhead?: Ticks; range?: [Ticks, Ticks]; exclude?: ReadonlySet<string> }): Ticks[] {
   const out = new Set<Ticks>([0]);
   for (const t of project.tracks) for (const c of t.clips) if (!opts.exclude?.has(c.id)) out.add(c.start).add(clipEnd(c));
-  for (const m of project.markers) out.add(m.time);
+  for (const c of project.comments) {
+    out.add(c.start);
+    if (c.end !== undefined) out.add(c.end);
+  }
   if (opts.playhead !== undefined) out.add(opts.playhead);
   if (opts.range) out.add(opts.range[0]).add(opts.range[1]);
   return [...out];

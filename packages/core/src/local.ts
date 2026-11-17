@@ -45,8 +45,6 @@ import {
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, type ViewTarget } from "@beacon/render";
 import type {
-  AgentAbout,
-  AgentSession,
   ScriptResult,
   AssetPreview,
   CommandInfo,
@@ -89,7 +87,6 @@ import { pngImage, probeAsset, shortId, type CoreParts, type OpenProject, type P
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
 import { currentAuthor } from "./author";
-import { AgentRuns, type RunAgent } from "./agent-run";
 import { loadScriptEngine, runScript, SCRIPT_SECONDS, type ScriptHost } from "./script";
 import { Tasks } from "./tasks";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
@@ -110,10 +107,6 @@ export interface LocalCoreOptions {
   configDir?: string;
   /** Where secrets (API keys) are kept: the login Keychain. */
   secrets?: Secrets;
-  /** Where agent sessions' control sockets are (`agents`); tests keep the user's out. */
-  controlDir?: string;
-  /** The agent CLIs Beacon may start a run of, by name (`codex`); unset, those installed are found. Tests give their own. */
-  agentClis?: Partial<Record<RunAgent, string>>;
   /**
    * Asks the user before an agent records (the screen, camera, microphone): the app shows Record / Don't. Without it,
    * as in a windowless agent's own process, an agent can't record (the user, 2026-11-05).
@@ -162,7 +155,6 @@ export class LocalCore implements BeaconCore {
   readonly #exporter: Exporter;
   readonly #importer: Importer;
   readonly #tasks: Tasks;
-  readonly #agentRuns: AgentRuns;
   readonly #confirmAgentRecording: LocalCoreOptions["confirmAgentRecording"];
 
   constructor(opts: LocalCoreOptions = {}) {
@@ -191,14 +183,6 @@ export class LocalCore implements BeaconCore {
     this.#exporter = new Exporter(this.#parts, this.#jobs, this.#config, this.#analyses);
     this.#importer = new Importer(this.#parts, this.#config, this.#analyses);
     this.#tasks = new Tasks(this.#parts, this.#config);
-    this.#agentRuns = new AgentRuns({
-      parts: this.#parts,
-      control: opts.control,
-      socket: opts.socket,
-      controlDir: opts.controlDir,
-      agentClis: opts.agentClis,
-      reply: (request, status, text) => void this.agentReply(request, status, text),
-    });
     this.#recording = new Recording(this.#parts, this.#config, this.#analyses, (h, files, o) => this.import(h, files, o));
   }
 
@@ -782,7 +766,7 @@ export class LocalCore implements BeaconCore {
     const picture = media?.streams?.find((s) => s.kind === "video" && s.width && s.height);
     const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
     const settings = picture ? { ...base.settings, width: even(picture.width!), height: even(picture.height!) } : base.settings;
-    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], markers: [], sections: [] }, { newId: shortId, data: p.data.get });
+    const store = new ProjectStore(this.registry, { ...base, settings, tracks: [], sections: [], comments: [] }, { newId: shortId, data: p.data.get });
     store.run("asset.place", { asset: assetId, time: 0 });
     const doc = store.doc;
     const kind = asset.kind === "image" ? "image" : picture ? "video" : "audio";
@@ -1118,21 +1102,9 @@ export class LocalCore implements BeaconCore {
     return this.#config.itemUsed(item);
   }
 
-  async agents(): Promise<AgentSession[]> {
-    return this.#agentRuns.agents();
-  }
-
-  async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
-    return this.#agentRuns.ask(socket, prompt, about);
-  }
-
   async agentStatus(h: ProjectHandle, text: string): Promise<void> {
     const p = this.#get(h);
     this.#emit(p, { kind: "agentStatus", agent: agentName(currentAuthor() ?? "agent"), text: text.slice(0, 120) });
-  }
-
-  async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {
-    for (const l of this.#appListeners) l({ kind: "agent", request, status, ...(text ? { text } : {}) });
   }
 
   async settings(): Promise<AppSettings> {

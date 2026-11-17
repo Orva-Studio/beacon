@@ -21,13 +21,13 @@ export const PLAYBACK_COMMANDS: SessionCommandDef[] = [
   sessionCommand({
     id: "playhead.jump",
     description:
-      "Jump the playhead: to the start or end of the timeline, the next/previous edit (clip start or end), marker or animation, or the range's in/out point",
+      "Jump the playhead: to the start or end of the timeline, the next/previous edit (clip start or end), comment or animation, or the range's in/out point",
     args: z.strictObject({
-      to: z.enum(["start", "end", "nextEdit", "previousEdit", "nextMarker", "previousMarker", "nextAnimation", "previousAnimation", "rangeIn", "rangeOut"]),
+      to: z.enum(["start", "end", "nextEdit", "previousEdit", "nextComment", "previousComment", "nextAnimation", "previousAnimation", "rangeIn", "rangeOut"]),
     }),
     apply: (s, { to }, { project, full }) => {
       const eps = frame(project) / 2;
-      const pick = (kind: "edit" | "marker" | "animation", dir: 1 | -1) => {
+      const pick = (kind: "edit" | "comment" | "animation", dir: 1 | -1) => {
         const list = stops(project, kind);
         const t = dir > 0 ? list.find((x) => x > s.playhead + eps) : list.findLast((x) => x < s.playhead - eps);
         return t ?? s.playhead;
@@ -37,8 +37,8 @@ export const PLAYBACK_COMMANDS: SessionCommandDef[] = [
         end: () => duration(full),
         nextEdit: () => pick("edit", 1),
         previousEdit: () => pick("edit", -1),
-        nextMarker: () => pick("marker", 1),
-        previousMarker: () => pick("marker", -1),
+        nextComment: () => pick("comment", 1),
+        previousComment: () => pick("comment", -1),
         nextAnimation: () => pick("animation", 1),
         previousAnimation: () => pick("animation", -1),
         rangeIn: () => s.range?.in ?? s.playhead,
