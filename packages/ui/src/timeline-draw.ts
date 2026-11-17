@@ -98,6 +98,11 @@ export function arrows(c: Clip): { anim: Animation; a: number; b: number }[] {
 const FLASH_MS = 1600;
 
 /** A clip's audio points on the timeline (seconds, gain), as the volume feature reads them. */
+/** Time `t` in a clip lasting [cs, ce], placed in the span [sa, sb] the clip is drawn across (wider when it is short). */
+export function stretched(t: number, cs: number, ce: number, sa: number, sb: number): number {
+  return ce > cs ? sa + ((t - cs) / (ce - cs)) * (sb - sa) : sa;
+}
+
 export function volumePoints(c: Clip): { time: number; value: number }[] {
   const base = propsOf<{ volume: number }>(c, "audio").volume;
   return envelopePoints(base, c.animations, "audio.volume").map((p) => ({ time: onTimeline(c, p.time), value: p.value }));
@@ -433,18 +438,20 @@ export function drawTimeline(t: TimelineDrawing) {
         if (clipTypes[clip.type]?.includes("audio")) {
           const vy = (v: number) => volumeY(i, TRACK, v, TOP);
           const pts = volumePoints(clip);
+          // Across the clip as drawn: a short clip is drawn wider than it lasts, and its line spans all of it at any zoom.
+          const vx = (t: number) => x(trim || shifted ? t : stretched(t, cs, ce, sa, sb));
           ctx.strokeStyle = selectedClip ? VOLUME.selected() : VOLUME.line();
           ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.moveTo(x(cs), vy(volumeAt(clip, cs)));
-          for (const p of pts) if (p.time > cs && p.time < ce) ctx.lineTo(x(p.time), vy(p.value));
-          ctx.lineTo(x(ce), vy(volumeAt(clip, ce)));
+          ctx.moveTo(vx(cs), vy(volumeAt(clip, cs)));
+          for (const p of pts) if (p.time > cs && p.time < ce) ctx.lineTo(vx(p.time), vy(p.value));
+          ctx.lineTo(vx(ce), vy(volumeAt(clip, ce)));
           ctx.stroke();
           if (selectedClip) {
             ctx.fillStyle = VOLUME.selected();
             for (const p of pts) {
               ctx.beginPath();
-              ctx.arc(x(p.time), vy(p.value), 3.5, 0, Math.PI * 2);
+              ctx.arc(vx(p.time), vy(p.value), 3.5, 0, Math.PI * 2);
               ctx.fill();
             }
           }

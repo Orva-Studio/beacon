@@ -45,8 +45,6 @@ import {
 } from "@beacon/model";
 import { DEFAULT_CACHE_DIR, DerivedData, FrameRenderer, LiveView, type ViewTarget } from "@beacon/render";
 import type {
-  AgentAbout,
-  AgentSession,
   ScriptResult,
   AssetPreview,
   CommandInfo,
@@ -88,8 +86,7 @@ import { lock, projectName, readEditor, readProject, unlock, writeEditor, writeP
 import { pngImage, probeAsset, shortId, type CoreParts, type OpenProject, type Preview } from "./project";
 import { Recording } from "./recording";
 import { registryInfo, UI_STATE } from "./registry-info";
-import { asAuthor, currentAuthor } from "./author";
-import { AgentRuns, type RunAgent } from "./agent-run";
+import { currentAuthor } from "./author";
 import { loadScriptEngine, runScript, SCRIPT_SECONDS, type ScriptHost } from "./script";
 import { Tasks } from "./tasks";
 import { assetThumbnail, clipThumbnail } from "./thumbnails";
@@ -110,10 +107,6 @@ export interface LocalCoreOptions {
   configDir?: string;
   /** Where secrets (API keys) are kept: the login Keychain. */
   secrets?: Secrets;
-  /** Where agent sessions' control sockets are (`agents`); tests keep the user's out. */
-  controlDir?: string;
-  /** The agent CLIs Beacon may start a run of, by name (`codex`); unset, those installed are found. Tests give their own. */
-  agentClis?: Partial<Record<RunAgent, string>>;
   /**
    * Asks the user before an agent records (the screen, camera, microphone): the app shows Record / Don't. Without it,
    * as in a windowless agent's own process, an agent can't record (the user, 2026-11-05).
@@ -162,7 +155,6 @@ export class LocalCore implements BeaconCore {
   readonly #exporter: Exporter;
   readonly #importer: Importer;
   readonly #tasks: Tasks;
-  readonly #agentRuns: AgentRuns;
   readonly #confirmAgentRecording: LocalCoreOptions["confirmAgentRecording"];
 
   constructor(opts: LocalCoreOptions = {}) {
@@ -191,14 +183,6 @@ export class LocalCore implements BeaconCore {
     this.#exporter = new Exporter(this.#parts, this.#jobs, this.#config, this.#analyses);
     this.#importer = new Importer(this.#parts, this.#config, this.#analyses);
     this.#tasks = new Tasks(this.#parts, this.#config);
-    this.#agentRuns = new AgentRuns({
-      parts: this.#parts,
-      control: opts.control,
-      socket: opts.socket,
-      controlDir: opts.controlDir,
-      agentClis: opts.agentClis,
-      reply: (request, status, text, failed) => void this.#agentReplied(request, status, text, failed),
-    });
     this.#recording = new Recording(this.#parts, this.#config, this.#analyses, (h, files, o) => this.import(h, files, o));
   }
 
@@ -1118,36 +1102,9 @@ export class LocalCore implements BeaconCore {
     return this.#config.itemUsed(item);
   }
 
-  async agents(): Promise<AgentSession[]> {
-    return this.#agentRuns.agents();
-  }
-
-  /** Requests about a comment, by request id: the comment goes when the agent is done. */
-  #askedAbout = new Map<string, { project: string; comment: string }>();
-
-  async askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string> {
-    const request = await this.#agentRuns.ask(socket, prompt, about);
-    if (about.comment && about.project) this.#askedAbout.set(request, { project: about.project, comment: about.comment });
-    return request;
-  }
-
   async agentStatus(h: ProjectHandle, text: string): Promise<void> {
     const p = this.#get(h);
     this.#emit(p, { kind: "agentStatus", agent: agentName(currentAuthor() ?? "agent"), text: text.slice(0, 120) });
-  }
-
-  async agentReply(request: string, status: "received" | "done", text?: string): Promise<void> {
-    return this.#agentReplied(request, status, text);
-  }
-
-  async #agentReplied(request: string, status: "received" | "done", text?: string, failed = false): Promise<void> {
-    const about = status === "done" ? this.#askedAbout.get(request) : undefined;
-    if (status === "done") this.#askedAbout.delete(request);
-    // The agent may have removed it itself; a run that failed or was cancelled hasn't done it.
-    if (about && !failed && this.#projects.get(about.project)?.store.doc.comments.some((c) => c.id === about.comment)) {
-      await asAuthor("agent", () => this.run(about.project, "comment.remove", { comment: about.comment }, { label: "Comment Done" })).catch(() => {});
-    }
-    for (const l of this.#appListeners) l({ kind: "agent", request, status, ...(text ? { text } : {}) });
   }
 
   async settings(): Promise<AppSettings> {

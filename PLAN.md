@@ -3425,7 +3425,11 @@ timeline; Apply downloads and places them on SFX tracks in one undo step
 it only for montages (Epidemic's MCP server gives no beat data: our own
 detection).
 
-#### Ask an agent from Beacon (the user, 2026-11-03)
+#### Ask an agent from Beacon (the user, 2026-11-03; removed 2026-11-17)
+**Removed (the user, 2026-11-17: "I don't think I'll ever use that"):** the box, its
+menu items and ⌘K entry, the toasts, Codex runs, and the MCP server's channel
+and `app_reply`. Agents still say what they are doing in the status toast. What
+it was, for the record:
 A request typed in Beacon goes to an agent the user has open, so a motion
 graphic or section can be handed over without switching to its terminal.
 Claude Code first, Codex after.
@@ -3934,8 +3938,7 @@ The same script also lists each Beacon tool's calls, time and errors (`project_o
 can't overlap, so commenting on a few seconds broke a chapter. Comments now have their own lane under the Sections band
 (schema v7): over a stretch or at a moment, overlapping each other and sections. Sections are names (and colours)
 only. Comments at a moment replace markers, which are gone (their keys and jumps are the comments'). Decided: the lane
-directly under the Sections band; a comment the agent has done is removed (Beacon removes the one a request was about
-once the agent answers done; agents remove those they do); a comment may be at a moment. `comment_add`, `comment_set`,
+directly under the Sections band; a comment the agent has done is removed (agents remove those they do); a comment may be at a moment. `comment_add`, `comment_set`,
 `comment_remove` for agents.
 
 **Section colours (the user, 2026-11-13).** Right-click a section › Colour: Automatic (from its name, as before) or one

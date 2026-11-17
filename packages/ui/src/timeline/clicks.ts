@@ -3,7 +3,7 @@ import { droppedFiles } from "../drop";
 import type { DroppedFile } from "../rpc";
 import { replica } from "../store";
 import { COMMENTS_TOP, maxTop, RULER, TRACKS_TOP } from "../timeline-layout";
-import { volumeAt, volumePoints } from "../timeline-draw";
+import { stretched, volumeAt, volumePoints } from "../timeline-draw";
 import type { TimelineContext } from "./context";
 import type { TimelineHits } from "./hit-test";
 
@@ -20,7 +20,7 @@ export interface ClickOptions {
 
 /** The timeline's double-clicks, right-clicks, wheel and Finder drops. */
 export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, tracks, clipTypes, run }: TimelineContext, hits: TimelineHits, { menu, trackMenu, sectionMenu, commentMenu, dropFiles }: ClickOptions) {
-  const { timeAt, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, sectionAt, commentAt, pointer } = hits;
+  const { timeAt, clipAt, rowUnder, headerIcon, arrowAt, volumeHit, shown, sectionAt, commentAt, pointer } = hits;
 
   const onDrop = (e: React.DragEvent<HTMLCanvasElement>) => {
     if (!e.dataTransfer.files.length || latest.current.session.group) return;
@@ -59,7 +59,10 @@ export function timelineClicks({ canvas, latest, size, HEADER, TRACK, TOP, track
     const pts = volumePoints(clip);
     if (vol.index !== null) run("volume.setPoints", { clip: clip.id, points: pts.filter((_, j) => j !== vol.index) }, "Delete Audio Point");
     else {
-      const t = timeAt(e.clientX);
+      // Where the click is along the line as drawn: a short clip is drawn wider than it lasts.
+      const [cs, ce] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
+      const [sa, sb] = shown(tracks[rowUnder(y)!]!, clip);
+      const t = stretched(timeAt(e.clientX), sa, sb, cs, ce);
       run("volume.setPoints", { clip: clip.id, points: [...pts, { time: t, value: volumeAt(clip, t) }].sort((p, q) => p.time - q.time) }, "Add Audio Point");
     }
   };

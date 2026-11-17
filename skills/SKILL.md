@@ -33,8 +33,7 @@ mostly what they want changed there, over a stretch (`start` to `end`) or at one
 moment (no `end`). They overlap each other and sections, and ripple edits move
 them. `project_describe` lists them; `comment_add`, `comment_set` and
 `comment_remove` change them. Do what a comment asks, then `comment_remove` it:
-the comments left are what is left to do. A request sent about a comment (its
-`comment` attribute) removes it on its own once you answer `done`.
+the comments left are what is left to do.
 
 ## Media
 `media_import` adds files at the end of the timeline (or at `at`). A Camtasia

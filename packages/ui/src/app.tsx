@@ -26,7 +26,7 @@ import { RecordUi, type RecordHost } from "./record";
 import { clock } from "./time";
 import { reviewOf, SilenceReviewPanel, useSilences } from "./remove-silences";
 import { AuphonicPanel, auphonicReviewOf, TaskToasts } from "./auphonic";
-import { AgentActivity, AgentToasts, AskAgent } from "./ask-agent";
+import { AgentActivity } from "./agent-activity";
 import { newComment } from "./comment-editor";
 import { LearnedToasts } from "./learned";
 import { MusicPanel, musicReviewOf, popInMarks, suggestionMarks, usePopIns } from "./music";
@@ -62,10 +62,6 @@ export interface Host extends ActionHost, ExportHost, RecordHost, SettingsHost, 
   /** `assets`: the selected media it acts on, when it is one of several selected. */
   binMenu(asset?: string, assets?: string[]): void;
   tileMenu(tile: TileMenu): void;
-  /** The agent sessions Beacon's MCP server serves, newest first. */
-  agents(): Promise<import("@beacon/core").AgentSession[]>;
-  /** Sends a request the user typed to an agent session: its id, or why it couldn't be sent. */
-  askAgent(socket: string, prompt: string, about: import("@beacon/core").AgentAbout): Promise<{ id: string } | { error: string }>;
   importMedia(): void;
   dropFiles(files: DroppedFile[], at?: { time: number; track?: string }): void;
   /** The toolbar's Snapshot: the canvas at the playhead into the Media Bin. */
@@ -310,7 +306,6 @@ export function App({ host }: { host: Host }) {
         <Toasts>
           <ExportToast host={host} />
           <TaskToasts host={host} />
-          <AgentToasts host={host} />
           <AgentActivity />
           <LearnedToasts host={host} />
           <SnapshotSaved host={host} />
@@ -327,7 +322,6 @@ export function App({ host }: { host: Host }) {
         <DeleteMediaConfirm host={host} />
         <NoticeUi />
         <Palette host={host} />
-        <AskAgent host={host} />
         <LeaderKeys />
         {/* The dragged panel item; a mask so it shows over the native canvas too. */}
         {dragging && (

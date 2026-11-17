@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { asAuthor, LocalCore, serveControl } from "@beacon/core";
+import { asAuthor, LocalCore } from "@beacon/core";
 import { DerivedData } from "@beacon/render";
 import { assetName, EASINGS, ease, evaluate, keysLabel, mediaBounds, projectDuration, secondsToTicks, ticksToSeconds, trimBounds, type Clip, type SourceDef } from "@beacon/model";
 import { openPage } from "./browser";
@@ -2124,8 +2124,7 @@ test.skipIf(skip)("the command palette opens on ⌘K and adds what the panels do
   expect(all).toContain("annotation:blur");
   expect(all).toContain("audio:fade-out");
   const tools = ["ai:silences", "ai:retakes", "ai:broll", "ai:angles", "ai:motion", "ai:music", "ai:captions"];
-  expect(all.at(-1)).toBe("agent:ask");
-  expect(all.slice(-tools.filter((t) => !used.includes(t)).length - 1, -1)).toEqual(tools.filter((t) => !used.includes(t)));
+  expect(all.slice(-tools.filter((t) => !used.includes(t)).length)).toEqual(tools.filter((t) => !used.includes(t)));
   expect(all.some((e) => e.startsWith("app.") || e.includes("playhead"))).toBe(false);
   await page.screenshot(join(dir, "palette.png"));
 
@@ -5722,99 +5721,6 @@ test.skipIf(skip)("Pop-ins, from Sound Effects' Sounds for my graphics… (no ta
   }
 }, 60_000);
 
-test.skipIf(skip)("Ask an Agent: from ⌘K, a motion graphic's Send to Agent…, a section's or a comment's menu (the comment going once it's done), the request goes to the open Claude Code session with what it is about, and its answers show as toasts; with none, how to start one", async () => {
-  // A stand-in Claude Code session: Beacon's MCP server's control socket, as `agents()` finds them.
-  const sent: { prompt: string; meta: Record<string, string> }[] = [];
-  const session = serveControl(
-    { letGo: async () => {}, agent: () => ({ name: "claude-code", version: "2.1", project: "/somewhere/else.beproj" }), prompt: async (prompt, meta) => void sent.push({ prompt, meta }) },
-    join(ui.controlDir, "mcp-1.sock"),
-  );
-  const steps = (await ui.core.history(ui.handle)).undo.length;
-  try {
-    await select([screen.id]);
-    await page.key("k", "KeyK", ["meta"]);
-    await page.until("!!document.querySelector('[data-palette]')");
-    await type("ask an agent");
-    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
-    await page.key("Enter", "Enter");
-    await page.until("!!document.querySelector('[data-ask-agent]')");
-    expect(await page.evaluate<string>("document.querySelector('[data-ask-about]').textContent")).toMatch(/^About: Clip “recording”, 0:00–/);
-    await page.until("document.querySelector('[data-ask-session]')?.selectedOptions[0]?.textContent.startsWith('Claude Code · else.beproj')");
-    await page.screenshot(join(dir, "ask-agent.png"));
-    await page.click(...(await centre("[data-ask-prompt]")));
-    await type("Lay this out like the intro");
-    await page.key("Enter", "Enter");
-    await page.until("!document.querySelector('[data-ask-agent]')");
-    await page.until("document.querySelector('[data-agent-state]')?.dataset.agentState === 'sent'");
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.prompt).toBe("Lay this out like the intro");
-    expect(sent[0]!.meta).toMatchObject({ clip: screen.id, from: "0.00", label: expect.stringContaining("Clip “recording”") });
-    const id = sent[0]!.meta.request!;
-    // Its answers: on it, then done with what it did.
-    await ui.core.agentReply(id, "received");
-    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'received'`);
-    expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').closest('[data-toast]').textContent`)).toContain("Claude Code is on it");
-    // What it is doing shows under the request, not in a toast of its own.
-    await asAuthor("claude-code", () => ui.core.agentStatus(ui.handle, "Reading the transcript"));
-    await page.until(`document.querySelector('[data-agent-request="${id}"] [data-agent-step]')?.textContent === 'Reading the transcript'`);
-    expect(await page.evaluate<number>("document.querySelectorAll('[data-agent-activity]').length")).toBe(0);
-    await ui.core.agentReply(id, "done", "Laid it out as the intro");
-    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.dataset.agentState === 'done'`);
-    expect(await page.evaluate<string>(`document.querySelector('[data-agent-request="${id}"]').textContent`)).toBe("Laid it out as the intro");
-
-    // A section's menu offers it; its choice opens the box about that section.
-    await run("section.add", { start: 1, end: 3, name: "Intro" });
-    const section = ui.core.doc(ui.handle).sections.find((x) => x.name === "Intro")!;
-    ui.send("sectionAction", { section: section.id, op: "ask" });
-    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').includes('Section “Intro”, 0:01–0:03')");
-    await page.key("Escape", "Escape");
-    await page.until("!document.querySelector('[data-ask-agent]')");
-
-    // A comment's menu offers it: the request starts as the comment's text, and once the agent is done the comment goes.
-    const comment = (await ui.core.run(ui.handle, "comment.add", { start: 4, end: 6, text: "make this a counter" })).results[0] as string;
-    await Bun.sleep(300);
-    ui.send("commentAction", { comment, op: "ask" });
-    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').includes('Comment 0:04–0:06')");
-    expect(await page.evaluate<string>("document.querySelector('[data-ask-prompt]').value")).toBe("make this a counter");
-    await page.click(...(await centre("[data-ask-send]")));
-    await page.until("!document.querySelector('[data-ask-agent]')");
-    expect(sent.at(-1)!.meta.comment).toBe(comment);
-    await ui.core.agentReply(sent.at(-1)!.meta.request!, "done", "Made it a counter");
-    await arrived(() => !ui.core.doc(ui.handle).comments.some((c) => c.id === comment));
-    expect(ui.core.doc(ui.handle).comments.some((c) => c.id === comment)).toBe(false);
-    // Removed as the agent's step: ⌘Z skips it, so it is undone as the agent.
-    expect((await ui.core.history(ui.handle)).steps.undo.at(-1)).toEqual({ label: "Comment Done", author: "agent" });
-    await asAuthor("agent", () => ui.core.undo(ui.handle));
-
-    // A motion graphic's panel has Send to Agent….
-    await run("motion.add", {});
-    await run("panel.show", { properties: true });
-    await page.until("!!document.querySelector('[data-motion-ask]')");
-    await page.evaluate("document.querySelector('[data-motion-ask]').click()");
-    await page.until("(document.querySelector('[data-ask-about]')?.textContent ?? '').startsWith('About: Motion graphic')");
-    await page.key("Escape", "Escape");
-    await page.until("!document.querySelector('[data-ask-agent]')");
-
-    // With no session, it says how to start one and offers the request to copy.
-    session.stop();
-    await page.key("k", "KeyK", ["meta"]);
-    await page.until("!!document.querySelector('[data-palette]')");
-    await type("ask an agent");
-    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
-    await page.key("Enter", "Enter");
-    await page.until("!!document.querySelector('[data-ask-none]')");
-    expect(await page.evaluate<string>("document.querySelector('[data-ask-none]').textContent")).toContain("claude --dangerously-load-development-channels server:beacon");
-    expect(await page.evaluate<boolean>("document.querySelector('[data-ask-send]').disabled")).toBe(true);
-    await page.key("Escape", "Escape");
-    await page.until("!document.querySelector('[data-ask-agent]')");
-  } finally {
-    session.stop();
-    for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
-    await run("panel.show", { tool: null });
-    await select([]);
-  }
-}, 60_000);
-
 test.skipIf(skip)("an agent working from a terminal says what it is doing in a toast, which goes when it stops", async () => {
   await asAuthor("claude-code", () => ui.core.agentStatus(ui.handle, "Reading the transcript"));
   await page.until("document.querySelector('[data-agent-activity]')?.textContent === 'Reading the transcript'");
@@ -5826,61 +5732,6 @@ test.skipIf(skip)("an agent working from a terminal says what it is doing in a t
   await page.evaluate("document.querySelector('[data-agent-activity]').closest('[data-toast]').querySelector('button[title=Dismiss]').click()");
   await page.until("!document.querySelector('[data-agent-activity]')");
 });
-
-test.skipIf(skip)("Ask an Agent with Codex: 'New run with Codex' is offered when it is installed, and a run's steps and last message show in its toast", async () => {
-  // A stand-in Codex where the harness looks for it: it speaks codex exec's JSON events.
-  const codex = join(ui.controlDir, "codex");
-  const jsonl = join(ui.controlDir, "codex-events.jsonl");
-  const events = [
-    { type: "item.completed", item: { type: "agent_message", text: "Opening the project" } },
-    { type: "item.started", item: { type: "mcp_tool_call", server: "beacon", tool: "timeline_clips" } },
-    { type: "item.completed", item: { type: "agent_message", text: "Moved the logo to the top right" } },
-  ];
-  writeFileSync(jsonl, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-  writeFileSync(codex, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 1.0.0"; exit 0; fi\nsleep 0.5\ncat ${JSON.stringify(jsonl)}\n`);
-  Bun.spawnSync(["chmod", "755", codex]);
-  try {
-    await select([screen.id]);
-    await page.key("k", "KeyK", ["meta"]);
-    await page.until("!!document.querySelector('[data-palette]')");
-    await type("ask an agent");
-    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
-    await page.key("Enter", "Enter");
-    await page.until("[...(document.querySelector('[data-ask-session]')?.options ?? [])].some((o) => o.value === 'run:codex')");
-    expect(await page.evaluate<string>("[...document.querySelector('[data-ask-session]').options].find((o) => o.value === 'run:codex').textContent")).toBe("New run with Codex");
-    await page.evaluate("(() => { const s = document.querySelector('[data-ask-session]'); s.value = 'run:codex'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
-    await page.click(...(await centre("[data-ask-prompt]")));
-    await type("Move the logo to the top right");
-    await page.key("Enter", "Enter");
-    await page.until("!document.querySelector('[data-ask-agent]')");
-    // While it runs: Cancel; then what it did.
-    await page.until("!!document.querySelector('[data-agent-cancel]')");
-    await page.until("[...document.querySelectorAll('[data-agent-state=done]')].some((e) => e.textContent.includes('Moved the logo to the top right'))", 10_000);
-    expect(await page.evaluate<boolean>("[...document.querySelectorAll('[data-agent-state=done]')].some((e) => e.closest('[data-toast]').textContent.startsWith('Codex: done'))")).toBe(true);
-    // A run cancelled from its toast says so in its title. The harness only records cancelJob, so it is passed on here.
-    writeFileSync(codex, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 1.0.0"; exit 0; fi\nhead -n 1 ${JSON.stringify(jsonl)}\nsleep 30\n`);
-    await page.key("k", "KeyK", ["meta"]);
-    await page.until("!!document.querySelector('[data-palette]')");
-    await type("ask an agent");
-    await page.until("document.querySelector('[data-entry]')?.dataset.entry === 'agent:ask'");
-    await page.key("Enter", "Enter");
-    await page.until("[...(document.querySelector('[data-ask-session]')?.options ?? [])].some((o) => o.value === 'run:codex')");
-    await page.evaluate("(() => { const s = document.querySelector('[data-ask-session]'); s.value = 'run:codex'; s.dispatchEvent(new Event('change', { bubbles: true })); })()");
-    await page.click(...(await centre("[data-ask-prompt]")));
-    await type("Something slow");
-    await page.key("Enter", "Enter");
-    await page.until("!!document.querySelector('[data-agent-cancel]')");
-    const id = await page.evaluate<string>("document.querySelector('[data-agent-cancel]').closest('[data-agent-request]').dataset.agentRequest");
-    await page.evaluate("document.querySelector('[data-agent-cancel]').click()");
-    await arrived(() => ui.menus.includes(`cancelJob:${id}`));
-    expect(ui.menus).toContain(`cancelJob:${id}`);
-    await ui.core.cancelJob(id);
-    await page.until(`document.querySelector('[data-agent-request="${id}"]')?.closest('[data-toast]').textContent.startsWith('Codex: cancelled')`);
-  } finally {
-    rmSync(codex, { force: true });
-    await select([]);
-  }
-}, 30_000);
 
 test.skipIf(skip)("learned shortcuts: an effect used 5 times over 2 days is offered a leader shortcut, added only on Add; the leader popup shows it as new, its keys apply it, and Settings › Memory lists it", async () => {
   const CRT = "effect:crt-monitor";

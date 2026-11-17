@@ -1,7 +1,7 @@
 import type { CanvasValues } from "./canvas-values";
 import type { DroppedFile, RecorderDevices, RecorderLevel, RecorderPreviewEvent, RecorderSources, SyncResult } from "@beacon/media";
 import type { AppSettings, CameraSync, Keys, MemoryChange, MemoryState, Patch, Project, Session, SettingsPatch, SettingsTab, ShortcutInfo, ExportFormat, VideoEncoding } from "@beacon/model";
-import type { AgentAbout, AgentSession, CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
+import type { CoreEvent, SchemaInfo, SecretInfo } from "@beacon/core";
 
 export type { AppSettings, CameraSync, SettingsPatch } from "@beacon/model";
 export type { RecorderLive } from "@beacon/media";
@@ -343,9 +343,9 @@ export type AppRPC = {
       dropFiles: { params: { files: DroppedFile[]; time?: number; track?: string; timing?: { over?: number; drop?: number; read?: number } }; response: RunReply };
       /** A track's menu, or the track options (null). */
       trackMenu: { params: { track: string | null }; response: void };
-      /** A section's right-click menu: Ask an Agent…, Rename…, Delete Section. */
+      /** A section's right-click menu: Rename…, Colour, Delete Section. */
       sectionMenu: { params: { section: string }; response: void };
-      /** A comment's right-click menu: Edit…, Ask an Agent…, Delete Comment. */
+      /** A comment's right-click menu: Edit…, Delete Comment. */
       commentMenu: { params: { comment: string }; response: void };
       captureFrame: { params: {}; response: RunReply };
       frameImage: { params: {}; response: string | null };
@@ -407,10 +407,6 @@ export type AppRPC = {
       /** Saves an API key in the Keychain, or removes it (null). */
       setSecret: { params: { id: string; value: string | null }; response: RunReply & { result?: PreferenceInfo[] } };
       cancelJob: { params: { id: string }; response: RunReply };
-      /** The agent sessions Beacon's MCP server serves (Claude Code…), newest first. */
-      agents: { params: Record<string, never>; response: AgentSession[] };
-      /** Sends a request the user typed to an agent session: replies with its id, which `agentReply` messages carry. */
-      askAgent: { params: { socket: string; prompt: string; about: AgentAbout }; response: RunReply & { result?: string } };
       /** Counts a use of a panel item or AI tool: replies with the items by use as they now are. */
       itemUsed: { params: { item: string }; response: RunReply & { result?: string[] } };
       /** Gives an action these keys (a key another action has is refused unless `replace`), or puts it (or all) back to the defaults: replies with the list. */
@@ -451,10 +447,10 @@ export type AppRPC = {
       saved: { ok: boolean };
       /** Start editing a track's name (Rename… in its menu). */
       rename: { track: string };
-      /** A section menu's choice the window carries out: ask an agent about it, or rename it. */
-      sectionAction: { section: string; op: "ask" | "rename" };
+      /** A section menu's choice the window carries out: rename it. */
+      sectionAction: { section: string; op: "rename" };
       /** A comment menu's choice the window carries out (`new`: Add Comment from the menu bar, at the playhead). */
-      commentAction: { comment?: string; op: "edit" | "ask" | "new" };
+      commentAction: { comment?: string; op: "edit" | "new" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
       /** Delete Media from the item's menu: the window asks first when clips on the timeline use it. */
@@ -489,7 +485,6 @@ export type AppRPC = {
       taskJob: TaskJob;
       importing: ImportingFiles;
       /** An agent answered a request sent from here: it has it, or it is done (with what it did). */
-      agentReply: { request: string; status: "received" | "done"; text?: string };
       /** What an agent working on this project is doing now, in a few words. */
       agentStatus: { agent: string; text: string };
       /** A panel item was used (in any window): the items by use, most first. */

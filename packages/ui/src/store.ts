@@ -72,10 +72,6 @@ export interface ViewState {
   memory?: import("@beacon/model").MemoryState;
   /** The command palette, while open. */
   palette?: boolean;
-  /** "Ask an agent", while open: what the request is about. */
-  askAgent?: import("@beacon/core").AgentAbout;
-  /** Requests sent to agents from here, as their toasts show them. */
-  agentRequests: AgentRequest[];
   /** What each agent working on the project said it is doing last, and when (ms): its toast while it works. */
   agentActivity: Record<string, { text: string; at: number }>;
   /** Project Settings, while open. */
@@ -127,29 +123,13 @@ export interface ViewState {
 export type BinSort = "name" | "added" | "created" | "dimensions" | "duration";
 export type BinKind = "all" | "video" | "audio" | "image" | "recording";
 
-const earlyReplies = new Map<string, { state: AgentRequest["state"]; text?: string }>();
-
-/** A request sent to an agent from the app: sent, acknowledged, done, or never acknowledged. */
-export interface AgentRequest {
-  id: string;
-  /** "Claude Code". */
-  agent: string;
-  prompt: string;
-  /** The prompt with its context, to paste elsewhere when the session never answers. */
-  copy: string;
-  state: "sent" | "received" | "done" | "silent";
-  text?: string;
-  /** A run Beacon started (Codex): it can be cancelled; its id is its job's. */
-  run?: boolean;
-}
-
 /** The main dialogs (Export, Record, Settings, Project Settings, New Project, the palette) all closed. */
 const NO_DIALOG: Partial<ViewState> = { settings: undefined, projectSettings: false, exportSheet: undefined, newProject: undefined, recordSheet: undefined, palette: false };
 
 /** One main dialog at a time: one opening (⌘E then ⌘R) takes the place of whichever was open. */
 const opening = (opens: boolean, changes: Partial<ViewState>): Partial<ViewState> => (opens ? { ...NO_DIALOG, ...changes } : changes);
 
-let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentRequests: [], agentActivity: {}, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
+let state: ViewState = { status: "", usedItems: [], shortcuts: [], preferences: [], waveforms: {}, thumbs: {}, preparing: {}, transcribing: {}, judging: {}, judgeFailed: {}, analyzing: {}, analysisFailed: {}, jobFailed: {}, prepared: 0, proxies: {}, missing: [], binSelected: [], binSort: { by: "added", desc: false }, bin: { query: "", kind: "all", view: "grid" }, tasks: [], agentActivity: {}, previewClock: { time: 0, playing: false }, imports: {}, importsHidden: [] };
 const listeners = new Set<() => void>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 /** Long enough to read: 5 s, more for a long message, at most 10. */
@@ -260,33 +240,13 @@ export const replica = {
     // A focus asked for before (an effect added, then undone at once) mustn't take the caret from the palette.
     set({ palette: palette && !!state.opened, ...(palette ? { focusInputs: undefined } : {}) });
   },
-  askAgent(about: import("@beacon/core").AgentAbout | undefined) {
-    set({ askAgent: about && state.opened ? about : undefined });
-  },
-  agentSent(request: AgentRequest) {
-    // A run's answers can come before its id did.
-    const early = earlyReplies.get(request.id);
-    earlyReplies.delete(request.id);
-    set({ agentRequests: [...state.agentRequests, early ? { ...request, state: early.state, ...(early.text ? { text: early.text } : {}) } : request] });
-  },
-  /** An agent's answer; a request it never acknowledged goes `silent` (the session doesn't take channels). */
-  agentState(id: string, state2: AgentRequest["state"], text?: string) {
-    if (state2 !== "silent" && !state.agentRequests.some((r) => r.id === id)) return void earlyReplies.set(id, { state: state2, ...(text ? { text } : {}) });
-    set({ agentRequests: state.agentRequests.map((r) => (r.id === id && !(state2 === "silent" && r.state !== "sent") ? { ...r, state: state2, ...(text ? { text } : {}) } : r)) });
-  },
-  /** A request sent from here that the agent is on shows its step; otherwise its own toast does. */
+  /** What an agent working from a terminal says it is doing: its toast. */
   agentStatus(agent: string, text: string) {
-    if (state.agentRequests.some((r) => r.agent === agent && r.state === "received")) {
-      return void set({ agentRequests: state.agentRequests.map((r) => (r.agent === agent && r.state === "received" ? { ...r, text } : r)) });
-    }
     set({ agentActivity: { ...state.agentActivity, [agent]: { text, at: Date.now() } } });
   },
   dismissActivity(agent: string) {
     const { [agent]: _, ...rest } = state.agentActivity;
     set({ agentActivity: rest });
-  },
-  dismissAgent(id: string) {
-    set({ agentRequests: state.agentRequests.filter((r) => r.id !== id) });
   },
   projectSettings(open: boolean) {
     set(opening(open && !!state.opened, { projectSettings: open && !!state.opened }));

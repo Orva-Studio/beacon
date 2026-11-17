@@ -407,13 +407,13 @@ export function createMenus(app: MenusApp) {
       SEPARATOR,
       ...SECTION_COLORS.map((c) => ({ label: c[0]!.toUpperCase() + c.slice(1), action: `section:color-${c}:${section}`, checked: chosen === c })),
     ];
-    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Rename…", "rename"), { label: "Colour", submenu: colours }, SEPARATOR, own("Delete Section", "remove")]);
+    ContextMenu.showContextMenu([own("Rename…", "rename"), { label: "Colour", submenu: colours }, SEPARATOR, own("Delete Section", "remove")]);
   }
 
   function commentMenu({ comment }: { comment: string }) {
     if (!app.current()) return;
     const own = (label: string, op: string) => ({ label, action: `comment:${op}:${comment}` });
-    ContextMenu.showContextMenu([own("Ask an Agent…", "ask"), own("Edit…", "edit"), SEPARATOR, own("Delete Comment", "remove")]);
+    ContextMenu.showContextMenu([own("Edit…", "edit"), SEPARATOR, own("Delete Comment", "remove")]);
   }
 
   /** Track menu items, as track commands. */
@@ -546,10 +546,10 @@ export function createMenus(app: MenusApp) {
       else if (op.startsWith("color-")) {
         const color = op.slice(6);
         void core.run(current.path, "section.set", { section: id, color: color === "auto" ? null : color }, { label: "Section Colour" }).catch(fail);
-      } else message("sectionAction", { section: id, op: op as "ask" | "rename" });
+      } else message("sectionAction", { section: id, op: "rename" });
     } else if (kind === "comment") {
       if (op === "remove") void core.run(current.path, "comment.remove", { comment: id }, { label: "Delete Comment" }).catch(fail);
-      else message("commentAction", { comment: id, op: op as "edit" | "ask" });
+      else message("commentAction", { comment: id, op: "edit" });
     }
   });
 

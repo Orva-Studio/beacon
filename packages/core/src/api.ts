@@ -267,8 +267,6 @@ export type CoreEvent =
   | { kind: "needs"; resource: ResourceInfo }
   /** A panel item was used (app-wide): the items by use, most first. */
   | { kind: "usage"; items: string[] }
-  /** An agent answered a request sent from the app (`askAgent`): it has it, or it is done (with what it did). */
-  | { kind: "agent"; request: string; status: "received" | "done"; text?: string }
   /** The app's settings changed (app-wide), from Settings or an agent. */
   | { kind: "settings"; settings: AppSettings }
   /** Keyboard shortcuts changed (app-wide): every action with its keys. */
@@ -368,21 +366,6 @@ export interface BeaconCore {
   /** Counts a use of a panel item (a tile, the palette). Returns the items by use. */
   itemUsed(item: string): Promise<string[]>;
   /**
-   * The agent sessions Beacon's MCP server serves now (Claude Code…), newest first: each with its control socket,
-   * the agent's name and version, and the project it has open; then the agents installed that Beacon can start a run
-   * of (`run`, socket `run:<agent>`).
-   */
-  agents(): Promise<AgentSession[]>;
-  /**
-   * Sends a request the user typed to an agent session (Claude Code takes it as a channel message, when started with
-   * Beacon as a channel), with what it is about; returns the request's id, which its replies (`agent` events) carry.
-   * To a `run:` agent it starts a run as a job (the request's id is the job's, so `cancelJob` stops it), its steps and
-   * last message told as `agent` events.
-   */
-  askAgent(socket: string, prompt: string, about: AgentAbout): Promise<string>;
-  /** An agent's answer to a request (`app_reply`): it has it, or it is done. Raises an `agent` event; done, the comment it was about goes. */
-  agentReply(request: string, status: "received" | "done", text?: string): Promise<void>;
-  /**
    * The app's settings (Settings › General and Recording), app-wide: the export colour space, which media get
    * proxies on their own and how quietly they are built, where Snapshot saves, the cameras' measured delays.
    */
@@ -461,30 +444,3 @@ export interface BeaconCore {
   watchApp(fn: (e: AppEvent) => void): () => void;
 }
 
-/** An agent session Beacon's MCP server serves. */
-export interface AgentSession {
-  /** Its control socket, to send it requests. */
-  socket: string;
-  /** "claude-code", "codex"…, as the agent names itself. */
-  name: string;
-  version: string;
-  /** The project it has open. */
-  project?: string;
-  /** When it started (ms since the epoch); 0 for a new run. */
-  started: number;
-  /** Not a session but an agent Beacon starts a run of for the request (Codex: `codex exec`), with Beacon's tools. */
-  run?: boolean;
-}
-
-/** What a request to an agent is about: the project, and the clip or section and timeline span. */
-export interface AgentAbout {
-  project?: string;
-  clip?: string;
-  section?: string;
-  /** A comment the request is about: removed once the agent says it is done. */
-  comment?: string;
-  from?: number;
-  to?: number;
-  /** What the user sees it as ("Motion graphic “Stat” at 0:12"). */
-  label?: string;
-}

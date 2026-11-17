@@ -1,7 +1,7 @@
 import { secondsToTicks, snapOffset, snapTargets, ticksToSeconds, type Clip, type Track } from "@beacon/model";
 import { takes, type PanelItem } from "../drop";
 import { arrowHalfHeight, clipBox, shownSpan, EDGE, headerIcons, rowAt, RULER, COMMENTS_TOP, SECTION_EDGE, SNAP, TRACKS_TOP, volumeY } from "../timeline-layout";
-import { arrows, volumeAt, volumePoints } from "../timeline-draw";
+import { arrows, stretched, volumeAt, volumePoints } from "../timeline-draw";
 import type { TimelineContext } from "./context";
 
 export type TimelineHits = ReturnType<typeof timelineHits>;
@@ -141,10 +141,14 @@ export function timelineHits({ canvas, latest, size, snapLine, HEADER, TRACK, TO
     const vy = (v: number) => volumeY(i, TRACK, v, TOP);
     // Points beyond the clip's edges aren't drawn, so they aren't grabbed either.
     const [cs, ce] = [ticksToSeconds(clip.start), ticksToSeconds(clip.start + clip.duration)];
+    // Where the drawing puts them: stretched across the clip as drawn.
+    const track = tracks[i]!;
+    const [sa, sb] = shown(track, clip);
     const pts = volumePoints(clip);
-    const index = pts.findIndex((p) => p.time >= cs && p.time <= ce && Math.hypot(xOf(p.time) - px, vy(p.value) - py) <= 6);
+    const index = pts.findIndex((p) => p.time >= cs && p.time <= ce && Math.hypot(xOf(stretched(p.time, cs, ce, sa, sb)) - px, vy(p.value) - py) <= 6);
     if (index >= 0) return { index };
-    return Math.abs(vy(volumeAt(clip, timeAt(clientX))) - py) <= 4 ? { index: null } : undefined;
+    const at = stretched(timeAt(clientX), sa, sb, cs, ce);
+    return Math.abs(vy(volumeAt(clip, at)) - py) <= 4 ? { index: null } : undefined;
   };
 
   /** The edge of `clip` under the pointer, if it is wide enough to have grabbable edges. */
