@@ -50,6 +50,8 @@
     "@lezer/common": "1.5.3",
     "body-parser": "2.4.0",
     "fast-uri": "3.1.9",
+    "hono": "4.13.16",
+    "@hono/node-server": "2.1.6",
     "ip-address": "10.7.4",
     "qs": "6.17.0"
   }
