@@ -49,9 +49,10 @@ Download `beacon-macos-arm64.dmg` from the
 it and drag Beacon to Applications. It carries everything it needs (its own
 FFmpeg and whisper-cli); the speech model for transcripts is downloaded the
 first time you ask for one. From 0.22.1 Beacon is signed with Orva Studio's
-Developer ID and notarized by Apple, so it opens without a warning, and the
-screen recording, camera and microphone permissions you give it are kept
-across updates (asked once more on the first signed version).
+Developer ID and notarized by Apple: macOS asks once whether to open an app
+from the internet, and there's no security setting to override or quarantine
+flag to clear. The screen recording, camera and microphone permissions you
+give it are kept across updates (asked once more on the first signed version).
 
 Or paste this into an AI agent such as Claude Code:
 
