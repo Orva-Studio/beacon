@@ -25,3 +25,11 @@ test.skipIf(!existsSync(BUILT))("the app's Info.plist declares a project (.bepro
   expect(project).toMatchObject({ CFBundleTypeRole: "Editor", CFBundleTypeIconFile: "AppIcon", LSTypeIsPackage: true });
   expect(Bun.spawnSync(["/usr/bin/plutil", "-extract", "CFBundleIconFile", "raw", "-o", "-", plist]).stdout.toString().trim()).toBe("AppIcon");
 });
+
+// Who makes Beacon, under its version in the About window (the user, 2026-11-26).
+test("the About window says © Orva Studio Limited, this year", () => {
+  const plist = join(dir, "Minimal.plist");
+  Bun.spawnSync(["/usr/bin/plutil", "-create", "xml1", plist]);
+  expect(patchInfoPlist(plist)).toBe(true);
+  expect(Bun.spawnSync(["/usr/bin/plutil", "-extract", "NSHumanReadableCopyright", "raw", "-o", "-", plist]).stdout.toString().trim()).toBe(`© ${new Date().getFullYear()} Orva Studio Limited`);
+});
