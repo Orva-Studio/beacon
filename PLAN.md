@@ -4014,6 +4014,25 @@ valid project; the rules can't drift from the app's.
 - First step, cheaper: publish the JSON Schema (`z.toJSONSchema`) and a `beacon validate` an agent runs on JSON it
   wrote by hand.
 - Later: renders on Linux need the engine there (wgpu and FFmpeg port; beacon-html is WebKit, macOS only).
+- **Spike (2026-11-26).** The registry, `ProjectStore` and commands run outside the app with no engine: `asset.add`
+  then `asset.place` made linked video and audio clips that pass `registry.validate`. `bun build --compile` makes
+  ~95 MB binaries for linux-x64 and windows-x64 of that, and of the whole MCP server (`packages/mcp/src/main.ts`):
+  the engine is opened only when a call needs it. Not yet run on Linux (Docker via Colima is installed, not
+  stored relative to it (schema 2). **Run on Linux the same day** (Debian bookworm, arm64, in Colima): the compiled
+  MCP server answered `initialize`, and `project_create` (standalone), `media_import` (ffprobe from apt, through
+  `BEACON_TOOLS_DIR=/usr/bin`) and `timeline_rippleDelete` worked; the project opened on the Mac (its media
+  `media/clip.mp4`, relative), passed `registry.validate` and drew a frame. `frame_at` there failed on the missing
+  engine, its message naming `bun run build:engine` rather than "needs the Beacon app".
+- **To build:** `beacon` binaries in the release (linux-x64/arm64, windows-x64; `bun build --compile` of the MCP
+  server); Beacon probing assets without `derived.media` on open; tools that need the engine (or its macOS-only
+  tools) failing with "needs the Beacon app on a Mac", and listed as such; `beacon validate <dir>` (and `--version`,
+  `--help`); docs for cloud agents (`BEACON_TOOLS_DIR`, standalone projects, what works where); a CI job running the
+  Linux binary through create, import, cut and describe.
+- **Gap on Beacon's side.** Opening a project doesn't probe an asset without `derived.media`, and transcripts only
+  start for assets that have it: Beacon should probe those on open (then transcripts start as after an import).
+- **Leaning: one `beacon` binary whose main mode is the MCP server, headless** (`beacon mcp`), so cloud agents use
+  the same tools and `script` as here; plus `beacon validate` and `beacon schema`. Calls needing the engine (frames,
+  renders, text layout, fonts, transcripts) say so; `media_import` probes with an ffprobe found on PATH there.
 
 ### Relight the camera after the take (the user, 2026-11-04; a future feature)
 The camera's light changed after recording: a key moved to the side, warmer or
