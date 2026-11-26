@@ -31,7 +31,7 @@ import {
 import type { AppEvent, PreferenceInfo } from "./api";
 import { JsonStore, readJson, writeAtomic } from "./json-store";
 import type { Secrets } from "./keychain";
-import { clearedKeys, dayOf, emptyLearned, firstKeys, learnedInfo, offers, sweep, type ItemAction, type LearnedFile } from "./learned";
+import { clearedKeys, dayOf, emptyLearned, firstKeys, learnedInfo, offers, pickKeys, shorten, sweep, type ItemAction, type LearnedFile } from "./learned";
 import { defaultKeys, KeymapFileSchema, savedLeader, setShortcut, shortcutList, swapLeader, type KeymapOverrides } from "./shortcuts";
 
 /** Uses of a panel item kept, newest last; and how fast one counts for less (a use two weeks old counts half). */
@@ -238,9 +238,12 @@ export class AppConfig {
   /** Memory's learned shortcuts: added, offered, gone for going unused; the unused ones are swept first, today counted. */
   #memoryShortcuts(now: number): MemoryState["shortcuts"] {
     const swept = sweep(this.#learned(), now);
-    if (swept.removed.length || !this.#learned().days.includes(dayOf(now))) {
+    const base = this.#shortcutList(this.#keymapOverrides(), false).filter((s) => s.id !== LEADER_ACTION);
+    const current = savedLeader(this.#keymapOverrides());
+    const shortened = shorten(swept.file, [...base.flatMap((s) => s.keys), ...clearedKeys(base, defaultKeys)].map((k) => swapLeader(k, current, DEFAULT_LEADER)));
+    if (swept.removed.length || shortened || !this.#learned().days.includes(dayOf(now))) {
       this.#saveLearned(swept.file);
-      if (swept.removed.length) this.emit({ kind: "shortcuts", shortcuts: this.shortcuts() });
+      if (swept.removed.length || shortened) this.emit({ kind: "shortcuts", shortcuts: this.shortcuts() });
     }
     const items = this.#items();
     const leader = savedLeader(this.#keymapOverrides());
@@ -272,11 +275,18 @@ export class AppConfig {
     } else {
       const r = file.removed.findLast((x) => x.item === change.restore);
       if (!r) throw new Error(`"${change.restore}" wasn't removed`);
-      // Its keys again, unless something has taken them since.
+      // Its keys again; new ones if something has them, or starts with them or they with it, since (a learned
+      // pair's partner cut to their shared first key, say).
       const taken = this.#takenKeys();
       const leader = savedLeader(this.#keymapOverrides());
-      if (taken.some((k) => chordId(k) === chordId(swapLeader(r.keys, DEFAULT_LEADER, leader)))) throw new Error("its keys are another shortcut's now");
-      file.shortcuts.push({ item: r.item, keys: r.keys, added: now, uses: 0, last: dayOf(now) });
+      let keys = r.keys;
+      if (taken.some((k) => keysClash(k, swapLeader(r.keys, DEFAULT_LEADER, leader)))) {
+        const own = this.#shortcutList(this.#keymapOverrides(), false).filter((x) => x.id !== LEADER_ACTION).flatMap((x) => x.keys);
+        const picked = pickKeys(this.#items().get(r.item)?.name ?? r.item, leader, taken, firstKeys(own, leader));
+        if (!picked) throw new Error("no keys are free for it");
+        keys = swapLeader(picked, leader, DEFAULT_LEADER);
+      }
+      file.shortcuts.push({ item: r.item, keys, added: now, uses: 0, last: dayOf(now) });
       file.removed = file.removed.filter((x) => x !== r);
     }
     this.#saveLearned(file);

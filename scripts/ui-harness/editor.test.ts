@@ -356,6 +356,67 @@ test.skipIf(skip)("a counting text callout shows its number counting from From t
   for (let n = (await ui.core.history(ui.handle)).undo.length - steps; n > 0; n--) await ui.core.undo(ui.handle);
 });
 
+test.skipIf(skip)("a text callout's Font menu shows each font in its own face, narrows as you type, previews the font under the pointer on the canvas with no edit, and a click sets it in one step", async () => {
+  await select([callout.id]);
+  await run("inspector.tab", { tab: "callout" });
+  await page.until("!!document.querySelector('[data-font]')");
+  const font = () => (clip(callout.id).props.callout as { text: { font: string } }).text.font;
+  const before = font();
+  const view = ui.core.attachView(ui.handle, { offscreen: { width: 320, height: 180 } }, { silent: true, proxies: false });
+  try {
+    await run("playhead.set", { time: ticksToSeconds(callout.start) + 0.5 });
+    view.settle();
+    const pixels = () => Buffer.from(view.flush()!);
+    const shown = async (from: Buffer, same = false) => {
+      for (const end = Date.now() + 5000; Date.now() < end; await Bun.sleep(20)) {
+        const now = pixels();
+        if (now.equals(from) === same) return now;
+      }
+      throw new Error(same ? "the canvas didn't go back" : "the canvas didn't change");
+    };
+    const plain = pixels();
+    const doc = JSON.stringify(ui.core.doc(ui.handle));
+    const steps = (await ui.core.history(ui.handle)).undo.length;
+
+    await page.click(...(await centre("[data-font]")));
+    await page.until("document.querySelectorAll('[data-option]').length > 5");
+    expect(await page.evaluate<string>(`document.querySelector('[data-option="Montserrat"]').style.fontFamily`)).toMatch(/Montserrat/);
+    expect(await page.evaluate<string[]>("[...document.querySelectorAll('[data-option-group]')].map((g) => g.textContent)")).toEqual(["Your fonts", "All fonts"]);
+    expect(await page.evaluate<boolean>("document.activeElement?.hasAttribute('data-list-search')")).toBe(true);
+
+    await type("menl");
+    await page.until("document.querySelectorAll('[data-option]').length === 1");
+    expect(await page.evaluate<string>("document.querySelector('[data-option]').dataset.option")).toBe("Menlo");
+    // The one match is highlighted, and shown, before the pointer moves.
+    const menlo = await shown(plain);
+    await page.hover(...(await centre('[data-option="Menlo"]')));
+    await Bun.sleep(200);
+    expect(pixels().equals(menlo)).toBe(true);
+    expect(JSON.stringify(ui.core.doc(ui.handle))).toBe(doc);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(steps);
+    await page.key("Escape", "Escape");
+    await shown(plain, true);
+    await page.until("!document.querySelector('[role=listbox]')");
+    expect(font()).toBe(before);
+
+    // Open again: the search is empty, and ↩ on the one match sets it.
+    await page.click(...(await centre("[data-font]")));
+    await page.until("document.querySelectorAll('[data-option]').length > 5");
+    await type("menlo");
+    await page.until("document.querySelectorAll('[data-option]').length === 1");
+    await page.key("Enter", "Enter");
+    await arrived(() => font() === "Menlo");
+    expect((await ui.core.history(ui.handle)).undo.length - steps).toBe(1);
+    await page.until("!document.querySelector('[role=listbox]')");
+    await page.until("/Menlo/.test(document.querySelector('[data-font] span').style.fontFamily)");
+    await Bun.sleep(200);
+    expect(pixels().equals(menlo)).toBe(true);
+    await ui.core.undo(ui.handle);
+  } finally {
+    ui.core.detachView(ui.handle);
+  }
+});
+
 test.skipIf(skip)("the colour picker sets a colour from a preset and from its square, one undo step a drag", async () => {
   await select([callout.id]);
   await run("inspector.tab", { tab: "callout" });
@@ -5721,6 +5782,14 @@ test.skipIf(skip)("Pop-ins, from Sound Effects' Sounds for my graphics… (no ta
   }
 }, 60_000);
 
+test.skipIf(skip)("the right-hand panels scroll only up and down: WebKit's classic scrollbars gave Properties a sideways one too", async () => {
+  await select([screen.id]);
+  await page.until("!!document.querySelector('[data-clip-id]')");
+  const panel = "(() => { let p = document.querySelector('[data-clip-id]'); while (p && getComputedStyle(p).overflowY !== 'auto') p = p.parentElement; return p; })()";
+  expect(await page.evaluate<string[]>(`(() => { const s = getComputedStyle(${panel}); return [s.overflowX, s.overflowY]; })()`)).toEqual(["hidden", "auto"]);
+  await select([]);
+});
+
 test.skipIf(skip)("an agent working from a terminal says what it is doing in a toast, which goes when it stops", async () => {
   await asAuthor("claude-code", () => ui.core.agentStatus(ui.handle, "Reading the transcript"));
   await page.until("document.querySelector('[data-agent-activity]')?.textContent === 'Reading the transcript'");
@@ -5747,28 +5816,27 @@ test.skipIf(skip)("learned shortcuts: an effect used 5 times over 2 days is offe
     await page.dblclick(...(await centre(`[data-item="${CRT}"]`)));
     await page.until(`!!document.querySelector('[data-shortcut-offer="${CRT}"]')`);
     const text = await page.evaluate<string>(`document.querySelector('[data-shortcut-offer="${CRT}"]').textContent`);
-    expect(text).toMatch(/^You often use CRT Monitor: give it : [A-Z] [A-Z]\?/);
+    expect(text).toMatch(/^You often use CRT Monitor: give it : [A-Z]\?/);
     expect((await ui.core.shortcuts()).some((s) => s.learned)).toBe(false);
     await page.screenshot(join(dir, "shortcut-offer.png"));
     await page.evaluate(`document.querySelector('[data-shortcut-offer="${CRT}"] [data-shortcut-add]').click()`);
     await page.until(`!document.querySelector('[data-shortcut-offer="${CRT}"]')`);
     const learned = (await ui.core.shortcuts()).find((s) => s.id === `learned:${CRT}`)!;
     expect(learned).toMatchObject({ name: "CRT Monitor", fresh: true });
-    const [, a, b] = keysLabel(learned.keys[0]!).split(" ") as [string, string, string];
-    expect(text).toContain(`: ${a} ${b}?`);
-    // The leader popup marks it new; its keys put it on the selected clip.
+    const [, a] = keysLabel(learned.keys[0]!).split(" ") as [string, string];
+    expect(text).toContain(`: ${a}?`);
+    // The leader popup marks it new, as a shortcut rather than a group (the user, 2026-11-24); its key puts it on the selected clip.
     await ui.core.undo(ui.handle);
     const before = clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length;
     await page.key(":", "Semicolon", ["shift"]);
     await page.until(`!!document.querySelector('[data-leader-next="${a}"] [data-leader-new]')`);
+    expect(await page.evaluate<boolean>(`!!document.querySelector('[data-leader-next="${a}"] [data-leader-group]')`)).toBe(false);
     await page.key(a.toLowerCase(), `Key${a}`);
-    await page.until(`[...document.querySelectorAll('[data-leader-next]')].some((e) => e.textContent.startsWith("${b}CRT Monitor"))`);
-    await page.key(b.toLowerCase(), `Key${b}`);
     await arrived(() => clip(screen.id).effects.filter((e) => e.type === "crt-monitor").length === before + 1);
     // Settings › Memory lists it, with its keys.
     await ui.core.uiOpen(ui.handle, "settings", "memory");
     await page.until(`!!document.querySelector('[data-learned-shortcut="${CRT}"]')`);
-    expect(await page.evaluate<string>(`document.querySelector('[data-learned-shortcut="${CRT}"]').textContent`)).toContain(`: ${a} ${b}CRT Monitor1 use`);
+    expect(await page.evaluate<string>(`document.querySelector('[data-learned-shortcut="${CRT}"]').textContent`)).toContain(`: ${a}CRT Monitor1 use`);
     await page.key("Escape", "Escape");
     await page.until("!document.querySelector('[data-settings-nav]')");
   } finally {

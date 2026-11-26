@@ -3994,6 +3994,27 @@ MCP) is left as it is.
 
 ## 16. Backlog (ideas parked, not scheduled)
 
+### A headless Beacon CLI for cloud agents (the user, 2026-11-26; a future phase)
+Cloud agents, given the assets, make or edit a `.beproj` without the app, on macOS, Linux or Windows. Hand-written
+`project.json` is fragile: absolute asset paths, `derived` media facts Beacon measured, ticks rather than seconds,
+strict feature props, `schemaVersion`. So a CLI runs the same commands the MCP tools do, and `ProjectStore` writes a
+valid project; the rules can't drift from the app's.
+- **Same repo**, `packages/cli`: it is the model, features and commands at one version with the app; a project it
+  writes opens in the Beacon of that version. Shipped as `bun build --compile` binaries (linux-x64/arm64,
+  windows-x64, darwin-arm64) or an npm package. The repo is private and FSL: a compiled binary carries readable JS,
+  so publishing it publishes the source.
+- **Pure TypeScript, no engine**: the registry and commands load without it (the engine is loaded lazily, as
+  `fontFamilies` does); anything that needs it (text layout, fonts, probing, renders, motion graphics' WebKit) errors
+  clearly or takes its answer as input.
+- **Media facts as input**: `derived.media` from the agent's ffprobe (or the CLI runs one it finds, an exception to
+  "nothing runs tools from PATH" for the CLI alone); a transcript passed in (Whisper JSON / word timings) for rough
+  cuts and captions.
+- **Paths relative to the project**, and Beacon on opening relinks what it can't find, fills missing `derived` data,
+  and starts transcripts. To check first: what Beacon does today with a missing `derived`.
+- First step, cheaper: publish the JSON Schema (`z.toJSONSchema`) and a `beacon validate` an agent runs on JSON it
+  wrote by hand.
+- Later: renders on Linux need the engine there (wgpu and FFmpeg port; beacon-html is WebKit, macOS only).
+
 ### Relight the camera after the take (the user, 2026-11-04; a future feature)
 The camera's light changed after recording: a key moved to the side, warmer or
 cooler, brighter on a dull UK evening, or matched to a generated angle or a

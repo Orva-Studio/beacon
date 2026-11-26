@@ -5,6 +5,22 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Fonts shown in their own face; panels never scroll sideways (`fix/panel-side-scroll`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **Font menus show each font in its own face** (the user, 2026-11-24): the text callout's Font, the captions' Font and Keywords › Font are Beacon's own list (the system's can't draw options in their fonts), your fonts first, then every installed one; a search box narrows them as you type; the font under the pointer or keys previews on the canvas with no edit, Esc goes back, a click or ↩ sets it in one step | 2026-11-24 | this branch | UI flow (`a text callout's Font menu…`); screenshot |
+| **Learned shortcuts are one key where free** (the user, 2026-11-24: Monitor and Clip Speed opened a submenu, two presses after the leader): offers take one letter of the name (`: D` for Drop Shadow) before a pair; ones already learned as pairs become their first key when nothing else has or starts with it, two sharing a first key keep their pairs | 2026-11-24 | this branch | core test (`learned.test.ts`); UI flow (`…CRT Monitor…` offer: the leader popup runs it, no group) |
+| **The right-hand panels scroll only up and down** (the user, 2026-11-24: Properties scrolled sideways): Properties, Auphonic, Remove Silences and the reviews hide sideways overflow; WebKit's classic scrollbars gave them a sideways one | 2026-11-24 | this branch | UI flow (`the right-hand panels scroll only up and down…`); not reproducible in headless Chromium (overlay scrollbars) |
+
+### Not checked yet
+
+- Select a text callout and open Font: is each name in its own font, and does hovering one change the text on the canvas? Type a few letters: does the list narrow? Does it open quickly with all your fonts?
+- Press `:`: do Monitor and Clip Speed run on one key now, without the `›` submenu?
+- Do Properties (and the Auphonic, Remove Silences and review panels) still scroll sideways with a mouse that shows scrollbars?
+
 ## Media Bin: ⌫ after ⇧-double-click, Delete Media asks, audio previews play (`fix/bin-delete-and-audio-preview`)
 
 ### Checked headless only

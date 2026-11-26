@@ -64,7 +64,7 @@ export function SilenceReviewPanel({ project, session, host, found }: { project:
           ? `${picked} of ${items.length} silences selected: ${clock(found.selectedSaved)} shorter.`
           : `${items.length} silences: ${clock(found.saved)} shorter.`;
   return (
-    <div className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-y-auto p-4 text-body`} data-silence-review>
+    <div className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-x-hidden overflow-y-auto p-4 text-body`} data-silence-review>
       <div className="mb-4 text-title font-semibold text-text-strong">Remove Silences</div>
       <Slider label="Longer than" title="Silences longer than this are found" value={review.min} unit=" s" digits={1} step={0.1} min={0.2} max={5} onChange={(v) => set({ min: tenths(v) })} />
       <Slider label="Leave" title={quiet ? "Most silence kept, split each side" : "Silence kept, split each side"} value={review.keep} unit=" s" digits={1} step={0.1} min={0} max={2} onChange={(v) => set({ keep: tenths(v) })} />
