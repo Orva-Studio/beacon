@@ -205,3 +205,24 @@ test.skipIf(!existsSync(VIDEO))("media a project lists but never measured (writt
   expect(core.doc(opened).tracks.flatMap((t) => t.clips).length).toBeGreaterThan(0);
   await core.close(opened);
 });
+
+test.skipIf(!existsSync(VIDEO))("a damaged file among unmeasured media doesn't stop the project opening (to relink or remove it), and two opens at once share one", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const made = join(dir, "Damaged.beproj");
+  await core.close(await core.create({ path: made }));
+  mkdirSync(join(made, "media"));
+  copyFileSync(VIDEO, join(made, "media", "good.mp4"));
+  writeFileSync(join(made, "media", "bad.mp4"), "not a video");
+  const doc = stored(made);
+  doc.assets["asset-good"] = { id: "asset-good", kind: "video", path: "media/good.mp4", fingerprint: "", derived: {} };
+  doc.assets["asset-bad"] = { id: "asset-bad", kind: "video", path: "media/bad.mp4", fingerprint: "", derived: {} };
+  writeFileSync(join(made, "project.json"), JSON.stringify(doc));
+
+  const [a, b] = await Promise.all([core.open(made), core.open(made)]);
+  expect(a).toBe(b);
+  const assets = core.doc(a).assets;
+  expect(assets["asset-good"]!.derived.media).toBeDefined();
+  expect(assets["asset-bad"]!.derived).toEqual({});
+  expect(stored(made).assets["asset-good"].derived.media).toBeDefined();
+  await core.close(a);
+});

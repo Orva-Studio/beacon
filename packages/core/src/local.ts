@@ -139,6 +139,7 @@ export class LocalCore implements BeaconCore {
   readonly #owner: OwnerInfo;
   readonly #reveal: (path: string) => void;
   readonly #projects = new Map<ProjectHandle, OpenProject>();
+  readonly #opening = new Map<string, Promise<ProjectHandle>>();
   /** Every background job: exports, analyses, downloads. */
   readonly #jobs = new Jobs((e) => {
     for (const l of this.#appListeners) l(e);
@@ -256,13 +257,31 @@ export class LocalCore implements BeaconCore {
   async open(path: string): Promise<ProjectHandle> {
     const dir = resolve(path);
     if (this.#projects.has(dir)) return dir;
-    const read = readProject(dir, this.registry);
-    const measured = await measureNew(read.doc, this.registry);
-    const doc = measured ?? read.doc;
-    const h = this.#attach(dir, doc);
+    // Opening waits on measuring media: a second open of the same project meanwhile gets the first's.
+    const pending = this.#opening.get(dir);
+    if (pending) return pending;
+    const opening = this.#openLocked(dir).finally(() => this.#opening.delete(dir));
+    this.#opening.set(dir, opening);
+    return opening;
+  }
+
+  async #openLocked(dir: string): Promise<ProjectHandle> {
+    // Not a project: refused before a lock is written into the folder.
+    readProject(dir, this.registry);
     // Locked first: another process may hold it, and must not have it rewritten under it.
-    if (read.stale || measured) writeProject(dir, doc);
-    return h;
+    lock(dir, this.#owner);
+    try {
+      // Read again now it is ours: a save made before the lock is in it, and none can land while media is measured.
+      const read = readProject(dir, this.registry);
+      const measured = await measureNew(read.doc, this.registry);
+      const doc = measured ?? read.doc;
+      const h = this.#attach(dir, doc);
+      if (read.stale || measured) writeProject(dir, doc);
+      return h;
+    } catch (e) {
+      if (!this.#projects.has(dir)) unlock(dir);
+      throw e;
+    }
   }
 
   async create(opts: NewProjectOptions): Promise<ProjectHandle> {
@@ -1206,22 +1225,35 @@ export class LocalCore implements BeaconCore {
 }
 
 /**
- * A project written outside the app (an agent's, by hand or by a `beacon` on a server without Beacon's tools) may
- * list media it never measured: no `derived` streams, no fingerprint. Measured as an import would, when the file is
- * there, before the project opens; undefined when nothing was missing. Not an edit: nothing to undo.
+ * Media a project lists but never measured, as one written outside the app may (an agent's, by hand or by `beacon`
+ * on a server): no fingerprint, or nothing of what an import reads from the file. `beacon validate` says these.
+ */
+export function unmeasured(asset: Asset, registry: FeatureRegistry): boolean {
+  const importer = registry.importerFor(extname(asset.path));
+  if (!importer) return false;
+  if (!asset.fingerprint) return true;
+  return importer.probe ? !Object.keys(asset.derived).length : !asset.derived.media;
+}
+
+/**
+ * Unmeasured media whose file is there, measured as an import would before the project opens; undefined when none
+ * was. Not an edit: nothing to undo. A file that can't be read (damaged, or a recording away from a Mac) stays as it
+ * is: the project still opens, to relink or remove it.
  */
 async function measureNew(doc: Project, registry: FeatureRegistry): Promise<Project | undefined> {
-  const missing = Object.values(doc.assets).filter((a) => {
-    const importer = registry.importerFor(extname(a.path));
-    if (!importer || !existsSync(a.path)) return false;
-    return importer.probe ? !Object.keys(a.derived).length : !a.derived.media || !a.fingerprint;
-  });
+  const missing = Object.values(doc.assets).filter((a) => unmeasured(a, registry) && existsSync(a.path));
   if (!missing.length) return undefined;
   const assets = { ...doc.assets };
+  let measured = false;
   for (const a of missing) {
     const importer = registry.importerFor(extname(a.path))!;
-    const derived = importer.probe ? await importer.probe(a.path) : a.derived.media ? {} : await probeAsset(a.path);
-    assets[a.id] = { ...a, fingerprint: a.fingerprint || fileFingerprint(a.path), derived: { ...a.derived, ...derived } };
+    try {
+      const derived = importer.probe ? await importer.probe(a.path) : a.derived.media ? {} : await probeAsset(a.path);
+      assets[a.id] = { ...a, fingerprint: a.fingerprint || fileFingerprint(a.path), derived: { ...a.derived, ...derived } };
+      measured = true;
+    } catch (e) {
+      console.error(`couldn't measure ${a.path}: ${e instanceof Error ? e.message : e}`);
+    }
   }
-  return { ...doc, assets };
+  return measured ? { ...doc, assets } : undefined;
 }

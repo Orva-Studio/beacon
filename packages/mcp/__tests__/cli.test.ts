@@ -29,8 +29,18 @@ test("beacon --version, --help, and validate: a project's media missing or not y
   doc.assets["asset-1"] = { id: "asset-1", kind: "video", path: "media/gone.mp4", fingerprint: "", derived: {} };
   writeFileSync(file, JSON.stringify(doc));
   const missing = beacon("validate", project);
-  expect(missing.code).toBe(0);
+  expect(missing.code).toBe(1);
   expect(missing.out).toContain(`missing: ${join(project, "media/gone.mp4")} (asset-1)`);
+  expect(missing.out).toContain("1 media missing");
+
+  // Measured in part (loudness, no streams) is still unmeasured, as opening the project would find it.
+  const clip = join(dir, "clip.mp4");
+  writeFileSync(clip, "");
+  doc.assets["asset-1"] = { id: "asset-1", kind: "video", path: clip, fingerprint: "1-1", derived: { loudness: { "0": -20 } } };
+  writeFileSync(file, JSON.stringify(doc));
+  const partly = beacon("validate", project);
+  expect(partly.code).toBe(0);
+  expect(partly.out).toContain("not measured yet, measured when the project opens: asset-1");
 
   doc.tracks = [{ id: "track-1", name: "", clips: [{ id: "clip-1", type: "video", start: -5 }] }];
   writeFileSync(file, JSON.stringify(doc));

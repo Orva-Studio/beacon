@@ -56,14 +56,16 @@ export const needsMac = (what: string) => new Error(`${what} needs Beacon's engi
  * machine's own (PATH) unless `BEACON_TOOLS_DIR` says where: Beacon's builds of them are for the Mac.
  */
 export function tool(name: ToolName): string {
-  const path = join(toolsDir(), name);
-  if (existsSync(path)) return path;
   if (!ON_MAC) {
     if (name !== "ffmpeg" && name !== "ffprobe") throw needsMac(name === "whisper-cli" || name === "beacon-speech" ? "Transcribing" : name);
-    const found = process.env.BEACON_TOOLS_DIR ? undefined : Bun.which(name);
+    // Never Beacon's own builds here (beside a checkout or binary): they are the Mac's.
+    const dir = process.env.BEACON_TOOLS_DIR;
+    const found = dir ? (existsSync(join(dir, name)) ? join(dir, name) : undefined) : Bun.which(name);
     if (found) return found;
     throw new Error(`${name} isn't installed: install FFmpeg (apt-get install ffmpeg), or set BEACON_TOOLS_DIR to the folder with ffmpeg and ffprobe`);
   }
+  const path = join(toolsDir(), name);
+  if (existsSync(path)) return path;
   throw new Error(`Beacon's ${name} isn't at ${path}; run \`bun run build\` (it builds Beacon's own tools)`);
 }
 
