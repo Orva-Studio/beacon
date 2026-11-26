@@ -20,6 +20,8 @@ on:
       - packages/desktop/icon.iconset/**
       - packages/desktop/electrobun.config.ts
       - packages/desktop/package.json
+      - scripts/build-cli.ts
+      - scripts/check-cli.ts
   pull_request:
     paths:
       - .github/workflows/release.yml
@@ -32,6 +34,8 @@ on:
       - packages/desktop/icon.iconset/**
       - packages/desktop/electrobun.config.ts
       - packages/desktop/package.json
+      - scripts/build-cli.ts
+      - scripts/check-cli.ts
   workflow_dispatch:
     inputs:
       tag:
@@ -42,7 +46,35 @@ permissions:
   contents: write
 
 jobs:
+  # `beacon` for cloud agents' Linux machines (skills/references/cloud.md): built for x64 and arm64, and the x64
+  # one run as an agent would, with the machine's own ffmpeg; the release publishes them beside the DMG.
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: oven-sh/setup-bun@v2.0.2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Build
+        run: bun scripts/build-cli.ts dist
+      - name: Check
+        run: |
+          mkdir -p run && tar -xzf dist/beacon-linux-x64.tar.gz -C run
+          bun scripts/check-cli.ts run/beacon
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: beacon-linux
+          path: dist/
+          if-no-files-found: error
+
   macos-arm64:
+    needs: linux
     # macOS 26's SDK: beacon-speech uses its SpeechTranscriber.
     runs-on: macos-26
     timeout-minutes: 60
@@ -155,6 +187,11 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: bun scripts/notarize.ts dist/beacon-macos-arm64.dmg
+
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: beacon-linux
+          path: dist/
 
       - name: Checksums
         run: cd dist && shasum -a 256 * > checksums.txt && cat checksums.txt

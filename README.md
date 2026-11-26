@@ -48,10 +48,10 @@ Download `beacon-macos-arm64.dmg` from the
 [latest release](https://github.com/Orva-Studio/beacon/releases/latest), open
 it and drag Beacon to Applications. It carries everything it needs (its own
 FFmpeg and whisper-cli); the speech model for transcripts is downloaded the
-first time you ask for one. Beacon isn't signed with a Developer ID yet, so
-macOS refuses to open it until its quarantine flag is cleared (step 3 below),
-and it asks again for screen recording, camera and microphone permission after
-each update.
+first time you ask for one. From 0.22.1 Beacon is signed with Orva Studio's
+Developer ID and notarized by Apple, so it opens without a warning, and the
+screen recording, camera and microphone permissions you give it are kept
+across updates (asked once more on the first signed version).
 
 Or paste this into an AI agent such as Claude Code:
 
@@ -64,17 +64,14 @@ Install Beacon, a macOS screen-recording editor, on this Mac (Apple silicon):
    and check it: `grep beacon-macos-arm64.dmg checksums.txt | shasum -a 256 -c`.
 2. Quit Beacon if it is running. Mount the DMG (`hdiutil attach -nobrowse`), copy
    Beacon.app to /Applications (replacing an older one), and detach it.
-3. Beacon isn't signed with a Developer ID yet, so clear the quarantine flag:
-   `xattr -dr com.apple.quarantine /Applications/Beacon.app`.
-4. Open it once: `open /Applications/Beacon.app`. Its first launch unpacks the
+3. Open it once: `open /Applications/Beacon.app`. Its first launch unpacks the
    app in place; wait until
    /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp exists,
    then quit it: `osascript -e 'quit app "Beacon"'`.
-5. Add its MCP server (replacing an existing `beacon` one):
+4. Add its MCP server (replacing an existing `beacon` one):
    `claude mcp add -s user beacon -- /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp`.
-Then tell me two things: Beacon's tools appear in Claude Code sessions started
-from now on (not this one), and until Beacon is signed, macOS asks again for
-screen recording, camera and microphone permission after each update.
+Then tell me that Beacon's tools appear in Claude Code sessions started from
+now on (not this one).
 ```
 
 Each AI tool starts its own `beacon-mcp` when a session begins; the app
@@ -84,12 +81,31 @@ Cursor…), point its MCP config at the same
 app open on a project, `project_open` connects to it: the agent's edits show
 on its timeline, sharing your undo history.
 
+### Cloud agents (Linux)
+Each release also has `beacon-linux-x64.tar.gz` and `beacon-linux-arm64.tar.gz`:
+the same MCP server as one file, for an agent working on a Linux machine. It
+makes and edits projects there; drawing, exporting and transcribing need the
+app, and say so. It reads media with the machine's ffmpeg (`apt-get install
+ffmpeg`, or `BEACON_TOOLS_DIR`). Its guide is the server's `beacon://docs/cloud`
+(`skills/references/cloud.md`).
+
+```sh
+gh release download -R Orva-Studio/beacon -p 'beacon-linux-x64.tar.gz'
+tar -xzf beacon-linux-x64.tar.gz      # ./beacon
+claude mcp add beacon -- "$PWD/beacon"
+./beacon validate Project.beproj      # before handing a project over
+```
+
+Projects made with `project_create`'s `standalone` keep their media inside
+them, so the folder opens on a Mac as it is; Beacon measures any media it
+lists but never measured when it opens.
+
 ## Update
 From 0.4.0, Beacon checks for a new version a little after it opens, and
 **Beacon › Check for Updates…** checks now; when there is one, **Update and
 Restart** downloads it, saves your projects and restarts into it. Updated this
-way, there's no quarantine flag to clear. Until Beacon is signed, macOS asks
-again for screen recording, camera and microphone permission after each update.
+way, or from the notarized DMG, there's nothing to clear, and permissions are
+kept.
 
 To update from an agent instead (or from 0.3.0 and earlier), paste this:
 
@@ -101,8 +117,7 @@ https://github.com/Orva-Studio/beacon/releases/latest/download/beacon-macos-arm6
 -fLO https://github.com/Orva-Studio/beacon/releases/latest/download/checksums.txt`)
 and check it (`grep beacon-macos-arm64.dmg checksums.txt | shasum -a 256 -c`). Quit Beacon (`osascript -e 'quit app "Beacon"'`), mount the
 DMG (`hdiutil attach -nobrowse`), replace /Applications/Beacon.app with its
-Beacon.app, detach it, and run `xattr -dr com.apple.quarantine
-/Applications/Beacon.app`. Open it once (`open /Applications/Beacon.app`) so it
+Beacon.app, and detach it. Open it once (`open /Applications/Beacon.app`) so it
 unpacks, wait until
 /Applications/Beacon.app/Contents/Resources/app/engine/beacon-mcp exists, then
 quit it. The MCP server's path doesn't change, so `claude mcp` needs nothing.

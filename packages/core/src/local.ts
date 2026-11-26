@@ -256,10 +256,12 @@ export class LocalCore implements BeaconCore {
   async open(path: string): Promise<ProjectHandle> {
     const dir = resolve(path);
     if (this.#projects.has(dir)) return dir;
-    const { doc, stale } = readProject(dir, this.registry);
+    const read = readProject(dir, this.registry);
+    const measured = await measureNew(read.doc, this.registry);
+    const doc = measured ?? read.doc;
     const h = this.#attach(dir, doc);
     // Locked first: another process may hold it, and must not have it rewritten under it.
-    if (stale) writeProject(dir, doc);
+    if (read.stale || measured) writeProject(dir, doc);
     return h;
   }
 
@@ -1201,4 +1203,25 @@ export class LocalCore implements BeaconCore {
     p.listeners.add(fn);
     return () => p.listeners.delete(fn);
   }
+}
+
+/**
+ * A project written outside the app (an agent's, by hand or by a `beacon` on a server without Beacon's tools) may
+ * list media it never measured: no `derived` streams, no fingerprint. Measured as an import would, when the file is
+ * there, before the project opens; undefined when nothing was missing. Not an edit: nothing to undo.
+ */
+async function measureNew(doc: Project, registry: FeatureRegistry): Promise<Project | undefined> {
+  const missing = Object.values(doc.assets).filter((a) => {
+    const importer = registry.importerFor(extname(a.path));
+    if (!importer || !existsSync(a.path)) return false;
+    return importer.probe ? !Object.keys(a.derived).length : !a.derived.media || !a.fingerprint;
+  });
+  if (!missing.length) return undefined;
+  const assets = { ...doc.assets };
+  for (const a of missing) {
+    const importer = registry.importerFor(extname(a.path))!;
+    const derived = importer.probe ? await importer.probe(a.path) : a.derived.media ? {} : await probeAsset(a.path);
+    assets[a.id] = { ...a, fingerprint: a.fingerprint || fileFingerprint(a.path), derived: { ...a.derived, ...derived } };
+  }
+  return { ...doc, assets };
 }

@@ -5,6 +5,21 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## `beacon` for cloud agents on Linux (`feat/cli`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **The MCP server runs on Linux** as one file (`beacon-linux-{x64,arm64}.tar.gz`): `--version`, a standalone project, a clip imported with the machine's ffprobe, a cut, a description, a frame refused as needing the Mac app, `beacon validate` | 2026-11-26 | this branch | `scripts/check-cli.ts` in Debian bookworm arm64 (Colima), the minified build; in CI on ubuntu-24.04 x64 (release.yml's `linux` job) |
+| **A project made on Linux opens on the Mac**: its media stored relative (`media/clip.mp4`), valid, a frame drawn | 2026-11-26 | this branch | by script against LocalCore |
+| **Media a project lists but never measured is measured as it opens** (streams, loudness, fingerprint), stored, nothing to undo | 2026-11-26 | this branch | core test (`portable.test.ts`: fails without it) |
+| **`beacon validate`** says a project's missing or unmeasured media, and refuses a broken one (exit 1) | 2026-11-26 | this branch | MCP test (`cli.test.ts`) |
+
+### Not checked yet
+
+- Nothing by hand in the app: a project made in the cloud, opened in Beacon, should look as any other. Worth a look the first time an agent hands you one.
+
 ## Fonts shown in their own face; one-key learned shortcuts; panels never scroll sideways (`feat/fonts-shortcuts-panels`, PR #60)
 
 ### Checked by hand

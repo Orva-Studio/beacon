@@ -1,7 +1,7 @@
 import { dlopen, FFIType, CString, type Pointer } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { spawn, toolsDir } from "./tool";
+import { needsMac, ON_MAC, spawn, toolsDir } from "./tool";
 
 const symbols = {
   beacon_set_tools_dir: { args: [FFIType.ptr], returns: FFIType.i32 },
@@ -64,7 +64,7 @@ export function enginePath(name: string): string {
 /** The `beacon-worker` sidecar (export, mattes); `BEACON_WORKER_PATH` overrides where it is. */
 export function workerPath(): string {
   const path = process.env.BEACON_WORKER_PATH ?? enginePath("beacon-worker");
-  if (!existsSync(path)) throw new Error(`beacon-worker not found at ${path}; run \`bun run build:engine\``);
+  if (!existsSync(path)) throw ON_MAC ? new Error(`beacon-worker not found at ${path}; run \`bun run build:engine\``) : needsMac("Exporting, and this step");
   return path;
 }
 
@@ -82,7 +82,7 @@ export async function runWorker<T>(args: string[]): Promise<T> {
 function libraryPath(): string {
   const path = process.env.BEACON_FFI_PATH ?? enginePath("libbeacon_ffi.dylib");
   if (!existsSync(path)) {
-    throw new Error(`beacon-ffi library not found at ${path}; run \`bun run build:engine\``);
+    throw ON_MAC ? new Error(`beacon-ffi library not found at ${path}; run \`bun run build:engine\``) : needsMac("Drawing frames, text and effects");
   }
   return path;
 }
